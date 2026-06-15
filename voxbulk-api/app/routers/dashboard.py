@@ -67,12 +67,26 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     int_finished = sum(1 for r in interviews if ServiceOrderService.is_finished_interview(r))
     int_archived = sum(1 for r in interviews if ServiceOrderService.is_archived_order(r))
     int_running = sum(1 for r in interviews if r.status == "running")
-    int_candidates = sum(int(r.recipient_count or 0) for r in interviews if r.status in {"running", "completed"})
+
+    def _interview_kpi_order(r: ServiceOrder) -> bool:
+        if r.status in {"running", "completed"}:
+            return True
+        if ServiceOrderService.is_finished_interview(r):
+            return True
+        try:
+            report = json.loads(r.report_json or "{}")
+        except Exception:
+            report = {}
+        if isinstance(report, dict) and int(report.get("completed") or 0) > 0:
+            return True
+        return False
+
+    int_candidates = sum(int(r.recipient_count or 0) for r in interviews if _interview_kpi_order(r))
     int_calls_attempted = 0
     int_calls_completed = 0
     int_recommended_advance = 0
     for r in interviews:
-        if r.status not in {"running", "completed"}:
+        if not _interview_kpi_order(r):
             continue
         recipients = ServiceOrderService.get_recipients(db, r.id)
         for rec in recipients:

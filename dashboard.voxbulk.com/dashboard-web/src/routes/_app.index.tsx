@@ -49,6 +49,10 @@ function Dashboard() {
   const anyService =
     visible.interviews || visible.surveys || visible.feedback || visible.campaigns || visible.recovery || visible.followup;
   const loading = summaryQ.isLoading;
+  const summaryReady = summaryQ.isSuccess;
+  const summaryError = summaryQ.isError
+    ? (summaryQ.error instanceof Error ? summaryQ.error.message : "Could not load dashboard summary")
+    : null;
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -68,31 +72,51 @@ function Dashboard() {
 
       {loading && <Skeleton className="h-24 w-full rounded-xl" />}
 
-      {anyService && !loading && <LiveStrip visible={visible} summary={summary} />}
-      {anyService && !loading && <HeroRow visible={visible} summary={summary} />}
+      {summaryError && !loading && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Could not load dashboard summary</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Metrics below may show zero until the API is reachable. Try refreshing — if this persists after deploy, restart the API on the server.
+                </p>
+                <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{summaryError}</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void summaryQ.refetch()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-      {(anyResponseService || visible.interviews) && !loading && (
+      {anyService && summaryReady && <LiveStrip visible={visible} summary={summary} />}
+      {anyService && summaryReady && <HeroRow visible={visible} summary={summary} />}
+
+      {(anyResponseService || visible.interviews) && summaryReady && (
         <div className="grid gap-4 lg:grid-cols-3">
           <LiveActivity visible={visible} summary={summary} />
           {anyResponseService && <SentimentCard summary={summary} />}
         </div>
       )}
 
-      {anyResponseService && !loading && (
+      {anyResponseService && summaryReady && (
         <div className="grid gap-4 lg:grid-cols-3">
           <UnhappyCustomers summary={summary} />
         </div>
       )}
 
-      {showRecoveryModules && visible.recovery && <RecoverySection summary={summary} loading={loading} />}
-      {visible.interviews && (
+      {showRecoveryModules && visible.recovery && summaryReady && <RecoverySection summary={summary} loading={loading} />}
+      {visible.interviews && summaryReady && (
         <InterviewsSection
           summary={summary}
           loading={loading || interviewOrdersQ.isLoading}
           liveOrders={(interviewOrdersQ.data || []).filter((o) => o.is_live && o.status === "running").map((o) => orderToCampaign(o, "interview"))}
         />
       )}
-      {visible.surveys && <SurveysSection summary={summary} loading={loading} />}
+      {visible.surveys && summaryReady && <SurveysSection summary={summary} loading={loading} />}
       {!anyService && (
         <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">
           No services are shown on your dashboard right now. Open <span className="font-medium text-foreground">Settings → Services</span> to turn Interviews or Surveys back on.

@@ -278,11 +278,11 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
   const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
+  const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
   const resendBookingInviteForOpen = candidateAllowsResendBookingInvite({
     orderStatus: rawOrder?.status,
     activityStatus: candidateOpen?.activity_status,
   });
-  const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
 
   return (
     <div className="flex w-full flex-col gap-6">
