@@ -1176,7 +1176,7 @@ def _survey_recipient_when(recipient: ServiceOrderRecipient) -> datetime | None:
             return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         except ValueError:
             continue
-    return recipient.updated_at or recipient.created_at
+    return recipient.created_at
 
 
 def survey_home_feedback_snapshot(

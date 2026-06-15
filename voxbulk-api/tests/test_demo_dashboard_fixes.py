@@ -95,6 +95,57 @@ def test_disconnect_scheduling_clears_config():
         assert status["calendly_connected"] is False
 
 
+def test_survey_home_feedback_snapshot_without_recipient_updated_at():
+    from app.core.database import get_sessionmaker
+    from app.models.membership import OrganisationMembership
+    from app.models.organisation import Organisation
+    from app.models.service_order import ServiceOrderRecipient
+    from app.models.user import User
+    from app.services.platform_catalog_service import ServiceOrderService
+    from app.services.survey_results_service import survey_home_feedback_snapshot
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Survey Dash Org")
+        user = User(email=f"surv-{uuid.uuid4().hex[:8]}@example.com", password_hash="x", is_active=True)
+        db.add(org)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+        order = ServiceOrderService.create_order(
+            db,
+            org_id=org.id,
+            user_id=user.id,
+            service_code="survey",
+            title="Fitness & Gyms · WhatsApp Survey · 1 members",
+            config={"survey_channel": "whatsapp", "demo_account_pack": "user_account_demo_v1"},
+        )
+        db.add(
+            ServiceOrderRecipient(
+                order_id=order.id,
+                row_number=1,
+                name="Member One",
+                phone="+447700900099",
+                status="completed",
+                result_json=json.dumps(
+                    {
+                        "wa_conversation": {
+                            "answers": [{"question": "Rating", "answer": "Excellent"}],
+                        }
+                    }
+                ),
+            )
+        )
+        order.status = "completed"
+        order.recipient_count = 1
+        db.add(order)
+        db.commit()
+
+        snap = survey_home_feedback_snapshot(db, org_id=org.id)
+        assert snap["sentiment"]["excellent"] >= 1
+        assert len(snap["recent"]) >= 1
+        assert snap["recent"][0]["svc"] == "surveys"
+
+
 def test_interview_home_activity_snapshot_counts():
     from app.core.database import get_sessionmaker
     from app.services.interview_results_service import interview_home_activity_snapshot
