@@ -8,10 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.abuu.core.auth import DriverPrincipal, require_driver_user
 from app.abuu.models.entities import CustomerAddress, CustomerOrder, CustomerProfile, DeliveryAssignment, Driver, Restaurant
+from app.abuu.services.inbound_service import AbuuInboundService
 from app.abuu.services.notification_service import AbuuNotificationService
 from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.reply_service import driver_outside_message
 from app.abuu.services.serializers import assignment_to_dict, driver_to_dict, notification_to_dict
 from app.core.abuu_database import get_abuu_db
+from app.core.database import get_db
 
 router = APIRouter(prefix="/abuu/driver", tags=["abuu-driver"])
 
@@ -110,6 +113,32 @@ def patch_assignment(
         raise HTTPException(status_code=404, detail="Assignment not found")
     db.refresh(row)
     return _enriched_assignment(db, row)
+
+
+@router.post("/assignments/{assignment_id}/notify-customer")
+def driver_notify_customer(
+    assignment_id: str,
+    principal: DriverPrincipal = Depends(require_driver_user),
+    abuu_db: Session = Depends(get_abuu_db),
+    main_db: Session = Depends(get_db),
+):
+    row = abuu_db.get(DeliveryAssignment, assignment_id)
+    if row is None or row.driver_id != principal.driver_id:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    order = abuu_db.get(CustomerOrder, row.order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    customer = abuu_db.get(CustomerProfile, order.customer_id)
+    if customer is None or not customer.phone:
+        raise HTTPException(status_code=400, detail="Customer phone not available")
+    lang = customer.preferred_language or "ar"
+    AbuuInboundService._send_reply(main_db, customer.phone, driver_outside_message(lang), org_id=None)
+    row.customer_notified_at = datetime.utcnow()
+    row.updated_at = datetime.utcnow()
+    abuu_db.add(row)
+    abuu_db.commit()
+    abuu_db.refresh(row)
+    return _enriched_assignment(abuu_db, row)
 
 
 @router.get("/notifications")

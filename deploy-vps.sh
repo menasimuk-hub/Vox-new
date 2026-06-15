@@ -21,8 +21,8 @@ set -euo pipefail
 
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
-VOX_ABUU_DIST="${VOX_ABUU_DIST:-/www/wwwroot/abuu.voxbulk.com}"
-VOX_DRIVER_DIST="${VOX_DRIVER_DIST:-/www/wwwroot/driver.voxbulk.com}"
+VOX_ABUU_DIST="${VOX_ABUU_DIST:-/www/wwwroot/restaurant.yallasay.com}"
+VOX_DRIVER_DIST="${VOX_DRIVER_DIST:-/www/wwwroot/driver.yallasay.com}"
 VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

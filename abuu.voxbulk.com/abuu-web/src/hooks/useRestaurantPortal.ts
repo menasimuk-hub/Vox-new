@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
 import { useLocalState } from '@/lib/app-prefs'
 
-export type UiStatus = 'new' | 'preparing' | 'ready' | 'collected'
+export type UiStatus = 'new' | 'preparing' | 'ready' | 'collected' | 'with_driver'
 
 export type UiOrderItem = {
   id: string
@@ -12,6 +12,7 @@ export type UiOrderItem = {
   qty: number
   price: number
   outOfStock?: boolean
+  substitutionStatus?: string | null
 }
 
 export type UiOrder = {
@@ -22,6 +23,11 @@ export type UiOrder = {
   createdAt: number
   collectedAt?: number
   outOfStockCount: number
+  substitutionPending: boolean
+  customerPhone?: string
+  customerName?: string
+  deliveryAddress?: string
+  notes?: string
 }
 
 export type UiMenuItem = {
@@ -64,14 +70,19 @@ const ITEM_ICONS: Record<string, string> = {
   sides: '🍟',
 }
 
-function shekel(agorot: number) {
+export function shekel(agorot: number) {
   return Number(agorot || 0) / 100
+}
+
+export function formatMoney(amount: number) {
+  return `₪${amount.toFixed(2)}`
 }
 
 function mapApiStatus(status: string): UiStatus {
   if (status === 'sent_to_restaurant') return 'new'
   if (status === 'preparing') return 'preparing'
   if (status === 'ready') return 'ready'
+  if (['assigned_to_driver', 'picked_up'].includes(status)) return 'with_driver'
   if (status === 'delivered') return 'collected'
   return 'new'
 }
@@ -124,7 +135,8 @@ function mapOrderDetail(row: any): UiOrder {
     nameAr: it.name_ar || '',
     qty: it.quantity || 1,
     price: shekel(it.unit_price_agorot || it.line_total_agorot),
-    outOfStock: false,
+    outOfStock: Boolean(it.unavailable),
+    substitutionStatus: it.substitution_status || null,
   }))
   const status = mapApiStatus(row.status)
   return {
@@ -134,7 +146,12 @@ function mapOrderDetail(row: any): UiOrder {
     items,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     collectedAt: status === 'collected' && row.updated_at ? new Date(row.updated_at).getTime() : undefined,
-    outOfStockCount: 0,
+    outOfStockCount: items.filter((i) => i.outOfStock && i.substitutionStatus === 'pending_customer').length,
+    substitutionPending: Boolean(row.substitution_pending),
+    customerPhone: row.customer?.phone || '',
+    customerName: row.customer?.name || '',
+    deliveryAddress: row.delivery_address?.address_text || '',
+    notes: row.notes || '',
   }
 }
 
@@ -151,11 +168,12 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [me, orderRows, menuRows, offerRows] = await Promise.all([
+    const [me, orderRows, menuRows, offerRows, notifications] = await Promise.all([
       apiFetch('/abuu/restaurant/me'),
       apiFetch('/abuu/restaurant/orders'),
       apiFetch('/abuu/restaurant/menu'),
       apiFetch('/abuu/restaurant/offers'),
+      apiFetch('/abuu/restaurant/notifications?unread_only=true').catch(() => []),
     ])
     setSettings((prev) => ({
       ...prev,
@@ -196,8 +214,18 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
         createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
         collectedAt: r.updated_at ? new Date(r.updated_at).getTime() : undefined,
         outOfStockCount: 0,
+        substitutionPending: false,
       }))
     setOrders([...mapped, ...history])
+
+    for (const n of notifications || []) {
+      if (n.kind === 'order_paid' || n.kind === 'substitution_resolved') {
+        toast.info(n.title || (lang === 'ar' ? 'تحديث طلب' : 'Order update'), { description: n.body })
+        if (n.id) {
+          apiFetch(`/abuu/restaurant/notifications/${n.id}/read`, { method: 'PATCH', body: '{}' }).catch(() => {})
+        }
+      }
+    }
   }, [lang, setSettings])
 
   useEffect(() => {
@@ -213,7 +241,7 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
     })()
     const timer = setInterval(() => {
       refresh().catch(() => {})
-    }, 15000)
+    }, 12000)
     return () => {
       cancelled = true
       clearInterval(timer)
@@ -224,10 +252,14 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
     async (id: string, dir: 1 | -1) => {
       const order = orders.find((o) => o.id === id)
       if (!order) return
+      if (order.substitutionPending && dir === 1) {
+        toast.error(lang === 'ar' ? 'انتظر رد العميل على البديل' : 'Wait for customer substitution reply')
+        return
+      }
       const flow: UiStatus[] = ['new', 'preparing', 'ready', 'collected']
-      const idx = flow.indexOf(order.status)
+      const idx = flow.indexOf(order.status === 'with_driver' ? 'ready' : order.status)
       const next = flow[Math.max(0, Math.min(flow.length - 1, idx + dir))]
-      if (next === order.status) return
+      if (next === order.status || order.status === 'with_driver') return
       try {
         if (order.status === 'new' && next === 'preparing') {
           await apiFetch(`/abuu/restaurant/orders/${id}/preparing`, { method: 'POST', body: '{}' })
@@ -245,9 +277,21 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
     [orders, refresh, lang],
   )
 
-  const markOOS = useCallback((_orderId: string, _itemId: string) => {
-    toast.info(lang === 'ar' ? 'تم إعلام العميل' : 'Customer will be notified')
-  }, [lang])
+  const markOOS = useCallback(
+    async (orderId: string, itemId: string) => {
+      try {
+        await apiFetch(`/abuu/restaurant/orders/${orderId}/items/${itemId}/unavailable`, {
+          method: 'POST',
+          body: '{}',
+        })
+        await refresh()
+        toast.success(lang === 'ar' ? 'تم إعلام العميل' : 'Customer notified on WhatsApp')
+      } catch (e: any) {
+        toast.error(e?.message || 'Update failed')
+      }
+    },
+    [refresh, lang],
+  )
 
   return {
     orders,
@@ -262,5 +306,6 @@ export function useRestaurantPortal(lang: 'en' | 'ar') {
     refresh,
     changeStatus,
     markOOS,
+    formatMoney,
   }
 }

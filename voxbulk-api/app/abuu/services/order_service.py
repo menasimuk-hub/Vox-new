@@ -148,6 +148,8 @@ class AbuuOrderService:
 
         if order.status not in {"sent_to_restaurant", "preparing"}:
             raise ValueError("Order cannot be marked ready from current status")
+        if getattr(order, "substitution_pending", False):
+            raise ValueError("Resolve pending item substitutions before marking ready")
         if order.status == "sent_to_restaurant":
             AbuuOrderService.patch_status(db, order, "preparing")
         AbuuOrderService.patch_status(db, order, "ready")
@@ -474,6 +476,8 @@ class AbuuOrderService:
                     "quantity": i.quantity,
                     "unit_price_agorot": i.unit_price_agorot,
                     "line_total_agorot": i.line_total_agorot,
+                    "unavailable": getattr(i, "unavailable", False),
+                    "substitution_status": getattr(i, "substitution_status", None),
                 }
             )
 

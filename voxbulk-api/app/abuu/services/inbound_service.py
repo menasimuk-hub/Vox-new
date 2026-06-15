@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.abuu.models.entities import CustomerOrder, Restaurant
 from app.abuu.services.abuu_voice_service import AbuuVoiceService, is_low_quality_transcript
 from app.abuu.services.customer_memory_service import (
@@ -33,6 +34,8 @@ from app.abuu.services.location_service import (
     validate_delivery_radius,
 )
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
+from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.order_substitution_service import AbuuOrderSubstitutionService
 from app.abuu.services.preference_service import match_food_categories
 from app.abuu.services.reply_service import (
     address_saved_message,
@@ -41,6 +44,7 @@ from app.abuu.services.reply_service import (
     cancel_message,
     category_clarification_message,
     confirm_pending_payment_message,
+    order_sent_to_restaurant_message,
     item_added_message,
     menu_message,
     location_clarification_message,
@@ -53,7 +57,6 @@ from app.abuu.services.reply_service import (
     voice_unclear_transcript_message,
 )
 from app.core.abuu_database import get_abuu_sessionmaker
-from app.core.config import get_settings
 from app.services.customer_feedback.location_service import FeedbackLocationService
 from app.services.messaging_log_service import normalize_e164
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -265,8 +268,25 @@ class AbuuInboundService:
         org_id: str | None,
         transcript_confidence: float | None = None,
     ) -> dict[str, Any]:
-        settings = get_settings()
-        if settings.abuu_agent_enabled:
+        order = abuu_db.get(CustomerOrder, session.active_order_id) if session and session.active_order_id else None
+        if session and session.step == "awaiting_substitution" and customer and order and (text or "").strip():
+            result = AbuuOrderSubstitutionService.handle_customer_reply(
+                abuu_db,
+                session=session,
+                order=order,
+                customer=customer,
+                text=text.strip(),
+                lang=lang,
+            )
+            reply = result.get("reply")
+            if reply:
+                AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+            if session:
+                session.last_message_id = message_id
+                abuu_db.add(session)
+            if result.get("handled"):
+                return result
+        if get_settings().abuu_agent_enabled:
             AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
             result = AbuuAgentLoop.run(
                 abuu_db,
@@ -756,7 +776,15 @@ class AbuuInboundService:
         if context is not None:
             context["confirmed_cart_fingerprint"] = fingerprint
         AbuuOrderDraftService.clear_session(abuu_db, phone)
-        AbuuInboundService._send_reply(main_db, phone, confirm_pending_payment_message(order, lang), org_id=org_id)
+        if get_settings().yallasay_auto_send_on_confirm:
+            try:
+                AbuuOrderService.mark_paid_manual(abuu_db, order, confirmed_by="yallasay_whatsapp")
+                reply = order_sent_to_restaurant_message(order, lang)
+            except ValueError:
+                reply = confirm_pending_payment_message(order, lang)
+        else:
+            reply = confirm_pending_payment_message(order, lang)
+        AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
         return {"handled": True, "action": "confirmed", "order_id": order.id}
 
     @staticmethod

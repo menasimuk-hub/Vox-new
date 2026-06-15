@@ -7,13 +7,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.core.auth import RestaurantPrincipal, require_restaurant_user
-from app.abuu.models.entities import CustomerOrder, Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
+from app.abuu.models.entities import CustomerOrder, CustomerProfile, Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
+from app.abuu.services.inbound_service import AbuuInboundService
 from app.abuu.services.menu_service import AbuuMenuService
 from app.abuu.services.notification_service import AbuuNotificationService
 from app.abuu.services.offer_service import AbuuOfferService, offer_to_dict
 from app.abuu.services.order_service import AbuuOrderService
+from app.abuu.services.order_substitution_service import AbuuOrderSubstitutionService
+from app.abuu.services.reply_service import item_unavailable_message
 from app.abuu.services.serializers import menu_category_to_dict, menu_item_to_dict, notification_to_dict, order_to_dict, restaurant_to_dict
 from app.core.abuu_database import get_abuu_db
+from app.core.database import get_db
 
 router = APIRouter(prefix="/abuu/restaurant", tags=["abuu-restaurant"])
 
@@ -230,6 +234,72 @@ def restaurant_mark_ready(
         raise HTTPException(status_code=404, detail="Order not found")
     try:
         AbuuOrderService.restaurant_mark_ready(db, order)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(db, order_id)
+
+
+@router.post("/orders/{order_id}/items/{item_id}/unavailable")
+def restaurant_mark_item_unavailable(
+    order_id: str,
+    item_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    abuu_db: Session = Depends(get_abuu_db),
+    main_db: Session = Depends(get_db),
+):
+    order = abuu_db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        line = AbuuOrderSubstitutionService.mark_line_unavailable(
+            abuu_db,
+            order=order,
+            line_id=item_id,
+            restaurant_id=principal.restaurant_id,
+        )
+        customer = abuu_db.get(CustomerProfile, order.customer_id)
+        if customer and customer.phone:
+            lang = customer.preferred_language or "ar"
+            item_name = line.name_ar if lang == "ar" else (line.name_en or line.name_ar or "item")
+            try:
+                AbuuInboundService._send_reply(
+                    main_db,
+                    customer.phone,
+                    item_unavailable_message(item_name, lang),
+                    org_id=None,
+                )
+            except Exception:
+                pass
+            AbuuOrderSubstitutionService.setup_substitution_session(
+                abuu_db,
+                phone=customer.phone,
+                order_id=order.id,
+                pending_line_id=line.id,
+            )
+        abuu_db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AbuuOrderService.get_order_detail(abuu_db, order_id)
+
+
+@router.post("/orders/{order_id}/items/{item_id}/available")
+def restaurant_undo_item_unavailable(
+    order_id: str,
+    item_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    order = db.get(CustomerOrder, order_id)
+    if order is None or order.is_deleted or order.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        AbuuOrderSubstitutionService.undo_line_unavailable(
+            db,
+            order=order,
+            line_id=item_id,
+            restaurant_id=principal.restaurant_id,
+        )
         db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

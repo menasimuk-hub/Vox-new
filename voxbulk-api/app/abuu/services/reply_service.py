@@ -196,6 +196,62 @@ def confirm_pending_payment_message(order: CustomerOrder, lang: str) -> str:
     )
 
 
+def order_sent_to_restaurant_message(order: CustomerOrder, lang: str) -> str:
+    total = format_shekel(order.total_agorot)
+    if lang == "en":
+        return (
+            f"Order confirmed and sent to the restaurant. Total: {total}.\n"
+            "We'll notify you when it's on the way. Thank you — Yallasay!"
+        )
+    return (
+        f"تم تأكيد طلبك وإرساله للمطعم. المجموع: {total}.\n"
+        "سنخبرك عندما يكون في الطريق. شكراً لك — يلا ساي!"
+    )
+
+
+def item_unavailable_message(item_name: str, lang: str) -> str:
+    if lang == "en":
+        return (
+            f"Sorry — {item_name} is out of stock for your order.\n"
+            "Reply with what you'd like instead (e.g. one more shawarma)."
+        )
+    return (
+        f"عذراً — {item_name} غير متوفر في طلبك.\n"
+        "رد برسالة بالبديل الذي تريده (مثال: شاورما إضافية)."
+    )
+
+
+def substitution_prompt_message(item_name: str, lang: str) -> str:
+    if lang == "en":
+        return (
+            f"We couldn't match that item. {item_name} is unavailable.\n"
+            "Please reply with the menu item name you want instead."
+        )
+    return (
+        f"لم نتمكن من مطابقة هذا الصنف. {item_name} غير متوفر.\n"
+        "يرجى الرد باسم الصنف البديل من القائمة."
+    )
+
+
+def order_substitution_updated_message(
+    order: CustomerOrder,
+    replacement: object,
+    quantity: int,
+    lang: str,
+) -> str:
+    name = getattr(replacement, "name_en", "item") if lang == "en" else getattr(replacement, "name_ar", "item")
+    total = format_shekel(order.total_agorot)
+    if lang == "en":
+        return f"Order updated: added {quantity}× {name}. New total: {total}. Thank you!"
+    return f"تم تحديث طلبك: أضفنا {quantity}× {name}. المجموع الجديد: {total}. شكراً لك!"
+
+
+def driver_outside_message(lang: str) -> str:
+    if lang == "en":
+        return "Your Yallasay driver is outside / at your door."
+    return "سائق يلا ساي وصل إلى بابك / في الخارج."
+
+
 def cancel_message(lang: str) -> str:
     if lang == "en":
         return "Order cancelled. Send ABUU anytime to start again."

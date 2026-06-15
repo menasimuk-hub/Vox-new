@@ -64,7 +64,7 @@ function DriverPage() {
   const [tab, setTab] = useState<"orders" | "history" | "settings">("orders");
   const tx = t[lang]; const isAr = lang === "ar";
 
-  const { orders, settings, setSettings, loading, incoming, acceptIncoming, rejectIncoming, advance } =
+  const { orders, settings, setSettings, loading, incoming, acceptIncoming, rejectIncoming, advance, notifyCustomer } =
     useDriverPortal(lang);
 
   const active = orders.filter(o => o.status !== "delivered" && o.status !== "cancelled" && o.status !== "incoming");
@@ -112,7 +112,7 @@ function DriverPage() {
             {active.length === 0 ? (
               <Card className="border-border/50"><CardContent className="py-10 text-center text-sm text-muted-foreground">{tx.noActive}</CardContent></Card>
             ) : (
-              active.map(o => <DeliveryCard key={o.id} order={o} tx={tx} isAr={isAr} onAdvance={() => advance(o.id)} />)
+              active.map(o => <DeliveryCard key={o.id} order={o} tx={tx} isAr={isAr} onAdvance={() => advance(o.id)} onNotify={() => notifyCustomer(o.assignmentId)} />)
             )}
           </div>
         )}
@@ -192,7 +192,7 @@ function MiniKpi({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
-function DeliveryCard({ order, tx, isAr, onAdvance }: { order: DOrder; tx: typeof t.en; isAr: boolean; onAdvance: () => void }) {
+function DeliveryCard({ order, tx, isAr, onAdvance, onNotify }: { order: DOrder; tx: typeof t.en; isAr: boolean; onAdvance: () => void; onNotify: () => void }) {
   const statusLabel: Record<DStatus, string> = {
     incoming: "—", collected: tx.collected, onway: tx.onway, arrived: tx.arrived, delivered: tx.delivered, cancelled: "—",
   };
@@ -231,7 +231,7 @@ function DeliveryCard({ order, tx, isAr, onAdvance }: { order: DOrder; tx: typeo
           <span className="text-lg font-black">${order.total.toFixed(2)}</span>
         </div>
         {order.status === "arrived" && (
-          <Button variant="outline" className="w-full border-accent text-accent" onClick={() => toast.success(tx.notified)}>
+          <Button variant="outline" className="w-full border-accent text-accent" onClick={onNotify}>
             <BellRing className="h-4 w-4 me-2" />{tx.notify}
           </Button>
         )}

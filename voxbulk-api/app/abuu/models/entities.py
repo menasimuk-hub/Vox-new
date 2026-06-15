@@ -127,6 +127,7 @@ class CustomerOrder(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     refund_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     prep_delay_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    substitution_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class CustomerOrderItem(AbuuBase, AbuuTimestampMixin):
@@ -141,6 +142,9 @@ class CustomerOrderItem(AbuuBase, AbuuTimestampMixin):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     unit_price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     line_total_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unavailable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unavailable_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    substitution_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class DeliveryAssignment(AbuuBase, AbuuTimestampMixin):
@@ -157,6 +161,7 @@ class DeliveryAssignment(AbuuBase, AbuuTimestampMixin):
     picked_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    customer_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AbuuAssignmentAttempt(AbuuBase):

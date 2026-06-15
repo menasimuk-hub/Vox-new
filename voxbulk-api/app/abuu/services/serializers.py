@@ -124,6 +124,7 @@ def order_to_dict(row: CustomerOrder, *, items: list | None = None, events: list
         "refund_ready": getattr(row, "refund_ready", False),
         "prep_delay_note": getattr(row, "prep_delay_note", None),
         "cancelled_reason": getattr(row, "cancelled_reason", None),
+        "substitution_pending": getattr(row, "substitution_pending", False),
         "items": items,
         "events": events,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -136,9 +137,13 @@ def order_item_to_dict(row: CustomerOrderItem) -> dict:
         "id": row.id,
         "order_id": row.order_id,
         "menu_item_id": row.menu_item_id,
+        "name_en": row.name_en,
+        "name_ar": row.name_ar,
         "quantity": row.quantity,
         "unit_price_agorot": row.unit_price_agorot,
         "line_total_agorot": row.line_total_agorot,
+        "unavailable": getattr(row, "unavailable", False),
+        "substitution_status": getattr(row, "substitution_status", None),
     }
 
 
@@ -155,6 +160,7 @@ def assignment_to_dict(row: DeliveryAssignment) -> dict:
         "picked_up_at": row.picked_up_at.isoformat() if row.picked_up_at else None,
         "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
         "failure_reason": row.failure_reason,
+        "customer_notified_at": row.customer_notified_at.isoformat() if row.customer_notified_at else None,
     }
 
 

@@ -19,8 +19,8 @@ import { useLang, useTheme, useLocalState, uid } from "@/lib/app-prefs";
 import { OnlineSlider } from "@/components/OnlineSlider";
 import { toast, Toaster } from "sonner";
 
-type Status = "new" | "preparing" | "ready" | "collected";
-type OrderItem = { id: string; nameEn: string; nameAr: string; qty: number; price: number; outOfStock?: boolean };
+type Status = "new" | "preparing" | "ready" | "collected" | "with_driver";
+type OrderItem = { id: string; nameEn: string; nameAr: string; qty: number; price: number; outOfStock?: boolean; substitutionStatus?: string | null };
 type Order = {
   id: string;
   number: string;
@@ -29,6 +29,11 @@ type Order = {
   createdAt: number;
   collectedAt?: number;
   outOfStockCount: number;
+  substitutionPending?: boolean;
+  customerPhone?: string;
+  customerName?: string;
+  deliveryAddress?: string;
+  notes?: string;
 };
 type MenuItem = {
   id: string;
@@ -136,6 +141,7 @@ const STATUS_COLORS: Record<Status, string> = {
   preparing: "bg-warning text-warning-foreground",
   ready: "bg-success text-success-foreground",
   collected: "bg-muted text-muted-foreground",
+  with_driver: "bg-accent text-accent-foreground",
 };
 
 function RestaurantPage() {
@@ -145,10 +151,10 @@ function RestaurantPage() {
   const tx = t[lang];
   const isAr = lang === "ar";
 
-  const { orders, cats, setCats, offers, setOffers, settings, setSettings, loading, refresh, changeStatus, markOOS } =
+  const { orders, cats, setCats, offers, setOffers, settings, setSettings, loading, refresh, changeStatus, markOOS, formatMoney } =
     useRestaurantPortal(lang);
 
-  const active = orders.filter(o => o.status !== "collected");
+  const active = orders.filter(o => o.status !== "collected" && o.status !== "with_driver");
   const todaysOrders = orders.filter(o => Date.now() - o.createdAt < 86400000);
   const sales = todaysOrders.reduce((s, o) => s + o.items.filter(i => !i.outOfStock).reduce((a, i) => a + i.price * i.qty, 0), 0);
 
@@ -197,7 +203,7 @@ function RestaurantPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <KpiCard icon={<ShoppingBag />} label={tx.todayOrders} value={todaysOrders.length.toString()} tone="primary" />
               <KpiCard icon={<Activity />} label={tx.active} value={active.length.toString()} tone="accent" />
-              <KpiCard icon={<DollarSign />} label={tx.sales} value={`$${sales.toFixed(2)}`} tone="success" />
+              <KpiCard icon={<DollarSign />} label={tx.sales} value={formatMoney(sales)} tone="success" />
             </div>
 
             <div className="flex items-center justify-between">
@@ -209,7 +215,7 @@ function RestaurantPage() {
             ) : (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {active.map(o => (
-                  <OrderCard key={o.id} order={o} tx={tx} isAr={isAr}
+                  <OrderCard key={o.id} order={o} tx={tx} isAr={isAr} formatMoney={formatMoney}
                     onForward={() => changeStatus(o.id, 1)}
                     onBack={() => changeStatus(o.id, -1)}
                     onOOS={(iid) => markOOS(o.id, iid)} />
@@ -254,31 +260,45 @@ function KpiCard({ icon, label, value, tone }: { icon: React.ReactNode; label: s
   );
 }
 
-function OrderCard({ order, tx, isAr, onForward, onBack, onOOS }: {
+function OrderCard({ order, tx, isAr, onForward, onBack, onOOS, formatMoney }: {
   order: Order; tx: typeof t.en; isAr: boolean;
   onForward: () => void; onBack: () => void; onOOS: (id: string) => void;
+  formatMoney: (n: number) => string;
 }) {
-  const label: Record<Status, string> = { new: tx.new, preparing: tx.preparing, ready: tx.readyS, collected: tx.collectedS };
+  const label: Record<Status, string> = { new: tx.new, preparing: tx.preparing, ready: tx.readyS, collected: tx.collectedS, with_driver: tx.collectedS };
   const total = order.items.filter(i => !i.outOfStock).reduce((s, i) => s + i.price * i.qty, 0);
-  const idx = STATUS_FLOW.indexOf(order.status);
+  const idx = STATUS_FLOW.indexOf(order.status === "with_driver" ? "ready" : order.status);
   const nextLabel = idx === 0 ? tx.start : idx === 1 ? tx.ready : tx.collected;
+  const canForward = !order.substitutionPending && order.status !== "with_driver";
   return (
     <Card className="animate-slide-up overflow-hidden shadow-[var(--shadow-soft)]">
-      <div className={`px-4 py-2 text-sm font-semibold ${STATUS_COLORS[order.status]}`}>
-        {tx.order} {order.number} · {label[order.status]}
+      <div className={`px-4 py-2 text-sm font-semibold ${STATUS_COLORS[order.status] || STATUS_COLORS.new}`}>
+        {tx.order} {order.number} · {label[order.status] || order.status}
+        {order.substitutionPending && (
+          <span className="ms-2 rounded-full bg-black/20 px-2 py-0.5 text-xs">{isAr ? "بانتظار العميل" : "Awaiting customer"}</span>
+        )}
         {order.outOfStockCount > 0 && (
           <span className="ms-2 rounded-full bg-black/20 px-2 py-0.5 text-xs">⚠ {order.outOfStockCount}</span>
         )}
       </div>
       <CardContent className="space-y-3 p-4">
+        {(order.customerName || order.deliveryAddress) && (
+          <div className="rounded-lg border bg-muted/30 p-2 text-xs">
+            {order.customerName ? <div className="font-semibold">{order.customerName} {order.customerPhone ? `· ${order.customerPhone}` : ""}</div> : null}
+            {order.deliveryAddress ? <div className="text-muted-foreground">{order.deliveryAddress}</div> : null}
+          </div>
+        )}
         <ul className="space-y-2">
           {order.items.map(it => (
             <li key={it.id} className={`flex items-center justify-between gap-2 rounded-lg border p-2 ${it.outOfStock ? "opacity-40 line-through" : ""}`}>
               <div className="min-w-0">
                 <div className="truncate font-medium">{it.qty}× {isAr ? it.nameAr : it.nameEn}</div>
-                <div className="text-xs text-muted-foreground">${(it.price * it.qty).toFixed(2)}</div>
+                <div className="text-xs text-muted-foreground">{formatMoney(it.price * it.qty)}</div>
+                {it.outOfStock && it.substitutionStatus === "pending_customer" && (
+                  <div className="text-xs text-destructive">{isAr ? "بانتظار بديل" : "Awaiting replacement"}</div>
+                )}
               </div>
-              {!it.outOfStock && (
+              {!it.outOfStock && order.status !== "with_driver" && (
                 <Button size="sm" variant="ghost" className="shrink-0 text-destructive hover:bg-destructive/10" onClick={() => onOOS(it.id)} title={tx.outOfStock}>
                   <AlertOctagon className="h-4 w-4" />
                 </Button>
@@ -288,13 +308,13 @@ function OrderCard({ order, tx, isAr, onForward, onBack, onOOS }: {
         </ul>
         <div className="flex items-center justify-between border-t pt-3">
           <span className="text-sm text-muted-foreground">{tx.total}</span>
-          <span className="text-lg font-black">${total.toFixed(2)}</span>
+          <span className="text-lg font-black">{formatMoney(total)}</span>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={onBack} disabled={idx === 0} title={tx.back}>
             <RotateCcw className="h-4 w-4" />
           </Button>
-          <Button className="flex-1 gradient-energy text-white hover:opacity-90" onClick={onForward}>
+          <Button className="flex-1 gradient-energy text-white hover:opacity-90" onClick={onForward} disabled={!canForward}>
             {idx === 0 ? <Play className="h-4 w-4 me-2" /> : idx === 1 ? <CheckCircle2 className="h-4 w-4 me-2" /> : <PackageCheck className="h-4 w-4 me-2" />}
             {nextLabel}
           </Button>
@@ -477,18 +497,18 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
                         </div>
                       </div>
                     </div>
-                    {editing && (
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-                        <label className="flex items-center gap-2 text-xs">
-                          <Switch checked={it.hidden} onCheckedChange={() => toggleHide(cat.id, it.id, !it.hidden)} />
-                          {tx.hide}
-                        </label>
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+                      <label className="flex items-center gap-2 text-xs">
+                        <Switch checked={it.hidden} onCheckedChange={() => toggleHide(cat.id, it.id, !it.hidden)} />
+                        {tx.outOfStock}
+                      </label>
+                      {editing && (
                         <div className="flex gap-1">
                           <Button size="icon" variant="ghost" onClick={() => setItemDialog({ catId: cat.id, item: it })}><Pencil className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" className="text-destructive" onClick={() => delItem(cat.id, it.id)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ))}

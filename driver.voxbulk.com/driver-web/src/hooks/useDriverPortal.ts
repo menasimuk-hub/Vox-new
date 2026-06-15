@@ -67,9 +67,10 @@ export function useDriverPortal(lang: 'en' | 'ar') {
   const [incoming, setIncoming] = useState<DOrder | null>(null)
 
   const refresh = useCallback(async () => {
-    const [me, rows] = await Promise.all([
+    const [me, rows, notifications] = await Promise.all([
       apiFetch('/abuu/driver/me'),
       apiFetch('/abuu/driver/assignments'),
+      apiFetch('/abuu/driver/notifications?unread_only=true').catch(() => []),
     ])
     setSettings((prev) => ({
       ...prev,
@@ -84,6 +85,14 @@ export function useDriverPortal(lang: 'en' | 'ar') {
       if (prev && mapped.some((o) => o.assignmentId === prev.assignmentId && o.status === 'incoming')) return prev
       return null
     })
+    for (const n of notifications || []) {
+      if (n.kind === 'order_ready') {
+        toast.info(n.title || (lang === 'ar' ? 'طلب جديد' : 'New delivery'), { description: n.body })
+        if (n.id) {
+          apiFetch(`/abuu/driver/notifications/${n.id}/read`, { method: 'PATCH', body: '{}' }).catch(() => {})
+        }
+      }
+    }
   }, [lang, setSettings])
 
   useEffect(() => {
@@ -97,7 +106,7 @@ export function useDriverPortal(lang: 'en' | 'ar') {
         if (!cancelled) setLoading(false)
       }
     })()
-    const timer = setInterval(() => refresh().catch(() => {}), 12000)
+    const timer = setInterval(() => refresh().catch(() => {}), 10000)
     return () => {
       cancelled = true
       clearInterval(timer)
@@ -133,6 +142,21 @@ export function useDriverPortal(lang: 'en' | 'ar') {
     }
   }, [incoming, refresh])
 
+  const notifyCustomer = useCallback(
+    async (assignmentId: string) => {
+      try {
+        await apiFetch(`/abuu/driver/assignments/${assignmentId}/notify-customer`, {
+          method: 'POST',
+          body: '{}',
+        })
+        toast.success(lang === 'ar' ? 'تم إعلام العميل على واتساب' : 'Customer notified on WhatsApp')
+      } catch (e: any) {
+        toast.error(e?.message || 'Notify failed')
+      }
+    },
+    [lang],
+  )
+
   const advance = useCallback(
     async (id: string) => {
       const order = orders.find((o) => o.id === id)
@@ -162,5 +186,5 @@ export function useDriverPortal(lang: 'en' | 'ar') {
     [orders, refresh],
   )
 
-  return { orders, settings, setSettings, loading, incoming, refresh, acceptIncoming, rejectIncoming, advance }
+  return { orders, settings, setSettings, loading, incoming, refresh, acceptIncoming, rejectIncoming, advance, notifyCustomer }
 }
