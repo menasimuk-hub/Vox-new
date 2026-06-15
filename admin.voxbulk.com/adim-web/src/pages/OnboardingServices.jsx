@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
 
 const SERVICE_ROWS = [
-  { key: 'interview', label: 'Interviews', desc: 'AI phone screening campaigns' },
-  { key: 'survey', label: 'Surveys', desc: 'AI phone & WhatsApp questionnaires' },
-  { key: 'customer_feedback', label: 'Customer feedback', desc: 'WhatsApp QR feedback by location' },
-  { key: 'recovery', label: 'Recovery', desc: 'Missed-appointment & recall outreach' },
-  { key: 'follow_up', label: 'Follow up', desc: 'WhatsApp appointment reminders' },
-  { key: 'campaigns', label: 'Broadcast campaigns', desc: 'WhatsApp template broadcasts (preview)' },
+  { key: 'interview', label: 'Interviews', desc: 'AI phone screening campaigns', icon: 'ti-phone' },
+  { key: 'survey', label: 'Surveys', desc: 'AI phone & WhatsApp questionnaires', icon: 'ti-clipboard' },
+  { key: 'customer_feedback', label: 'Customer feedback', desc: 'WhatsApp QR feedback by location', icon: 'ti-message-circle' },
+  { key: 'recovery', label: 'Recovery', desc: 'Missed-appointment & recall outreach', icon: 'ti-heart' },
+  { key: 'follow_up', label: 'Follow up', desc: 'WhatsApp appointment reminders', icon: 'ti-bell' },
+  { key: 'campaigns', label: 'Broadcast campaigns', desc: 'WhatsApp template broadcasts (preview)', icon: 'ti-megaphone' },
 ]
 
 const EMPTY_SERVICES = {
@@ -36,7 +36,7 @@ function ServiceToggleRows({ services, onToggle, enabledCount, disabled }) {
           }}
         >
           <div>
-            <strong>{row.label}</strong>
+            <strong><i className={row.icon} style={{ marginRight: 8 }} aria-hidden />{row.label}</strong>
             <div className='muted' style={{ fontSize: 13 }}>{row.desc}</div>
           </div>
           <label

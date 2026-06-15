@@ -16,6 +16,26 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
 
 SERVICE_KEYS = tuple(DEFAULT_ENABLED_SERVICES.keys())
 
+# Brand asset keys under voxbulk-api/logos/ (served at /public/brand/{key})
+DASHBOARD_SERVICE_ICONS: dict[str, str] = {
+    "interview": "icon-black",
+    "survey": "icon-black",
+    "customer_feedback": "icon-black",
+    "recovery": "icon-black",
+    "follow_up": "icon-black",
+    "campaigns": "icon-dark",
+}
+
+
+def dashboard_service_icon_urls(*, api_origin: str | None = None) -> dict[str, str]:
+    from app.services.brand_assets import api_public_origin, public_brand_url
+
+    origin = api_origin or api_public_origin()
+    return {
+        key: public_brand_url(origin, asset_key)
+        for key, asset_key in DASHBOARD_SERVICE_ICONS.items()
+    }
+
 
 def parse_enabled_services(raw: str | None, *, platform_default: dict[str, bool] | None = None) -> dict[str, bool]:
     base = dict(platform_default) if platform_default is not None else dict(DEFAULT_ENABLED_SERVICES)

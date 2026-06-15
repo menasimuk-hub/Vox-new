@@ -45,6 +45,9 @@ def _org_response(org, db: Session) -> dict:
     data["allowed_services"] = allowed
     data["enabled_services"] = enabled
     data["visible_services"] = visible
+    from app.services.org_enabled_services import dashboard_service_icon_urls
+
+    data["service_icons"] = dashboard_service_icon_urls()
     currency = resolve_org_currency(db, org)
     data["country_code"] = CountryVatService.resolve_org_country_code(db, org)
     data["billing_currency"] = currency
@@ -166,7 +169,7 @@ def update_enabled_services(
     allowed, enabled, _ = org_service_maps(org, db)
     patch = {
         k: getattr(body, k)
-        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up")
+        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up", "campaigns")
         if getattr(body, k, None) is not None
     }
     try:

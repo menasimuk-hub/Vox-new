@@ -7,7 +7,7 @@ import {
   PhoneCall, FilePlus2, FolderOpen, BarChart3, FileBarChart,
   ClipboardList, MessageSquareText, ListChecks, FileText,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
-  CalendarClock, Repeat, QrCode, Smile,
+  CalendarClock, Repeat, QrCode,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
@@ -106,7 +106,6 @@ const groups: Group[] = [
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
-    { title: "Customer feedback plans", url: "/account/feedback/packages", icon: Smile },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
@@ -174,8 +173,8 @@ export function AppSidebar() {
 }
 function BrandMark() {
   const { theme } = useTheme();
-  const fullLogo = theme === "dark" ? brandAssets.logoLight : brandAssets.logoDark;
-  const iconLogo = theme === "dark" ? brandAssets.iconLight : brandAssets.iconDark;
+  const fullLogo = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
+  const iconLogo = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
   return (
     <Link
       to="/"
@@ -185,17 +184,11 @@ function BrandMark() {
         src={fullLogo}
         alt="VoxBulk"
         className="h-8 w-auto object-contain group-data-[collapsible=icon]:hidden"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
-        }}
       />
       <img
         src={iconLogo}
         alt="VoxBulk"
         className="hidden h-[30px] w-[30px] object-contain group-data-[collapsible=icon]:block"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
-        }}
       />
     </Link>
   );

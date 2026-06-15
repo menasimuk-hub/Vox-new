@@ -6,13 +6,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules, isRecoveryServiceKey } from "@/lib/feature-flags";
-import { PhoneCall, ClipboardList, HeartPulse, CalendarClock, QrCode, Megaphone } from "lucide-react";
+import { PhoneCall, ClipboardList, HeartPulse, CalendarClock, QrCode } from "lucide-react";
+import { brandAssets } from "@/lib/brand";
 
-const items: { key: ServiceKey; title: string; desc: string; Icon: typeof PhoneCall }[] = [
+type ServiceItem = {
+  key: ServiceKey;
+  title: string;
+  desc: string;
+  Icon?: typeof PhoneCall;
+  brandIcon?: string;
+};
+
+const items: ServiceItem[] = [
   { key: "interviews", title: "Interviews", desc: "AI phone screening for hiring.", Icon: PhoneCall },
   { key: "surveys", title: "Surveys", desc: "AI phone & WhatsApp questionnaires.", Icon: ClipboardList },
   { key: "feedback", title: "Customer feedback", desc: "WhatsApp QR feedback by location.", Icon: QrCode },
-  { key: "campaigns", title: "Broadcast campaigns", desc: "WhatsApp template broadcasts.", Icon: Megaphone },
+  { key: "campaigns", title: "Broadcast campaigns", desc: "WhatsApp template broadcasts.", brandIcon: brandAssets.iconDark },
   { key: "recovery", title: "Recovery", desc: "Missed-appointment & recall outreach.", Icon: HeartPulse },
   { key: "followup", title: "Follow up", desc: "WhatsApp appointment reminders.", Icon: CalendarClock },
 ];
@@ -62,7 +71,13 @@ function ServicesSettings() {
               return (
                 <div key={it.key} className="flex items-center justify-between rounded-lg border border-border p-3">
                   <div className="flex items-center gap-3">
-                    <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary"><it.Icon className="size-4" /></div>
+                    <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary">
+                      {it.brandIcon ? (
+                        <img src={it.brandIcon} alt="" className="size-5 object-contain" aria-hidden />
+                      ) : it.Icon ? (
+                        <it.Icon className="size-4" />
+                      ) : null}
+                    </div>
                     <div>
                       <p className="text-sm font-medium">{it.title}</p>
                       <p className="text-xs text-muted-foreground">

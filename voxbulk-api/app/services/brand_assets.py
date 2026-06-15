@@ -25,8 +25,12 @@ BRAND_COLORS = {
 PUBLIC_ASSET_KEYS: tuple[str, ...] = (
     "logo-black",
     "logo-white",
+    "logo-dark",
+    "logo-light",
     "icon-black",
     "icon-white",
+    "icon-dark",
+    "icon-light",
     "favicon",
 )
 
@@ -37,8 +41,12 @@ _ASSET_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "favicon": (".ico", ".png", ".svg"),
     "logo-black": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
     "logo-white": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "logo-dark": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "logo-light": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
     "icon-black": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
     "icon-white": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "icon-dark": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "icon-light": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
 }
 
 _STRIP_EXTENSIONS = (".svg", ".png", ".ico", ".jpg", ".jpeg", ".webp")

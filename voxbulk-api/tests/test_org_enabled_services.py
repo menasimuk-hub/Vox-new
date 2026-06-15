@@ -43,6 +43,15 @@ def test_user_cannot_enable_service_not_allowed_by_admin():
         pass
 
 
+def test_user_can_enable_campaigns_when_allowed():
+    allowed = parse_enabled_services(None)
+    allowed["campaigns"] = True
+    enabled = parse_enabled_services(None)
+    next_enabled = merge_user_enabled_services(allowed, enabled, {"campaigns": True})
+    assert next_enabled["campaigns"] is True
+    assert effective_services(allowed, next_enabled)["campaigns"] is True
+
+
 def test_admin_clamp_disables_user_survey_when_removed_from_allowed():
     allowed = {"interview": True, "survey": True, "recovery": False, "follow_up": False}
     enabled = {"interview": True, "survey": True, "recovery": False, "follow_up": False}

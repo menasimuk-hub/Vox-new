@@ -43,6 +43,7 @@ class EnabledServicesUpdate(BaseModel):
     customer_feedback: bool | None = None
     recovery: bool | None = None
     follow_up: bool | None = None
+    campaigns: bool | None = None
 
 
 class OrganisationUpdate(BaseModel):

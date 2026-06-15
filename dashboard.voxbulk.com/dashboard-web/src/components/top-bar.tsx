@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Send, X, User as UserIcon, Menu } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -69,7 +69,7 @@ export function TopBar() {
           aria-label="Ask AI"
           title="Ask AI"
         >
-          <AiBrandIcon className="size-4" />
+          <Sparkles className="size-4 text-amber-300 animate-pulse" />
           <span className="hidden text-xs font-semibold sm:inline">Ask AI</span>
         </Button>
         <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
@@ -293,7 +293,7 @@ export function LiveChatFab() {
           aria-label="Open VoxBulk AI assistant"
           className="fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full bg-[#0f1b3d] text-white shadow-[0_0_18px_rgba(15,27,61,0.35)] transition hover:scale-105 active:scale-95"
         >
-          <AiBrandIcon className="size-6" />
+          <Sparkles className="size-6 text-amber-300 animate-pulse" />
         </button>
       ) : null}
 
@@ -307,7 +307,7 @@ export function LiveChatFab() {
         >
           <div className="flex cursor-grab items-center justify-between border-b border-border bg-gradient-to-r from-primary to-primary/80 px-3 py-2 text-primary-foreground active:cursor-grabbing">
             <div className="flex items-center gap-2">
-              <AiBrandIcon className="size-4" />
+              <Sparkles className="size-4" />
               <p className="text-sm font-semibold">VoxBulk AI</p>
             </div>
             <div className="flex items-center gap-1">
