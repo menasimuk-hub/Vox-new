@@ -28,6 +28,7 @@ def abuu_seeded(app_client):
 
     with get_abuu_sessionmaker()() as db:
         AbuuSeedService.seed_restaurants_if_empty(db)
+        AbuuSeedService.seed_offers_if_empty(db)
         seed_agent_settings(db)
         db.commit()
         restaurant = db.execute(select(Restaurant).limit(1)).scalar_one()
@@ -164,6 +165,8 @@ def test_session_persistence(abuu_seeded):
             {"role": "assistant", "content": "hello"},
         ]
         session.restaurant_id = restaurant_id
+        session.context["restaurant_id"] = restaurant_id
+        session.context["restaurant_selected"] = True
         save_session(db, session, message_id="persist-1")
         db.commit()
 
@@ -298,3 +301,108 @@ def test_legacy_router_when_agent_disabled(app_client):
 
     get_settings.cache_clear()
     assert os.environ.get("ABUU_AGENT_ENABLED", "false") == "false"
+
+
+def test_list_restaurants_includes_ids(abuu_seeded):
+    _db, _restaurant_id, _restaurant = abuu_seeded
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509990010"
+    with get_abuu_sessionmaker()() as db:
+        customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
+        session = load_session(db, phone)
+        result = execute_tool(db, session, customer=customer, tool_name="list_restaurants", tool_input={})
+        assert "[id=abuu-rest-" in result
+
+
+def test_select_restaurant_by_list_number(abuu_seeded):
+    _db, _restaurant_id, _restaurant = abuu_seeded
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509990011"
+    with get_abuu_sessionmaker()() as db:
+        customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
+        session = load_session(db, phone)
+        execute_tool(db, session, customer=customer, tool_name="list_restaurants", tool_input={})
+        result = execute_tool(
+            db,
+            session,
+            customer=customer,
+            tool_name="select_restaurant",
+            tool_input={"restaurant_id": "1"},
+        )
+        assert session.restaurant_id
+        assert "Selected" in result or "تم اختيار" in result
+
+
+def test_empty_draft_does_not_bind_restaurant(abuu_seeded):
+    _db, restaurant_id, restaurant = abuu_seeded
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509990012"
+    with get_abuu_sessionmaker()() as db:
+        customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
+        order = AbuuOrderDraftService.start_draft(db, customer=customer, restaurant=restaurant)
+        AbuuOrderDraftService.upsert_session(
+            db,
+            phone=phone,
+            step="browsing",
+            context={"restaurant_id": restaurant_id},
+            active_order_id=order.id,
+        )
+        db.commit()
+        session = load_session(db, phone)
+        assert session.restaurant_id is None
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_yallasay_start_clears_stale_restaurant(mock_complete, abuu_seeded, deepseek_configured):
+    _db, restaurant_id, restaurant = abuu_seeded
+    mock_complete.return_value = _text_completion("يلا! هاي المطاعم المتاحة.")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    phone = "+972509990013"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
+        order = AbuuOrderDraftService.start_draft(abuu_db, customer=customer, restaurant=restaurant)
+        session = load_session(abuu_db, phone)
+        session.restaurant_id = restaurant_id
+        session.active_order_id = order.id
+        session.context["restaurant_id"] = restaurant_id
+        save_session(abuu_db, session)
+        abuu_db.commit()
+        result = AbuuAgentLoop.run(abuu_db, main_db, phone=phone, text="yallasay")
+    assert result["action"] == "agent_reply"
+    with get_abuu_sessionmaker()() as abuu_db:
+        reloaded = load_session(abuu_db, phone)
+        assert reloaded.restaurant_id is None
+
+
+def test_change_restaurant_tool_lists_all(abuu_seeded):
+    _db, restaurant_id, restaurant = abuu_seeded
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509990014"
+    with get_abuu_sessionmaker()() as db:
+        customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
+        session = load_session(db, phone)
+        session.restaurant_id = restaurant_id
+        session.context["restaurant_selected"] = True
+        result = execute_tool(db, session, customer=customer, tool_name="change_restaurant", tool_input={})
+        assert session.restaurant_id is None
+        assert "1." in result
+
+
+def test_list_offers_includes_chicken_and_fish(abuu_seeded):
+    _db, _restaurant_id, _restaurant = abuu_seeded
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509990015"
+    with get_abuu_sessionmaker()() as db:
+        customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
+        session = load_session(db, phone)
+        result = execute_tool(db, session, customer=customer, tool_name="list_offers", tool_input={})
+        assert "chicken" in result.lower() or "دجاج" in result
+        assert "fish" in result.lower() or "سمك" in result

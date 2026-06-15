@@ -235,6 +235,65 @@ class AbuuSeedService:
         db.flush()
         return {"restaurants": updated_restaurants, "drivers": updated_drivers}
 
+    @staticmethod
+    def seed_offers_if_empty(db: Session) -> int:
+        import json
+
+        from app.abuu.models.entities import RestaurantPromoOffer
+
+        existing = int(db.execute(select(func.count()).select_from(RestaurantPromoOffer)).scalar_one() or 0)
+        if existing > 0:
+            return 0
+        now = datetime.utcnow()
+        specs = [
+            {
+                "id": "abuu-offer-chicken-1",
+                "restaurant_id": "abuu-rest-chicken",
+                "title_en": "Sham Chicken Family Deal",
+                "title_ar": "عرض عائلي دجاج الشام",
+                "offer_price_agorot": 8900,
+                "original_price_agorot": 11000,
+                "tags": ["chicken"],
+                "items": [{"menu_item_id": "abuu-item-chicken-1", "quantity": 1}, {"menu_item_id": "abuu-item-chicken-d2", "quantity": 2}],
+            },
+            {
+                "id": "abuu-offer-fish-1",
+                "restaurant_id": "abuu-rest-fish",
+                "title_en": "Fresh Fish Combo",
+                "title_ar": "عرض السمك الطازج",
+                "offer_price_agorot": 7500,
+                "original_price_agorot": 9200,
+                "tags": ["fish"],
+                "items": [{"menu_item_id": "abuu-item-fish-1", "quantity": 1}, {"menu_item_id": "abuu-item-fish-d1", "quantity": 1}],
+            },
+        ]
+        created = 0
+        for spec in specs:
+            if db.get(Restaurant, spec["restaurant_id"]) is None:
+                continue
+            _insert_row(
+                db,
+                RestaurantPromoOffer,
+                dict(
+                    id=spec["id"],
+                    restaurant_id=spec["restaurant_id"],
+                    title_en=spec["title_en"],
+                    title_ar=spec["title_ar"],
+                    offer_price_agorot=spec["offer_price_agorot"],
+                    original_price_agorot=spec["original_price_agorot"],
+                    items_json=json.dumps(spec["items"], ensure_ascii=False),
+                    tags_json=json.dumps(spec["tags"], ensure_ascii=False),
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                    deleted_at=None,
+                ),
+            )
+            created += 1
+        db.flush()
+        return created
+
 
 def _item(iid: str, en: str, ar: str, item_type: str, agorot: int, **kw) -> dict:
     return {

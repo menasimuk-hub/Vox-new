@@ -318,3 +318,19 @@ class AbuuRestaurantSettings(AbuuBase, AbuuTimestampMixin):
     greeting_template_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     greeting_template_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
     holiday_closures_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RestaurantPromoOffer(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
+    __tablename__ = "abuu_restaurant_offers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("abuu_restaurants.id"), nullable=False, index=True)
+    title_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    title_ar: Mapped[str] = mapped_column(String(255), nullable=False)
+    description_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    original_price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    items_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

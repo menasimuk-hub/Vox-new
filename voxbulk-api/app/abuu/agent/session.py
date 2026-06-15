@@ -130,9 +130,20 @@ def load_session(
     if active_order_id:
         order = db.get(CustomerOrder, active_order_id)
     step = row.step if row else "idle"
-    resolved_restaurant = restaurant_id or context.get("restaurant_id")
-    if order is not None and order.restaurant_id:
+    from app.abuu.agent.session_reset import order_binds_restaurant
+
+    resolved_restaurant = restaurant_id
+    if order is not None and order.restaurant_id and order_binds_restaurant(db, order, context=context):
         resolved_restaurant = order.restaurant_id
+    elif context.get("restaurant_selected") and context.get("restaurant_id"):
+        resolved_restaurant = context.get("restaurant_id")
+    elif order is not None and order.status in {"delivered", "cancelled"}:
+        resolved_restaurant = None
+        context.pop("restaurant_id", None)
+        context.pop("restaurant_selected", None)
+    elif not context.get("restaurant_selected"):
+        resolved_restaurant = None
+        context.pop("restaurant_id", None)
 
     messages = context.get("messages") or []
     if not isinstance(messages, list):

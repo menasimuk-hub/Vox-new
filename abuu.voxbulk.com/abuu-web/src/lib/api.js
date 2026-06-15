@@ -1,6 +1,11 @@
 const TOKEN_KEY = 'abuu_restaurant_token'
 
-const PORTAL_HOSTS = new Set(['abuu.voxbulk.com', 'driver.voxbulk.com'])
+const PORTAL_HOSTS = new Set([
+  'abuu.voxbulk.com',
+  'driver.voxbulk.com',
+  'restaurant.yallasay.com',
+  'driver.yallasay.com',
+])
 
 export function getApiBase() {
   const explicit = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')

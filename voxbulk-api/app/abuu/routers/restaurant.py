@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.core.auth import RestaurantPrincipal, require_restaurant_user
-from app.abuu.models.entities import CustomerOrder, Restaurant, RestaurantMenuCategory, RestaurantMenuItem
+from app.abuu.models.entities import CustomerOrder, Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
 from app.abuu.services.menu_service import AbuuMenuService
 from app.abuu.services.notification_service import AbuuNotificationService
+from app.abuu.services.offer_service import AbuuOfferService, offer_to_dict
 from app.abuu.services.order_service import AbuuOrderService
 from app.abuu.services.serializers import menu_category_to_dict, menu_item_to_dict, notification_to_dict, order_to_dict, restaurant_to_dict
 from app.core.abuu_database import get_abuu_db
@@ -327,3 +328,66 @@ def restaurant_mark_notification_read(
         raise HTTPException(status_code=404, detail="Notification not found")
     db.commit()
     return notification_to_dict(row)
+
+
+@router.get("/offers")
+def restaurant_offers(
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    rows = AbuuOfferService.list_for_restaurant(db, principal.restaurant_id, active_only=False)
+    return [offer_to_dict(row) for row in rows]
+
+
+@router.post("/offers")
+def create_restaurant_offer(
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = AbuuOfferService.create(
+        db,
+        restaurant_id=principal.restaurant_id,
+        title_en=str(payload.get("title_en") or ""),
+        title_ar=str(payload.get("title_ar") or ""),
+        offer_price_agorot=int(payload.get("offer_price_agorot") or 0),
+        original_price_agorot=int(payload.get("original_price_agorot") or 0),
+        items=payload.get("items") if isinstance(payload.get("items"), list) else [],
+        tags=payload.get("tags") if isinstance(payload.get("tags"), list) else [],
+        description_en=payload.get("description_en"),
+        description_ar=payload.get("description_ar"),
+        is_active=bool(payload.get("is_active", True)),
+    )
+    db.commit()
+    db.refresh(row)
+    return offer_to_dict(row)
+
+
+@router.patch("/offers/{offer_id}")
+def patch_restaurant_offer(
+    offer_id: str,
+    payload: dict,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantPromoOffer, offer_id)
+    if row is None or row.is_deleted or row.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    AbuuOfferService.patch(db, row, payload)
+    db.commit()
+    db.refresh(row)
+    return offer_to_dict(row)
+
+
+@router.delete("/offers/{offer_id}")
+def delete_restaurant_offer(
+    offer_id: str,
+    principal: RestaurantPrincipal = Depends(require_restaurant_user),
+    db: Session = Depends(get_abuu_db),
+):
+    row = db.get(RestaurantPromoOffer, offer_id)
+    if row is None or row.is_deleted or row.restaurant_id != principal.restaurant_id:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    AbuuOfferService.delete(db, row)
+    db.commit()
+    return {"ok": True}

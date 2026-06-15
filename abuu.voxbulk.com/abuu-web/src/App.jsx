@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Menu from './pages/Menu'
+import Offers from './pages/Offers'
 import Orders from './pages/Orders'
 import { getToken } from './lib/api'
 
@@ -25,6 +26,7 @@ export default function App() {
         <Route index element={<Navigate to='/orders' replace />} />
         <Route path='/orders' element={<Orders />} />
         <Route path='/menu' element={<Menu />} />
+        <Route path='/offers' element={<Offers />} />
       </Route>
     </Routes>
   )

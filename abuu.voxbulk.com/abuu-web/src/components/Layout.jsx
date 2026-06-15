@@ -13,10 +13,11 @@ export default function Layout() {
   return (
     <div className='shell'>
       <header className='topbar'>
-        <strong>Abuu — Restaurant</strong>
+        <strong>Yallasay — Restaurant</strong>
         <nav className='nav'>
           <NavLink to='/orders'>Orders</NavLink>
           <NavLink to='/menu'>Menu</NavLink>
+          <NavLink to='/offers'>Offers</NavLink>
         </nav>
         <button type='button' className='btn' onClick={logout}>
           Logout

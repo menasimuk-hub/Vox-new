@@ -14,6 +14,10 @@ class AbuuIntent:
 
 _START_PATTERNS = (
     re.compile(r"(?i)\babuu\b"),
+    re.compile(r"(?i)\byallasay\b"),
+    re.compile(r"(?i)\byalla\s*say\b"),
+    re.compile(r"يلا\s*ساي"),
+    re.compile(r"يلاساي"),
     re.compile(r"(?i)\border\s+food\b"),
     re.compile(r"(?i)\bstart\s+order\b"),
     re.compile(r"طلب"),

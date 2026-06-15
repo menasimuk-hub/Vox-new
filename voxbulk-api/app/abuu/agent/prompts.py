@@ -1,4 +1,4 @@
-"""Dynamic system prompts for Abuu conversational agent."""
+"""Dynamic system prompts for Yallasay conversational agent."""
 
 from __future__ import annotations
 
@@ -69,9 +69,10 @@ def build_system_prompt(
         kb_bits.append(f"Minimum order: {format_shekel(settings.min_order_agorot)}")
 
     lines = [
-        f"You are Abuu, a friendly AI food ordering assistant for {restaurant_name}.",
+        f"You are Yallasay, a friendly AI food ordering assistant for {restaurant_name}.",
         "You help customers order food via WhatsApp. Default to Levantine Arabic unless the customer writes in English.",
         dialect_note,
+        "Keep replies under 3 short lines for WhatsApp.",
         "Voice notes arrive as auto-transcripts and may contain errors or noise. Infer the customer's food order intent. "
         "If the transcript is unclear (laughter, gibberish, or too short), politely ask them to repeat or type their order in Arabic.",
         f"Customer name: {name or 'unknown'}",
@@ -79,6 +80,12 @@ def build_system_prompt(
     ]
     if saved_addr:
         lines.append(f"Saved delivery address: {saved_addr}")
+    prefetched_list = session.context.get("prefetched_restaurant_list")
+    if isinstance(prefetched_list, str) and prefetched_list.strip() and not session.restaurant_id:
+        lines.append(f"Available restaurants (already loaded — do not call list_restaurants again this turn):\n{prefetched_list}")
+    prefetched_offers = session.context.get("prefetched_offers")
+    if isinstance(prefetched_offers, str) and prefetched_offers.strip():
+        lines.append(f"Active offers (already loaded — prefer this over list_offers this turn):\n{prefetched_offers}")
     lines.extend(
         [
             f"Current cart: {cart_summary}",
@@ -89,6 +96,9 @@ def build_system_prompt(
             tool_names,
             "",
             "Rules:",
+            "- Never assume a restaurant. If none is selected, show the full restaurant list unless the customer explicitly picked one.",
+            "- Use change_restaurant when the customer wants a different restaurant or says اعرض المطاعم / مطعم ثاني.",
+            "- Use list_offers when the customer asks about عروض, deals, promos, or discounts — mention chicken and fish offers when relevant.",
             "- Always search the menu before listing items — never invent items or prices",
             "- Be warm, concise, and helpful like a good waiter",
             "- Naturally suggest combos and sides after main items",

@@ -77,7 +77,7 @@ def rank_restaurants(
         ranked.sort(key=lambda row: (0 if row.is_open else 1, -row.match_score, row.restaurant.name_en or ""))
     else:
         ranked.sort(key=lambda row: (0 if row.is_open else 1, row.distance_km, -row.match_score))
-    return ranked[: max(3 if categories else 1, limit)]
+    return ranked[:limit]
 
 
 def detect_categories_from_text(text: str) -> list[str]:
@@ -106,18 +106,19 @@ def format_restaurant_list(
         lines.append("المطاعم القريبة:" if show_distance else "المطاعم المتاحة:")
     for idx, row in enumerate(page_rows, start=start + 1):
         name = localized_name(row.restaurant, lang)
+        rid = row.restaurant.id
         status = "open" if row.is_open else "closed"
         if lang == "en":
             if show_distance:
-                lines.append(f"{idx}. {name} — {row.distance_km:.1f} km ({status})")
+                lines.append(f"{idx}. {name} — {row.distance_km:.1f} km ({status}) [id={rid}]")
             else:
-                lines.append(f"{idx}. {name} ({status})")
+                lines.append(f"{idx}. {name} ({status}) [id={rid}]")
         else:
             st = "مفتوح" if row.is_open else "مغلق"
             if show_distance:
-                lines.append(f"{idx}. {name} — {row.distance_km:.1f} كم ({st})")
+                lines.append(f"{idx}. {name} — {row.distance_km:.1f} كم ({st}) [id={rid}]")
             else:
-                lines.append(f"{idx}. {name} ({st})")
+                lines.append(f"{idx}. {name} ({st}) [id={rid}]")
     if start + page_size < len(ranked):
         if lang == "en":
             lines.append("Say **more** for more restaurants, or reply with a restaurant name.")

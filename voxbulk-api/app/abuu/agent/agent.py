@@ -8,8 +8,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.abuu.agent.prefetch import prefetch_offers, prefetch_restaurant_list
 from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
+from app.abuu.agent.session_reset import clear_restaurant_binding, is_offer_query, is_session_reset_message
 from app.abuu.agent.skills import enabled_openai_tools, execute_tool
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import unknown_message
@@ -74,6 +76,10 @@ class AbuuAgentLoop:
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session = load_session(abuu_db, phone)
         user_turn = _format_user_turn(text, input_source=input_source, lang=session.language or "ar")
+
+        if is_session_reset_message(text) and not session.cart:
+            clear_restaurant_binding(abuu_db, session)
+
         session.messages.append({"role": "user", "content": user_turn})
 
         if not _deepseek_platform_ready(main_db):
@@ -84,7 +90,7 @@ class AbuuAgentLoop:
             return {"handled": True, "action": "agent_error", "reply": reply}
 
         try:
-            reply = AbuuAgentLoop._run_loop(abuu_db, main_db, session, customer=customer)
+            reply = AbuuAgentLoop._run_loop(abuu_db, main_db, session, customer=customer, user_text=text)
         except Exception:
             logger.exception(
                 "abuu_agent_loop_failed phone=%s restaurant=%s",
@@ -108,8 +114,20 @@ class AbuuAgentLoop:
         }
 
     @staticmethod
-    def _run_loop(abuu_db: Session, main_db: Session, session: Session, *, customer: Any) -> str:
+    def _run_loop(
+        abuu_db: Session,
+        main_db: Session,
+        session: Session,
+        *,
+        customer: Any,
+        user_text: str = "",
+    ) -> str:
         settings = get_settings()
+        if not session.restaurant_id:
+            prefetch_restaurant_list(abuu_db, session, customer_id=customer.id)
+        if is_offer_query(user_text):
+            prefetch_offers(abuu_db, session, query=user_text)
+
         system_prompt = build_system_prompt(abuu_db, session, customer=customer)
         openai_tools = enabled_openai_tools(abuu_db)
         history = _truncate_messages(session.messages, settings.abuu_agent_max_history)

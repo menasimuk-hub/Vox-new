@@ -25,7 +25,14 @@ from app.abuu.services.reply_service import (
     localized_name,
     order_status_message,
 )
-from app.abuu.services.restaurant_discovery_service import format_restaurant_list, rank_restaurants
+from app.abuu.agent.prefetch import restaurant_list_page_size
+from app.abuu.agent.session_reset import clear_restaurant_binding
+from app.abuu.services.offer_service import AbuuOfferService, format_offers_list
+from app.abuu.services.restaurant_discovery_service import (
+    format_restaurant_list,
+    pick_restaurant_by_ref,
+    rank_restaurants,
+)
 from app.abuu.services.skill_definitions import (
     SKILL_ANSWER_KB,
     SKILL_BUILD_CART,
@@ -49,6 +56,8 @@ TOOL_SKILL_MAP: dict[str, str] = {
     "track_order": SKILL_ORDER_STATUS,
     "list_restaurants": SKILL_RESTAURANT_SEARCH,
     "select_restaurant": SKILL_RESTAURANT_SEARCH,
+    "change_restaurant": SKILL_RESTAURANT_SEARCH,
+    "list_offers": SKILL_RESTAURANT_SEARCH,
     "answer_policy": SKILL_ANSWER_KB,
     "cancel_order": SKILL_CANCEL_OR_REFUND,
     "escalate_to_admin": SKILL_HANDOFF_TO_ADMIN,
@@ -110,20 +119,41 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "list_restaurants",
-        "description": "List available restaurants, optionally filtered by food preference.",
+        "description": "List available restaurants. Do not filter by food type unless customer explicitly asks for one category only.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Optional food preference e.g. chicken, fish"},
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: only when customer explicitly wants chicken-only or fish-only restaurants",
+                },
+            },
+        },
+    },
+    {
+        "name": "change_restaurant",
+        "description": "Clear the current restaurant and show all available restaurants again.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_offers",
+        "description": "List active promo offers. Use when customer asks about deals, promos, or discounts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Optional filter e.g. chicken, fish, عروض دجاج"},
             },
         },
     },
     {
         "name": "select_restaurant",
-        "description": "Select a restaurant to order from.",
+        "description": "Select a restaurant to order from. Accepts restaurant id, list number, or name.",
         "input_schema": {
             "type": "object",
-            "properties": {"restaurant_id": {"type": "string"}},
+            "properties": {
+                "restaurant_id": {"type": "string", "description": "Restaurant id, list number, or name"},
+            },
             "required": ["restaurant_id"],
         },
     },
@@ -407,10 +437,13 @@ class AgentSkills:
         return order_status_message(order, assignment, self.lang)
 
     def _tool_list_restaurants(self, inp: dict[str, Any]) -> str:
-        from app.abuu.services.preference_service import match_food_categories
+        prefetched = self.session.context.get("prefetched_restaurant_list")
+        if isinstance(prefetched, str) and prefetched.strip():
+            self.session.context.pop("prefetched_restaurant_list", None)
+            return prefetched
 
-        query = str(inp.get("query") or "").strip()
-        categories = match_food_categories(query) if query else []
+        categories = inp.get("categories") if isinstance(inp.get("categories"), list) else None
+        categories = [str(c).strip().lower() for c in (categories or []) if str(c).strip()] or None
         addr = get_default_address(self.db, self.customer.id)
         lat = addr.latitude if addr else None
         lng = addr.longitude if addr else None
@@ -418,18 +451,79 @@ class AgentSkills:
             self.db,
             lat=lat,
             lng=lng,
-            categories=categories or None,
-            limit=10,
+            categories=categories,
+            limit=15,
         )
         self.session.context["ranked_restaurants"] = [
             {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
             for r in ranked
         ]
-        return format_restaurant_list(ranked, lang=self.lang, page=0, page_size=5)
+        return format_restaurant_list(
+            ranked,
+            lang=self.lang,
+            page=0,
+            page_size=restaurant_list_page_size(),
+        )
+
+    def _tool_change_restaurant(self, _inp: dict[str, Any]) -> str:
+        clear_restaurant_binding(self.db, self.session)
+        self.session.cart = []
+        addr = get_default_address(self.db, self.customer.id)
+        lat = addr.latitude if addr else None
+        lng = addr.longitude if addr else None
+        ranked = rank_restaurants(self.db, lat=lat, lng=lng, categories=None, limit=15)
+        self.session.context["ranked_restaurants"] = [
+            {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
+            for r in ranked
+        ]
+        listing = format_restaurant_list(
+            ranked,
+            lang=self.lang,
+            page=0,
+            page_size=restaurant_list_page_size(),
+        )
+        if self.lang == "ar":
+            return f"تم. اختر مطعماً:\n{listing}"
+        return f"Done. Pick a restaurant:\n{listing}"
+
+    def _tool_list_offers(self, inp: dict[str, Any]) -> str:
+        prefetched = self.session.context.get("prefetched_offers")
+        if isinstance(prefetched, str) and prefetched.strip():
+            self.session.context.pop("prefetched_offers", None)
+            return prefetched
+
+        from app.abuu.services.offer_service import categories_from_offer_query
+
+        query = str(inp.get("query") or "").strip()
+        categories = categories_from_offer_query(query) if query else None
+        offers = AbuuOfferService.list_active(
+            self.db,
+            restaurant_id=self.session.restaurant_id,
+            categories=categories,
+            limit=15,
+        )
+        return format_offers_list(self.db, offers, lang=self.lang)
 
     def _tool_select_restaurant(self, inp: dict[str, Any]) -> str:
-        restaurant_id = str(inp.get("restaurant_id") or "").strip()
-        restaurant = self.db.get(Restaurant, restaurant_id)
+        ref = str(inp.get("restaurant_id") or "").strip()
+        restaurant = self.db.get(Restaurant, ref)
+        if restaurant is None:
+            ranked_rows = self.session.context.get("ranked_restaurants") or []
+            ranked = []
+            for row in ranked_rows:
+                if not isinstance(row, dict):
+                    continue
+                rest = self.db.get(Restaurant, row.get("id"))
+                if rest is not None:
+                    from app.abuu.services.restaurant_discovery_service import RankedRestaurant
+
+                    ranked.append(RankedRestaurant(restaurant=rest, distance_km=0.0, match_score=0, is_open=rest.is_available))
+            if not ranked:
+                addr = get_default_address(self.db, self.customer.id)
+                lat = addr.latitude if addr else None
+                lng = addr.longitude if addr else None
+                ranked = rank_restaurants(self.db, lat=lat, lng=lng, categories=None, limit=15)
+            restaurant = pick_restaurant_by_ref(ranked, ref)
         if restaurant is None:
             raise ValueError("Restaurant not found")
         order = _get_draft_order(self.db, self.session)
@@ -443,6 +537,7 @@ class AgentSkills:
         self.session.restaurant_id = restaurant.id
         self.session.active_order_id = order.id
         self.session.context["restaurant_id"] = restaurant.id
+        self.session.context["restaurant_selected"] = True
         name = localized_name(restaurant, self.lang)
         if self.lang == "ar":
             return f"تم اختيار {name}. ماذا تحب أن تأكل؟"
@@ -460,9 +555,10 @@ class AgentSkills:
             AbuuOrderDraftService.cancel_draft(self.db, order)
             self.session.cart = []
             self.session.active_order_id = None
+            clear_restaurant_binding(self.db, self.session)
             if self.lang == "ar":
-                return "تم إلغاء الطلب."
-            return "Order cancelled."
+                return "تم إلغاء الطلب. اكتب يلا ساي أو اعرض المطاعم للبدء من جديد."
+            return "Order cancelled. Say yallasay or ask for restaurants to start fresh."
         if self.lang == "ar":
             return "لا يوجد طلب للإلغاء."
         return "No active order to cancel."

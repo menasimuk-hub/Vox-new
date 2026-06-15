@@ -205,6 +205,7 @@ class AbuuInboundService:
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and get_settings().abuu_agent_enabled and text:
+                AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
                 result = AbuuAgentLoop.run(
                     abuu_db,
                     main_db,
@@ -266,6 +267,7 @@ class AbuuInboundService:
     ) -> dict[str, Any]:
         settings = get_settings()
         if settings.abuu_agent_enabled:
+            AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
             result = AbuuAgentLoop.run(
                 abuu_db,
                 main_db,
@@ -786,6 +788,11 @@ class AbuuInboundService:
         except Exception:
             logger.exception("abuu_voice_detect_failed")
         return False
+
+    @staticmethod
+    def _send_agent_ack(main_db: Session, to_phone: str, lang: str, *, org_id: str | None) -> None:
+        body = "وصلت رسالتك، لحظة..." if lang == "ar" else "Got it, one moment..."
+        AbuuInboundService._send_reply(main_db, to_phone, body, org_id=org_id)
 
     @staticmethod
     def _send_reply(main_db: Session, to_phone: str, body: str, *, org_id: str | None) -> None:
