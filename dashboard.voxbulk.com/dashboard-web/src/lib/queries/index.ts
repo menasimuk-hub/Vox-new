@@ -1873,3 +1873,13 @@ export function useAssistantConfirm() {
       }),
   });
 }
+
+export function useAssistantReportSupport() {
+  return useMutation({
+    mutationFn: (body: { support_report_token: string }) =>
+      apiFetch<import("@/lib/types/assistant").AssistantReportSupportResponse>("/assistant/report-support", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,7 @@ class IntentMatch:
     intent: str
     confidence: float
     service_code: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 # (priority, intent, confidence, pattern, service_code)

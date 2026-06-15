@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFeedbackLocations } from "@/lib/queries";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/feedback/")({
   head: () => ({ meta: [{ title: "Saved QR surveys — VoxBulk" }] }),
@@ -15,6 +17,7 @@ export const Route = createFileRoute("/_app/feedback/")({
 
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
+  const highlight = useAssistantHighlight().highlight;
   const items = locationsQ.data || [];
 
   return (
@@ -50,7 +53,11 @@ function SavedFeedback() {
           {items.map((it) => {
             const live = String(it.status || "").toLowerCase() === "active";
             return (
-              <Card key={it.id} className="overflow-hidden">
+              <Card
+                key={it.id}
+                data-assistant-highlight={it.id}
+                className={cn("overflow-hidden", assistantHighlightClass(it.id, highlight))}
+              >
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
                   <div>
                     <CardTitle className="text-base">{it.name}</CardTitle>

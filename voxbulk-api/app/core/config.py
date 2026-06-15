@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     ffmpeg_binary: str = Field(default="ffmpeg", alias="FFMPEG_BINARY")
     telnyx_webhook_public_key: str = Field(default="", alias="TELNYX_WEBHOOK_PUBLIC_KEY")
 
+    # Dashboard AI assistant
+    assistant_llm_enabled: bool = Field(default=False, alias="ASSISTANT_LLM_ENABLED")
+    assistant_llm_model: str = Field(default="", alias="ASSISTANT_LLM_MODEL")
+    assistant_error_alert_threshold: int = Field(default=5, alias="ASSISTANT_ERROR_ALERT_THRESHOLD")
+    assistant_error_alert_window_sec: int = Field(default=300, alias="ASSISTANT_ERROR_ALERT_WINDOW_SEC")
+    assistant_oncall_admin_emails: str = Field(default="", alias="ASSISTANT_ONCALL_ADMIN_EMAILS")
+    assistant_rate_limit_per_min: int = Field(default=20, alias="ASSISTANT_RATE_LIMIT_PER_MIN")
+
     @property
     def voice_note_allowed_mime_types(self) -> list[str]:
         return [m.strip().lower() for m in _split_csv(self.voice_note_allowed_mime_types_raw)]

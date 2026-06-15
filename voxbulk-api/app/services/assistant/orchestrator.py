@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.dependencies import CurrentPrincipal
 from app.models.organisation import Organisation
 from app.schemas.assistant import AssistantChatIn, AssistantChatOut, AssistantContextIn, AssistantPendingAction
@@ -40,6 +41,12 @@ class AssistantOrchestrator:
         payload: AssistantChatIn,
         is_admin: bool = False,
     ) -> AssistantChatOut:
+        settings = get_settings()
+        if settings.assistant_llm_enabled and not is_admin:
+            from app.services.assistant.llm_orchestrator import LlmAssistantOrchestrator
+
+            return LlmAssistantOrchestrator.handle_chat(db, principal=principal, payload=payload, is_admin=is_admin)
+
         policy = check_policy(payload.message)
         if not policy.allowed:
             return build_out(

@@ -15,6 +15,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
+import { cn } from "@/lib/utils";
 import { isInterviewCampaignReadOnly } from "@/lib/interview-campaign";
 import { useArchiveOrder, useDeleteOrder, useHomeSummary, usePromoCredits, useServiceOrders, useStopInterviewCampaign } from "@/lib/queries";
 
@@ -56,6 +58,7 @@ function SavedInterviews() {
   const archiveM = useArchiveOrder();
   const deleteM = useDeleteOrder();
   const stopM = useStopInterviewCampaign();
+  const highlight = useAssistantHighlight().highlight;
   const [stopTarget, setStopTarget] = React.useState<{ id: string; name: string } | null>(null);
   const [stopConfirmText, setStopConfirmText] = React.useState("");
   const [stopError, setStopError] = React.useState("");
@@ -172,7 +175,7 @@ function SavedInterviews() {
                 {s.sorted.map((c) => {
                   const raw = orderById.get(c.id);
                   return (
-                    <TableRow key={c.id}>
+                    <TableRow key={c.id} data-assistant-highlight={c.id} className={cn(assistantHighlightClass(c.id, highlight))}>
                       <TableCell className="pl-6 font-mono text-xs">{c.campaignId}</TableCell>
                       <TableCell>
                         <div className="font-medium">{c.name}</div>

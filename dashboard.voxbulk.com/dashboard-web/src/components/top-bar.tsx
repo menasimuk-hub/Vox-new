@@ -10,8 +10,9 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications, useAssistantChat, useAssistantConfirm } from "@/lib/queries";
+import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
+import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 
 function SidebarToggle() {
@@ -159,26 +160,40 @@ function buildAssistantWelcome(email?: string | null): string {
 type Msg = { role: "user" | "ai"; text: string; response?: AssistantChatResponse };
 
 export function LiveChatFab() {
-  const { chatOpen, closeChat } = useConnections();
+  const { chatOpen, closeChat, openChat } = useConnections();
   const { session } = useSession();
+  const navigate = useNavigate();
   const { setHighlight, applyNextAction } = useAssistantHighlight();
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
+  const reportM = useAssistantReportSupport();
   const welcomeText = React.useMemo(
     () => buildAssistantWelcome(session?.profile?.email),
     [session?.profile?.email],
   );
+  const orgId = session?.org?.id;
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
   const dragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [history, setHistory] = React.useState<Array<{ role: string; text: string }>>([]);
+  const [reportedTokens, setReportedTokens] = React.useState<Record<string, string>>({});
   const endRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     setMessages([{ role: "ai", text: welcomeText }]);
     setHistory([]);
-  }, [welcomeText]);
+    setReportedTokens({});
+  }, [welcomeText, orgId]);
+
+  React.useEffect(() => {
+    if (!chatOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeChat();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chatOpen, closeChat]);
 
   React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatOpen]);
 
@@ -200,8 +215,23 @@ export function LiveChatFab() {
     if (res.highlight_type && res.highlight_id) {
       setHighlight({ type: res.highlight_type, id: res.highlight_id, label: res.highlight_label });
     }
+    executeUiCommands(res.ui_commands, {
+      navigate: (route) => void navigate({ to: route }),
+      setHighlight,
+    });
     setMessages((m) => [...m, { role: "ai", text: res.primary_message, response: res }]);
     setHistory((h) => [...h, { role: "user", text: userText }, { role: "assistant", text: res.primary_message }].slice(-16));
+  }
+
+  async function sendReport(token: string) {
+    if (!token || reportM.isPending || reportedTokens[token]) return;
+    try {
+      const out = await reportM.mutateAsync({ support_report_token: token });
+      setReportedTokens((prev) => ({ ...prev, [token]: out.ticket_ref || "sent" }));
+      setMessages((m) => [...m, { role: "ai", text: out.message }]);
+    } catch {
+      setMessages((m) => [...m, { role: "ai", text: "Could not send the report right now. Please try again or open Support tickets." }]);
+    }
   }
 
   async function send(text: string) {
@@ -212,9 +242,8 @@ export function LiveChatFab() {
     try {
       const res = await chatM.mutateAsync({ message: t, history });
       applyResponse(res, t);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Assistant unavailable. Try again.";
-      setMessages((m) => [...m, { role: "ai", text: msg }]);
+    } catch {
+      setMessages((m) => [...m, { role: "ai", text: "Assistant unavailable. Try again in a moment." }]);
     }
   }
 
@@ -232,12 +261,21 @@ export function LiveChatFab() {
     applyNextAction(action);
   }
 
-  const thinking = chatM.isPending || confirmM.isPending;
-
-  if (!chatOpen) return null;
+  const thinking = chatM.isPending || confirmM.isPending || reportM.isPending;
 
   return (
     <>
+      {!chatOpen ? (
+        <button
+          type="button"
+          onClick={openChat}
+          aria-label="Open VoxBulk AI assistant"
+          className="fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full bg-[#0f1b3d] text-white shadow-[0_0_18px_rgba(15,27,61,0.35)] transition hover:scale-105 active:scale-95"
+        >
+          <Sparkles className="size-6 text-amber-300 animate-pulse" />
+        </button>
+      ) : null}
+
       {chatOpen && (
         <div
           className="fixed z-20 flex h-[min(520px,calc(100vh-6rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl touch-none"
@@ -256,7 +294,7 @@ export function LiveChatFab() {
             </div>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm">
+          <div className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm" aria-live="polite">
             {messages.map((m, i) => (
               <div key={i}>
                 <ChatBubble role={m.role} text={m.text} />
@@ -272,6 +310,20 @@ export function LiveChatFab() {
                         {a.label}
                       </button>
                     ))}
+                  </div>
+                ) : null}
+                {m.role === "ai" && m.response?.error_occurred && m.response.support_report_token ? (
+                  <div className="ml-8 mt-1.5">
+                    <button
+                      type="button"
+                      disabled={Boolean(reportedTokens[m.response.support_report_token])}
+                      onClick={() => void sendReport(m.response!.support_report_token!)}
+                      className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning-foreground transition hover:bg-warning/20 disabled:opacity-60"
+                    >
+                      {reportedTokens[m.response.support_report_token]
+                        ? `Reported (${reportedTokens[m.response.support_report_token]})`
+                        : "Send to Support"}
+                    </button>
                   </div>
                 ) : null}
                 {m.role === "ai" && m.response?.blocking_reason ? (

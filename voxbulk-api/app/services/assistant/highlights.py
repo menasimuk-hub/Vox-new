@@ -7,6 +7,7 @@ from app.schemas.assistant import (
     AssistantContextIn,
     AssistantNextAction,
     AssistantPendingAction,
+    AssistantUiCommand,
 )
 from app.schemas.dashboard import PlanOut, SubscriptionOut
 
@@ -32,22 +33,41 @@ def build_out(
     highlight_id: str | None = None,
     highlight_label: str | None = None,
     next_actions: list[AssistantNextAction] | None = None,
+    ui_commands: list[AssistantUiCommand] | None = None,
     blocking_reason: str | None = None,
     pending_action: AssistantPendingAction | None = None,
     policy_refused: bool = False,
+    error_occurred: bool = False,
+    support_report_token: str | None = None,
 ) -> AssistantChatOut:
+    resolved_ui = ui_commands or []
+    resolved_next = next_actions or []
+    if not resolved_next and resolved_ui:
+        for cmd in resolved_ui:
+            if cmd.kind in {"navigate", "open_panel"} and cmd.route:
+                resolved_next.append(
+                    AssistantNextAction(
+                        id=cmd.id,
+                        label=cmd.label,
+                        kind="open_panel" if cmd.kind == "open_panel" else "navigate",
+                        route=cmd.route,
+                    )
+                )
     return AssistantChatOut(
         ok=not policy_refused,
         primary_message=primary_message,
         highlight_type=highlight_type or "",
         highlight_id=highlight_id,
         highlight_label=highlight_label,
-        next_actions=next_actions or [],
+        next_actions=resolved_next,
+        ui_commands=resolved_ui,
         blocking_reason=blocking_reason,
         confidence=confidence,
         intent=intent,
         pending_action=pending_action,
         policy_refused=policy_refused,
+        error_occurred=error_occurred,
+        support_report_token=support_report_token,
     )
 
 

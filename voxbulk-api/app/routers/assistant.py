@@ -7,8 +7,9 @@ from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.core.dependencies import CurrentPrincipal, get_current_principal
 from app.models.user import User
-from app.schemas.assistant import AssistantChatIn, AssistantChatOut, AssistantConfirmIn
+from app.schemas.assistant import AssistantChatIn, AssistantChatOut, AssistantConfirmIn, AssistantReportSupportIn, AssistantReportSupportOut
 from app.services.assistant.orchestrator import AssistantOrchestrator
+from app.services.assistant.support_report_service import create_diagnostic_support_ticket
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
@@ -33,6 +34,20 @@ def customer_assistant_confirm(
         principal=principal,
         action_id=payload.action_id,
         confirmed=payload.confirmed,
+    )
+
+
+@router.post("/report-support", response_model=AssistantReportSupportOut)
+def customer_assistant_report_support(
+    payload: AssistantReportSupportIn,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+) -> AssistantReportSupportOut:
+    return create_diagnostic_support_ticket(
+        db,
+        org_id=principal.org_id,
+        user_id=principal.user_id,
+        support_report_token=payload.support_report_token,
     )
 
 

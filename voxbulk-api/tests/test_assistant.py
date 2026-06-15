@@ -157,3 +157,63 @@ def test_create_template_not_overridden_by_billing_state(app_client):
     assert "Package exhausted" not in out.primary_message
     assert "template" in out.primary_message.lower()
     assert any(a.route == "/surveys/new?channel=whatsapp" for a in out.next_actions)
+
+
+def test_registry_includes_all_intents_in_prompt():
+    from app.services.assistant.prompt_builder import build_classify_system_prompt
+    from app.services.assistant.service_registry import registry_intent_names
+
+    prompt = build_classify_system_prompt()
+    for name in registry_intent_names():
+        assert name in prompt
+
+
+def test_support_report_token_dedupe(app_client):
+    from app.core.database import get_sessionmaker
+    from app.services.assistant.support_report import issue_support_report_token
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    token = issue_support_report_token(
+        org_id=org.id,
+        user_id=user.id,
+        payload={"user_message": "test", "intent": "wallet_low", "error_code": "tool_failed"},
+    )
+
+    headers = {"Authorization": f"Bearer {_token_for(user, org)}"}
+    r1 = app_client.post("/assistant/report-support", json={"support_report_token": token}, headers=headers)
+    assert r1.status_code == 200
+    body1 = r1.json()
+    assert body1["ok"] is True
+    assert body1["ticket_ref"]
+
+    r2 = app_client.post("/assistant/report-support", json={"support_report_token": token}, headers=headers)
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["already_reported"] is True
+    assert body2["ticket_ref"] == body1["ticket_ref"]
+
+
+def test_llm_path_wallet_low_without_llm(app_client, monkeypatch):
+    from app.core.config import get_settings
+    from app.core.database import get_sessionmaker
+
+    monkeypatch.setenv("ASSISTANT_LLM_ENABLED", "true")
+    get_settings.cache_clear()
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    headers = {"Authorization": f"Bearer {_token_for(user, org)}"}
+    r = app_client.post("/assistant/chat", json={"message": "Why is my wallet so low?"}, headers=headers)
+    assert r.status_code == 200
+    out = r.json()
+    assert out["primary_message"]
+    assert "Traceback" not in out["primary_message"]
+
+
+def _token_for(user, org) -> str:
+    from app.core.security import create_access_token
+
+    return create_access_token(subject=str(user.id), org_id=str(org.id))

@@ -13,6 +13,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderDetailLink } from "@/lib/billing/usage-detail-link";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
+import { cn } from "@/lib/utils";
 import { usageServiceIcon } from "@/lib/billing/refund-timing";
 import { useBillingUsageBreakdown } from "@/lib/queries";
 
@@ -72,6 +74,7 @@ function AccountUsagePage() {
   const sortedRows = table.sortKey === "created_at" && table.sortDir === "desc" ? rows : table.sorted;
   const total = Number(breakdownQ.data?.total || rows.length);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const highlight = useAssistantHighlight().highlight;
 
   React.useEffect(() => {
     setPage(1);
@@ -199,7 +202,11 @@ function AccountUsagePage() {
                       const Icon = usageServiceIcon(row.service_code);
                       const name = row.name || "Untitled campaign";
                       return (
-                        <TableRow key={row.order_id}>
+                        <TableRow
+                          key={row.order_id}
+                          data-assistant-highlight={row.order_id}
+                          className={cn(assistantHighlightClass(row.order_id, highlight))}
+                        >
                           <TableCell className="font-mono text-xs">{row.campaign_id || row.order_id.slice(0, 8)}</TableCell>
                           <TableCell className="max-w-[220px]">
                             {link ? (

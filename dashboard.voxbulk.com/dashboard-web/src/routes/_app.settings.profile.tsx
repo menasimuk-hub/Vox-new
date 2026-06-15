@@ -31,6 +31,8 @@ import {
   useUploadOrgLogo,
 } from "@/lib/queries";
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
+import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
+import { cn } from "@/lib/utils";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 
 export const Route = createFileRoute("/_app/settings/profile")({
@@ -59,6 +61,8 @@ function ProfileSettings() {
   const cancelDeletionM = useCancelAccountDeletion();
   const deletionStatus = deletionQ.data?.deletion_status || "active";
   const logoPreview = useOrgLogoPreview(orgQ.data?.logo_url);
+  const highlight = useAssistantHighlight().highlight;
+  const profileHighlightId = orgQ.data?.id || "profile-settings";
 
   React.useEffect(() => {
     const org = orgQ.data;
@@ -153,7 +157,10 @@ function ProfileSettings() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader eyebrow="Settings" title="Profile" description="Company branding, caller ID, and revenue values for ROI." />
 
-      <Card>
+      <Card
+        data-assistant-highlight={profileHighlightId}
+        className={cn(assistantHighlightClass(profileHighlightId, highlight))}
+      >
         <CardHeader><CardTitle>Company</CardTitle></CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {orgQ.isLoading ? (

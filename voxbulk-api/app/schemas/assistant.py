@@ -17,6 +17,7 @@ AssistantHighlightType = Literal[
 ]
 
 AssistantNextActionKind = Literal["navigate", "confirm", "open_panel"]
+AssistantUiCommandKind = Literal["navigate", "highlight", "scroll_to", "open_panel"]
 
 
 class AssistantHistoryItem(BaseModel):
@@ -53,6 +54,16 @@ class AssistantNextAction(BaseModel):
     action_id: str | None = None
 
 
+class AssistantUiCommand(BaseModel):
+    id: str
+    kind: AssistantUiCommandKind = "navigate"
+    route: str | None = None
+    label: str
+    highlight_type: AssistantHighlightType = ""
+    highlight_id: str | None = None
+    highlight_label: str | None = None
+
+
 class AssistantPendingAction(BaseModel):
     action_id: str
     action_type: str
@@ -68,8 +79,22 @@ class AssistantChatOut(BaseModel):
     highlight_id: str | None = None
     highlight_label: str | None = None
     next_actions: list[AssistantNextAction] = Field(default_factory=list)
+    ui_commands: list[AssistantUiCommand] = Field(default_factory=list)
     blocking_reason: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=0.85)
     intent: str | None = None
     pending_action: AssistantPendingAction | None = None
     policy_refused: bool = False
+    error_occurred: bool = False
+    support_report_token: str | None = None
+
+
+class AssistantReportSupportIn(BaseModel):
+    support_report_token: str = Field(min_length=8, max_length=8192)
+
+
+class AssistantReportSupportOut(BaseModel):
+    ok: bool = True
+    message: str
+    ticket_ref: str | None = None
+    already_reported: bool = False
