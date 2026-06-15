@@ -101,6 +101,8 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     )
 
     feedback_block: dict | None = None
+    feedback_parts: list[dict] = []
+
     if visible.get("customer_feedback"):
         from app.models.customer_feedback import FeedbackLocation, FeedbackResponse, FeedbackSession
         from app.services.customer_feedback.feedback_answer_service import POOR_ANSWERS
@@ -172,13 +174,46 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
                     }
                 )
 
-        feedback_block = {
+        feedback_parts.append(
+            {
             "qr_scans_today": int(scans_today),
             "total_scans": sum(int(loc.scan_count or 0) for loc in locations),
             "sentiment": sentiment,
             "unhappy": unhappy,
             "recent": recent,
+            }
+        )
+
+    if visible.get("surveys"):
+        from app.services.survey_results_service import survey_home_feedback_snapshot
+
+        feedback_parts.append(survey_home_feedback_snapshot(db, org_id=principal.org_id))
+
+    if feedback_parts:
+        feedback_block = {
+            "qr_scans_today": 0,
+            "total_scans": 0,
+            "sentiment": {"excellent": 0, "good": 0, "poor": 0},
+            "unhappy": [],
+            "recent": [],
         }
+        for part in feedback_parts:
+            feedback_block["qr_scans_today"] += int(part.get("qr_scans_today") or 0)
+            feedback_block["total_scans"] += int(part.get("total_scans") or 0)
+            for key in ("excellent", "good", "poor"):
+                feedback_block["sentiment"][key] += int((part.get("sentiment") or {}).get(key) or 0)
+            feedback_block["unhappy"].extend(part.get("unhappy") or [])
+            feedback_block["recent"].extend(part.get("recent") or [])
+        feedback_block["unhappy"] = sorted(
+            feedback_block["unhappy"],
+            key=lambda row: row.get("when") or "",
+            reverse=True,
+        )[:6]
+        feedback_block["recent"] = sorted(
+            feedback_block["recent"],
+            key=lambda row: row.get("when") or "",
+            reverse=True,
+        )[:8]
 
     return {
         "enabled_services": visible,

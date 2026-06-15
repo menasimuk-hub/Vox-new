@@ -282,11 +282,11 @@ function SentimentCard({ summary }: { summary?: HomeSummary }) {
     <Card>
       <CardHeader>
         <CardTitle>Customer sentiment</CardTitle>
-        <CardDescription>Across feedback responses</CardDescription>
+        <CardDescription>Across survey and feedback responses</CardDescription>
       </CardHeader>
       <CardContent>
         {totalSent === 0 ? (
-          <p className="py-10 text-center text-xs text-muted-foreground">No sentiment data yet. QR feedback responses will appear here.</p>
+          <p className="py-10 text-center text-xs text-muted-foreground">No sentiment data yet. Survey and feedback responses will appear here.</p>
         ) : (
           <>
             <div className="relative h-44">

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -1163,3 +1164,138 @@ class SurveyResultsService:
         if not is_ai_call_survey_order(order) and not is_whatsapp_survey_order(order):
             raise ValueError("Survey results are available for AI-call or WhatsApp surveys only")
         return {"ok": True, "recipient": recipient_detail_payload(recipient)}
+
+
+def _survey_recipient_when(recipient: ServiceOrderRecipient) -> datetime | None:
+    result = _recipient_result(recipient)
+    for key in ("completed_at", "call_completed_at", "updated_at", "analysis_saved_at"):
+        raw = result.get(key)
+        if not raw:
+            continue
+        try:
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return recipient.updated_at or recipient.created_at
+
+
+def survey_home_feedback_snapshot(
+    db: Session,
+    *,
+    org_id: str,
+    limit_recent: int = 8,
+    limit_unhappy: int = 6,
+) -> dict[str, Any]:
+    """Aggregate survey respondents for dashboard home (sentiment, follow-up, activity)."""
+    from sqlalchemy import select
+
+    from app.models.service_order import ServiceOrder
+    from app.services.platform_catalog_service import PlatformCatalogService
+
+    sentiment = {"excellent": 0, "good": 0, "poor": 0}
+    unhappy: list[dict[str, Any]] = []
+    recent_candidates: list[tuple[datetime, dict[str, Any]]] = []
+
+    orders = list(
+        db.execute(
+            select(ServiceOrder).where(
+                ServiceOrder.org_id == org_id,
+                ServiceOrder.service_code == "survey",
+            )
+        ).scalars()
+    )
+
+    def _classify(recipient: ServiceOrderRecipient) -> str | None:
+        result = _recipient_result(recipient)
+        wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+        label = _rating_label_from_answers(wa_conv.get("answers") or [])
+        if label == "Excellent":
+            return "excellent"
+        if label == "Good":
+            return "good"
+        if label == "Poor":
+            return "poor"
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        sat = str(analysis.get("sentiment") or result.get("sentiment") or "").lower()
+        if sat == "negative":
+            return "poor"
+        if sat == "positive":
+            return "excellent"
+        for item in analysis.get("extracted_answers") or result.get("extracted_answers") or []:
+            if not isinstance(item, dict):
+                continue
+            ans = str(item.get("answer") or item.get("value") or "").lower()
+            if ans == "excellent":
+                return "excellent"
+            if ans == "good":
+                return "good"
+            if ans == "bad":
+                return "poor"
+        if str(recipient.status or "").lower() == "completed":
+            return "good"
+        return None
+
+    for order in orders:
+        try:
+            cfg = json.loads(order.config_json or "{}")
+        except json.JSONDecodeError:
+            cfg = {}
+        channel = PlatformCatalogService.resolve_survey_channel(cfg)
+        channel_label = "WhatsApp survey" if channel == "whatsapp" else "AI call survey"
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        for recipient in recipients:
+            if str(recipient.status or "").lower() != "completed":
+                continue
+            bucket = _classify(recipient)
+            if bucket:
+                sentiment[bucket] += 1
+            when_dt = _survey_recipient_when(recipient)
+            when_iso = when_dt.isoformat() if when_dt else None
+            result = _recipient_result(recipient)
+            analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+            chip = (
+                _rating_label_from_answers(
+                    (result.get("wa_conversation") or {}).get("answers") if isinstance(result.get("wa_conversation"), dict) else []
+                )
+                or str(analysis.get("sentiment") or "Response").title()
+            )
+            tone = "bad" if _is_unhappy_respondent(recipient) else "ok" if bucket in {"excellent", "good"} else "info"
+            if _derive_needs_follow_up(recipient) or _is_unhappy_respondent(recipient):
+                issue = ""
+                for item in analysis.get("issues") or result.get("issues") or []:
+                    issue = str(item).strip()
+                    if issue:
+                        break
+                if not issue:
+                    issue = "Negative survey response — follow up required"
+                unhappy.append(
+                    {
+                        "id": f"{order.id}:{recipient.id}",
+                        "reason": issue[:120],
+                        "branch": order.title or channel_label,
+                        "when": when_iso,
+                    }
+                )
+            recent_candidates.append(
+                (
+                    when_dt or datetime.utcnow(),
+                    {
+                        "svc": "surveys",
+                        "who": recipient.name or "Member",
+                        "what": f"completed {channel_label.lower()}",
+                        "chip": chip[:24],
+                        "tone": tone,
+                        "when": when_iso,
+                    },
+                )
+            )
+
+    unhappy.sort(key=lambda row: row.get("when") or "", reverse=True)
+    recent_candidates.sort(key=lambda pair: pair[0], reverse=True)
+    return {
+        "qr_scans_today": 0,
+        "total_scans": sum(sentiment.values()),
+        "sentiment": sentiment,
+        "unhappy": unhappy[:limit_unhappy],
+        "recent": [item for _, item in recent_candidates[:limit_recent]],
+    }
