@@ -94,12 +94,16 @@ def main() -> int:
     total_items = sum(r.get("items", 0) for r in results)
     total_cats = sum(r.get("categories", 0) for r in results)
     total_offers = sum(r.get("offers", 0) for r in results)
+    errors = [r for r in results if r.get("error")]
     print(f"Seeded {len(results)} restaurant(s): +{total_cats} categories, +{total_items} new items, +{total_offers} new offers")
     for row in results:
-        print(
-            f"  {row['restaurant_id']}: categories={row['categories']} items={row['items']} offers={row['offers']}"
-        )
-    return 0
+        if row.get("error"):
+            print(f"  {row['restaurant_id']}: ERROR — {row['error']}")
+        else:
+            print(
+                f"  {row['restaurant_id']}: categories={row['categories']} items={row['items']} offers={row['offers']}"
+            )
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

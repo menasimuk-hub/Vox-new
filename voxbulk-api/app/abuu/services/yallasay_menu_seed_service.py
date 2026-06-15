@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -12,17 +13,28 @@ from sqlalchemy.orm import Session
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
 from app.abuu.services.yallasay_menu_catalog import YALLASAY_FULL_MENU, YALLASAY_OFFER_TEMPLATES
 
+# UUID namespace for deterministic 36-char ids (abuu id columns are String(36)).
+_YALLASAY_NS = uuid.UUID("a3b8c2e1-7f4d-4e9a-b2c1-8d6e5f4a3b2c")
+_MAX_ID_LEN = 36
+
+
+def _stable_id(kind: str, restaurant_id: str, key: str) -> str:
+    value = str(uuid.uuid5(_YALLASAY_NS, f"yallasay:{kind}:{restaurant_id}:{key}"))
+    if len(value) > _MAX_ID_LEN:
+        raise ValueError(f"Generated id too long: {value}")
+    return value
+
 
 def _cat_id(restaurant_id: str, cat_key: str) -> str:
-    return f"yls-{restaurant_id}-cat-{cat_key}"
+    return _stable_id("cat", restaurant_id, cat_key)
 
 
 def _item_id(restaurant_id: str, item_key: str) -> str:
-    return f"yls-{restaurant_id}-item-{item_key}"
+    return _stable_id("item", restaurant_id, item_key)
 
 
 def _offer_id(restaurant_id: str, offer_key: str) -> str:
-    return f"yls-{restaurant_id}-offer-{offer_key}"
+    return _stable_id("offer", restaurant_id, offer_key)
 
 
 class YallasayMenuSeedService:
@@ -195,7 +207,19 @@ class YallasayMenuSeedService:
             )
         results: list[dict[str, int]] = []
         for rid in ids:
-            results.append(
-                YallasayMenuSeedService.seed_restaurant(db, rid, with_offers=with_offers)
-            )
+            try:
+                row = YallasayMenuSeedService.seed_restaurant(db, rid, with_offers=with_offers)
+                db.commit()
+                results.append(row)
+            except Exception as exc:
+                db.rollback()
+                results.append(
+                    {
+                        "restaurant_id": rid,
+                        "categories": 0,
+                        "items": 0,
+                        "offers": 0,
+                        "error": str(exc),
+                    }
+                )
         return results

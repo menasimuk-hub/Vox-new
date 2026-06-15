@@ -207,9 +207,10 @@ class AbuuInboundService:
                 abuu_db.commit()
                 return {"handled": False, "reason": "not_abuu"}
 
-            if message_type == "voice" and get_settings().abuu_agent_enabled and text:
-                AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
-                result = AbuuAgentLoop.run(
+            if message_type == "voice" and text:
+                if AbuuInboundService._should_use_voice_agent(main_db):
+                    AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
+                    result = AbuuAgentLoop.run(
                     abuu_db,
                     main_db,
                     phone=phone,
@@ -829,6 +830,11 @@ class AbuuInboundService:
         if step in {"awaiting_name", "awaiting_preference", "browsing", "awaiting_delivery", "awaiting_substitution"}:
             return True
         return False
+
+    @staticmethod
+    def _should_use_voice_agent(main_db: Session) -> bool:
+        """Voice notes use the LLM agent whenever DeepSeek is configured."""
+        return _deepseek_platform_ready(main_db)
 
     @staticmethod
     def _should_use_agent_text_flow(main_db: Session, text: str, session) -> bool:
