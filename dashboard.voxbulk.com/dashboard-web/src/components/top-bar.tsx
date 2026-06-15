@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu, Building2, Check, ChevronsUpDown } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -10,7 +10,7 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
+import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport, useMyOrganisations, useSwitchOrganisation } from "@/lib/queries";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
@@ -34,6 +34,45 @@ function SidebarToggle() {
       <Menu className="size-4" />
       <span className="sr-only">Toggle sidebar</span>
     </button>
+  );
+}
+
+function OrgSwitcher() {
+  const { session } = useSession();
+  const orgsQ = useMyOrganisations();
+  const switchM = useSwitchOrganisation();
+  const orgs = orgsQ.data?.organisations ?? [];
+  const activeId = orgsQ.data?.active_org_id || session?.org?.id;
+  const active = orgs.find((o) => o.org_id === activeId);
+
+  if (orgs.length < 2) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="hidden h-8 max-w-[200px] gap-1.5 sm:inline-flex">
+          <Building2 className="size-3.5 shrink-0" />
+          <span className="truncate">{active?.name || session?.org?.name || "Company"}</span>
+          <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Switch company</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {orgs.map((org) => (
+          <DropdownMenuItem
+            key={org.org_id}
+            disabled={switchM.isPending || org.org_id === activeId}
+            onClick={() => {
+              if (org.org_id !== activeId) switchM.mutate(org.org_id);
+            }}
+          >
+            <span className="flex-1 truncate">{org.name}</span>
+            {org.org_id === activeId ? <Check className="size-4 text-primary" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -76,6 +115,7 @@ export function TopBar() {
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
         <NotificationsBell />
+        <OrgSwitcher />
         <div className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">{avatar}</div>
       </div>
     </header>

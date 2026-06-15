@@ -23,6 +23,7 @@ import { useServices, type ServiceKey } from "@/lib/services";
 import { logoutDashboard } from "@/lib/api";
 import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
+import { canAccessBilling } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useOrganisation } from "@/lib/queries";
 
@@ -125,8 +126,10 @@ export function AppSidebar() {
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
+  const role = session?.profile?.role;
 
   const visibleGroups = groups.filter((g) => {
+    if (g.key === "account" && !canAccessBilling(role)) return false;
     if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
     if (!loaded) return false;
     if (!showRecoveryModules && isRecoveryServiceKey(g.key)) return false;
@@ -144,21 +147,35 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter>
-        <Link
-          to="/account/billing"
-          onClick={closeMobile}
-          className="flex items-center gap-3 rounded-lg bg-sidebar-accent/70 p-2.5 text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1"
-        >
-          {orgLogo ? (
-            <img src={orgLogo} alt="" className="size-9 shrink-0 rounded-full object-cover bg-white ring-1 ring-sidebar-border" />
-          ) : (
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">{avatar}</div>
-          )}
-          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-medium leading-tight">{orgName}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{planName}</p>
+        {canAccessBilling(role) ? (
+          <Link
+            to="/account/billing"
+            onClick={closeMobile}
+            className="flex items-center gap-3 rounded-lg bg-sidebar-accent/70 p-2.5 text-sidebar-accent-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1"
+          >
+            {orgLogo ? (
+              <img src={orgLogo} alt="" className="size-9 shrink-0 rounded-full object-cover bg-white ring-1 ring-sidebar-border" />
+            ) : (
+              <div className="grid size-9 shrink-0 place-items-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">{avatar}</div>
+            )}
+            <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-sm font-medium leading-tight">{orgName}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{planName}</p>
+            </div>
+          </Link>
+        ) : (
+          <div className="flex items-center gap-3 rounded-lg p-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1">
+            {orgLogo ? (
+              <img src={orgLogo} alt="" className="size-9 shrink-0 rounded-full object-cover bg-white ring-1 ring-sidebar-border" />
+            ) : (
+              <div className="grid size-9 shrink-0 place-items-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">{avatar}</div>
+            )}
+            <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-sm font-medium leading-tight">{orgName}</p>
+              <p className="truncate text-[11px] text-muted-foreground capitalize">{role || "member"}</p>
+            </div>
           </div>
-        </Link>
+        )}
         <button
           type="button"
           onClick={() => logoutDashboard()}

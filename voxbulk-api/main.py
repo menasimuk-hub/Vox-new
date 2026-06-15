@@ -72,6 +72,7 @@ from app.services.survey_call_dispatch_service import survey_call_scheduler_loop
 from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
 from app.services.interview_ats_scheduler import interview_ats_scheduler_loop
 from app.services.uk_compliance_retention_service import uk_compliance_retention_scheduler_loop
+from app.services.weekly_digest_scheduler import weekly_digest_scheduler_loop
 
 
 LOCAL_ADMIN_EMAIL = os.getenv("LOCAL_ADMIN_EMAIL", "zaghlolno@gmail.com").strip().lower()
@@ -285,6 +286,7 @@ async def lifespan(app: FastAPI):
     career_mailbox_task = asyncio.create_task(career_mailbox_scheduler_loop(stop_event))
     ats_scheduler_task = asyncio.create_task(interview_ats_scheduler_loop(stop_event))
     uk_retention_task = asyncio.create_task(uk_compliance_retention_scheduler_loop())
+    weekly_digest_task = asyncio.create_task(weekly_digest_scheduler_loop(stop_event))
     yield
     stop_event.set()
     scheduler_task.cancel()
@@ -293,6 +295,7 @@ async def lifespan(app: FastAPI):
     career_mailbox_task.cancel()
     ats_scheduler_task.cancel()
     uk_retention_task.cancel()
+    weekly_digest_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -315,6 +318,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await uk_retention_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await weekly_digest_task
     except asyncio.CancelledError:
         pass
     logger.info("app_stopped", extra={"env": settings.env, "app_name": settings.app_name})

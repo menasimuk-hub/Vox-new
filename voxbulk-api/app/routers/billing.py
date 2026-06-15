@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_principal
+from app.core.dependencies import require_billing_access
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
 from app.schemas.dashboard import (
@@ -46,7 +46,7 @@ def get_public_pricing(
     currency: str = "auto",
     market: str = "auto",
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.billing_currency import SUPPORTED_CURRENCIES, resolve_org_currency
@@ -74,7 +74,7 @@ def get_public_pricing_anonymous(currency: str = "GBP", market: str = "", db: Se
 
 
 @router.get("/wallet")
-def get_wallet(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_wallet(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.models.organisation import Organisation
     from app.services.wallet_service import WalletService
 
@@ -88,7 +88,7 @@ def get_wallet(db: Session = Depends(get_db), principal=Depends(get_current_prin
 def list_wallet_transactions(
     limit: int = 100,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.wallet_service import WalletService
 
@@ -97,7 +97,7 @@ def list_wallet_transactions(
 
 
 @router.get("/wallet/topup/options")
-def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     """Enabled card processors and suggested top-up amounts for the org currency."""
     from app.models.organisation import Organisation
     from app.services.airwallex_payment_service import AirwallexPaymentService
@@ -134,7 +134,7 @@ def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(get_cu
 def wallet_topup_intent(
     payload: dict,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Create a Stripe/Airwallex PaymentIntent for a wallet top-up."""
     from app.models.organisation import Organisation
@@ -175,7 +175,7 @@ def wallet_topup_intent(
 def wallet_topup_confirm(
     payload: dict,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Server-side verification of a completed top-up payment; credits the wallet once."""
     from app.models.organisation import Organisation
@@ -215,7 +215,7 @@ def wallet_topup_confirm(
 def wallet_topup_legacy_removed(
     _payload: dict,
     _db: Session = Depends(get_db),
-    _principal=Depends(get_current_principal),
+    _principal=Depends(require_billing_access),
 ):
     """Removed — wallet top-up must go through Stripe/Airwallex card payment."""
     raise HTTPException(
@@ -232,7 +232,7 @@ def get_payment_options(db: Session = Depends(get_db)):
 @router.post("/subscription/pay-as-you-go")
 def switch_subscription_to_pay_as_you_go(
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Switch to the zero-fee pay-as-you-go plan (wallet top-ups only)."""
     try:
@@ -251,7 +251,7 @@ def switch_subscription_to_pay_as_you_go(
 def change_subscription_plan(
     payload: CashPlanSelectIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Request a plan change via cash/testing — awaits admin approval before activation."""
     try:
@@ -282,7 +282,7 @@ def change_subscription_plan(
 
 
 @router.get("/subscription", response_model=SubscriptionWithPlanOut)
-def get_my_subscription(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_my_subscription(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     BillingService.ensure_default_plans(db)
     sub = BillingService.repair_subscription_plan_id(db, principal.org_id)
     if sub is None:
@@ -309,7 +309,7 @@ def get_my_subscription(db: Session = Depends(get_db), principal=Depends(get_cur
 @router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
 def get_subscription_cancellation(
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.subscription_cancellation_service import SubscriptionCancellationService
@@ -328,7 +328,7 @@ def get_subscription_cancellation(
 def request_subscription_cancellation(
     payload: SubscriptionCancellationRequestIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.subscription_cancellation_service import (
         SubscriptionCancellationError,
@@ -352,7 +352,7 @@ def request_subscription_cancellation(
 @router.post("/subscription/cancellation/reverse", response_model=SubscriptionCancellationOut)
 def reverse_subscription_cancellation(
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.subscription_cancellation_service import (
         SubscriptionCancellationError,
@@ -375,7 +375,7 @@ def reverse_subscription_cancellation(
 def set_customer_overage(
     payload: dict,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.org_audit_service import OrgAuditService
@@ -407,7 +407,7 @@ def set_customer_overage(
 def test_cash_subscription_change(
     payload: CashPlanSelectIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """
     Dev/testing only: record subscription change as paid (cash/manual) and auto-approve it.
@@ -436,7 +436,7 @@ def test_cash_subscription_change(
 def legacy_cash_subscription_change(
     payload: CashPlanSelectIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Backward-compatible alias for local tools. Still blocked unless test cash billing is enabled."""
     return test_cash_subscription_change(payload=payload, db=db, principal=principal)
@@ -446,7 +446,7 @@ def legacy_cash_subscription_change(
 def start_gocardless_checkout(
     payload: CashPlanSelectIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """
     Start a sandbox/live GoCardless hosted redirect flow for the selected package.
@@ -479,7 +479,7 @@ def start_gocardless_checkout(
 def complete_gocardless_checkout(
     payload: BillingRedirectCompleteIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Complete the GoCardless redirect flow and create the provider subscription."""
     try:
@@ -510,7 +510,7 @@ def complete_gocardless_checkout(
 @router.post("/subscription/gocardless/mandate/start")
 def start_gocardless_mandate_update(
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Start GoCardless hosted flow to replace the org's Direct Debit mandate."""
     try:
@@ -538,7 +538,7 @@ def start_gocardless_mandate_update(
 def complete_gocardless_mandate_update(
     payload: BillingRedirectCompleteIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     """Complete mandate update redirect flow and apply the new mandate."""
     try:
@@ -608,7 +608,7 @@ def gocardless_browser_return(
 
 
 @router.get("/usage-summary")
-def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.models.organisation import Organisation
     from app.services.org_service_credit_service import OrgServiceCreditService
 
@@ -855,7 +855,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(get_curre
 
 
 @router.get("/access")
-def get_billing_access(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_billing_access(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.models.organisation import Organisation
     from app.services.billing_access_service import BillingAccessService
 
@@ -884,7 +884,7 @@ def get_usage_breakdown(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from datetime import datetime
 
@@ -921,7 +921,7 @@ def get_usage_breakdown(
 def get_usage_breakdown_row(
     order_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.billing_usage_breakdown_service import BillingUsageBreakdownService
 
@@ -936,7 +936,7 @@ def list_my_billing_requests(
     status: str | None = None,
     limit: int = 50,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.subscription_cancellation_service import SubscriptionCancellationService
 
@@ -954,7 +954,7 @@ def list_my_billing_requests(
 def list_my_invoices(
     limit: int = 50,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.invoice_service import InvoiceService
 
@@ -966,7 +966,7 @@ def list_my_invoices(
 def list_outstanding_invoices(
     limit: int = 50,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.invoice_payment_service import InvoicePaymentService
     from app.services.invoice_service import InvoiceService
@@ -985,7 +985,7 @@ def list_outstanding_invoices(
 def get_my_invoice(
     invoice_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.services.invoice_service import InvoiceService
 
@@ -999,7 +999,7 @@ def get_my_invoice(
 def get_invoice_payment_options(
     invoice_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.invoice_payment_service import InvoicePaymentService
@@ -1019,7 +1019,7 @@ def pay_my_invoice(
     invoice_id: str,
     payload: dict,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
@@ -1042,7 +1042,7 @@ def pay_my_invoice(
 def invoice_card_payment_intent(
     invoice_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
@@ -1065,7 +1065,7 @@ def invoice_card_payment_confirm(
     invoice_id: str,
     payload: dict,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from app.models.organisation import Organisation
     from app.services.invoice_payment_service import InvoicePaymentError, InvoicePaymentService
@@ -1090,7 +1090,7 @@ def invoice_card_payment_confirm(
 def get_my_invoice_html(
     invoice_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from fastapi.responses import HTMLResponse
 
@@ -1107,7 +1107,7 @@ def get_my_invoice_html(
 def get_my_invoice_pdf(
     invoice_id: str,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     from fastapi.responses import Response
 

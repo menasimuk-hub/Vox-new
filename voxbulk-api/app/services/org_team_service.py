@@ -165,18 +165,12 @@ class OrgTeamService:
         email_sent = False
         if send_email:
             try:
-                email_sent, _ = ProductEmailTriggers.notify_general(
+                email_sent, _ = ProductEmailTriggers.send_team_invite(
                     db,
                     to_email=em,
-                    extra_variables={
-                        "organisation_name": org.name or "your organisation",
-                        "invite_role": role_norm,
-                        "signup_url": signup_url,
-                        "message": (
-                            f"You have been invited to join {org.name or 'a VoxBulk organisation'} "
-                            f"as {role_norm}. Open this link to create your account: {signup_url}"
-                        ),
-                    },
+                    organisation_name=org.name or "your organisation",
+                    invite_role=role_norm,
+                    signup_url=signup_url,
                 )
             except Exception:
                 email_sent = False
@@ -219,6 +213,9 @@ class OrgTeamService:
         ).scalar_one_or_none()
         if mem is None:
             return False
+        from app.services.org_rbac import OrgRbacService
+
+        OrgRbacService.assert_can_remove_member(db, org_id=org_id, target_user_id=user_id)
         user = db.get(User, user_id)
         if user and user.is_superuser:
             raise ValueError("Cannot remove platform superuser")

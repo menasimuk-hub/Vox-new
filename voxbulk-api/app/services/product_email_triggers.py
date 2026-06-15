@@ -178,3 +178,47 @@ class ProductEmailTriggers:
         return TransactionalEmailService.send_templated_optional(
             db, template_key="general_notification", to_email=em, variables=vars_
         )
+
+    @staticmethod
+    def send_team_invite(
+        db: Session,
+        *,
+        to_email: str,
+        organisation_name: str,
+        invite_role: str,
+        signup_url: str,
+    ) -> tuple[bool, str | None]:
+        em = (to_email or "").strip().lower()
+        if not em:
+            return False, "missing_recipient"
+        local = em.split("@")[0] if "@" in em else "there"
+        settings = get_settings()
+        dashboard_url = str(settings.dashboard_app_origin or "https://dashboard.voxbulk.com").rstrip("/")
+        vars_: dict[str, str] = {
+            "user_email": em,
+            "user_name": local,
+            "first_name": local,
+            "organisation_name": organisation_name or "",
+            "invite_role": invite_role or "member",
+            "signup_url": signup_url,
+            "dashboard_url": dashboard_url,
+        }
+        return TransactionalEmailService.send_templated_optional(
+            db, template_key="team_invite", to_email=em, variables=vars_
+        )
+
+    @staticmethod
+    def send_weekly_digest(
+        db: Session,
+        *,
+        to_email: str,
+        variables: dict[str, str],
+    ) -> tuple[bool, str | None]:
+        em = (to_email or "").strip().lower()
+        if not em:
+            return False, "missing_recipient"
+        vars_ = dict(variables)
+        vars_.setdefault("user_email", em)
+        return TransactionalEmailService.send_templated_optional(
+            db, template_key="weekly_digest", to_email=em, variables=vars_
+        )

@@ -18,9 +18,21 @@ def email_logo_html(*, href: str = "https://voxbulk.com", width: int = 140) -> s
     )
 
 
-def wrap_brand_email(*, title: str, inner_html: str, footer: str = "Sent by VOXBULK · careers@voxbulk.com") -> str:
+def wrap_brand_email(
+    *,
+    title: str,
+    inner_html: str,
+    footer: str = "Sent by VOXBULK · careers@voxbulk.com",
+    badge: str | None = None,
+) -> str:
     logo = email_logo_html()
     c = BRAND_COLORS
+    badge_html = ""
+    if badge:
+        badge_html = (
+            f'<span style="float:right;font-size:11px;font-weight:600;letter-spacing:0.06em;'
+            f'text-transform:uppercase;color:{c["ink_muted"]};padding-top:4px;">{badge}</span>'
+        )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,6 +48,7 @@ def wrap_brand_email(*, title: str, inner_html: str, footer: str = "Sent by VOXB
           <tr>
             <td style="padding:24px 28px 12px;border-bottom:1px solid {c['border']};">
               {logo}
+              {badge_html}
             </td>
           </tr>
           <tr>

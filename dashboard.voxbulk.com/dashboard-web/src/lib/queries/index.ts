@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch, apiUploadFiles } from "@/lib/api";
+import { writeSessionToStorage } from "@/lib/session-storage";
 import {
   BILLING_CHECK_TIMEOUT_MS,
   launchEligibilityLogPayload,
@@ -36,6 +37,7 @@ export const queryKeys = {
   billingInvoices: ["billing", "invoices"] as const,
   billingAccess: ["billing", "access"] as const,
   organisation: ["organisations", "me"] as const,
+  myOrganisations: ["auth", "my-organisations"] as const,
   interviewReports: (period: string) => ["service-orders", "interview-reports", period] as const,
   interviewResults: (orderId: string) => ["service-orders", orderId, "interview-results"] as const,
   surveyResults: (orderId: string) => ["service-orders", orderId, "survey-results"] as const,
@@ -901,6 +903,38 @@ export function useOrganisation() {
     queryKey: queryKeys.organisation,
     queryFn: () => apiFetch<Organisation>("/organisations/me"),
     staleTime: 1000 * 60 * 5, // Org data fresh for 5 minutes
+  });
+}
+
+export type MyOrganisationRow = {
+  org_id: string;
+  name: string;
+  role: string;
+  is_owner: boolean;
+};
+
+export function useMyOrganisations() {
+  return useQuery({
+    queryKey: queryKeys.myOrganisations,
+    queryFn: () =>
+      apiFetch<{ organisations: MyOrganisationRow[]; active_org_id: string }>("/auth/my-organisations"),
+    staleTime: 1000 * 60,
+  });
+}
+
+export function useSwitchOrganisation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string) =>
+      apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/switch-organisation", {
+        method: "POST",
+        body: JSON.stringify({ org_id: orgId }),
+      }),
+    onSuccess: (data) => {
+      writeSessionToStorage(data.access_token, data.org_id, data.user_id);
+      qc.clear();
+      window.location.href = "/";
+    },
   });
 }
 

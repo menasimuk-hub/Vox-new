@@ -26,6 +26,8 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "invoice_document",
     "payment_failed",
     "general_notification",
+    "team_invite",
+    "weekly_digest",
     "sales_offer",
     "usage_warning",
     "usage_warning_100",
@@ -184,6 +186,23 @@ class EmailTemplateService:
                 and default_body
                 and "#0f766e" in body.lower()
             )
+            needs_general_notification_refresh = (
+                key == "general_notification"
+                and default_body
+                and (
+                    "{{practice_name}}" in body
+                    or "{{digest_" in body
+                    or "{{#if" in body
+                    or "{{/if}}" in body
+                    or "digest_greeting" in body
+                )
+            )
+            needs_unthemed_refresh = (
+                key in {"payment_failed", "usage_warning", "usage_warning_100", "payment_receipt"}
+                and default_body
+                and "<!DOCTYPE html><html><body" in body
+                and "wrap_brand_email" not in body
+            )
             if default_body and key.startswith("interview_") and (
                 "data:image" in body
                 or ("data:" in body and "base64" in body)
@@ -204,6 +223,13 @@ class EmailTemplateService:
                 db.add(row)
                 changed = True
             elif needs_new_invoice_refresh:
+                row.body = default_body
+                if default_subject:
+                    row.subject = default_subject
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                changed = True
+            elif needs_general_notification_refresh or needs_unthemed_refresh:
                 row.body = default_body
                 if default_subject:
                     row.subject = default_subject

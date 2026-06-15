@@ -1,0 +1,152 @@
+"""Org RBAC, multi-org login, team invite email."""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+
+from app.core.security import hash_password
+from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
+from app.models.membership import OrganisationMembership
+from app.models.organisation import Organisation
+from app.models.user import User
+from app.services.email_template_service import EMAIL_TEMPLATE_KEYS
+from app.services.org_rbac import OrgRbacService
+
+
+def test_team_invite_and_org_switch_flow(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Acme Dental")
+        db.add(org)
+        db.flush()
+        owner = User(email="owner_rbac@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.commit()
+        org_id = org.id
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "owner_rbac@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {owner_tok}"}
+
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers=headers,
+        json={"email": "accountant_rbac@example.com", "role": "accountant"},
+    )
+    assert inv.status_code == 200
+    token = inv.json()["signup_url"].split("invite_token=")[-1]
+
+    acc = app_client.post("/auth/accept-invite", json={"token": token, "password": "pass1234"})
+    assert acc.status_code == 200
+    assert acc.json()["org_id"] == org_id
+
+    with get_sessionmaker()() as db:
+        org2 = Organisation(name="Side Practice")
+        db.add(org2)
+        db.flush()
+        owner = db.execute(select(User).where(User.email == "owner_rbac@example.com")).scalar_one()
+        db.add(OrganisationMembership(org_id=org2.id, user_id=owner.id, role="owner"))
+        db.commit()
+
+    pick = app_client.post("/auth/token", data={"username": "owner_rbac@example.com", "password": "pass123"})
+    assert pick.status_code == 200
+    body = pick.json()
+    assert body.get("org_selection_required") is True
+    assert len(body.get("organisations") or []) == 2
+
+    login_org = app_client.post(
+        "/auth/token",
+        data={"username": "owner_rbac@example.com", "password": "pass123", "org_id": org_id},
+    )
+    assert login_org.status_code == 200
+    acct_tok = login_org.json()["access_token"]
+
+    listed = app_client.get("/auth/my-organisations", headers={"Authorization": f"Bearer {acct_tok}"})
+    assert listed.status_code == 200
+    assert listed.json()["active_org_id"] == org_id
+
+
+def test_member_blocked_from_billing(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Campaign Only")
+        db.add(org)
+        db.flush()
+        user = User(email="member_rbac@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="member"))
+        db.commit()
+        org_id = org.id
+
+    tok = app_client.post(
+        "/auth/token",
+        data={"username": "member_rbac@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}"}
+
+    blocked = app_client.get("/billing/wallet", headers=headers)
+    assert blocked.status_code == 403
+
+
+def test_cannot_remove_only_owner(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Solo Owner")
+        db.add(org)
+        db.flush()
+        owner = User(email="solo_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        mgr = User(email="mgr_remove@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(owner)
+        db.add(mgr)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.add(OrganisationMembership(org_id=org.id, user_id=mgr.id, role="manager"))
+        db.commit()
+        org_id = org.id
+        owner_id = owner.id
+
+    mgr_tok = app_client.post(
+        "/auth/token",
+        data={"username": "mgr_remove@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+
+    resp = app_client.delete(
+        f"/organisations/me/team/members/{owner_id}",
+        headers={"Authorization": f"Bearer {mgr_tok}"},
+    )
+    assert resp.status_code == 400
+
+
+def test_team_invite_template_registered():
+    assert "team_invite" in EMAIL_TEMPLATE_KEYS
+    assert "weekly_digest" in EMAIL_TEMPLATE_KEYS
+    assert "{{organisation_name}}" in SYSTEM_EMAIL_DEFAULTS["team_invite"]["body"]
+    assert "{{signup_url}}" in SYSTEM_EMAIL_DEFAULTS["team_invite"]["body"]
+
+
+def test_org_rbac_service_roles():
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="RBAC Unit")
+        db.add(org)
+        db.flush()
+        user = User(email="rbac_unit@example.com", password_hash=hash_password("x"), is_active=True)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="accountant"))
+        db.commit()
+        OrgRbacService.assert_can_access_billing(db, org_id=org.id, user_id=user.id)
+        try:
+            OrgRbacService.assert_can_launch_campaigns(db, org_id=org.id, user_id=user.id)
+            raise AssertionError("accountant should not launch campaigns")
+        except PermissionError:
+            pass

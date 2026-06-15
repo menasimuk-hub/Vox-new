@@ -4,6 +4,8 @@ from app.data.brand_email_layout import cta_button, wrap_brand_email
 from app.data.interview_email_layout import wrap_interview_email
 from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY, INVOICE_DOCUMENT_SUBJECT, NEW_INVOICE_EMAIL_BODY
 from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT
+from app.data.team_invite_email_default import TEAM_INVITE_EMAIL_BODY, TEAM_INVITE_EMAIL_SUBJECT
+from app.data.weekly_digest_email_default import WEEKLY_DIGEST_BODY, WEEKLY_DIGEST_SUBJECT
 
 SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "new_user": {
@@ -60,13 +62,37 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "payment_failed": {
         "title": "Cancel / failed payment",
-        "subject": "Payment issue",
-        "body": "<p>Payment issue for <strong>{{user_email}}</strong>.</p><p>Amount due: <strong>{{amount}}</strong> · Invoice <strong>{{invoice_number}}</strong>.</p>",
+        "subject": "Payment issue — {{invoice_number}}",
+        "body": wrap_brand_email(
+            title="Payment issue",
+            inner_html="""<p>Hi,</p>
+  <p>We could not collect payment for invoice <strong>{{invoice_number}}</strong>.</p>
+  <p>Amount due: <strong>{{amount}}</strong></p>
+  <p style="font-size:13px;color:#6b6560;">Please update your payment method or pay the invoice from your billing page.</p>
+  """
+            + cta_button(href="{{billing_url}}", label="View billing")
+            + """<p style="font-size:13px;color:#6b6560;">Account: {{user_email}}</p>""",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
     },
     "general_notification": {
         "title": "General activity",
-        "subject": "Notification",
-        "body": '<p>Hello {{user_name}},</p><p>{{message}}</p><p style="font-size:12px;color:#64748b;">Sent by VOXBULK notifications.</p>',
+        "subject": "Notification from VOXBULK",
+        "body": wrap_brand_email(
+            title="Notification",
+            inner_html="""<p>Hello <strong>{{user_name}}</strong>,</p>
+  <p>{{message}}</p>""",
+        ),
+    },
+    "team_invite": {
+        "title": "Team invitation",
+        "subject": TEAM_INVITE_EMAIL_SUBJECT,
+        "body": TEAM_INVITE_EMAIL_BODY,
+    },
+    "weekly_digest": {
+        "title": "Weekly digest",
+        "subject": WEEKLY_DIGEST_SUBJECT,
+        "body": WEEKLY_DIGEST_BODY,
     },
     "sales_offer": {
         "title": "Sales offer link",
@@ -76,38 +102,43 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "usage_warning": {
         "title": "Usage alert (80%)",
         "subject": "VOXBULK usage alert — {{usage_summary}}",
-        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
-  <p>Hi <strong>{{organisation_name}}</strong>,</p>
+        "body": wrap_brand_email(
+            title="Usage alert",
+            badge="80% used",
+            inner_html="""<p>Hi <strong>{{organisation_name}}</strong>,</p>
   <p>You have used <strong>80% or more</strong> of an included allowance on your <strong>{{plan_code}}</strong> plan.</p>
-  <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;font-size:14px;">
+  <div style="margin:16px 0;padding:16px;border:1px solid #e5e0d8;border-radius:12px;background:#f5f1ea;font-size:14px;">
     {{usage_details_html}}
   </div>
-  <p style="font-size:13px;color:#64748b;">Billing period ends {{period_end}}. Overage is invoiced separately when applicable.</p>
-  <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
-</body></html>""",
+  <p style="font-size:13px;color:#6b6560;">Billing period ends {{period_end}}. Overage is invoiced separately when applicable.</p>""",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
     },
     "usage_warning_100": {
         "title": "Usage alert (100%)",
         "subject": "VOXBULK allowance fully used — {{usage_summary}}",
-        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
-  <p>Hi <strong>{{organisation_name}}</strong>,</p>
+        "body": wrap_brand_email(
+            title="Allowance fully used",
+            badge="100% used",
+            inner_html="""<p>Hi <strong>{{organisation_name}}</strong>,</p>
   <p>You have <strong>fully used</strong> an included allowance on your <strong>{{plan_code}}</strong> plan.</p>
   <div style="margin:16px 0;padding:16px;border:1px solid #fecaca;border-radius:12px;background:#fef2f2;font-size:14px;">
     {{usage_details_html}}
   </div>
-  <p style="font-size:13px;color:#64748b;">Billing period ends {{period_end}}. Further usage may be invoiced as overage or charged at launch.</p>
-  <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
-</body></html>""",
+  <p style="font-size:13px;color:#6b6560;">Billing period ends {{period_end}}. Further usage may be invoiced as overage.</p>""",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
     },
     "payment_receipt": {
         "title": "Payment receipt",
         "subject": "Payment received — {{invoice_number}}",
-        "body": """<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
-  <p>Hi,</p>
+        "body": wrap_brand_email(
+            title="Payment received",
+            inner_html="""<p>Hi,</p>
   <p>We have received your payment of <strong>{{total}}</strong> for invoice <strong>{{invoice_number}}</strong>.</p>
-  <p style="font-size:13px;color:#64748b;">Your invoice PDF is attached for your records.</p>
-  <p style="font-size:12px;color:#64748b;">— VOXBULK Billing</p>
-</body></html>""",
+  <p style="font-size:13px;color:#6b6560;">Your invoice PDF is attached for your records.</p>""",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
     },
     "interview_scheduling_invite": {
         "title": "Interview scheduling invite",

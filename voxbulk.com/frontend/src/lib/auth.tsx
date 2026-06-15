@@ -1,5 +1,5 @@
 import * as React from "react";
-import { apiFetch, clearSession, getAccessToken, oauthStartUrl, setSession, needsOnboardingFor } from "@/lib/api";
+import { apiFetch, clearSession, getAccessToken, oauthStartUrl, setSession, needsOnboardingFor, type InvitePreview, type OrgLoginOption } from "@/lib/api";
 import { consumeLogoutQueryParam } from "@/lib/session-storage";
 
 export type AuthUser = {
@@ -13,14 +13,20 @@ export type AuthUser = {
   is_superuser?: boolean;
 };
 
+export type LoginResult =
+  | { kind: "authenticated"; user: AuthUser }
+  | { kind: "org_selection"; organisations: OrgLoginOption[] };
+
 type AuthCtx = {
   user: AuthUser | null;
   loading: boolean;
   refresh: () => Promise<AuthUser | null>;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string, orgId?: string) => Promise<LoginResult>;
   register: (email: string, password: string, organisationName: string) => Promise<AuthUser>;
+  acceptInvite: (token: string, password: string) => Promise<AuthUser>;
+  previewInvite: (token: string) => Promise<InvitePreview>;
   logout: () => void;
-  startOAuth: (provider: string) => void;
+  startOAuth: (provider: string, inviteToken?: string) => void;
   consumeOAuthHash: () => boolean;
   needsOnboarding: (user?: AuthUser | null) => boolean;
 };
@@ -61,23 +67,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const login = React.useCallback(async (email: string, password: string): Promise<AuthUser> => {
+  const login = React.useCallback(async (email: string, password: string, orgId?: string): Promise<LoginResult> => {
     const { getApiBaseUrl } = await import("@/lib/api");
     const body = new URLSearchParams({ username: email.trim(), password });
+    if (orgId) body.set("org_id", orgId);
     const base = getApiBaseUrl().replace(/\/+$/, "");
-    // Dev: always same-origin so Vite proxy hits local FastAPI (never production API).
     const tokenUrl = import.meta.env.DEV ? "/auth/token" : base ? `${base}/auth/token` : "/auth/token";
     const tokenRes = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    const data = (await tokenRes.json().catch(() => ({}))) as { access_token?: string; org_id?: string; user_id?: string; detail?: string };
+    const data = (await tokenRes.json().catch(() => ({}))) as {
+      access_token?: string;
+      org_id?: string;
+      user_id?: string;
+      detail?: string;
+      org_selection_required?: boolean;
+      organisations?: OrgLoginOption[];
+    };
     if (!tokenRes.ok) throw new Error(String(data?.detail || "Sign in failed"));
+    if (data.org_selection_required && Array.isArray(data.organisations)) {
+      return { kind: "org_selection", organisations: data.organisations };
+    }
     setSession(String(data.access_token), String(data.org_id), String(data.user_id));
     const me = await refresh();
     if (!me) throw new Error("Sign in failed");
-    return me;
+    return { kind: "authenticated", user: me };
   }, [refresh]);
 
   const register = React.useCallback(async (email: string, password: string, organisationName: string): Promise<AuthUser> => {
@@ -95,13 +111,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return me;
   }, [refresh]);
 
+  const previewInvite = React.useCallback(async (token: string): Promise<InvitePreview> => {
+    return apiFetch<InvitePreview>(`/auth/invite-preview?token=${encodeURIComponent(token)}`);
+  }, []);
+
+  const acceptInvite = React.useCallback(async (token: string, password: string): Promise<AuthUser> => {
+    const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/accept-invite", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    });
+    setSession(data.access_token, data.org_id, data.user_id);
+    const me = await refresh();
+    if (!me) throw new Error("Could not complete invitation");
+    return me;
+  }, [refresh]);
+
   const logout = React.useCallback(() => {
     clearSession();
     setUser(null);
   }, []);
 
-  const startOAuth = React.useCallback((provider: string) => {
-    window.location.href = oauthStartUrl(provider);
+  const startOAuth = React.useCallback((provider: string, inviteToken?: string) => {
+    window.location.href = oauthStartUrl(provider, { inviteToken });
   }, []);
 
   const consumeOAuthHash = React.useCallback(() => {
@@ -127,12 +158,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refresh,
       login,
       register,
+      acceptInvite,
+      previewInvite,
       logout,
       startOAuth,
       consumeOAuthHash,
       needsOnboarding,
     }),
-    [user, loading, refresh, login, register, logout, startOAuth, consumeOAuthHash, needsOnboarding],
+    [user, loading, refresh, login, register, acceptInvite, previewInvite, logout, startOAuth, consumeOAuthHash, needsOnboarding],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -89,6 +89,19 @@ def get_tenant_org_id(principal: CurrentPrincipal = Depends(get_current_principa
     return principal.org_id
 
 
+def require_billing_access(
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+) -> CurrentPrincipal:
+    from app.services.org_rbac import OrgRbacService
+
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    return principal
+
+
 def get_db_session(db: Session = Depends(get_db)) -> Session:
     return db
 

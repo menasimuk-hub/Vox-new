@@ -1,0 +1,35 @@
+---
+description: VoxBulk organisation roles and permissions (dashboard + API)
+alwaysApply: false
+---
+
+# VoxBulk organisation roles
+
+Source of truth: `voxbulk-api/app/services/org_rbac.py` and `dashboard-web/src/lib/org-roles.ts`.
+
+## Roles (per organisation)
+
+| Role | Campaigns | Billing | Team invite/remove |
+|------|-----------|---------|-------------------|
+| **owner** | Full | Full | Yes |
+| **manager** | Full | Full | Yes |
+| **accountant** | View only (no billing API) | Full | No |
+| **member** | Run campaigns | No | No |
+| **receptionist** | Recovery / calls | No | No |
+
+## Multi-company
+
+- One login can belong to multiple orgs (`OrganisationMembership` rows).
+- JWT carries active `org_id`. Switch via `POST /auth/switch-organisation`.
+- Login with 2+ orgs returns `org_selection_required` + organisation list.
+
+## Team invites
+
+- Email template: `team_invite` (not `general_notification`).
+- Accept: `GET /auth/invite-preview`, `POST /auth/accept-invite` (public sign-in with `?invite_token=`).
+- Logged-in accept: `POST /auth/accept-invite-session`.
+
+## Email theme
+
+- All transactional templates use `wrap_brand_email` from `brand_email_layout.py`.
+- Keys: `team_invite`, `weekly_digest`, billing lifecycle, interview templates.

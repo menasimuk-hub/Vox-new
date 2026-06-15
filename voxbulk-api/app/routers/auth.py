@@ -26,6 +26,7 @@ from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
 from app.services.social_oauth import SocialOAuthService, oauth_http_error, OAuthFlowError
 from app.services.gocardless_service import BillingService
+from app.services.org_rbac import OrgRbacService
 from app.core.admin_rbac import can_manage_admin_users, get_active_admin_user, resolve_admin_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -151,6 +152,87 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
 
     token = create_access_token(subject=user.id, org_id=inv.org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
+
+
+def _consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User) -> None:
+    mem = db.execute(
+        select(OrganisationMembership.id).where(
+            OrganisationMembership.user_id == user.id,
+            OrganisationMembership.org_id == inv.org_id,
+        )
+    ).scalar_one_or_none()
+    if mem is None:
+        db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
+    elif inv.role:
+        mobj = db.execute(
+            select(OrganisationMembership).where(
+                OrganisationMembership.user_id == user.id,
+                OrganisationMembership.org_id == inv.org_id,
+            )
+        ).scalar_one_or_none()
+        if mobj is not None and mobj.role is None:
+            mobj.role = inv.role
+            db.add(mobj)
+    inv.consumed_at = datetime.utcnow()
+    db.add(inv)
+
+
+@router.post("/accept-invite-session")
+def accept_invite_session(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    """Accept a team invite while already signed in (no password required)."""
+    tok = str(payload.get("token") or "").strip()
+    if not tok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token required")
+
+    inv = db.execute(select(OrganisationInvite).where(OrganisationInvite.token == tok)).scalar_one_or_none()
+    if inv is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
+    if inv.consumed_at is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite already used")
+    if inv.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite expired")
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    if str(user.email or "").strip().lower() != inv.email.strip().lower():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invite email does not match your account")
+
+    _organisation_or_403_if_suspended(db, inv.org_id)
+    _consume_invite_for_user(db, inv=inv, user=user)
+    db.commit()
+
+    token = create_access_token(subject=user.id, org_id=inv.org_id)
+    return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
+
+
+@router.get("/my-organisations")
+def my_organisations(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    rows = OrgRbacService.list_organisations_for_user(db, user_id=principal.user_id)
+    return {"organisations": rows, "active_org_id": principal.org_id}
+
+
+@router.post("/switch-organisation")
+def switch_organisation(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    org_id = str(payload.get("org_id") or "").strip()
+    if not org_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id required")
+    mem = OrgRbacService.membership_for(db, org_id=org_id, user_id=principal.user_id)
+    if mem is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
+    if not db.execute(select(User).where(User.id == principal.user_id, User.is_active.is_(True))).scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+    _organisation_or_403_if_suspended(db, org_id)
+    token = create_access_token(subject=principal.user_id, org_id=org_id)
+    return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": principal.user_id}
 
 
 def _ensure_onboarding_requests_table_for_local_dev() -> None:
@@ -311,8 +393,13 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
                 select(OrganisationMembership.org_id).where(OrganisationMembership.user_id == user.id)
             ).scalars()
         )
+        if len(org_ids) == 0:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organisation membership")
         if len(org_ids) != 1:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_id required")
+            return {
+                "org_selection_required": True,
+                "organisations": OrgRbacService.list_organisations_for_user(db, user_id=user.id),
+            }
         resolved_org_id = str(org_ids[0])
 
     if not user.is_superuser:

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_principal
+from app.core.dependencies import get_current_principal, require_billing_access
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingError, FeedbackBillingService
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
@@ -45,7 +45,7 @@ def list_survey_types(
 
 
 @router.get("/subscription")
-def get_subscription(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_subscription(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     return {"ok": True, **FeedbackBillingService.subscription_payload(db, principal.org_id)}
 
@@ -58,7 +58,7 @@ def list_packages(db: Session = Depends(get_db), principal=Depends(get_current_p
 
 
 @router.post("/subscription/gocardless/start")
-def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
@@ -80,7 +80,7 @@ def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Dep
 
 
 @router.post("/subscription/gocardless/complete")
-def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     flow_id = str(payload.get("redirect_flow_id") or "").strip()
     if not flow_id:
@@ -95,7 +95,7 @@ def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=
 
 
 @router.post("/subscription/change-plan")
-def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
@@ -108,7 +108,7 @@ def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal
 
 
 @router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
-def get_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def get_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     try:
         payload = FeedbackBillingService.cancellation_payload(db, principal.org_id)
@@ -121,7 +121,7 @@ def get_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(g
 def request_feedback_cancellation(
     payload: SubscriptionCancellationRequestIn,
     db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
+    principal=Depends(require_billing_access),
 ):
     _require_feedback_enabled(db, principal.org_id)
     try:
@@ -138,7 +138,7 @@ def request_feedback_cancellation(
 
 
 @router.post("/subscription/cancellation/reverse", response_model=SubscriptionCancellationOut)
-def reverse_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def reverse_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_enabled(db, principal.org_id)
     try:
         result = FeedbackBillingService.reverse_cancellation(

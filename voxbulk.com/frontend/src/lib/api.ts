@@ -213,9 +213,28 @@ export async function apiUpload<T = unknown>(path: string, form: FormData, metho
   return (data ?? {}) as T;
 }
 
-export function oauthStartUrl(provider: string) {
-  return apiUrl(`/auth/oauth/${encodeURIComponent(provider)}/start`);
+export function oauthStartUrl(provider: string, opts?: { inviteToken?: string; orgId?: string }) {
+  const params = new URLSearchParams();
+  if (opts?.inviteToken) params.set("invite_token", opts.inviteToken);
+  if (opts?.orgId) params.set("org_id", opts.orgId);
+  const qs = params.toString();
+  const base = apiUrl(`/auth/oauth/${encodeURIComponent(provider)}/start`);
+  return qs ? `${base}?${qs}` : base;
 }
+
+export type OrgLoginOption = {
+  org_id: string;
+  name: string;
+  role: string;
+  is_owner: boolean;
+};
+
+export type InvitePreview = {
+  email: string;
+  org_id: string;
+  organisation_name: string | null;
+  role: string | null;
+};
 
 export function getDashboardUrl() {
   const raw = String(import.meta.env.VITE_POST_LOGIN_DASHBOARD_URL || "").trim().replace(/\/+$/, "");
