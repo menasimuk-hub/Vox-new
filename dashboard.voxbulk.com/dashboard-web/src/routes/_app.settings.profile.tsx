@@ -33,20 +33,26 @@ import {
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
-import { useOrgLogoPreview } from "@/lib/use-org-logo";
+import { canEditOrgProfile, normalizeOrgRole } from "@/lib/org-roles";
+import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/settings/profile")({
-  head: () => ({ meta: [{ title: "Profile settings — VoxBulk" }] }),
+  head: () => ({ meta: [{ title: "Organisation profile — VoxBulk" }] }),
   component: ProfileSettings,
 });
 
 function ProfileSettings() {
   const { visible } = useServices();
+  const { session } = useSession();
   const orgQ = useOrganisation();
   const saveM = useUpdateOrganisation();
   const uploadLogoM = useUploadOrgLogo();
   const deleteLogoM = useDeleteOrgLogo();
   const logoInputRef = React.useRef<HTMLInputElement>(null);
+
+  const role = normalizeOrgRole(session?.profile?.role);
+  const canEdit = canEditOrgProfile(role);
+  const orgDisplayName = orgQ.data?.name || session?.org?.name || "this organisation";
 
   const [name, setName] = React.useState("");
   const [contactName, setContactName] = React.useState("");
@@ -155,7 +161,27 @@ function ProfileSettings() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader eyebrow="Settings" title="Profile" description="Company branding, caller ID, and revenue values for ROI." />
+      <PageHeader
+        eyebrow="Settings"
+        title="Organisation profile"
+        description="Company branding and contact details for the active organisation."
+      />
+
+      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+        <p>
+          You are viewing <strong>{orgDisplayName}</strong> as <strong className="capitalize">{role}</strong>.
+          {canEdit
+            ? " Changes here apply to this company only."
+            : " Only owners and managers can edit organisation details."}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          To change your login email or password, use account recovery on{" "}
+          <a href="https://voxbulk.com/signin" className="text-primary underline-offset-2 hover:underline">
+            voxbulk.com/signin
+          </a>
+          . Use the avatar menu to switch between your own company and invited companies.
+        </p>
+      </div>
 
       <Card
         data-assistant-highlight={profileHighlightId}
@@ -167,14 +193,14 @@ function ProfileSettings() {
             <Skeleton className="md:col-span-2 h-40 w-full" />
           ) : (
             <>
-              <Field label="Company name" value={name} onChange={setName} />
-              <Field label="Contact name" value={contactName} onChange={setContactName} />
-              <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
-              <Field label="Phone" value={contactPhone} onChange={setContactPhone} />
-              <Field label="Website" value={website} onChange={setWebsite} />
+              <Field label="Company name" value={name} onChange={setName} readOnly={!canEdit} />
+              <Field label="Contact name" value={contactName} onChange={setContactName} readOnly={!canEdit} />
+              <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" readOnly={!canEdit} />
+              <Field label="Phone" value={contactPhone} onChange={setContactPhone} readOnly={!canEdit} />
+              <Field label="Website" value={website} onChange={setWebsite} readOnly={!canEdit} />
               <div className="space-y-1.5">
                 <Label className="text-xs">Country</Label>
-                <Select value={country} onValueChange={onCountryChange} disabled={saveM.isPending}>
+                <Select value={country} onValueChange={onCountryChange} disabled={saveM.isPending || !canEdit}>
                   <SelectTrigger><SelectValue placeholder="Select country" /></SelectTrigger>
                   <SelectContent>
                     {PROFILE_COUNTRIES.map((c) => (
@@ -207,12 +233,12 @@ function ProfileSettings() {
                 <Button
                   variant="outline"
                   className="gap-1.5"
-                  disabled={uploadLogoM.isPending}
+                  disabled={!canEdit || uploadLogoM.isPending}
                   onClick={() => logoInputRef.current?.click()}
                 >
                   <Upload className="size-4" /> {uploadLogoM.isPending ? "Uploading…" : logoPreview ? "Replace" : "Upload"}
                 </Button>
-                {logoPreview && (
+                {logoPreview && canEdit && (
                   <Button variant="ghost" size="icon" className="text-destructive" disabled={deleteLogoM.isPending} onClick={() => void onRemoveLogo()}>
                     <Trash2 className="size-4" />
                   </Button>
@@ -294,9 +320,11 @@ function ProfileSettings() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex justify-end">
-        <Button onClick={() => void onSave()} disabled={saveM.isPending}>{saveM.isPending ? "Saving…" : "Save profile"}</Button>
-      </div>
+      {canEdit ? (
+        <div className="flex justify-end">
+          <Button onClick={() => void onSave()} disabled={saveM.isPending}>{saveM.isPending ? "Saving…" : "Save profile"}</Button>
+        </div>
+      ) : null}
     </div>
   );
 }

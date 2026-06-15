@@ -15,6 +15,7 @@ from app.models.service_api import SupportedServiceAPI
 from app.schemas.onboarding import OrganisationAIConfigOut, WizardSaveStepIn
 from app.schemas.organisation import OrganisationOut, OrganisationUpdate
 from app.services.onboarding_service import OrganisationOnboardingService, SupportedServiceAPIService
+from app.services.org_rbac import OrgRbacService
 from app.services.org_enabled_services import (
     AtLeastOneServiceRequiredError,
     ServiceNotAllowedError,
@@ -150,6 +151,10 @@ def update_my_org(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    try:
+        OrgRbacService.assert_can_edit_org_profile(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     org = OrganisationService.update_org_profile(db, principal.org_id, **payload.model_dump(exclude_unset=True))
     return _org_response(org, db)
 
@@ -497,6 +502,10 @@ async def upload_my_logo(
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        OrgRbacService.assert_can_edit_org_profile(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     content = await file.read()
     try:
         ext = validate_logo_upload(filename=file.filename or "logo.png", content=content)
@@ -538,6 +547,10 @@ def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        OrgRbacService.assert_can_edit_org_profile(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if not getattr(org, "logo_storage_key", None):
         return {"ok": True}
     delete_logo_file(org.logo_storage_key)

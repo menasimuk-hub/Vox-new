@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.membership import OrganisationMembership
@@ -15,11 +15,18 @@ ORG_CAMPAIGN_ROLES = frozenset({"owner", "manager", "member", "receptionist"})
 ORG_DIGEST_ROLES = frozenset({"owner", "manager", "accountant"})
 
 
-def _normalize_role(role: str | None) -> str:
-    r = str(role or "member").strip().lower()
+def effective_role(role: str | None) -> str:
+    """Legacy memberships often have NULL role for the org creator — treat as owner."""
+    r = str(role or "").strip().lower()
+    if not r:
+        return "owner"
     if r not in ORG_TEAM_ROLES:
         return "member"
     return r
+
+
+def _normalize_role(role: str | None) -> str:
+    return effective_role(role)
 
 
 class OrgRbacService:
@@ -74,6 +81,16 @@ class OrgRbacService:
         return mem
 
     @staticmethod
+    def assert_can_edit_org_profile(db: Session, *, org_id: str, user_id: str) -> OrganisationMembership:
+        mem = OrgRbacService.membership_for(db, org_id=org_id, user_id=user_id)
+        if mem is None:
+            raise PermissionError("Tenant access denied")
+        role = _normalize_role(mem.role)
+        if role not in ORG_TEAM_MANAGERS:
+            raise PermissionError("Only owners and managers can edit organisation profile")
+        return mem
+
+    @staticmethod
     def list_organisations_for_user(db: Session, *, user_id: str) -> list[dict[str, object]]:
         rows = list(
             db.execute(
@@ -103,17 +120,12 @@ class OrgRbacService:
 
     @staticmethod
     def count_owners(db: Session, *, org_id: str) -> int:
-        return int(
+        roles = list(
             db.execute(
-                select(func.count())
-                .select_from(OrganisationMembership)
-                .where(
-                    OrganisationMembership.org_id == org_id,
-                    OrganisationMembership.role == "owner",
-                )
-            ).scalar_one()
-            or 0
+                select(OrganisationMembership.role).where(OrganisationMembership.org_id == org_id)
+            ).scalars()
         )
+        return sum(1 for role in roles if effective_role(role) == "owner")
 
     @staticmethod
     def assert_can_remove_member(db: Session, *, org_id: str, target_user_id: str) -> OrganisationMembership:

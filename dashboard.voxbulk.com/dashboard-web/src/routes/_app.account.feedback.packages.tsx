@@ -15,7 +15,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries";
 import type { FeedbackPackage } from "@/lib/queries";
 
+import { requireBillingAccess } from "@/lib/guards/billing-route";
+
 export const Route = createFileRoute("/_app/account/feedback/packages")({
+  beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Customer feedback plans — VoxBulk" }] }),
   component: FeedbackPackagesPage,
 });

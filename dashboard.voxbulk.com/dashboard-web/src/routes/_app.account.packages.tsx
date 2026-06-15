@@ -23,7 +23,10 @@ import { useSession } from "@/lib/session";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import type { FeedbackPackage } from "@/lib/queries";
 
+import { requireBillingAccess } from "@/lib/guards/billing-route";
+
 export const Route = createFileRoute("/_app/account/packages")({
+  beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
   component: PackagesPage,
 });

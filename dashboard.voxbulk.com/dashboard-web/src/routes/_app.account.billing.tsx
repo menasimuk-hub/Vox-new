@@ -25,7 +25,10 @@ import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 
+import { requireBillingAccess } from "@/lib/guards/billing-route";
+
 export const Route = createFileRoute("/_app/account/billing")({
+  beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Billing — VoxBulk" }] }),
   validateSearch: (search: Record<string, unknown>) => ({
     pay: typeof search.pay === "string" ? search.pay : undefined,

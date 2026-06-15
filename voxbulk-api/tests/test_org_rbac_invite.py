@@ -10,7 +10,7 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
 from app.services.email_template_service import EMAIL_TEMPLATE_KEYS
-from app.services.org_rbac import OrgRbacService
+from app.services.org_rbac import OrgRbacService, effective_role
 
 
 def test_team_invite_and_org_switch_flow(app_client):
@@ -130,6 +130,60 @@ def test_team_invite_template_registered():
     assert "weekly_digest" in EMAIL_TEMPLATE_KEYS
     assert "{{organisation_name}}" in SYSTEM_EMAIL_DEFAULTS["team_invite"]["body"]
     assert "{{signup_url}}" in SYSTEM_EMAIL_DEFAULTS["team_invite"]["body"]
+
+
+def test_null_role_membership_treated_as_owner(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Legacy Owner Co")
+        db.add(org)
+        db.flush()
+        user = User(email="legacy_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role=None))
+        db.commit()
+        org_id = org.id
+
+    tok = app_client.post(
+        "/auth/token",
+        data={"username": "legacy_owner@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}"}
+
+    me = app_client.get("/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["role"] == "owner"
+
+    wallet = app_client.get("/billing/wallet", headers=headers)
+    assert wallet.status_code == 200
+
+
+def test_register_sets_owner_role(app_client):
+    from app.core.database import get_sessionmaker
+
+    resp = app_client.post(
+        "/auth/register",
+        json={
+            "email": "new_owner_reg@example.com",
+            "password": "pass12345",
+            "organisation_name": "New Owner Org",
+        },
+    )
+    assert resp.status_code == 200
+    user_id = resp.json()["user_id"]
+    org_id = resp.json()["org_id"]
+
+    with get_sessionmaker()() as db:
+        mem = db.execute(
+            select(OrganisationMembership).where(
+                OrganisationMembership.user_id == user_id,
+                OrganisationMembership.org_id == org_id,
+            )
+        ).scalar_one()
+        assert mem.role == "owner"
+        assert effective_role(mem.role) == "owner"
 
 
 def test_org_rbac_service_roles():

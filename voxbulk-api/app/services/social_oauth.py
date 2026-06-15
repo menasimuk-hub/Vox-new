@@ -412,7 +412,7 @@ class SocialOAuthService:
             org = db.execute(select(Organisation).where(Organisation.id == org_id_hint)).scalar_one_or_none()
             if org is None:
                 raise OAuthFlowError("Organisation not found")
-            db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+            db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="member"))
             resolved_org_id = str(org.id)
         else:
             # Create a minimal org derived from email domain.
@@ -420,7 +420,7 @@ class SocialOAuthService:
             org = Organisation(name=(derived or "New organisation").strip() or "New organisation")
             db.add(org)
             db.flush()
-            db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+            db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
             resolved_org_id = str(org.id)
 
         db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=user.id, email=email_norm))

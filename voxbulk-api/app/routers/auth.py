@@ -26,7 +26,7 @@ from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
 from app.services.social_oauth import SocialOAuthService, oauth_http_error, OAuthFlowError
 from app.services.gocardless_service import BillingService
-from app.services.org_rbac import OrgRbacService
+from app.services.org_rbac import OrgRbacService, effective_role
 from app.core.admin_rbac import can_manage_admin_users, get_active_admin_user, resolve_admin_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -297,7 +297,8 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+    mem_role = "member" if raw_org_id else "owner"
+    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role=mem_role))
     promo_code = str(payload.promo_code or "").strip().upper() or None
     if promo_code:
         try:
@@ -424,7 +425,8 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
         )
     ).scalar_one_or_none()
     org_ent = db.execute(select(Organisation).where(Organisation.id == principal.org_id)).scalar_one_or_none()
-    clinic_role = membership.role if membership else None
+    raw_role = membership.role if membership else None
+    clinic_role = effective_role(raw_role)
     org_onboarding_state = getattr(org_ent, "onboarding_state", None) or "account_created"
     dashboard_setup_complete = bool(org_onboarding_state == "onboarding_completed" or (membership and membership.dashboard_setup_completed_at is not None))
     admin_access = bool(user.is_superuser or get_active_admin_user(db, user) is not None)

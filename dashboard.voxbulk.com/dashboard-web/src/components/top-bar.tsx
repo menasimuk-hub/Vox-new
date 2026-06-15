@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu, Building2, Check, ChevronsUpDown } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -9,8 +9,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
-import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport, useMyOrganisations, useSwitchOrganisation } from "@/lib/queries";
+import { useSession } from "@/lib/session";
+import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
+import { UserMenu } from "@/components/user-menu";
+import { normalizeOrgRole } from "@/lib/org-roles";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
@@ -37,45 +39,6 @@ function SidebarToggle() {
   );
 }
 
-function OrgSwitcher() {
-  const { session } = useSession();
-  const orgsQ = useMyOrganisations();
-  const switchM = useSwitchOrganisation();
-  const orgs = orgsQ.data?.organisations ?? [];
-  const activeId = orgsQ.data?.active_org_id || session?.org?.id;
-  const active = orgs.find((o) => o.org_id === activeId);
-
-  if (orgs.length < 2) return null;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="hidden h-8 max-w-[200px] gap-1.5 sm:inline-flex">
-          <Building2 className="size-3.5 shrink-0" />
-          <span className="truncate">{active?.name || session?.org?.name || "Company"}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Switch company</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {orgs.map((org) => (
-          <DropdownMenuItem
-            key={org.org_id}
-            disabled={switchM.isPending || org.org_id === activeId}
-            onClick={() => {
-              if (org.org_id !== activeId) switchM.mutate(org.org_id);
-            }}
-          >
-            <span className="flex-1 truncate">{org.name}</span>
-            {org.org_id === activeId ? <Check className="size-4 text-primary" /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function TopBar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const { theme, toggle } = useTheme();
@@ -83,16 +46,18 @@ export function TopBar() {
   const { title, subtitle } = titleForPath(path);
   const showSearch = path.startsWith("/surveys");
   const { toggleChat } = useConnections();
-  const avatar = initialsFromName(
-    session?.org?.name || session?.org?.display_name || session?.profile?.email || "U",
-  );
+  const orgName = session?.org?.name || session?.org?.display_name || "Company";
+  const role = normalizeOrgRole(session?.profile?.role);
+  const contextLine = `${orgName} · ${role.charAt(0).toUpperCase()}${role.slice(1)}`;
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur sm:h-16 sm:gap-3 md:px-6">
       <SidebarToggle />
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-sm font-semibold leading-tight">{title}</h1>
-        {subtitle && <p className="hidden truncate text-[11px] text-muted-foreground sm:block">{subtitle}</p>}
+        <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
+          {subtitle || `Viewing ${contextLine}`}
+        </p>
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
@@ -115,8 +80,7 @@ export function TopBar() {
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
         <NotificationsBell />
-        <OrgSwitcher />
-        <div className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">{avatar}</div>
+        <UserMenu />
       </div>
     </header>
   );

@@ -4,13 +4,18 @@ export const ORG_ROLES = ["owner", "manager", "accountant", "member", "reception
 export type OrgRole = (typeof ORG_ROLES)[number];
 
 export function normalizeOrgRole(role?: string | null): OrgRole {
-  const r = String(role || "member").trim().toLowerCase();
+  const r = String(role ?? "").trim().toLowerCase();
+  if (!r) return "owner";
   return (ORG_ROLES as readonly string[]).includes(r) ? (r as OrgRole) : "member";
 }
 
 export function canManageTeam(role?: string | null) {
   const r = normalizeOrgRole(role);
   return r === "owner" || r === "manager";
+}
+
+export function canEditOrgProfile(role?: string | null) {
+  return canManageTeam(role);
 }
 
 export function canAccessBilling(role?: string | null) {

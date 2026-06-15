@@ -18,7 +18,10 @@ import { cn } from "@/lib/utils";
 import { usageServiceIcon } from "@/lib/billing/refund-timing";
 import { useBillingUsageBreakdown } from "@/lib/queries";
 
+import { requireBillingAccess } from "@/lib/guards/billing-route";
+
 export const Route = createFileRoute("/_app/account/usage")({
+  beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Usage — VoxBulk" }] }),
   component: AccountUsagePage,
 });
