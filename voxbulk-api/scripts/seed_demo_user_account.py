@@ -98,6 +98,76 @@ def _tag_config(config: dict, *, channel: str | None = None) -> dict:
     return tagged
 
 
+def _ensure_survey_agent_for_demo(db) -> str:
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.models.agent import AgentDefinition
+
+    existing = db.execute(
+        select(AgentDefinition)
+        .where(
+            AgentDefinition.is_active.is_(True),
+            AgentDefinition.supports_survey.is_(True),
+            AgentDefinition.telnyx_assistant_id.is_not(None),
+            AgentDefinition.telnyx_assistant_id != "",
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing.id
+
+    by_slug = db.execute(
+        select(AgentDefinition).where(AgentDefinition.slug == "demo-seed-survey-agent")
+    ).scalar_one_or_none()
+    telnyx_id = str(get_settings().survey_telnyx_assistant_id or "").strip() or "demo-seed-survey-assistant"
+    now = datetime.utcnow()
+    if by_slug is not None:
+        if not str(by_slug.telnyx_assistant_id or "").strip():
+            by_slug.telnyx_assistant_id = telnyx_id
+        by_slug.supports_survey = True
+        by_slug.is_active = True
+        by_slug.updated_at = now
+        db.add(by_slug)
+        db.commit()
+        return by_slug.id
+
+    agent = AgentDefinition(
+        name="Demo Survey Agent",
+        slug="demo-seed-survey-agent",
+        system_prompt="Demo seed survey caller.",
+        supports_survey=True,
+        is_active=True,
+        is_default_survey=True,
+        telnyx_assistant_id=telnyx_id,
+        voice_label="Demo",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return agent.id
+
+
+def _prepare_ai_call_survey_for_launch(db, order: ServiceOrder, config: dict) -> ServiceOrder:
+    """Phone surveys must pass launch eligibility (calling window + voice agent)."""
+    now = datetime.utcnow()
+    order.scheduled_start_at = order.scheduled_start_at or (now - timedelta(days=3))
+    order.scheduled_end_at = order.scheduled_end_at or (now + timedelta(days=7))
+    if order.scheduled_end_at <= order.scheduled_start_at:
+        order.scheduled_end_at = order.scheduled_start_at + timedelta(days=4)
+
+    tagged = dict(config)
+    tagged["survey_agent_id"] = _ensure_survey_agent_for_demo(db)
+    order.config_json = json.dumps(tagged, ensure_ascii=False)
+    order.updated_at = now
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 def ensure_wallet_balance(db, org: Organisation, *, needed_minor: int, auto_top_up: bool) -> int:
     """Return wallet balance after ensuring at least needed_minor is available."""
     currency = resolve_org_currency(db, org)
@@ -228,6 +298,8 @@ def seed_one_survey(
     )
     ServiceOrderService.replace_recipients(db, order, _contacts_for_batch(index, channel=ch_key, size=contact_count))
     db.refresh(order)
+    if ch_key == "ai_call":
+        order = _prepare_ai_call_survey_for_launch(db, order, config)
     order = charge_survey_from_wallet(db, order, org, user_id=user_id, auto_top_up=auto_top_up)
 
     now = datetime.utcnow()
