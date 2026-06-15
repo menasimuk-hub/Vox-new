@@ -17,6 +17,11 @@ export type LoginResult =
   | { kind: "authenticated"; user: AuthUser }
   | { kind: "org_selection"; organisations: OrgLoginOption[] };
 
+export type OAuthHashResult =
+  | { kind: "none" }
+  | { kind: "authenticated" }
+  | { kind: "org_selection"; selectionToken: string };
+
 type AuthCtx = {
   user: AuthUser | null;
   loading: boolean;
@@ -25,9 +30,11 @@ type AuthCtx = {
   register: (email: string, password: string, organisationName: string) => Promise<AuthUser>;
   acceptInvite: (token: string, password: string) => Promise<AuthUser>;
   previewInvite: (token: string) => Promise<InvitePreview>;
+  completeOAuthOrgSelection: (selectionToken: string, orgId: string) => Promise<AuthUser>;
+  fetchOAuthOrgSelection: (selectionToken: string) => Promise<OrgLoginOption[]>;
   logout: () => void;
   startOAuth: (provider: string, inviteToken?: string) => void;
-  consumeOAuthHash: () => boolean;
+  consumeOAuthHash: () => OAuthHashResult;
   needsOnboarding: (user?: AuthUser | null) => boolean;
 };
 
@@ -135,16 +142,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = oauthStartUrl(provider, { inviteToken });
   }, []);
 
-  const consumeOAuthHash = React.useCallback(() => {
+  const fetchOAuthOrgSelection = React.useCallback(async (selectionToken: string): Promise<OrgLoginOption[]> => {
+    const data = await apiFetch<{ organisations: OrgLoginOption[] }>(
+      `/auth/oauth/org-selection?token=${encodeURIComponent(selectionToken)}`,
+    );
+    return data.organisations || [];
+  }, []);
+
+  const completeOAuthOrgSelection = React.useCallback(async (selectionToken: string, orgId: string): Promise<AuthUser> => {
+    const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>(
+      "/auth/oauth/complete-org-selection",
+      {
+        method: "POST",
+        body: JSON.stringify({ selection_token: selectionToken, org_id: orgId }),
+      },
+    );
+    setSession(data.access_token, data.org_id, data.user_id);
+    const me = await refresh();
+    if (!me) throw new Error("Sign in failed");
+    return me;
+  }, [refresh]);
+
+  const consumeOAuthHash = React.useCallback((): OAuthHashResult => {
     const hash = window.location.hash.replace(/^#/, "");
-    if (!hash) return false;
+    if (!hash) return { kind: "none" };
     const params = new URLSearchParams(hash);
+    const orgSelect = params.get("oauth_org_select");
+    if (orgSelect) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      return { kind: "org_selection", selectionToken: orgSelect };
+    }
     const token = params.get("access_token");
-    if (!token) return false;
+    if (!token) return { kind: "none" };
     setSession(token, params.get("org_id") || undefined, params.get("user_id") || undefined);
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     void refresh();
-    return true;
+    return { kind: "authenticated" };
   }, [refresh]);
 
   const needsOnboarding = React.useCallback((subject?: AuthUser | null) => {
@@ -160,12 +193,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       acceptInvite,
       previewInvite,
+      completeOAuthOrgSelection,
+      fetchOAuthOrgSelection,
       logout,
       startOAuth,
       consumeOAuthHash,
       needsOnboarding,
     }),
-    [user, loading, refresh, login, register, acceptInvite, previewInvite, logout, startOAuth, consumeOAuthHash, needsOnboarding],
+    [user, loading, refresh, login, register, acceptInvite, previewInvite, completeOAuthOrgSelection, fetchOAuthOrgSelection, logout, startOAuth, consumeOAuthHash, needsOnboarding],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

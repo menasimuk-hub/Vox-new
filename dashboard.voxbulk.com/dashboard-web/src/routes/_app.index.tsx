@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { NewCampaignPicker } from "@/components/new-campaign-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -56,6 +57,7 @@ function Dashboard() {
 
   return (
     <div className="flex w-full flex-col gap-6">
+      <PendingInviteBanner />
       <PageHeader
         eyebrow="Dashboard · Live · Overview"
         title={`Good morning, ${greetingName}`}

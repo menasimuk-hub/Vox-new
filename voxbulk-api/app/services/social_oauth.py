@@ -19,10 +19,34 @@ from app.models.organisation import Organisation
 from app.models.organisation_invite import OrganisationInvite
 from app.models.user import User
 from app.services.provider_settings import ProviderSettingsService
+from app.services.org_invite_service import (
+    attach_pending_invites,
+    consume_invite_for_user,
+    ensure_personal_org,
+    organisations_for_user,
+    setup_new_invited_user,
+)
 
 
 class OAuthFlowError(RuntimeError):
     pass
+
+
+class OAuthOrgSelectionRequired(OAuthFlowError):
+    def __init__(self, *, user_id: str, organisations: list[dict[str, object]]) -> None:
+        super().__init__("org_selection_required")
+        self.user_id = user_id
+        self.organisations = organisations
+
+
+@dataclass(frozen=True)
+class OAuthCallbackResult:
+    access_token: str | None = None
+    org_id: str | None = None
+    user_id: str | None = None
+    is_new: bool = False
+    org_selection_token: str | None = None
+    organisations: list[dict[str, object]] | None = None
 
 
 @dataclass(frozen=True)
@@ -284,9 +308,17 @@ class SocialOAuthService:
         org_ids = list(
             db.execute(select(OrganisationMembership.org_id).where(OrganisationMembership.user_id == user_id)).scalars()
         )
+        if len(org_ids) == 0:
+            raise OAuthFlowError("No organisation membership")
         if len(org_ids) != 1:
-            raise OAuthFlowError("org_id required")
+            orgs = organisations_for_user(db, user_id=user_id)
+            raise OAuthOrgSelectionRequired(user_id=user_id, organisations=orgs)
         return str(org_ids[0])
+
+    @staticmethod
+    def _finalize_oauth_user(db: Session, *, user: User, org_id_hint: str | None) -> str:
+        attach_pending_invites(db, user=user)
+        return SocialOAuthService._resolve_org_for_user(db, user_id=user.id, org_id_hint=org_id_hint)
 
     @staticmethod
     def _ensure_membership(db: Session, *, user_id: str, org_id: str) -> None:
@@ -331,7 +363,7 @@ class SocialOAuthService:
             user = db.execute(select(User).where(User.id == ident.user_id)).scalar_one_or_none()
             if user is None:
                 raise OAuthFlowError("Linked user not found")
-            resolved_org = SocialOAuthService._resolve_org_for_user(db, user_id=user.id, org_id_hint=org_id_hint)
+            resolved_org = SocialOAuthService._finalize_oauth_user(db, user=user, org_id_hint=org_id_hint)
             return user, resolved_org, False
 
         email_norm = (email or "").strip().lower() or None
@@ -356,22 +388,9 @@ class SocialOAuthService:
                 db.add(user)
                 db.flush()
                 created = True
-
-            # ensure membership
-            mem = db.execute(
-                select(OrganisationMembership).where(
-                    OrganisationMembership.user_id == user.id,
-                    OrganisationMembership.org_id == inv.org_id,
-                )
-            ).scalar_one_or_none()
-            if mem is None:
-                db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
-            elif inv.role and mem.role is None:
-                mem.role = inv.role
-                db.add(mem)
-
-            inv.consumed_at = datetime.utcnow()
-            db.add(inv)
+                setup_new_invited_user(db, user=user, email=email_norm, inv=inv)
+            else:
+                consume_invite_for_user(db, inv=inv, user=user)
 
             db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=user.id, email=email_norm))
             db.commit()
@@ -384,7 +403,7 @@ class SocialOAuthService:
             if existing is not None:
                 db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=existing.id, email=email_norm))
                 db.commit()
-                resolved_org = SocialOAuthService._resolve_org_for_user(db, user_id=existing.id, org_id_hint=org_id_hint)
+                resolved_org = SocialOAuthService._finalize_oauth_user(db, user=existing, org_id_hint=org_id_hint)
                 return existing, resolved_org, False
 
         # 3) Create new internal user and continue normal onboarding/signup flow.
@@ -399,7 +418,7 @@ class SocialOAuthService:
                 raise OAuthFlowError("Email already registered. Sign in with email to link this provider.")
             db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=existing.id, email=email_norm))
             db.commit()
-            resolved_org = SocialOAuthService._resolve_org_for_user(db, user_id=existing.id, org_id_hint=org_id_hint)
+            resolved_org = SocialOAuthService._finalize_oauth_user(db, user=existing, org_id_hint=org_id_hint)
             return existing, resolved_org, False
 
         pwd = secrets.token_urlsafe(32)
@@ -407,29 +426,35 @@ class SocialOAuthService:
         db.add(user)
         db.flush()
 
-        resolved_org_id: str
         if org_id_hint:
             org = db.execute(select(Organisation).where(Organisation.id == org_id_hint)).scalar_one_or_none()
             if org is None:
                 raise OAuthFlowError("Organisation not found")
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="member"))
-            resolved_org_id = str(org.id)
         else:
-            # Create a minimal org derived from email domain.
-            derived = (email_norm.split("@")[1] if "@" in email_norm else "New organisation").split(".")[0]
-            org = Organisation(name=(derived or "New organisation").strip() or "New organisation")
-            db.add(org)
-            db.flush()
-            db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
-            resolved_org_id = str(org.id)
+            ensure_personal_org(db, user=user, email=email_norm)
 
         db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=user.id, email=email_norm))
         db.commit()
         db.refresh(user)
+        resolved_org_id = SocialOAuthService._finalize_oauth_user(db, user=user, org_id_hint=org_id_hint or None)
         return user, resolved_org_id, True
 
     @staticmethod
-    async def handle_callback(db: Session, *, provider: str, code: str, state: str) -> tuple[str, str, str, bool]:
+    def _oauth_org_selection_token(*, user_id: str, organisations: list[dict[str, object]]) -> str:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        payload = {
+            "typ": "oauth_org_select",
+            "user_id": user_id,
+            "organisations": organisations,
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=10)).timestamp()),
+        }
+        return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+    @staticmethod
+    async def handle_callback(db: Session, *, provider: str, code: str, state: str) -> OAuthCallbackResult:
         provider = provider.lower().strip()
         if provider not in SocialOAuthService.PROVIDERS:
             raise OAuthFlowError("Unknown provider")
@@ -454,15 +479,23 @@ class SocialOAuthService:
             if not access_token:
                 raise OAuthFlowError("Missing access token")
             puser = await SocialOAuthService._fetch_provider_user(provider=provider, access_token=access_token)
-        user, resolved_org_id, is_new = SocialOAuthService.link_or_create_user(
-            db,
-            provider=provider,
-            provider_user_id=puser.provider_user_id,
-            email=puser.email,
-            email_verified=bool(puser.email_verified),
-            invite_token=str(invite_token) if invite_token else None,
-            org_id_hint=str(org_id_hint) if org_id_hint else None,
-        )
+        try:
+            user, resolved_org_id, is_new = SocialOAuthService.link_or_create_user(
+                db,
+                provider=provider,
+                provider_user_id=puser.provider_user_id,
+                email=puser.email,
+                email_verified=bool(puser.email_verified),
+                invite_token=str(invite_token) if invite_token else None,
+                org_id_hint=str(org_id_hint) if org_id_hint else None,
+            )
+        except OAuthOrgSelectionRequired as sel:
+            sel_token = SocialOAuthService._oauth_org_selection_token(user_id=sel.user_id, organisations=sel.organisations)
+            return OAuthCallbackResult(
+                org_selection_token=sel_token,
+                organisations=sel.organisations,
+                user_id=sel.user_id,
+            )
 
         # Respect suspension for non-superusers.
         if not user.is_superuser:
@@ -471,7 +504,12 @@ class SocialOAuthService:
                 raise OAuthFlowError("Organisation suspended")
 
         token = create_access_token(subject=user.id, org_id=resolved_org_id)
-        return token, resolved_org_id, user.id, is_new
+        return OAuthCallbackResult(
+            access_token=token,
+            org_id=resolved_org_id,
+            user_id=user.id,
+            is_new=is_new,
+        )
 
 
 def oauth_http_error(e: Exception) -> HTTPException:

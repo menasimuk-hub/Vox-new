@@ -42,9 +42,18 @@ function SignInPage() {
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [orgChoices, setOrgChoices] = useState<OrgLoginOption[] | null>(null);
+  const [oauthSelectToken, setOauthSelectToken] = useState<string | null>(null);
 
   useEffect(() => {
-    if (auth.consumeOAuthHash()) return;
+    const oauthResult = auth.consumeOAuthHash();
+    if (oauthResult.kind === "org_selection") {
+      setOauthSelectToken(oauthResult.selectionToken);
+      void auth.fetchOAuthOrgSelection(oauthResult.selectionToken).then(setOrgChoices).catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : "Could not load companies");
+      });
+      return;
+    }
+    if (oauthResult.kind === "authenticated") return;
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get("oauth_error");
     if (oauthError) toast.error(oauthError);
@@ -121,6 +130,12 @@ function SignInPage() {
   const pickOrganisation = async (orgId: string) => {
     setLoading(true);
     try {
+      if (oauthSelectToken) {
+        const user = await auth.completeOAuthOrgSelection(oauthSelectToken, orgId);
+        toast.success("Welcome back!");
+        routeAfterAuth(user);
+        return;
+      }
       const result = await auth.login(email, password, orgId);
       if (result.kind !== "authenticated") return;
       toast.success("Welcome back!");
@@ -179,7 +194,7 @@ function SignInPage() {
                     </div>
                   </button>
                 ))}
-                <button type="button" className="text-sm text-muted-text hover:text-heading" onClick={() => setOrgChoices(null)}>
+                <button type="button" className="text-sm text-muted-text hover:text-heading" onClick={() => { setOrgChoices(null); setOauthSelectToken(null); }}>
                   Back
                 </button>
               </div>

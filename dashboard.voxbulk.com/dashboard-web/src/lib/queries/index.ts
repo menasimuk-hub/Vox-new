@@ -38,6 +38,7 @@ export const queryKeys = {
   billingAccess: ["billing", "access"] as const,
   organisation: ["organisations", "me"] as const,
   myOrganisations: ["auth", "my-organisations"] as const,
+  pendingInvites: ["auth", "pending-invites"] as const,
   interviewReports: (period: string) => ["service-orders", "interview-reports", period] as const,
   interviewResults: (orderId: string) => ["service-orders", orderId, "interview-results"] as const,
   surveyResults: (orderId: string) => ["service-orders", orderId, "survey-results"] as const,
@@ -929,6 +930,38 @@ export function useSwitchOrganisation() {
       apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/switch-organisation", {
         method: "POST",
         body: JSON.stringify({ org_id: orgId }),
+      }),
+    onSuccess: (data) => {
+      writeSessionToStorage(data.access_token, data.org_id, data.user_id);
+      qc.clear();
+      window.location.href = "/";
+    },
+  });
+}
+
+export type PendingInviteRow = {
+  token: string;
+  org_id: string;
+  organisation_name: string;
+  role: string;
+  expires_at?: string | null;
+};
+
+export function usePendingInvites() {
+  return useQuery({
+    queryKey: queryKeys.pendingInvites,
+    queryFn: () => apiFetch<{ invites: PendingInviteRow[] }>("/auth/pending-invites"),
+    staleTime: 1000 * 60,
+  });
+}
+
+export function useAcceptInviteSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) =>
+      apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/accept-invite-session", {
+        method: "POST",
+        body: JSON.stringify({ token }),
       }),
     onSuccess: (data) => {
       writeSessionToStorage(data.access_token, data.org_id, data.user_id);

@@ -1,5 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
-import { Building2, Check, ChevronDown, LogOut, Settings, Users } from "lucide-react";
+import { Building2, Check, ChevronDown, LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { logoutDashboard } from "@/lib/api";
-import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
+import { normalizeOrgRole } from "@/lib/org-roles";
 import { useMyOrganisations, useSwitchOrganisation } from "@/lib/queries";
 import { initialsFromName, useSession } from "@/lib/session";
 
@@ -27,7 +26,6 @@ function roleLabel(role: string) {
 }
 
 export function UserMenu() {
-  const navigate = useNavigate();
   const { session } = useSession();
   const orgsQ = useMyOrganisations();
   const switchM = useSwitchOrganisation();
@@ -39,7 +37,7 @@ export function UserMenu() {
   const email = session?.profile?.email || "";
   const role = normalizeOrgRole(session?.profile?.role);
   const avatar = initialsFromName(orgName || email || "U");
-  const showTeam = canManageTeam(role);
+  const showSwitcher = orgs.length > 1;
 
   return (
     <DropdownMenu>
@@ -66,38 +64,25 @@ export function UserMenu() {
             Viewing {orgName} · {roleLabel(role)}
           </p>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">Switch company</DropdownMenuLabel>
-        {orgs.length === 0 ? (
-          <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-            {orgsQ.isLoading ? "Loading…" : orgName}
-          </DropdownMenuItem>
-        ) : (
-          orgs.map((org) => (
-            <DropdownMenuItem
-              key={org.org_id}
-              disabled={switchM.isPending}
-              onClick={() => {
-                if (org.org_id !== activeId) switchM.mutate(org.org_id);
-              }}
-            >
-              <Building2 className="mr-2 size-4 shrink-0 opacity-70" />
-              <span className="flex-1 truncate">{org.name}</span>
-              <span className="ml-2 text-[10px] capitalize text-muted-foreground">{org.role}</span>
-              {org.org_id === activeId ? <Check className="ml-1 size-4 text-primary" /> : null}
-            </DropdownMenuItem>
-          ))
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void navigate({ to: "/settings/profile" })}>
-          <Settings className="mr-2 size-4" />
-          Organisation profile
-        </DropdownMenuItem>
-        {showTeam ? (
-          <DropdownMenuItem onClick={() => void navigate({ to: "/settings/team" })}>
-            <Users className="mr-2 size-4" />
-            Team members
-          </DropdownMenuItem>
+        {showSwitcher ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground">Switch company</DropdownMenuLabel>
+            {orgs.map((org) => (
+              <DropdownMenuItem
+                key={org.org_id}
+                disabled={switchM.isPending}
+                onClick={() => {
+                  if (org.org_id !== activeId) switchM.mutate(org.org_id);
+                }}
+              >
+                <Building2 className="mr-2 size-4 shrink-0 opacity-70" />
+                <span className="flex-1 truncate">{org.name}</span>
+                <span className="ml-2 text-[10px] capitalize text-muted-foreground">{org.role}</span>
+                {org.org_id === activeId ? <Check className="ml-1 size-4 text-primary" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </>
         ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem

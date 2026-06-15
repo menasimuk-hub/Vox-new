@@ -24,10 +24,19 @@ from app.services.password_reset_service import PasswordResetService
 from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
-from app.services.social_oauth import SocialOAuthService, oauth_http_error, OAuthFlowError
+from app.services.social_oauth import SocialOAuthService, oauth_http_error, OAuthFlowError, OAuthCallbackResult
 from app.services.gocardless_service import BillingService
+from app.services.org_invite_service import (
+    attach_pending_invites,
+    consume_invite_for_user,
+    organisations_for_user,
+    pending_invite_payloads,
+    setup_new_invited_user,
+)
 from app.services.org_rbac import OrgRbacService, effective_role
 from app.core.admin_rbac import can_manage_admin_users, get_active_admin_user, resolve_admin_role
+from datetime import timedelta
+from jose import JWTError, jwt
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -111,33 +120,14 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
         )
         db.add(user)
         db.flush()
-        db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
+        setup_new_invited_user(db, user=user, email=email_norm, inv=inv)
     else:
         if not user.password_hash or not verify_password(pwd, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password for this email")
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
-        mem = db.execute(
-            select(OrganisationMembership.id).where(
-                OrganisationMembership.user_id == user.id,
-                OrganisationMembership.org_id == inv.org_id,
-            )
-        ).scalar_one_or_none()
-        if mem is None:
-            db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
-        elif inv.role:
-            mobj = db.execute(
-                select(OrganisationMembership).where(
-                    OrganisationMembership.user_id == user.id,
-                    OrganisationMembership.org_id == inv.org_id,
-                )
-            ).scalar_one_or_none()
-            if mobj is not None and mobj.role is None:
-                mobj.role = inv.role
-                db.add(mobj)
+        consume_invite_for_user(db, inv=inv, user=user)
 
-    inv.consumed_at = datetime.utcnow()
-    db.add(inv)
     db.commit()
     db.refresh(user)
 
@@ -154,27 +144,12 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
 
 
-def _consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User) -> None:
-    mem = db.execute(
-        select(OrganisationMembership.id).where(
-            OrganisationMembership.user_id == user.id,
-            OrganisationMembership.org_id == inv.org_id,
-        )
-    ).scalar_one_or_none()
-    if mem is None:
-        db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
-    elif inv.role:
-        mobj = db.execute(
-            select(OrganisationMembership).where(
-                OrganisationMembership.user_id == user.id,
-                OrganisationMembership.org_id == inv.org_id,
-            )
-        ).scalar_one_or_none()
-        if mobj is not None and mobj.role is None:
-            mobj.role = inv.role
-            db.add(mobj)
-    inv.consumed_at = datetime.utcnow()
-    db.add(inv)
+@router.get("/pending-invites")
+def pending_invites(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    return {"invites": pending_invite_payloads(db, email=str(user.email or ""))}
 
 
 @router.post("/accept-invite-session")
@@ -203,11 +178,75 @@ def accept_invite_session(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invite email does not match your account")
 
     _organisation_or_403_if_suspended(db, inv.org_id)
-    _consume_invite_for_user(db, inv=inv, user=user)
+    consume_invite_for_user(db, inv=inv, user=user)
     db.commit()
 
     token = create_access_token(subject=user.id, org_id=inv.org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
+
+
+def _oauth_org_selection_token(*, user_id: str, organisations: list[dict[str, object]]) -> str:
+    settings = get_settings()
+    now = datetime.utcnow()
+    payload = {
+        "typ": "oauth_org_select",
+        "user_id": user_id,
+        "organisations": organisations,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=10)).timestamp()),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def _decode_oauth_org_selection_token(token: str) -> dict:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired org selection") from exc
+    if payload.get("typ") != "oauth_org_select":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid org selection token")
+    return payload
+
+
+@router.get("/oauth/org-selection")
+def oauth_org_selection_preview(token: str, db: Session = Depends(get_db)):
+    payload = _decode_oauth_org_selection_token(str(token or "").strip())
+    user_id = str(payload.get("user_id") or "")
+    user = db.execute(select(User).where(User.id == user_id, User.is_active.is_(True))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    orgs = payload.get("organisations")
+    if not isinstance(orgs, list) or not orgs:
+        orgs = organisations_for_user(db, user_id=user_id)
+    return {"organisations": orgs}
+
+
+@router.post("/oauth/complete-org-selection")
+def oauth_complete_org_selection(payload: dict, db: Session = Depends(get_db)):
+    sel_tok = str(payload.get("selection_token") or "").strip()
+    org_id = str(payload.get("org_id") or "").strip()
+    if not sel_tok or not org_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="selection_token and org_id required")
+    decoded = _decode_oauth_org_selection_token(sel_tok)
+    user_id = str(decoded.get("user_id") or "")
+    user = db.execute(select(User).where(User.id == user_id, User.is_active.is_(True))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    mem = db.execute(
+        select(OrganisationMembership.id).where(
+            OrganisationMembership.user_id == user.id,
+            OrganisationMembership.org_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if mem is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
+    if not user.is_superuser:
+        org_ent = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
+        if org_ent is not None and bool(org_ent.is_suspended):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation suspended")
+    token = create_access_token(subject=user.id, org_id=org_id)
+    return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": user.id}
 
 
 @router.get("/my-organisations")
@@ -642,9 +681,23 @@ async def oauth_callback(
         if st.get("nonce") != nonce_cookie:
             raise OAuthFlowError("Invalid OAuth session")
 
-        token, org_id, user_id, is_new = await SocialOAuthService.handle_callback(db, provider=provider, code=code, state=state)
+        outcome = await SocialOAuthService.handle_callback(db, provider=provider, code=code, state=state)
 
-        if is_new:
+        if outcome.org_selection_token:
+            frag = httpx.QueryParams({"oauth_org_select": outcome.org_selection_token, "oauth": "1"})
+            res = RedirectResponse(url=f"{base}/signin#{frag}", status_code=302)
+            res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
+            res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
+            res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
+            res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
+            return res
+
+        token = str(outcome.access_token or "")
+        org_id = str(outcome.org_id or "")
+        user_id = str(outcome.user_id or "")
+        is_new = bool(outcome.is_new)
+
+        if is_new and user_id and org_id:
             with get_sessionmaker()() as s2:
                 wel_email = s2.execute(select(User.email).where(User.id == user_id)).scalar_one_or_none()
                 org_name = s2.execute(select(Organisation.name).where(Organisation.id == org_id)).scalar_one_or_none()

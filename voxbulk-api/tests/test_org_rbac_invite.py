@@ -186,6 +186,104 @@ def test_register_sets_owner_role(app_client):
         assert effective_role(mem.role) == "owner"
 
 
+def test_new_invite_user_gets_personal_and_inviter_org(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Inviter Co")
+        db.add(org)
+        db.flush()
+        owner = User(email="inviter_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.commit()
+        inviter_org_id = org.id
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "inviter_owner@example.com", "password": "pass123", "org_id": inviter_org_id},
+    ).json()["access_token"]
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers={"Authorization": f"Bearer {owner_tok}"},
+        json={"email": "new_invitee@example.com", "role": "accountant"},
+    )
+    assert inv.status_code == 200
+    token = inv.json()["signup_url"].split("invite_token=")[-1]
+
+    acc = app_client.post("/auth/accept-invite", json={"token": token, "password": "pass1234"})
+    assert acc.status_code == 200
+    assert acc.json()["org_id"] == inviter_org_id
+    user_id = acc.json()["user_id"]
+
+    with get_sessionmaker()() as db:
+        mems = list(
+            db.execute(select(OrganisationMembership).where(OrganisationMembership.user_id == user_id)).scalars()
+        )
+        assert len(mems) == 2
+        roles = {str(m.org_id): m.role for m in mems}
+        assert roles[inviter_org_id] == "accountant"
+        owner_orgs = [m.org_id for m in mems if effective_role(m.role) == "owner"]
+        assert len(owner_orgs) == 1
+        assert owner_orgs[0] != inviter_org_id
+
+
+def test_pending_invites_and_accept_session(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        inviter = Organisation(name="Pending Inviter")
+        personal = Organisation(name="Personal Org")
+        db.add(inviter)
+        db.add(personal)
+        db.flush()
+        user = User(email="pending_user@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=personal.id, user_id=user.id, role="owner"))
+        db.commit()
+        personal_org_id = personal.id
+        inviter_org_id = inviter.id
+
+    owner = User(email="pi_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+    with get_sessionmaker()() as db:
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=inviter_org_id, user_id=owner.id, role="owner"))
+        db.commit()
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "pi_owner@example.com", "password": "pass123", "org_id": inviter_org_id},
+    ).json()["access_token"]
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers={"Authorization": f"Bearer {owner_tok}"},
+        json={"email": "pending_user@example.com", "role": "accountant"},
+    )
+    assert inv.status_code == 200
+    invite_token = inv.json()["signup_url"].split("invite_token=")[-1]
+
+    user_tok = app_client.post(
+        "/auth/token",
+        data={"username": "pending_user@example.com", "password": "pass123", "org_id": personal_org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {user_tok}"}
+
+    pending = app_client.get("/auth/pending-invites", headers=headers)
+    assert pending.status_code == 200
+    assert len(pending.json()["invites"]) == 1
+
+    accepted = app_client.post("/auth/accept-invite-session", headers=headers, json={"token": invite_token})
+    assert accepted.status_code == 200
+    assert accepted.json()["org_id"] == inviter_org_id
+
+    acct_tok = accepted.json()["access_token"]
+    wallet = app_client.get("/billing/wallet", headers={"Authorization": f"Bearer {acct_tok}"})
+    assert wallet.status_code == 200
+
+
 def test_org_rbac_service_roles():
     from app.core.database import get_sessionmaker
 

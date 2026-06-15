@@ -23,7 +23,7 @@ import { useServices, type ServiceKey } from "@/lib/services";
 import { logoutDashboard } from "@/lib/api";
 import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
-import { canAccessBilling } from "@/lib/org-roles";
+import { canAccessBilling, canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useOrganisation } from "@/lib/queries";
 
@@ -126,15 +126,23 @@ export function AppSidebar() {
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
-  const role = session?.profile?.role;
+  const role = normalizeOrgRole(session?.profile?.role);
 
-  const visibleGroups = groups.filter((g) => {
-    if (g.key === "account" && !canAccessBilling(role)) return false;
-    if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
-    if (!loaded) return false;
-    if (!showRecoveryModules && isRecoveryServiceKey(g.key)) return false;
-    return visible[g.key];
-  });
+  const visibleGroups = groups
+    .map((g) => {
+      if (g.key !== "settings") return g;
+      return {
+        ...g,
+        items: g.items.filter((item) => item.url !== "/settings/team" || canManageTeam(role)),
+      };
+    })
+    .filter((g) => {
+      if (g.key === "account" && !canAccessBilling(role)) return false;
+      if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
+      if (!loaded) return false;
+      if (!showRecoveryModules && isRecoveryServiceKey(g.key)) return false;
+      return visible[g.key];
+    });
 
   return (
     <Sidebar collapsible="icon">
@@ -172,7 +180,7 @@ export function AppSidebar() {
             )}
             <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-medium leading-tight">{orgName}</p>
-              <p className="truncate text-[11px] text-muted-foreground capitalize">{role || "member"}</p>
+              <p className="truncate text-[11px] text-muted-foreground capitalize">{role}</p>
             </div>
           </div>
         )}
