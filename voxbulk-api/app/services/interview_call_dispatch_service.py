@@ -273,6 +273,7 @@ def _finalize_order_if_done(db: Session, order: ServiceOrder) -> ServiceOrder:
     recipients = ServiceOrderService.get_recipients(db, order.id)
     _refresh_order_report(db, order)
     if _all_recipients_terminal(recipients):
+        was_completed = str(order.status or "").lower() == "completed"
         order.status = "completed"
         order.completed_at = datetime.utcnow()
         order.updated_at = datetime.utcnow()
@@ -280,6 +281,11 @@ def _finalize_order_if_done(db: Session, order: ServiceOrder) -> ServiceOrder:
         db.commit()
         db.refresh(order)
         _log("order_completed", order_id=order.id)
+        if not was_completed:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_campaign_completed_notification(db, order=order)
+            db.commit()
     return order
 
 

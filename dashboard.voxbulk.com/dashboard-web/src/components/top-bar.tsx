@@ -10,7 +10,7 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkNotificationRead, useNotificationUnreadCount, useNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
+import { useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
@@ -75,19 +75,43 @@ export function TopBar() {
         <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
-        <div className="hidden sm:block">
-          <NotificationsBell />
-        </div>
+        <NotificationsBell />
         <div className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">{avatar}</div>
       </div>
     </header>
   );
 }
 
+function navigateFromNotificationAction(
+  navigate: ReturnType<typeof useNavigate>,
+  actionUrl: string,
+) {
+  const url = new URL(actionUrl, window.location.origin);
+  const path = url.pathname;
+  const ticket = url.searchParams.get("ticket");
+  const orderId = url.searchParams.get("orderId");
+
+  if (path === "/account/support/tickets" && ticket) {
+    void navigate({ to: "/account/support/tickets", search: { ticket } });
+    return;
+  }
+  if (path === "/surveys/results" && orderId) {
+    void navigate({ to: "/surveys/results", search: { orderId } });
+    return;
+  }
+  const interviewMatch = path.match(/^\/interviews\/results\/([^/]+)$/);
+  if (interviewMatch) {
+    void navigate({ to: "/interviews/results/$orderId", params: { orderId: interviewMatch[1] } });
+    return;
+  }
+  void navigate({ to: path });
+}
+
 function NotificationsBell() {
   const navigate = useNavigate();
+  const [open, setOpen] = React.useState(false);
   const unreadQ = useNotificationUnreadCount();
-  const listQ = useNotifications(10);
+  const listQ = useUnreadNotifications(10);
   const markRead = useMarkNotificationRead();
   const unread = Number(unreadQ.data?.count || 0);
   const items = (listQ.data || []) as Array<{
@@ -99,8 +123,15 @@ function NotificationsBell() {
     created_at?: string;
   }>;
 
+  React.useEffect(() => {
+    if (open) {
+      void unreadQ.refetch();
+      void listQ.refetch();
+    }
+  }, [open, unreadQ, listQ]);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button size="icon" variant="ghost" className="relative" aria-label="Notifications">
           <Bell className="size-4" />
@@ -120,15 +151,18 @@ function NotificationsBell() {
         {listQ.isLoading ? (
           <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
         ) : items.length === 0 ? (
-          <DropdownMenuItem disabled>No notifications yet</DropdownMenuItem>
+          <DropdownMenuItem disabled>No new notifications</DropdownMenuItem>
         ) : (
           items.map((n) => (
             <DropdownMenuItem
               key={n.id}
               className="flex flex-col items-start gap-0.5"
               onClick={() => {
-                if (!n.read_at) void markRead.mutateAsync(n.id);
-                if (n.action_url) void navigate({ to: n.action_url });
+                void (async () => {
+                  if (!n.read_at) await markRead.mutateAsync(n.id);
+                  setOpen(false);
+                  if (n.action_url) navigateFromNotificationAction(navigate, n.action_url);
+                })();
               }}
             >
               <span className="text-sm font-medium">{n.title || "Notification"}</span>

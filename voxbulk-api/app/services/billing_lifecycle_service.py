@@ -138,7 +138,7 @@ class BillingLifecycleService:
         if org is None:
             raise ValueError("Organisation not found")
         currency = resolve_org_currency(db, org)
-        return BillingLifecycleService.issue_wallet_refund(
+        result = BillingLifecycleService.issue_wallet_refund(
             db,
             org,
             amount_minor=amount_minor,
@@ -147,6 +147,20 @@ class BillingLifecycleService:
             created_by_user_id=created_by_user_id,
             trigger="admin_adjustment",
         )
+        tx_id = str(result.get("wallet_transaction_id") or result.get("transaction_id") or "")
+        if tx_id:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.notify_org_wallet_credit(
+                db,
+                org_id=org_id,
+                amount_minor=amount_minor,
+                currency=currency,
+                reason=reason or "Admin wallet credit",
+                tx_id=tx_id,
+            )
+            db.commit()
+        return result
 
     # ------------------------------------------------------------------ disputes
 

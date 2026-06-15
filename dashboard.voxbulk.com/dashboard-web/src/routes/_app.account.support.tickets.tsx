@@ -25,6 +25,9 @@ import {
 
 export const Route = createFileRoute("/_app/account/support/tickets")({
   head: () => ({ meta: [{ title: "Support tickets — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    ticket: typeof search.ticket === "string" ? search.ticket : undefined,
+  }),
   component: TicketsPage,
 });
 
@@ -69,6 +72,7 @@ function normalizeStatus(status: string): TicketStatus {
 
 function TicketsPage() {
   const { highlight } = useAssistantHighlight();
+  const { ticket: ticketFromSearch } = Route.useSearch();
   const [filter, setFilter] = React.useState<TicketStatus | "all">("all");
   const [search, setSearch] = React.useState("");
   const [newOpen, setNewOpen] = React.useState(false);
@@ -79,8 +83,12 @@ function TicketsPage() {
 
   const [activeId, setActiveId] = React.useState<string>("");
   React.useEffect(() => {
+    if (ticketFromSearch) {
+      setActiveId(ticketFromSearch);
+      return;
+    }
     if (!activeId && tickets[0]?.id != null) setActiveId(String(tickets[0].id));
-  }, [tickets, activeId]);
+  }, [tickets, activeId, ticketFromSearch]);
 
   const ticketDetailQ = useSupportTicket(activeId || null);
   const createM = useCreateSupportTicket();

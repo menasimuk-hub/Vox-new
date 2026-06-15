@@ -6,7 +6,9 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
+from app.models.membership import OrganisationMembership
 from app.models.notification import Notification
+from app.models.service_order import ServiceOrder
 from app.models.subscription import Subscription
 from app.models.support_ticket import SupportTicket
 
@@ -78,7 +80,7 @@ class NotificationService:
             message=ticket.subject,
             severity="info",
             ticket_id=ticket.id,
-            action_url=f"/support?ticket_id={ticket.id}",
+            action_url=f"/account/support/tickets?ticket={ticket.id}",
             dedupe_key=f"ticket-reply:{ticket.id}:{ticket.last_message_at.isoformat() if ticket.last_message_at else ticket.updated_at.isoformat()}",
             created_at=ticket.last_message_at or ticket.updated_at,
         )
@@ -114,7 +116,7 @@ class NotificationService:
                 title="New invoice",
                 message=f"{inv.external_invoice_id} · £{(inv.amount_gbp_pence or 0) / 100:.2f} · {inv.status}",
                 severity="billing",
-                action_url="/billing",
+                action_url="/account/billing",
                 dedupe_key=f"invoice:{inv.id}:{user_id}",
                 created_at=inv.created_at,
             )
@@ -141,7 +143,7 @@ class NotificationService:
                 title="Renewal reminder",
                 message=f"Your subscription renews in {days} day{'s' if days != 1 else ''}.",
                 severity="warning",
-                action_url="/billing",
+                action_url="/account/billing",
                 dedupe_key=f"renewal:{sub.id}:{sub.current_period_end.date().isoformat()}:{user_id}",
                 created_at=sub.current_period_end,
             )
@@ -200,6 +202,85 @@ class NotificationService:
             db.commit()
             db.refresh(row)
         return row
+
+    @staticmethod
+    def create_wallet_credit_notification(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        amount_minor: int,
+        currency: str,
+        reason: str,
+        tx_id: str,
+    ) -> Notification:
+        from app.services.billing_currency import money_display
+
+        amount_label = money_display(amount_minor, currency)
+        msg = f"{amount_label} added to your wallet."
+        if reason.strip():
+            msg += f" {reason.strip()}"
+        return NotificationService.upsert(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            type="wallet_credit",
+            title="Wallet credited",
+            message=msg,
+            severity="info",
+            action_url="/account/billing",
+            dedupe_key=f"wallet-credit:{tx_id}:{user_id}",
+        )
+
+    @staticmethod
+    def notify_org_wallet_credit(
+        db: Session,
+        *,
+        org_id: str,
+        amount_minor: int,
+        currency: str,
+        reason: str,
+        tx_id: str,
+    ) -> None:
+        members = list(
+            db.execute(select(OrganisationMembership.user_id).where(OrganisationMembership.org_id == org_id)).scalars()
+        )
+        for user_id in members:
+            NotificationService.create_wallet_credit_notification(
+                db,
+                org_id=org_id,
+                user_id=str(user_id),
+                amount_minor=amount_minor,
+                currency=currency,
+                reason=reason,
+                tx_id=tx_id,
+            )
+
+    @staticmethod
+    def create_campaign_completed_notification(db: Session, *, order: ServiceOrder) -> Notification | None:
+        service = str(order.service_code or "").lower()
+        if service == "interview":
+            title = "Interview campaign complete"
+            action_url = f"/interviews/results/{order.id}"
+        elif service == "survey":
+            title = "Survey campaign complete"
+            action_url = f"/surveys/results?orderId={order.id}"
+        else:
+            return None
+        label = (order.title or "").strip()
+        message = label or f"Campaign {order.id[:8]}"
+        return NotificationService.upsert(
+            db,
+            org_id=order.org_id,
+            user_id=order.user_id,
+            type="campaign_completed",
+            title=title,
+            message=message,
+            severity="info",
+            action_url=action_url,
+            dedupe_key=f"campaign-complete:{order.id}",
+            created_at=order.completed_at or datetime.utcnow(),
+        )
 
     @staticmethod
     def create_billing_request_notification(

@@ -258,12 +258,19 @@ export function useBillingRequests(status?: string) {
   });
 }
 
-export function useNotifications(limit = 10) {
+export function useNotifications(limit = 10, unreadOnly = false) {
   return useQuery({
-    queryKey: [...queryKeys.notifications, limit],
-    queryFn: () => apiFetch<Array<Record<string, unknown>>>(`/notifications?limit=${limit}`),
+    queryKey: [...queryKeys.notifications, limit, unreadOnly],
+    queryFn: () =>
+      apiFetch<Array<Record<string, unknown>>>(
+        `/notifications?limit=${limit}${unreadOnly ? "&unread_only=true" : ""}`,
+      ),
     refetchInterval: 60_000,
   });
+}
+
+export function useUnreadNotifications(limit = 10) {
+  return useNotifications(limit, true);
 }
 
 export function useNotificationUnreadCount() {
