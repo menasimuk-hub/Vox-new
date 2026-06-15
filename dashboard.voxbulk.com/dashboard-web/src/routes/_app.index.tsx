@@ -28,9 +28,11 @@ import { orderToCampaign } from "@/lib/mappers/orders";
 import { useSession } from "@/lib/session";
 import type { HomeSummary } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
+import { requireBillingOnlyHome } from "@/lib/guards/settings-route";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Dashboard — VoxBulk" }] }),
+  beforeLoad: () => requireBillingOnlyHome(),
   component: Dashboard,
 });
 

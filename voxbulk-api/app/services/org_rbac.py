@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 
-ORG_TEAM_ROLES = frozenset({"owner", "manager", "accountant", "member", "receptionist"})
+ORG_TEAM_ROLES = frozenset({"owner", "manager", "accountant", "member"})
 ORG_TEAM_MANAGERS = frozenset({"owner", "manager"})
 ORG_BILLING_ROLES = frozenset({"owner", "manager", "accountant"})
-ORG_CAMPAIGN_ROLES = frozenset({"owner", "manager", "member", "receptionist"})
+ORG_CAMPAIGN_ROLES = frozenset({"owner", "manager", "member"})
 ORG_DIGEST_ROLES = frozenset({"owner", "manager", "accountant"})
 
 
@@ -20,6 +20,8 @@ def effective_role(role: str | None) -> str:
     r = str(role or "").strip().lower()
     if not r:
         return "owner"
+    if r == "receptionist":
+        return "member"
     if r not in ORG_TEAM_ROLES:
         return "member"
     return r

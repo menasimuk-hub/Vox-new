@@ -23,7 +23,7 @@ import { useServices, type ServiceKey } from "@/lib/services";
 import { logoutDashboard } from "@/lib/api";
 import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
-import { canAccessBilling, canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
+import { canAccessBilling, canManageOrgSettings, canManageTeam, isBillingOnlyRole, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useOrganisation } from "@/lib/queries";
 
@@ -127,16 +127,22 @@ export function AppSidebar() {
   const avatar = initialsFromName(orgName);
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
   const role = normalizeOrgRole(session?.profile?.role);
+  const billingOnly = isBillingOnlyRole(role);
 
   const visibleGroups = groups
     .map((g) => {
       if (g.key !== "settings") return g;
       return {
         ...g,
-        items: g.items.filter((item) => item.url !== "/settings/team" || canManageTeam(role)),
+        items: g.items.filter((item) => {
+          if (item.url === "/settings/team") return canManageTeam(role);
+          if (item.url === "/settings/profile") return true;
+          return canManageOrgSettings(role);
+        }),
       };
     })
     .filter((g) => {
+      if (billingOnly) return g.key === "account";
       if (g.key === "account" && !canAccessBilling(role)) return false;
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
       if (!loaded) return false;
@@ -147,7 +153,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <BrandMark />
+        <BrandMark homeTo={billingOnly ? "/account/billing" : "/"} />
       </SidebarHeader>
 
       <SidebarContent>
@@ -196,13 +202,13 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-function BrandMark() {
+function BrandMark({ homeTo = "/" }: { homeTo?: string }) {
   const { theme } = useTheme();
   const fullLogo = theme === "dark" ? brandAssets.logoWhite : brandAssets.logoBlack;
   const iconLogo = theme === "dark" ? brandAssets.iconWhite : brandAssets.iconBlack;
   return (
     <Link
-      to="/"
+      to={homeTo}
       className="flex items-center px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-3"
     >
       <img

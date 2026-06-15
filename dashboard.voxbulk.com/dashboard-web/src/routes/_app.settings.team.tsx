@@ -18,17 +18,18 @@ import {
   useTeamInvites,
   useTeamMembers,
 } from "@/lib/queries";
+import { requireOrgSettingsAccess } from "@/lib/guards/settings-route";
 import { useSession } from "@/lib/session";
 
 const ROLES = [
-  { value: "accountant", label: "Accountant — billing & invoices" },
+  { value: "accountant", label: "Accountant — billing only" },
   { value: "manager", label: "Manager — full dashboard access" },
-  { value: "member", label: "Member — standard access" },
-  { value: "receptionist", label: "Receptionist — calls & recovery" },
+  { value: "member", label: "Member — campaigns only, no billing or team" },
 ];
 
 export const Route = createFileRoute("/_app/settings/team")({
   head: () => ({ meta: [{ title: "Team — VoxBulk" }] }),
+  beforeLoad: () => requireOrgSettingsAccess(),
   component: TeamSettings,
 });
 

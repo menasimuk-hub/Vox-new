@@ -13,14 +13,16 @@ Source of truth: `voxbulk-api/app/services/org_rbac.py` and `dashboard-web/src/l
 |------|-----------|---------|-------------------|
 | **owner** | Full | Full | Yes |
 | **manager** | Full | Full | Yes |
-| **accountant** | View only (no billing API) | Full | No |
-| **member** | Run campaigns | No | No |
-| **receptionist** | Recovery / calls | No | No |
+| **accountant** | No (billing-only UI) | Full | No |
+| **member** | All enabled campaign modules | No | No |
+
+Legacy `receptionist` memberships are treated as **member**.
 
 ## Multi-company
 
 - One login can belong to multiple orgs (`OrganisationMembership` rows).
 - JWT carries active `org_id`. Switch via `POST /auth/switch-organisation`.
+- Org switcher: **Home** icon = own company (`is_owner`), **Building** icon = invited company.
 - Login with 2+ orgs returns `org_selection_required` + organisation list.
 
 ## Team invites

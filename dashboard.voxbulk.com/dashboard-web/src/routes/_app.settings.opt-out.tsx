@@ -11,10 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
+import { requireOrgSettingsAccess } from "@/lib/guards/settings-route";
 import { useAddOptOut, useOptOuts, useRemoveOptOut } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/settings/opt-out")({
   head: () => ({ meta: [{ title: "Opt-out list — VoxBulk" }] }),
+  beforeLoad: () => requireOrgSettingsAccess(),
   component: OptOutPage,
 });
 

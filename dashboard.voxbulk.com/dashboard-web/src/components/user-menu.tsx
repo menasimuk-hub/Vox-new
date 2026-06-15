@@ -1,4 +1,4 @@
-import { Building2, Check, ChevronDown, LogOut } from "lucide-react";
+import { Building2, Check, ChevronDown, Home, LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +20,6 @@ function roleLabel(role: string) {
     manager: "Manager",
     accountant: "Accountant",
     member: "Member",
-    receptionist: "Receptionist",
   };
   return labels[role] || role;
 }
@@ -68,7 +67,9 @@ export function UserMenu() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-muted-foreground">Switch company</DropdownMenuLabel>
-            {orgs.map((org) => (
+            {orgs.map((org) => {
+              const OrgIcon = org.is_owner ? Home : Building2;
+              return (
               <DropdownMenuItem
                 key={org.org_id}
                 disabled={switchM.isPending}
@@ -76,12 +77,13 @@ export function UserMenu() {
                   if (org.org_id !== activeId) switchM.mutate(org.org_id);
                 }}
               >
-                <Building2 className="mr-2 size-4 shrink-0 opacity-70" />
+                <OrgIcon className="mr-2 size-4 shrink-0 opacity-70" />
                 <span className="flex-1 truncate">{org.name}</span>
                 <span className="ml-2 text-[10px] capitalize text-muted-foreground">{org.role}</span>
                 {org.org_id === activeId ? <Check className="ml-1 size-4 text-primary" /> : null}
               </DropdownMenuItem>
-            ))}
+              );
+            })}
           </>
         ) : null}
         <DropdownMenuSeparator />

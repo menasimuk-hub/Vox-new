@@ -34,11 +34,13 @@ import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 import { canEditOrgProfile, normalizeOrgRole } from "@/lib/org-roles";
+import { requireNonBillingOnlySettings } from "@/lib/guards/settings-route";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/settings/profile")({
   head: () => ({ meta: [{ title: "Organisation profile — VoxBulk" }] }),
+  beforeLoad: () => requireNonBillingOnlySettings(),
   component: ProfileSettings,
 });
 

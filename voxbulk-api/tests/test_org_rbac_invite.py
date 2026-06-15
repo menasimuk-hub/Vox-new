@@ -344,6 +344,9 @@ def test_password_login_attaches_pending_invite(app_client):
 def test_org_rbac_service_roles():
     from app.core.database import get_sessionmaker
 
+    assert effective_role("receptionist") == "member"
+    assert effective_role(None) == "owner"
+
     with get_sessionmaker()() as db:
         org = Organisation(name="RBAC Unit")
         db.add(org)
@@ -359,3 +362,31 @@ def test_org_rbac_service_roles():
             raise AssertionError("accountant should not launch campaigns")
         except PermissionError:
             pass
+
+
+def test_team_invite_rejects_receptionist_role(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="No Receptionist Co")
+        db.add(org)
+        db.flush()
+        owner = User(email="no_recep_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.commit()
+        org_id = org.id
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "no_recep_owner@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {owner_tok}"}
+
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers=headers,
+        json={"email": "recep_test@example.com", "role": "receptionist"},
+    )
+    assert inv.status_code == 400

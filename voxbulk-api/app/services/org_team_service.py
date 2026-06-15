@@ -14,7 +14,7 @@ from app.models.organisation_invite import OrganisationInvite
 from app.models.user import User
 from app.services.product_email_triggers import ProductEmailTriggers
 
-ORG_TEAM_ROLES = frozenset({"owner", "manager", "accountant", "member", "receptionist"})
+ORG_TEAM_ROLES = frozenset({"owner", "manager", "accountant", "member"})
 ORG_TEAM_MANAGERS = frozenset({"owner", "manager"})
 
 

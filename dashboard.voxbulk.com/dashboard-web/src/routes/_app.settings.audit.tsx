@@ -5,10 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
+import { requireOrgSettingsAccess } from "@/lib/guards/settings-route";
 import { useAuditLog } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/settings/audit")({
   head: () => ({ meta: [{ title: "Audit log — VoxBulk" }] }),
+  beforeLoad: () => requireOrgSettingsAccess(),
   component: AuditPage,
 });
 

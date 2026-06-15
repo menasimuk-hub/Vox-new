@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { requireOrgSettingsAccess } from "@/lib/guards/settings-route";
 import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules, isRecoveryServiceKey } from "@/lib/feature-flags";
 import { PhoneCall, ClipboardList, HeartPulse, CalendarClock, QrCode } from "lucide-react";
@@ -28,6 +29,7 @@ const items: ServiceItem[] = [
 
 export const Route = createFileRoute("/_app/settings/services")({
   head: () => ({ meta: [{ title: "Services — VoxBulk" }] }),
+  beforeLoad: () => requireOrgSettingsAccess(),
   component: ServicesSettings,
 });
 
