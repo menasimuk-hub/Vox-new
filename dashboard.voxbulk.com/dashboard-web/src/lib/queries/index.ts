@@ -293,6 +293,17 @@ export function useMarkNotificationRead() {
   });
 }
 
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ marked: number }>("/notifications/read-all", { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.notifications });
+      void qc.invalidateQueries({ queryKey: queryKeys.notificationUnread });
+    },
+  });
+}
+
 export function useBillingPlans() {
   return useQuery({
     queryKey: queryKeys.billingPlans,

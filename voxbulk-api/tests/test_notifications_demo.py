@@ -96,6 +96,30 @@ def test_ticket_reply_notification_action_url(app_client):
     assert ticket_rows[0]["action_url"] == f"/account/support/tickets?ticket={ticket_id}"
 
 
+def test_mark_all_notifications_read(app_client):
+    user_headers, org_id, _user_id = _seed_user(app_client, email="notify_clear_all@example.com")
+    admin_headers = _admin_headers(app_client)
+
+    credited = app_client.post(
+        f"/admin/organisations/{org_id}/wallet/credit",
+        headers=admin_headers,
+        json={"amount_pence": 500, "note": "First"},
+    )
+    assert credited.status_code == 200, credited.text
+
+    before = app_client.get("/notifications/unread-count", headers=user_headers)
+    assert before.status_code == 200
+    assert before.json()["count"] >= 1
+
+    cleared = app_client.post("/notifications/read-all", headers=user_headers)
+    assert cleared.status_code == 200
+    assert cleared.json()["marked"] >= 1
+
+    after = app_client.get("/notifications/unread-count", headers=user_headers)
+    assert after.status_code == 200
+    assert after.json()["count"] == 0
+
+
 def test_campaign_completed_notification_service():
     with get_sessionmaker()() as db:
         org = Organisation(name="Campaign Notify Org")

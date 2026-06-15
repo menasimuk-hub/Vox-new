@@ -55,14 +55,21 @@ function sentimentTone(label: string | null | undefined) {
 
 export function SurveyResultsRespondentRow({
   respondent,
+  completedLabel,
   onOpen,
 }: {
   respondent: SurveyResultRespondent;
+  completedLabel?: string;
   onOpen: () => void;
 }) {
   const name = respondent.name || "Respondent";
   const phone = respondent.phone || "—";
   const sentiment = respondent.sentiment_label || (respondent.is_unhappy ? "Unhappy" : "Neutral");
+  const completed =
+    completedLabel ||
+    (respondent.completed_at
+      ? new Date(respondent.completed_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
+      : "—");
 
   return (
     <tr className="border-b border-border/60 hover:bg-muted/30">
@@ -73,6 +80,7 @@ export function SurveyResultsRespondentRow({
       <td className="px-4 py-3 pr-3">
         <Badge variant={sentimentTone(sentiment)}>{sentiment}</Badge>
       </td>
+      <td className="px-4 py-3 pr-3 text-xs text-muted-foreground whitespace-nowrap">{completed}</td>
       <td className="px-4 py-3 pr-3">
         <div className="flex items-center gap-1">{quickViewDots(respondent)}</div>
       </td>

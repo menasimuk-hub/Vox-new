@@ -10,7 +10,7 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { initialsFromName, useSession } from "@/lib/session";
-import { useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
+import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
 import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
@@ -113,6 +113,7 @@ function NotificationsBell() {
   const unreadQ = useNotificationUnreadCount();
   const listQ = useUnreadNotifications(10);
   const markRead = useMarkNotificationRead();
+  const markAllRead = useMarkAllNotificationsRead();
   const unread = Number(unreadQ.data?.count || 0);
   const items = (listQ.data || []) as Array<{
     id: number;
@@ -143,9 +144,25 @@ function NotificationsBell() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel className="flex items-center justify-between">
-          Notifications
-          {unread > 0 ? <span className="text-[11px] text-muted-foreground">{unread} new</span> : null}
+        <DropdownMenuLabel className="flex items-center justify-between gap-2">
+          <span>Notifications</span>
+          <div className="flex items-center gap-2">
+            {unread > 0 ? <span className="text-[11px] text-muted-foreground">{unread} new</span> : null}
+            {unread > 0 ? (
+              <button
+                type="button"
+                className="text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+                disabled={markAllRead.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void markAllRead.mutateAsync();
+                }}
+              >
+                Clear all
+              </button>
+            ) : null}
+          </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {listQ.isLoading ? (

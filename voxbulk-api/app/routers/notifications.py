@@ -35,6 +35,12 @@ def my_unread_notification_count(db: Session = Depends(get_db), principal=Depend
     return {"count": NotificationService.unread_count(db, org_id=principal.org_id, user_id=principal.user_id)}
 
 
+@router.post("/read-all")
+def mark_all_my_notifications_read(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    count = NotificationService.mark_all_read(db, org_id=principal.org_id, user_id=principal.user_id)
+    return {"marked": count}
+
+
 @router.post("/{notification_id}/read")
 def mark_my_notification_read(notification_id: int, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     row = NotificationService.mark_read(

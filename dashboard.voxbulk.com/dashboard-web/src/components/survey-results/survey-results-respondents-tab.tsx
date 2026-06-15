@@ -2,12 +2,21 @@ import * as React from "react";
 import { TriangleAlert as AlertTriangle, Search, X } from "lucide-react";
 
 import { SurveyResultsRespondentRow, type SurveyResultRespondent } from "@/components/survey-results/survey-results-respondent-row";
+import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type FilterKey = "all" | "flagged" | "unhappy" | "neutral" | "happy";
+
+type SortableRespondent = SurveyResultRespondent & {
+  sortName: string;
+  sortPhone: string;
+  sortSentiment: number;
+  sortCompletedAt: number;
+  sortCompletedLabel: string;
+};
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
@@ -24,6 +33,23 @@ function matchesFilter(row: SurveyResultRespondent, filter: FilterKey) {
   if (filter === "happy") return sentiment.includes("positive") || sentiment.includes("happy") || sentiment.includes("excellent");
   if (filter === "neutral") return !row.is_unhappy && (sentiment.includes("neutral") || sentiment.includes("mixed") || !sentiment);
   return true;
+}
+
+function sentimentRank(row: SurveyResultRespondent): number {
+  const lower = String(row.sentiment_label || "").toLowerCase();
+  if (row.is_unhappy || lower.includes("negative") || lower.includes("unhappy") || lower.includes("poor")) return 0;
+  if (lower.includes("positive") || lower.includes("happy") || lower.includes("excellent")) return 2;
+  return 1;
+}
+
+function completedSortMeta(completedAt?: string | null): { sortCompletedAt: number; sortCompletedLabel: string } {
+  if (!completedAt) return { sortCompletedAt: 0, sortCompletedLabel: "—" };
+  const d = new Date(completedAt);
+  if (Number.isNaN(d.getTime())) return { sortCompletedAt: 0, sortCompletedLabel: completedAt };
+  return {
+    sortCompletedAt: d.getTime(),
+    sortCompletedLabel: d.toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }),
+  };
 }
 
 export function SurveyResultsRespondentsTab({
@@ -57,6 +83,23 @@ export function SurveyResultsRespondentsTab({
       return name.includes(q) || phone.includes(q);
     });
   }, [completed, filter, search]);
+
+  const rowsForSort = React.useMemo<SortableRespondent[]>(
+    () =>
+      filtered.map((row) => {
+        const completedMeta = completedSortMeta(row.completed_at);
+        return {
+          ...row,
+          sortName: String(row.name || ""),
+          sortPhone: String(row.phone || ""),
+          sortSentiment: sentimentRank(row),
+          ...completedMeta,
+        };
+      }),
+    [filtered],
+  );
+
+  const tableSort = useTableSort(rowsForSort as Record<string, unknown>[], "sortCompletedAt", "desc");
 
   return (
     <div className="space-y-4">
@@ -117,21 +160,51 @@ export function SurveyResultsRespondentsTab({
             <p className="p-6 text-sm text-muted-foreground">No respondents match this filter.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Mobile</th>
-                    <th className="px-4 py-3">Sentiment</th>
+                    <SortHeader
+                      label="Customer"
+                      sortKey="sortName"
+                      active={tableSort.sortKey}
+                      dir={tableSort.sortDir}
+                      onToggle={tableSort.toggleSort}
+                      className="px-4 py-3"
+                    />
+                    <SortHeader
+                      label="Mobile"
+                      sortKey="sortPhone"
+                      active={tableSort.sortKey}
+                      dir={tableSort.sortDir}
+                      onToggle={tableSort.toggleSort}
+                      className="px-4 py-3"
+                    />
+                    <SortHeader
+                      label="Sentiment"
+                      sortKey="sortSentiment"
+                      active={tableSort.sortKey}
+                      dir={tableSort.sortDir}
+                      onToggle={tableSort.toggleSort}
+                      className="px-4 py-3"
+                    />
+                    <SortHeader
+                      label="Completed"
+                      sortKey="sortCompletedAt"
+                      active={tableSort.sortKey}
+                      dir={tableSort.sortDir}
+                      onToggle={tableSort.toggleSort}
+                      className="px-4 py-3"
+                    />
                     <th className="px-4 py-3">Quick view</th>
                     <th className="px-4 py-3 text-right">Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((row) => (
+                  {(tableSort.sorted as SortableRespondent[]).map((row) => (
                     <SurveyResultsRespondentRow
                       key={row.id || `${row.phone}-${row.name}`}
                       respondent={row}
+                      completedLabel={row.sortCompletedLabel}
                       onOpen={() => onOpenRespondent(row)}
                     />
                   ))}

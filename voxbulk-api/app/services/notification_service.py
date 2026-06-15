@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
@@ -202,6 +202,22 @@ class NotificationService:
             db.commit()
             db.refresh(row)
         return row
+
+    @staticmethod
+    def mark_all_read(db: Session, *, org_id: str, user_id: str) -> int:
+        NotificationService.sync_user_notifications(db, org_id=org_id, user_id=user_id)
+        now = datetime.utcnow()
+        result = db.execute(
+            update(Notification)
+            .where(
+                Notification.organisation_id == org_id,
+                Notification.user_id == user_id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=now, updated_at=now)
+        )
+        db.commit()
+        return int(result.rowcount or 0)
 
     @staticmethod
     def create_wallet_credit_notification(

@@ -4,7 +4,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ArrowUpRight, ArrowDownRight, ArrowRight, Minus, Plus, Sparkles, Phone, Download,
+  ArrowUpRight, ArrowDownRight, Minus, Plus, Sparkles, Phone, Download,
   PoundSterling, PhoneOutgoing, UserCheck, MessageCircle, ListChecks, Timer, Wallet, Target,
   Radio, PhoneCall, CheckCircle2, Users, BarChart3, MessagesSquare, PauseCircle, type LucideIcon,
   Activity, TrendingUp, Smile, Frown, Meh, Star, QrCode, MessageSquareText, HeartPulse, AlertTriangle, Clock3,
@@ -102,11 +102,7 @@ function Dashboard() {
         </div>
       )}
 
-      {anyResponseService && summaryReady && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <UnhappyCustomers summary={summary} />
-        </div>
-      )}
+      {anyResponseService && summaryReady && <UnhappyCustomers summary={summary} />}
 
       {showRecoveryModules && visible.recovery && summaryReady && <RecoverySection summary={summary} loading={loading} />}
       {visible.interviews && summaryReady && (
@@ -353,7 +349,7 @@ function UnhappyCustomers({ summary }: { summary?: HomeSummary }) {
   const unhappy = summary?.feedback?.unhappy || [];
 
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2"><Frown className="size-4 text-red-500" /> Needs follow-up</CardTitle>
@@ -361,26 +357,23 @@ function UnhappyCustomers({ summary }: { summary?: HomeSummary }) {
         </div>
         {unhappy.length > 0 && <Badge variant="destructive">{unhappy.length}</Badge>}
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent>
         {unhappy.length === 0 ? (
           <p className="py-6 text-center text-xs text-muted-foreground">No customers need follow-up right now.</p>
         ) : (
-          <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {unhappy.map((u) => (
-              <div key={u.id || u.reason} className="rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
+              <div key={u.id || u.reason} className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{u.branch || "Customer"}</p>
-                    <p className="text-[11px] text-muted-foreground">{u.reason}{u.branch ? ` · ${u.branch}` : ""}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{u.reason || "Negative feedback"}</p>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{formatWhen(u.when)}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{formatWhen(u.when)}</span>
                 </div>
               </div>
             ))}
-            <Button variant="ghost" size="sm" className="w-full justify-center text-xs" asChild>
-              <Link to="/feedback/results">See all feedback <ArrowRight className="ml-1 size-3" /></Link>
-            </Button>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
