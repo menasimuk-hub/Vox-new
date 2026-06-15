@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { marketFromCountryCode } from "@/lib/geo";
 
 export type Currency = "gbp" | "aud" | "cad" | "usd";
 
@@ -12,7 +11,7 @@ export const MARKETS: { code: Currency; label: string; flag: string; country: st
   { code: "usd", label: "USD", flag: "🇺🇸", country: "United States" },
 ];
 
-const COUNTRY_TO_CUR: Record<string, Currency> = { GB: "gbp", UK: "gbp", IE: "gbp", AU: "aud", NZ: "aud", CA: "cad", US: "usd", SG: "usd" };
+const COUNTRY_TO_CUR: Record<string, Currency> = { GB: "gbp", AU: "aud", CA: "cad", US: "usd" };
 
 type Ctx = { currency: Currency; setCurrency: (c: Currency) => void; auto: boolean };
 const CurrencyCtx = createContext<Ctx>({ currency: "gbp", setCurrency: () => {}, auto: true });
@@ -33,7 +32,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
         const code = d?.country_code;
-        if (code) setCurrencyState(marketFromCountryCode(code));
+        if (code && COUNTRY_TO_CUR[code]) setCurrencyState(COUNTRY_TO_CUR[code]);
       })
       .catch(() => {});
   }, []);

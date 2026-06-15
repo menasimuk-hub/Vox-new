@@ -10,14 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SurveysRouteImport } from './routes/surveys'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as RecruitmentRouteImport } from './routes/recruitment'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
 import { Route as LegalRouteImport } from './routes/legal'
 import { Route as GdprRouteImport } from './routes/gdpr'
+import { Route as FeedbackRouteImport } from './routes/feedback'
 import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as IndexRouteImport } from './routes/index'
@@ -25,6 +29,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SurveysRoute = SurveysRouteImport.update({
+  id: '/surveys',
+  path: '/surveys',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -42,9 +51,19 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecruitmentRoute = RecruitmentRouteImport.update({
+  id: '/recruitment',
+  path: '/recruitment',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PricingRoute = PricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -67,6 +86,11 @@ const GdprRoute = GdprRouteImport.update({
   path: '/gdpr',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FeedbackRoute = FeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CookiesRoute = CookiesRouteImport.update({
   id: '/cookies',
   path: '/cookies',
@@ -87,28 +111,36 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
+  '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
+  '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
+  '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
+  '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
 }
 export interface FileRoutesById {
@@ -116,14 +148,18 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
+  '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/onboarding': typeof OnboardingRoute
+  '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
+  '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
 }
 export interface FileRouteTypes {
@@ -132,42 +168,54 @@ export interface FileRouteTypes {
     | '/'
     | '/contact'
     | '/cookies'
+    | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
     | '/onboarding'
+    | '/pricing'
     | '/privacy'
+    | '/recruitment'
     | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
+    | '/surveys'
     | '/terms'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/contact'
     | '/cookies'
+    | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
     | '/onboarding'
+    | '/pricing'
     | '/privacy'
+    | '/recruitment'
     | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
+    | '/surveys'
     | '/terms'
   id:
     | '__root__'
     | '/'
     | '/contact'
     | '/cookies'
+    | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
     | '/onboarding'
+    | '/pricing'
     | '/privacy'
+    | '/recruitment'
     | '/reset-password'
     | '/signin'
     | '/sitemap.xml'
+    | '/surveys'
     | '/terms'
   fileRoutesById: FileRoutesById
 }
@@ -175,14 +223,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ContactRoute: typeof ContactRoute
   CookiesRoute: typeof CookiesRoute
+  FeedbackRoute: typeof FeedbackRoute
   GdprRoute: typeof GdprRoute
   LegalRoute: typeof LegalRoute
   LegalPoliciesRoute: typeof LegalPoliciesRoute
   OnboardingRoute: typeof OnboardingRoute
+  PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
+  RecruitmentRoute: typeof RecruitmentRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SigninRoute: typeof SigninRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  SurveysRoute: typeof SurveysRoute
   TermsRoute: typeof TermsRoute
 }
 
@@ -193,6 +245,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/surveys': {
+      id: '/surveys'
+      path: '/surveys'
+      fullPath: '/surveys'
+      preLoaderRoute: typeof SurveysRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sitemap.xml': {
@@ -216,11 +275,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recruitment': {
+      id: '/recruitment'
+      path: '/recruitment'
+      fullPath: '/recruitment'
+      preLoaderRoute: typeof RecruitmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy': {
       id: '/privacy'
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pricing': {
+      id: '/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof PricingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -251,6 +324,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GdprRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/feedback': {
+      id: '/feedback'
+      path: '/feedback'
+      fullPath: '/feedback'
+      preLoaderRoute: typeof FeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cookies': {
       id: '/cookies'
       path: '/cookies'
@@ -279,14 +359,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ContactRoute: ContactRoute,
   CookiesRoute: CookiesRoute,
+  FeedbackRoute: FeedbackRoute,
   GdprRoute: GdprRoute,
   LegalRoute: LegalRoute,
   LegalPoliciesRoute: LegalPoliciesRoute,
   OnboardingRoute: OnboardingRoute,
+  PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,
+  RecruitmentRoute: RecruitmentRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SigninRoute: SigninRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  SurveysRoute: SurveysRoute,
   TermsRoute: TermsRoute,
 }
 export const routeTree = rootRouteImport

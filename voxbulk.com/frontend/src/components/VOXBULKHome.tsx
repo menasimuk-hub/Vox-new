@@ -4,11 +4,13 @@ import {
   FileText, Sparkles, CalendarCheck, PhoneCall, BarChart3, CheckCircle2, MessageCircle,
   ArrowRight, ArrowUpRight, ShieldCheck, Zap, Layers, Users, Bot, Star,
   Upload, Mail, Inbox, Headphones, Clock, Wallet, Gauge,
+  X, Check, Plug, Quote, Play, Calendar, FlaskConical, Building2,
 } from "lucide-react";
+
+
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { useTalkModal } from "@/components/TalkModal";
 import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
-import { usePublicPricing } from "@/hooks/usePricing";
 
 
 /* ---------------- HERO ---------------- */
@@ -26,8 +28,7 @@ function Equaliser() {
   );
 }
 
-function Hero() {
-  const talk = useTalkModal();
+export function HeroDashboard() {
   const tickerItems = [
     "CV scored · Amelia C. · 92",
     "Interview booked · Joshua R.",
@@ -36,6 +37,167 @@ function Hero() {
     "Shortlist updated · Senior Engineer",
     "Final round auto-scheduled · Tue 14:30",
   ];
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 -m-6 rounded-[32px] bg-gradient-to-br from-blue-500/15 via-transparent to-teal/15 blur-2xl" />
+      <span className="absolute -top-3 left-10 w-2 h-2 rounded-full bg-gold shadow-[0_0_12px_2px_rgba(212,169,58,0.6)] float-a" />
+      <span className="absolute top-16 -left-4 w-1.5 h-1.5 rounded-full bg-teal float-b" />
+      <span className="absolute -bottom-3 left-1/3 w-2.5 h-2.5 rounded-full bg-blue-400/80 shadow-[0_0_14px_2px_rgba(96,165,250,0.55)] float-a" style={{ animationDelay: "1.2s" }} />
+      <span className="absolute -top-2 right-10 w-1.5 h-1.5 rounded-full bg-teal float-a" style={{ animationDelay: "1.6s" }} />
+      <span className="absolute top-1/2 -right-3 w-2 h-2 rounded-full bg-white/40 float-b" style={{ animationDelay: "0.4s" }} />
+      <div className="hidden md:flex absolute -left-8 top-24 items-center gap-1.5 px-2.5 h-7 rounded-full bg-white/[0.08] border border-white/15 backdrop-blur text-[11px] text-white/85 float-a" style={{ animationDelay: "0.6s" }}>
+        <span className="w-1.5 h-1.5 rounded-full bg-gold" /> ATS 92 · Strong fit
+      </div>
+      <div className="hidden md:flex absolute -right-6 bottom-16 items-center gap-1.5 px-2.5 h-7 rounded-full bg-white/[0.08] border border-white/15 backdrop-blur text-[11px] text-white/85 float-b" style={{ animationDelay: "1.4s" }}>
+        <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> AI call · live
+      </div>
+      <div className="relative sm:aspect-[16/10] w-full max-w-[720px] mx-auto rounded-2xl border border-white/10 bg-[#0E1A2E] shadow-elevated overflow-hidden flex flex-col">
+        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-white/10 bg-white/[0.03]">
+          <span className="w-2 h-2 rounded-full bg-white/20" />
+          <span className="w-2 h-2 rounded-full bg-white/20" />
+          <span className="w-2 h-2 rounded-full bg-white/20" />
+          <span className="ml-2 text-[11px] text-white/40">voxbulk.com · workspace</span>
+          <span className="ml-auto inline-flex items-center gap-1.5 text-[10.5px] text-teal">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> LIVE
+          </span>
+        </div>
+        <div className="overflow-hidden border-b border-white/10 bg-white/[0.02]">
+          <div className="flex gap-8 py-1.5 whitespace-nowrap animate-ticker text-[11px] text-white/55">
+            {[...tickerItems, ...tickerItems].map((t, i) => (
+              <span key={i} className="inline-flex items-center gap-2">
+                <span className="w-1 h-1 rounded-full bg-gold" /> {t}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-px bg-white/5">
+          {[
+            { icon: FileText, label: "CVs scanned", value: "1,248" },
+            { icon: Gauge, label: "Avg ATS", value: "76" },
+            { icon: PhoneCall, label: "Calls today", value: "312" },
+            { icon: CalendarCheck, label: "Booked", value: "87" },
+          ].map((s, i) => (
+            <div key={i} className="bg-[#0E1A2E] px-3 py-2 text-left">
+              <div className="flex items-center gap-1.5 text-white/50 text-[10px] uppercase tracking-wider">
+                <s.icon size={11} className="text-gold" /> {s.label}
+              </div>
+              <div className="mt-0.5 text-[18px] font-bold text-white tracking-tight">{s.value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[1.55fr_1fr] gap-px bg-white/5 flex-1 min-h-0">
+          <div className="bg-[#0E1A2E] p-3 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[10.5px] uppercase tracking-wider text-white/50 font-semibold">Top candidates</div>
+              <div className="text-[10px] text-white/40">Senior Engineer · VB-ENG-204</div>
+            </div>
+            <div className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40 border-b border-white/10">
+              <span>Candidate</span><span className="text-right">ATS</span><span className="text-right">Interview</span><span className="text-right">Status</span>
+            </div>
+            <div className="flex-1 overflow-hidden divide-y divide-white/5">
+              {[
+                { name: "Amelia Carter", role: "Product Manager", ats: 92, iv: 89, status: "Booked", tone: "teal" },
+                { name: "Joshua Reid", role: "Senior Engineer", ats: 88, iv: 84, status: "Shortlist", tone: "gold" },
+                { name: "Priya Shah", role: "Backend Eng", ats: 81, iv: 79, status: "Review", tone: "blue" },
+                { name: "Marcus Lee", role: "Full-stack", ats: 76, iv: 72, status: "Review", tone: "blue" },
+                { name: "Hannah Wood", role: "Senior Engineer", ats: 68, iv: 65, status: "Hold", tone: "muted" },
+              ].map((c) => (
+                <div key={c.name} className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 items-center py-1.5 px-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-teal flex items-center justify-center text-white font-semibold text-[9px] shrink-0">
+                      {c.name.split(" ").map(n => n[0]).join("")}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-white font-semibold text-[12px] truncate leading-tight">{c.name}</div>
+                      <div className="text-[10px] text-white/45 truncate leading-tight">{c.role}</div>
+                    </div>
+                  </div>
+                  <div className="text-right text-[13px] font-bold text-gold tabular-nums">{c.ats}</div>
+                  <div className="text-right text-[13px] font-bold text-teal tabular-nums">{c.iv}</div>
+                  <div className="text-right">
+                    <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold ${
+                      c.tone === "teal" ? "bg-teal/15 text-teal" :
+                      c.tone === "gold" ? "bg-gold/15 text-gold" :
+                      c.tone === "blue" ? "bg-blue-400/15 text-blue-300" :
+                      "bg-white/10 text-white/55"
+                    }`}>{c.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-[#0B1626] p-3 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10.5px] uppercase tracking-wider text-white/50 font-semibold">Calling now</div>
+              <span className="inline-flex items-center gap-1 text-[10px] text-teal">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> Live
+              </span>
+            </div>
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gold to-blue-400 flex items-center justify-center text-navy font-bold text-[10px]">EM</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-white text-[12px] font-semibold truncate leading-tight">Elena Martín</div>
+                <div className="text-[10px] text-white/50 leading-tight">Q4 · skills · 08:42</div>
+              </div>
+              <Equaliser />
+            </div>
+            <div className="mt-2 rounded-lg bg-white/[0.03] border border-white/5 p-2 text-[10.5px] text-white/65 leading-snug">
+              <span className="text-teal">AI:</span> "Tell me about a system you scaled past 1M users…"
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {[
+                { l: "Skills", v: "9.1" },
+                { l: "Comms", v: "8.7" },
+                { l: "Fit", v: "9.0" },
+              ].map(m => (
+                <div key={m.l} className="rounded-md bg-white/[0.04] border border-white/5 px-1.5 py-1 text-center">
+                  <div className="text-[9px] uppercase tracking-wider text-white/45">{m.l}</div>
+                  <div className="text-[13px] font-bold text-gold tabular-nums">{m.v}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-auto pt-2 flex items-center justify-between text-[10px] text-white/45">
+              <span>Queue · 6 waiting</span>
+              <span className="inline-flex items-center gap-1 text-teal"><CheckCircle2 size={10} /> Auto-scoring</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Hero({
+  badgeText = "Live now · AI Assistant Platform",
+  headline,
+  sub,
+  primaryHref = "/contact",
+  primaryLabel = "Request a demo",
+  secondaryLabel = "Talk to us",
+  onSecondary,
+}: {
+  badgeText?: string;
+  headline?: React.ReactNode;
+  sub?: React.ReactNode;
+  primaryHref?: string;
+  primaryLabel?: string;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+} = {}) {
+  const talk = useTalkModal();
+  const handleSecondary = onSecondary ?? talk.open;
+  const heading = headline ?? (
+    <>
+      <span className="sr-only">VoxBulk — </span>
+      Intelligent voice &amp; messaging that <span className="serif-italic text-gold">runs itself</span>.
+    </>
+  );
+  const subCopy = sub ?? (
+    <>
+      VoxBulk automates conversations, workflows and data collection — so your team
+      can focus on decisions, not coordination.
+    </>
+  );
   return (
     <section id="top" className="relative overflow-hidden bg-navy text-white pt-[112px] md:pt-[128px] pb-16 md:pb-20">
       <div className="absolute inset-0 bg-grid opacity-[0.3]" />
@@ -46,29 +208,26 @@ function Hero() {
            style={{ background: "radial-gradient(circle, #4FB3A9 0%, transparent 60%)" }} />
 
       <div className="relative max-w-[1320px] mx-auto px-5 md:px-10 grid lg:grid-cols-[0.85fr_1.15fr] gap-10 lg:gap-12 items-center">
-        {/* LEFT — copy */}
         <div className="text-left">
           <div className="inline-flex items-center gap-2 px-3.5 h-8 rounded-full border border-white/15 bg-white/[0.06] text-[12.5px] text-white/80 backdrop-blur">
             <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" />
-            Live now · AI Assistant Platform
+            {badgeText}
           </div>
 
           <h1 className="mt-5 text-[38px] sm:text-[46px] lg:text-[54px] font-bold tracking-[-0.035em] leading-[1.04] text-white">
-            <span className="sr-only">VoxBulk — </span>
-            Intelligent voice &amp; messaging that <span className="serif-italic text-gold">runs itself</span>.
+            {heading}
           </h1>
 
           <p className="mt-5 max-w-[520px] text-[16px] md:text-[17px] text-white/70 leading-[1.6]">
-            VoxBulk automates conversations, workflows and data collection — so your team
-            can focus on decisions, not coordination.
+            {subCopy}
           </p>
 
           <div className="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <a href="#demo" className="btn-primary text-[15px] px-6 h-12">
-              Request a demo <ArrowRight size={16} />
-            </a>
-            <button onClick={talk.open} className="btn-ghost-light text-[15px] h-12">
-              <Headphones size={15} /> Talk to us
+            <Link to={primaryHref} className="btn-primary text-[15px] px-6 h-12">
+              {primaryLabel} <ArrowRight size={16} />
+            </Link>
+            <button onClick={handleSecondary} className="btn-ghost-light text-[15px] h-12">
+              <Headphones size={15} /> {secondaryLabel}
             </button>
           </div>
 
@@ -81,150 +240,7 @@ function Hero() {
           </div>
         </div>
 
-        {/* RIGHT — HD landscape dashboard */}
-        <div className="relative">
-          <div className="absolute inset-0 -m-6 rounded-[32px] bg-gradient-to-br from-blue-500/15 via-transparent to-teal/15 blur-2xl" />
-
-          {/* floating dot accents */}
-          <span className="absolute -top-3 left-10 w-2 h-2 rounded-full bg-gold shadow-[0_0_12px_2px_rgba(212,169,58,0.6)] float-a" />
-          <span className="absolute top-16 -left-4 w-1.5 h-1.5 rounded-full bg-teal float-b" />
-          <span className="absolute -bottom-3 left-1/3 w-2.5 h-2.5 rounded-full bg-blue-400/80 shadow-[0_0_14px_2px_rgba(96,165,250,0.55)] float-a" style={{ animationDelay: "1.2s" }} />
-          <span className="absolute -top-2 right-10 w-1.5 h-1.5 rounded-full bg-teal float-a" style={{ animationDelay: "1.6s" }} />
-          <span className="absolute top-1/2 -right-3 w-2 h-2 rounded-full bg-white/40 float-b" style={{ animationDelay: "0.4s" }} />
-
-          {/* floating chips */}
-          <div className="hidden md:flex absolute -left-8 top-24 items-center gap-1.5 px-2.5 h-7 rounded-full bg-white/[0.08] border border-white/15 backdrop-blur text-[11px] text-white/85 float-a" style={{ animationDelay: "0.6s" }}>
-            <span className="w-1.5 h-1.5 rounded-full bg-gold" /> ATS 92 · Strong fit
-          </div>
-          <div className="hidden md:flex absolute -right-6 bottom-16 items-center gap-1.5 px-2.5 h-7 rounded-full bg-white/[0.08] border border-white/15 backdrop-blur text-[11px] text-white/85 float-b" style={{ animationDelay: "1.4s" }}>
-            <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> AI call · live
-          </div>
-
-          {/* HD landscape card */}
-          <div className="relative sm:aspect-[16/10] w-full max-w-[720px] mx-auto rounded-2xl border border-white/10 bg-[#0E1A2E] shadow-elevated overflow-hidden flex flex-col">
-            {/* window bar */}
-            <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-white/10 bg-white/[0.03]">
-              <span className="w-2 h-2 rounded-full bg-white/20" />
-              <span className="w-2 h-2 rounded-full bg-white/20" />
-              <span className="w-2 h-2 rounded-full bg-white/20" />
-              <span className="ml-2 text-[11px] text-white/40">voxbulk.com · workspace</span>
-              <span className="ml-auto inline-flex items-center gap-1.5 text-[10.5px] text-teal">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> LIVE
-              </span>
-            </div>
-
-            {/* ticker */}
-            <div className="overflow-hidden border-b border-white/10 bg-white/[0.02]">
-              <div className="flex gap-8 py-1.5 whitespace-nowrap animate-ticker text-[11px] text-white/55">
-                {[...tickerItems, ...tickerItems].map((t, i) => (
-                  <span key={i} className="inline-flex items-center gap-2">
-                    <span className="w-1 h-1 rounded-full bg-gold" /> {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* stats */}
-            <div className="grid grid-cols-4 gap-px bg-white/5">
-              {[
-                { icon: FileText, label: "CVs scanned", value: "1,248" },
-                { icon: Gauge, label: "Avg ATS", value: "76" },
-                { icon: PhoneCall, label: "Calls today", value: "312" },
-                { icon: CalendarCheck, label: "Booked", value: "87" },
-              ].map((s, i) => (
-                <div key={i} className="bg-[#0E1A2E] px-3 py-2 text-left">
-                  <div className="flex items-center gap-1.5 text-white/50 text-[10px] uppercase tracking-wider">
-                    <s.icon size={11} className="text-gold" /> {s.label}
-                  </div>
-                  <div className="mt-0.5 text-[18px] font-bold text-white tracking-tight">{s.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* body: table left, calling-now right */}
-            <div className="grid grid-cols-1 sm:grid-cols-[1.55fr_1fr] gap-px bg-white/5 flex-1 min-h-0">
-              {/* candidates table */}
-              <div className="bg-[#0E1A2E] p-3 flex flex-col min-h-0">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="text-[10.5px] uppercase tracking-wider text-white/50 font-semibold">Top candidates</div>
-                  <div className="text-[10px] text-white/40">Senior Engineer · VB-ENG-204</div>
-                </div>
-                <div className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40 border-b border-white/10">
-                  <span>Candidate</span><span className="text-right">ATS</span><span className="text-right">Interview</span><span className="text-right">Status</span>
-                </div>
-                <div className="flex-1 overflow-hidden divide-y divide-white/5">
-                  {[
-                    { name: "Amelia Carter", role: "Product Manager", ats: 92, iv: 89, status: "Booked", tone: "teal" },
-                    { name: "Joshua Reid", role: "Senior Engineer", ats: 88, iv: 84, status: "Shortlist", tone: "gold" },
-                    { name: "Priya Shah", role: "Backend Eng", ats: 81, iv: 79, status: "Review", tone: "blue" },
-                    { name: "Marcus Lee", role: "Full-stack", ats: 76, iv: 72, status: "Review", tone: "blue" },
-                    { name: "Hannah Wood", role: "Senior Engineer", ats: 68, iv: 65, status: "Hold", tone: "muted" },
-                  ].map((c) => (
-                    <div key={c.name} className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 items-center py-1.5 px-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-teal flex items-center justify-center text-white font-semibold text-[9px] shrink-0">
-                          {c.name.split(" ").map(n => n[0]).join("")}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-white font-semibold text-[12px] truncate leading-tight">{c.name}</div>
-                          <div className="text-[10px] text-white/45 truncate leading-tight">{c.role}</div>
-                        </div>
-                      </div>
-                      <div className="text-right text-[13px] font-bold text-gold tabular-nums">{c.ats}</div>
-                      <div className="text-right text-[13px] font-bold text-teal tabular-nums">{c.iv}</div>
-                      <div className="text-right">
-                        <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold ${
-                          c.tone === "teal" ? "bg-teal/15 text-teal" :
-                          c.tone === "gold" ? "bg-gold/15 text-gold" :
-                          c.tone === "blue" ? "bg-blue-400/15 text-blue-300" :
-                          "bg-white/10 text-white/55"
-                        }`}>{c.status}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* calling now */}
-              <div className="bg-[#0B1626] p-3 flex flex-col min-h-0">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10.5px] uppercase tracking-wider text-white/50 font-semibold">Calling now</div>
-                  <span className="inline-flex items-center gap-1 text-[10px] text-teal">
-                    <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> Live
-                  </span>
-                </div>
-                <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gold to-blue-400 flex items-center justify-center text-navy font-bold text-[10px]">EM</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white text-[12px] font-semibold truncate leading-tight">Elena Martín</div>
-                    <div className="text-[10px] text-white/50 leading-tight">Q4 · skills · 08:42</div>
-                  </div>
-                  <Equaliser />
-                </div>
-                <div className="mt-2 rounded-lg bg-white/[0.03] border border-white/5 p-2 text-[10.5px] text-white/65 leading-snug">
-                  <span className="text-teal">AI:</span> "Tell me about a system you scaled past 1M users…"
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  {[
-                    { l: "Skills", v: "9.1" },
-                    { l: "Comms", v: "8.7" },
-                    { l: "Fit", v: "9.0" },
-                  ].map(m => (
-                    <div key={m.l} className="rounded-md bg-white/[0.04] border border-white/5 px-1.5 py-1 text-center">
-                      <div className="text-[9px] uppercase tracking-wider text-white/45">{m.l}</div>
-                      <div className="text-[13px] font-bold text-gold tabular-nums">{m.v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-auto pt-2 flex items-center justify-between text-[10px] text-white/45">
-                  <span>Queue · 6 waiting</span>
-                  <span className="inline-flex items-center gap-1 text-teal"><CheckCircle2 size={10} /> Auto-scoring</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
+        <HeroDashboard />
       </div>
     </section>
   );
@@ -232,7 +248,7 @@ function Hero() {
 
 
 /* ---------------- TRUST STRIP ---------------- */
-function TrustStrip() {
+export function TrustStrip() {
   const items = ["HR Teams", "Operations", "Talent Acquisition", "People Ops", "Research", "Customer Success"];
   return (
     <section className="py-10 border-y border-border bg-white">
@@ -251,7 +267,7 @@ function TrustStrip() {
 }
 
 /* ---------------- WHAT WE DO ---------------- */
-function WhatWeDo() {
+export function WhatWeDo() {
   const pillars = [
     {
       icon: MessageCircle,
@@ -301,7 +317,7 @@ function WhatWeDo() {
 
 
 /* ---------------- CAPABILITIES ---------------- */
-function Capabilities() {
+export function Capabilities() {
   const caps = [
     {
       tag: "AI Interview Screening",
@@ -404,15 +420,10 @@ const services = [
     title: "One-click final round booking",
     body: "Accept candidates and instantly schedule human interviews via Cronofy or Calendly integration.",
   },
-  {
-    icon: MessageCircle,
-    tag: "Surveys",
-    title: "WhatsApp surveys",
-    body: "Send AI-built surveys via WhatsApp. Collect responses and deliver named or anonymous feedback reports.",
-  },
 ];
 
-function LiveServices() {
+
+export function LiveServices() {
   return (
     <section id="services" className="py-24 md:py-32 bg-white">
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
@@ -423,9 +434,10 @@ function LiveServices() {
               Recruitment, fully <span className="serif-italic text-primary">automated</span> — today.
             </h2>
             <p className="mt-5 text-[17px] text-body">
-              Our flagship product. Seven connected services that take a role from open req to booked
+              Our flagship product. Six connected services that take a role from open req to booked
               final-round interview — without your team lifting a finger.
             </p>
+
           </div>
           <a href="#demo" className="hidden md:inline-flex items-center gap-1.5 text-[14px] font-semibold text-primary hover:gap-2.5 transition-all">
             See it in action <ArrowUpRight size={16} />
@@ -449,21 +461,6 @@ function LiveServices() {
               <p className="mt-2 text-[14.5px] text-body leading-[1.6]">{s.body}</p>
             </div>
           ))}
-          <div className="card-soft p-7 border-dashed bg-beige flex flex-col justify-between">
-            <div>
-              <div className="w-12 h-12 rounded-xl bg-navy text-gold flex items-center justify-center">
-                <Bot size={22} />
-              </div>
-              <h3 className="mt-5 text-[19px] font-bold text-heading">More launching soon</h3>
-              <p className="mt-2 text-[14.5px] text-body leading-[1.6]">
-                Voice agents for sales qualification, customer onboarding and operations workflows
-                are next on the roadmap.
-              </p>
-            </div>
-            <a href="#demo" className="mt-6 inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-primary">
-              Get early access <ArrowRight size={14} />
-            </a>
-          </div>
         </div>
       </div>
     </section>
@@ -471,7 +468,7 @@ function LiveServices() {
 }
 
 /* ---------------- HOW IT WORKS ---------------- */
-function HowItWorks() {
+export function HowItWorks() {
   const steps = [
     {
       n: "01",
@@ -522,7 +519,7 @@ function HowItWorks() {
 }
 
 /* ---------------- METRICS ---------------- */
-function Metrics() {
+export function Metrics() {
   const items = [
     { value: "92%", label: "less time spent on screening & scheduling" },
     { value: "4×", label: "more candidates interviewed per week" },
@@ -560,7 +557,7 @@ type Plan = {
   payg?: boolean;
 };
 
-const PLANS: Plan[] = [
+export const PLANS: Plan[] = [
   { name: "Pay as you go", priceGBP: 0,    ratePerMinGBP: 0.40, mins: null, wa: "Pay/use", cv: "Pay/use", badge: "No commitment", payg: true },
   { name: "Starter",    priceGBP: 59,   ratePerMinGBP: 0.35, mins: 400,  wa: 200,         cv: 100 },
   { name: "Pro",        priceGBP: 129,  ratePerMinGBP: 0.30, mins: 1200, wa: 600,         cv: 400,  badge: "Most popular" },
@@ -568,39 +565,19 @@ const PLANS: Plan[] = [
   { name: "Enterprise", priceGBP: null, ratePerMinGBP: null, mins: null, wa: "Unlimited", cv: "Unlimited", badge: "Custom pricing", enterprise: true },
 ];
 
-const WA_GBP = 1.5;
-const CV_GBP = 0.75;
+export const WA_GBP = 1.5;
+export const CV_GBP = 0.75;
 
-function fmt(n: number, dp = 2) { return n.toFixed(dp); }
+export function fmt(n: number, dp = 2) { return n.toFixed(dp); }
 
-function Pricing() {
+export function Pricing() {
   const { currency: cur } = useCurrency();
-  const { data: pricing } = usePublicPricing();
   const [topup, setTopup] = useState(50);
   const [dur, setDur] = useState(12);
   const [num, setNum] = useState(100);
 
   const s = SYM[cur];
   const fx = FX[cur];
-
-  const apiPlans = pricing?.plans || [];
-  const planCards = apiPlans.length
-    ? apiPlans.map((p) => ({
-        name: p.name,
-        priceGBP: p.is_enterprise ? null : p.is_payg ? 0 : null,
-        ratePerMinGBP: p.is_enterprise ? null : null,
-        mins: p.is_enterprise || p.is_payg ? (p.is_payg ? null : null) : p.minutes_included,
-        wa: p.is_enterprise ? "Unlimited" : p.is_payg ? "Pay/use" : p.whatsapp_included,
-        cv: p.is_enterprise ? "Unlimited" : p.is_payg ? "Pay/use" : p.cv_scans_included,
-        badge: p.is_featured ? "Most popular" : p.is_payg ? "No commitment" : p.is_enterprise ? "Custom pricing" : undefined,
-        enterprise: p.is_enterprise,
-        payg: p.is_payg,
-        priceDisplay: p.price_display,
-        perMinDisplay: p.per_min_display,
-        typicalLow: p.typical_call_low_display,
-        typicalHigh: p.typical_call_high_display,
-      }))
-    : PLANS.map((p) => ({ ...p, priceDisplay: null as string | null, perMinDisplay: null as string | null, typicalLow: null as string | null, typicalHigh: null as string | null }));
 
 
   return (
@@ -624,7 +601,7 @@ function Pricing() {
 
         {/* Plans */}
         <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          {planCards.map((p) => {
+          {PLANS.map((p) => {
             const featured = p.badge === "Most popular";
             const waV = typeof p.wa === "number" ? p.wa.toLocaleString() : p.wa;
             const cvV = typeof p.cv === "number" ? p.cv.toLocaleString() : p.cv;
@@ -660,11 +637,11 @@ function Pricing() {
                 ) : p.payg ? (
                   <>
                     <div className="mt-3 flex items-baseline gap-1">
-                      <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{p.priceDisplay || `${s}0`}</span>
+                      <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{s}0</span>
                       <span className="text-[13px] text-muted-text">/mo</span>
                     </div>
                     <div className="mt-1 text-[12px] text-muted-text">
-                      Per minute: <strong className="text-heading">{p.perMinDisplay || `${s}${fmt((p.ratePerMinGBP as number) * fx)}`}</strong>
+                      Per minute: <strong className="text-heading">{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong>
                     </div>
                     <div className="mt-1 text-[11.5px] text-muted-text">
                       Only pay for what you use · no monthly fee
@@ -674,15 +651,15 @@ function Pricing() {
                   <>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
-                        {p.priceDisplay || `${s}${Math.round((p.priceGBP as number) * fx)}`}
+                        {s}{Math.round((p.priceGBP as number) * fx)}
                       </span>
                       <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
                     </div>
                     <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>
-                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{p.perMinDisplay || `${s}${fmt((p.ratePerMinGBP as number) * fx)}`}</strong>
+                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong>
                     </div>
                     <div className={`mt-1 text-[11.5px] ${featured ? "text-white/55" : "text-muted-text"}`}>
-                      Typical interview · {p.typicalLow && p.typicalHigh ? `${p.typicalLow} – ${p.typicalHigh}` : `${s}${fmt((p.ratePerMinGBP as number) * 10 * fx)} – ${s}${fmt((p.ratePerMinGBP as number) * 15 * fx)}`}
+                      Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * fx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * fx)}
                     </div>
                   </>
                 )}
@@ -866,7 +843,7 @@ function Pricing() {
   );
 }
 
-function SliderRow({
+export function SliderRow({
   label, value, min, max, step, onChange, display,
 }: {
   label: string; value: number; min: number; max: number; step: number;
@@ -887,7 +864,7 @@ function SliderRow({
   );
 }
 
-function ServiceCard({
+export function ServiceCard({
   tone, icon, title, price, unit, desc,
 }: {
   tone: "blue" | "teal" | "gold";
@@ -910,7 +887,7 @@ function ServiceCard({
   );
 }
 
-function TopupCell({ label, value }: { label: string; value: string }) {
+export function TopupCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-beige rounded-xl px-4 py-3">
       <div className="text-[11.5px] text-muted-text mb-1">{label}</div>
@@ -921,7 +898,7 @@ function TopupCell({ label, value }: { label: string; value: string }) {
 
 
 /* ---------------- TESTIMONIAL ---------------- */
-function Testimonial() {
+export function Testimonial() {
   return (
     <section className="py-24 md:py-28 bg-beige">
       <div className="max-w-[920px] mx-auto px-5 md:px-10 text-center">
@@ -956,7 +933,7 @@ const faqItems = [
   { q: "Is there a contract or commitment?", a: "No long-term contract. Monthly subscription, cancel anytime with 30 days' notice. Enterprise customers can opt for annual terms with custom pricing." },
 ];
 
-function FAQ() {
+export function FAQ() {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   return (
     <section id="faq" className="py-24 md:py-32 bg-white">
@@ -1005,7 +982,7 @@ function FAQ() {
 }
 
 /* ---------------- BOTTOM CTA ---------------- */
-function BottomCTA() {
+export function BottomCTA() {
   return (
     <section id="demo" className="py-24 md:py-28 bg-beige">
       <div className="max-w-[1080px] mx-auto px-5 md:px-10">
@@ -1044,7 +1021,7 @@ function BottomCTA() {
 }
 
 /* ---------------- CV INTAKE (Two ways) ---------------- */
-function CVIntake() {
+export function CVIntake() {
   return (
     <section id="cv-intake" className="py-24 md:py-32 bg-white">
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
@@ -1168,7 +1145,7 @@ function SignalField() {
   );
 }
 
-function TalkToUs() {
+export function TalkToUs() {
   const talk = useTalkModal();
   return (
     <section id="talk" className="relative overflow-hidden bg-white text-heading py-20 md:py-28 border-y border-border">
@@ -1239,6 +1216,127 @@ function TalkToUs() {
 }
 
 /* ---------------- PAGE ---------------- */
+/* ---------------- HOMEPAGE SECTIONS ---------------- */
+export function PlatformIntro() {
+  return (
+    <section id="what-we-do" className="py-24 md:py-28 bg-white scroll-mt-24">
+
+      <div className="max-w-[1080px] mx-auto px-5 md:px-10 text-center">
+        <span className="eyebrow">One platform. Three products.</span>
+        <h2 className="mt-4 text-[36px] md:text-[52px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+          Intelligent voice and messaging that <span className="serif-italic text-primary">runs itself</span>.
+        </h2>
+        <p className="mt-5 text-[17px] text-body max-w-[720px] mx-auto">
+          VoxBulk automates the conversations your team doesn't have time for — from hiring to customer feedback.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function ProductCards() {
+  const products = [
+    {
+      icon: Sparkles,
+      tone: "blue",
+      title: "Recruitment Automation",
+      body: "AI interviews every candidate automatically — scoring skills, communication and fit before your team gets involved.",
+      href: "/recruitment",
+    },
+    {
+      icon: MessageCircle,
+      tone: "teal",
+      title: "WhatsApp Surveys",
+      body: "Send smart surveys straight to WhatsApp. 98% open rates, instant responses, all feeding into your dashboard.",
+      href: "/surveys",
+    },
+    {
+      icon: Inbox,
+      tone: "gold",
+      title: "Customer Feedback",
+      body: "One QR code on your counter or table. Customers scan, chat on WhatsApp, you get a weekly report.",
+      href: "/feedback",
+    },
+  ];
+  return (
+    <section id="products" className="py-20 md:py-24 bg-beige">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="grid md:grid-cols-3 gap-5">
+          {products.map((p) => {
+            const toneBg =
+              p.tone === "blue" ? "bg-primary/10 text-primary border-primary/20" :
+              p.tone === "teal" ? "bg-teal/15 text-teal border-teal/25" :
+              "bg-gold/15 text-[#8a6a1a] border-gold/30";
+            const halo =
+              p.tone === "blue" ? "bg-primary/15" :
+              p.tone === "teal" ? "bg-teal/15" : "bg-gold/20";
+            return (
+              <div key={p.title} className="relative card-soft p-7 overflow-hidden flex flex-col">
+                <div className={`absolute -top-14 -right-14 w-44 h-44 rounded-full blur-2xl opacity-60 ${halo}`} />
+                <div className="relative flex-1">
+                  <div className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-[0.14em] border ${toneBg}`}>
+                    <p.icon size={12} /> Live
+                  </div>
+                  <h3 className="mt-5 text-[22px] font-bold text-heading leading-[1.2] tracking-[-0.01em]">{p.title}</h3>
+                  <p className="mt-3 text-[14.5px] text-body leading-[1.65]">{p.body}</p>
+                </div>
+                <Link to={p.href} className="relative mt-6 inline-flex items-center gap-1.5 text-[14px] font-semibold text-primary hover:gap-2.5 transition-all">
+                  Explore <ArrowRight size={14} />
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function StatsRow({
+  items = [
+    { value: "92%", label: "less time spent on screening" },
+    { value: "98%", label: "WhatsApp open rate" },
+    { value: "4×", label: "more candidates interviewed per week" },
+    { value: "<24h", label: "from setup to first result" },
+  ],
+}: { items?: { value: string; label: string }[] } = {}) {
+  return (
+    <section className="py-20 md:py-24 bg-navy text-white">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="grid md:grid-cols-4 grid-cols-2 gap-8 text-center">
+          {items.map((i) => (
+            <div key={i.label}>
+              <div className="text-[40px] md:text-[56px] font-bold tracking-[-0.03em] text-gold">{i.value}</div>
+              <div className="mt-2 text-[13.5px] md:text-[14px] text-white/65 max-w-[220px] mx-auto">{i.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function PricingTeaser() {
+  return (
+    <section className="py-24 md:py-28 bg-white">
+      <div className="max-w-[860px] mx-auto px-5 md:px-10 text-center">
+        <span className="eyebrow">Simple pricing</span>
+        <h2 className="mt-4 text-[36px] md:text-[52px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+          Pay for what you use. <span className="serif-italic text-primary">Cancel anytime.</span>
+        </h2>
+        <p className="mt-5 text-[17px] text-body">
+          Each product has its own plan — pick one or combine them.
+        </p>
+        <div className="mt-8">
+          <Link to="/pricing" className="btn-primary text-[15px] h-12 px-7">
+            See all pricing <ArrowRight size={16} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function VOXBULKHome() {
   return (
     <div className="bg-background text-body antialiased">
@@ -1246,15 +1344,13 @@ export default function VOXBULKHome() {
       <main>
         <Hero />
         <TalkToUs />
-        <TrustStrip />
-        <WhatWeDo />
+        <PlatformIntro />
+        <ProductCards />
         <Capabilities />
-        <LiveServices />
-        <CVIntake />
         <HowItWorks />
-        <Metrics />
-        <Pricing />
+        <StatsRow />
         <Testimonial />
+        <PricingTeaser />
         <FAQ />
         <BottomCTA />
       </main>
@@ -1264,3 +1360,229 @@ export default function VOXBULKHome() {
 }
 
 
+
+
+/* ---------------- WHO IT'S FOR ---------------- */
+export function WhoItsFor() {
+  const items = [
+    { icon: Users, title: "Recruitment agencies", body: "Place more candidates without growing your consultant headcount. Run dozens of roles in parallel." },
+    { icon: Building2, title: "In-house TA teams", body: "Replace manual screening calls and back-and-forth scheduling. Keep your ATS, drop the busywork." },
+    { icon: Gauge, title: "Volume hirers", body: "Hospitality, retail, care, BPO — interview hundreds of candidates a week without lifting a finger." },
+  ];
+  return (
+    <section className="py-20 md:py-24 bg-white">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="max-w-[720px]">
+          <span className="eyebrow">Who it's for</span>
+          <h2 className="mt-4 text-[32px] md:text-[44px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+            Built for teams handling <span className="serif-italic text-primary">20+ roles a month</span>.
+          </h2>
+          <p className="mt-4 text-[16px] text-body">
+            VoxBulk plugs into your existing ATS and calendar. It doesn't replace your team — it removes the manual screening, chasing and scheduling that eats their week.
+          </p>
+        </div>
+        <div className="mt-10 grid md:grid-cols-3 gap-5">
+          {items.map((i) => (
+            <div key={i.title} className="card-soft p-7">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <i.icon size={20} />
+              </div>
+              <h3 className="mt-5 text-[18px] font-bold text-heading">{i.title}</h3>
+              <p className="mt-2 text-[14.5px] text-body leading-[1.6]">{i.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- BEFORE / AFTER ---------------- */
+export function BeforeAfter() {
+  const before = [
+    "Recruiters spend 15+ hours/week screening CVs by hand",
+    "Phone tag with candidates to book a 20-minute call",
+    "Inconsistent notes — every consultant scores differently",
+    "Top candidates ghost after 48h of silence",
+    "Hiring managers wait days for a shortlist",
+  ];
+  const after = [
+    "AI scores and ranks every CV the moment it lands",
+    "Candidates self-book interviews via WhatsApp in seconds",
+    "Every interview transcribed, scored and summarised the same way",
+    "Auto follow-ups keep candidates warm 24/7",
+    "Shortlists ready inside 48 hours — every time",
+  ];
+  return (
+    <section className="py-24 md:py-28 bg-beige">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="text-center max-w-[720px] mx-auto">
+          <span className="eyebrow">The shift</span>
+          <h2 className="mt-4 text-[34px] md:text-[48px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+            Your week today vs. your week with <span className="serif-italic text-primary">VoxBulk</span>.
+          </h2>
+        </div>
+        <div className="mt-12 grid md:grid-cols-2 gap-5">
+          <div className="rounded-2xl bg-white border border-border p-7">
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-100 text-[11px] font-bold uppercase tracking-[0.14em]">
+              <X size={12} /> Without VoxBulk
+            </div>
+            <ul className="mt-5 space-y-3">
+              {before.map((b) => (
+                <li key={b} className="flex gap-3 text-[14.5px] text-body leading-[1.55]">
+                  <X size={16} className="mt-0.5 text-red-500 shrink-0" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl bg-navy text-white p-7 border border-gold/30 shadow-elevated relative overflow-hidden">
+            <div className="absolute -top-16 -right-16 w-44 h-44 rounded-full bg-gold/15 blur-2xl" />
+            <div className="relative">
+              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-gold/15 text-gold border border-gold/30 text-[11px] font-bold uppercase tracking-[0.14em]">
+                <Check size={12} /> With VoxBulk
+              </div>
+              <ul className="mt-5 space-y-3">
+                {after.map((a) => (
+                  <li key={a} className="flex gap-3 text-[14.5px] text-white/85 leading-[1.55]">
+                    <Check size={16} className="mt-0.5 text-teal shrink-0" />
+                    <span>{a}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- INTEGRATIONS ---------------- */
+export function Integrations() {
+  const ats = ["Bullhorn", "Vincere", "JobAdder", "Workable", "Greenhouse", "Lever", "Teamtailor", "Recruitee"];
+  const cal = ["Cronofy", "Calendly", "Google Calendar", "Outlook"];
+  return (
+    <section className="py-20 md:py-24 bg-white border-y border-border">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="text-center max-w-[720px] mx-auto">
+          <span className="eyebrow inline-flex items-center gap-2">
+            <Plug size={13} /> Integrations
+          </span>
+          <h2 className="mt-4 text-[28px] md:text-[36px] font-bold tracking-[-0.03em] text-heading leading-[1.15]">
+            Plugs into the stack you already use.
+          </h2>
+          <p className="mt-3 text-[15px] text-body">
+            Two-way sync with your ATS. Real-time booking through your calendar. No rip-and-replace.
+          </p>
+        </div>
+        <div className="mt-10 grid md:grid-cols-2 gap-5">
+          <div className="rounded-2xl bg-beige border border-border p-6">
+            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-text">ATS</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {ats.map((a) => (
+                <span key={a} className="px-3 py-1.5 rounded-full bg-white border border-border text-[13px] font-semibold text-heading">
+                  {a}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-beige border border-border p-6">
+            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-text">Calendar & comms</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {cal.map((c) => (
+                <span key={c} className="px-3 py-1.5 rounded-full bg-white border border-border text-[13px] font-semibold text-heading">
+                  {c}
+                </span>
+              ))}
+              <span className="px-3 py-1.5 rounded-full bg-white border border-border text-[13px] font-semibold text-heading inline-flex items-center gap-1.5">
+                <MessageCircle size={13} /> WhatsApp Business
+              </span>
+            </div>
+          </div>
+        </div>
+        <p className="mt-6 text-center text-[12.5px] text-muted-text">
+          Don't see yours? We connect to anything with a REST API or webhook.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- PROOF ---------------- */
+export function Proof() {
+  return (
+    <section className="py-24 md:py-28 bg-beige">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10 grid lg:grid-cols-[1.1fr_0.9fr] gap-8 items-stretch">
+        <div className="card-soft p-9 relative overflow-hidden">
+          <Quote size={48} className="absolute top-6 right-6 text-primary/15" />
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-text">Recruitment agency · UK</div>
+          <p className="mt-5 text-[20px] md:text-[22px] font-medium text-heading leading-[1.45] tracking-[-0.01em]">
+            "We went from interviewing 30 candidates a week to <span className="text-primary">over 200</span> — with the same five consultants. VoxBulk does the screening calls overnight."
+          </p>
+          <div className="mt-6 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary to-teal flex items-center justify-center text-white font-bold text-[15px]">SM</div>
+            <div>
+              <div className="text-[14.5px] font-bold text-heading">Sarah M.</div>
+              <div className="text-[12.5px] text-muted-text">Head of Talent · 40-person agency</div>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { v: "12,400+", l: "candidates interviewed by AI" },
+            { v: "6.4x", l: "more roles handled per consultant" },
+            { v: "38h", l: "saved per recruiter, per week" },
+            { v: "94%", l: "candidate satisfaction with the AI call" },
+          ].map((m) => (
+            <div key={m.l} className="card-soft p-5 flex flex-col justify-center">
+              <div className="text-[32px] md:text-[36px] font-bold tracking-[-0.03em] text-primary">{m.v}</div>
+              <div className="mt-1 text-[13px] text-body leading-[1.4]">{m.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- RISK REVERSAL ---------------- */
+export function RiskReversal() {
+  const talk = useTalkModal();
+  const items = [
+    { icon: FlaskConical, t: "Pilot on one role", b: "Run a single live vacancy through VoxBulk. See the shortlist before you commit." },
+    { icon: ShieldCheck, t: "Your data stays yours", b: "GDPR compliant. UK & EU data residency. Export or delete anything, anytime." },
+    { icon: Calendar, t: "Cancel anytime", b: "Month-to-month. 30 days' notice. No setup fees, no lock-in." },
+  ];
+  return (
+    <section className="py-24 md:py-28 bg-white">
+      <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+        <div className="text-center max-w-[720px] mx-auto">
+          <span className="eyebrow">Low-risk start</span>
+          <h2 className="mt-4 text-[32px] md:text-[44px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+            Try it on one role. <span className="serif-italic text-primary">Decide from there.</span>
+          </h2>
+        </div>
+        <div className="mt-10 grid md:grid-cols-3 gap-5">
+          {items.map((i) => (
+            <div key={i.t} className="card-soft p-7">
+              <div className="w-11 h-11 rounded-xl bg-gold/15 text-[#8a6a1a] flex items-center justify-center">
+                <i.icon size={20} />
+              </div>
+              <h3 className="mt-5 text-[18px] font-bold text-heading">{i.t}</h3>
+              <p className="mt-2 text-[14.5px] text-body leading-[1.6]">{i.b}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link to="/contact" className="btn-primary text-[15px] px-6 h-12">
+            Start a pilot on one role <ArrowRight size={16} />
+          </Link>
+          <button onClick={talk.open} className="inline-flex items-center gap-2 h-12 px-5 rounded-xl border border-border bg-white font-semibold text-[14.5px] text-heading hover:bg-beige transition-all">
+            <Calendar size={15} /> Book a 20-min walkthrough
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}

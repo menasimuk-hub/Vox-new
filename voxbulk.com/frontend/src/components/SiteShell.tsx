@@ -1,23 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Globe, Check } from "lucide-react";
-import { BrandLogo } from "@/components/BrandLogo";
+import { ArrowRight, Globe, Check, ChevronDown, Sparkles, MessageCircle, Inbox, LayoutGrid } from "lucide-react";
+import logoDark from "@/assets/voxbulk-logo-dark.png";
+import logoLight from "@/assets/voxbulk-logo-light.png";
 import { useAuthModal } from "@/components/AuthModal";
 import { useCurrency, MARKETS } from "@/components/CurrencyContext";
 
-const navLinks = [
-  { label: "What we do", href: "/#what-we-do" },
-  { label: "Services", href: "/#services" },
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "Pricing", href: "/#pricing" },
-  { label: "FAQ", href: "/#faq" },
+const productLinks = [
+  { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
+  { label: "WhatsApp Surveys", to: "/surveys", desc: "Smart surveys with 98% open rates", Icon: MessageCircle, tone: "teal" as const },
+  { label: "Customer Feedback", to: "/feedback", desc: "QR-code WhatsApp feedback in 50+ languages", Icon: Inbox, tone: "gold" as const },
 ];
+
 
 export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const auth = useAuthModal();
-  const headerSurface = scrolled ? "dark" : "light";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -36,9 +35,6 @@ export function SiteHeader() {
   const borderClass = scrolled
     ? "border-white/[0.10] shadow-[0_10px_40px_-12px_rgba(0,0,0,0.55)]"
     : "border-navy/[0.08] shadow-[0_8px_30px_-12px_rgba(10,22,40,0.18)]";
-  const iconBtnClass = scrolled
-    ? "border-white/[0.12] bg-white/[0.05] text-white/85 hover:text-white hover:bg-white/[0.12]"
-    : "border-navy/[0.10] bg-navy/[0.04] text-navy/80 hover:text-navy hover:bg-navy/[0.08]";
 
   return (
     <>
@@ -46,47 +42,66 @@ export function SiteHeader() {
         className={`fixed top-3 inset-x-3 md:inset-x-6 z-50 transition-all duration-300 rounded-xl border ${borderClass}`}
         style={headerStyle}
       >
-        <div className="max-w-[1320px] mx-auto h-[60px] md:h-[64px] flex items-center justify-between pl-4 pr-2 md:pl-6 md:pr-3">
-          <Link to="/" className="flex items-center" aria-label="VoxBulk home">
-            <BrandLogo
-              surface={headerSurface}
+        <div className="max-w-[1320px] mx-auto h-[64px] md:h-[72px] flex items-center justify-between pl-4 pr-2 md:pl-6 md:pr-3">
+          <Link to="/" className="flex items-center">
+            <img
+              src={scrolled ? logoLight : logoDark}
+              alt="VoxBulk Logo"
               width={140}
               height={32}
               fetchPriority="high"
-              className="h-9 md:h-[30px] w-auto object-contain transition-opacity duration-300"
+              decoding="async"
+              className="h-7 md:h-[32px] w-auto object-contain transition-all"
             />
           </Link>
 
           <nav className="hidden lg:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
-            {navLinks.map((l) => (
-              <a
-                key={l.href}
-                href={l.href}
-                className={`text-[14px] font-medium transition-all px-4 py-2 rounded-full ${linkColor}`}
-              >
-                {l.label}
-              </a>
-            ))}
+            <Link
+              to="/"
+              hash="what-we-do"
+              className={`text-[14.5px] font-semibold transition-all px-4 py-2 rounded-lg ${linkColor}`}
+            >
+              What we do
+            </Link>
+            <ProductsDropdown linkColor={linkColor} scrolled={scrolled} />
+            <Link
+              to="/pricing"
+              className={`text-[14.5px] font-semibold transition-all px-4 py-2 rounded-lg ${linkColor}`}
+            >
+              Pricing
+            </Link>
+            <Link
+              to="/contact"
+              className={`text-[14.5px] font-semibold transition-all px-4 py-2 rounded-lg ${linkColor}`}
+            >
+              Contact
+            </Link>
           </nav>
 
-          <div className="hidden md:flex items-center gap-2">
+          <div className="hidden md:flex items-center gap-2.5">
             <button
               onClick={auth.open}
-              aria-label="Sign in"
-              className={`w-9 h-9 inline-flex items-center justify-center rounded-lg border transition-colors ${iconBtnClass}`}
+              className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13.5px] font-semibold transition-colors ${
+                scrolled
+                  ? "text-white/85 hover:text-white hover:bg-white/[0.08]"
+                  : "text-navy/80 hover:text-navy hover:bg-navy/[0.06]"
+              }`}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
+              Sign in
             </button>
-            <a
-              href="/#demo"
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg px-4 h-9 text-[13.5px] font-semibold text-white transition-all btn-cta"
+            <span className={`h-6 w-px ${scrolled ? "bg-white/15" : "bg-navy/15"}`} aria-hidden />
+            <Link
+              to="/contact"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg px-4 h-9 text-[13.5px] font-semibold text-white transition-all"
+              style={{ background: "linear-gradient(180deg, #2A82EB 0%, #1E6FD9 100%)", boxShadow: "0 1px 0 rgba(255,255,255,0.18) inset, 0 8px 22px -8px rgba(30,111,217,0.55)" }}
             >
-              Get Started
-            </a>
+              Get Started <ArrowRight size={14} />
+            </Link>
           </div>
 
           <button className={`md:hidden p-2 ${scrolled ? "text-white" : "text-navy"}`} aria-label="Open menu" onClick={() => setOpen(true)}>
@@ -99,10 +114,11 @@ export function SiteHeader() {
         </div>
       </header>
 
+
       {open && (
         <div className="fixed inset-0 z-[60] bg-white md:hidden flex flex-col">
           <div className="flex items-center justify-between px-5 h-[68px] border-b border-border">
-            <BrandLogo surface="light" className="h-7 w-auto" />
+            <img src={logoDark} alt="VoxBulk Logo" className="h-7 w-auto" />
             <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2 text-heading">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -110,20 +126,27 @@ export function SiteHeader() {
               </svg>
             </button>
           </div>
-          <div className="flex-1 px-5 py-4">
-            {navLinks.map((l) => (
-              <a key={l.href} href={l.href} onClick={() => setOpen(false)}
-                className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
+          <div className="flex-1 px-5 py-4 overflow-y-auto">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-text mt-2 mb-1">Services</div>
+            {productLinks.map((l) => (
+              <Link key={l.to} to={l.to} onClick={() => setOpen(false)}
+                className="flex items-center justify-between h-14 border-b border-border text-[16px] font-medium text-heading">
                 {l.label}
                 <ArrowRight size={18} className="text-muted-text" />
-              </a>
+              </Link>
             ))}
+            <Link to="/pricing" onClick={() => setOpen(false)} className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
+              Pricing <ArrowRight size={18} className="text-muted-text" />
+            </Link>
+            <Link to="/contact" onClick={() => setOpen(false)} className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
+              Contact <ArrowRight size={18} className="text-muted-text" />
+            </Link>
             <button onClick={() => { setOpen(false); auth.open(); }} className="flex items-center h-14 text-[17px] font-medium text-body w-full text-left">Sign in</button>
           </div>
           <div className="p-5 border-t border-border">
-            <a href="/#demo" onClick={() => setOpen(false)} className="btn-primary w-full">
-              Book a demo <ArrowRight size={16} />
-            </a>
+            <Link to="/contact" onClick={() => setOpen(false)} className="btn-primary w-full">
+              Get Started <ArrowRight size={16} />
+            </Link>
           </div>
         </div>
       )}
@@ -131,11 +154,73 @@ export function SiteHeader() {
   );
 }
 
+function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+  return (
+    <div ref={ref} className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex items-center gap-1.5 text-[14.5px] font-semibold transition-all px-4 py-2 rounded-lg ${linkColor}`}
+      >
+        <LayoutGrid size={14} className="opacity-80" />
+        Services
+        <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className={`absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[360px]`}>
+          <div className={`rounded-xl border ${scrolled ? "border-white/10 bg-[#0E1A2E]" : "border-navy/10 bg-white"} shadow-[0_20px_50px_-15px_rgba(10,22,40,0.35)] overflow-hidden`}>
+            {productLinks.map((p) => {
+              const toneBg =
+                p.tone === "blue" ? "bg-primary/10 text-primary" :
+                p.tone === "teal" ? "bg-teal/15 text-teal" :
+                "bg-gold/20 text-[#8a6a1a]";
+              return (
+                <Link
+                  key={p.to}
+                  to={p.to}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-start gap-3 px-4 py-3 transition-colors ${scrolled ? "hover:bg-white/[0.06]" : "hover:bg-navy/[0.04]"}`}
+                >
+                  <span className={`shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${toneBg}`}>
+                    <p.Icon size={16} />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className={`block text-[14px] font-semibold ${scrolled ? "text-white" : "text-heading"}`}>{p.label}</span>
+                    <span className={`block text-[12px] mt-0.5 ${scrolled ? "text-white/55" : "text-muted-text"}`}>{p.desc}</span>
+                  </span>
+                </Link>
+              );
+            })}
+            <Link
+              to="/pricing"
+              onClick={() => setOpen(false)}
+              className={`flex items-center justify-between px-4 py-3 border-t ${scrolled ? "border-white/10 bg-white/[0.03] text-white/80 hover:text-white" : "border-border bg-beige/60 text-heading hover:bg-beige"} text-[13px] font-semibold transition-colors`}
+            >
+              View pricing & plans <ArrowRight size={13} />
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 const footerCols: Array<{ title: string; links: Array<[string, string | null]> }> = [
-  { title: "Product", links: [["What we do", "/#what-we-do"], ["Services", "/#services"], ["How it works", "/#how-it-works"], ["Pricing", "/#pricing"], ["Book a demo", "/#demo"]] },
-  { title: "Services", links: [["Recruitment automation", "/#services"], ["WhatsApp surveys", "/#services"], ["Sales agents (soon)", null], ["Customer success (soon)", null]] },
+  { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
+  { title: "Services", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
   { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"]] },
 ];
+
+
 
 export function SiteFooter() {
   const { currency, setCurrency } = useCurrency();
@@ -146,12 +231,13 @@ export function SiteFooter() {
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
         <div className="grid md:grid-cols-4 grid-cols-2 gap-10">
           <div className="col-span-2 md:col-span-1">
-            <BrandLogo surface="dark" width={160} height={36} loading="lazy" className="h-8 w-auto" />
+            <img src={logoLight} alt="VoxBulk Logo" width={160} height={36} loading="lazy" decoding="async" className="h-8 w-auto" />
             <p className="mt-4 text-[14px] text-white/60 leading-[1.7] max-w-[260px]">
               Intelligent voice &amp; messaging that runs itself.
             </p>
             <p className="mt-5 text-[13px] text-white/40">© 2026 VoxBulk LTD. All rights reserved.</p>
 
+            {/* Country / currency selector */}
             <div className="mt-6 relative inline-block">
               <div className="text-[11px] uppercase tracking-[0.1em] text-white/40 mb-2">Country</div>
               <button
@@ -166,7 +252,7 @@ export function SiteFooter() {
                 <span className="text-white/70 font-medium">{active.label}</span>
               </button>
               {open && (
-                <div className="absolute z-20 mt-2 w-56 rounded-lg border border-white/10 bg-navy-2 shadow-2xl overflow-hidden">
+                <div className="absolute z-20 mt-2 w-56 rounded-lg border border-white/10 bg-[#0E1A2E] shadow-2xl overflow-hidden">
                   {MARKETS.map((m) => (
                     <button
                       key={m.code}
@@ -207,6 +293,7 @@ export function SiteFooter() {
         <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-white/40">
           <div>VoxBulk LTD · Registered in England &amp; Wales</div>
           <div>GDPR Compliant · UK / EU data centres</div>
+
         </div>
       </div>
     </footer>
