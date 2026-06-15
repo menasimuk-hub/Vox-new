@@ -66,6 +66,41 @@ export function getApiBaseUrl() {
   return "";
 }
 
+/** Marketing site (voxbulk.com): same-origin `/frontpage` → Vite preview proxy → FastAPI on :8000. */
+export function getFrontpageApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname.toLowerCase();
+    if (h === "voxbulk.com" || h === "www.voxbulk.com") return "";
+  }
+  if (isViteDevelopment() && isLocalDevHost()) return "";
+  return getApiBaseUrl();
+}
+
+function frontpageApiUrl(path: string) {
+  const base = getFrontpageApiBaseUrl().replace(/\/+$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${p}`;
+}
+
+export async function frontpageApiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = buildAuthHeaders(options.headers);
+  if (options.body && !headers.has("Content-Type") && typeof options.body === "string") {
+    headers.set("Content-Type", "application/json");
+  }
+  const res = await requestFetch(frontpageApiUrl(path), { ...options, headers });
+  const text = await res.text();
+  const data = text ? safeJson(text) : null;
+  if (!res.ok) {
+    const detail =
+      (data && typeof data === "object" && "detail" in data && String((data as { detail: unknown }).detail)) ||
+      (typeof data === "string" ? data : "") ||
+      res.statusText ||
+      "Request failed";
+    throw new ApiError(detail, { status: res.status, data });
+  }
+  return (data ?? {}) as T;
+}
+
 function decodeJwtPayload(token: string) {
   try {
     const part = String(token || "").split(".")[1];

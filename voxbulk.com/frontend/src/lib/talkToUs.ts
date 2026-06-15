@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { frontpageApiFetch } from "@/lib/api";
 import { clientGeoPayload, detectGeoHint, type GeoHint } from "@/lib/geo";
 
 export type TalkToUsStartResponse = {
@@ -31,7 +31,7 @@ export async function startTalkToUsCall(input: {
   geo?: GeoHint;
 }) {
   const geo = input.geo || (await detectGeoHint());
-  return apiFetch<TalkToUsStartResponse>("/frontpage/talk-to-us/start-call", {
+  return frontpageApiFetch<TalkToUsStartResponse>("/frontpage/talk-to-us/start-call", {
     method: "POST",
     body: JSON.stringify({
       contact_name: input.contact_name.trim(),
@@ -53,10 +53,18 @@ export async function completeTalkToUsCall(
     provider_call_id?: string;
   },
 ) {
-  return apiFetch(`/frontpage/talk-to-us/complete-call/${encodeURIComponent(callId)}/json`, {
+  return frontpageApiFetch(`/frontpage/talk-to-us/complete-call/${encodeURIComponent(callId)}/json`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function fetchTalkToUsConfig() {
+  return frontpageApiFetch<{
+    voice_provider?: string;
+    vapi?: { configured?: boolean };
+    telnyx?: { configured?: boolean };
+  }>("/frontpage/talk-to-us/config");
 }
 
 export async function loadVapi() {

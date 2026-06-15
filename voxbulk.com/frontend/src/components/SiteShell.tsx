@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Globe, Check, ChevronDown, Sparkles, MessageCircle, Inbox, LayoutGrid } from "lucide-react";
-import logoDark from "@/assets/voxbulk-logo-dark.png";
-import logoLight from "@/assets/voxbulk-logo-light.png";
+import { BrandLogo } from "@/components/BrandLogo";
 import { useAuthModal } from "@/components/AuthModal";
 import { useCurrency, MARKETS } from "@/components/CurrencyContext";
 
@@ -43,14 +42,12 @@ export function SiteHeader() {
         style={headerStyle}
       >
         <div className="max-w-[1320px] mx-auto h-[64px] md:h-[72px] flex items-center justify-between pl-4 pr-2 md:pl-6 md:pr-3">
-          <Link to="/" className="flex items-center">
-            <img
-              src={scrolled ? logoLight : logoDark}
-              alt="VoxBulk Logo"
+          <Link to="/" className="flex items-center" aria-label="VoxBulk home">
+            <BrandLogo
+              surface={scrolled ? "dark" : "light"}
               width={140}
               height={32}
               fetchPriority="high"
-              decoding="async"
               className="h-7 md:h-[32px] w-auto object-contain transition-all"
             />
           </Link>
@@ -118,7 +115,7 @@ export function SiteHeader() {
       {open && (
         <div className="fixed inset-0 z-[60] bg-white md:hidden flex flex-col">
           <div className="flex items-center justify-between px-5 h-[68px] border-b border-border">
-            <img src={logoDark} alt="VoxBulk Logo" className="h-7 w-auto" />
+            <BrandLogo surface="light" className="h-7 w-auto" />
             <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2 text-heading">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -231,7 +228,7 @@ export function SiteFooter() {
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
         <div className="grid md:grid-cols-4 grid-cols-2 gap-10">
           <div className="col-span-2 md:col-span-1">
-            <img src={logoLight} alt="VoxBulk Logo" width={160} height={36} loading="lazy" decoding="async" className="h-8 w-auto" />
+            <BrandLogo surface="dark" width={160} height={36} loading="lazy" className="h-8 w-auto" />
             <p className="mt-4 text-[14px] text-white/60 leading-[1.7] max-w-[260px]">
               Intelligent voice &amp; messaging that runs itself.
             </p>

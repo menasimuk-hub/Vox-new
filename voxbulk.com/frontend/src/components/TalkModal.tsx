@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, createContext, useContext, useCallback } from "react";
 import { X, PhoneCall, Loader2, ShieldCheck, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
-import { completeTalkToUsCall, loadTelnyxRtc, loadVapi, startTalkToUsCall } from "@/lib/talkToUs";
+import { completeTalkToUsCall, fetchTalkToUsConfig, loadTelnyxRtc, loadVapi, startTalkToUsCall } from "@/lib/talkToUs";
 
 type Ctx = { open: () => void; close: () => void; isOpen: boolean };
 const TalkCtx = createContext<Ctx>({ open: () => {}, close: () => {}, isOpen: false });
@@ -38,6 +38,7 @@ function TalkModal({ onClose }: { onClose: () => void }) {
   const [mobile, setMobile] = useState("");
   const [loading, setLoading] = useState(false);
   const [inCall, setInCall] = useState(false);
+  const [agentReady, setAgentReady] = useState<boolean | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
   const startedAt = useRef<number | null>(null);
   const vapiRef = useRef<{ stop?: () => void; start?: (...args: unknown[]) => Promise<unknown> } | null>(null);
@@ -45,6 +46,22 @@ function TalkModal({ onClose }: { onClose: () => void }) {
   const telnyxCallRef = useRef<{ hangup?: () => void; id?: string } | null>(null);
   const transcriptRef = useRef<string[]>([]);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAgentReady(null);
+    void fetchTalkToUsConfig()
+      .then((cfg) => {
+        if (cancelled) return;
+        setAgentReady(Boolean(cfg.telnyx?.configured || cfg.vapi?.configured));
+      })
+      .catch(() => {
+        if (!cancelled) setAgentReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const cleanupCall = useCallback(async (opts?: { providerCallId?: string }) => {
     try {
@@ -215,6 +232,14 @@ function TalkModal({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <form onSubmit={submit} className="p-7 space-y-3">
+            {agentReady === false && (
+              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[12.5px] text-amber-900">
+                Live voice agent is not configured yet. Set it up in Admin → Marketing → Front page call leads, or use the contact form instead.
+              </p>
+            )}
+            {agentReady === null && (
+              <p className="text-center text-[12.5px] text-muted-text">Checking voice agent…</p>
+            )}
             <Field label="Name" value={name} onChange={setName} placeholder="Jane Smith" required />
             <Field label="Company name" value={company} onChange={setCompany} placeholder="Acme Ltd" />
             <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@company.com" required />
@@ -235,7 +260,7 @@ function TalkModal({ onClose }: { onClose: () => void }) {
               </button>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || agentReady !== true}
                 className="flex-1 h-11 rounded-xl bg-navy text-white text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-navy/90 transition-colors disabled:opacity-60"
               >
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <><PhoneCall size={15} /> Talk to us</>}
