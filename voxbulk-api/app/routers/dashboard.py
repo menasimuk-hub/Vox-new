@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -97,8 +98,6 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     sur_sent = 0
     for r in surveys:
         try:
-            import json
-
             report = json.loads(r.report_json or "{}")
         except Exception:
             report = {}
@@ -204,10 +203,15 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
             }
         )
 
-    if visible.get("surveys"):
+    if visible.get("survey"):
         from app.services.survey_results_service import survey_home_feedback_snapshot
 
         feedback_parts.append(survey_home_feedback_snapshot(db, org_id=principal.org_id))
+
+    if visible.get("interview"):
+        from app.services.interview_results_service import interview_home_activity_snapshot
+
+        feedback_parts.append(interview_home_activity_snapshot(db, org_id=principal.org_id))
 
     if feedback_parts:
         feedback_block = {

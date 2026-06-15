@@ -33,10 +33,11 @@ export function orderProgress(order: ServiceOrder) {
     };
   }
   const responses = Number(report.completed || report.interviewed || 0);
+  const denom = Number(report.total || target || 0);
   return {
     responses,
-    target,
-    completion: target ? Math.round((responses / target) * 100) : 0,
+    target: denom,
+    completion: denom ? Math.round((responses / denom) * 100) : 0,
   };
 }
 

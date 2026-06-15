@@ -1005,6 +1005,23 @@ def get_scheduling_status(db: Session = Depends(get_db), principal=Depends(get_c
     return scheduling_status(db, principal.org_id)
 
 
+@router.post("/scheduling/disconnect")
+def disconnect_scheduling_account(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.scheduling_connection_service import disconnect_scheduling
+
+    provider = None
+    if isinstance(body, dict):
+        provider = body.get("provider")
+    try:
+        return disconnect_scheduling(db, principal.org_id, provider=str(provider).strip() if provider else None)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/scheduling/oauth/calendly/start")
 def start_calendly_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import calendly_oauth_start

@@ -63,6 +63,24 @@ def save_scheduling_config(db: Session, org_id: str, payload: dict[str, Any]) ->
     return scheduling_status(db, org_id)
 
 
+def disconnect_scheduling(db: Session, org_id: str, *, provider: str | None = None) -> dict[str, Any]:
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise ValueError("Organisation not found")
+    cfg = get_scheduling_config(db, org_id)
+    connected_provider = str(cfg.get("provider") or "").strip().lower()
+    if not connected_provider:
+        return scheduling_status(db, org_id)
+    if provider:
+        wanted = str(provider).strip().lower()
+        if wanted != connected_provider:
+            raise ValueError(f"Not connected to {provider}")
+    org.scheduling_config_json = None
+    db.add(org)
+    db.commit()
+    return scheduling_status(db, org_id)
+
+
 def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     cfg = get_scheduling_config(db, org_id)
     provider = str(cfg.get("provider") or "").strip().lower()

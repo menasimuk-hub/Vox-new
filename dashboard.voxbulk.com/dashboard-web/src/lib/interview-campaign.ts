@@ -68,17 +68,35 @@ export function bookingInvitesWereSent(config: Record<string, unknown>): boolean
   return dispatch?.ok === true;
 }
 
-/** Resend booking invites: hidden before launch, shown once launched. */
+/** Resend booking invites: hidden before launch; per-candidate after launch. */
 export function campaignAllowsResendBookingInvites(opts: {
   orderStatus?: string | null;
 }): boolean {
   return isInterviewCampaignLaunched(opts.orderStatus);
 }
 
+const RESEND_BOOKING_INVITE_STATUSES = new Set([
+  "pending",
+  "awaiting_booking",
+  "booking_email_sent",
+  "booking_cancelled",
+]);
+
+/** Resend pre-call booking invite — only before the AI interview call starts/finishes. */
+export function candidateAllowsResendBookingInvite(opts: {
+  orderStatus?: string | null;
+  activityStatus?: string | null;
+}): boolean {
+  if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
+  const activity = String(opts.activityStatus || "pending").toLowerCase();
+  return RESEND_BOOKING_INVITE_STATUSES.has(activity);
+}
+
 export function canShowResendBookingInvite(opts: {
   orderStatus?: string | null;
+  activityStatus?: string | null;
 }): boolean {
-  return campaignAllowsResendBookingInvites(opts);
+  return candidateAllowsResendBookingInvite(opts);
 }
 
 /** True when candidate has a completed ATS score at or above the campaign cutoff and is not excluded. */

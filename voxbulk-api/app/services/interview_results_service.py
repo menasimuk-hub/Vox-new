@@ -362,3 +362,94 @@ class InterviewResultsService:
         <table border="1" cellpadding="6"><tr><th>Candidate</th><th>Score</th><th>Recommendation</th><th>Sentiment</th><th>Duration</th></tr>
         {rows}</table></body></html>"""
         return render_html_to_pdf_bytes(html)
+
+
+def _interview_sentiment_bucket(analysis: dict[str, Any], recommendation: str) -> str | None:
+    sentiment = str(analysis.get("sentiment") or "").strip().lower()
+    rec = str(recommendation or analysis.get("recommendation") or "").strip()
+    if rec == "Decline" or sentiment in {"hesitant", "negative"}:
+        return "poor"
+    if rec == "Advance" or sentiment in {"enthusiastic", "positive"}:
+        return "excellent"
+    if rec == "Hold" or sentiment in {"neutral"}:
+        return "good"
+    return "good"
+
+
+def interview_home_activity_snapshot(
+    db: Session,
+    *,
+    org_id: str,
+    limit_recent: int = 8,
+    limit_unhappy: int = 6,
+) -> dict[str, Any]:
+    """Aggregate interview results for dashboard home (sentiment, follow-up, activity)."""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    sentiment = {"excellent": 0, "good": 0, "poor": 0}
+    unhappy: list[dict[str, Any]] = []
+    recent_candidates: list[tuple[datetime, dict[str, Any]]] = []
+
+    orders = list(
+        db.execute(
+            select(ServiceOrder).where(
+                ServiceOrder.org_id == org_id,
+                ServiceOrder.service_code == "interview",
+            )
+        ).scalars()
+    )
+
+    for order in orders:
+        if str(order.status or "").lower() not in {"running", "completed", "paid"}:
+            continue
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        for recipient in recipients:
+            if str(recipient.status or "").lower() not in VOICE_COMPLETED:
+                continue
+            parsed = _loads_json(recipient.result_json) or {}
+            if not isinstance(parsed, dict):
+                parsed = {}
+            analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+            recommendation = str(analysis.get("recommendation") or "")
+            bucket = _interview_sentiment_bucket(analysis, recommendation)
+            if bucket:
+                sentiment[bucket] += 1
+            when_dt = order.completed_at or order.updated_at or order.created_at
+            when_iso = when_dt.isoformat() if when_dt else None
+            score = analysis.get("score")
+            chip = str(score) if score is not None else recommendation[:12] or "Done"
+            tone = "bad" if bucket == "poor" else "ok" if bucket in {"excellent", "good"} else "info"
+            if recommendation == "Decline" or bucket == "poor":
+                unhappy.append(
+                    {
+                        "id": f"{order.id}:{recipient.id}",
+                        "reason": analysis.get("short_summary") or "Declined after AI interview",
+                        "branch": order.title or "Interview",
+                        "when": when_iso,
+                    }
+                )
+            recent_candidates.append(
+                (
+                    when_dt or datetime.utcnow(),
+                    {
+                        "svc": "interviews",
+                        "who": recipient.name or "Candidate",
+                        "what": "completed AI interview",
+                        "chip": chip[:24],
+                        "tone": tone,
+                        "when": when_iso,
+                    },
+                )
+            )
+
+    unhappy.sort(key=lambda row: row.get("when") or "", reverse=True)
+    recent_candidates.sort(key=lambda pair: pair[0], reverse=True)
+    return {
+        "qr_scans_today": 0,
+        "total_scans": sum(sentiment.values()),
+        "sentiment": sentiment,
+        "unhappy": unhappy[:limit_unhappy],
+        "recent": [item for _, item in recent_candidates[:limit_recent]],
+    }

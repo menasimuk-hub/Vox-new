@@ -16,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
-import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel, campaignAllowsResendBookingInvites } from "@/lib/interview-campaign";
+import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel, candidateAllowsResendBookingInvite } from "@/lib/interview-campaign";
 import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
@@ -278,8 +278,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
   const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
-  const allowResendBookingInvite = campaignAllowsResendBookingInvites({
+  const resendBookingInviteForOpen = candidateAllowsResendBookingInvite({
     orderStatus: rawOrder?.status,
+    activityStatus: candidateOpen?.activity_status,
   });
   const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
 
@@ -529,9 +530,11 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
               </div>
               <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
               <p className="text-xs text-muted-foreground">
-                {allowResendBookingInvite
+                {resendBookingInviteForOpen
                   ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
-                  : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
+                  : candidateOpen?.has_interview_report || candidateOpen?.activity_status === "report_ready"
+                    ? "Click the candidate name for contact details. The AI interview is complete — resend invite is not available."
+                    : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
               </p>
             </CardContent>
           </Card>
@@ -591,7 +594,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         }}
         orderId={orderId}
         readOnly={campaignReadOnly}
-        allowResendBookingInvite={allowResendBookingInvite}
+        allowResendBookingInvite={resendBookingInviteForOpen}
         candidate={contactCandidate}
       />
       <CandidateActivityDialog

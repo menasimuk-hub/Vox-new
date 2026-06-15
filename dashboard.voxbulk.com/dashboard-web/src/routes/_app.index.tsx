@@ -148,7 +148,7 @@ function HeroRow({ visible, summary }: { visible: VisibleMap; summary?: HomeSumm
   const sur = summary?.survey;
   const fb = summary?.feedback;
   const conversations =
-    (int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
+    (int?.calls_completed ?? int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
 
   const tiles = [
     { show: visible.interviews, label: "Candidates screened", value: String(int?.candidates ?? 0), tone: "text-blue-500" },
@@ -282,7 +282,7 @@ function SentimentCard({ summary }: { summary?: HomeSummary }) {
     <Card>
       <CardHeader>
         <CardTitle>Customer sentiment</CardTitle>
-        <CardDescription>Across survey and feedback responses</CardDescription>
+        <CardDescription>Across surveys, interviews, and feedback responses</CardDescription>
       </CardHeader>
       <CardContent>
         {totalSent === 0 ? (

@@ -588,6 +588,7 @@ def build_order_survey_report(order: ServiceOrder, recipients: list[ServiceOrder
         "total": len(recipients),
         "counts": counts,
         "completed": counts.get("completed", 0),
+        "responded": counts.get("completed", 0),
         "sent": counts.get("completed", 0),
         "no_answer": counts.get("no_answer", 0),
         "failed": counts.get("failed", 0),

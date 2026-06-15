@@ -4,7 +4,7 @@
 Creates three consolidated demo campaigns (one result each):
   • 100-member WhatsApp survey — fitness & gyms
   • 20-member AI phone survey — fitness & gyms
-  • 20-candidate interview — 5 high ATS + call results (skipdaq@gmail.com success)
+  • 20-candidate interview — all completed with AI reports (skipdaq@gmail.com success)
 
 Usage:
   cd voxbulk-api && source .venv/bin/activate
@@ -80,9 +80,14 @@ _demo_config = interview_seed._demo_config
 _mark_interview_finished = interview_seed._mark_order_finished
 _recipient_analysis = interview_seed._recipient_analysis
 _try_quote = interview_seed._try_quote
-intake_contacts_merge = interview_seed.intake_contacts_merge
 
 DEMO_ACCOUNT_PACK = "user_account_demo_v1"
+LEGACY_DEMO_TITLE_PREFIXES = (
+    "Demo Interview ·",
+    "FINISHED ·",
+    "LIVE ·",
+    "Fitness & Gyms ·",
+)
 DEMO_WA_MEMBERS = 100
 DEMO_AI_CALL_MEMBERS = 20
 DEMO_INTERVIEW_CANDIDATES = 20
@@ -266,6 +271,7 @@ def seed_consolidated_survey(
     member_count: int,
     title: str,
     seed: int,
+    debits: list[int] | None = None,
 ) -> ServiceOrder:
     ch_key = "wa" if channel == "wa" else "ai_call"
     config = _tag_config(
@@ -288,7 +294,9 @@ def seed_consolidated_survey(
     db.refresh(order)
     if ch_key == "ai_call":
         order = _prepare_ai_call_survey_for_launch(db, order, config)
-    order = charge_survey_from_wallet(db, order, org, user_id=user_id, auto_top_up=auto_top_up)
+    order = charge_survey_from_wallet(
+        db, order, org, user_id=user_id, auto_top_up=auto_top_up, debits=debits
+    )
     _populate_survey_recipients(
         db,
         order=order,
@@ -316,13 +324,13 @@ def seed_consolidated_interview(
     high_ats_count: int,
     success_email: str | None,
     seed: int,
+    debits: list[int] | None = None,
 ) -> ServiceOrder:
-    rng = random.Random(seed)
     contacts = _interview_contacts_batch(candidate_count, success_email=success_email)
     config = _tag_config(_demo_config(org_name))
     config["ats_skipped"] = False
     config["cv_min_ats_score"] = 65
-    config["cv_email_enabled"] = True
+    config["cv_email_enabled"] = False
     config["delivery"] = "ai_call"
     config["demo_account_pack"] = DEMO_ACCOUNT_PACK
 
@@ -334,7 +342,7 @@ def seed_consolidated_interview(
         title=f"Demo Interview · {ROLE} · {candidate_count} candidates",
         config=config,
     )
-    intake_contacts_merge(db, order, contacts)
+    ServiceOrderService.replace_recipients(db, order, contacts)
     db.refresh(order)
     highlight = success_email.strip().lower() if success_email else None
     _enrich_all_ats(db, order, highlight_email=highlight)
@@ -351,41 +359,60 @@ def seed_consolidated_interview(
     db.commit()
     db.refresh(order)
 
-    order = charge_interview_from_wallet(db, order, org, user_id=user_id, auto_top_up=auto_top_up)
+    order = charge_interview_from_wallet(
+        db, order, org, user_id=user_id, auto_top_up=auto_top_up, debits=debits
+    )
     recipients = ServiceOrderService.get_recipients(db, order.id)
     highlight_norm = highlight
-    for recipient in recipients:
+    for idx, recipient in enumerate(recipients):
         if not recipient.phone:
             recipient.status = "pending"
             recipient.result_json = json.dumps({"terminal_status": "pending"}, ensure_ascii=False)
             db.add(recipient)
             continue
+        payload = _recipient_analysis(recipient.row_number or (idx + 1), recipient.name or "Candidate")
         if recipient.id in high_ats_ids:
-            payload = _recipient_analysis(recipient.row_number or 1, recipient.name or "Candidate")
             payload["analysis"]["score"] = int(recipient.ats_score or 90)
             payload["analysis"]["recommendation"] = "Advance"
             payload["analysis"]["sentiment"] = "Enthusiastic"
-            if highlight_norm and str(recipient.email or "").strip().lower() == highlight_norm:
-                payload["analysis"]["score"] = 94
-                payload["analysis"]["short_summary"] = f"{recipient.name} — strong hire (demo success)."
-                payload["call_summary"] = "Screening completed — Advance (demo success candidate)."
-            recipient.status = "completed"
-            recipient.result_json = json.dumps(payload, ensure_ascii=False)
-        else:
-            terminal = rng.choice(["completed", "no_answer", "failed"])
-            recipient.status = terminal
-            if terminal == "completed":
-                payload = _recipient_analysis(recipient.row_number or 1, recipient.name or "Candidate")
-                recipient.result_json = json.dumps(payload, ensure_ascii=False)
-            else:
-                recipient.result_json = json.dumps({"terminal_status": terminal}, ensure_ascii=False)
+        if highlight_norm and str(recipient.email or "").strip().lower() == highlight_norm:
+            payload["analysis"]["score"] = 94
+            payload["analysis"]["recommendation"] = "Advance"
+            payload["analysis"]["sentiment"] = "Enthusiastic"
+            payload["analysis"]["short_summary"] = f"{recipient.name} — strong hire (demo success)."
+            payload["call_summary"] = "Screening completed — Advance (demo success candidate)."
+        recipient.status = "completed"
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
         db.add(recipient)
     db.commit()
 
     order = _mark_interview_finished(db, order)
     refresh_order_interview_report(db, order)
     db.refresh(order)
+    _print_interview_audit(order, recipients)
     return order
+
+
+def _print_interview_audit(order: ServiceOrder, recipients: list[ServiceOrderRecipient]) -> None:
+    completed = sum(1 for r in recipients if str(r.status or "").lower() == "completed")
+    reports = 0
+    for recipient in recipients:
+        try:
+            parsed = json.loads(recipient.result_json or "{}")
+        except Exception:
+            parsed = {}
+        analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+        if parsed.get("analysis_saved_at") or analysis.get("score") is not None:
+            reports += 1
+    try:
+        report = json.loads(order.report_json or "{}")
+    except Exception:
+        report = {}
+    print(
+        f"     Audit: recipients={len(recipients)} completed={completed} reports={reports} "
+        f"report_json={report.get('completed', '?')}/{report.get('total', '?')} "
+        f"quote=£{order.quote_total_pence / 100:.2f}"
+    )
 
 
 def _tag_config(config: dict, *, channel: str | None = None) -> dict:
@@ -506,7 +533,15 @@ def issue_demo_payment_invoice(db, order: ServiceOrder, *, user_id: str) -> None
         print(f"  Warning: invoice not issued for {order.id}: {exc}")
 
 
-def charge_survey_from_wallet(db, order: ServiceOrder, org: Organisation, *, user_id: str, auto_top_up: bool) -> ServiceOrder:
+def charge_survey_from_wallet(
+    db,
+    order: ServiceOrder,
+    org: Organisation,
+    *,
+    user_id: str,
+    auto_top_up: bool,
+    debits: list[int] | None = None,
+) -> ServiceOrder:
     if order.payment_status == "approved":
         return order
     order = ServiceOrderService.quote_order(db, order)
@@ -517,6 +552,8 @@ def charge_survey_from_wallet(db, order: ServiceOrder, org: Organisation, *, use
     wallet_charge = int(breakdown.get("wallet_charge_minor") or eligibility.get("amount_due_pence") or order.quote_total_pence or 0)
     if wallet_charge > 0:
         ensure_wallet_balance(db, org, needed_minor=wallet_charge, auto_top_up=auto_top_up)
+        if debits is not None:
+            debits.append(wallet_charge)
     try:
         SurveyLaunchEligibilityService.approve_if_covered(db, order, org)
     except SurveyLaunchEligibilityError as exc:
@@ -526,7 +563,15 @@ def charge_survey_from_wallet(db, order: ServiceOrder, org: Organisation, *, use
     return order
 
 
-def charge_interview_from_wallet(db, order: ServiceOrder, org: Organisation, *, user_id: str, auto_top_up: bool) -> ServiceOrder:
+def charge_interview_from_wallet(
+    db,
+    order: ServiceOrder,
+    org: Organisation,
+    *,
+    user_id: str,
+    auto_top_up: bool,
+    debits: list[int] | None = None,
+) -> ServiceOrder:
     if order.payment_status == "approved":
         return order
     order = _try_quote(db, order)
@@ -543,6 +588,8 @@ def charge_interview_from_wallet(db, order: ServiceOrder, org: Organisation, *, 
             created_by_user_id=user_id,
             metadata={"script": "seed_demo_user_account.py"},
         )
+        if debits is not None:
+            debits.append(amount)
     order.payment_status = "approved"
     order.payment_method = "wallet"
     order.payment_note = f"Paid from wallet ({money_display(amount, resolve_org_currency(db, org))})"
@@ -555,15 +602,22 @@ def charge_interview_from_wallet(db, order: ServiceOrder, org: Organisation, *, 
     return order
 
 
+def _should_clear_demo_order(order: ServiceOrder) -> bool:
+    try:
+        cfg = json.loads(order.config_json or "{}")
+    except Exception:
+        cfg = {}
+    if cfg.get("demo_account_pack") == DEMO_ACCOUNT_PACK or cfg.get("demo_survey_pack") == DEMO_ACCOUNT_PACK:
+        return True
+    title = str(order.title or "")
+    return any(title.startswith(prefix) for prefix in LEGACY_DEMO_TITLE_PREFIXES)
+
+
 def _clear_demo_orders(db, org_id: str) -> int:
     removed = 0
     orders = list(db.execute(select(ServiceOrder).where(ServiceOrder.org_id == org_id)).scalars())
     for order in orders:
-        try:
-            cfg = json.loads(order.config_json or "{}")
-        except Exception:
-            continue
-        if cfg.get("demo_account_pack") != DEMO_ACCOUNT_PACK and cfg.get("demo_survey_pack") != DEMO_ACCOUNT_PACK:
+        if not _should_clear_demo_order(order):
             continue
         db.execute(delete(SurveyVoiceNoteJob).where(SurveyVoiceNoteJob.order_id == order.id))
         db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id))
@@ -612,6 +666,7 @@ def main() -> None:
 
         currency = resolve_org_currency(db, org)
         start_balance = WalletService.balance_minor(org)
+        debits: list[int] = []
         print(f"\nUser: {args.email}")
         print(f"Org:  {org_name} ({org.id})")
         print(f"Wallet before: {money_display(start_balance, currency)}")
@@ -630,6 +685,7 @@ def main() -> None:
             high_ats_count=min(args.high_ats, args.interview_candidates),
             success_email=success_email,
             seed=args.seed,
+            debits=debits,
         )
         print(f"     {interview_order.title} · {interview_order.id} · £{interview_order.quote_total_pence / 100:.2f}")
 
@@ -644,6 +700,7 @@ def main() -> None:
             member_count=args.ai_members,
             title=f"Fitness & Gyms · AI Call Survey · {args.ai_members} members",
             seed=args.seed,
+            debits=debits,
         )
         print(f"     {ai_order.title} · {ai_order.id} · £{ai_order.quote_total_pence / 100:.2f}")
 
@@ -658,14 +715,15 @@ def main() -> None:
             member_count=args.wa_members,
             title=f"Fitness & Gyms · WhatsApp Survey · {args.wa_members} members",
             seed=args.seed + 1000,
+            debits=debits,
         )
         print(f"     {wa_order.title} · {wa_order.id} · £{wa_order.quote_total_pence / 100:.2f}")
 
         db.refresh(org)
         end_balance = WalletService.balance_minor(org)
-        debited = start_balance - end_balance
+        total_debited = sum(debits)
         print(f"\nWallet after:  {money_display(end_balance, currency)}")
-        print(f"Total debited: {money_display(max(0, debited), currency)}")
+        print(f"Total debited: {money_display(total_debited, currency)}")
         print("\nCreated 3 consolidated campaigns:")
         print(f"  Interview:  {interview_order.id} ({args.interview_candidates} candidates)")
         print(f"  AI survey:  {ai_order.id} ({args.ai_members} members)")

@@ -60,6 +60,19 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
   const [hubspotTokenBusy, setHubspotTokenBusy] = React.useState(false);
 
+  const disconnectScheduling = async (provider: "calendly" | "cronofy") => {
+    try {
+      await apiFetch("/service-orders/scheduling/disconnect", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      });
+      toast.success(`${provider === "calendly" ? "Calendly" : "Cronofy"} disconnected`);
+      void schedulingQ.refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Disconnect failed");
+    }
+  };
+
   const startOAuth = async (provider: "calendly" | "cronofy") => {
     try {
       const data = await apiFetch<{ authorize_url?: string }>(`/service-orders/scheduling/oauth/${provider}/start`);
@@ -175,12 +188,18 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5" disabled={!calPlatformReady} onClick={() => void startOAuth("calendly")}>
+            <Button variant="outline" className="gap-1.5" disabled={!calPlatformReady || Boolean(scheduling.calendly_connected)} onClick={() => void startOAuth("calendly")}>
               <Plug className="size-4" /> Connect Calendly
             </Button>
-            <Button variant="outline" className="gap-1.5" disabled={!cronPlatformReady} onClick={() => void startOAuth("cronofy")}>
+            <Button variant="outline" className="gap-1.5" disabled={!cronPlatformReady || Boolean(scheduling.cronofy_connected)} onClick={() => void startOAuth("cronofy")}>
               <Plug className="size-4" /> Connect Cronofy
             </Button>
+            {scheduling.calendly_connected ? (
+              <Button variant="outline" onClick={() => void disconnectScheduling("calendly")}>Disconnect Calendly</Button>
+            ) : null}
+            {scheduling.cronofy_connected ? (
+              <Button variant="outline" onClick={() => void disconnectScheduling("cronofy")}>Disconnect Cronofy</Button>
+            ) : null}
           </div>
           <div className="space-y-2 text-sm">
             <Health
