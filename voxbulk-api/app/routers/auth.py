@@ -251,6 +251,10 @@ def oauth_complete_org_selection(payload: dict, db: Session = Depends(get_db)):
 
 @router.get("/my-organisations")
 def my_organisations(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is not None:
+        attach_pending_invites(db, user=user)
+        db.commit()
     rows = OrgRbacService.list_organisations_for_user(db, user_id=principal.user_id)
     return {"organisations": rows, "active_org_id": principal.org_id}
 
@@ -416,6 +420,9 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
 
     if not verify_password(str(password), user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    attach_pending_invites(db, user=user)
+    db.commit()
 
     resolved_org_id: str | None = str(org_id) if org_id else None
     if resolved_org_id:

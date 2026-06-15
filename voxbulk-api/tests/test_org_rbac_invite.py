@@ -257,6 +257,13 @@ def test_pending_invites_and_accept_session(app_client):
         "/auth/token",
         data={"username": "pi_owner@example.com", "password": "pass123", "org_id": inviter_org_id},
     ).json()["access_token"]
+
+    user_tok = app_client.post(
+        "/auth/token",
+        data={"username": "pending_user@example.com", "password": "pass123", "org_id": personal_org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {user_tok}"}
+
     inv = app_client.post(
         "/organisations/me/team/invites",
         headers={"Authorization": f"Bearer {owner_tok}"},
@@ -264,12 +271,6 @@ def test_pending_invites_and_accept_session(app_client):
     )
     assert inv.status_code == 200
     invite_token = inv.json()["signup_url"].split("invite_token=")[-1]
-
-    user_tok = app_client.post(
-        "/auth/token",
-        data={"username": "pending_user@example.com", "password": "pass123", "org_id": personal_org_id},
-    ).json()["access_token"]
-    headers = {"Authorization": f"Bearer {user_tok}"}
 
     pending = app_client.get("/auth/pending-invites", headers=headers)
     assert pending.status_code == 200
@@ -281,6 +282,62 @@ def test_pending_invites_and_accept_session(app_client):
 
     acct_tok = accepted.json()["access_token"]
     wallet = app_client.get("/billing/wallet", headers={"Authorization": f"Bearer {acct_tok}"})
+    assert wallet.status_code == 200
+
+
+def test_password_login_attaches_pending_invite(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        inviter = Organisation(name="Pwd Inviter")
+        personal = Organisation(name="Pwd Personal")
+        db.add(inviter)
+        db.add(personal)
+        db.flush()
+        user = User(email="pwd_invite@example.com", password_hash=hash_password("pass123"), is_active=True)
+        owner = User(email="pwd_inv_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(user)
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=personal.id, user_id=user.id, role="owner"))
+        db.add(OrganisationMembership(org_id=inviter.id, user_id=owner.id, role="owner"))
+        db.commit()
+        personal_org_id = personal.id
+        inviter_org_id = inviter.id
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "pwd_inv_owner@example.com", "password": "pass123", "org_id": inviter_org_id},
+    ).json()["access_token"]
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers={"Authorization": f"Bearer {owner_tok}"},
+        json={"email": "pwd_invite@example.com", "role": "accountant"},
+    )
+    assert inv.status_code == 200
+
+    login = app_client.post(
+        "/auth/token",
+        data={"username": "pwd_invite@example.com", "password": "pass123"},
+    )
+    assert login.status_code == 200
+    body = login.json()
+    assert body.get("org_selection_required") is True
+    org_ids = {o["org_id"] for o in body.get("organisations") or []}
+    assert personal_org_id in org_ids
+    assert inviter_org_id in org_ids
+
+    picked = app_client.post(
+        "/auth/token",
+        data={
+            "username": "pwd_invite@example.com",
+            "password": "pass123",
+            "org_id": inviter_org_id,
+        },
+    )
+    assert picked.status_code == 200
+    tok = picked.json()["access_token"]
+    wallet = app_client.get("/billing/wallet", headers={"Authorization": f"Bearer {tok}"})
     assert wallet.status_code == 200
 
 
