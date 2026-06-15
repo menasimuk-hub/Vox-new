@@ -18,15 +18,15 @@ function CampaignNewPage() {
       <PageHeader
         eyebrow="Campaigns"
         title="Create WhatsApp template"
-        description="Design a Meta-approved broadcast template. Saving will be enabled when the campaigns API is live."
+        description="Design a Meta-approved broadcast template for your audience."
       />
       <Card>
         <CardContent className="space-y-4 p-6">
           <p className="text-sm text-muted-foreground">
-            Template wizard UI from the design system will appear here. For now, use Surveys → WhatsApp custom templates for outbound questionnaires.
+            Template fields and approval workflow will appear here. Use Surveys → WhatsApp custom templates for outbound questionnaires in the meantime.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => toast.info("Campaign template API coming soon.")}>
+            <Button type="button" onClick={() => toast.info("Template saving will be available shortly.")}>
               Save draft
             </Button>
             <Button asChild variant="outline">

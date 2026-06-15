@@ -25,13 +25,13 @@ function CampaignTemplatesPage() {
       <PageHeader
         eyebrow="Campaigns"
         title="My templates"
-        description="WhatsApp broadcast templates for one-to-many messaging. API integration coming soon."
+        description="WhatsApp broadcast templates for one-to-many messaging."
         actions={
           <div className="flex gap-2">
             <Button asChild variant="outline" className="gap-1.5">
               <Link to="/campaigns/send"><Send className="size-4" /> Send campaign</Link>
             </Button>
-            <Button className="gap-1.5" onClick={() => toast.info("Template creation API coming soon.")}>
+            <Button className="gap-1.5" onClick={() => toast.info("Template creation will be available shortly.")}>
               <Plus className="size-4" /> New template
             </Button>
           </div>
@@ -57,7 +57,7 @@ function CampaignTemplatesPage() {
       <Card className="border-dashed">
         <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
           <Sparkles className="size-8 text-primary/60" />
-          <p>Broadcast campaigns are in preview. Create and send will connect to your WhatsApp template library in the next release.</p>
+          <p>Manage WhatsApp broadcast templates and send to your audience when ready.</p>
         </CardContent>
       </Card>
     </div>

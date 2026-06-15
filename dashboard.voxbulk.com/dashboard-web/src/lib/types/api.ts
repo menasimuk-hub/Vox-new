@@ -107,6 +107,25 @@ export type HomeSummary = {
     total_calls?: number;
     whatsapp_sent?: number;
   };
+  feedback?: {
+    qr_scans_today?: number;
+    total_scans?: number;
+    sentiment?: { excellent?: number; good?: number; poor?: number };
+    unhappy?: Array<{
+      id?: string;
+      reason?: string;
+      branch?: string;
+      when?: string;
+    }>;
+    recent?: Array<{
+      svc?: string;
+      who?: string;
+      what?: string;
+      chip?: string;
+      tone?: "ok" | "bad" | "info";
+      when?: string;
+    }>;
+  };
   total_patients?: number;
 };
 

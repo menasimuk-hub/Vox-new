@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ArrowUpRight, ArrowDownRight, Minus, Plus, Sparkles, Phone, Download,
+  ArrowUpRight, ArrowDownRight, ArrowRight, Minus, Plus, Sparkles, Phone, Download,
   PoundSterling, PhoneOutgoing, UserCheck, MessageCircle, ListChecks, Timer, Wallet, Target,
   Radio, PhoneCall, CheckCircle2, Users, BarChart3, MessagesSquare, PauseCircle, type LucideIcon,
+  Activity, TrendingUp, Smile, Frown, Meh, Star, QrCode, MessageSquareText, HeartPulse, AlertTriangle, Clock3,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
@@ -16,17 +17,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useServices } from "@/lib/services";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import { useConnections } from "@/lib/connections";
 import { useHomeSummary, useServiceOrders } from "@/lib/queries";
 import { orderToCampaign } from "@/lib/mappers/orders";
 import { useSession } from "@/lib/session";
+import type { HomeSummary } from "@/lib/types/api";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Dashboard — VoxBulk" }] }),
   component: Dashboard,
 });
+
+const COLORS = { green: "#22c55e", amber: "#f59e0b", red: "#ef4444", blue: "#3b82f6" };
 
 function Dashboard() {
   const { visible } = useServices();
@@ -38,8 +45,13 @@ function Dashboard() {
   const summary = summaryQ.data;
   const greetingName = session?.org?.name?.split(/\s+/)[0] || session?.profile?.email?.split("@")[0] || "there";
 
+  const anyResponseService = visible.feedback || visible.surveys;
+  const anyService =
+    visible.interviews || visible.surveys || visible.feedback || visible.campaigns || visible.recovery || visible.followup;
+  const loading = summaryQ.isLoading;
+
   return (
-    <div className="flex w-full flex-col gap-8">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Dashboard · Live · Overview"
         title={`Good morning, ${greetingName}`}
@@ -54,18 +66,34 @@ function Dashboard() {
 
       <NewCampaignPicker open={pickOpen} onOpenChange={setPickOpen} />
 
-      {summaryQ.isLoading && <Skeleton className="h-24 w-full rounded-xl" />}
+      {loading && <Skeleton className="h-24 w-full rounded-xl" />}
 
-      {showRecoveryModules && visible.recovery && <RecoverySection summary={summary} loading={summaryQ.isLoading} />}
+      {anyService && !loading && <LiveStrip visible={visible} summary={summary} />}
+      {anyService && !loading && <HeroRow visible={visible} summary={summary} />}
+
+      {(anyResponseService || visible.interviews) && !loading && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <LiveActivity visible={visible} summary={summary} />
+          {anyResponseService && <SentimentCard summary={summary} />}
+        </div>
+      )}
+
+      {anyResponseService && !loading && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <UnhappyCustomers summary={summary} />
+        </div>
+      )}
+
+      {showRecoveryModules && visible.recovery && <RecoverySection summary={summary} loading={loading} />}
       {visible.interviews && (
         <InterviewsSection
           summary={summary}
-          loading={summaryQ.isLoading || interviewOrdersQ.isLoading}
+          loading={loading || interviewOrdersQ.isLoading}
           liveOrders={(interviewOrdersQ.data || []).filter((o) => o.is_live && o.status === "running").map((o) => orderToCampaign(o, "interview"))}
         />
       )}
-      {visible.surveys && <SurveysSection summary={summary} loading={summaryQ.isLoading} />}
-      {!visible.recovery && !visible.interviews && !visible.surveys && (
+      {visible.surveys && <SurveysSection summary={summary} loading={loading} />}
+      {!anyService && (
         <Card><CardContent className="p-10 text-center text-sm text-muted-foreground">
           No services are shown on your dashboard right now. Open <span className="font-medium text-foreground">Settings → Services</span> to turn Interviews or Surveys back on.
         </CardContent></Card>
@@ -74,7 +102,280 @@ function Dashboard() {
   );
 }
 
-function RecoverySection({ summary, loading }: { summary?: ReturnType<typeof useHomeSummary>["data"]; loading: boolean }) {
+type VisibleMap = Record<ServiceKey, boolean>;
+
+function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
+  const int = summary?.interview;
+  const sur = summary?.survey;
+  const fb = summary?.feedback;
+  const happyTotal = (fb?.sentiment?.excellent ?? 0) + (fb?.sentiment?.good ?? 0);
+  const sentimentTotal = happyTotal + (fb?.sentiment?.poor ?? 0);
+  const happyPct = sentimentTotal ? `${Math.round((happyTotal / sentimentTotal) * 100)}%` : "—";
+
+  const all = [
+    { key: "interviews" as const, icon: PhoneCall, label: "AI interview calls live", value: String(int?.running ?? int?.live ?? 0), tone: "text-blue-500" },
+    { key: "surveys" as const, icon: Phone, label: "AI survey calls live", value: String(sur?.running ?? 0), tone: "text-violet-500" },
+    { key: "surveys" as const, icon: MessageCircle, label: "WA survey threads active", value: String(sur?.live ?? 0), tone: "text-emerald-500" },
+    { key: "feedback" as const, icon: QrCode, label: "QR scans today", value: String(fb?.qr_scans_today ?? 0), tone: "text-amber-500" },
+    { key: "feedback" as const, icon: Smile, label: "Happy customers", value: happyPct, tone: "text-emerald-500" },
+  ];
+  const items = all.filter((i) => visible[i.key]).slice(0, 4);
+  if (items.length === 0) return null;
+
+  return (
+    <div className={cn("grid gap-2 rounded-2xl border border-border bg-card/60 p-2 sm:grid-cols-2", items.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-2")}>
+      {items.map((i) => (
+        <div key={i.label} className="flex items-center gap-3 rounded-xl bg-background/50 px-3 py-2">
+          <span className="relative grid size-9 place-items-center rounded-lg bg-muted">
+            <i.icon className={cn("size-4", i.tone)} />
+            <span className="absolute -right-0.5 -top-0.5 flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+            </span>
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{i.label}</p>
+            <p className="text-lg font-semibold tabular-nums leading-tight">{i.value}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HeroRow({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
+  const int = summary?.interview;
+  const sur = summary?.survey;
+  const fb = summary?.feedback;
+  const conversations =
+    (int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
+
+  const tiles = [
+    { show: visible.interviews, label: "Candidates screened", value: String(int?.candidates ?? 0), tone: "text-blue-500" },
+    { show: visible.surveys, label: "Survey responses", value: String(sur?.responses ?? 0), tone: "text-violet-500" },
+    { show: visible.feedback, label: "QR feedback", value: String(fb?.total_scans ?? 0), tone: "text-emerald-500" },
+  ].filter((t) => t.show);
+
+  const unhappyCount = summary?.feedback?.unhappy?.length ?? 0;
+  const liveCampaigns = (int?.live ?? 0) + (sur?.live ?? 0);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-card via-card to-accent/40 p-6">
+        <div className="absolute -right-24 -top-24 size-72 rounded-full bg-primary/20 blur-3xl" />
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary/80">Activity · this month</p>
+        <h2 className="mt-2 text-4xl font-semibold tracking-tight md:text-5xl">
+          Your AI ran <span className="text-primary">{conversations.toLocaleString()}</span> conversations
+        </h2>
+        <p className="mt-2 max-w-md text-sm text-muted-foreground">
+          Across phone, WhatsApp and QR — every customer touchpoint in one place.
+        </p>
+        {tiles.length > 0 && (
+          <div className={cn("mt-5 grid gap-2", tiles.length <= 2 ? "grid-cols-2" : "grid-cols-3")}>
+            {tiles.map((t) => <HeroStat key={t.label} label={t.label} value={t.value} tone={t.tone} />)}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Live campaigns</p>
+          <Badge variant="secondary" className="gap-1"><TrendingUp className="size-3" /> active</Badge>
+        </div>
+        <p className="mt-1 text-2xl font-semibold tabular-nums">{liveCampaigns}</p>
+        <Progress value={liveCampaigns ? Math.min(liveCampaigns * 10, 100) : 0} className="mt-3 h-2" />
+        <div className="mt-4 grid grid-cols-1 gap-2 text-sm">
+          {visible.feedback && unhappyCount > 0 && (
+            <HeroAlert tone="warning" icon={AlertTriangle} title={`${unhappyCount} need follow-up`} detail="Review unhappy feedback today" />
+          )}
+          {liveCampaigns > 0 && (
+            <HeroAlert tone="info" icon={Clock3} title={`${liveCampaigns} campaigns live`} detail="Running across your services" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroStat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background/50 p-3">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn("mt-1 text-xl font-semibold tabular-nums", tone)}>{value}</p>
+    </div>
+  );
+}
+
+function HeroAlert({ tone, icon: Icon, title, detail }: { tone: "warning" | "info"; icon: LucideIcon; title: string; detail: string }) {
+  const cls = tone === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" : "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400";
+  return (
+    <div className={cn("flex items-start gap-2 rounded-lg border p-2", cls)}>
+      <Icon className="mt-0.5 size-3.5 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium leading-tight">{title}</p>
+        <p className="text-[10px] opacity-80">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+type ActivityItem = NonNullable<HomeSummary["feedback"]>["recent"] extends (infer R)[] | undefined ? R : never;
+
+function LiveActivity({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
+  const feed: ActivityItem[] = (summary?.feedback?.recent || []).filter((f) => visible[f.svc as ServiceKey] ?? f.svc === "feedback");
+  const iconFor = (tone?: string) => {
+    if (tone === "bad") return Frown;
+    if (tone === "ok") return Star;
+    return QrCode;
+  };
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2"><Activity className="size-4 text-emerald-500" /> Live activity</CardTitle>
+          <CardDescription>Recent customer interactions across your services</CardDescription>
+        </div>
+        <Badge variant="outline" className="gap-1.5"><span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> Live</Badge>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {feed.length === 0 && (
+          <p className="py-6 text-center text-xs text-muted-foreground">No recent activity yet. Launch a campaign or collect feedback to see updates here.</p>
+        )}
+        {feed.map((f, i) => {
+          const Icon = iconFor(f.tone);
+          const initials = (f.who || "?").split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+          return (
+            <div key={`${f.when}-${i}`} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background/40 p-2.5 transition hover:border-border hover:bg-background/70">
+              <Avatar className="size-8"><AvatarFallback className="text-[10px]">{initials}</AvatarFallback></Avatar>
+              <span className={cn(
+                "grid size-7 place-items-center rounded-md",
+                f.tone === "ok" ? "bg-emerald-500/10 text-emerald-500" :
+                f.tone === "bad" ? "bg-red-500/10 text-red-500" :
+                "bg-blue-500/10 text-blue-500",
+              )}><Icon className="size-3.5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm"><span className="font-medium">{f.who}</span> <span className="text-muted-foreground">{f.what}</span></p>
+                <p className="text-[10px] text-muted-foreground">{formatWhen(f.when)}</p>
+              </div>
+              {f.chip && (
+                <Badge variant={f.tone === "bad" ? "destructive" : f.tone === "ok" ? "default" : "secondary"} className="text-[10px]">{f.chip}</Badge>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SentimentCard({ summary }: { summary?: HomeSummary }) {
+  const s = summary?.feedback?.sentiment;
+  const sentiment = [
+    { name: "Excellent", value: s?.excellent ?? 0, color: COLORS.green, icon: Smile },
+    { name: "Good", value: s?.good ?? 0, color: COLORS.blue, icon: Meh },
+    { name: "Poor", value: s?.poor ?? 0, color: COLORS.red, icon: Frown },
+  ];
+  const totalSent = sentiment.reduce((a, b) => a + b.value, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Customer sentiment</CardTitle>
+        <CardDescription>Across feedback responses</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {totalSent === 0 ? (
+          <p className="py-10 text-center text-xs text-muted-foreground">No sentiment data yet. QR feedback responses will appear here.</p>
+        ) : (
+          <>
+            <div className="relative h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={sentiment} dataKey="value" innerRadius={50} outerRadius={75} paddingAngle={3} stroke="none">
+                    {sentiment.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                <div className="text-center">
+                  <p className="text-3xl font-semibold tabular-nums">{totalSent}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Responses</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              {sentiment.map((row) => {
+                const pct = totalSent ? Math.round((row.value / totalSent) * 100) : 0;
+                return (
+                  <div key={row.name} className="flex items-center gap-2 text-sm">
+                    <row.icon className="size-4" style={{ color: row.color }} />
+                    <span className="flex-1">{row.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{row.value}</span>
+                    <span className="w-10 text-right text-xs font-medium tabular-nums" style={{ color: row.color }}>{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UnhappyCustomers({ summary }: { summary?: HomeSummary }) {
+  const unhappy = summary?.feedback?.unhappy || [];
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2"><Frown className="size-4 text-red-500" /> Needs follow-up</CardTitle>
+          <CardDescription>Unhappy customers — reach out today</CardDescription>
+        </div>
+        {unhappy.length > 0 && <Badge variant="destructive">{unhappy.length}</Badge>}
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {unhappy.length === 0 ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">No customers need follow-up right now.</p>
+        ) : (
+          <>
+            {unhappy.map((u) => (
+              <div key={u.id || u.reason} className="rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{u.branch || "Customer"}</p>
+                    <p className="text-[11px] text-muted-foreground">{u.reason}{u.branch ? ` · ${u.branch}` : ""}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{formatWhen(u.when)}</span>
+                </div>
+              </div>
+            ))}
+            <Button variant="ghost" size="sm" className="w-full justify-center text-xs" asChild>
+              <Link to="/feedback/results">See all feedback <ArrowRight className="ml-1 size-3" /></Link>
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatWhen(iso?: string | null) {
+  if (!iso) return "Recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Recently";
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return d.toLocaleDateString();
+}
+
+function RecoverySection({ summary, loading }: { summary?: HomeSummary; loading: boolean }) {
   const rec = summary?.recovery;
   const queuePending = rec?.queue_pending ?? 0;
   const totalCalls = rec?.total_calls ?? 0;
@@ -103,9 +404,9 @@ function RecoverySection({ summary, loading }: { summary?: ReturnType<typeof use
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <RoiStat label="Queue" value={loading ? "…" : String(queuePending)} />
-          <RoiStat label="Calls" value={loading ? "…" : String(totalCalls)} />
-          <RoiStat label="WhatsApp" value={loading ? "…" : String(waSent)} />
+          <RecoveryStat label="Queue" value={loading ? "…" : String(queuePending)} />
+          <RecoveryStat label="Calls" value={loading ? "…" : String(totalCalls)} />
+          <RecoveryStat label="WhatsApp" value={loading ? "…" : String(waSent)} />
         </div>
       </div>
 
@@ -149,7 +450,7 @@ function InterviewsSection({
   loading,
   liveOrders,
 }: {
-  summary?: ReturnType<typeof useHomeSummary>["data"];
+  summary?: HomeSummary;
   loading: boolean;
   liveOrders: ReturnType<typeof orderToCampaign>[];
 }) {
@@ -189,7 +490,7 @@ function InterviewsSection({
   );
 }
 
-function SurveysSection({ summary, loading }: { summary?: ReturnType<typeof useHomeSummary>["data"]; loading: boolean }) {
+function SurveysSection({ summary, loading }: { summary?: HomeSummary; loading: boolean }) {
   const sur = summary?.survey;
   const kpis = [
     { label: "Live surveys", value: String(sur?.live ?? 0) },
@@ -281,7 +582,7 @@ function RichKpi({
   );
 }
 
-function RoiStat({ label, value }: { label: string; value: string }) {
+function RecoveryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border bg-background/40 p-3">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -330,4 +631,4 @@ function sparkFor(label: string): number[] {
     return 50 + x * 35 + i * 1.4;
   });
 }
-void Download; void Progress; void Area;
+void Download; void Progress; void Area; void MessageSquareText; void HeartPulse;

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -98,6 +100,86 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
         if str(st) in {"pending", "missed", "cancelled", "no_show"}
     )
 
+    feedback_block: dict | None = None
+    if visible.get("customer_feedback"):
+        from app.models.customer_feedback import FeedbackLocation, FeedbackResponse, FeedbackSession
+        from app.services.customer_feedback.feedback_answer_service import POOR_ANSWERS
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        scans_today = db.execute(
+            select(func.count())
+            .select_from(FeedbackSession)
+            .where(
+                FeedbackSession.org_id == principal.org_id,
+                FeedbackSession.started_at >= today_start,
+            )
+        ).scalar_one()
+        locations = list(
+            db.execute(select(FeedbackLocation).where(FeedbackLocation.org_id == principal.org_id)).scalars().all()
+        )
+        responses = list(
+            db.execute(
+                select(FeedbackResponse)
+                .where(FeedbackResponse.org_id == principal.org_id)
+                .order_by(FeedbackResponse.created_at.desc())
+                .limit(200)
+            ).scalars().all()
+        )
+        sentiment = {"excellent": 0, "good": 0, "poor": 0}
+        unhappy: list[dict] = []
+        recent: list[dict] = []
+
+        def _classify(answer: str) -> str | None:
+            a = str(answer or "").strip().lower()
+            if not a:
+                return None
+            if "excellent" in a or a in {"5", "5/5"}:
+                return "excellent"
+            if "good" in a or a in {"4", "4/5", "3", "3/5"}:
+                return "good"
+            if "poor" in a or a in POOR_ANSWERS or any(p in a for p in ("unhappy", "bad", "terrible")):
+                return "poor"
+            return None
+
+        for r in responses:
+            ans = str(r.answer_text_en or r.answer_text or "")
+            bucket = _classify(ans)
+            if bucket:
+                sentiment[bucket] += 1
+            loc = db.get(FeedbackLocation, r.location_id)
+            branch = loc.name if loc else "Branch"
+            when = r.created_at.isoformat() if r.created_at else None
+            chip = ans[:24] if ans else "Response"
+            tone = "bad" if bucket == "poor" else "ok" if bucket in {"excellent", "good"} else "info"
+            if len(recent) < 8:
+                recent.append(
+                    {
+                        "svc": "feedback",
+                        "who": branch,
+                        "what": f"left feedback — {chip}",
+                        "chip": chip,
+                        "tone": tone,
+                        "when": when,
+                    }
+                )
+            if bucket == "poor" and len(unhappy) < 6:
+                unhappy.append(
+                    {
+                        "id": r.id,
+                        "reason": ans[:80] or "Negative feedback",
+                        "branch": branch,
+                        "when": when,
+                    }
+                )
+
+        feedback_block = {
+            "qr_scans_today": int(scans_today),
+            "total_scans": sum(int(loc.scan_count or 0) for loc in locations),
+            "sentiment": sentiment,
+            "unhappy": unhappy,
+            "recent": recent,
+        }
+
     return {
         "enabled_services": visible,
         "allowed_services": org_service_maps(org, db)[0] if org else {},
@@ -128,6 +210,7 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
                 db.execute(select(func.count()).select_from(WhatsAppLog).where(WhatsAppLog.org_id == principal.org_id)).scalar_one()
             ),
         },
+        "feedback": feedback_block,
         "total_patients": int(total_patients),
     }
 

@@ -18,15 +18,15 @@ function CampaignSendPage() {
       <PageHeader
         eyebrow="Campaigns"
         title="Send broadcast"
-        description="Choose an approved template and audience. Send flow connects when the campaigns API is live."
+        description="Choose an approved template and audience for your broadcast."
       />
       <Card>
         <CardContent className="space-y-4 p-6">
           <p className="text-sm text-muted-foreground">
-            Audience selection and send scheduling will appear here after backend integration.
+            Pick a template, select contacts, and schedule your send when ready.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => toast.info("Campaign send API coming soon.")}>
+            <Button type="button" onClick={() => toast.info("Send will be available shortly.")}>
               Send now
             </Button>
             <Button asChild variant="outline">

@@ -563,7 +563,7 @@ function PackagesPage() {
                                   size="sm"
                                   className="mt-3 w-full"
                                   variant={pack.featured ? "default" : "outline"}
-                                  onClick={() => toast.info("Campaign credit packs API coming soon.")}
+                                  onClick={() => toast.info("Campaign credit packs will be available shortly.")}
                                 >
                                   Top up
                                 </Button>
@@ -572,7 +572,7 @@ function PackagesPage() {
                           );
                         })}
                       </div>
-                      <p className="text-xs text-muted-foreground">Pure top-up — credits never expire. Broadcast send connects when the campaigns module API is live.</p>
+                      <p className="text-xs text-muted-foreground">Pure top-up — credits never expire.</p>
                     </>
                   ) : null}
                 </div>
@@ -581,10 +581,6 @@ function PackagesPage() {
           );
         })}
       </Tabs>
-
-      <Card><CardContent className="p-4 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">Heads up:</span> Core platform, Customer Feedback and Campaigns are billed separately. Campaign credits are preview pricing until the broadcast API launches.
-      </CardContent></Card>
 
       <Dialog open={enterpriseOpen} onOpenChange={setEnterpriseOpen}>
         <DialogContent className="sm:max-w-md">
