@@ -118,6 +118,59 @@ WhatsApp (text + voice transcript)
   → MySQL abuu_wa_snapshots + /abuu/food/*
 ```
 
+## SmartPipeline + live trace (recommended pilot)
+
+Use **one** conversation mode line (do not duplicate `orchestrator` and `waiter_v2`):
+
+```env
+ABUU_AGENT_ENABLED=true
+ABUU_CONVERSATION_MODE=waiter_v2
+SMART_PIPELINE_ENABLED=true
+ABUU_WAITER_TRACE_ENABLED=true
+ABUU_DEEPSEEK_ENABLED=true
+```
+
+Verify the **running process** (not just `.env` on disk):
+
+```bash
+curl -s http://127.0.0.1:8000/health/abuu-runtime | python3 -m json.tool
+# smart_pipeline_enabled must be true, conversation_mode waiter_v2
+```
+
+**Live feed (pretty IN → SEARCH → THINK → OUT):**
+
+```bash
+chmod +x scripts/vps-abuu-live-trace.sh scripts/vps-abuu-waiter-trace.sh
+./scripts/vps-abuu-live-trace.sh
+# or last 30 lines without follow:
+./scripts/vps-abuu-live-trace.sh --history 30
+```
+
+Send a WhatsApp message while the script runs. You should see lines like:
+
+```
+[12:04:01] WA_IN  phone=+972… text='دجاج'
+[12:04:01] ROUTE  phone=+972… pipeline=smart text="دجاج"
+[12:04:01] IN     phone=+972… text=دجاج
+[12:04:01] SEARCH items=8 cross_restaurant=true
+[12:04:02] THINK  branch=llm action=show_menu
+[12:04:02] OUT    reply_preview="هاي أحلى الخيارات…"
+[12:04:02] WA_OUT to=+972… body='…'
+```
+
+### Troubleshooting live trace
+
+| What you see | Meaning |
+|--------------|---------|
+| Script prints nothing | No WhatsApp hit API yet — send a message while `./scripts/vps-abuu-live-trace.sh` is running |
+| No log file | `./vox.sh status` — API may not be running |
+| `SKIP reason=not_abuu` | Message did not match start word and no active Abuu session |
+| `SKIP reason=duplicate` | Telnyx retried same message id |
+| `ROUTE pipeline=waiter_v2` not `smart` | `SMART_PIPELINE_ENABLED` false at runtime — pull latest, restart |
+| `ROUTE pipeline=orchestrator` | Wrong mode — set `ABUU_CONVERSATION_MODE=waiter_v2` only once |
+| `OUT forbidden_hit=True` | Old empty-search reply path — SmartPipeline not active or search returned 0 items |
+| Only `WAITER` lines, no `ROUTE pipeline=smart` | Old layered waiter — enable SmartPipeline |
+
 ## Waiter v2 rollout (`ABUU_CONVERSATION_MODE=waiter_v2`)
 
 Pilot on internal phones first:
@@ -134,9 +187,10 @@ Empty `ABUU_WAITER_V2_ALLOWLIST` = all phones use waiter_v2 when mode is set.
 **Live waiter trace:**
 
 ```bash
-chmod +x scripts/vps-abuu-waiter-trace.sh
+chmod +x scripts/vps-abuu-live-trace.sh
+./scripts/vps-abuu-live-trace.sh
+# legacy alias:
 ./scripts/vps-abuu-waiter-trace.sh
-# or: tail -f /tmp/voxbulk-api.log | grep --line-buffered abuu_waiter_trace
 ```
 
 Rollback: set `ABUU_CONVERSATION_MODE=orchestrator` and `./vox.sh restart`.

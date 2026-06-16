@@ -232,6 +232,20 @@ async def lifespan(app: FastAPI):
 
         log_startup_build_info(logger)
         logger.info("%s main_lifespan_startup_complete", WEBHOOK_BUILD_MARKER)
+        try:
+            from app.abuu.live_trace import boot as abuu_live_boot
+            from app.core.runtime_build_info import get_runtime_build_info
+
+            build = get_runtime_build_info()
+            abuu_live_boot(
+                git_sha=build.get("git_sha"),
+                conversation_mode=settings.abuu_conversation_mode,
+                smart_pipeline=settings.abuu_smart_pipeline_enabled,
+                abuu_agent_enabled=settings.abuu_agent_enabled,
+                abuu_enabled=settings.abuu_enabled,
+            )
+        except Exception:
+            logger.exception("abuu_live_trace_boot_failed")
     except Exception:
         logger.exception("runtime_build_info_failed")
     try:
@@ -433,6 +447,27 @@ def health_pricing():
 @app.get("/health", tags=["health"])
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/abuu-runtime", tags=["health"])
+def health_abuu_runtime():
+    """Effective Abuu / SmartPipeline flags for the running process (no secrets)."""
+    from app.core.runtime_build_info import get_runtime_build_info
+
+    settings = get_settings()
+    build = get_runtime_build_info()
+    allowlist = str(settings.abuu_waiter_v2_allowlist or "").strip()
+    return {
+        "status": "ok",
+        "git_sha": build.get("git_sha"),
+        "abuu_enabled": settings.abuu_enabled,
+        "abuu_agent_enabled": settings.abuu_agent_enabled,
+        "conversation_mode": settings.abuu_conversation_mode,
+        "smart_pipeline_enabled": settings.abuu_smart_pipeline_enabled,
+        "waiter_trace_enabled": settings.abuu_waiter_trace_enabled,
+        "waiter_v2_enabled_for_all": not bool(allowlist),
+        "waiter_v2_allowlist_count": len([p for p in allowlist.split(",") if p.strip()]) if allowlist else 0,
+    }
 
 
 @app.get("/health/build", tags=["health"])

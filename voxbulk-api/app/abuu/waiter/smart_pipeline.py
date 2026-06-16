@@ -11,6 +11,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.abuu.agent.session import _cart_from_order, save_session
+from app.abuu.live_trace import inbound as trace_inbound
+from app.abuu.live_trace import outbound as trace_outbound
+from app.abuu.live_trace import search as trace_search
+from app.abuu.live_trace import think as trace_think
 from app.abuu.conversation.restaurant_guard import RestaurantGuard, bind_restaurant_context, clear_switch_context
 from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.market.registry import get_market_agent
@@ -155,6 +159,18 @@ def _pilot_ids(db: Session) -> tuple[str, ...] | None:
 
 def _smart_log(event: str, **fields: Any) -> None:
     logger.info("abuu_smart_pipeline_%s | %s", event, " ".join(f"{k}={v}" for k, v in fields.items()))
+    if event == "in":
+        trace_inbound(**fields)
+    elif event == "out":
+        trace_outbound(
+            phone=fields.get("phone"),
+            action=fields.get("action"),
+            reply_preview=fields.get("preview"),
+        )
+    elif event == "prompt":
+        trace_think(phone=fields.get("phone"), branch="llm_prompt", prompt_chars=fields.get("chars"))
+    elif event == "parse_fail":
+        trace_think(phone=fields.get("phone"), branch="llm_fail", raw=fields.get("raw"))
 
 
 def _normalize_selection(text: str) -> str:
@@ -909,7 +925,7 @@ class SmartPipeline:
                         "reason": interpretation.clarification_reason,
                     }
 
-        _smart_log("in", phone=phone, text=working_text[:120], voice=is_voice)
+        _smart_log("in", phone=phone, text=working_text[:120], voice=is_voice, restaurant_id=session.restaurant_id, step=session.stage)
         WaiterSessionStore.append_context_message(session, role="customer", text=working_text)
 
         start_result = _handle_start_message(
@@ -926,6 +942,7 @@ class SmartPipeline:
             session.context["session_schema_version"] = 3
             session.context["smart_pipeline"] = True
             WaiterSessionStore.save(abuu_db, session, message_id=message_id)
+            trace_think(phone=phone, branch="start", action="started", restaurant_id=session.restaurant_id)
             _smart_log("out", phone=phone, action="started", preview=reply[:120])
             return {
                 "handled": True,
@@ -971,15 +988,36 @@ class SmartPipeline:
         search = _build_search_results(
             abuu_db, main_db, session=session, customer=customer, text=working_text, lang=lang
         )
+        trace_search(
+            phone=phone,
+            query=working_text[:120],
+            expanded=(search.meta or {}).get("expanded"),
+            items=len(search.items),
+            cross_restaurant=bool(getattr(search, "cross_restaurant", False) or (search.meta or {}).get("cross_restaurant")),
+            restaurant_id=session.restaurant_id,
+        )
 
         parsed: ParsedAction
         delegate: str | None = None
 
         if deterministic and deterministic.action == "select_restaurant":
             parsed = deterministic
+            trace_think(
+                phone=phone,
+                branch="deterministic",
+                action=parsed.action,
+                restaurant_id=parsed.restaurant_id or session.restaurant_id,
+            )
             order = _load_order(abuu_db, phone)
         elif deterministic and deterministic.action == "add_to_cart" and deterministic.item_id:
             parsed = deterministic
+            trace_think(
+                phone=phone,
+                branch="deterministic",
+                action=parsed.action,
+                item_id=parsed.item_id,
+                restaurant_id=session.restaurant_id,
+            )
             parsed, order, delegate = _execute_action(
                 abuu_db,
                 parsed=parsed,
@@ -1024,6 +1062,13 @@ class SmartPipeline:
                 parsed = _parse_ai_response(result.text)
                 if parsed.action == "none" and not parsed.reply:
                     _smart_log("parse_fail", phone=phone, raw=result.text[:200])
+            trace_think(
+                phone=phone,
+                branch="llm",
+                action=parsed.action,
+                item_id=parsed.item_id,
+                restaurant_id=parsed.restaurant_id or session.restaurant_id,
+            )
             parsed, order, delegate = _execute_action(
                 abuu_db,
                 parsed=parsed,

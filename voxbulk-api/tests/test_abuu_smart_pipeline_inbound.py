@@ -49,6 +49,55 @@ def _assert_no_forbidden(reply: str | None) -> None:
         assert fragment not in text, f"forbidden {fragment!r} in {text!r}"
 
 
+@patch("app.abuu.waiter.smart_pipeline.trace_outbound")
+@patch("app.abuu.services.inbound_service.trace_route")
+@patch("app.abuu.waiter.smart_pipeline.WaiterDeepSeekClient.complete")
+@patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
+def test_yallasay_then_djaj_inbound_emits_live_trace(mock_send, mock_llm, mock_route, mock_outbound, app_client, abuu_seeded, smart_waiter_env):
+    """Live trace: route + out hooks fire for Yallasay → دجاج."""
+    from app.abuu.waiter.deepseek_client import DeepSeekResult
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+
+    mock_llm.return_value = DeepSeekResult(text="", fallback_used=True)
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Smart WA Live Trace Org")
+        db.add(org)
+        db.commit()
+        org_id = org.id
+
+    phone = f"+97250{uuid.uuid4().int % 10_000_000:07d}"
+    msg_id = f"msg-live-{uuid.uuid4().hex[:10]}"
+
+    with get_abuu_sessionmaker()() as abuu_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
+        customer.name = "Qusay"
+        abuu_db.add(customer)
+        abuu_db.commit()
+
+    with get_sessionmaker()() as db:
+        AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="Yallasay",
+            message_id=msg_id,
+            org_id=org_id,
+        )
+        AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="دجاج",
+            message_id=f"{msg_id}-djaj",
+            org_id=org_id,
+        )
+
+    assert mock_route.called
+    assert any(str(c.kwargs.get("pipeline") or "") == "smart" for c in mock_route.call_args_list)
+    assert mock_outbound.called
+
+
 @patch("app.abuu.waiter.smart_pipeline.WaiterDeepSeekClient.complete")
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
 def test_yallasay_then_djaj_inbound(mock_send, mock_llm, app_client, abuu_seeded, smart_waiter_env):

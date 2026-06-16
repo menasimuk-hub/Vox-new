@@ -23,6 +23,8 @@ from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyServ
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
 from app.abuu.agent.agent import AbuuAgentLoop, _deepseek_platform_ready
 from app.abuu.conversation.orchestrator import AbuuConversationOrchestrator
+from app.abuu.live_trace import route as trace_route
+from app.abuu.live_trace import skip as trace_skip
 from app.abuu.waiter.pipeline import WaiterPipeline
 from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.services.conversation_ai_service import classify_turn
@@ -81,6 +83,15 @@ def _voice_should_block_clarification(interpretation) -> bool:
 
 class AbuuInboundService:
     @staticmethod
+    def _pipeline_name(phone: str) -> str:
+        settings = get_settings()
+        if WaiterPipeline.enabled_for_phone(phone):
+            return "smart" if settings.abuu_smart_pipeline_enabled else "waiter_v2"
+        if AbuuConversationOrchestrator.conversation_enabled():
+            return "orchestrator"
+        return "legacy"
+
+    @staticmethod
     def try_handle(
         main_db: Session,
         *,
@@ -92,12 +103,15 @@ class AbuuInboundService:
     ) -> dict[str, Any]:
         settings = get_settings()
         if not settings.abuu_enabled:
+            trace_skip(phone=from_phone, reason="disabled", text=text[:120] if (text := str(body or "").strip()) else "")
             return {"handled": False, "reason": "disabled"}
 
         text = str(body or "").strip()
         if FeedbackLocationService.parse_trigger_ref(text):
+            trace_skip(phone=from_phone, reason="feedback_trigger", text=text[:120])
             return {"handled": False, "reason": "feedback_trigger"}
         if FeedbackLocationService.is_feedback_intent_message(text):
+            trace_skip(phone=from_phone, reason="feedback_intent", text=text[:120])
             return {"handled": False, "reason": "feedback_intent"}
 
         try:
@@ -105,12 +119,14 @@ class AbuuInboundService:
         except ValueError:
             phone = str(from_phone or "").strip()
         if not phone:
+            trace_skip(phone=from_phone, reason="missing_phone", text=text[:120])
             return {"handled": False, "reason": "missing_phone"}
 
         with get_abuu_sessionmaker()() as abuu_db:
             session = AbuuOrderDraftService.get_session(abuu_db, phone)
             has_session = bool(session and session.step not in {"", "idle"})
             if not has_session and not is_abuu_start_message(text) and not AbuuInboundService._is_voice_inbound(record):
+                trace_skip(phone=phone, reason="not_abuu", text=text[:120])
                 return {"handled": False, "reason": "not_abuu"}
 
             message_type = "voice" if AbuuInboundService._is_voice_inbound(record) else "text"
@@ -130,6 +146,7 @@ class AbuuInboundService:
             )
             if event.is_duplicate:
                 abuu_db.commit()
+                trace_skip(phone=phone, reason="duplicate", text=text[:120])
                 return {"handled": True, "duplicate": True}
 
             customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
@@ -346,10 +363,17 @@ class AbuuInboundService:
             in_abuu_flow = has_session or bool(session) or is_abuu_start_message(text) or message_type == "voice"
             if not in_abuu_flow:
                 abuu_db.commit()
+                trace_skip(phone=phone, reason="not_abuu", text=text[:120])
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and text:
                 if WaiterPipeline.enabled_for_phone(phone):
+                    trace_route(
+                        phone=phone,
+                        text=text[:120],
+                        pipeline=AbuuInboundService._pipeline_name(phone),
+                        voice=True,
+                    )
                     result = AbuuInboundService._run_waiter_v2_turn(
                         abuu_db,
                         main_db,
@@ -366,6 +390,7 @@ class AbuuInboundService:
                     return result
 
                 if AbuuInboundService._should_use_orchestrator(session):
+                    trace_route(phone=phone, text=text[:120], pipeline="orchestrator", voice=True)
                     result = AbuuInboundService._run_orchestrator_turn(
                         abuu_db,
                         main_db,
@@ -463,6 +488,11 @@ class AbuuInboundService:
                 return result
 
         if WaiterPipeline.enabled_for_phone(phone):
+            trace_route(
+                phone=phone,
+                text=text[:120],
+                pipeline=AbuuInboundService._pipeline_name(phone),
+            )
             result = AbuuInboundService._run_waiter_v2_turn(
                 abuu_db,
                 main_db,
@@ -481,6 +511,7 @@ class AbuuInboundService:
             return result
 
         if AbuuInboundService._should_use_orchestrator(session):
+            trace_route(phone=phone, text=text[:120], pipeline="orchestrator")
             result = AbuuInboundService._run_orchestrator_turn(
                 abuu_db,
                 main_db,
@@ -497,6 +528,7 @@ class AbuuInboundService:
             return result
 
         if AbuuInboundService._should_use_agent_text_flow(main_db, text, session):
+            trace_route(phone=phone, text=text[:120], pipeline="agent")
             result = AbuuAgentLoop.run(
                 abuu_db,
                 main_db,
