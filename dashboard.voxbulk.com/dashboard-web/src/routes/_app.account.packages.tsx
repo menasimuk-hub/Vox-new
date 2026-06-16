@@ -43,8 +43,8 @@ const CURRENCY_SYMBOL: Record<string, string> = {
 };
 
 const SERVICE_TABS: Record<ServiceTab, { label: string; icon: React.ComponentType<{ className?: string }>; tint: string; ring: string; bg: string; chip: string; blurb: string; billing: string }> = {
-  core: { label: "Core platform", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "Subscription includes Surveys and Interviews — pay by AI minutes, top up anytime.", billing: "Subscription + top-up" },
-  feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven WhatsApp feedback. Flat monthly subscription — no top-ups.", billing: "Subscription only" },
+  core: { label: "Core platform", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "AI interviews + outbound WA & AI-call surveys. Does not include Customer Feedback QR.", billing: "Subscription + top-up" },
+  feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven inbound WhatsApp feedback. Separate subscription — not included in Core platform.", billing: "Subscription only" },
   campaigns: { label: "Campaigns", icon: Megaphone, tint: "text-amber-500", ring: "ring-amber-500/30", bg: "from-amber-500/10", chip: "bg-amber-500/15 text-amber-500", blurb: "WhatsApp broadcast templates — buy credit packs when you need to send.", billing: "Top-up credits" },
 };
 
@@ -281,6 +281,14 @@ function PackagesPage() {
                     </div>
                   </div>
                   <Badge variant="outline" className={`${s.chip} border-transparent`}>{s.billing}</Badge>
+                  {key === "feedback" && feedbackSub?.active ? (
+                    <Badge className="bg-success text-success-foreground hover:bg-success">
+                      Active · {feedbackSub.plan_name || "Customer feedback"}
+                    </Badge>
+                  ) : null}
+                  {key === "feedback" && !feedbackSub?.active && !feedbackSubQ.isLoading ? (
+                    <Badge variant="outline">No subscription</Badge>
+                  ) : null}
                 </div>
 
                 <div className="mt-5 space-y-6">
@@ -339,6 +347,7 @@ function PackagesPage() {
                   )}
                   <Card className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
                     <CardHeader className="pb-2 pt-5">
+                      <Badge variant="outline" className="mb-2 w-fit border-primary/40 text-primary">Core platform</Badge>
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>
                       <CardDescription className="text-xl font-semibold text-foreground">
                         {ent ? "Let's talk" : payg ? "No monthly fee" : `${String(p.price_display || p.price_display_pence)}/mo`}
@@ -512,10 +521,11 @@ function PackagesPage() {
                             return (
                               <Card key={pkg.id} className={featured ? "border-success shadow-md" : ""}>
                                 <CardHeader className="pb-2">
-                                  <div className="flex items-center justify-between">
-                                    <CardTitle className="text-base">{pkg.plan_name || pkg.plan_code || "Feedback plan"}</CardTitle>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Badge variant="outline" className="border-success/40 text-success">Customer Feedback</Badge>
                                     {featured ? <Badge className="bg-success text-success-foreground hover:bg-success">Best value</Badge> : null}
                                   </div>
+                                  <CardTitle className="text-base pt-1">{pkg.plan_name || pkg.plan_code || "Feedback plan"}</CardTitle>
                                   <CardDescription>
                                     <span className="text-2xl font-semibold tracking-tight text-foreground">{formatFeedbackPrice(pkg)}</span>
                                   </CardDescription>

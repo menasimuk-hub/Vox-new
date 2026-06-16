@@ -68,7 +68,7 @@ export default function FeedbackPackagesPricing() {
       <div className="pageHead">
         <div>
           <h1>Feedback customers — Plan pricing</h1>
-          <p className="muted">Manage plan tiers and pricing per currency. Subscription billing is Direct Debit only.</p>
+          <p className="muted">Manage Customer Feedback plan tiers and pricing per currency. Renames persist after deploy (not reset on API restart).</p>
         </div>
         <Link className="btn soft bsm" to="/customer-feedback/subscriptions">Hub</Link>
       </div>
@@ -101,7 +101,7 @@ export default function FeedbackPackagesPricing() {
             <thead>
               <tr>
                 <th />
-                <th>Plan name</th>
+                <th>Feedback plan name</th>
                 <th>Price / mo ({currency})</th>
                 <th>Survey triggers / mo</th>
                 <th>Locations</th>

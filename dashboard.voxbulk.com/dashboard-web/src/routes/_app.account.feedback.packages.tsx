@@ -4,6 +4,7 @@ import { Loader2, MessageCircle, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -98,6 +99,10 @@ function FeedbackPackagesPage() {
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
         <p className="font-medium">Customer feedback billing</p>
         <p className="text-xs text-muted-foreground">
+          Separate from Core platform (AI interviews &amp; outbound surveys). Direct Debit only — no wallet top-ups.
+          Plan renames in Admin persist after deploy.
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
           Profile country: <span className="font-medium text-foreground">{orgCountry}</span>
           {" · "}
           <Link to="/settings/profile" className="text-primary underline-offset-4 hover:underline">
@@ -192,7 +197,10 @@ function FeedbackPackagesPage() {
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base">{pkg.plan_name || "Customer feedback"}</CardTitle>
+                      <div>
+                        <Badge variant="outline" className="mb-2 border-success/40 text-success">Customer Feedback</Badge>
+                        <CardTitle className="text-base">{pkg.plan_name || "Customer feedback"}</CardTitle>
+                      </div>
                       {pkg.is_featured ? (
                         <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                           Most popular

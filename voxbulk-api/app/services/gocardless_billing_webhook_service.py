@@ -428,6 +428,12 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     )
                     if sub is not None and plan is not None and subscription_id:
                         BillingLifecycleService._advance_subscription_period(db, sub, plan)
+                        if str(getattr(plan, "service_kind", "") or "") == "customer_feedback":
+                            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+                            FeedbackBillingService.on_subscription_activated(
+                                db, org_id=org_id, subscription=sub, plan=plan
+                            )
                     PaymentEventService.record(
                         db,
                         org_id=org_id,

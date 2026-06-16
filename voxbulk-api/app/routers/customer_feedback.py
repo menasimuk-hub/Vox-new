@@ -46,20 +46,17 @@ def list_survey_types(
 
 @router.get("/subscription")
 def get_subscription(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     return {"ok": True, **FeedbackBillingService.subscription_payload(db, principal.org_id)}
 
 
 @router.get("/packages")
 def list_packages(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
     org = db.get(Organisation, principal.org_id)
     return {"ok": True, "items": FeedbackBillingService.list_customer_packages(db, org)}
 
 
 @router.post("/subscription/gocardless/start")
 def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
         raise HTTPException(status_code=400, detail="plan_id required")
@@ -81,7 +78,6 @@ def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Dep
 
 @router.post("/subscription/gocardless/complete")
 def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     flow_id = str(payload.get("redirect_flow_id") or "").strip()
     if not flow_id:
         raise HTTPException(status_code=400, detail="redirect_flow_id required")
@@ -96,7 +92,6 @@ def complete_gocardless(payload: dict, db: Session = Depends(get_db), principal=
 
 @router.post("/subscription/change-plan")
 def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
         raise HTTPException(status_code=400, detail="plan_id required")
@@ -109,7 +104,6 @@ def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal
 
 @router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
 def get_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     try:
         payload = FeedbackBillingService.cancellation_payload(db, principal.org_id)
     except FeedbackBillingError as e:
@@ -123,7 +117,6 @@ def request_feedback_cancellation(
     db: Session = Depends(get_db),
     principal=Depends(require_billing_access),
 ):
-    _require_feedback_enabled(db, principal.org_id)
     try:
         result = FeedbackBillingService.request_cancellation(
             db,
@@ -139,7 +132,6 @@ def request_feedback_cancellation(
 
 @router.post("/subscription/cancellation/reverse", response_model=SubscriptionCancellationOut)
 def reverse_feedback_cancellation(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
     try:
         result = FeedbackBillingService.reverse_cancellation(
             db, org_id=principal.org_id, user_id=principal.user_id

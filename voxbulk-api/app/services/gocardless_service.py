@@ -873,6 +873,18 @@ class BillingService:
         }
 
     @staticmethod
+    def _subscription_service_code(*, plan: Plan, flow_purpose: str | None) -> str:
+        kind = str(getattr(plan, "service_kind", None) or "").strip().lower()
+        if kind == "customer_feedback":
+            return "customer_feedback"
+        if kind == "voxbulk":
+            return "voxbulk"
+        purpose = str(flow_purpose or "").strip().lower()
+        if purpose == "customer_feedback":
+            return "customer_feedback"
+        return "voxbulk"
+
+    @staticmethod
     def start_gocardless_redirect_flow(
         db: Session,
         *,
@@ -880,6 +892,7 @@ class BillingService:
         user_id: str,
         plan_id: str | None = None,
         plan_code: str | None = None,
+        flow_purpose: str | None = None,
     ) -> dict[str, Any]:
         BillingService.ensure_default_plans(db)
         plan = None
@@ -944,6 +957,7 @@ class BillingService:
             environment=str(config["environment"]),
             status="created",
             authorization_url=authorization_url,
+            flow_purpose=str(flow_purpose or "").strip() or None,
         )
         db.add(row)
         db.commit()
@@ -1031,11 +1045,12 @@ class BillingService:
             raise ValueError("Plan not found")
 
         if row.status == "completed":
-            sub = BillingAccessService.get_subscription(
-                db,
-                org_id,
-                service_code="customer_feedback" if str(row.flow_purpose or "") == "customer_feedback" else "voxbulk",
-            )
+            service_code = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
+            sub = BillingAccessService.get_subscription(db, org_id, service_code=service_code)
+            if service_code == "customer_feedback" and sub is not None:
+                from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+                FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
             logger.info(
                 "gocardless_complete_already_done",
                 extra={"redirect_flow_id": flow_id, "org_id": org_id, "subscription_status": sub.status if sub else None},
@@ -1108,7 +1123,7 @@ class BillingService:
             logger.warning("gocardless_mandate_scheme_lookup_failed mandate_id=%s", mandate_id)
 
         now = datetime.utcnow()
-        service_code = "customer_feedback" if str(row.flow_purpose or "") == "customer_feedback" else "voxbulk"
+        service_code = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
         sub = BillingAccessService.get_subscription(db, org_id, service_code=service_code)
         if sub is None:
             sub = Subscription(org_id=org_id, plan_id=plan.id, service_code=service_code)
@@ -1216,6 +1231,10 @@ class BillingService:
 
             FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
             FeedbackBillingService._tag_activation_invoice(db, org_id=org_id)
+        else:
+            from app.services.usage_wallet_service import UsageWalletService
+
+            UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
 
         return {"ok": True, "status": "completed", "subscription": sub, "plan": plan}
 

@@ -37,6 +37,7 @@ import {
   startPaidSurveyOrder,
 } from "@/lib/billing/gocardless";
 
+import { queryKeys } from "@/lib/queries";
 import type { BillingSubscription, Organisation, UserProfile } from "@/lib/types/api";
 
 
@@ -109,7 +110,13 @@ function isAuthSessionFailure(err: unknown) {
 
 
 
-function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
+function GoCardlessReturnHandler({
+  onComplete,
+  onFeedbackComplete,
+}: {
+  onComplete: () => void;
+  onFeedbackComplete?: () => void;
+}) {
 
   const ran = React.useRef(false);
   const navigate = useNavigate();
@@ -309,6 +316,8 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
           clearFeedbackBillingReturnState();
           clearBillingQuery();
           toast.success("Customer feedback subscription activated.");
+          onFeedbackComplete?.();
+          void navigate({ to: "/feedback/new" });
           onComplete();
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "Could not complete Customer feedback checkout");
@@ -351,7 +360,7 @@ function GoCardlessReturnHandler({ onComplete }: { onComplete: () => void }) {
 
     })();
 
-  }, [onComplete]);
+  }, [onComplete, onFeedbackComplete, navigate]);
 
   return null;
 
@@ -452,6 +461,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   }, [q, qc]);
 
+  const onFeedbackBillingComplete = React.useCallback(() => {
+    void qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription });
+    void qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages });
+    void qc.invalidateQueries({ queryKey: queryKeys.organisation });
+    void q.refetch();
+  }, [q, qc]);
+
 
 
   if (!token && !hasAuthHandoffInHash()) return null;
@@ -549,7 +565,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     <SessionCtx.Provider value={value}>
 
-      <GoCardlessReturnHandler onComplete={onBillingComplete} />
+      <GoCardlessReturnHandler onComplete={onBillingComplete} onFeedbackComplete={onFeedbackBillingComplete} />
 
       {children}
 

@@ -97,7 +97,7 @@ INDUSTRY_SEEDS: list[dict] = [
 PACKAGE_TIERS: list[dict] = [
     {
         "tier": "starter",
-        "name": "Starter",
+        "name": "Feedback Starter",
         "locations": 1,
         "units": 1000,
         "order": 10,
@@ -113,7 +113,7 @@ PACKAGE_TIERS: list[dict] = [
     },
     {
         "tier": "pro",
-        "name": "Pro",
+        "name": "Feedback Pro",
         "locations": 5,
         "units": 3000,
         "order": 20,
@@ -129,7 +129,7 @@ PACKAGE_TIERS: list[dict] = [
     },
     {
         "tier": "business",
-        "name": "Business",
+        "name": "Feedback Business",
         "locations": 20,
         "units": 10000,
         "order": 30,
@@ -303,17 +303,13 @@ class FeedbackSeedService:
                 )
                 db.add(plan)
                 db.flush()
+            elif bool(plan.is_frozen):
+                continue
             else:
-                plan.name = pkg["name"]
-                if currency == "GBP":
-                    plan.price_gbp_pence = int(pkg["price_pence"])
-                plan.description = description
-                plan.features_json = features_json
-                plan.whatsapp_included = int(pkg["units"])
-                plan.is_featured = bool(pkg.get("featured"))
-                plan.sort_order = int(pkg["order"])
+                plan.service_kind = FEEDBACK_SERVICE_CODE
                 plan.is_active = True
                 plan.updated_at = now
+                db.add(plan)
 
             price_row = db.execute(
                 select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
@@ -330,9 +326,8 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
-            else:
-                price_row.monthly_price_minor = int(pkg["price_pence"])
-                price_row.updated_at = now
+            elif not bool(plan.is_frozen):
+                pass
 
             fb_pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()
             if fb_pkg is None:
@@ -349,11 +344,7 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
-            else:
-                fb_pkg.market_zone = pkg["zone"]
-                fb_pkg.max_locations = int(pkg["locations"])
-                fb_pkg.wa_units_included = int(pkg["units"])
-                fb_pkg.promo_message_cost_minor = int(pkg.get("promo_cost_minor") or 5)
-                fb_pkg.display_order = int(pkg["order"])
+            elif not bool(plan.is_frozen):
                 fb_pkg.is_active = True
                 fb_pkg.updated_at = now
+        db.commit()

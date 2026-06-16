@@ -121,9 +121,32 @@ class FeedbackBillingService:
         return row
 
     @staticmethod
+    def _enable_feedback_module(db: Session, org_id: str, *, commit: bool = True) -> None:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return
+        from app.services.org_enabled_services import (
+            parse_enabled_services,
+            serialize_enabled_services,
+        )
+
+        allowed = parse_enabled_services(getattr(org, "allowed_services_json", None))
+        enabled = parse_enabled_services(getattr(org, "enabled_services_json", None))
+        allowed["customer_feedback"] = True
+        enabled["customer_feedback"] = True
+        org.allowed_services_json = serialize_enabled_services(allowed)
+        org.enabled_services_json = serialize_enabled_services(enabled)
+        org.updated_at = datetime.utcnow()
+        db.add(org)
+        if commit:
+            db.commit()
+
+    @staticmethod
     def on_subscription_activated(db: Session, *, org_id: str, subscription: Subscription, plan: Plan) -> None:
         subscription.service_code = FEEDBACK_SERVICE_CODE
+        db.add(subscription)
         pkg = FeedbackBillingService._validate_feedback_plan(db, plan)
+        FeedbackBillingService._enable_feedback_module(db, org_id, commit=False)
         existing = (
             db.execute(
                 select(FeedbackUsagePeriod)
@@ -133,9 +156,21 @@ class FeedbackBillingService:
             .scalars()
             .first()
         )
-        if existing:
-            return
-        FeedbackBillingService.open_usage_period(db, org_id=org_id, subscription=subscription, pkg=pkg)
+        if existing is None:
+            now = datetime.utcnow()
+            row = FeedbackUsagePeriod(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                subscription_id=subscription.id,
+                period_start=now,
+                period_end=subscription.current_period_end,
+                wa_units_included=int(pkg.wa_units_included or 0),
+                wa_units_used=0,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+        db.commit()
 
     @staticmethod
     def start_gocardless_signup(
@@ -158,18 +193,10 @@ class FeedbackBillingService:
                 org_id=org_id,
                 user_id=user_id,
                 plan_id=plan.id,
+                flow_purpose=FEEDBACK_SERVICE_CODE,
             )
         except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
             raise FeedbackBillingError(str(exc)) from exc
-        from app.models.billing_redirect_flow import BillingRedirectFlow
-
-        flow = db.execute(
-            select(BillingRedirectFlow).where(BillingRedirectFlow.redirect_flow_id == res["redirect_flow_id"])
-        ).scalar_one_or_none()
-        if flow is not None:
-            flow.flow_purpose = FEEDBACK_SERVICE_CODE
-            db.add(flow)
-            db.commit()
         return res
 
     @staticmethod

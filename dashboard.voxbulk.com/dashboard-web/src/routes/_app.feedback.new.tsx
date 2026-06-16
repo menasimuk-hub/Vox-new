@@ -44,6 +44,7 @@ import {
   usePreviewFeedbackLocation,
   useFeedbackIndustries,
   useFeedbackSurveyTypes,
+  useFeedbackSubscription,
   useOrganisation,
   type FeedbackIndustry,
   type FeedbackLocation,
@@ -123,6 +124,7 @@ const STEPS = [
 
 function CreateFeedback() {
   const orgQ = useOrganisation();
+  const subscriptionQ = useFeedbackSubscription();
   const industriesQ = useFeedbackIndustries();
   const createM = useCreateFeedbackLocation();
   const previewM = usePreviewFeedbackLocation();
@@ -178,6 +180,12 @@ function CreateFeedback() {
 
   const onLaunch = async () => {
     if (!industryId || selectedTypeIds.length === 0) return;
+    const sub = subscriptionQ.data;
+    if (!sub?.active) {
+      toast.error("Subscribe to a Customer feedback package before activating QR surveys.");
+      window.location.assign("/account/feedback/packages");
+      return;
+    }
     try {
       const created: FeedbackLocation[] = [];
       for (const branch of branches) {
@@ -583,6 +591,27 @@ function CreateFeedback() {
               <CardDescription>Activating starts collecting responses. You can pause anytime.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {subscriptionQ.isLoading ? (
+                <Skeleton className="h-14 w-full" />
+              ) : subscriptionQ.data?.active ? (
+                <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm">
+                  <p className="font-medium text-success">Customer feedback subscription active</p>
+                  <p className="text-xs text-muted-foreground">
+                    {subscriptionQ.data.plan_name || "Plan"} ·{" "}
+                    {Math.max(0, Number(subscriptionQ.data.wa_units_remaining || 0)).toLocaleString()} responses remaining this month
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+                  <p className="font-medium">Customer feedback subscription required</p>
+                  <p className="text-xs text-muted-foreground">
+                    This is separate from Core platform plans (interviews &amp; outbound surveys).
+                  </p>
+                  <Button asChild size="sm" variant="outline" className="mt-2">
+                    <Link to="/account/feedback/packages">View Customer feedback plans</Link>
+                  </Button>
+                </div>
+              )}
               <div className="grid gap-2 sm:grid-cols-4">
                 <Summary label="Business" value={companyName} />
                 <Summary label="Industry" value={industry?.name || "—"} />
@@ -629,7 +658,7 @@ function CreateFeedback() {
                 <Button
                   size="lg"
                   className="gap-1.5"
-                  disabled={!canNext[5] || createM.isPending}
+                  disabled={!canNext[5] || createM.isPending || !subscriptionQ.data?.active}
                   onClick={() => void onLaunch()}
                 >
                   <Rocket className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}

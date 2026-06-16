@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 
@@ -317,8 +318,8 @@ def test_list_packages_for_eu_org():
         items = FeedbackCatalogService.list_packages(db, market_zone="eu", active_only=True)
         assert len(items) == 3
         names = {item["plan_name"] for item in items}
-        assert names == {"Starter", "Pro", "Business"}
-        pro = next(item for item in items if item["plan_name"] == "Pro")
+        assert names == {"Feedback Starter", "Feedback Pro", "Feedback Business"}
+        pro = next(item for item in items if item["plan_name"] == "Feedback Pro")
         assert pro["is_featured"] is True
         assert pro["wa_units_included"] == 3000
 
@@ -373,3 +374,66 @@ def test_fitness_industry_has_twenty_templates_after_import():
         assert summary["template_count"] >= 20
         assert summary["pushed"] >= 20
         assert summary["failed"] == 0
+
+
+def test_activation_enables_customer_feedback_module():
+    with get_sessionmaker()() as db:
+        email = f"fb-act-{uuid.uuid4().hex[:8]}@example.com"
+        org = Organisation(
+            name="Feedback Activate Org",
+            contact_email=email,
+            allowed_services_json='{"customer_feedback": false}',
+            enabled_services_json='{"customer_feedback": false}',
+        )
+        db.add(org)
+        db.commit()
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(
+            select(Plan).where(Plan.code == "cf_starter_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        sub = Subscription(
+            org_id=org.id,
+            service_code="voxbulk",
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            current_period_end=datetime.utcnow(),
+        )
+        db.add(sub)
+        db.commit()
+        FeedbackBillingService.on_subscription_activated(db, org_id=org.id, subscription=sub, plan=plan)
+        db.refresh(org)
+        db.refresh(sub)
+        assert sub.service_code == FEEDBACK_SERVICE_CODE
+        allowed = json.loads(org.allowed_services_json or "{}")
+        enabled = json.loads(org.enabled_services_json or "{}")
+        assert allowed.get("customer_feedback") is True
+        assert enabled.get("customer_feedback") is True
+        usage = db.execute(
+            select(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org.id)
+        ).scalar_one_or_none()
+        assert usage is not None
+
+
+def test_seed_does_not_clobber_renamed_feedback_plan():
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(
+            select(Plan).where(Plan.code == "cf_pro_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        plan.name = "Custom QR Pro Plan"
+        db.add(plan)
+        db.commit()
+        FeedbackSeedService.ensure_seeded(db)
+        db.refresh(plan)
+        assert plan.name == "Custom QR Pro Plan"
+
+
+def test_gocardless_service_code_from_plan_kind():
+    from app.services.gocardless_service import BillingService
+
+    feedback_plan = Plan(id="p1", code="cf_starter_gb", name="Feedback Starter", service_kind="customer_feedback")
+    vox_plan = Plan(id="p2", code="starter", name="Starter", service_kind="voxbulk")
+    assert BillingService._subscription_service_code(plan=feedback_plan, flow_purpose=None) == "customer_feedback"
+    assert BillingService._subscription_service_code(plan=vox_plan, flow_purpose="customer_feedback") == "voxbulk"
+    assert BillingService._subscription_service_code(plan=vox_plan, flow_purpose=None) == "voxbulk"
