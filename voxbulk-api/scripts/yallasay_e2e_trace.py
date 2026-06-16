@@ -126,6 +126,14 @@ def _parse_out_ok(log_lines: list[str]) -> bool | None:
     return None
 
 
+def _detect_telnyx_invalid_to_probe(log_lines: list[str], from_phone: str) -> bool:
+    """Telnyx 40310 on default fake probe number — routing OK, outbound not deliverable."""
+    if from_phone != DEFAULT_FROM:
+        return False
+    blob = "\n".join(log_lines)
+    return "40310" in blob or "Invalid 'to' address" in blob
+
+
 def _resolve_org_id(db) -> str:
     from sqlalchemy import select
 
@@ -240,6 +248,11 @@ def main() -> int:
     parser.add_argument("--omit-to", action="store_true", help="Omit Telnyx `to` field; use messaging_profile_id")
     parser.add_argument("--message-id", default="", help="Override external message id")
     parser.add_argument("--preflight", action="store_true", help="Config checks only; do not simulate")
+    parser.add_argument(
+        "--route-only",
+        action="store_true",
+        help="Pass if Yallasay route + Abuu handle (ignore Telnyx outbound; default probe number is not WA-deliverable)",
+    )
     parser.add_argument("--api-base", default=os.environ.get("VOXBULK_API_BASE_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--log", default=os.environ.get("VOX_API_LOG", "/tmp/voxbulk-api.log"))
     args = parser.parse_args()
@@ -285,6 +298,11 @@ def main() -> int:
 
         mode = "omit-to" if args.omit_to else "with-to"
         _line("SIMULATE", f"text={text!r} from={from_phone} to={yalla_to if not args.omit_to else '(omitted)'} mode={mode} message_id={message_id} org_id={org_id}")
+        if from_phone == DEFAULT_FROM and not args.route_only:
+            _line(
+                "NOTE",
+                f"default probe from={DEFAULT_FROM} is not a real WhatsApp user — Telnyx outbound may fail with 40310; use --from +44YOURPHONE or --route-only",
+            )
 
         log_start = _log_line_count(log_path)
         started_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -328,9 +346,24 @@ def main() -> int:
             _line("EXIT", "2 — Yallasay routed but Abuu did not handle")
             return 2
 
+        invalid_probe_to = _detect_telnyx_invalid_to_probe(new_lines, from_phone)
+        probe_route_ok = args.route_only or (
+            from_phone == DEFAULT_FROM
+            and abuu.get("handled")
+            and (invalid_probe_to or outbound is None)
+        )
+        if probe_route_ok:
+            if from_phone == DEFAULT_FROM and not args.route_only:
+                _line(
+                    "NOTE",
+                    "Default probe number is not WA-deliverable — routing + Abuu OK; use --from +44YOURPHONE for real outbound test",
+                )
+            _line("EXIT", "0 — route + Abuu OK (outbound skipped or probe number not WA-deliverable)")
+            return 0
+
         out_ok = _parse_out_ok(new_lines)
         if out_ok is False:
-            _line("EXIT", "3 — Abuu handled but outbound failed (check profile / Telnyx)")
+            _line("EXIT", "3 — Abuu handled but outbound failed (check profile / Telnyx / use --from +44YOURPHONE)")
             return 3
         if out_ok is True:
             _line("EXIT", "0 — route + Abuu + outbound OK")

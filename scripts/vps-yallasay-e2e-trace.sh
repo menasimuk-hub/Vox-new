@@ -32,6 +32,7 @@ Usage: bash scripts/vps-yallasay-e2e-trace.sh [options]
   (default)     simulate inbound "Yallasay" + print route/log/DB trace
   --omit-to     simulate Telnyx webhook without `to` (profile inference path)
   --preflight   config checks only, no simulate
+  --route-only  pass when route + Abuu OK (ignore Telnyx outbound on fake probe number)
   --follow      after simulate, tail live Abuu trace (Ctrl+C to stop)
   --text TEXT   inbound message text (default: Yallasay)
   --from PHONE  simulated customer E.164 (default: +447700900123)
@@ -49,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --preflight)
       EXTRA_ARGS+=(--preflight)
+      shift
+      ;;
+    --route-only)
+      EXTRA_ARGS+=(--route-only)
       shift
       ;;
     --omit-to)

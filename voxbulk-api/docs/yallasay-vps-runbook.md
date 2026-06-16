@@ -95,6 +95,33 @@ ALTER TABLE alembic_version MODIFY version_num VARCHAR(64) NOT NULL;
 UPDATE alembic_version SET version_num='0013_abuu_session_context_mediumtext' WHERE version_num='0012_abuu_gaza_agent_snapshots';
 ```
 
+## OAuth redirects to localhost:5173 after login
+
+Symptom: after Google/Apple/LinkedIn sign-in you land on `http://localhost:5173/signin#access_token=...` instead of `https://voxbulk.com/signin`.
+
+Cause: API OAuth callback uses `PUBLIC_APP_ORIGIN` ([`auth.py`](../app/routers/auth.py)). Default is `http://localhost:5173` when unset on VPS.
+
+**Fix:**
+
+```bash
+cd /www/voxbulk
+bash scripts/vps-check-auth-env.sh   # shows what is wrong
+```
+
+Add to `voxbulk-api/.env`:
+
+```env
+ENV=production
+PUBLIC_APP_ORIGIN=https://voxbulk.com
+DASHBOARD_APP_ORIGIN=https://dashboard.voxbulk.com
+CORS_ALLOW_ORIGINS=https://voxbulk.com,https://www.voxbulk.com,https://admin.voxbulk.com,https://dashboard.voxbulk.com
+TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1
+```
+
+Then `./vox.sh restart`. OAuth should redirect to `https://voxbulk.com/signin#access_token=...` and the public site sends you to `https://dashboard.voxbulk.com`.
+
+---
+
 ## Troubleshooting WhatsApp silence
 
 Run the diagnostic script first:
@@ -114,34 +141,41 @@ cd /www/voxbulk
 bash scripts/vps-yallasay-e2e-trace.sh
 bash scripts/vps-yallasay-e2e-trace.sh --omit-to    # Telnyx omits `to` field
 bash scripts/vps-yallasay-e2e-trace.sh --preflight  # config only
+bash scripts/vps-yallasay-e2e-trace.sh --from +44YOURPHONE   # real mobile for full outbound test
+bash scripts/vps-yallasay-e2e-trace.sh --route-only          # route + Abuu only (default probe number)
 bash scripts/vps-yallasay-e2e-trace.sh --follow     # then tail live trace
 ```
 
-The script calls `TelnyxInboundMessagingService.handle_webhook` directly (same code path as production webhooks, no Ed25519 signature needed).
+The default probe customer `+447700900123` is **not** a real WhatsApp user — Telnyx returns 40310 `Invalid 'to' address` on outbound. That is expected. With current script versions, **exit 0** still means routing + Abuu work when using the default probe number.
 
-**Expected when working:**
+**Expected when routing works (default probe):**
 
 ```
 PREFLIGHT  yallasay=+447822002099 profile=40019e47-... agent=True deepseek=True git_sha=...
-SIMULATE   text='Yallasay' from=+447700900123 to=+447822002099 mode=with-to message_id=vps-probe-...
-ROUTE      yallasay_line=True abuu_handled=True reason=... log_id=...
-[...] WA_IN  phone=+447700900123 ...
-[...] WA_OUT channel=whatsapp to=+447700900123 ok=True
-DB         inbound id=... to=+447822002099 ...
-DB         outbound id=... status=queued ...
-EXIT 0 — route + Abuu + outbound OK
+SIMULATE   text='Yallasay' from=+447700900123 ...
+ROUTE      yallasay_line=True abuu_handled=True ...
+NOTE       Default probe number is not WA-deliverable ...
+EXIT 0 — route + Abuu OK (outbound skipped or probe number not WA-deliverable)
+```
+
+**Full outbound test** — use your real mobile (must have messaged 099 before, or within 24h window):
+
+```bash
+bash scripts/vps-yallasay-e2e-trace.sh --from +44YOURMOBILE
 ```
 
 | Exit | Meaning |
 |------|---------|
-| 0 | Routed to Yallasay, Abuu handled, outbound OK or queued |
+| 0 | Routed to Yallasay + Abuu handled (outbound OK, queued, or probe number not deliverable) |
 | 1 | Preflight failed (number missing, API down, Abuu disabled) |
 | 2 | Not routed to Yallasay or Abuu did not handle |
-| 3 | Abuu handled but Telnyx outbound failed (profile / opt-out) |
+| 3 | Abuu handled but Telnyx outbound failed with a **real** `--from` number (profile / opt-out) |
 
 **If simulate works but real phone does not** → Telnyx WABA webhook on +447822002099 is not reaching the API (see below).
 
-**If simulate fails with exit 3** → run Admin → Telnyx → **Apply Telnyx setup (Yallasay line)** and re-run.
+**If simulate fails with exit 2** → Number 2 / profile config wrong — run Admin → Telnyx → **Apply Telnyx setup**.
+
+**If exit 3 with `--from +44YOURPHONE`** → run Admin → Telnyx → **Apply Telnyx setup** or check Telnyx WABA opt-out.
 
 ### Stale API after git pull
 
