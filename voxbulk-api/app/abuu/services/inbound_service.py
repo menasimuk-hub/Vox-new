@@ -22,6 +22,7 @@ from app.abuu.services.customer_memory_service import (
 from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyService, payload_hash
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
 from app.abuu.agent.agent import AbuuAgentLoop, _deepseek_platform_ready
+from app.abuu.smart_agent import SmartWaiterAgent
 from app.abuu.conversation.orchestrator import AbuuConversationOrchestrator
 from app.abuu.live_trace import route as trace_route
 from app.abuu.live_trace import skip as trace_skip
@@ -91,7 +92,13 @@ class AbuuInboundService:
         return bool(settings.abuu_agent_enabled and mode in AbuuInboundService._AGENT_CONVERSATION_MODES)
 
     @staticmethod
+    def _smart_agent_enabled_for_phone(phone: str) -> bool:
+        return SmartWaiterAgent.enabled_for_phone(phone)
+
+    @staticmethod
     def _pipeline_name(phone: str) -> str:
+        if AbuuInboundService._smart_agent_enabled_for_phone(phone):
+            return "smart_agent"
         if AbuuInboundService._agent_mode_enabled():
             return "agent"
         settings = get_settings()
@@ -378,6 +385,22 @@ class AbuuInboundService:
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and text:
+                if AbuuInboundService._smart_agent_enabled_for_phone(phone):
+                    result = AbuuInboundService._run_smart_agent_turn(
+                        abuu_db,
+                        main_db,
+                        phone=phone,
+                        text=text,
+                        session=session,
+                        lang=lang,
+                        message_id=message_id,
+                        org_id=org_id,
+                        input_source="voice",
+                        transcript_confidence=transcript_confidence,
+                    )
+                    abuu_db.commit()
+                    return result
+
                 if AbuuInboundService._agent_mode_enabled():
                     result = AbuuInboundService._run_agent_turn(
                         abuu_db,
@@ -513,6 +536,20 @@ class AbuuInboundService:
                 abuu_db.add(session)
             if result.get("handled"):
                 return result
+
+        if AbuuInboundService._smart_agent_enabled_for_phone(phone):
+            return AbuuInboundService._run_smart_agent_turn(
+                abuu_db,
+                main_db,
+                phone=phone,
+                text=text,
+                session=session,
+                lang=lang,
+                message_id=message_id,
+                org_id=org_id,
+                input_source="voice" if transcript_confidence is not None else "text",
+                transcript_confidence=transcript_confidence,
+            )
 
         if AbuuInboundService._agent_mode_enabled():
             return AbuuInboundService._run_agent_turn(
@@ -1019,7 +1056,9 @@ class AbuuInboundService:
         order.location_missing = False
         abuu_db.add(order)
         context = AbuuInboundService._load_context(session)
-        if context.get("confirm_after_address"):
+        # When the smart_agent owns the conversation, it drives confirm via its own tool.
+        # Skip the legacy auto-confirm-after-address path to avoid double-confirming the order.
+        if context.get("confirm_after_address") and not AbuuInboundService._smart_agent_enabled_for_phone(customer.phone):
             return AbuuInboundService._finalize_confirm(
                 abuu_db,
                 main_db,
@@ -1104,6 +1143,46 @@ class AbuuInboundService:
         except Exception:
             logger.exception("abuu_voice_detect_failed")
         return False
+
+    @staticmethod
+    def _run_smart_agent_turn(
+        abuu_db: Session,
+        main_db: Session,
+        *,
+        phone: str,
+        text: str,
+        session,
+        lang: str,
+        message_id: str | None,
+        org_id: str | None,
+        input_source: str = "text",
+        transcript_confidence: float | None = None,
+    ) -> dict[str, Any]:
+        trace_route(
+            phone=phone,
+            text=text[:120],
+            pipeline="smart_agent",
+            voice=input_source == "voice",
+        )
+        result = SmartWaiterAgent.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=text,
+            message_id=message_id,
+            org_id=org_id,
+            input_source=input_source,
+        )
+        reply = result.get("reply")
+        if reply:
+            AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+        if session:
+            session.last_message_id = message_id
+            abuu_db.add(session)
+        payload = dict(result)
+        if transcript_confidence is not None:
+            payload["transcript_confidence"] = transcript_confidence
+        return payload
 
     @staticmethod
     def _run_agent_turn(

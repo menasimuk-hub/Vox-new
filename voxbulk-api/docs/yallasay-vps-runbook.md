@@ -43,6 +43,64 @@ Send WhatsApp while the script runs. Expect `ROUTE pipeline=agent` (not `smart`,
 | `OUT forbidden_hit=True` | Old orchestrator reply_composer path — agent mode not active |
 | `agent_mode=false` in health | `ABUU_AGENT_ENABLED=false` or mode not `agent`/`deepseek`/`gaza_agent` |
 
+## Smart Waiter Agent (new opt-in pipeline — A/B)
+
+A **new** DeepSeek tool-calling agent lives at `app/abuu/smart_agent/`. It is smarter than the current
+`agent` mode because the LLM itself picks real menu item IDs (no fuzzy mismatch), reasons over
+allergen/dietary/recipe/protein tags, remembers customer allergies across orders, always replies with
+2-3 numbered recommended options + a short "why", and confirms in a single safe path
+(`confirm_draft` → `mark_paid_manual` → `notify_order_paid` → optional webhook, all idempotent).
+
+It runs **side-by-side** with the existing pipelines, behind a phone allowlist, so you can A/B test
+with no risk to current traffic.
+
+### Enable for a few pilot phones
+
+Add to `voxbulk-api/.env` (keep your existing agent mode config exactly as-is):
+
+```env
+# Smart Waiter Agent — opt-in. Listed phones get the new pipeline; everyone else is unchanged.
+ABUU_SMART_AGENT_ENABLED=true
+ABUU_SMART_AGENT_ALLOWLIST=+9725XXXXXXXX,+9725YYYYYYYY
+ABUU_SMART_AGENT_MODEL=deepseek-chat
+ABUU_SMART_AGENT_MAX_TURNS=6
+ABUU_SMART_AGENT_TEMPERATURE=0.3
+```
+
+Restart:
+
+```bash
+./vox.sh restart
+```
+
+### What to expect in the live trace
+
+```bash
+./scripts/vps-abuu-live-trace.sh
+```
+
+For allowlisted phones you'll see `ROUTE pipeline=smart_agent` (not `agent`). All other phones still
+hit `agent`/`smart`/`legacy` as before — zero risk to existing traffic.
+
+### Quick acceptance script (your phone)
+
+1. `مرحبا` → warm Gaza greeting + restaurant list.
+2. `بدي شاورما` → 2–3 numbered options with prices + one-line Arabic "why" each.
+3. `عندي حساسية ألبان` → confirms saved (and persists to your `CustomerProfile.allergens_json`).
+4. `بدي تنين فروج وكولا` → 3 lines in cart in **one** turn (bulk add).
+5. Send WhatsApp location pin.
+6. `أكد` → order confirmed, exactly **one** `order_paid` notification for the restaurant.
+
+### Empty allowlist behaviour
+
+If `ABUU_SMART_AGENT_ENABLED=true` but `ABUU_SMART_AGENT_ALLOWLIST` is empty, **all** phones go to
+the smart agent. Use this only for staging / when you're ready to flip the whole pilot.
+
+### Rollback
+
+Set `ABUU_SMART_AGENT_ENABLED=false` and restart. Allowlisted phones fall back to the current `agent`
+mode immediately — no migration / no data change required.
+
 ## Deploy
 
 ```bash
