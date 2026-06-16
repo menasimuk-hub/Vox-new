@@ -17,7 +17,9 @@ from app.abuu.agent.skills import enabled_openai_tools, execute_tool
 from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import unknown_message
+from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService, debug_enabled
 from app.core.config import get_settings
+from app.abuu.models.entities import CustomerOrder
 from app.services.provider_settings import ProviderSettingsService
 from app.services.providers.openai_service import OpenAIProviderService
 
@@ -58,6 +60,25 @@ def _last_user_message(messages: list[dict[str, Any]]) -> str:
 def _deepseek_platform_ready(main_db: Session) -> bool:
     cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(main_db, provider="deepseek")
     return bool(enabled and cfg and str(cfg.get("api_key") or "").strip())
+
+
+def _agent_session_snapshot(session: Session) -> dict[str, Any]:
+    return {
+        "restaurant_id": session.restaurant_id,
+        "stage": session.stage,
+        "cart": list(session.cart or []),
+        "context": dict(session.context or {}),
+        "active_order_id": session.active_order_id,
+        "language": session.language,
+    }
+
+
+def _record_agent_final_order(abuu_db: Session, session: Session) -> None:
+    if not debug_enabled() or not session.active_order_id:
+        return
+    order = abuu_db.get(CustomerOrder, session.active_order_id)
+    if order is not None:
+        VoiceOrderDebugService.record_final_order(abuu_db, order=order)
 
 
 def _format_user_turn(text: str, *, input_source: str, lang: str) -> str:
@@ -133,6 +154,7 @@ class AbuuAgentLoop:
 
         session.messages.append({"role": "assistant", "content": reply})
         save_session(abuu_db, session, message_id=message_id)
+        _record_agent_final_order(abuu_db, session)
         return {
             "handled": True,
             "action": "agent_reply",
@@ -173,6 +195,14 @@ class AbuuAgentLoop:
         history = _truncate_messages(session.messages, settings.abuu_agent_max_history)
         chat_messages: list[dict[str, Any]] = _chat_messages_from_history(history)
 
+        if debug_enabled() and input_source == "voice":
+            VoiceOrderDebugService.record_llm_prompt(
+                abuu_db,
+                system_prompt=system_prompt,
+                messages=chat_messages,
+                session_snapshot=_agent_session_snapshot(session),
+            )
+
         if settings.abuu_agent_waiter_mode:
             agent_trace.llm_request(
                 phone=phone,
@@ -183,6 +213,13 @@ class AbuuAgentLoop:
                 user_msg=agent_trace.clip(_last_user_message(chat_messages)),
             )
             reply = AbuuAgentLoop._waiter_completion(main_db, system_prompt, chat_messages, settings)
+            if debug_enabled() and input_source == "voice":
+                VoiceOrderDebugService.record_llm_raw(abuu_db, raw_response=reply)
+                VoiceOrderDebugService.record_parsed(
+                    abuu_db,
+                    parsed={"pipeline": "agent", "waiter_mode": True, "reply": reply},
+                    parse_status="ok",
+                )
             agent_trace.llm_reply(
                 phone=phone,
                 msg_id=message_id,
@@ -194,6 +231,8 @@ class AbuuAgentLoop:
 
         openai_tools = enabled_openai_tools(abuu_db)
         max_turns = max(1, settings.abuu_agent_max_turns)
+        collected_tool_calls: list[dict[str, Any]] = []
+        last_raw_response: str | dict[str, Any] = ""
         for turn_idx in range(max_turns):
             turn_num = turn_idx + 1
             agent_trace.llm_request(
@@ -216,6 +255,9 @@ class AbuuAgentLoop:
             if completion.usage:
                 logger.info("abuu_agent_llm_usage usage=%s", completion.usage)
 
+            if debug_enabled() and input_source == "voice":
+                last_raw_response = completion.raw_assistant_message or completion.assistant_text or ""
+
             if completion.tool_calls:
                 assistant_msg = completion.raw_assistant_message or {
                     "role": "assistant",
@@ -235,6 +277,9 @@ class AbuuAgentLoop:
                 chat_messages.append(assistant_msg)
                 for call in completion.tool_calls:
                     tool_input = call.arguments if isinstance(call.arguments, dict) else {}
+                    collected_tool_calls.append(
+                        {"name": call.name, "arguments": tool_input, "turn": turn_num}
+                    )
                     result = execute_tool(
                         abuu_db,
                         session,
@@ -260,6 +305,19 @@ class AbuuAgentLoop:
                 continue
 
             if completion.assistant_text:
+                if debug_enabled() and input_source == "voice":
+                    VoiceOrderDebugService.record_llm_raw(abuu_db, raw_response=last_raw_response or completion.assistant_text)
+                    VoiceOrderDebugService.record_parsed(
+                        abuu_db,
+                        parsed={
+                            "pipeline": "agent",
+                            "reply": completion.assistant_text,
+                            "tool_calls": collected_tool_calls,
+                            "cart": list(session.cart or []),
+                            "stage": session.stage,
+                        },
+                        parse_status="ok",
+                    )
                 agent_trace.llm_reply(
                     phone=phone,
                     msg_id=message_id,
@@ -270,6 +328,20 @@ class AbuuAgentLoop:
                 return completion.assistant_text
 
         fallback = "كيف أقدر أساعدك في طلبك؟" if session.language == "ar" else "How can I help with your order?"
+        if debug_enabled() and input_source == "voice":
+            VoiceOrderDebugService.record_llm_raw(abuu_db, raw_response=last_raw_response or fallback)
+            VoiceOrderDebugService.record_parsed(
+                abuu_db,
+                parsed={
+                    "pipeline": "agent",
+                    "reply": fallback,
+                    "tool_calls": collected_tool_calls,
+                    "cart": list(session.cart or []),
+                    "stage": session.stage,
+                },
+                parse_status="fallback",
+                parse_error="max_turns_exceeded",
+            )
         agent_trace.llm_reply(
             phone=phone,
             msg_id=message_id,

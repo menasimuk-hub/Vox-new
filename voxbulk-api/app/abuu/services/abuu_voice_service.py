@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
+import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -82,6 +84,62 @@ class AbuuVoiceTranscription:
     clarification_reason: str | None = None
     correction_applied: bool = False
     garbage_detected: bool = False
+    file_size_bytes: int | None = None
+    duration_seconds: float | None = None
+
+
+def _duration_from_record(record: dict[str, Any] | None) -> float | None:
+    if not record:
+        return None
+    for key in ("duration", "duration_seconds", "voice_duration", "audio_duration"):
+        raw = record.get(key)
+        if raw is not None:
+            try:
+                val = float(raw)
+                if val > 1000:
+                    return val / 1000.0
+                return val
+            except (TypeError, ValueError):
+                continue
+    whatsapp = record.get("whatsapp_message")
+    if isinstance(whatsapp, dict):
+        for key in ("duration", "voice", "audio"):
+            nested = whatsapp.get(key)
+            if isinstance(nested, dict) and nested.get("duration") is not None:
+                try:
+                    val = float(nested.get("duration"))
+                    return val / 1000.0 if val > 1000 else val
+                except (TypeError, ValueError):
+                    pass
+    return None
+
+
+def _duration_from_file(audio_path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return float(proc.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return None
 
 
 def _estimate_confidence(text: str) -> float:
@@ -129,7 +187,7 @@ class AbuuVoiceService:
         job_id = str(uuid.uuid4())
         dest = _storage_root() / customer_phone.replace("+", "") / f"{job_id}.ogg"
         try:
-            path, _size, resolved_type = download_media_file(
+            path, file_size, resolved_type = download_media_file(
                 main_db,
                 media_url=media_url,
                 content_type=content_type,
@@ -138,6 +196,7 @@ class AbuuVoiceService:
                 max_bytes=16 * 1024 * 1024,
                 timeout_seconds=30,
             )
+            duration_seconds = _duration_from_record(record) or _duration_from_file(path)
             raw_transcript = AbuuVoiceService._transcribe_file(
                 main_db,
                 path,
@@ -211,6 +270,8 @@ class AbuuVoiceService:
                 clarification_reason=clarification_reason,
                 correction_applied=(corrected_transcript != raw_transcript),
                 garbage_detected=is_garbage,
+                file_size_bytes=file_size,
+                duration_seconds=duration_seconds,
             )
         except Exception as exc:
             logger.warning("abuu_voice_transcription_failed phone=%s err=%s", customer_phone, exc, exc_info=True)

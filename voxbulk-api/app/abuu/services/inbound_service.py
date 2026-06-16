@@ -45,6 +45,7 @@ from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.order_service import AbuuOrderService
 from app.abuu.services.order_substitution_service import AbuuOrderSubstitutionService
 from app.abuu.services.preference_service import match_food_categories
+from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService, set_debug_request_id
 from app.abuu.services.reply_service import (
     address_saved_message,
     already_confirmed_message,
@@ -130,6 +131,7 @@ class AbuuInboundService:
                 org_id=org_id,
             )
         finally:
+            set_debug_request_id(None)
             _abuu_reply_channel.reset(channel_token)
             _abuu_reply_from.reset(from_token)
 
@@ -211,16 +213,35 @@ class AbuuInboundService:
                 )
 
             if message_type == "voice":
+                pipeline_name = AbuuInboundService._pipeline_name(phone)
+                VoiceOrderDebugService.begin(
+                    abuu_db,
+                    customer_phone=phone,
+                    message_id=message_id,
+                    pipeline=pipeline_name,
+                )
                 voice = AbuuVoiceService.transcribe_inbound(
                     main_db,
                     record=record or {},
                     customer_phone=phone,
                     language=lang,
                 )
+                VoiceOrderDebugService.record_audio(
+                    abuu_db,
+                    media_url=voice.media_url,
+                    storage_path=voice.storage_path,
+                    content_type=voice.content_type,
+                    file_size_bytes=voice.file_size_bytes,
+                    duration_seconds=voice.duration_seconds,
+                )
+                if voice.raw_transcript:
+                    VoiceOrderDebugService.record_stt(abuu_db, raw_transcript=voice.raw_transcript)
                 voice_meta = {
                     "media_url": voice.media_url,
                     "content_type": voice.content_type,
                     "storage_path": voice.storage_path,
+                    "file_size_bytes": voice.file_size_bytes,
+                    "duration_seconds": voice.duration_seconds,
                     "error": voice.error,
                     "raw_transcript": voice.raw_transcript,
                     "corrected_transcript": voice.corrected_transcript,

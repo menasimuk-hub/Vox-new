@@ -18,7 +18,17 @@ ABUU_AGENT_MODEL=deepseek-chat
 SMART_PIPELINE_ENABLED=false
 ABUU_VOICE_INTERPRETATION_ENABLED=false
 ABUU_WAITER_TRACE_ENABLED=true
+ABUU_VOICE_ORDER_DEBUG=true
 VOX_UVICORN_WORKERS=2
+```
+
+Voice pipeline debug (STT vs DeepSeek isolation): when `ABUU_VOICE_ORDER_DEBUG=true`, each voice turn gets an `order_request_id` with six logged stages in `abuu_voice_order_debug`. After migrate + restart:
+
+```bash
+python scripts/abuu_voice_order_debug.py show <order_request_id>
+python scripts/abuu_voice_order_debug.py replay <order_request_id> --from-step 2
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://api.voxbulk.com/admin/abuu/voice-order-debug/<order_request_id>
 ```
 
 Verify the **running process**:

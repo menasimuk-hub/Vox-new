@@ -392,3 +392,46 @@ class AbuuMarketAgent(AbuuBase, AbuuTimestampMixin):
     llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="deepseek-chat")
     pilot_restaurant_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class AbuuVoiceOrderDebug(AbuuBase, AbuuTimestampMixin):
+    __tablename__ = "abuu_voice_order_debug"
+
+    order_request_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    customer_phone: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    message_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    pipeline: Mapped[str] = mapped_column(String(32), nullable=False, default="agent")
+    audio_media_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    audio_storage_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    audio_content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audio_file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stt_raw_transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_system_prompt: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
+    llm_messages_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
+    llm_raw_response: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
+    parsed_action_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
+    parse_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parse_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    order_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    final_order_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
+    session_snapshot_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )

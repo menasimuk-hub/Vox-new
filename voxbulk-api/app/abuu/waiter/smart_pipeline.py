@@ -35,6 +35,7 @@ from app.abuu.services.restaurant_discovery_service import (
     pick_restaurant_by_ref,
     rank_restaurants,
 )
+from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService, debug_enabled
 from app.abuu.voice_interpretation.fuzzy_match import best_fuzzy_match
 from app.abuu.waiter.deepseek_client import WaiterDeepSeekClient
 from app.abuu.waiter.interpretation import InterpretationResult, WaiterInterpretation
@@ -149,6 +150,22 @@ class SearchBuildResult:
     meta: dict[str, Any]
     cross_restaurant: bool = False
     item_restaurants: dict[str, str] | None = None
+
+
+def _smart_session_snapshot(session) -> dict[str, Any]:
+    return {
+        "restaurant_id": session.restaurant_id,
+        "stage": session.stage,
+        "cart": list(session.cart or []),
+        "context": dict(session.context or {}),
+        "active_order_id": session.active_order_id,
+        "language": session.language,
+    }
+
+
+def _record_smart_final_order(abuu_db: Session, order: CustomerOrder | None) -> None:
+    if debug_enabled() and order is not None:
+        VoiceOrderDebugService.record_final_order(abuu_db, order=order)
 
 
 def _pilot_ids(db: Session) -> tuple[str, ...] | None:
@@ -1028,6 +1045,7 @@ class SmartPipeline:
                 lang=lang,
                 user_text=working_text,
             )
+            _record_smart_final_order(abuu_db, order)
         else:
             prompt = _build_prompt_with_db(
                 abuu_db,
@@ -1039,6 +1057,13 @@ class SmartPipeline:
                 search=search,
                 lang=lang,
             )
+            if debug_enabled() and is_voice:
+                VoiceOrderDebugService.record_llm_prompt(
+                    abuu_db,
+                    system_prompt=prompt,
+                    messages=[{"role": "user", "content": "."}],
+                    session_snapshot=_smart_session_snapshot(session),
+                )
             _smart_log("prompt", phone=phone, chars=len(prompt))
             result = WaiterDeepSeekClient.complete(
                 main_db,
@@ -1047,6 +1072,8 @@ class SmartPipeline:
                 max_tokens=600,
                 temperature=0.2,
             )
+            if debug_enabled() and is_voice:
+                VoiceOrderDebugService.record_llm_raw(abuu_db, raw_response=result.text or "")
             if not result.text:
                 _smart_log("parse_fail", phone=phone, raw="empty")
                 parsed = ParsedAction(
@@ -1058,10 +1085,35 @@ class SmartPipeline:
                     ),
                     action="show_menu" if search.items else "none",
                 )
+                if debug_enabled() and is_voice:
+                    VoiceOrderDebugService.record_parsed(
+                        abuu_db,
+                        parsed={"action": parsed.action, "reply": parsed.reply, "pipeline": "smart"},
+                        parse_status="fail",
+                        parse_error="empty_llm_response",
+                    )
             else:
                 parsed = _parse_ai_response(result.text)
+                parse_status = "ok"
+                parse_error = None
                 if parsed.action == "none" and not parsed.reply:
                     _smart_log("parse_fail", phone=phone, raw=result.text[:200])
+                    parse_status = "fallback"
+                    parse_error = "unparsed_json"
+                if debug_enabled() and is_voice:
+                    VoiceOrderDebugService.record_parsed(
+                        abuu_db,
+                        parsed={
+                            "action": parsed.action,
+                            "reply": parsed.reply,
+                            "restaurant_id": parsed.restaurant_id,
+                            "item_id": parsed.item_id,
+                            "order_confirmed": parsed.order_confirmed,
+                            "pipeline": "smart",
+                        },
+                        parse_status=parse_status,
+                        parse_error=parse_error,
+                    )
             trace_think(
                 phone=phone,
                 branch="llm",
@@ -1079,6 +1131,7 @@ class SmartPipeline:
                 lang=lang,
                 user_text=working_text,
             )
+            _record_smart_final_order(abuu_db, order)
 
         if delegate == "confirm":
             WaiterSessionStore.save(abuu_db, session, message_id=message_id)

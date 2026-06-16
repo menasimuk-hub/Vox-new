@@ -42,6 +42,7 @@ from app.abuu.services.serializers import (
 )
 from app.core.abuu_database import get_abuu_db
 from app.core.admin_rbac import CAP_ABUU, require_cap
+from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User
 
@@ -748,3 +749,39 @@ def patch_restaurant_agent_settings(
     db.commit()
     db.refresh(row)
     return restaurant_settings_to_dict(row)
+
+
+@router.get("/voice-order-debug/{order_request_id}")
+def get_voice_order_debug(
+    order_request_id: str,
+    abuu_db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService
+
+    bundle = VoiceOrderDebugService.get_bundle(abuu_db, order_request_id)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Voice order debug record not found")
+    return bundle
+
+
+@router.post("/voice-order-debug/{order_request_id}/replay")
+def replay_voice_order_debug(
+    order_request_id: str,
+    from_step: int = Query(2, ge=2, le=5),
+    main_db: Session = Depends(get_db),
+    abuu_db: Session = Depends(get_abuu_db),
+    _admin: User = Depends(require_cap(CAP_ABUU)),
+):
+    from app.abuu.services.voice_order_replay_service import VoiceOrderReplayService
+
+    try:
+        return VoiceOrderReplayService.replay(
+            abuu_db,
+            main_db,
+            order_request_id=order_request_id,
+            from_step=from_step,
+            dry_run=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
