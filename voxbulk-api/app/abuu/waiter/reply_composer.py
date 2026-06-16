@@ -21,7 +21,8 @@ Rules:
 - Short (2-4 lines), friendly, light emoji (1-2 max)
 - Use ONLY facts provided — never invent menu items, prices, or restaurants
 - Never show internal IDs, slugs, or technical fields
-- One order = one restaurant; each order costs 15 NIS delivery fee"""
+- One order = one restaurant; each order costs 15 NIS delivery fee
+- If facts list dishes, show them — never ask to clarify when food type is already named (دجاج, سمك, etc.)"""
 
 
 class WaiterReplyComposer:
@@ -67,7 +68,12 @@ class WaiterReplyComposer:
                 if ds.fallback_used:
                     trace("INTENT", name=intent.name, source="template_fallback", fallback=True)
                 elif ds.text:
-                    reply = ds.text
+                    from app.abuu.waiter.ordering_policy import is_generic_clarify_reply
+
+                    if is_generic_clarify_reply(ds.text) and facts.customer_lines:
+                        trace("INTENT", name=intent.name, source="template_fallback", fallback=True)
+                    else:
+                        reply = ds.text
 
         if action.upsell_hint and action.upsell_hint not in reply:
             reply = f"{reply}\n{action.upsell_hint}".strip()

@@ -68,6 +68,17 @@ from app.services.telnyx_messaging_service import TelnyxMessagingService
 logger = logging.getLogger(__name__)
 
 
+def _voice_should_block_clarification(interpretation) -> bool:
+    from app.abuu.waiter.ordering_policy import should_block_turn_for_clarification
+
+    return should_block_turn_for_clarification(
+        reason=getattr(interpretation, "clarification_reason", None),
+        protected_tokens=list(getattr(interpretation, "protected_tokens", None) or []),
+        category_hints=list(getattr(interpretation, "inferred_categories", None) or []),
+        stt_confidence=float(getattr(interpretation, "stt_confidence", 0.0) or 0.0),
+    )
+
+
 class AbuuInboundService:
     @staticmethod
     def try_handle(
@@ -240,7 +251,11 @@ class AbuuInboundService:
                     voice_interpretation_payload = interpretation.to_context_json()
                     voice_meta["voice_interpretation"] = voice_interpretation_payload
 
-                    if interpretation.needs_clarification and interpretation.clarification_prompt:
+                    if (
+                        interpretation.needs_clarification
+                        and interpretation.clarification_prompt
+                        and _voice_should_block_clarification(interpretation)
+                    ):
                         context = AbuuInboundService._load_context(session) if session else {}
                         if not context.get("voice_clarification_sent"):
                             AbuuInboundService._send_reply(
@@ -716,22 +731,26 @@ class AbuuInboundService:
         if not categories:
             return None
         if len(categories) > 1:
-            context["pending_categories"] = categories
-            AbuuOrderDraftService.upsert_session(
-                abuu_db,
-                phone=phone,
-                step="awaiting_preference",
-                context=context,
-                active_order_id=session.active_order_id,
-                message_id=message_id,
-            )
-            AbuuInboundService._send_reply(
-                main_db,
-                phone,
-                category_clarification_message(categories, lang),
-                org_id=org_id,
-            )
-            return {"handled": True, "action": "category_clarification"}
+            from app.abuu.waiter.ordering_policy import dominant_categories, proteins_conflict
+
+            if proteins_conflict(categories):
+                context["pending_categories"] = categories
+                AbuuOrderDraftService.upsert_session(
+                    abuu_db,
+                    phone=phone,
+                    step="awaiting_preference",
+                    context=context,
+                    active_order_id=session.active_order_id,
+                    message_id=message_id,
+                )
+                AbuuInboundService._send_reply(
+                    main_db,
+                    phone,
+                    category_clarification_message(categories, lang),
+                    org_id=org_id,
+                )
+                return {"handled": True, "action": "category_clarification"}
+            categories = dominant_categories(categories)
 
         restaurant_id = str(context.get("restaurant_id") or (order.restaurant_id if order else ""))
         restaurant = abuu_db.get(Restaurant, restaurant_id)

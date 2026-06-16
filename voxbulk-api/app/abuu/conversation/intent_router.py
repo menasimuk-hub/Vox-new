@@ -25,8 +25,15 @@ from app.services.providers.openai_service import OpenAIProviderService
 
 logger = logging.getLogger(__name__)
 
-_INTENT_PROMPT = """You classify WhatsApp food-order messages for YallaSay Abuu (Gaza delivery).
-Return JSON only: {"intent": "...", "categories": [], "item_query": "", "confidence": 0.0}
+_FOOD_INTENT_RULE = (
+    "If the customer names a food type (دجاج, سمك, لحم, مشروبات, كولا, etc.), "
+    "classify as food_search with matching categories. "
+    "Do NOT ask them to clarify what they want when the food type is already stated. "
+    "Only ask one short question when intent is genuinely ambiguous (e.g. chicken AND fish)."
+)
+
+_INTENT_PROMPT = f"""You classify WhatsApp food-order messages for YallaSay Abuu (Gaza delivery).
+Return JSON only: {{"intent": "...", "categories": [], "item_query": "", "confidence": 0.0}}
 
 Intents:
 - greet (start: yallasay, abuu, hello)
@@ -39,6 +46,8 @@ Intents:
 - confirm, cancel, address, order_status, support
 - restaurant_switch_confirm (user agrees to switch restaurant after conflict)
 - restaurant_switch_keep (user keeps current restaurant)
+
+{_FOOD_INTENT_RULE}
 
 Arabic, English, and mixed Arabizi supported."""
 

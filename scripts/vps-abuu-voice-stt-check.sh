@@ -48,7 +48,7 @@ fi
 section "Env flags (from .env, no secrets)"
 ENV_FILE="$API_DIR/.env"
 if [[ -f "$ENV_FILE" ]]; then
-  grep -E '^(ABUU_ENABLED|ABUU_VOICE_|ABUU_CONVERSATION|LOG_LEVEL|ABUU_VOICE_NOTE_DIR)=' "$ENV_FILE" 2>/dev/null || true
+  grep -E '^(ABUU_ENABLED|ABUU_AGENT|ABUU_CONVERSATION|ABUU_WAITER|LOG_LEVEL|ABUU_VOICE_)=' "$ENV_FILE" 2>/dev/null || true
 else
   warn "Missing $ENV_FILE"
 fi
@@ -122,6 +122,8 @@ try:
         print("transcript_text (STT raw):", row.transcript_text)
         print("confidence:", row.transcript_confidence)
         print("corrected:", vi.get("corrected_transcript"))
+        print("clarification_reason:", vi.get("clarification_reason"))
+        print("needs_clarification:", vi.get("needs_clarification"))
 except Exception as exc:
     print("DB_VOICE_ROWS_ERROR", exc)
 PY

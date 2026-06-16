@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -19,11 +19,17 @@ from app.abuu.voice_interpretation.confidence import (
     combined_intent_confidence,
     menu_candidates_ambiguous,
     should_clarify,
-    should_proceed,
 )
 from app.abuu.voice_interpretation.domain_lexicon import detect_allergy_uncertainty
 from app.abuu.voice_interpretation.fuzzy_match import best_fuzzy_match
 from app.abuu.voice_interpretation.menu_vocabulary import build_menu_haystack
+from app.abuu.waiter.ordering_policy import (
+    extract_food_query,
+    food_categories,
+    has_strong_food_signal,
+    proteins_conflict,
+    should_block_turn_for_clarification,
+)
 from app.abuu.waiter.protected_lexicon import (
     category_hints_for_text,
     conservative_transcript,
@@ -54,6 +60,14 @@ class InterpretationResult:
     def corrected_transcript(self) -> str:
         """Text passed to intent router — equals normalized, not category-overwritten."""
         return self.normalized_transcript
+
+    def should_block_turn(self) -> bool:
+        return should_block_turn_for_clarification(
+            reason=self.clarification_reason,
+            protected_tokens=self.protected_tokens,
+            category_hints=self.category_hints,
+            stt_confidence=self.stt_confidence,
+        )
 
     def to_context_json(self) -> dict[str, Any]:
         return {
@@ -97,13 +111,15 @@ class WaiterInterpretation:
         for extra in expand_food_categories(normalized):
             if extra not in hints:
                 hints.append(extra)
+        hints = food_categories(hints) or hints
 
         settings = get_settings()
         restaurant_id = session.restaurant_id if session else None
         haystack = build_menu_haystack(abuu_db, restaurant_id, customer=customer)
+        menu_query = extract_food_query(normalized, protected_tokens=protected, category_hints=hints)
         min_score = int(settings.abuu_voice_menu_fuzzy_min_score)
         best_item, best_score, ranked = best_fuzzy_match(
-            normalized, haystack, language=lang, min_score=min_score
+            menu_query, haystack, language=lang, min_score=min_score
         )
         candidates = [{"id": r[0].get("id"), "name": r[0].get("name"), "score": r[1]} for r in ranked[:5]]
         menu_conf = best_score / 100.0 if best_score else 0.0
@@ -114,6 +130,12 @@ class WaiterInterpretation:
         intent_conf = 0.88 if len(hints) == 1 else (0.75 if hints else 0.4)
         if best_score >= 70:
             intent_conf = max(intent_conf, 0.85)
+        if has_strong_food_signal(
+            protected_tokens=protected,
+            category_hints=hints,
+            stt_confidence=stt_confidence,
+        ):
+            intent_conf = max(intent_conf, 0.88)
 
         allergy_uncertain = detect_allergy_uncertainty(normalized) if is_voice or "حساس" in normalized else False
         combined = combined_intent_confidence(
@@ -131,29 +153,43 @@ class WaiterInterpretation:
             needs_clarification = True
             clarification_reason = "allergy_uncertain"
             clarification_prompt = allergy_clarification(lang=lang)
-        elif "chicken" in hints and "fish" in hints:
+        elif proteins_conflict(hints):
             needs_clarification = True
             clarification_reason = "category_ambiguous"
-            clarification_prompt = category_clarification(["chicken", "fish"], lang=lang)
+            clarification_prompt = category_clarification(
+                [c for c in hints if c in {"chicken", "fish", "meat"}][:2] or hints,
+                lang=lang,
+            )
         elif len(ranked) >= 2 and menu_candidates_ambiguous(ranked[0][1] / 100.0, ranked[1][1] / 100.0):
-            a = str(ranked[0][0].get("name_ar") or ranked[0][0].get("name_en") or "")
-            b = str(ranked[1][0].get("name_ar") or ranked[1][0].get("name_en") or "")
-            needs_clarification = True
-            clarification_reason = "item_ambiguous"
-            clarification_prompt = item_clarification(a, b, lang=lang)
+            if not has_strong_food_signal(
+                protected_tokens=protected,
+                category_hints=hints,
+                stt_confidence=stt_confidence,
+            ):
+                a = str(ranked[0][0].get("name_ar") or ranked[0][0].get("name_en") or "")
+                b = str(ranked[1][0].get("name_ar") or ranked[1][0].get("name_en") or "")
+                needs_clarification = True
+                clarification_reason = "item_ambiguous"
+                clarification_prompt = item_clarification(a, b, lang=lang)
         elif is_voice and should_clarify(
             combined,
             clarify_threshold=float(settings.abuu_voice_intent_clarify_threshold),
             strong_threshold=float(settings.abuu_voice_intent_strong_threshold),
         ):
-            needs_clarification = True
-            clarification_reason = "low_confidence"
-            clarification_prompt = category_clarification(hints or ["unknown"], lang=lang)
+            if not has_strong_food_signal(
+                protected_tokens=protected,
+                category_hints=hints,
+                stt_confidence=stt_confidence,
+            ) and not food_categories(hints):
+                needs_clarification = True
+                clarification_reason = "low_confidence"
+                clarification_prompt = category_clarification(hints or ["unknown"], lang=lang)
 
         ctx = session.context if session else {}
         if ctx.get("voice_clarification_sent") and not allergy_uncertain:
             needs_clarification = False
             clarification_prompt = None
+            clarification_reason = None
 
         result = InterpretationResult(
             raw_transcript=raw,
@@ -176,7 +212,14 @@ class WaiterInterpretation:
             normalized=normalized,
             protected=protected,
             hints=hints,
+            menu_query=menu_query,
             confidence=combined,
             needs_clarification=needs_clarification,
+            clarification_reason=clarification_reason,
+            strong_food_signal=has_strong_food_signal(
+                protected_tokens=protected,
+                category_hints=hints,
+                stt_confidence=stt_confidence,
+            ),
         )
         return result

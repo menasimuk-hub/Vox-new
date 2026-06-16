@@ -72,7 +72,11 @@ class WaiterPipeline:
         if interpretation:
             working_text = interpretation.corrected_transcript
             WaiterSessionStore.apply_interpretation(session, interpretation)
-            if interpretation.needs_clarification and interpretation.clarification_prompt:
+            if (
+                interpretation.needs_clarification
+                and interpretation.clarification_prompt
+                and interpretation.should_block_turn()
+            ):
                 ctx = session.context or {}
                 if not ctx.get("voice_clarification_sent"):
                     session.context = dict(ctx)

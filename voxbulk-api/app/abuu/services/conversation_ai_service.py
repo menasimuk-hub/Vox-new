@@ -32,12 +32,13 @@ from app.services.agents.base import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFY_PROMPT = """You classify WhatsApp food-order messages for Abuu delivery.
+_CLASSIFY_PROMPT = f"""You classify WhatsApp food-order messages for Abuu delivery.
 Return ONLY valid JSON with keys: skill, categories, item_query, kb_topic, restaurant_ref, confidence, clarification.
 Allowed skills: greet_customer, capture_name, capture_location, restaurant_search, menu_recommend, build_cart, confirm_order, cancel_or_refund, order_status, answer_kb, handoff_to_admin.
 Allowed categories: chicken, fish, meat, salad, drinks, dessert, vegetarian, chips.
 Allowed kb_topic: hours, delivery_hours, delivery_zone, prep_time, minimum_order, delivery_fee, payment_methods, refund, cancellation, allergens, escalation, holiday.
-Never invent menu items or policy facts. Use null when unsure. confidence is 0-1."""
+Never invent menu items or policy facts. Use null when unsure. confidence is 0-1.
+If the customer names a food type, use menu_recommend with matching categories — do not set clarification when food type is clear."""
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,11 @@ def classify_turn(
         confidence = float(parsed.get("confidence") or 0.0)
         if confidence < 0.55:
             return regex_result
+        from app.abuu.waiter.ordering_policy import dominant_categories, food_categories
+
+        categories = dominant_categories(categories) or categories
+        if food_categories(categories) and skill not in {SKILL_MENU_RECOMMEND, SKILL_BUILD_CART}:
+            skill = SKILL_MENU_RECOMMEND
         return SkillClassification(
             skill=skill,
             categories=categories,
@@ -192,7 +198,7 @@ def classify_turn(
             kb_topic=parsed.get("kb_topic") or regex_result.kb_topic,
             restaurant_ref=parsed.get("restaurant_ref"),
             confidence=confidence,
-            clarification=parsed.get("clarification"),
+            clarification=None if food_categories(categories) else parsed.get("clarification"),
             source="deepseek",
         )
     except Exception:

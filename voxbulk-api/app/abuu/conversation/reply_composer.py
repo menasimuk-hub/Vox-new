@@ -25,7 +25,8 @@ Rules:
 - Never show internal IDs, slugs, or technical fields
 - Do not ask for menu numbers unless necessary
 - One order = one restaurant; each order costs 15 NIS delivery fee
-- Do not repeat the same greeting if conversation already started"""
+- Do not repeat the same greeting if conversation already started
+- If facts list dishes, show them — never ask the customer to clarify when they already named a food type (دجاج, سمك, etc.)"""
 
 
 class ReplyComposer:
@@ -73,6 +74,10 @@ class ReplyComposer:
             )
             text = str(result.assistant_text or "").strip()
             if text:
+                from app.abuu.waiter.ordering_policy import is_generic_clarify_reply
+
+                if is_generic_clarify_reply(text) and facts.customer_lines:
+                    return template
                 return text
         except Exception:
             logger.warning("abuu_reply_compose_fallback", exc_info=True)

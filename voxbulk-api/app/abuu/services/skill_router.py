@@ -464,24 +464,28 @@ class AbuuSkillRouter:
     def _menu_recommend(ctx: TurnContext) -> SkillResult:
         categories = ctx.classification.categories or []
         if len(categories) > 1:
-            context = dict(ctx.context)
-            context["pending_categories"] = categories
-            AbuuOrderDraftService.upsert_session(
-                ctx.abuu_db,
-                phone=ctx.phone,
-                step="awaiting_preference",
-                context=context,
-                active_order_id=ctx.session.active_order_id if ctx.session else None,
-                message_id=ctx.message_id,
-            )
-            return SkillResult(
-                skill=SKILL_MENU_RECOMMEND,
-                ok=True,
-                action="category_clarification",
-                next_step="awaiting_preference",
-                reply=category_clarification_message(categories, ctx.lang),
-                context_patch=context,
-            )
+            from app.abuu.waiter.ordering_policy import dominant_categories, proteins_conflict
+
+            if proteins_conflict(categories):
+                context = dict(ctx.context)
+                context["pending_categories"] = categories
+                AbuuOrderDraftService.upsert_session(
+                    ctx.abuu_db,
+                    phone=ctx.phone,
+                    step="awaiting_preference",
+                    context=context,
+                    active_order_id=ctx.session.active_order_id if ctx.session else None,
+                    message_id=ctx.message_id,
+                )
+                return SkillResult(
+                    skill=SKILL_MENU_RECOMMEND,
+                    ok=True,
+                    action="category_clarification",
+                    next_step="awaiting_preference",
+                    reply=category_clarification_message(categories, ctx.lang),
+                    context_patch=context,
+                )
+            categories = dominant_categories(categories)
 
         pending = list(ctx.context.get("pending_categories") or [])
         if pending:

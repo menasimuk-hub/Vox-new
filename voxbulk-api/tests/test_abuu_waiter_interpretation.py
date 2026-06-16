@@ -78,3 +78,20 @@ def test_waiter_interpretation_preserves_cola(abuu_seeded):
     assert "كولا" in result.corrected_transcript
     assert "مشروبات" not in result.corrected_transcript
     assert "drinks" in result.category_hints
+    assert result.should_block_turn() is False
+
+
+def test_long_greeting_chicken_voice_no_clarify(abuu_seeded):
+    db, _restaurant = abuu_seeded
+    result = WaiterInterpretation.interpret(
+        db,
+        MagicMock(),
+        transcript="مرحبا كيف الحال؟ أريد أن أكل دجاج، ما لديك دجاج؟",
+        stt_confidence=0.9,
+        session=None,
+        customer=None,
+        lang="ar",
+        is_voice=True,
+    )
+    assert result.should_block_turn() is False
+    assert "chicken" in result.category_hints

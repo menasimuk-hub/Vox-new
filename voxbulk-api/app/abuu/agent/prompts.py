@@ -78,6 +78,8 @@ def build_system_prompt(
         "Never auto-pick a restaurant the customer did not choose.",
         "Keep replies under 3 short WhatsApp lines.",
         "Use ONLY menu/prices from the facts below — never invent items.",
+        "If the customer names a food type (دجاج, سمك, لحم, مشروبات, كولا), show matching dishes from facts — "
+        "do NOT ask 'what do you want?' or 'clarify' when the food type is already clear.",
         f"Customer name: {name or 'unknown'}",
         f"Greeting context: {greeting}",
     ]
