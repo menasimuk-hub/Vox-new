@@ -45,15 +45,20 @@ import {
   useFeedbackIndustries,
   useFeedbackSurveyTypes,
   useFeedbackSubscription,
+  useFeedbackLocations,
   useOrganisation,
   type FeedbackIndustry,
   type FeedbackLocation,
   type FeedbackSurveyType,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { canDuplicateFeedbackSurvey, isMultiLocationFeedbackPlan } from "@/lib/feedback-plan";
 
 export const Route = createFileRoute("/_app/feedback/new")({
   head: () => ({ meta: [{ title: "Create QR survey — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    duplicate_from: typeof search.duplicate_from === "string" ? search.duplicate_from : undefined,
+  }),
   component: CreateFeedback,
 });
 
@@ -123,8 +128,10 @@ const STEPS = [
 ] as const;
 
 function CreateFeedback() {
+  const { duplicate_from: duplicateFrom } = Route.useSearch();
   const orgQ = useOrganisation();
   const subscriptionQ = useFeedbackSubscription();
+  const locationsQ = useFeedbackLocations();
   const industriesQ = useFeedbackIndustries();
   const createM = useCreateFeedbackLocation();
   const previewM = usePreviewFeedbackLocation();
@@ -139,6 +146,40 @@ function CreateFeedback() {
   const [previewQr, setPreviewQr] = React.useState<{ wa_url: string; qr_image_url: string; trigger_text: string } | null>(null);
   const [done, setDone] = React.useState(false);
   const [createdLocations, setCreatedLocations] = React.useState<FeedbackLocation[]>([]);
+  const [duplicateMode, setDuplicateMode] = React.useState(false);
+  const [duplicateSourceName, setDuplicateSourceName] = React.useState("");
+
+  const duplicateInitialized = React.useRef(false);
+  React.useEffect(() => {
+    if (!duplicateFrom || duplicateInitialized.current || !locationsQ.data) return;
+    const source = locationsQ.data.find((l) => l.id === duplicateFrom);
+    if (!source) {
+      toast.error("Source survey not found.");
+      return;
+    }
+    if (!isMultiLocationFeedbackPlan(subscriptionQ.data)) {
+      toast.error("Upgrade to a multi-location plan to duplicate surveys.");
+      window.location.assign("/account/feedback/packages");
+      return;
+    }
+    if (!canDuplicateFeedbackSurvey(subscriptionQ.data, locationsQ.data.length)) {
+      toast.error("Location limit reached. Upgrade your plan or remove a location.");
+      return;
+    }
+    duplicateInitialized.current = true;
+    setDuplicateMode(true);
+    setDuplicateSourceName(source.name);
+    setIndustryId(source.industry_id);
+    setSelectedTypeIds(
+      source.selected_survey_type_ids?.length
+        ? source.selected_survey_type_ids
+        : [source.survey_type_id],
+    );
+    setOpenQuestion(source.open_question_enabled !== false);
+    setMarketingOptIn(source.marketing_opt_in_enabled !== false);
+    setBranches([{ id: "dup1", name: "" }]);
+    setStep(3);
+  }, [duplicateFrom, locationsQ.data, subscriptionQ.data]);
 
   const typesQ = useFeedbackSurveyTypes(industryId);
   const industries = industriesQ.data || [];
@@ -221,11 +262,22 @@ function CreateFeedback() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Customer feedback"
-        title="Create QR feedback survey"
-        description="Customers scan the QR in your venue → WhatsApp opens with the trigger message → survey runs automatically."
+        title={duplicateMode ? "Duplicate QR survey" : "Create QR feedback survey"}
+        description={
+          duplicateMode
+            ? `Copying survey settings from “${duplicateSourceName}”. Name the new location and launch.`
+            : "Customers scan the QR in your venue → WhatsApp opens with the trigger message → survey runs automatically."
+        }
       />
 
-      <Stepper current={step} onJump={(n) => { if (n < step) setStep(n as Step); }} />
+      <Stepper
+        current={step}
+        duplicateMode={duplicateMode}
+        onJump={(n) => {
+          if (duplicateMode && n < 3) return;
+          if (n < step) setStep(n as Step);
+        }}
+      />
 
       <div key={step} className="animate-fade-in">
         {step === 1 && (
@@ -406,11 +458,20 @@ function CreateFeedback() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <QrCode className="size-4 text-primary" /> Step 3 · Branches & QR codes
+                <QrCode className="size-4 text-primary" /> Step 3 · {duplicateMode ? "New location" : "Branches & QR codes"}
               </CardTitle>
-              <CardDescription>Each branch gets its own QR code and trigger message so results can be tracked per location.</CardDescription>
+              <CardDescription>
+                {duplicateMode
+                  ? "Survey questions and settings are copied from your existing location. Enter a name for this new location."
+                  : "Each branch gets its own QR code and trigger message so results can be tracked per location."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {duplicateMode ? (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
+                  Duplicating from <span className="font-semibold">{duplicateSourceName}</span>. Industry and survey topics are locked to match the source.
+                </div>
+              ) : null}
               {previewM.isError && !previewQr ? (
                 <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-warning-foreground">
                   Live QR preview unavailable — trigger messages below still work. Configure WhatsApp in admin or continue to step 4.
@@ -430,15 +491,17 @@ function CreateFeedback() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label>Branches / locations</Label>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => setBranches((b) => [...b, { id: `b${Date.now()}`, name: "" }])}
-                  >
-                    <Plus className="size-3.5" /> Add branch
-                  </Button>
+                  <Label>{duplicateMode ? "Location name" : "Branches / locations"}</Label>
+                  {!duplicateMode ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => setBranches((b) => [...b, { id: `b${Date.now()}`, name: "" }])}
+                    >
+                      <Plus className="size-3.5" /> Add branch
+                    </Button>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -673,7 +736,7 @@ function CreateFeedback() {
         <Button
           variant="outline"
           className="gap-1.5"
-          onClick={() => setStep((s) => Math.max(1, s - 1) as Step)}
+          onClick={() => setStep((s) => Math.max(duplicateMode ? 3 : 1, s - 1) as Step)}
           disabled={step === 1}
         >
           <ChevronLeft className="size-4" /> Back
@@ -692,7 +755,7 @@ function CreateFeedback() {
   );
 }
 
-function Stepper({ current, onJump }: { current: Step; onJump: (n: number) => void }) {
+function Stepper({ current, onJump, duplicateMode }: { current: Step; onJump: (n: number) => void; duplicateMode?: boolean }) {
   const progress = ((current - 1) / (STEPS.length - 1)) * 100;
   return (
     <div className="rounded-2xl border border-border bg-gradient-to-br from-background/80 via-background/40 to-accent/10 p-5 shadow-sm">
@@ -707,16 +770,19 @@ function Stepper({ current, onJump }: { current: Step; onJump: (n: number) => vo
             const isDone = s.id < current;
             const isActive = s.id === current;
             const Icon = s.icon;
+            const isLocked = duplicateMode && s.id < 3;
             return (
               <li key={s.id} className="flex flex-col items-center text-center">
                 <button
                   type="button"
+                  disabled={isLocked}
                   onClick={() => onJump(s.id)}
                   className={cn(
                     "relative grid size-10 place-items-center rounded-full border transition-all",
                     isActive && "scale-110 border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/30",
                     isDone && "border-primary bg-primary/15 text-primary",
                     !isActive && !isDone && "border-border bg-background text-muted-foreground hover:border-primary/40",
+                    isLocked && "cursor-not-allowed opacity-50 hover:border-border",
                   )}
                 >
                   {isActive ? <span className="absolute inset-0 rounded-full bg-primary/30 motion-safe:animate-ping" /> : null}

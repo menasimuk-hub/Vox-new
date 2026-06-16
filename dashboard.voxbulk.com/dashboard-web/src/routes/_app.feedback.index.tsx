@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Download, Eye, Plus, QrCode } from "lucide-react";
+import { Copy, Download, Eye, Plus, QrCode } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useFeedbackLocations } from "@/lib/queries";
+import { canDuplicateFeedbackSurvey } from "@/lib/feedback-plan";
+import { useFeedbackLocations, useFeedbackSubscription } from "@/lib/queries";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 
@@ -17,8 +18,10 @@ export const Route = createFileRoute("/_app/feedback/")({
 
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
+  const subscriptionQ = useFeedbackSubscription();
   const highlight = useAssistantHighlight().highlight;
   const items = locationsQ.data || [];
+  const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -93,6 +96,13 @@ function SavedFeedback() {
                         <Eye className="size-3.5" /> Results
                       </Link>
                     </Button>
+                    {canDuplicate ? (
+                      <Button size="sm" variant="ghost" className="gap-1.5" asChild>
+                        <Link to="/feedback/new" search={{ duplicate_from: it.id }}>
+                          <Copy className="size-3.5" /> Duplicate
+                        </Link>
+                      </Button>
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>

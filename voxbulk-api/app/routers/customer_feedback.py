@@ -209,6 +209,20 @@ def get_results(
     )
 
 
+@router.get("/results/compare")
+def get_results_compare(
+    location_ids: str | None = Query(None, description="Comma-separated location UUIDs"),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_feedback_enabled(db, principal.org_id)
+    ids = [x.strip() for x in str(location_ids or "").split(",") if x.strip()]
+    try:
+        return FeedbackResultsService.customer_compare(db, principal.org_id, location_ids=ids)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
 @router.get("/results/insights")
 def get_results_insights(
     location_id: str | None = None,

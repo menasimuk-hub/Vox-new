@@ -240,6 +240,17 @@ class FeedbackResultsService:
         return results
 
     @staticmethod
+    def customer_compare(
+        db: Session,
+        org_id: str,
+        *,
+        location_ids: list[str],
+    ) -> dict[str, Any]:
+        from app.services.customer_feedback.feedback_results_compare import compare_locations
+
+        return compare_locations(db, org_id, location_ids)
+
+    @staticmethod
     def export_csv(
         db: Session,
         org_id: str,

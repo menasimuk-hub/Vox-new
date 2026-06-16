@@ -44,6 +44,7 @@ import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.n
 import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
 import { Route as AppFeedbackResultsRouteImport } from './routes/_app.feedback.results'
 import { Route as AppFeedbackNewRouteImport } from './routes/_app.feedback.new'
+import { Route as AppFeedbackCompareRouteImport } from './routes/_app.feedback.compare'
 import { Route as AppCampaignsSendRouteImport } from './routes/_app.campaigns.send'
 import { Route as AppCampaignsNewRouteImport } from './routes/_app.campaigns.new'
 import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
@@ -231,6 +232,11 @@ const AppFeedbackNewRoute = AppFeedbackNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppFeedbackRoute,
 } as any)
+const AppFeedbackCompareRoute = AppFeedbackCompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
 const AppCampaignsSendRoute = AppCampaignsSendRouteImport.update({
   id: '/campaigns/send',
   path: '/campaigns/send',
@@ -311,6 +317,7 @@ export interface FileRoutesByFullPath {
   '/account/usage': typeof AppAccountUsageRoute
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/campaigns/send': typeof AppCampaignsSendRoute
+  '/feedback/compare': typeof AppFeedbackCompareRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -354,6 +361,7 @@ export interface FileRoutesByTo {
   '/account/usage': typeof AppAccountUsageRoute
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/campaigns/send': typeof AppCampaignsSendRoute
+  '/feedback/compare': typeof AppFeedbackCompareRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -403,6 +411,7 @@ export interface FileRoutesById {
   '/_app/account/usage': typeof AppAccountUsageRoute
   '/_app/campaigns/new': typeof AppCampaignsNewRoute
   '/_app/campaigns/send': typeof AppCampaignsSendRoute
+  '/_app/feedback/compare': typeof AppFeedbackCompareRoute
   '/_app/feedback/new': typeof AppFeedbackNewRoute
   '/_app/feedback/results': typeof AppFeedbackResultsRoute
   '/_app/interviews/$orderId': typeof AppInterviewsOrderIdRoute
@@ -453,6 +462,7 @@ export interface FileRouteTypes {
     | '/account/usage'
     | '/campaigns/new'
     | '/campaigns/send'
+    | '/feedback/compare'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
@@ -496,6 +506,7 @@ export interface FileRouteTypes {
     | '/account/usage'
     | '/campaigns/new'
     | '/campaigns/send'
+    | '/feedback/compare'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
@@ -544,6 +555,7 @@ export interface FileRouteTypes {
     | '/_app/account/usage'
     | '/_app/campaigns/new'
     | '/_app/campaigns/send'
+    | '/_app/feedback/compare'
     | '/_app/feedback/new'
     | '/_app/feedback/results'
     | '/_app/interviews/$orderId'
@@ -830,6 +842,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFeedbackNewRouteImport
       parentRoute: typeof AppFeedbackRoute
     }
+    '/_app/feedback/compare': {
+      id: '/_app/feedback/compare'
+      path: '/compare'
+      fullPath: '/feedback/compare'
+      preLoaderRoute: typeof AppFeedbackCompareRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
     '/_app/campaigns/send': {
       id: '/_app/campaigns/send'
       path: '/campaigns/send'
@@ -918,12 +937,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppFeedbackRouteChildren {
+  AppFeedbackCompareRoute: typeof AppFeedbackCompareRoute
   AppFeedbackNewRoute: typeof AppFeedbackNewRoute
   AppFeedbackResultsRoute: typeof AppFeedbackResultsRoute
   AppFeedbackIndexRoute: typeof AppFeedbackIndexRoute
 }
 
 const AppFeedbackRouteChildren: AppFeedbackRouteChildren = {
+  AppFeedbackCompareRoute: AppFeedbackCompareRoute,
   AppFeedbackNewRoute: AppFeedbackNewRoute,
   AppFeedbackResultsRoute: AppFeedbackResultsRoute,
   AppFeedbackIndexRoute: AppFeedbackIndexRoute,

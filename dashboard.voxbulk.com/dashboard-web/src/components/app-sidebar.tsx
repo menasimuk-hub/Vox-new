@@ -7,7 +7,7 @@ import {
   PhoneCall, FilePlus2, FolderOpen, BarChart3, FileBarChart,
   ClipboardList, MessageSquareText, ListChecks, FileText,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
-  CalendarClock, Repeat, QrCode,
+  CalendarClock, Repeat, QrCode, GitCompare,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
@@ -25,7 +25,8 @@ import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
 import { canAccessBilling, canManageOrgSettings, canManageTeam, isBillingOnlyRole, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
-import { useOrganisation } from "@/lib/queries";
+import { useOrganisation, useFeedbackSubscription } from "@/lib/queries";
+import { isMultiLocationFeedbackPlan } from "@/lib/feedback-plan";
 
 type Item = {
   title: string;
@@ -122,6 +123,8 @@ export function AppSidebar() {
     if (isMobile) setOpenMobile(false);
   }, [isMobile, setOpenMobile]);
   const orgQ = useOrganisation();
+  const feedbackSubQ = useFeedbackSubscription();
+  const multiLocationFeedback = isMultiLocationFeedbackPlan(feedbackSubQ.data);
   const orgName = session?.org?.name || session?.org?.display_name || orgQ.data?.name || session?.profile?.email || "Your organisation";
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
@@ -131,6 +134,15 @@ export function AppSidebar() {
 
   const visibleGroups = groups
     .map((g) => {
+      if (g.key === "feedback" && multiLocationFeedback) {
+        const hasCompare = g.items.some((i) => i.url === "/feedback/compare");
+        if (!hasCompare) {
+          return {
+            ...g,
+            items: [...g.items, { title: "Compare locations", url: "/feedback/compare", icon: GitCompare }],
+          };
+        }
+      }
       if (g.key !== "settings") return g;
       return {
         ...g,

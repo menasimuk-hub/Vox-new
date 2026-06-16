@@ -73,6 +73,7 @@ export const queryKeys = {
   feedbackResults: (filters: Record<string, string>) => ["customer-feedback", "results", filters] as const,
   feedbackResultsInsights: (filters: Record<string, string>) =>
     ["customer-feedback", "results", "insights", filters] as const,
+  feedbackResultsCompare: (locationIds: string) => ["customer-feedback", "results", "compare", locationIds] as const,
   feedbackPackages: ["customer-feedback", "packages"] as const,
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
@@ -167,6 +168,27 @@ export type FeedbackSubscription = {
   wa_units_remaining?: number;
   payment_provider?: string | null;
   current_period_end?: string | null;
+};
+
+export type FeedbackCompareLocation = {
+  id: string;
+  name: string;
+  color: string;
+  responses: number;
+  invited: number;
+  satisfaction_pct: number | null;
+  recommend_pct: number | null;
+  sentiment_pct: { happy: number; neutral: number; unhappy: number };
+  weekly_trend: number[];
+  per_question: Record<string, number>;
+  industry_name?: string | null;
+};
+
+export type FeedbackComparePayload = {
+  ok?: boolean;
+  locations: FeedbackCompareLocation[];
+  shared_questions: Array<{ key: string; title: string; short: string }>;
+  all_questions: Array<{ key: string; title: string; short: string }>;
 };
 
 export type FeedbackResultsPayload = {
@@ -1943,6 +1965,18 @@ export function useFeedbackResultsInsights(filters: { location_id?: string; surv
     queryFn: () =>
       apiFetch<FeedbackResultsInsightsPayload>(`/customer-feedback/results/insights${qs ? `?${qs}` : ""}`),
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useFeedbackResultsCompare(locationIds: string[]) {
+  const key = [...locationIds].sort().join(",");
+  return useQuery({
+    queryKey: queryKeys.feedbackResultsCompare(key),
+    queryFn: () =>
+      apiFetch<FeedbackComparePayload>(
+        `/customer-feedback/results/compare?location_ids=${encodeURIComponent(key)}`,
+      ),
+    enabled: locationIds.length > 0,
   });
 }
 
