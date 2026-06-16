@@ -119,6 +119,55 @@ Promo sends (future) deduct from org **promo wallet** at `promo_message_cost_min
 2. Admin → Industries → **Import English templates** (140 topic templates + system templates).
 3. Optional: per-industry **Sync to Telnyx** (marks templates `submitted` until real Telnyx push is wired).
 
+## Troubleshooting WhatsApp testing
+
+### `feedback_wa_template_not_approved … status=draft`
+
+This is **not a queue block**. Customer Feedback runs synchronously on each inbound webhook — there is no Celery job for the chat flow.
+
+The warning means the `thank_you` (or other) template row exists in the DB but **`telnyx_sync_status` is still `draft`** — Meta/Telnyx has not approved it yet, so the thank-you send may fail.
+
+Fix:
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+python scripts/push_feedback_template_to_telnyx.py --template-key thank_you
+# wait for Meta approval, then confirm telnyx_sync_status is approved/synced/live in Admin
+```
+
+Until approved, the survey can **complete in the DB** but the final WhatsApp message may not deliver.
+
+### Clear stuck session for your test phone
+
+If every inbound message is treated as a survey answer (or you want a clean retest):
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+python scripts/clear_feedback_wa_state.py --phone +447954823445 --dry-run
+python scripts/clear_feedback_wa_state.py --phone +447954823445
+```
+
+Also clear Abuu if you were testing YallaSay on the same number:
+
+```bash
+redis-cli DEL "abuu:session:+447954823445"
+```
+
+### Telnyx opt-out (`block rule`)
+
+If logs show `Messages cannot be sent … due to an existing block rule`, send **`UNSTOP`** to the WhatsApp sender number on WhatsApp. Telnyx cannot remove this via API.
+
+### Celery (voice notes only)
+
+Feedback chat does **not** use Celery. Only **survey voice-note transcription** tasks run in the worker. To inspect:
+
+```bash
+./vox.sh status   # shows celery worker
+redis-cli LLEN celery   # pending tasks (if using default queue)
+```
+
+Restart worker after deploy: `./vox.sh restart`
+
 ## Known gaps (not yet shipped)
 
 | Gap | Notes |
