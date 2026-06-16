@@ -681,6 +681,7 @@ class AbuuInboundService:
         apply_saved_address_to_order(abuu_db, order, customer)
         context = {
             "restaurant_id": restaurant.id,
+            "restaurant_selected": True,
             "greeting_sent": False,
             "active_categories": [],
             "suggested_items": [],

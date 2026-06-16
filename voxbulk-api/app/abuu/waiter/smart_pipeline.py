@@ -19,10 +19,12 @@ from app.abuu.menu_intelligence.query import MenuQuery
 from app.abuu.menu_intelligence.query_expansion import expand_food_query, expansion_context_payload
 from app.abuu.menu_intelligence.search_service import MenuSearchService
 from app.abuu.models.entities import CustomerOrder, CustomerProfile, Restaurant, RestaurantMenuCategory, RestaurantMenuItem
-from app.abuu.services.customer_memory_service import first_name, saved_address_summary
+from app.abuu.agent.session_reset import cancel_empty_draft, clear_restaurant_binding
+from app.abuu.services.customer_memory_service import apply_saved_address_to_order, first_name, saved_address_summary
+from app.abuu.services.intent_service import is_abuu_start_message
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.preference_service import match_food_categories
-from app.abuu.services.reply_service import format_shekel, localized_name
+from app.abuu.services.reply_service import ask_name_message, format_shekel, localized_name, personalized_greeting_message
 from app.abuu.services.restaurant_discovery_service import (
     RankedRestaurant,
     format_restaurant_list,
@@ -38,6 +40,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _CONFIRM_WORDS = frozenset({"أكد", "تأكيد", "confirm", "yes", "ok", "تمام", "يلا", "نعم"})
+FORBIDDEN_REPLY_FRAGMENTS = ("كيف بقدر أساعدك", "ما لقيت أطباق")
 _DEFAULT_SEARCH_LIMIT = 10
 _REFINE_SEARCH_LIMIT = 15
 _SHOW_ALL_LIMIT = 20
@@ -140,6 +143,8 @@ class SearchBuildResult:
     items: list[RestaurantMenuItem]
     index: dict[str, str]
     meta: dict[str, Any]
+    cross_restaurant: bool = False
+    item_restaurants: dict[str, str] | None = None
 
 
 def _pilot_ids(db: Session) -> tuple[str, ...] | None:
@@ -245,6 +250,133 @@ def _format_items_numbered(items: list[RestaurantMenuItem], lang: str) -> tuple[
     return "\n".join(lines), index
 
 
+def _format_cross_restaurant_numbered(
+    hits: list[tuple[RestaurantMenuItem, Restaurant]],
+    lang: str,
+) -> tuple[str, dict[str, str], dict[str, str]]:
+    lines: list[str] = []
+    index: dict[str, str] = {}
+    item_restaurants: dict[str, str] = {}
+    for i, (item, restaurant) in enumerate(hits, start=1):
+        key = str(i)
+        index[key] = item.id
+        item_restaurants[item.id] = restaurant.id
+        rest_name = localized_name(restaurant, lang)
+        lines.append(f"{i}. {localized_name(item, lang)} — {format_shekel(item.price_agorot)} ({rest_name})")
+    return "\n".join(lines), index, item_restaurants
+
+
+def _is_food_query(text: str, ctx: dict[str, Any], main_db: Session) -> bool:
+    merged = _merge_search_text(text, ctx)
+    if match_food_categories(merged) or match_food_categories(text):
+        return True
+    from app.abuu.menu_intelligence.query_expansion import apply_food_synonyms
+
+    if apply_food_synonyms(merged) != merged.strip():
+        return True
+    expansion = expand_food_query(main_db, raw=merged)
+    return not expansion.unknown and bool(str(expansion.expanded or "").strip())
+
+
+def _restaurant_ids_for_search(abuu_db: Session) -> list[str]:
+    pilot = _pilot_ids(abuu_db)
+    if pilot:
+        return list(pilot)
+    ranked = rank_restaurants(abuu_db, lat=None, lng=None, categories=None, limit=15)
+    return [row.restaurant.id for row in ranked]
+
+
+def _search_one_restaurant(
+    abuu_db: Session,
+    *,
+    restaurant_id: str,
+    query: MenuQuery,
+    customer: CustomerProfile,
+) -> list[RestaurantMenuItem]:
+    restaurant = abuu_db.get(Restaurant, restaurant_id)
+    if restaurant is None or restaurant.is_deleted or not restaurant.is_available:
+        return []
+    return MenuSearchService.search(abuu_db, restaurant_id, query, customer=customer)
+
+
+def _cross_restaurant_search(
+    abuu_db: Session,
+    main_db: Session,
+    *,
+    session,
+    customer: CustomerProfile,
+    text: str,
+    lang: str,
+) -> SearchBuildResult:
+    ctx = session.context or {}
+    merged = _merge_search_text(text, ctx)
+    limit = _search_limit(text, ctx)
+    expansion = expand_food_query(main_db, raw=merged)
+    session.context = dict(ctx)
+    session.context["last_query_expansion"] = expansion_context_payload(expansion)
+    search_text = expansion.expanded if not expansion.unknown else merged
+
+    categories = list(match_food_categories(search_text))
+    for cat in match_food_categories(merged):
+        if cat not in categories:
+            categories.append(cat)
+
+    allergen_avoid = list(ctx.get("allergen_avoid") or [])
+    dietary_required = list(ctx.get("dietary_tags") or [])
+
+    query = MenuQuery.from_categories(categories, limit=limit)
+    query.text_query = search_text
+    query.allergen_avoid = allergen_avoid
+    query.dietary_required = dietary_required
+
+    hits: list[tuple[RestaurantMenuItem, Restaurant]] = []
+    seen_items: set[str] = set()
+    for rid in _restaurant_ids_for_search(abuu_db):
+        if len(hits) >= limit:
+            break
+        restaurant = abuu_db.get(Restaurant, rid)
+        if restaurant is None:
+            continue
+        per_query = query
+        items = _search_one_restaurant(abuu_db, restaurant_id=rid, query=per_query, customer=customer)
+        if not items and search_text != merged:
+            per_query = MenuQuery.from_categories(categories, limit=limit)
+            per_query.text_query = merged
+            per_query.allergen_avoid = allergen_avoid
+            per_query.dietary_required = dietary_required
+            items = _search_one_restaurant(abuu_db, restaurant_id=rid, query=per_query, customer=customer)
+        for item in items:
+            if item.id in seen_items:
+                continue
+            seen_items.add(item.id)
+            hits.append((item, restaurant))
+            if len(hits) >= limit:
+                break
+
+    formatted, index, item_restaurants = _format_cross_restaurant_numbered(hits, lang)
+    items_only = [item for item, _rest in hits]
+    meta = {
+        "raw": merged,
+        "expanded": search_text,
+        "item_ids": [item.id for item in items_only],
+        "shown_count": len(items_only),
+        "cross_restaurant": True,
+    }
+    session.context["last_food_search"] = meta
+    session.context["smart_menu_index"] = index
+    session.context["smart_menu_item_restaurants"] = item_restaurants
+    if items_only:
+        session.context["awaiting_dish_pick"] = True
+    return SearchBuildResult(
+        formatted=formatted or "(لا نتائج)",
+        items=items_only,
+        index=index,
+        meta=meta,
+        cross_restaurant=True,
+        item_restaurants=item_restaurants,
+    )
+
+
 def _menu_catalog_summary(abuu_db: Session, restaurant_id: str, lang: str) -> str:
     items = AbuuOrderDraftService.list_menu_items(abuu_db, restaurant_id, limit=500)
     if not items:
@@ -268,7 +400,16 @@ def _build_search_results(
 ) -> SearchBuildResult:
     ctx = session.context or {}
     if not session.restaurant_id:
-        return SearchBuildResult(formatted="(اختر مطعم أولاً)", items=[], index={}, meta={})
+        if _is_food_query(text, ctx, main_db):
+            return _cross_restaurant_search(
+                abuu_db, main_db, session=session, customer=customer, text=text, lang=lang
+            )
+        return SearchBuildResult(
+            formatted="(اختر مطعم — قول رقم أو اسمه)",
+            items=[],
+            index={},
+            meta={"cross_restaurant": False},
+        )
 
     merged = _merge_search_text(text, ctx)
     limit = _search_limit(text, ctx)
@@ -314,6 +455,64 @@ def _load_order(abuu_db: Session, phone: str) -> CustomerOrder | None:
     if draft and draft.active_order_id:
         return abuu_db.get(CustomerOrder, draft.active_order_id)
     return None
+
+
+def _handle_start_message(
+    abuu_db: Session,
+    *,
+    phone: str,
+    session,
+    customer: CustomerProfile,
+    text: str,
+    lang: str,
+) -> ParsedAction | None:
+    if not is_abuu_start_message(text):
+        return None
+
+    ctx = dict(session.context or {})
+    order = _load_order(abuu_db, phone)
+    if ctx.get("restaurant_selected") and ctx.get("greeting_sent") and order and order.status == "draft":
+        return None
+
+    if order and order.status == "draft":
+        cancel_empty_draft(abuu_db, order)
+    clear_restaurant_binding(abuu_db, session, full_reset=False)
+
+    default_address = saved_address_summary(abuu_db, customer)
+    lat = lng = None
+    from app.abuu.services.location_service import get_default_address
+
+    addr = get_default_address(abuu_db, customer.id)
+    if addr and addr.latitude is not None and addr.longitude is not None:
+        lat, lng = addr.latitude, addr.longitude
+    restaurant = AbuuOrderDraftService.default_restaurant(abuu_db, lat=lat, lng=lng)
+    if restaurant is None:
+        return ParsedAction(
+            reply="لا توجد مطاعم متاحة حالياً." if lang == "ar" else "No restaurants are available right now.",
+            action="none",
+        )
+
+    order = AbuuOrderDraftService.start_draft(abuu_db, customer=customer, restaurant=restaurant)
+    apply_saved_address_to_order(abuu_db, order, customer)
+    session.restaurant_id = restaurant.id
+    session.active_order_id = order.id
+    session.context = bind_restaurant_context({}, restaurant.id)
+    session.context["greeting_sent"] = False
+    session.context["active_categories"] = []
+    session.context["suggested_items"] = []
+
+    if not customer.name:
+        session.stage = "awaiting_name"
+        return ParsedAction(reply=ask_name_message(lang), action="none", restaurant_id=restaurant.id)
+
+    session.context["greeting_sent"] = True
+    session.stage = "awaiting_preference"
+    reply = personalized_greeting_message(
+        first_name=first_name(customer.name),
+        lang=lang,
+        saved_address=default_address,
+    )
+    return ParsedAction(reply=reply, action="none", restaurant_id=restaurant.id)
 
 
 def _bind_restaurant(
@@ -569,11 +768,20 @@ def _execute_action(
             parsed.reply = format_restaurant_list(ranked, lang=lang, page=0, page_size=max(15, len(ranked)))
         parsed.action = "show_restaurants"
 
-    if parsed.action in {"add_to_cart", "ask_addons"} and parsed.item_id:
-        item = abuu_db.get(RestaurantMenuItem, str(parsed.item_id))
-        if item is None:
-            parsed.item_id = _resolve_menu_pick(user_text, ctx)
-            item = abuu_db.get(RestaurantMenuItem, str(parsed.item_id)) if parsed.item_id else None
+    if parsed.action in {"add_to_cart", "ask_addons"}:
+        explicit_item_id = str(parsed.item_id or "").strip() or None
+        item = abuu_db.get(RestaurantMenuItem, explicit_item_id) if explicit_item_id else None
+        if item is None and explicit_item_id:
+            parsed.action = "none"
+            if not parsed.reply:
+                parsed.reply = (
+                    "ما لقيت هاد الصنف — قول اسم أو رقم من القائمة 🙏"
+                    if lang == "ar"
+                    else "I couldn't find that item — pick from the list 🙏"
+                )
+        elif item is None:
+            resolved_id = _resolve_menu_pick(user_text, ctx)
+            item = abuu_db.get(RestaurantMenuItem, str(resolved_id)) if resolved_id else None
         if item is not None:
             restaurant = _item_restaurant(abuu_db, item, session)
             if restaurant:
@@ -617,9 +825,15 @@ def _execute_action(
     return parsed, order, None
 
 
-def _finalize_reply(parsed: ParsedAction, *, search: SearchBuildResult, lang: str) -> str:
+def _finalize_reply(
+    parsed: ParsedAction,
+    *,
+    search: SearchBuildResult,
+    lang: str,
+    ranked: list[RankedRestaurant] | None = None,
+) -> str:
     reply = str(parsed.reply or "").strip()
-    if parsed.action in {"show_menu", "none"} and search.items and not reply:
+    if parsed.action in {"show_menu", "none", "show_restaurants"} and search.items and not reply:
         header = "هاي أحلى الخيارات:" if lang == "ar" else "Top picks:"
         hint = (
             "\n\nفي كمان خيارات — حدّد أكثر (مشوي، هندي، برجر) 😋"
@@ -627,6 +841,14 @@ def _finalize_reply(parsed: ParsedAction, *, search: SearchBuildResult, lang: st
             else "\n\nMore options available — be more specific 😋"
         )
         reply = f"{header}\n{search.formatted}{hint}"
+    if (
+        not reply
+        and not search.items
+        and ranked
+        and parsed.action in {"show_menu", "none", "show_restaurants"}
+    ):
+        prefix = "المطاعم المتاحة:" if lang == "ar" else "Available restaurants:"
+        reply = prefix + "\n" + format_restaurant_list(ranked, lang=lang, page=0, page_size=max(15, len(ranked)))
     if not reply:
         reply = "تمام 👌" if lang == "ar" else "OK 👌"
     return reply
@@ -690,6 +912,31 @@ class SmartPipeline:
         _smart_log("in", phone=phone, text=working_text[:120], voice=is_voice)
         WaiterSessionStore.append_context_message(session, role="customer", text=working_text)
 
+        start_result = _handle_start_message(
+            abuu_db,
+            phone=phone,
+            session=session,
+            customer=customer,
+            text=working_text,
+            lang=lang,
+        )
+        if start_result is not None:
+            reply = wa_customer_sanitize(str(start_result.reply or ""))
+            WaiterSessionStore.append_context_message(session, role="agent", text=reply)
+            session.context["session_schema_version"] = 3
+            session.context["smart_pipeline"] = True
+            WaiterSessionStore.save(abuu_db, session, message_id=message_id)
+            _smart_log("out", phone=phone, action="started", preview=reply[:120])
+            return {
+                "handled": True,
+                "action": "started",
+                "reply": reply,
+                "intent": "order_food",
+                "restaurant_id": session.restaurant_id,
+                "order_id": session.active_order_id,
+                "step": session.stage,
+            }
+
         voice_ctx = (session.context or {}).get("voice_interpretation") or {}
         allergy_uncertain = bool(voice_ctx.get("allergy_uncertain"))
         dietary = DietaryDetector.detect(working_text)
@@ -705,8 +952,11 @@ class SmartPipeline:
         order = _load_order(abuu_db, phone)
         if order and order.status == "draft":
             session.active_order_id = order.id
-            if order.restaurant_id and not session.restaurant_id:
+            ctx = dict(session.context or {})
+            if order.restaurant_id and (ctx.get("restaurant_selected") or ctx.get("restaurant_id")):
                 session.restaurant_id = order.restaurant_id
+                if ctx.get("restaurant_selected"):
+                    session.context["restaurant_id"] = order.restaurant_id
 
         deterministic = _try_deterministic(
             abuu_db,
@@ -762,7 +1012,12 @@ class SmartPipeline:
             if not result.text:
                 _smart_log("parse_fail", phone=phone, raw="empty")
                 parsed = ParsedAction(
-                    reply=_finalize_reply(ParsedAction(reply="", action="show_menu"), search=search, lang=lang),
+                    reply=_finalize_reply(
+                        ParsedAction(reply="", action="show_menu"),
+                        search=search,
+                        lang=lang,
+                        ranked=ranked,
+                    ),
                     action="show_menu" if search.items else "none",
                 )
             else:
@@ -784,7 +1039,7 @@ class SmartPipeline:
             WaiterSessionStore.save(abuu_db, session, message_id=message_id)
             return {"handled": True, "action": "delegate_confirm", "intent": "confirm_order"}
 
-        reply = wa_customer_sanitize(_finalize_reply(parsed, search=search, lang=lang))
+        reply = wa_customer_sanitize(_finalize_reply(parsed, search=search, lang=lang, ranked=ranked))
         WaiterSessionStore.append_context_message(session, role="agent", text=reply)
         session.messages.append({"role": "user", "content": working_text})
         session.messages.append({"role": "assistant", "content": reply})
