@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
-"""Enrich Abuu menu items with structured allergen, recipe, and dietary tags."""
+"""Enrich Abuu menu items with structured allergen, recipe, and dietary tags.
+
+Usage (VPS):
+  cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+  python scripts/enrich_abuu_menu_tags.py --pilot-five --apply
+  ./scripts/enrich_abuu_menu_tags.sh --pilot-five --apply
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import select
 
