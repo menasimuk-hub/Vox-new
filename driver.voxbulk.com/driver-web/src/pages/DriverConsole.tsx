@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useDriverPortal } from "@/hooks/useDriverPortal";
+import { logoutDriver } from "@/lib/api";
 import {
   Sun, Moon, Bike, Zap, Car, ClipboardList, History as HistoryIcon, Settings as SettingsIcon,
-  MapPin, Phone, CheckCircle2, Truck, Package, BellRing, X, DollarSign, Activity, ShoppingBag,
+  MapPin, Phone, CheckCircle2, Truck, Package, BellRing, X, DollarSign, Activity, ShoppingBag, LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,7 @@ const t = {
     bike: "Motor Bike", ebike: "Electrical Cycle", cycle: "Cycle", car: "Car",
     save: "Save", saved: "Saved", noHistory: "No deliveries yet",
     language: "Language",
+    logout: "Logout",
   },
   ar: {
     title: "يلا ساي — السائق", orders: "الطلبات", history: "السجل", settings: "الإعدادات",
@@ -50,6 +52,7 @@ const t = {
     bike: "دراجة نارية", ebike: "دراجة كهربائية", cycle: "دراجة", car: "سيارة",
     save: "حفظ", saved: "تم الحفظ", noHistory: "لا توجد توصيلات بعد",
     language: "اللغة",
+    logout: "تسجيل الخروج",
   },
 };
 
@@ -97,6 +100,9 @@ function DriverPage() {
           <div className="flex shrink-0 items-center gap-1.5">
             <OnlineSlider online={online} setOnline={setOnline} lang={lang} />
             <Button variant="ghost" size="icon" onClick={toggleTheme}>{theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}</Button>
+            <Button variant="ghost" size="icon" onClick={() => logoutDriver()} aria-label={tx.logout} title={tx.logout}>
+              <LogOut className="h-5 w-5" />
+            </Button>
           </div>
         </div>
       </header>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, insert, inspect, select
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import Driver, Restaurant, RestaurantMenuCategory, RestaurantMenuItem
@@ -17,10 +17,30 @@ def _table_columns(db: Session, table: str) -> set[str]:
         return set()
 
 
+def _id_exists(db: Session, table: str, row_id: str) -> bool:
+    if table not in {Restaurant.__tablename__, Driver.__tablename__}:
+        return False
+    found = db.execute(
+        text(f"SELECT 1 FROM {table} WHERE id = :id LIMIT 1"),
+        {"id": row_id},
+    ).scalar_one_or_none()
+    return found is not None
+
+
 def _insert_row(db: Session, model, values: dict) -> None:
     cols = _table_columns(db, model.__tablename__)
     filtered = {k: v for k, v in values.items() if k in cols}
-    db.execute(insert(model.__table__).values(**filtered))
+    if not filtered:
+        return
+    # Use literal INSERT so ORM Column defaults (e.g. classification_status before migration 0014)
+    # are not emitted for columns that do not exist yet.
+    keys = list(filtered.keys())
+    col_list = ", ".join(keys)
+    placeholders = ", ".join(f":{k}" for k in keys)
+    db.execute(
+        text(f"INSERT INTO {model.__tablename__} ({col_list}) VALUES ({placeholders})"),
+        filtered,
+    )
 
 
 class AbuuSeedService:
@@ -107,8 +127,8 @@ class AbuuSeedService:
         now = datetime.utcnow()
         created = 0
         for spec in pilot_specs:
-            existing = db.get(Restaurant, spec["id"])
-            if existing is not None:
+            existing = _id_exists(db, Restaurant.__tablename__, spec["id"])
+            if existing:
                 continue
             _insert_row(
                 db,
@@ -150,8 +170,8 @@ class AbuuSeedService:
         for spec in _EXPANSION_RESTAURANT_SPECS:
             if restaurant_count >= 15:
                 break
-            existing = db.get(Restaurant, spec["id"])
-            if existing is not None:
+            existing = _id_exists(db, Restaurant.__tablename__, spec["id"])
+            if existing:
                 continue
             _insert_row(
                 db,
@@ -214,8 +234,8 @@ class AbuuSeedService:
         for spec in _DRIVER_SPECS:
             if driver_count >= 4:
                 break
-            existing = db.get(Driver, spec["id"])
-            if existing is not None:
+            existing = _id_exists(db, Driver.__tablename__, spec["id"])
+            if existing:
                 continue
             _insert_row(
                 db,
@@ -248,26 +268,39 @@ class AbuuSeedService:
 
         all_specs = list(_RESTAURANT_SPECS) + list(_EXPANSION_RESTAURANT_SPECS)
         for idx, spec in enumerate(all_specs):
-            row = db.get(Restaurant, spec["id"])
-            if row is None:
+            if not _id_exists(db, Restaurant.__tablename__, spec["id"]):
                 continue
             lat = _BASE_LAT + (idx * 0.002)
             lng = _BASE_LNG + (idx * 0.0015)
-            row.latitude = lat
-            row.longitude = lng
-            row.address_text = f"Gaza — {spec['name_en']}"
-            row.updated_at = now
-            db.add(row)
+            db.execute(
+                text(
+                    "UPDATE abuu_restaurants SET latitude = :lat, longitude = :lng, "
+                    "address_text = :addr, updated_at = :now WHERE id = :id"
+                ),
+                {
+                    "lat": lat,
+                    "lng": lng,
+                    "addr": f"Gaza — {spec['name_en']}",
+                    "now": now,
+                    "id": spec["id"],
+                },
+            )
             updated_restaurants += 1
 
         for idx, spec in enumerate(_DRIVER_SPECS):
-            row = db.get(Driver, spec["id"])
-            if row is None:
+            if not _id_exists(db, Driver.__tablename__, spec["id"]):
                 continue
-            row.latitude = _BASE_LAT + 0.01 + (idx * 0.001)
-            row.longitude = _BASE_LNG + 0.01 + (idx * 0.001)
-            row.updated_at = now
-            db.add(row)
+            db.execute(
+                text(
+                    "UPDATE abuu_drivers SET latitude = :lat, longitude = :lng, updated_at = :now WHERE id = :id"
+                ),
+                {
+                    "lat": _BASE_LAT + 0.01 + (idx * 0.001),
+                    "lng": _BASE_LNG + 0.01 + (idx * 0.001),
+                    "now": now,
+                    "id": spec["id"],
+                },
+            )
             updated_drivers += 1
 
         db.flush()
@@ -307,7 +340,7 @@ class AbuuSeedService:
         ]
         created = 0
         for spec in specs:
-            if db.get(Restaurant, spec["restaurant_id"]) is None:
+            if not _id_exists(db, Restaurant.__tablename__, spec["restaurant_id"]):
                 continue
             _insert_row(
                 db,

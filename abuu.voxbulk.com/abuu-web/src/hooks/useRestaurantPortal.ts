@@ -28,6 +28,7 @@ export type UiOrder = {
   customerName?: string
   deliveryAddress?: string
   notes?: string
+  allergyNote?: string
 }
 
 export type UiMenuItem = {
@@ -40,6 +41,7 @@ export type UiMenuItem = {
   descAr: string
   allergy: string
   diet: string
+  itemType: string
   hidden: boolean
   categoryId: string
 }
@@ -87,40 +89,47 @@ function mapApiStatus(status: string): UiStatus {
   return 'new'
 }
 
+function parseTagJson(raw: unknown): string {
+  if (!raw) return '—'
+  if (Array.isArray(raw)) return raw.length ? raw.join(', ') : '—'
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length) return parsed.join(', ')
+    } catch {
+      return raw || '—'
+    }
+  }
+  return '—'
+}
+
+function mapMenuItem(item: any, categoryId: string): UiMenuItem {
+  return {
+    id: item.id,
+    nameEn: item.name_en,
+    nameAr: item.name_ar,
+    price: shekel(item.price_agorot),
+    icon: ITEM_ICONS[item.item_type] || '🍽️',
+    descEn: item.description_en || '',
+    descAr: item.description_ar || '',
+    allergy: parseTagJson(item.allergen_tags_json),
+    diet: parseTagJson(item.dietary_tags_json),
+    itemType: item.item_type || 'meal',
+    hidden: !item.is_available,
+    categoryId,
+  }
+}
+
 function flattenMenu(categories: any[]): UiCategory[] {
   const rows: UiCategory[] = []
   for (const cat of categories || []) {
     const items: UiMenuItem[] = []
     for (const item of cat.items || []) {
-      items.push({
-        id: item.id,
-        nameEn: item.name_en,
-        nameAr: item.name_ar,
-        price: shekel(item.price_agorot),
-        icon: ITEM_ICONS[item.item_type] || '🍽️',
-        descEn: item.description_en || '',
-        descAr: item.description_ar || '',
-        allergy: '—',
-        diet: item.item_type || '—',
-        hidden: !item.is_available,
-        categoryId: cat.id,
-      })
+      items.push(mapMenuItem(item, cat.id))
     }
     for (const sub of cat.subcategories || []) {
       for (const item of sub.items || []) {
-        items.push({
-          id: item.id,
-          nameEn: item.name_en,
-          nameAr: item.name_ar,
-          price: shekel(item.price_agorot),
-          icon: ITEM_ICONS[item.item_type] || '🍽️',
-          descEn: item.description_en || '',
-          descAr: item.description_ar || '',
-          allergy: '—',
-          diet: item.item_type || '—',
-          hidden: !item.is_available,
-          categoryId: sub.id,
-        })
+        items.push(mapMenuItem(item, sub.id))
       }
     }
     rows.push({ id: cat.id, nameEn: cat.name_en, nameAr: cat.name_ar, items })
@@ -152,6 +161,7 @@ function mapOrderDetail(row: any): UiOrder {
     customerName: row.customer?.name || '',
     deliveryAddress: row.delivery_address?.address_text || '',
     notes: row.notes || '',
+    allergyNote: row.allergy_note || '',
   }
 }
 

@@ -39,6 +39,7 @@ class RestaurantMenuCategory(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     name_ar: Mapped[str] = mapped_column(String(255), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    category_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class RestaurantMenuItem(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
@@ -55,6 +56,21 @@ class RestaurantMenuItem(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     parent_menu_item_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_menu_items.id"), nullable=True)
     photo_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    subcategory: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    short_description_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    short_description_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    spice_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    classification_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unclassified", index=True)
+    ingredients_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergen_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dietary_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recipe_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    protein_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cuisine_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    drink_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    upsell_tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AbuuMenuAuditLog(AbuuBase):
@@ -96,6 +112,8 @@ class CustomerProfile(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     preferred_language: Mapped[str] = mapped_column(String(8), nullable=False, default="ar")
     likes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     dislikes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dietary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergens_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
@@ -124,6 +142,7 @@ class CustomerOrder(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="ILS")
     delivery_address_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_customer_addresses.id"), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allergy_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     location_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     location_clarification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

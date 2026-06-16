@@ -33,6 +33,20 @@ export function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+export async function logoutRestaurant() {
+  try {
+    await apiFetch('/abuu/auth/restaurant/logout', { method: 'POST', body: '{}' })
+  } catch {
+    // still clear local session
+  }
+  clearToken()
+  if (typeof window !== 'undefined') window.location.href = '/login'
+}
+
 export async function apiFetch(path, options = {}) {
   const url = apiUrl(path)
   const headers = { ...(options.headers || {}) }
@@ -58,6 +72,12 @@ export async function apiFetch(path, options = {}) {
     data = text
   }
   if (!res.ok) {
+    if (res.status === 401 && getToken()) {
+      clearToken()
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
     const msg = data?.detail || data?.message || res.statusText || 'Request failed'
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
   }

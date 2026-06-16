@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.abuu.menu_intelligence.enrich_rules import apply_inferred_tags, infer_tags_for_item
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
 from app.abuu.services.yallasay_menu_catalog import (
     YALLASAY_PILOT_RESTAURANT_IDS,
@@ -93,6 +94,11 @@ class YallasayMenuSeedService:
             for item_spec in cat_spec["items"]:
                 iid = _item_id(restaurant_id, item_spec["key"])
                 item_price_map[item_spec["key"]] = int(item_spec["price_agorot"])
+                inferred = infer_tags_for_item(
+                    cat_key=cat_spec["key"],
+                    item_spec=item_spec,
+                    profile=profile,
+                )
                 row = db.get(RestaurantMenuItem, iid)
                 if row is None:
                     row = RestaurantMenuItem(
@@ -102,13 +108,14 @@ class YallasayMenuSeedService:
                         name_ar=item_spec["name_ar"],
                         description_en=item_spec.get("description_en"),
                         description_ar=item_spec.get("description_ar"),
-                        item_type=item_spec["item_type"],
+                        item_type=inferred["item_type"],
                         price_agorot=int(item_spec["price_agorot"]),
                         is_available=True,
                         created_at=now,
                         updated_at=now,
                         is_deleted=False,
                     )
+                    apply_inferred_tags(row, inferred, force=True)
                     db.add(row)
                     items_upserted += 1
                 else:
@@ -117,12 +124,13 @@ class YallasayMenuSeedService:
                     row.name_ar = item_spec["name_ar"]
                     row.description_en = item_spec.get("description_en")
                     row.description_ar = item_spec.get("description_ar")
-                    row.item_type = item_spec["item_type"]
+                    row.item_type = inferred["item_type"]
                     row.price_agorot = int(item_spec["price_agorot"])
                     row.is_available = True
                     row.is_deleted = False
                     row.deleted_at = None
                     row.updated_at = now
+                    apply_inferred_tags(row, inferred, force=False)
                     db.add(row)
 
         offers_upserted = 0

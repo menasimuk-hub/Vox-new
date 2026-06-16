@@ -101,4 +101,29 @@ WhatsApp (text + voice transcript)
   → MySQL abuu_wa_snapshots + /abuu/food/*
 ```
 
+## Menu intelligence (migration 0014)
+
+After deploy, run Abuu migrations if not already at head:
+
+```bash
+cd voxbulk-api
+alembic -c alembic_abuu.ini upgrade head
+```
+
+Apply structured allergen/recipe/dietary tags to pilot menus:
+
+```bash
+cd voxbulk-api
+python scripts/enrich_abuu_menu_tags.py --pilot-five --apply
+python scripts/enrich_abuu_menu_tags.py --audit-unclassified   # read-only report
+```
+
+Config (`.env`):
+
+- `ABUU_MENU_INTELLIGENCE_ENABLED=true` — structured search + dietary filtering
+- `ABUU_ALLERGEN_STRICT_MODE=true` — exclude items missing dietary confirmation when customer requires vegan/vegetarian/etc.
+- `ABUU_PORTAL_TOKEN_EXPIRE_DAYS=30` — restaurant/driver portal JWT lifetime
+
+**Note:** Customer-stated `allergy_note` on an order is separate from item-level `allergen_tags_json` on menu items. The waiter captures the note at confirm time; tags drive search safety.
+
 Future cities: add rows to `abuu_market_agents` and set `ABUU_MARKET_AGENT`.

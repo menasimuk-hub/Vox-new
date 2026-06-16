@@ -19,6 +19,7 @@ from app.abuu.services.intent_service import (
 )
 from app.abuu.agent.session_reset import is_offer_query
 from app.abuu.services.preference_service import match_food_categories
+from app.abuu.menu_intelligence.arabic_lexicon import expand_food_categories
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
 
@@ -88,6 +89,11 @@ def _regex_intent(text: str, session: AgentSession) -> AbuuIntent:
         return AbuuIntent("menu_browse", confidence=0.85)
 
     categories = match_food_categories(normalized)
+    for extra in expand_food_categories(normalized):
+        if extra not in categories:
+            categories.append(extra)
+    if "offers" in categories:
+        return AbuuIntent("offers", confidence=0.9)
     if categories:
         return AbuuIntent("food_search", categories=categories, confidence=0.88)
 

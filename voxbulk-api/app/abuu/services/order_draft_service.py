@@ -108,7 +108,22 @@ class AbuuOrderDraftService:
         limit: int = 12,
         categories: list[str] | None = None,
         customer: CustomerProfile | None = None,
+        allergen_avoid: list[str] | None = None,
+        dietary_required: list[str] | None = None,
     ) -> list[RestaurantMenuItem]:
+        from app.core.config import get_settings
+
+        if get_settings().abuu_menu_intelligence_enabled:
+            from app.abuu.menu_intelligence.query import MenuQuery
+            from app.abuu.menu_intelligence.search_service import MenuSearchService
+
+            query = MenuQuery.from_categories(categories, limit=limit)
+            if allergen_avoid:
+                query.allergen_avoid = list(allergen_avoid)
+            if dietary_required:
+                query.dietary_required = list(dietary_required)
+            return MenuSearchService.search(db, restaurant_id, query, customer=customer)
+
         category_ids = [
             c.id
             for c in db.execute(
@@ -352,9 +367,12 @@ class AbuuOrderDraftService:
         return order
 
     @staticmethod
-    def confirm_draft(db: Session, order: CustomerOrder) -> CustomerOrder:
+    def confirm_draft(db: Session, order: CustomerOrder, *, allergy_note: str | None = None) -> CustomerOrder:
         if order.total_agorot <= 0:
             raise ValueError("Cannot confirm an empty order")
+        if allergy_note:
+            order.allergy_note = str(allergy_note).strip()[:512]
+            db.add(order)
         AbuuOrderService.patch_status(db, order, "confirmed")
         payment = db.execute(select(AbuuPayment).where(AbuuPayment.order_id == order.id)).scalar_one_or_none()
         if payment is None:

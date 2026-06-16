@@ -87,6 +87,26 @@ def get_menu(
     return menu
 
 
+def _menu_query_from_text(query: str, language: str, *, limit: int):
+    from app.abuu.menu_intelligence.arabic_lexicon import expand_food_categories
+    from app.abuu.menu_intelligence.query import MenuQuery
+    from app.abuu.services.preference_service import match_food_categories
+
+    normalized = _normalize_query(query, language)
+    categories = match_food_categories(normalized)
+    for extra in expand_food_categories(normalized):
+        if extra not in categories:
+            categories.append(extra)
+    mq = MenuQuery.from_categories(categories or None, limit=limit)
+    if "chicken" in normalized or "دجاج" in normalized:
+        mq.protein_tags.append("chicken")
+    if "fish" in normalized or "سمك" in normalized:
+        mq.protein_tags.append("fish")
+    if "beef" in normalized or "meat" in normalized or "لحم" in normalized:
+        mq.protein_tags.append("beef")
+    return mq
+
+
 def search_menu(
     db: Session,
     restaurant_id: str,
@@ -96,6 +116,36 @@ def search_menu(
     customer: CustomerProfile | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
+    from app.core.config import get_settings
+
+    if get_settings().abuu_menu_intelligence_enabled:
+        from app.abuu.menu_intelligence.search_service import MenuSearchService
+
+        mq = _menu_query_from_text(query, language, limit=limit)
+        items = MenuSearchService.search(db, restaurant_id, mq, customer=customer)
+        categories = _category_map(db, restaurant_id)
+        results: list[dict[str, Any]] = []
+        for item in items:
+            cat = categories.get(item.category_id)
+            category_name = ""
+            if cat is not None:
+                category_name = cat.name_en or cat.name_ar or ""
+            results.append(
+                {
+                    "id": item.id,
+                    "name_en": item.name_en,
+                    "name_ar": item.name_ar,
+                    "description_en": item.description_en or "",
+                    "description_ar": item.description_ar or "",
+                    "price": item.price_agorot / 100,
+                    "price_agorot": item.price_agorot,
+                    "category": category_name,
+                    "item_type": item.item_type,
+                }
+            )
+        if results:
+            return results
+
     menu = get_menu(db, restaurant_id, customer=customer)
     if not menu:
         return []

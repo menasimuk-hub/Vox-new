@@ -185,3 +185,20 @@ def test_fit_context_json_size_shrinks_oversized_payload():
     fitted = fit_context_json_size(context, max_bytes=8_000)
     assert len(__import__("json").dumps(fitted, ensure_ascii=False).encode("utf-8")) <= 8_000
 
+
+def test_arabic_drinks_food_search_returns_drinks(abuu_seeded):
+    from app.abuu.models.entities import RestaurantMenuItem
+
+    db, _restaurants = abuu_seeded
+    session = AgentSession(customer_wa_number="+972509991005", language="ar")
+    intent = IntentRouter.classify(None, "بدي مشروبات", session)  # type: ignore[arg-type]
+    assert intent.name == "food_search"
+    assert "drinks" in (intent.categories or [])
+
+    bundle = FactBundleLoader.load(db, intent, session, customer=None)
+    assert bundle.food_items
+    for fact in bundle.food_items:
+        item = db.get(RestaurantMenuItem, fact.menu_item_id)
+        assert item is not None
+        assert item.item_type in {"drink", "drinks"}
+

@@ -811,7 +811,8 @@ class AbuuInboundService:
             AbuuInboundService._send_reply(main_db, phone, already_confirmed_message(lang), org_id=org_id)
             return {"handled": True, "action": "already_confirmed", "order_id": order.id}
         try:
-            AbuuOrderDraftService.confirm_draft(abuu_db, order)
+            allergy_note = (context or {}).get("kitchen_allergy_note") if context else None
+            AbuuOrderDraftService.confirm_draft(abuu_db, order, allergy_note=allergy_note)
         except ValueError as exc:
             AbuuInboundService._send_reply(main_db, phone, str(exc), org_id=org_id)
             return {"handled": True, "action": "confirm_failed", "detail": str(exc)}

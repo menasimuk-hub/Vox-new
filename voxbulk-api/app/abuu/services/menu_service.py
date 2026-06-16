@@ -166,10 +166,41 @@ class AbuuMenuService:
         actor_id: str | None = None,
     ) -> RestaurantMenuItem:
         before = AbuuMenuService._item_snapshot(row)
-        for key in ("name_en", "name_ar", "description_en", "description_ar", "item_type"):
+        tag_json_keys = (
+            "ingredients_json",
+            "allergen_tags_json",
+            "dietary_tags_json",
+            "recipe_tags_json",
+            "protein_tags_json",
+            "cuisine_tags_json",
+            "drink_tags_json",
+            "upsell_tags_json",
+            "metadata_json",
+        )
+        for key in (
+            "name_en",
+            "name_ar",
+            "description_en",
+            "description_ar",
+            "short_description_en",
+            "short_description_ar",
+            "item_type",
+            "subcategory",
+            "offer_type",
+            "spice_level",
+            "classification_status",
+            *tag_json_keys,
+        ):
             if key in payload:
                 val = payload[key]
-                setattr(row, key, str(val).strip() if val is not None and key in ("name_en", "name_ar", "item_type") else val)
+                if key in tag_json_keys and isinstance(val, (list, dict)):
+                    import json as _json
+
+                    setattr(row, key, _json.dumps(val))
+                elif key in ("name_en", "name_ar", "item_type", "subcategory", "offer_type", "spice_level", "classification_status"):
+                    setattr(row, key, str(val).strip() if val is not None else val)
+                else:
+                    setattr(row, key, val)
         if "price_agorot" in payload:
             row.price_agorot = int(payload["price_agorot"])
         if "is_available" in payload:

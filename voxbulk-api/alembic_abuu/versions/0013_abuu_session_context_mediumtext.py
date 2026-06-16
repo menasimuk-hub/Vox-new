@@ -13,6 +13,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name != "mysql":
+        return
     op.alter_column(
         "abuu_conversation_sessions",
         "context_json",
@@ -23,6 +26,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name != "mysql":
+        return
     op.alter_column(
         "abuu_conversation_sessions",
         "context_json",

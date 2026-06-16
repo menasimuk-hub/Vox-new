@@ -42,6 +42,16 @@ class AbuuConversationOrchestrator:
         session = load_session(abuu_db, phone)
         session.language = customer.preferred_language or session.language or "ar"
 
+        from app.abuu.menu_intelligence.dietary_detector import DietaryDetector
+
+        dietary = DietaryDetector.detect(text)
+        if dietary.allergens_avoid:
+            session.context["allergen_avoid"] = dietary.allergens_avoid
+        if dietary.dietary_tags:
+            session.context["dietary_tags"] = dietary.dietary_tags
+        if dietary.kitchen_note:
+            session.context["kitchen_allergy_note"] = dietary.kitchen_note
+
         intent = IntentRouter.classify(main_db, text, session)
         facts = FactBundleLoader.load(abuu_db, intent, session, customer=customer)
         action = ActionRunner.run(abuu_db, intent, facts, session, customer=customer, order=order)

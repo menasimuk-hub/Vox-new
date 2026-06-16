@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, logoutRestaurant } from "@/lib/api";
 import { useRestaurantPortal } from "@/hooks/useRestaurantPortal";
 import {
   Sun, Moon, ClipboardList, BookOpen, History as HistoryIcon, Settings as SettingsIcon,
   Play, CheckCircle2, PackageCheck, RotateCcw, AlertOctagon, Plus, Trash2, Pencil, X,
-  DollarSign, ShoppingBag, Activity, Search, Sparkles, Tag, Check, Minus,
+  DollarSign, ShoppingBag, Activity, Search, Sparkles, Tag, Check, Minus, LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,7 @@ type Order = {
   customerName?: string;
   deliveryAddress?: string;
   notes?: string;
+  allergyNote?: string;
 };
 type MenuItem = {
   id: string;
@@ -41,6 +42,7 @@ type MenuItem = {
   price: number; icon: string;
   descEn: string; descAr: string;
   allergy: string; diet: string;
+  itemType: string;
   hidden: boolean;
 };
 type Category = { id: string; nameEn: string; nameAr: string; items: MenuItem[] };
@@ -101,6 +103,8 @@ const t = {
     offerCreated: "Offer created successfully!",
     offerDeleted: "Offer deleted successfully!",
     language: "Language",
+    logout: "Logout",
+    allergyNote: "Customer allergy note",
   },
   ar: {
     title: "يلا ساي — المطعم", orders: "الطلبات", menu: "القائمة", history: "السجل", settings: "الإعدادات",
@@ -132,6 +136,8 @@ const t = {
     offerCreated: "تم إنشاء العرض بنجاح!",
     offerDeleted: "تم حذف العرض بنجاح!",
     language: "اللغة",
+    logout: "تسجيل الخروج",
+    allergyNote: "ملاحظة حساسية العميل",
   },
 };
 
@@ -184,6 +190,9 @@ function RestaurantPage() {
             <OnlineSlider online={online} setOnline={setOnline} lang={lang} />
             <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="theme">
               {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => logoutRestaurant()} aria-label={tx.logout} title={tx.logout}>
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </div>
@@ -288,6 +297,11 @@ function OrderCard({ order, tx, isAr, onForward, onBack, onOOS, formatMoney }: {
             {order.deliveryAddress ? <div className="text-muted-foreground">{order.deliveryAddress}</div> : null}
           </div>
         )}
+        {order.allergyNote ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
+            ⚠ {order.allergyNote}
+          </div>
+        ) : null}
         <ul className="space-y-2">
           {order.items.map(it => (
             <li key={it.id} className={`flex items-center justify-between gap-2 rounded-lg border p-2 ${it.outOfStock ? "opacity-40 line-through" : ""}`}>
@@ -402,15 +416,24 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
   }
   async function saveItem(catId: string, item: MenuItem) {
     try {
-      const payload = {
+      const tagsFromCsv = (s: string) => {
+        if (!s || s === "—") return null;
+        const tags = s.split(",").map(t => t.trim()).filter(Boolean);
+        return tags.length ? tags : null;
+      };
+      const payload: Record<string, unknown> = {
         name_en: item.nameEn,
         name_ar: item.nameAr,
-        item_type: item.diet && item.diet !== "—" ? item.diet : "food",
+        item_type: item.itemType || "meal",
         price_agorot: Math.round(item.price * 100),
         description_en: item.descEn,
         description_ar: item.descAr,
         is_available: !item.hidden,
       };
+      const allergens = tagsFromCsv(item.allergy);
+      const dietary = tagsFromCsv(item.diet);
+      if (allergens) payload.allergen_tags_json = allergens;
+      if (dietary) payload.dietary_tags_json = dietary;
       const exists = cats.some(c => c.items.some(i => i.id === item.id));
       if (exists) {
         await apiFetch(`/abuu/restaurant/menu/items/${item.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -533,7 +556,7 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
 function ItemDialog({ tx, initial, onClose, onSave }: { tx: typeof t.en; catId: string; initial?: MenuItem; onClose: () => void; onSave: (i: MenuItem) => void }) {
   const [it, setIt] = useState<MenuItem>(initial ?? {
     id: uid(), nameEn: "", nameAr: "", price: 0, icon: "🍽️",
-    descEn: "", descAr: "", allergy: "", diet: "", hidden: false,
+    descEn: "", descAr: "", allergy: "", diet: "", itemType: "meal", hidden: false,
   });
   return (
     <Dialog open onOpenChange={onClose}>
@@ -546,8 +569,9 @@ function ItemDialog({ tx, initial, onClose, onSave }: { tx: typeof t.en; catId: 
           <div><Label>{tx.icon}</Label><Input value={it.icon} onChange={e => setIt({ ...it, icon: e.target.value })} /></div>
           <div className="col-span-2"><Label>{tx.description} (EN)</Label><Textarea rows={2} value={it.descEn} onChange={e => setIt({ ...it, descEn: e.target.value })} /></div>
           <div className="col-span-2"><Label>{tx.description} (AR)</Label><Textarea rows={2} dir="rtl" value={it.descAr} onChange={e => setIt({ ...it, descAr: e.target.value })} /></div>
-          <div><Label>{tx.allergy}</Label><Input value={it.allergy} onChange={e => setIt({ ...it, allergy: e.target.value })} /></div>
-          <div><Label>{tx.diet}</Label><Input value={it.diet} onChange={e => setIt({ ...it, diet: e.target.value })} /></div>
+          <div><Label>{tx.allergy}</Label><Input placeholder="dairy, nuts" value={it.allergy} onChange={e => setIt({ ...it, allergy: e.target.value })} /></div>
+          <div><Label>{tx.diet}</Label><Input placeholder="halal, vegetarian" value={it.diet} onChange={e => setIt({ ...it, diet: e.target.value })} /></div>
+          <div className="col-span-2"><Label>Item type</Label><Input placeholder="meal, drink, dessert" value={it.itemType} onChange={e => setIt({ ...it, itemType: e.target.value })} /></div>
           <label className="col-span-2 flex items-center gap-2"><Switch checked={it.hidden} onCheckedChange={v => setIt({ ...it, hidden: v })} />{tx.hide}</label>
         </div>
         <DialogFooter>

@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     abuu_restaurant_webhook_url: str = Field(default="", alias="ABUU_RESTAURANT_WEBHOOK_URL")
     abuu_agent_internal_key: str = Field(default="", alias="ABUU_AGENT_INTERNAL_KEY")
     yallasay_auto_send_on_confirm: bool = Field(default=True, alias="YALLASAY_AUTO_SEND_ON_CONFIRM")
+    abuu_menu_intelligence_enabled: bool = Field(default=True, alias="ABUU_MENU_INTELLIGENCE_ENABLED")
+    abuu_allergen_strict_mode: bool = Field(default=True, alias="ABUU_ALLERGEN_STRICT_MODE")
+    abuu_portal_token_expire_days: int = Field(default=30, alias="ABUU_PORTAL_TOKEN_EXPIRE_DAYS")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

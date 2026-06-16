@@ -22,7 +22,10 @@ abuu_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/abuu/auth/restaurant/token"
 
 def create_abuu_token(*, subject: str, token_type: str, scope_id: str) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    if token_type in {"abuu_restaurant", "abuu_driver"}:
+        expire = datetime.now(timezone.utc) + timedelta(days=settings.abuu_portal_token_expire_days)
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     payload: dict[str, Any] = {
         "sub": subject,
         "exp": expire,

@@ -114,17 +114,25 @@ class FactBundleLoader:
             ranked = rank_restaurants(db, lat=None, lng=None, categories=categories or None, limit=15)
             restaurant_ids = [r.restaurant.id for r in ranked]
 
+        ctx = session.context or {}
+        allergen_avoid = ctx.get("allergen_avoid") or []
+        dietary_required = ctx.get("dietary_tags") or []
+
         facts: list[FoodItemFact] = []
         for rid in restaurant_ids:
             restaurant = db.get(Restaurant, rid)
             if restaurant is None or restaurant.is_deleted or not restaurant.is_available:
                 continue
             items = AbuuOrderDraftService.list_menu_items(
-                db, rid, categories=categories or None, limit=4, customer=customer
+                db,
+                rid,
+                categories=categories or None,
+                limit=4,
+                customer=customer,
+                allergen_avoid=allergen_avoid if isinstance(allergen_avoid, list) else None,
+                dietary_required=dietary_required if isinstance(dietary_required, list) else None,
             )
             for item in items:
-                if item.item_type in {"addon", "drink", "drinks"}:
-                    continue
                 facts.append(
                     FoodItemFact(
                         menu_item_id=item.id,

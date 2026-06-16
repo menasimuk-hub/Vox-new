@@ -541,11 +541,15 @@ class AbuuSkillRouter:
             remember_preference(ctx.customer, category=cat)
         ctx.abuu_db.add(ctx.customer)
 
+        ctx_allergens = ctx.context.get("allergen_avoid") if ctx.context else None
+        ctx_dietary = ctx.context.get("dietary_tags") if ctx.context else None
         items = AbuuOrderDraftService.list_menu_items(
             ctx.abuu_db,
             restaurant.id,
             categories=categories,
             customer=ctx.customer,
+            allergen_avoid=ctx_allergens if isinstance(ctx_allergens, list) else None,
+            dietary_required=ctx_dietary if isinstance(ctx_dietary, list) else None,
         )
         indexed = list(enumerate(items, start=1))
         context = dict(ctx.context)
