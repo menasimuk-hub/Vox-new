@@ -240,6 +240,7 @@ def seed_respondents(
                 created_at=started,
             )
             db.add(session)
+            db.flush()  # ensure session row exists before responses (MySQL FK)
 
             step_order = 0
             had_poor = False
@@ -294,6 +295,9 @@ def seed_respondents(
                     )
 
             created += 1
+            if created % 25 == 0:
+                db.commit()
+                print(f"  … {created}/{count} respondents saved")
 
         location.scan_count = max(int(location.scan_count or 0), count + 20)
         db.add(location)
