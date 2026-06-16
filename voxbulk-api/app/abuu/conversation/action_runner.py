@@ -12,14 +12,12 @@ from app.abuu.conversation.fact_bundle import FactBundle, FoodItemFact
 from app.abuu.conversation.intent_router import AbuuIntent
 from app.abuu.conversation.restaurant_guard import (
     RestaurantGuard,
-    bound_restaurant_id,
     bind_restaurant_context,
     clear_switch_context,
     cross_restaurant_message,
-    switch_restaurant_order,
 )
 from app.abuu.models.entities import CustomerOrder, CustomerProfile, Restaurant, RestaurantMenuItem
-from app.abuu.services.addon_suggestion_service import suggest_addons
+from app.abuu.services.addon_suggestion_service import _addon_types_for_main, _find_addon_items, suggest_addons
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import format_shekel, item_added_message, localized_name
 
@@ -47,6 +45,23 @@ class ActionRunner:
     ) -> ActionResult:
         ctx = dict(session.context or {})
 
+        pending_id = ctx.get("pending_item")
+        if pending_id and ctx.get("addons_offered"):
+            pending_item = db.get(RestaurantMenuItem, str(pending_id))
+            if pending_item is not None:
+                restaurant = db.get(Restaurant, pending_item.restaurant_id)
+                if restaurant is not None:
+                    return ActionRunner._add_item(
+                        db,
+                        session,
+                        customer,
+                        order,
+                        pending_item,
+                        restaurant,
+                        intent.categories,
+                        skip_addon_prompt=True,
+                    )
+
         if intent.name == "restaurant_switch_confirm":
             pending = ctx.get("pending_restaurant_switch") or {}
             item_id = pending.get("item_id")
@@ -70,25 +85,14 @@ class ActionRunner:
                 allow_switch=True,
             )
             if guard.ok and guard.order and guard.item:
-                session.restaurant_id = guard.bound_restaurant_id
-                session.active_order_id = guard.order.id
-                session.cart = ActionRunner._reload_cart(db, guard.order)
-                ctx = bind_restaurant_context(ctx, str(guard.bound_restaurant_id or ""))
-                ctx = clear_switch_context(ctx)
-                session.context = ctx
-                addon_msg, ctx = suggest_addons(
+                return ActionRunner._add_item(
                     db,
-                    restaurant_id=guard.bound_restaurant_id or "",
-                    main_item=guard.item,
-                    active_categories=intent.categories,
-                    context=ctx,
-                    lang=session.language or "ar",
-                )
-                session.context = ctx
-                return ActionResult(
-                    action="item_added",
-                    order=guard.order,
-                    reply_hint=item_added_message(guard.item, guard.order, session.language or "ar", addon_hint=addon_msg),
+                    session,
+                    customer,
+                    guard.order,
+                    guard.item,
+                    restaurant,
+                    intent.categories,
                 )
             return ActionResult(action="noop")
 
@@ -128,6 +132,31 @@ class ActionRunner:
         return ActionResult(action="none")
 
     @staticmethod
+    def _addon_extras_for_item(
+        db: Session,
+        restaurant_id: str,
+        main_item: RestaurantMenuItem,
+        categories: list[str],
+    ) -> list[RestaurantMenuItem]:
+        kinds = _addon_types_for_main(main_item.item_type or "food", categories)
+        return _find_addon_items(db, restaurant_id, kinds, exclude_ids={main_item.id}, limit=5)
+
+    @staticmethod
+    def _format_addon_question(
+        item: RestaurantMenuItem,
+        extras: list[RestaurantMenuItem],
+        lang: str,
+    ) -> str:
+        name = localized_name(item, lang)
+        if lang == "en":
+            header = f"{name} — great choice! 🔥\nWould you like:"
+            lines = [f"{localized_name(extra, lang)}?" for extra in extras]
+            return header + "\n" + "\n".join(lines)
+        header = f"{name} — اختيار ممتاز! 🔥\nبدك معها:"
+        lines = [f"{localized_name(extra, lang)}؟" for extra in extras]
+        return header + "\n" + "\n".join(lines)
+
+    @staticmethod
     def _add_item(
         db: Session,
         session: AgentSession,
@@ -136,9 +165,27 @@ class ActionRunner:
         item: RestaurantMenuItem,
         restaurant: Restaurant,
         categories: list[str],
+        *,
+        skip_addon_prompt: bool = False,
     ) -> ActionResult:
         lang = session.language or "ar"
         ctx = dict(session.context or {})
+        restaurant_id = str(restaurant.id)
+        extras = ActionRunner._addon_extras_for_item(db, restaurant_id, item, categories)
+
+        if extras and not skip_addon_prompt and not ctx.get("addons_offered"):
+            ctx["pending_item"] = item.id
+            ctx["addons_offered"] = True
+            ctx["pending_addon_items"] = [
+                {"menu_item_id": e.id, "name_en": e.name_en, "name_ar": e.name_ar} for e in extras
+            ]
+            session.context = ctx
+            save_session(db, session)
+            return ActionResult(
+                action="addons_prompt",
+                reply_hint=ActionRunner._format_addon_question(item, extras, lang),
+            )
+
         guard = RestaurantGuard.try_add_item(
             db,
             customer=customer,
@@ -179,6 +226,14 @@ class ActionRunner:
             session.cart = ActionRunner._reload_cart(db, guard.order)
             ctx = bind_restaurant_context(ctx, str(guard.bound_restaurant_id or ""))
             ctx = clear_switch_context(ctx)
+            ctx.pop("pending_item", None)
+            ctx.pop("addons_offered", None)
+            ctx.pop("pending_addon_items", None)
+            ctx["last_added_item"] = {
+                "menu_item_id": guard.item.id,
+                "name": localized_name(guard.item, lang),
+                "restaurant_id": guard.bound_restaurant_id,
+            }
             addon_msg, ctx = suggest_addons(
                 db,
                 restaurant_id=guard.bound_restaurant_id or "",

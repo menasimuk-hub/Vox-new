@@ -51,7 +51,7 @@ def get_menu(
         return list(cached[1])
 
     categories = _category_map(db, restaurant_id)
-    items = AbuuOrderDraftService.list_menu_items(db, restaurant_id, limit=100, customer=customer)
+    items = AbuuOrderDraftService.list_menu_items(db, restaurant_id, limit=500, customer=customer)
     menu: list[dict[str, Any]] = []
     for item in items:
         cat = categories.get(item.category_id)

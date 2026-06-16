@@ -149,18 +149,26 @@ class WaiterInterpretation:
         clarification_prompt: str | None = None
         clarification_reason: str | None = None
 
-        if allergy_uncertain:
+        word_count = len(normalized.split())
+        clarification_count = int((session.context or {}).get("clarification_count") or 0) if session else 0
+        skip_clarify = word_count <= 10 or clarification_count >= 1
+
+        if allergy_uncertain and not skip_clarify:
             needs_clarification = True
             clarification_reason = "allergy_uncertain"
             clarification_prompt = allergy_clarification(lang=lang)
-        elif proteins_conflict(hints):
+        elif proteins_conflict(hints) and not skip_clarify:
             needs_clarification = True
             clarification_reason = "category_ambiguous"
             clarification_prompt = category_clarification(
                 [c for c in hints if c in {"chicken", "fish", "meat"}][:2] or hints,
                 lang=lang,
             )
-        elif len(ranked) >= 2 and menu_candidates_ambiguous(ranked[0][1] / 100.0, ranked[1][1] / 100.0):
+        elif (
+            not skip_clarify
+            and len(ranked) >= 2
+            and menu_candidates_ambiguous(ranked[0][1] / 100.0, ranked[1][1] / 100.0)
+        ):
             if not has_strong_food_signal(
                 protected_tokens=protected,
                 category_hints=hints,
@@ -171,10 +179,14 @@ class WaiterInterpretation:
                 needs_clarification = True
                 clarification_reason = "item_ambiguous"
                 clarification_prompt = item_clarification(a, b, lang=lang)
-        elif is_voice and should_clarify(
-            combined,
-            clarify_threshold=float(settings.abuu_voice_intent_clarify_threshold),
-            strong_threshold=float(settings.abuu_voice_intent_strong_threshold),
+        elif (
+            not skip_clarify
+            and is_voice
+            and should_clarify(
+                combined,
+                clarify_threshold=float(settings.abuu_voice_intent_clarify_threshold),
+                strong_threshold=float(settings.abuu_voice_intent_strong_threshold),
+            )
         ):
             if not has_strong_food_signal(
                 protected_tokens=protected,
@@ -187,6 +199,10 @@ class WaiterInterpretation:
 
         ctx = session.context if session else {}
         if ctx.get("voice_clarification_sent") and not allergy_uncertain:
+            needs_clarification = False
+            clarification_prompt = None
+            clarification_reason = None
+        if clarification_count >= 1 and not allergy_uncertain:
             needs_clarification = False
             clarification_prompt = None
             clarification_reason = None

@@ -66,13 +66,14 @@ class Settings(BaseSettings):
     abuu_allergen_strict_mode: bool = Field(default=True, alias="ABUU_ALLERGEN_STRICT_MODE")
     abuu_portal_token_expire_days: int = Field(default=30, alias="ABUU_PORTAL_TOKEN_EXPIRE_DAYS")
     abuu_voice_interpretation_enabled: bool = Field(default=True, alias="ABUU_VOICE_INTERPRETATION_ENABLED")
-    abuu_voice_intent_strong_threshold: float = Field(default=0.72, alias="ABUU_VOICE_INTENT_STRONG_THRESHOLD")
-    abuu_voice_intent_clarify_threshold: float = Field(default=0.45, alias="ABUU_VOICE_INTENT_CLARIFY_THRESHOLD")
+    abuu_voice_intent_strong_threshold: float = Field(default=0.55, alias="ABUU_VOICE_INTENT_STRONG_THRESHOLD")
+    abuu_voice_intent_clarify_threshold: float = Field(default=0.30, alias="ABUU_VOICE_INTENT_CLARIFY_THRESHOLD")
     abuu_voice_menu_fuzzy_min_score: int = Field(default=45, alias="ABUU_VOICE_MENU_FUZZY_MIN_SCORE")
     abuu_voice_deepseek_recovery_enabled: bool = Field(default=True, alias="ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED")
     abuu_waiter_v2_allowlist: str = Field(default="", alias="ABUU_WAITER_V2_ALLOWLIST")
     abuu_waiter_deepseek_timeout_seconds: float = Field(default=8.0, alias="ABUU_WAITER_DEEPSEEK_TIMEOUT_SECONDS")
     abuu_waiter_trace_enabled: bool = Field(default=True, alias="ABUU_WAITER_TRACE_ENABLED")
+    abuu_deepseek_polish_enabled: bool = Field(default=True, alias="ABUU_DEEPSEEK_POLISH_ENABLED")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

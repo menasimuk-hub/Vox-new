@@ -15,14 +15,40 @@ from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.models.entities import CustomerProfile
 from app.abuu.waiter.deepseek_client import WaiterDeepSeekClient
 from app.abuu.waiter.trace import trace
+from app.core.config import get_settings
 
-_REPLY_PROMPT = """You are a warm Gaza WhatsApp food-order waiter (YallaSay). Arabic-first; support English and mixed Arabizi.
-Rules:
-- Short (2-4 lines), friendly, light emoji (1-2 max)
-- Use ONLY facts provided — never invent menu items, prices, or restaurants
-- Never show internal IDs, slugs, or technical fields
-- One order = one restaurant; each order costs 15 NIS delivery fee
-- If facts list dishes, show them — never ask to clarify when food type is already named (دجاج, سمك, etc.)"""
+_REPLY_PROMPT = """You are a Palestinian/Jordanian Arabic dialect assistant for a food ordering service called Yallasay. Your only job is to make the message sound natural in Palestinian/Jordanian dialect.
+
+STRICT RULES you must never break:
+- Never change the format of the message
+- Never change numbered lists to bullet points or vice versa
+- Never add items that are not in the original message
+- Never remove items that are in the original message
+- Never change prices
+- Never change the order of items listed
+- Never add new questions that are not in the original message
+- Never use Gulf Arabic words — only Palestinian/Jordanian dialect
+- Keep emojis exactly as they are in the original
+- If the original message is already good, return it unchanged
+- Output only the final message, nothing else"""
+
+
+def _format_conversation_history(session: AgentSession, *, user_text: str, max_messages: int = 5) -> str:
+    ctx = session.context or {}
+    stored = list(ctx.get("messages") or [])
+    if not stored:
+        return user_text
+    tail = stored[-max_messages:]
+    lines = ["Previous conversation:"]
+    for entry in tail:
+        role = str(entry.get("role") or "")
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        label = "Customer" if role == "customer" else "Agent"
+        lines.append(f"{label}: {text}")
+    lines.append(f"Current message: {user_text}")
+    return "\n".join(lines)
 
 
 class WaiterReplyComposer:
@@ -47,12 +73,18 @@ class WaiterReplyComposer:
                 intent, facts, action, session, customer=customer, lang=lang, abuu_db=abuu_db
             )
             reply = template
-            if deepseek_ready and action.action not in {"cross_restaurant_blocked", "item_added"}:
+            polish_enabled = get_settings().abuu_deepseek_polish_enabled
+            if (
+                polish_enabled
+                and deepseek_ready
+                and action.action not in {"cross_restaurant_blocked", "item_added", "addons_prompt"}
+            ):
+                history_block = _format_conversation_history(session, user_text=user_text)
                 facts_block = json.dumps(
                     {
                         "intent": intent.name,
                         "facts_text": template,
-                        "user_message": user_text,
+                        "user_message": history_block,
                         "cart_items": len(session.cart or []),
                         "restaurant_bound": bool(session.restaurant_id),
                     },

@@ -84,10 +84,10 @@ class FactBundleLoader:
                 )
                 return bundle
             restaurant = db.get(Restaurant, rid)
-            items = AbuuOrderDraftService.list_menu_items(db, rid, limit=10, customer=customer)
+            items = AbuuOrderDraftService.list_menu_items(db, rid, limit=500, customer=customer)
             if restaurant and items:
                 lines = [f"{'Menu' if lang == 'en' else 'منيو'} — {localized_name(restaurant, lang)}"]
-                for item in items[:8]:
+                for item in items:
                     lines.append(f"• {localized_name(item, lang)} — {format_shekel(item.price_agorot)}")
                 bundle.menu_text = "\n".join(lines)
             return bundle
@@ -119,6 +119,7 @@ class FactBundleLoader:
         dietary_required = ctx.get("dietary_tags") or []
 
         facts: list[FoodItemFact] = []
+        menu_limit = 500
         for rid in restaurant_ids:
             restaurant = db.get(Restaurant, rid)
             if restaurant is None or restaurant.is_deleted or not restaurant.is_available:
@@ -127,7 +128,7 @@ class FactBundleLoader:
                 db,
                 rid,
                 categories=categories or None,
-                limit=4,
+                limit=menu_limit,
                 customer=customer,
                 allergen_avoid=allergen_avoid if isinstance(allergen_avoid, list) else None,
                 dietary_required=dietary_required if isinstance(dietary_required, list) else None,
@@ -143,10 +144,6 @@ class FactBundleLoader:
                         categories=list(categories or []),
                     )
                 )
-                if len(facts) >= 10:
-                    break
-            if len(facts) >= 10:
-                break
 
         bundle.food_items = facts
         for i, f in enumerate(facts, start=1):
@@ -174,6 +171,25 @@ class FactBundleLoader:
         bundle = FactBundle(intent="select_item")
         min_score = int(get_settings().abuu_voice_menu_fuzzy_min_score)
         candidates: list[tuple[RestaurantMenuItem, Restaurant, int]] = []
+
+        ctx = session.context or {}
+        if any(p in str(query) for p in ("نفس الشي", "نفس الطلب", "نفس الي")):
+            last = ctx.get("last_added_item") or {}
+            if last.get("menu_item_id"):
+                item = db.get(RestaurantMenuItem, str(last["menu_item_id"]))
+                rest = db.get(Restaurant, str(last.get("restaurant_id") or ""))
+                if item and rest:
+                    bundle.food_items = [
+                        FoodItemFact(
+                            menu_item_id=item.id,
+                            restaurant_id=rest.id,
+                            name=localized_name(item, lang),
+                            restaurant_name=localized_name(rest, lang),
+                            price_text=format_shekel(item.price_agorot),
+                        )
+                    ]
+                    bundle.internal_index["pick"] = {"menu_item_id": item.id, "restaurant_id": rest.id}
+                    return bundle
 
         search_pool = session.context.get("last_food_search") or []
         pool_rows = [

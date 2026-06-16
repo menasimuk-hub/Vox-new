@@ -81,6 +81,7 @@ class WaiterPipeline:
                 if not ctx.get("voice_clarification_sent"):
                     session.context = dict(ctx)
                     session.context["voice_clarification_sent"] = True
+                    session.context["clarification_count"] = int(ctx.get("clarification_count") or 0) + 1
                     save_session(abuu_db, session, message_id=message_id)
                     trace("OUT", preview=interpretation.clarification_prompt[:200], clarify=True)
                     return {
@@ -91,6 +92,8 @@ class WaiterPipeline:
                     }
 
         trace("IN", phone=phone, text=working_text[:200], voice=is_voice)
+
+        WaiterSessionStore.append_context_message(session, role="customer", text=working_text)
 
         voice_ctx = (session.context or {}).get("voice_interpretation") or {}
         allergy_uncertain = bool(voice_ctx.get("allergy_uncertain"))
@@ -141,6 +144,7 @@ class WaiterPipeline:
         )
         reply = wa_customer_sanitize(reply)
 
+        WaiterSessionStore.append_context_message(session, role="agent", text=reply)
         session.messages.append({"role": "user", "content": working_text})
         session.messages.append({"role": "assistant", "content": reply})
         if action.action == "item_added":
