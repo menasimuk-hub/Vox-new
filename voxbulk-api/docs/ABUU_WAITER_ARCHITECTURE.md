@@ -22,10 +22,12 @@ Raw STT transcript is only an input signal, not final customer intent.
 
 ## Feature flags
 
-- `ABUU_CONVERSATION_MODE=legacy` — skill router
-- `ABUU_CONVERSATION_MODE=orchestrator` — current production pipeline
-- `ABUU_CONVERSATION_MODE=waiter_v2` — new waiter pipeline
-- `ABUU_WAITER_V2_ALLOWLIST` — comma-separated E.164 for pilot phones
+- `ABUU_CONVERSATION_MODE=agent` — **v1 pilot default**: DeepSeek tool-calling agent (`AbuuAgentLoop`) for all text and voice turns
+- `ABUU_CONVERSATION_MODE=legacy` — skill router + agent for open chat only
+- `ABUU_CONVERSATION_MODE=orchestrator` — layered orchestrator + reply_composer
+- `ABUU_CONVERSATION_MODE=waiter_v2` — waiter pipeline; set `SMART_PIPELINE_ENABLED=true` for single-LLM SmartPipeline
+- Aliases for agent mode: `deepseek`, `gaza_agent`
+- `ABUU_WAITER_V2_ALLOWLIST` — comma-separated E.164 for pilot phones (waiter_v2 only)
 
 ## Observability
 

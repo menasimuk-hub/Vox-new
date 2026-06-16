@@ -2,19 +2,46 @@
 
 Deploy target for the restaurant portal and WhatsApp ordering pilot: **restaurant.yallasay.com** (not abuu.voxbulk.com).
 
-## Recommended `.env` (voxbulk-api)
+## Recommended `.env` (voxbulk-api) — agent mode (v1 pilot default)
+
+Use **one** `ABUU_CONVERSATION_MODE` line. DeepSeek Agent + Whisper STT handles all text and voice turns.
 
 ```env
 ABUU_MARKET_AGENT=ps-gaza
 ABUU_AGENT_ENABLED=true
-ABUU_CONVERSATION_MODE=orchestrator
+ABUU_CONVERSATION_MODE=agent
 ABUU_AGENT_WAITER_MODE=false
 ABUU_PILOT_ONLY=true
 ABUU_IGNORE_DISTANCE=true
 ABUU_DEEPSEEK_ENABLED=true
 ABUU_AGENT_MODEL=deepseek-chat
+SMART_PIPELINE_ENABLED=false
+ABUU_VOICE_INTERPRETATION_ENABLED=false
+ABUU_WAITER_TRACE_ENABLED=true
 VOX_UVICORN_WORKERS=2
 ```
+
+Verify the **running process**:
+
+```bash
+curl -s http://127.0.0.1:8000/health/abuu-runtime | python3 -m json.tool
+# expect: conversation_mode=agent, agent_mode=true, smart_pipeline_enabled=false
+```
+
+**Live feed (pretty IN → THINK → OUT):**
+
+```bash
+chmod +x scripts/vps-abuu-live-trace.sh scripts/vps-abuu-waiter-trace.sh
+./scripts/vps-abuu-live-trace.sh
+```
+
+Send WhatsApp while the script runs. Expect `ROUTE pipeline=agent` (not `smart`, `waiter_v2`, or `orchestrator`).
+
+| What you see | Meaning |
+|--------------|---------|
+| `ROUTE pipeline=orchestrator` or `smart` | Wrong mode — set `ABUU_CONVERSATION_MODE=agent` only once; remove duplicate mode lines |
+| `OUT forbidden_hit=True` | Old orchestrator reply_composer path — agent mode not active |
+| `agent_mode=false` in health | `ABUU_AGENT_ENABLED=false` or mode not `agent`/`deepseek`/`gaza_agent` |
 
 ## Deploy
 
@@ -108,19 +135,18 @@ curl -X POST http://127.0.0.1:8000/abuu/food/rebuild \
 ## Architecture (short)
 
 ```
-WhatsApp (text + voice transcript)
-  → inbound_service
+WhatsApp (text + voice)
+  → inbound_service → Whisper STT (voice)
+  → AbuuAgentLoop (when ABUU_CONVERSATION_MODE=agent) — DeepSeek tool loop
+  → legacy skill_router for substitution/name/delivery only in non-agent modes
   → AbuuConversationOrchestrator (when ABUU_CONVERSATION_MODE=orchestrator)
-       intent_router → fact_bundle (DB) → action_runner + restaurant_guard → reply_composer → wa_sanitize
-  → WaiterPipeline (when ABUU_CONVERSATION_MODE=waiter_v2)
-       normalization → conservative interpretation → intent → menu intel → guard → reply
-  → legacy skill_router for name/address/substitution steps only
+  → WaiterPipeline / SmartPipeline (when ABUU_CONVERSATION_MODE=waiter_v2)
   → MySQL abuu_wa_snapshots + /abuu/food/*
 ```
 
-## SmartPipeline + live trace (recommended pilot)
+## SmartPipeline (experimental / v2)
 
-Use **one** conversation mode line (do not duplicate `orchestrator` and `waiter_v2`):
+Use **one** conversation mode line when testing v2 (do not duplicate `orchestrator` and `waiter_v2`):
 
 ```env
 ABUU_AGENT_ENABLED=true
@@ -193,7 +219,8 @@ chmod +x scripts/vps-abuu-live-trace.sh
 ./scripts/vps-abuu-waiter-trace.sh
 ```
 
-Rollback: set `ABUU_CONVERSATION_MODE=orchestrator` and `./vox.sh restart`.
+Rollback to v1 agent: set `ABUU_CONVERSATION_MODE=agent`, `SMART_PIPELINE_ENABLED=false`, and `./vox.sh restart`.
+Rollback to orchestrator: set `ABUU_CONVERSATION_MODE=orchestrator` and `./vox.sh restart`.
 
 See also `docs/ABUU_WAITER_ARCHITECTURE.md`.
 

@@ -37,4 +37,5 @@ def test_health_abuu_runtime_returns_effective_flags(app_client):
     assert "git_sha" in data
     assert "conversation_mode" in data
     assert "smart_pipeline_enabled" in data
+    assert "agent_mode" in data
     assert "abuu_enabled" in data

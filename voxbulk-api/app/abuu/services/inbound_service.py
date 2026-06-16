@@ -82,8 +82,18 @@ def _voice_should_block_clarification(interpretation) -> bool:
 
 
 class AbuuInboundService:
+    _AGENT_CONVERSATION_MODES = frozenset({"agent", "deepseek", "gaza_agent"})
+
+    @staticmethod
+    def _agent_mode_enabled() -> bool:
+        settings = get_settings()
+        mode = str(settings.abuu_conversation_mode or "").lower()
+        return bool(settings.abuu_agent_enabled and mode in AbuuInboundService._AGENT_CONVERSATION_MODES)
+
     @staticmethod
     def _pipeline_name(phone: str) -> str:
+        if AbuuInboundService._agent_mode_enabled():
+            return "agent"
         settings = get_settings()
         if WaiterPipeline.enabled_for_phone(phone):
             return "smart" if settings.abuu_smart_pipeline_enabled else "waiter_v2"
@@ -182,10 +192,11 @@ class AbuuInboundService:
                 }
                 transcript_confidence = voice.confidence
                 use_waiter = WaiterPipeline.enabled_for_phone(phone)
+                use_agent = AbuuInboundService._agent_mode_enabled()
                 voice_stt_needs_clarification = bool(voice.needs_clarification)
                 if not voice.ok:
                     partial = str(voice.transcript or "").strip()
-                    if use_waiter and voice_stt_needs_clarification and partial:
+                    if (use_waiter or use_agent) and voice_stt_needs_clarification and partial:
                         text = partial
                     elif partial and not is_low_quality_transcript(partial):
                         text = partial
@@ -265,7 +276,7 @@ class AbuuInboundService:
                 if not text:
                     text = voice.transcript
                 voice_interpretation_payload: dict[str, Any] | None = None
-                if text and VoiceInterpretationService.enabled() and not use_waiter:
+                if text and VoiceInterpretationService.enabled() and not use_waiter and not use_agent:
                     from app.abuu.agent.session import load_session, save_session
 
                     agent_session = load_session(abuu_db, phone)
@@ -367,6 +378,22 @@ class AbuuInboundService:
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and text:
+                if AbuuInboundService._agent_mode_enabled():
+                    result = AbuuInboundService._run_agent_turn(
+                        abuu_db,
+                        main_db,
+                        phone=phone,
+                        text=text,
+                        session=session,
+                        lang=lang,
+                        message_id=message_id,
+                        org_id=org_id,
+                        input_source="voice",
+                        transcript_confidence=transcript_confidence,
+                    )
+                    abuu_db.commit()
+                    return result
+
                 if WaiterPipeline.enabled_for_phone(phone):
                     trace_route(
                         phone=phone,
@@ -486,6 +513,20 @@ class AbuuInboundService:
                 abuu_db.add(session)
             if result.get("handled"):
                 return result
+
+        if AbuuInboundService._agent_mode_enabled():
+            return AbuuInboundService._run_agent_turn(
+                abuu_db,
+                main_db,
+                phone=phone,
+                text=text,
+                session=session,
+                lang=lang,
+                message_id=message_id,
+                org_id=org_id,
+                input_source="voice" if transcript_confidence is not None else "text",
+                transcript_confidence=transcript_confidence,
+            )
 
         if WaiterPipeline.enabled_for_phone(phone):
             trace_route(
@@ -1065,7 +1106,51 @@ class AbuuInboundService:
         return False
 
     @staticmethod
+    def _run_agent_turn(
+        abuu_db: Session,
+        main_db: Session,
+        *,
+        phone: str,
+        text: str,
+        session,
+        lang: str,
+        message_id: str | None,
+        org_id: str | None,
+        input_source: str = "text",
+        transcript_confidence: float | None = None,
+    ) -> dict[str, Any]:
+        trace_route(
+            phone=phone,
+            text=text[:120],
+            pipeline="agent",
+            voice=input_source == "voice",
+        )
+        if input_source == "voice" and not get_settings().abuu_agent_waiter_mode:
+            AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=text,
+            message_id=message_id,
+            org_id=org_id,
+            input_source=input_source,
+        )
+        reply = result.get("reply")
+        if reply:
+            AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+        if session:
+            session.last_message_id = message_id
+            abuu_db.add(session)
+        payload = dict(result)
+        if transcript_confidence is not None:
+            payload["transcript_confidence"] = transcript_confidence
+        return payload
+
+    @staticmethod
     def _should_use_orchestrator(session) -> bool:
+        if AbuuInboundService._agent_mode_enabled():
+            return False
         if not AbuuConversationOrchestrator.conversation_enabled():
             return False
         step = session.step if session else None
@@ -1218,6 +1303,8 @@ class AbuuInboundService:
 
     @staticmethod
     def _should_use_agent_text_flow(main_db: Session, text: str, session) -> bool:
+        if AbuuInboundService._agent_mode_enabled():
+            return _deepseek_platform_ready(main_db)
         if not get_settings().abuu_agent_enabled:
             return False
         if AbuuInboundService._should_use_legacy_text_flow(text, session):

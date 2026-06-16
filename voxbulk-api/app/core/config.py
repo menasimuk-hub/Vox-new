@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     abuu_agent_max_turns: int = Field(default=5, alias="ABUU_AGENT_MAX_TURNS")
     abuu_agent_max_history: int = Field(default=16, alias="ABUU_AGENT_MAX_HISTORY")
     abuu_agent_waiter_mode: bool = Field(default=True, alias="ABUU_AGENT_WAITER_MODE")
-    abuu_conversation_mode: str = Field(default="legacy", alias="ABUU_CONVERSATION_MODE")
+    abuu_conversation_mode: str = Field(default="legacy", alias="ABUU_CONVERSATION_MODE")  # agent | legacy | orchestrator | waiter_v2
     abuu_agent_max_concurrent_llm: int = Field(default=30, alias="ABUU_AGENT_MAX_CONCURRENT_LLM")
     abuu_market_agent: str = Field(default="ps-gaza", alias="ABUU_MARKET_AGENT")
     abuu_agent_country: str = Field(default="ps", alias="ABUU_AGENT_COUNTRY")
