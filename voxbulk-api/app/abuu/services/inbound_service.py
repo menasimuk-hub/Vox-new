@@ -151,31 +151,35 @@ class AbuuInboundService:
                     payload=voice_meta,
                 )
                 if not voice.ok:
-                    context = {}
-                    if session:
-                        context = AbuuInboundService._load_context(session)
-                    if not context.get("voice_clarification_sent"):
-                        AbuuInboundService._send_reply(
-                            main_db,
-                            phone,
-                            voice_low_confidence_message(lang),
-                            org_id=org_id,
-                        )
-                        context["voice_clarification_sent"] = True
+                    partial = str(voice.transcript or "").strip()
+                    if partial and not is_low_quality_transcript(partial):
+                        text = partial
+                    else:
+                        context = {}
                         if session:
-                            AbuuOrderDraftService.upsert_session(
-                                abuu_db,
-                                phone=phone,
-                                step=session.step,
-                                context=context,
-                                active_order_id=session.active_order_id,
-                                message_id=message_id,
+                            context = AbuuInboundService._load_context(session)
+                        if not context.get("voice_clarification_sent"):
+                            AbuuInboundService._send_reply(
+                                main_db,
+                                phone,
+                                voice_low_confidence_message(lang),
+                                org_id=org_id,
                             )
-                    if session:
-                        session.last_message_id = message_id
-                        abuu_db.add(session)
-                    abuu_db.commit()
-                    return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
+                            context["voice_clarification_sent"] = True
+                            if session:
+                                AbuuOrderDraftService.upsert_session(
+                                    abuu_db,
+                                    phone=phone,
+                                    step=session.step,
+                                    context=context,
+                                    active_order_id=session.active_order_id,
+                                    message_id=message_id,
+                                )
+                        if session:
+                            session.last_message_id = message_id
+                            abuu_db.add(session)
+                        abuu_db.commit()
+                        return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
                 if is_low_quality_transcript(voice.transcript):
                     AbuuInboundService._send_reply(
                         main_db,
@@ -210,7 +214,10 @@ class AbuuInboundService:
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and text:
-                if AbuuInboundService._should_use_voice_agent(main_db):
+                use_voice_agent = AbuuInboundService._should_use_voice_agent(main_db) and not AbuuInboundService._should_use_legacy_text_flow(
+                    text, session
+                )
+                if use_voice_agent:
                     if not get_settings().abuu_agent_waiter_mode:
                         AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
                     result = AbuuAgentLoop.run(

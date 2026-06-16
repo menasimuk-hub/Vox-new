@@ -125,10 +125,11 @@ class AbuuVoiceService:
                 language=_stt_language(language),
             )
             confidence = _estimate_confidence(transcript)
-            ok = bool(transcript.strip()) and confidence >= MIN_CONFIDENCE
+            cleaned = transcript.strip()
+            ok = bool(cleaned) and not is_low_quality_transcript(cleaned)
             return AbuuVoiceTranscription(
                 ok=ok,
-                transcript=transcript.strip(),
+                transcript=cleaned,
                 confidence=confidence,
                 media_url=media_url,
                 content_type=resolved_type or content_type,

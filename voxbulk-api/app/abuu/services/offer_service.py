@@ -162,14 +162,12 @@ def format_offers_list(
             line = f"{idx}. {title} @ {rest_name} — {offer_price}"
             if offer.original_price_agorot > offer.offer_price_agorot:
                 line += f" (was {original})"
-            line += f" [id={offer.id}] [restaurant_id={offer.restaurant_id}]"
             if tag_text:
                 line += f" ({tag_text})"
         else:
             line = f"{idx}. {title} — {rest_name} — {offer_price}"
             if offer.original_price_agorot > offer.offer_price_agorot:
                 line += f" (بدل {original})"
-            line += f" [id={offer.id}] [restaurant_id={offer.restaurant_id}]"
             if tag_text:
                 line += f" ({tag_text})"
         lines.append(line)

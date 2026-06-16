@@ -128,6 +128,11 @@ def classify_regex(
     return SkillClassification(skill=SKILL_BUILD_CART, categories=[], item_query=normalized, confidence=0.4, source="regex")
 
 
+_ORDER_STEPS = frozenset(
+    {"awaiting_name", "awaiting_preference", "choosing_restaurant", "browsing", "awaiting_delivery", "awaiting_substitution"}
+)
+
+
 def classify_turn(
     main_db: Session,
     *,
@@ -139,6 +144,10 @@ def classify_turn(
 ) -> SkillClassification:
     regex_result = classify_regex(text, step=step, has_session=has_session)
     if not _deepseek_enabled() or not str(text or "").strip():
+        return regex_result
+
+    # Fast path: structured ordering steps and confident regex — skip extra LLM call.
+    if step in _ORDER_STEPS or regex_result.confidence >= 0.85:
         return regex_result
 
     trivial = regex_result.skill in {

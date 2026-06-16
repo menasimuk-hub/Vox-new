@@ -94,6 +94,7 @@ def format_restaurant_list(
     lang: str,
     page: int = 0,
     page_size: int = 3,
+    include_ids: bool = False,
 ) -> str:
     if not ranked:
         if lang == "en":
@@ -105,34 +106,40 @@ def format_restaurant_list(
     lines: list[str] = []
     show_distance = not ignore_delivery_distance()
     if lang == "en":
-        lines.append("Nearby restaurants:" if show_distance else "Available restaurants:")
+        lines.append("🍽️ Available restaurants:" if not show_distance else "🍽️ Nearby restaurants:")
     else:
-        lines.append("المطاعم القريبة:" if show_distance else "المطاعم المتاحة:")
+        lines.append("🍽️ المطاعم المتاحة:" if not show_distance else "🍽️ المطاعم القريبة:")
     for idx, row in enumerate(page_rows, start=start + 1):
         name = localized_name(row.restaurant, lang)
         rid = row.restaurant.id
-        status = "open" if row.is_open else "closed"
+        status_icon = "🟢" if row.is_open else "🔴"
         if lang == "en":
+            status = "open" if row.is_open else "closed"
             if show_distance:
-                lines.append(f"{idx}. {name} — {row.distance_km:.1f} km ({status}) [id={rid}]")
+                line = f"{idx}. {status_icon} {name} — {row.distance_km:.1f} km ({status})"
             else:
-                lines.append(f"{idx}. {name} ({status}) [id={rid}]")
+                line = f"{idx}. {status_icon} {name}"
         else:
             st = "مفتوح" if row.is_open else "مغلق"
             if show_distance:
-                lines.append(f"{idx}. {name} — {row.distance_km:.1f} كم ({st}) [id={rid}]")
+                line = f"{idx}. {status_icon} {name} — {row.distance_km:.1f} كم ({st})"
             else:
-                lines.append(f"{idx}. {name} ({st}) [id={rid}]")
+                line = f"{idx}. {status_icon} {name}"
+            if not row.is_open:
+                line += " (مغلق)"
+        if include_ids:
+            line += f" [id={rid}]"
+        lines.append(line)
     if start + page_size < len(ranked):
         if lang == "en":
-            lines.append("Say **more** for more restaurants, or reply with a restaurant name.")
+            lines.append("Say **more** for more restaurants, or reply with a number or name.")
         else:
-            lines.append("اكتب **المزيد** لمطاعم أخرى، أو اسم المطعم.")
+            lines.append("💬 اكتب **المزيد** أو أرسل رقم/اسم المطعم.")
     else:
         if lang == "en":
-            lines.append("Reply with a restaurant name or tell me what you'd like to eat.")
+            lines.append("💬 Reply with a restaurant number or name, or tell me what you're craving 😋")
         else:
-            lines.append("أرسل اسم المطعم أو ما تحب أن تأكله.")
+            lines.append("💬 قول رقم المطعم أو اسمه، أو احكيلي شو جوعان 😋")
     return "\n".join(lines)
 
 

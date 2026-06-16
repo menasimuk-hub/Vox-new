@@ -353,7 +353,7 @@ def test_legacy_router_when_agent_disabled(app_client):
     assert os.environ.get("ABUU_AGENT_ENABLED", "false") == "false"
 
 
-def test_list_restaurants_includes_ids(abuu_seeded):
+def test_list_restaurants_hides_internal_ids(abuu_seeded):
     _db, _restaurant_id, _restaurant = abuu_seeded
     from app.core.abuu_database import get_abuu_sessionmaker
 
@@ -362,7 +362,8 @@ def test_list_restaurants_includes_ids(abuu_seeded):
         customer = AbuuOrderDraftService.get_or_create_customer(db, phone)
         session = load_session(db, phone)
         result = execute_tool(db, session, customer=customer, tool_name="list_restaurants", tool_input={})
-        assert "[id=abuu-rest-" in result
+        assert "abuu-rest-" in result or "دجاج" in result or "chicken" in result.lower()
+        assert "[id=" not in result
 
 
 def test_select_restaurant_by_list_number(abuu_seeded):

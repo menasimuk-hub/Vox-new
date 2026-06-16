@@ -282,9 +282,9 @@ class AbuuSkillRouter:
             )
             name = picked.name_en if ctx.lang == "en" else picked.name_ar
             if ctx.lang == "en":
-                reply = f"Great choice — {name}. What would you like to eat?"
+                reply = f"Nice choice — {name}! 😋 What would you like to eat?"
             else:
-                reply = f"اختيار رائع — {name}. ماذا تحب أن تأكل؟"
+                reply = f"اختيار حلو — {name}! 😋 شو بدك تاكل؟"
             return SkillResult(
                 skill=SKILL_RESTAURANT_SEARCH,
                 ok=True,
@@ -374,9 +374,9 @@ class AbuuSkillRouter:
                 for r in ranked
             ]
             if ctx.lang == "en":
-                prefix = "Pick a restaurant first — here are your options:"
+                prefix = "Great — pick your restaurant 🍽️"
             else:
-                prefix = "اختار المطعم أولاً — هذي الخيارات:"
+                prefix = "تمام! اختار مطعمك 🍽️"
             reply = prefix + "\n\n" + format_restaurant_list(
                 ranked, lang=ctx.lang, page=0, page_size=max(15, len(ranked))
             )

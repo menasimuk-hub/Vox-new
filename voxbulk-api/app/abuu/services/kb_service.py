@@ -155,21 +155,24 @@ def detect_kb_topic(text: str) -> str | None:
 def format_greeting(settings: ResolvedSettings, *, first_name: str | None, lang: str, saved_address: str | None = None) -> str:
     template = settings.greeting_template_en if lang == "en" else settings.greeting_template_ar
     name = first_name or ("there" if lang == "en" else "صديقي")
-    if template:
-        msg = template.replace("{name}", name)
+    legacy_ar = "مرحباً {name}، ماذا تحب أن تأكل اليوم؟"
+    legacy_en = "Hello {name}, what would you like to eat today?"
+    custom = str(template or "").strip()
+    if custom and custom not in {legacy_ar, legacy_en}:
+        msg = custom.replace("{name}", name)
     elif lang == "en":
-        msg = f"Hello {name}, what would you like to eat today?"
+        msg = f"Hey {name}! 😊 What are you craving today?"
     else:
-        msg = f"مرحباً {name}، ماذا تحب أن تأكل اليوم؟"
+        msg = f"أهلاً {name}! 😊 شو جوعان اليوم؟"
     if lang == "en":
-        msg += "\nTell me chicken, fish, meat, salad, drinks, chips, dessert, or vegetarian."
+        msg += "\n🍗 chicken • 🐟 fish • 🥩 meat • 🥗 salad • 🥤 drinks • 🍰 dessert • 🌱 vegan"
     else:
-        msg += "\nاكتب: دجاج، سمك، لحم، سلطة، مشروبات، بطاطا، حلويات، أو نباتي."
+        msg += "\n🍗 دجاج • 🐟 سمك • 🥩 لحم • 🥗 سلطة • 🥤 مشروبات • 🍰 حلويات • 🌱 نباتي"
     if saved_address:
         if lang == "en":
-            msg += f"\nWe'll deliver to your saved address: {saved_address}"
+            msg += f"\n📍 Delivering to: {saved_address}"
         else:
-            msg += f"\nسنوصل إلى عنوانك المحفوظ: {saved_address}"
+            msg += f"\n📍 نوصلك على: {saved_address}"
     return msg
 
 

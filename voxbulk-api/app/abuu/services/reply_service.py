@@ -38,22 +38,22 @@ def personalized_greeting_message(
 ) -> str:
     name = first_name or ("there" if lang == "en" else "صديقي")
     if lang == "en":
-        lines = [f"Hello {name}, what would you like to eat today?"]
-        lines.append("Tell me chicken, fish, meat, salad, drinks, dessert, or vegetarian.")
+        lines = [f"Hey {name}! 😊 What are you craving today?"]
+        lines.append("🍗 chicken • 🐟 fish • 🥩 meat • 🥗 salad • 🥤 drinks • 🍰 dessert • 🌱 vegan")
         if saved_address:
-            lines.append(f"We'll deliver to your saved address: {saved_address}")
+            lines.append(f"📍 Delivering to: {saved_address}")
         return "\n".join(lines)
-    lines = [f"مرحباً {name}، شو حابب تاكل اليوم؟"]
-    lines.append("اكتب: دجاج، سمك، لحم، سلطة، مشروبات، حلويات، أو نباتي.")
+    lines = [f"أهلاً {name}! 😊 شو جوعان اليوم؟"]
+    lines.append("🍗 دجاج • 🐟 سمك • 🥩 لحم • 🥗 سلطة • 🥤 مشروبات • 🍰 حلويات • 🌱 نباتي")
     if saved_address:
-        lines.append(f"سنوصل إلى عنوانك المحفوظ: {saved_address}")
+        lines.append(f"📍 نوصلك على: {saved_address}")
     return "\n".join(lines)
 
 
 def ask_name_message(lang: str) -> str:
     if lang == "en":
-        return "Welcome! What is your first name?"
-    return "أهلاً! شو اسمك؟"
+        return "Welcome! 👋 What's your first name?"
+    return "أهلاً! 👋 شو اسمك؟"
 
 
 def ask_preference_message(*, first_name: str | None, lang: str) -> str:
@@ -78,14 +78,14 @@ def already_confirmed_message(lang: str) -> str:
 
 def voice_low_confidence_message(lang: str) -> str:
     if lang == "en":
-        return "I couldn't understand the voice note clearly. Please type your message."
-    return "ما فهمت الرسالة الصوتية منيح. اكتب طلبك أو أعد إرسال مقطع أوضح."
+        return "🎤 I couldn't catch that voice note clearly — try again or tell me what you'd like (chicken, fish, meat…)."
+    return "🎤 ما سمعت المقطع منيح — جرّب تاني أو قولّي شو جوعان (دجاج، سمك، لحم…)."
 
 
 def voice_unclear_transcript_message(lang: str) -> str:
     if lang == "en":
-        return "I couldn't make out your voice note. What would you like to order? You can type it or send a clearer voice note."
-    return "ما قدرت أفهم الرسالة الصوتية. شو حابب تطلب؟ اكتب طلبك أو ابعت رسالة صوتية أوضح."
+        return "🎤 I didn't quite get that — what would you like? Send another voice note or type it."
+    return "🎤 ما فهمت عليك — شو حابب تطلب؟ ابعت مقطع تاني أو اكتبلي."
 
 
 def preference_menu_message(
