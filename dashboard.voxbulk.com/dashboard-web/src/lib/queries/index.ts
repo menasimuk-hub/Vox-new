@@ -186,7 +186,7 @@ export type FeedbackResultsPayload = {
     unhappy_count?: number;
   };
   aggregates?: FeedbackAggregateBlock[];
-  weekly_trend?: Array<{ week: string; satisfaction?: number | null; responses?: number }>;
+  weekly_trend?: Array<{ week: string; satisfaction?: number | null; positive?: number | null; responses?: number }>;
   respondents?: FeedbackRespondent[];
   open_comments?: FeedbackOpenComment[];
   rows: Array<{

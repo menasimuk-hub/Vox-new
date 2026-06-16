@@ -238,6 +238,8 @@ def build_weekly_trend(
         ]
         positive = 0
         rated = 0
+        recommend_yes = 0
+        recommend_total = 0
         for sess in completed_in_week:
             for resp in responses_by_session.get(sess.id, []):
                 text = _norm(resp.answer_text_en or resp.answer_text)
@@ -246,11 +248,20 @@ def build_weekly_trend(
                     rated += 1
                     if pge in {"excellent", "good"}:
                         positive += 1
+                yn = classify_yn(text)
+                qk = _norm(resp.question_key)
+                if yn or "recommend" in qk:
+                    if yn:
+                        recommend_total += 1
+                        if yn == "yes":
+                            recommend_yes += 1
         satisfaction = round(positive / rated * 100) if rated else None
+        recommend_pct = round(recommend_yes / recommend_total * 100) if recommend_total else None
         weeks.append(
             {
                 "week": label,
                 "satisfaction": satisfaction,
+                "positive": recommend_pct if recommend_pct is not None else satisfaction,
                 "responses": len(completed_in_week),
             }
         )
@@ -265,11 +276,19 @@ def build_respondents(
     *,
     limit: int = 200,
 ) -> list[dict[str, Any]]:
-    completed = [s for s in sessions if str(s.status) == "completed"]
-    completed.sort(key=lambda s: s.completed_at or s.started_at, reverse=True)
+    def _session_sort_key(sess: FeedbackSession) -> tuple[int, float]:
+        dt = sess.completed_at or sess.started_at
+        ts = -dt.timestamp() if dt else 0.0
+        priority = 0 if str(sess.status) == "completed" else 1
+        return (priority, ts)
+
+    with_responses = [s for s in sessions if responses_by_session.get(s.id)]
+    with_responses.sort(key=_session_sort_key)
     rows: list[dict[str, Any]] = []
-    for sess in completed[:limit]:
+    for sess in with_responses[:limit]:
         answers_raw = responses_by_session.get(sess.id, [])
+        if not answers_raw:
+            continue
         answers: list[dict[str, Any]] = []
         quote = ""
         for resp in sorted(answers_raw, key=lambda r: r.step_order):
@@ -299,6 +318,8 @@ def build_respondents(
                 "location_id": sess.location_id,
                 "location_name": loc.name if loc else None,
                 "completed_at": sess.completed_at.isoformat() if sess.completed_at else None,
+                "started_at": sess.started_at.isoformat() if sess.started_at else None,
+                "session_status": str(sess.status or ""),
                 "is_unhappy": unhappy,
                 "flagged": unhappy,
                 "sentiment_label": sentiment,
