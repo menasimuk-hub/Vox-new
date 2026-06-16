@@ -93,7 +93,11 @@ class AbuuInboundService:
 
     @staticmethod
     def _smart_agent_enabled_for_phone(phone: str) -> bool:
-        return SmartWaiterAgent.enabled_for_phone(phone)
+        try:
+            return SmartWaiterAgent.enabled_for_phone(phone)
+        except Exception:
+            logger.exception("smart_agent_gate_failed_falling_back phone=%s", phone)
+            return False
 
     @staticmethod
     def _pipeline_name(phone: str) -> str:
@@ -386,20 +390,32 @@ class AbuuInboundService:
 
             if message_type == "voice" and text:
                 if AbuuInboundService._smart_agent_enabled_for_phone(phone):
-                    result = AbuuInboundService._run_smart_agent_turn(
-                        abuu_db,
-                        main_db,
-                        phone=phone,
-                        text=text,
-                        session=session,
-                        lang=lang,
-                        message_id=message_id,
-                        org_id=org_id,
-                        input_source="voice",
-                        transcript_confidence=transcript_confidence,
-                    )
-                    abuu_db.commit()
-                    return result
+                    try:
+                        result = AbuuInboundService._run_smart_agent_turn(
+                            abuu_db,
+                            main_db,
+                            phone=phone,
+                            text=text,
+                            session=session,
+                            lang=lang,
+                            message_id=message_id,
+                            org_id=org_id,
+                            input_source="voice",
+                            transcript_confidence=transcript_confidence,
+                        )
+                        abuu_db.commit()
+                        return result
+                    except Exception:
+                        logger.exception(
+                            "smart_agent_voice_failed_falling_back_to_agent phone=%s message_id=%s",
+                            phone,
+                            message_id,
+                        )
+                        try:
+                            abuu_db.rollback()
+                        except Exception:
+                            logger.exception("smart_agent_voice_rollback_failed phone=%s", phone)
+                        # Fall through to the legacy agent path below.
 
                 if AbuuInboundService._agent_mode_enabled():
                     result = AbuuInboundService._run_agent_turn(
@@ -538,18 +554,30 @@ class AbuuInboundService:
                 return result
 
         if AbuuInboundService._smart_agent_enabled_for_phone(phone):
-            return AbuuInboundService._run_smart_agent_turn(
-                abuu_db,
-                main_db,
-                phone=phone,
-                text=text,
-                session=session,
-                lang=lang,
-                message_id=message_id,
-                org_id=org_id,
-                input_source="voice" if transcript_confidence is not None else "text",
-                transcript_confidence=transcript_confidence,
-            )
+            try:
+                return AbuuInboundService._run_smart_agent_turn(
+                    abuu_db,
+                    main_db,
+                    phone=phone,
+                    text=text,
+                    session=session,
+                    lang=lang,
+                    message_id=message_id,
+                    org_id=org_id,
+                    input_source="voice" if transcript_confidence is not None else "text",
+                    transcript_confidence=transcript_confidence,
+                )
+            except Exception:
+                logger.exception(
+                    "smart_agent_text_failed_falling_back_to_agent phone=%s message_id=%s",
+                    phone,
+                    message_id,
+                )
+                try:
+                    abuu_db.rollback()
+                except Exception:
+                    logger.exception("smart_agent_text_rollback_failed phone=%s", phone)
+                # Fall through to the legacy agent path below.
 
         if AbuuInboundService._agent_mode_enabled():
             return AbuuInboundService._run_agent_turn(

@@ -414,8 +414,28 @@ def _migration_hint_from_db_error(exc: BaseException) -> str | None:
     return None
 
 
+def _log_db_exception(label: str, request: Request, exc: BaseException) -> None:
+    sql_error = str(exc)[:400]
+    dbapi_args = ""
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        try:
+            dbapi_args = str(getattr(orig, "args", orig))[:400]
+        except Exception:
+            dbapi_args = repr(orig)[:400]
+    get_logger(__name__).exception(
+        "%s path=%s method=%s sql_error=%r dbapi=%r",
+        label,
+        request.url.path,
+        request.method,
+        sql_error,
+        dbapi_args,
+    )
+
+
 @app.exception_handler(OperationalError)
 async def db_operational_error_handler(request: Request, exc: OperationalError):
+    _log_db_exception("db_operational_error", request, exc)
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs and DATABASE_URL."
     response = JSONResponse(status_code=503, content={"detail": detail})
@@ -424,6 +444,7 @@ async def db_operational_error_handler(request: Request, exc: OperationalError):
 
 @app.exception_handler(ProgrammingError)
 async def db_programming_error_handler(request: Request, exc: ProgrammingError):
+    _log_db_exception("db_programming_error", request, exc)
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs."
     response = JSONResponse(status_code=503, content={"detail": detail})

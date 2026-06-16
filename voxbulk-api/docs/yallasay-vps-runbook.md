@@ -336,3 +336,38 @@ chmod +x scripts/vps-abuu-voice-stt-check.sh
 **Note:** Customer-stated `allergy_note` on an order is separate from item-level `allergen_tags_json` on menu items. The waiter captures the note at confirm time; tags drive search safety.
 
 Future cities: add rows to `abuu_market_agents` and set `ABUU_MARKET_AGENT`.
+
+## Diagnosing 503s on Telnyx WhatsApp webhook
+
+If `tail -n 200 /www/wwwlogs/api.voxbulk.com.log | grep '/telnyx/webhooks/messages'` shows repeated
+`503 64 "-" "telnyx-webhooks"` entries, every inbound WhatsApp is dying on a database
+`OperationalError`/`ProgrammingError`. Since the upgrade adding `_log_db_exception`, the actual
+SQL error is now written to `/tmp/voxbulk-api.log`:
+
+```bash
+grep -E 'db_operational_error|db_programming_error' /tmp/voxbulk-api.log | tail -n 20
+```
+
+If the line contains `Unknown column`, `doesn't exist`, or `no such table`, force-run both
+Alembic chains and restart:
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+alembic -c alembic_abuu.ini current
+alembic -c alembic_abuu.ini upgrade head
+alembic current
+alembic upgrade head
+deactivate
+cd /www/voxbulk && ./vox.sh restart
+```
+
+Then re-send a WhatsApp and re-check:
+
+```bash
+grep -E 'db_operational_error|db_programming_error|smart_agent_(text|voice)_failed' \
+  /tmp/voxbulk-api.log | tail -n 20
+```
+
+The smart-agent pipeline auto-falls back to the legacy `agent` pipeline if any tool turn raises,
+so customers receive a reply (legacy "v1") even while the smart-agent issue is being debugged.
+Look for `smart_agent_text_failed_falling_back_to_agent` to confirm a fallback happened.
