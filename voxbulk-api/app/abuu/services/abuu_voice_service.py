@@ -127,6 +127,13 @@ class AbuuVoiceService:
             confidence = _estimate_confidence(transcript)
             cleaned = transcript.strip()
             ok = bool(cleaned) and not is_low_quality_transcript(cleaned)
+            logger.info(
+                "abuu_wa_trace STT phone=%s transcript=%r confidence=%.2f ok=%s",
+                customer_phone,
+                cleaned,
+                confidence,
+                ok,
+            )
             return AbuuVoiceTranscription(
                 ok=ok,
                 transcript=cleaned,
@@ -208,4 +215,10 @@ class AbuuVoiceService:
                         return text
             except Exception:
                 logger.warning("abuu_stt_provider_failed provider=%s", provider, exc_info=True)
+        logger.warning(
+            "abuu_stt_all_providers_failed path=%s providers=%s deepinfra=%s",
+            audio_path,
+            ",".join(providers),
+            DeepInfraProviderService.is_configured(main_db),
+        )
         return ""

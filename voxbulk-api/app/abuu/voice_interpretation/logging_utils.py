@@ -9,4 +9,4 @@ logger = logging.getLogger(__name__)
 
 
 def log_voice_interpretation(payload: dict[str, Any]) -> None:
-    logger.info("abuu_voice_interpretation %s", payload)
+    logger.info("abuu_wa_trace INTERPRET %s", payload)

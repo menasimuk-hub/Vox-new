@@ -154,6 +154,19 @@ Config (`.env`):
 
 After deploy with orchestrator mode, inspect logs for `abuu_voice_interpretation` fields when testing voice notes.
 
+**Live trace (after deploy with `abuu_wa_trace` logging):**
+
+```bash
+tail -f /tmp/voxbulk-api.log | grep --line-buffered abuu_wa_trace
+```
+
+**Full STT diagnostic on VPS:**
+
+```bash
+chmod +x scripts/vps-abuu-voice-stt-check.sh
+./scripts/vps-abuu-voice-stt-check.sh
+```
+
 **Note:** Customer-stated `allergy_note` on an order is separate from item-level `allergen_tags_json` on menu items. The waiter captures the note at confirm time; tags drive search safety.
 
 Future cities: add rows to `abuu_market_agents` and set `ABUU_MARKET_AGENT`.

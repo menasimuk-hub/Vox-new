@@ -124,6 +124,12 @@ class AbuuInboundService:
             lang = customer.preferred_language or "ar"
             transcript_confidence: float | None = None
             voice_meta: dict[str, Any] = {}
+            logger.info(
+                "abuu_wa_trace IN phone=%s type=%s text=%r",
+                phone,
+                message_type,
+                text[:200] if message_type == "text" else "[voice-note]",
+            )
 
             if message_type == "voice":
                 voice = AbuuVoiceService.transcribe_inbound(
@@ -1058,12 +1064,19 @@ class AbuuInboundService:
 
     @staticmethod
     def _send_reply(main_db: Session, to_phone: str, body: str, *, org_id: str | None) -> None:
+        reply_text = wa_customer_sanitize(body)
         result = TelnyxMessagingService.send_whatsapp(
             main_db,
             to_number=to_phone,
-            body=wa_customer_sanitize(body),
+            body=reply_text,
             org_id=org_id,
             meter_usage=False,
+        )
+        logger.info(
+            "abuu_wa_trace OUT to=%s ok=%s body=%r",
+            to_phone,
+            result.ok,
+            reply_text[:300],
         )
         if not result.ok:
             logger.warning("abuu_wa_reply_failed to=%s status=%s detail=%s", to_phone, result.status, result.detail)
