@@ -1134,8 +1134,6 @@ class BillingService:
         sub.external_customer_id = customer_id or None
         sub.external_subscription_id = external_subscription_id or None
         sub.updated_at = now
-        from app.services.billing_access_service import BillingAccessService
-
         BillingAccessService.apply_mandate_setup_access(
             db, sub=sub, mandate_id=mandate_id, scheme=mandate_scheme
         )
@@ -1437,8 +1435,6 @@ class BillingService:
                 mandate_scheme = str(mandate_payload.get("scheme") or "").strip() or None
         except Exception:
             logger.warning("gocardless_mandate_scheme_lookup_failed mandate_id=%s", new_mandate_id)
-
-        from app.services.billing_access_service import BillingAccessService
 
         BillingAccessService.apply_mandate_setup_access(
             db, sub=sub, mandate_id=new_mandate_id, scheme=mandate_scheme
