@@ -15,6 +15,7 @@ def build_menu_query(intent: AbuuIntent, interpretation: InterpretationResult | 
                 categories.append(hint)
     q = MenuQuery.from_categories(categories or None, limit=12)
     text = (interpretation.normalized_transcript if interpretation else "") or (intent.item_query or "")
+    q.text_query = str(text or "").strip()
     low = text.lower()
     if "cola" in low or "كولا" in low:
         q.drink_only = True

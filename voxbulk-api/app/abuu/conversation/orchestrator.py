@@ -12,6 +12,12 @@ from app.abuu.agent.session import load_session, save_session
 from app.abuu.conversation.action_runner import ActionRunner
 from app.abuu.conversation.fact_bundle import FactBundleLoader
 from app.abuu.conversation.intent_router import IntentRouter
+from app.abuu.menu_intelligence.query_expansion import (
+    UNKNOWN_QUERY_REPLY_AR,
+    expand_food_query,
+    expansion_context_payload,
+    intent_with_expansion,
+)
 from app.abuu.conversation.reply_composer import ReplyComposer
 from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.models.entities import CustomerOrder
@@ -56,7 +62,30 @@ class AbuuConversationOrchestrator:
             session.context["kitchen_allergy_note"] = dietary.kitchen_note
 
         intent = IntentRouter.classify(main_db, text, session)
-        facts = FactBundleLoader.load(abuu_db, intent, session, customer=customer)
+        expanded_query_text: str | None = None
+        if intent.name in {"food_search", "select_item"}:
+            expansion = expand_food_query(main_db, raw=text)
+            session.context = dict(session.context or {})
+            session.context["last_query_expansion"] = expansion_context_payload(expansion)
+            if expansion.unknown:
+                save_session(abuu_db, session, message_id=message_id)
+                return {
+                    "handled": True,
+                    "action": "query_clarification",
+                    "reply": UNKNOWN_QUERY_REPLY_AR,
+                    "intent": intent.name,
+                }
+            intent = intent_with_expansion(intent, expansion)
+            expanded_query_text = expansion.expanded
+
+        facts = FactBundleLoader.load(
+            abuu_db,
+            intent,
+            session,
+            customer=customer,
+            main_db=main_db,
+            query_text=expanded_query_text,
+        )
         action = ActionRunner.run(abuu_db, intent, facts, session, customer=customer, order=order)
 
         if action.delegate == "confirm":

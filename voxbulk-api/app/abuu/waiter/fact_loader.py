@@ -22,6 +22,8 @@ class WaiterFactLoader:
         *,
         customer: CustomerProfile,
         interpretation: InterpretationResult | None = None,
+        main_db: Session | None = None,
+        query_text: str | None = None,
     ) -> FactBundle:
         if interpretation and interpretation.category_hints and intent.name == "food_search":
             intent = AbuuIntent(
@@ -32,6 +34,8 @@ class WaiterFactLoader:
                 source=intent.source,
             )
         menu_query = build_menu_query(intent, interpretation)
+        if not query_text:
+            query_text = menu_query.text_query or intent.item_query or ""
         trace(
             "MENU",
             intent=intent.name,
@@ -39,6 +43,13 @@ class WaiterFactLoader:
             drink_only=getattr(menu_query, "drink_only", False),
             offer_only=getattr(menu_query, "offer_only", False),
         )
-        bundle = FactBundleLoader.load(abuu_db, intent, session, customer=customer)
+        bundle = FactBundleLoader.load(
+            abuu_db,
+            intent,
+            session,
+            customer=customer,
+            main_db=main_db,
+            query_text=query_text,
+        )
         trace("MENU", intent=intent.name, items=len(bundle.food_items))
         return bundle

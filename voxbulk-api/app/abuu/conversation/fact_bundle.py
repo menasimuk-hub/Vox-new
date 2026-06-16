@@ -13,6 +13,12 @@ from app.abuu.market.registry import get_market_agent, marketplace_scope
 from app.abuu.models.entities import Restaurant, RestaurantMenuItem
 from app.abuu.services.offer_service import AbuuOfferService, format_offers_list
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
+from app.abuu.menu_intelligence.arabic_lexicon import expand_food_categories
+from app.abuu.menu_intelligence.query_expansion import (
+    UNKNOWN_QUERY_REPLY_AR,
+    apply_food_synonyms,
+    resolve_search_query,
+)
 from app.abuu.services.preference_service import match_food_categories
 from app.abuu.services.reply_service import format_shekel, localized_name
 from app.abuu.services.restaurant_discovery_service import RankedRestaurant, format_restaurant_list, rank_restaurants
@@ -49,12 +55,28 @@ def _pilot_ids(db: Session) -> tuple[str, ...] | None:
 
 class FactBundleLoader:
     @staticmethod
-    def load(db: Session, intent: AbuuIntent, session: AgentSession, *, customer) -> FactBundle:
+    def load(
+        db: Session,
+        intent: AbuuIntent,
+        session: AgentSession,
+        *,
+        customer,
+        main_db: Session | None = None,
+        query_text: str | None = None,
+    ) -> FactBundle:
         lang = session.language or "ar"
         bundle = FactBundle(intent=intent.name)
 
         if intent.name == "food_search":
-            return FactBundleLoader._food_search(db, intent, session, customer=customer, lang=lang)
+            return FactBundleLoader._food_search(
+                db,
+                intent,
+                session,
+                customer=customer,
+                lang=lang,
+                main_db=main_db,
+                query_text=query_text,
+            )
 
         if intent.name == "restaurant_list":
             market = get_market_agent(db)
@@ -93,7 +115,23 @@ class FactBundleLoader:
             return bundle
 
         if intent.name in {"select_item", "cart_modify"} and intent.item_query:
-            return FactBundleLoader._resolve_item_query(db, intent.item_query, session, customer=customer, lang=lang)
+            resolved_query = str(query_text or intent.item_query or "").strip()
+            if not query_text and main_db is not None:
+                expansion = resolve_search_query(session, main_db, raw=intent.item_query or "")
+                if expansion.unknown:
+                    bundle = FactBundle(intent=intent.name)
+                    bundle.customer_lines = [UNKNOWN_QUERY_REPLY_AR]
+                    return bundle
+                resolved_query = expansion.expanded
+            elif not query_text:
+                resolved_query = apply_food_synonyms(intent.item_query or "")
+            return FactBundleLoader._resolve_item_query(
+                db,
+                resolved_query,
+                session,
+                customer=customer,
+                lang=lang,
+            )
 
         return bundle
 
@@ -105,9 +143,29 @@ class FactBundleLoader:
         *,
         customer,
         lang: str,
+        main_db: Session | None = None,
+        query_text: str | None = None,
     ) -> FactBundle:
-        categories = intent.categories or match_food_categories(intent.item_query or "")
         bundle = FactBundle(intent="food_search")
+        raw_query = str(query_text or intent.item_query or "").strip()
+        if query_text:
+            search_query = str(query_text).strip()
+        else:
+            expansion = resolve_search_query(session, main_db, raw=raw_query or intent.item_query or "")
+            if expansion.unknown:
+                bundle.customer_lines = [UNKNOWN_QUERY_REPLY_AR]
+                return bundle
+            search_query = expansion.expanded
+
+        categories = list(intent.categories or [])
+        for cat in match_food_categories(search_query):
+            if cat not in categories:
+                categories.append(cat)
+        for cat in expand_food_categories(search_query):
+            if cat not in categories:
+                categories.append(cat)
+        if not categories:
+            categories = match_food_categories(search_query)
         pilot = _pilot_ids(db)
         restaurant_ids = list(pilot) if pilot else []
         if not restaurant_ids:
@@ -132,6 +190,7 @@ class FactBundleLoader:
                 customer=customer,
                 allergen_avoid=allergen_avoid if isinstance(allergen_avoid, list) else None,
                 dietary_required=dietary_required if isinstance(dietary_required, list) else None,
+                query_text=search_query,
             )
             for item in items:
                 facts.append(

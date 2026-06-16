@@ -512,9 +512,34 @@ class AbuuSkillRouter:
                 active_order_id=ctx.session.active_order_id if ctx.session else None,
                 context=dict(ctx.context),
             )
-            food_intent = AbuuIntent("food_search", categories=categories or [])
+            from app.abuu.menu_intelligence.query_expansion import (
+                UNKNOWN_QUERY_REPLY_AR,
+                expand_food_query,
+                expansion_context_payload,
+                intent_with_expansion,
+            )
+
+            food_intent = AbuuIntent("food_search", categories=categories or [], item_query=ctx.text)
+            expansion = expand_food_query(ctx.main_db, raw=ctx.text)
+            agent_session.context["last_query_expansion"] = expansion_context_payload(expansion)
+            if expansion.unknown:
+                return SkillResult(
+                    skill=SKILL_MENU_RECOMMEND,
+                    ok=True,
+                    action="query_clarification",
+                    next_step="awaiting_preference",
+                    reply=UNKNOWN_QUERY_REPLY_AR,
+                    context_patch=dict(ctx.context),
+                )
+            food_intent = intent_with_expansion(food_intent, expansion)
+            categories = food_intent.categories or categories
             bundle = FactBundleLoader.load(
-                ctx.abuu_db, food_intent, agent_session, customer=ctx.customer
+                ctx.abuu_db,
+                food_intent,
+                agent_session,
+                customer=ctx.customer,
+                main_db=ctx.main_db,
+                query_text=expansion.expanded,
             )
             if bundle.customer_lines:
                 context = dict(ctx.context)

@@ -13,6 +13,12 @@ from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.menu_intelligence.dietary_detector import DietaryDetector
 from app.abuu.models.entities import CustomerOrder
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
+from app.abuu.menu_intelligence.query_expansion import (
+    UNKNOWN_QUERY_REPLY_AR,
+    expand_food_query,
+    expansion_context_payload,
+    intent_with_expansion,
+)
 from app.abuu.waiter.action_runner import WaiterActionRunner
 from app.abuu.waiter.fact_loader import WaiterFactLoader
 from app.abuu.waiter.intent_router import WaiterIntentRouter
@@ -111,6 +117,24 @@ class WaiterPipeline:
         intent = WaiterIntentRouter.classify(main_db, working_text, session, interpretation)
         session.context["current_intent"] = intent.name
 
+        expanded_query_text: str | None = None
+        if intent.name in {"food_search", "select_item"}:
+            expansion = expand_food_query(main_db, raw=working_text)
+            session.context = dict(session.context or {})
+            session.context["last_query_expansion"] = expansion_context_payload(expansion)
+            if expansion.unknown:
+                save_session(abuu_db, session, message_id=message_id)
+                trace("OUT", preview=UNKNOWN_QUERY_REPLY_AR[:200], clarify=True)
+                return {
+                    "handled": True,
+                    "action": "query_clarification",
+                    "reply": UNKNOWN_QUERY_REPLY_AR,
+                    "intent": intent.name,
+                }
+            intent = intent_with_expansion(intent, expansion)
+            expanded_query_text = expansion.expanded
+            session.context["current_intent"] = intent.name
+
         draft_session = AbuuOrderDraftService.get_session(abuu_db, phone)
         order = (
             abuu_db.get(CustomerOrder, draft_session.active_order_id)
@@ -119,7 +143,13 @@ class WaiterPipeline:
         )
 
         facts = WaiterFactLoader.load(
-            abuu_db, intent, session, customer=customer, interpretation=interpretation
+            abuu_db,
+            intent,
+            session,
+            customer=customer,
+            interpretation=interpretation,
+            main_db=main_db,
+            query_text=expanded_query_text,
         )
         action = WaiterActionRunner.run(
             abuu_db, intent, facts, session, customer=customer, order=order

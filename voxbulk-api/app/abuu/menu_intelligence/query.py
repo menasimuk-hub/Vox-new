@@ -16,6 +16,7 @@ class MenuQuery:
     drink_only: bool = False
     dessert_only: bool = False
     protein_tags: list[str] = field(default_factory=list)
+    text_query: str = ""
     limit: int = 12
 
     @staticmethod

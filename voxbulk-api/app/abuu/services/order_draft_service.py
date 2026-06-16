@@ -110,6 +110,7 @@ class AbuuOrderDraftService:
         customer: CustomerProfile | None = None,
         allergen_avoid: list[str] | None = None,
         dietary_required: list[str] | None = None,
+        query_text: str | None = None,
     ) -> list[RestaurantMenuItem]:
         from app.core.config import get_settings
 
@@ -118,6 +119,7 @@ class AbuuOrderDraftService:
             from app.abuu.menu_intelligence.search_service import MenuSearchService
 
             query = MenuQuery.from_categories(categories, limit=limit)
+            query.text_query = str(query_text or "").strip()
             if allergen_avoid:
                 query.allergen_avoid = list(allergen_avoid)
             if dietary_required:
