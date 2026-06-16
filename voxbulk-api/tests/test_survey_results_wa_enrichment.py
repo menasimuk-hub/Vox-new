@@ -166,3 +166,48 @@ def test_collect_open_feedback_includes_pending_voice(db):
     assert rows[0]["answer_source"] == "voice"
     assert rows[0]["transcription_status"] == "pending"
     assert "pending" in str(rows[0]["transcript"]).lower()
+
+
+def test_wa_complete_via_conversation_marker_without_terminal_status(db):
+    from app.services.survey_results_service import (
+        build_whatsapp_survey_results_payload,
+        is_wa_survey_response_complete,
+    )
+
+    order, recipient = _seed_wa_order(db, answers=[{"question": "Rate us", "answer": "5"}])
+    recipient.status = "in_progress"
+    recipient.result_json = json.dumps(
+        {"wa_conversation": {"answers": [{"question": "Rate us", "answer": "5"}], "completed_at": "2026-06-14T12:00:00"}}
+    )
+    db.add(recipient)
+    db.commit()
+
+    assert is_wa_survey_response_complete(recipient) is True
+    payload = build_whatsapp_survey_results_payload(db, order)
+    assert payload["summary"]["completed_count"] == 1
+
+
+def test_ensure_action_recommendations_uses_fallback_not_sync_ai(db):
+    from unittest.mock import patch
+
+    from app.services.survey_results_service import ensure_action_recommendations
+
+    order, recipient = _seed_wa_order(
+        db,
+        answers=[{"step_role": "rating", "question": "Recommend us", "answer": "9", "reply_type": "choice"}],
+    )
+    summary = {"completed_count": 1, "nps_label": "Good"}
+    aggregates = build_answer_aggregates([recipient])
+
+    with patch("app.services.survey_action_recommendations.generate_ai_action_recommendations") as mock_ai:
+        recs = ensure_action_recommendations(
+            db,
+            order,
+            goal="Test",
+            org_name="Org",
+            summary=summary,
+            aggregates=aggregates,
+        )
+        mock_ai.assert_not_called()
+    assert recs
+

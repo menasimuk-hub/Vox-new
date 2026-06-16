@@ -14,6 +14,27 @@ from app.services.survey_wa_open_text_service import answer_has_pending_transcri
 from app.services.survey_whatsapp_conversation_service import is_whatsapp_survey_order
 
 
+_WA_TERMINAL_RECIPIENT_STATUSES = frozenset({"completed", "done"})
+
+
+def is_wa_survey_response_complete(recipient: ServiceOrderRecipient) -> bool:
+    """True when a WhatsApp respondent finished (status or conversation marker)."""
+    status = str(recipient.status or "").lower()
+    if status in _WA_TERMINAL_RECIPIENT_STATUSES:
+        return True
+    result = _recipient_result(recipient)
+    conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
+    if conv.get("completed_at"):
+        return True
+    return False
+
+
+def _recipient_is_complete_for_results(order: ServiceOrder, recipient: ServiceOrderRecipient) -> bool:
+    if is_whatsapp_survey_order(order):
+        return is_wa_survey_response_complete(recipient)
+    return str(recipient.status or "").lower() == "completed"
+
+
 def _parse_report(order: ServiceOrder) -> dict[str, Any]:
     try:
         data = json.loads(order.report_json or "{}")
@@ -510,40 +531,11 @@ def _collect_negative_feedback_excerpts(
     return excerpts[:20]
 
 
-def ensure_action_recommendations(
-    db: Session,
-    order: ServiceOrder,
+def _dedupe_recommendation_items(
+    items: list[dict[str, str]],
     *,
-    goal: str,
-    org_name: str,
-    summary: dict[str, Any],
-    aggregates: list[dict[str, Any]],
     negative_feedback: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
-    from datetime import datetime
-
-    from app.services.survey_action_recommendations import (
-        fallback_action_recommendations,
-        generate_ai_action_recommendations,
-    )
-
-    report = _parse_report(order)
-    fingerprint = _recommendations_fingerprint(summary, aggregates)
-    cached = report.get("ai_recommendations") if isinstance(report.get("ai_recommendations"), dict) else {}
-    if cached.get("fingerprint") == fingerprint and cached.get("items"):
-        return list(cached["items"])
-
-    items = generate_ai_action_recommendations(
-        db,
-        goal=goal,
-        org_name=org_name,
-        summary=summary,
-        aggregates=aggregates,
-        negative_feedback=negative_feedback or [],
-    )
-    if not items:
-        items = fallback_action_recommendations(summary=summary, aggregates=aggregates)
-
     for excerpt in negative_feedback or []:
         quote = str(excerpt.get("excerpt") or "").strip()
         question = str(excerpt.get("question") or "Feedback").strip()
@@ -566,18 +558,85 @@ def ensure_action_recommendations(
             continue
         seen_titles.add(title)
         deduped.append(item)
-    items = deduped[:8]
+    return deduped[:8]
+
+
+def generate_and_store_action_recommendations(db: Session, order: ServiceOrder) -> dict[str, Any]:
+    """Generate AI recommendations and persist on order.report_json (Celery / completion hook)."""
+    from datetime import datetime
+
+    from app.services.survey_action_recommendations import (
+        fallback_action_recommendations,
+        generate_ai_action_recommendations,
+    )
+
+    if order.service_code != "survey":
+        return {"ok": False, "error": "not_survey"}
+    try:
+        payload = build_survey_results_payload(db, order, include_respondents=False, include_recommendations=False)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    aggregates = payload.get("aggregates") if isinstance(payload.get("aggregates"), list) else []
+    goal = str((payload.get("order") or {}).get("goal") or "Survey")
+    org_name = str((payload.get("order") or {}).get("organisation_name") or "Your business")
+    negative_feedback = _collect_negative_feedback_excerpts(
+        ServiceOrderService.get_recipients(db, order.id),
+        order_id=order.id,
+    )
+
+    report = _parse_report(order)
+    fingerprint = _recommendations_fingerprint(summary, aggregates)
+    cached = report.get("ai_recommendations") if isinstance(report.get("ai_recommendations"), dict) else {}
+    if cached.get("fingerprint") == fingerprint and cached.get("items"):
+        return {"ok": True, "skipped": True, "count": len(cached["items"])}
+
+    items = generate_ai_action_recommendations(
+        db,
+        goal=goal,
+        org_name=org_name,
+        summary=summary,
+        aggregates=aggregates,
+        negative_feedback=negative_feedback,
+    )
+    if not items:
+        items = fallback_action_recommendations(summary=summary, aggregates=aggregates)
+    items = _dedupe_recommendation_items(items, negative_feedback=negative_feedback)
 
     report["ai_recommendations"] = {
         "fingerprint": fingerprint,
         "items": items,
         "generated_at": datetime.utcnow().isoformat(),
     }
+    report.pop("ai_recommendations_pending", None)
     order.report_json = json.dumps(report, ensure_ascii=False)
     order.updated_at = datetime.utcnow()
     db.add(order)
     db.commit()
-    return items
+    return {"ok": True, "count": len(items)}
+
+
+def ensure_action_recommendations(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    goal: str,
+    org_name: str,
+    summary: dict[str, Any],
+    aggregates: list[dict[str, Any]],
+    negative_feedback: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
+    from app.services.survey_action_recommendations import fallback_action_recommendations
+
+    report = _parse_report(order)
+    fingerprint = _recommendations_fingerprint(summary, aggregates)
+    cached = report.get("ai_recommendations") if isinstance(report.get("ai_recommendations"), dict) else {}
+    if cached.get("fingerprint") == fingerprint and cached.get("items"):
+        return list(cached["items"])
+
+    items = fallback_action_recommendations(summary=summary, aggregates=aggregates)
+    return _dedupe_recommendation_items(items, negative_feedback=negative_feedback)
 
 
 def derive_survey_recommendations(
@@ -910,6 +969,7 @@ def build_whatsapp_survey_results_payload(
     order: ServiceOrder,
     *,
     include_respondents: bool = True,
+    include_recommendations: bool = True,
 ) -> dict[str, Any]:
     config = _order_config(order)
     goal = str(config.get("goal") or "Survey").strip()
@@ -918,7 +978,7 @@ def build_whatsapp_survey_results_payload(
     org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
     report = _parse_report(order)
     recipients = ServiceOrderService.get_recipients(db, order.id)
-    completed = [r for r in recipients if str(r.status or "").lower() == "completed"]
+    completed = [r for r in recipients if _recipient_is_complete_for_results(order, r)]
     total = len(recipients)
     completed_count = len(completed)
     response_rate = round((completed_count / total) * 100) if total else 0
@@ -969,15 +1029,17 @@ def build_whatsapp_survey_results_payload(
         "unhappy_count": _count_unhappy_respondents(recipients),
     }
     negative_feedback = _collect_negative_feedback_excerpts(recipients, order_id=order.id)
-    recommendations = ensure_action_recommendations(
-        db,
-        order,
-        goal=goal,
-        org_name=org_name,
-        summary=summary,
-        aggregates=aggregates,
-        negative_feedback=negative_feedback,
-    )
+    recommendations: list[dict[str, str]] = []
+    if include_recommendations:
+        recommendations = ensure_action_recommendations(
+            db,
+            order,
+            goal=goal,
+            org_name=org_name,
+            summary=summary,
+            aggregates=aggregates,
+            negative_feedback=negative_feedback,
+        )
     return {
         "ok": True,
         "order": {
@@ -1012,11 +1074,17 @@ def build_survey_results_payload(
     order: ServiceOrder,
     *,
     include_respondents: bool = True,
+    include_recommendations: bool = True,
 ) -> dict[str, Any]:
     if order.service_code != "survey":
         raise ValueError("Not a survey order")
     if is_whatsapp_survey_order(order):
-        return build_whatsapp_survey_results_payload(db, order, include_respondents=include_respondents)
+        return build_whatsapp_survey_results_payload(
+            db,
+            order,
+            include_respondents=include_respondents,
+            include_recommendations=include_recommendations,
+        )
     if not is_ai_call_survey_order(order):
         raise ValueError("Survey results are available for AI-call surveys only")
 
@@ -1027,7 +1095,7 @@ def build_survey_results_payload(
     analysis = report.get("analysis") if isinstance(report.get("analysis"), dict) else {}
 
     recipients = ServiceOrderService.get_recipients(db, order.id)
-    completed = [r for r in recipients if str(r.status or "").lower() == "completed"]
+    completed = [r for r in recipients if _recipient_is_complete_for_results(order, r)]
 
     durations: list[int] = []
     recommend_scores: list[float] = []
@@ -1094,15 +1162,17 @@ def build_survey_results_payload(
 
     aggregates = build_answer_aggregates(recipients)
     negative_feedback = _collect_negative_feedback_excerpts(recipients, order_id=order.id)
-    recommendations = ensure_action_recommendations(
-        db,
-        order,
-        goal=goal,
-        org_name=org_name,
-        summary=summary,
-        aggregates=aggregates,
-        negative_feedback=negative_feedback,
-    )
+    recommendations: list[dict[str, str]] = []
+    if include_recommendations:
+        recommendations = ensure_action_recommendations(
+            db,
+            order,
+            goal=goal,
+            org_name=org_name,
+            summary=summary,
+            aggregates=aggregates,
+            negative_feedback=negative_feedback,
+        )
 
     return {
         "ok": True,

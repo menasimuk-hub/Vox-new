@@ -589,6 +589,16 @@ export function useSurveyResults(orderId: string | null) {
     queryKey: queryKeys.surveyResults(orderId || ""),
     queryFn: () => apiFetch<Record<string, unknown>>(`/service-orders/${encodeURIComponent(orderId!)}/survey-results`),
     enabled: Boolean(orderId),
+    refetchInterval: (query) => {
+      const summary = (query.state.data?.summary || {}) as Record<string, unknown>;
+      const completed = Number(summary.completed_count || 0);
+      const total = Number(summary.total_recipients || 0);
+      const pendingAnalysis = Number(summary.pending_analysis ?? Math.max(0, total - completed));
+      if (pendingAnalysis > 0 || (total > 0 && completed < total)) {
+        return 5000;
+      }
+      return false;
+    },
   });
 }
 

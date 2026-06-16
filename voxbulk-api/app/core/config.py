@@ -147,6 +147,8 @@ class Settings(BaseSettings):
     voice_note_transcription_timeout_seconds: int = Field(default=180, alias="VOICE_NOTE_TRANSCRIPTION_TIMEOUT_SECONDS")
     voice_note_retention_days: int = Field(default=90, alias="VOICE_NOTE_RETENTION_DAYS")
     voice_note_storage_dir: str = Field(default="data/survey_voice_notes", alias="VOICE_NOTE_STORAGE_DIR")
+    wa_survey_step_delay_seconds: float = Field(default=2.0, alias="WA_SURVEY_STEP_DELAY_SECONDS")
+    wa_survey_branch_delay_seconds: float = Field(default=3.5, alias="WA_SURVEY_BRANCH_DELAY_SECONDS")
     whisper_cpp_binary: str = Field(default="whisper-cli", alias="WHISPER_CPP_BINARY")
     whisper_cpp_model: str = Field(default="", alias="WHISPER_CPP_MODEL")
     ffmpeg_binary: str = Field(default="ffmpeg", alias="FFMPEG_BINARY")

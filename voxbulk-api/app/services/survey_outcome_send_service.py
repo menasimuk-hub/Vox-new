@@ -13,6 +13,7 @@ from app.models.survey_session import SurveySession
 from app.services.survey_dispatch_service import _first_name, _personalize
 from app.services.survey_flow_config_service import is_simulator_dry_run
 from app.services.survey_flow_constants import ACTION_SEND_TEMPLATE, ACTION_SEND_TEXT
+from app.services.survey_wa_pacing_service import PACING_STEP, pause_before_outbound
 from app.services.survey_outcome_delivery_schema import (
     build_outcome_delivery_record,
     dumps_outcome_delivery,
@@ -78,8 +79,9 @@ class SurveyOutcomeSendService:
         used_fallback = False
         template_send_failed = False
         result = None
+        dry_run = is_simulator_dry_run(config)
 
-        if is_simulator_dry_run(config):
+        if dry_run:
             used_fallback = (
                 force_template_fail
                 and action_type == ACTION_SEND_TEMPLATE
@@ -92,6 +94,12 @@ class SurveyOutcomeSendService:
                 detail = "simulated_template_failure_fallback"
             external_id = "simulator-dry-run"
         elif action_type == ACTION_SEND_TEMPLATE and isinstance(template_send, dict) and template_send.get("telnyx_template_id"):
+            pause_before_outbound(
+                pacing=PACING_STEP,
+                order_id=order.id,
+                recipient_id=recipient.id,
+                skip=dry_run,
+            )
             components = template_send.get("components")
             try:
                 result = TelnyxMessagingService.send_whatsapp(
@@ -126,6 +134,12 @@ class SurveyOutcomeSendService:
                 used_fallback = True
                 if action_type == ACTION_SEND_TEMPLATE:
                     template_send_failed = True
+                pause_before_outbound(
+                    pacing=PACING_STEP,
+                    order_id=order.id,
+                    recipient_id=recipient.id,
+                    skip=dry_run,
+                )
                 result = TelnyxMessagingService.send_whatsapp(
                     db,
                     org_id=order.org_id,
@@ -138,6 +152,12 @@ class SurveyOutcomeSendService:
                 external_id = result.external_id
                 channel = result.channel or "whatsapp"
         else:
+            pause_before_outbound(
+                pacing=PACING_STEP,
+                order_id=order.id,
+                recipient_id=recipient.id,
+                skip=dry_run,
+            )
             result = TelnyxMessagingService.send_whatsapp(
                 db,
                 org_id=order.org_id,

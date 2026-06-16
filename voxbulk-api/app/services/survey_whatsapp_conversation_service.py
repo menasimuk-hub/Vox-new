@@ -23,6 +23,7 @@ from app.services.telnyx_whatsapp_template_sync_service import (
     send_template_id_for_row,
 )
 from app.services.survey_flow_config_service import is_graph_flow, is_simulator_dry_run
+from app.services.survey_wa_pacing_service import PACING_BRANCH, PACING_STEP, pause_before_outbound
 from app.services.survey_builder_flow_service import (
     SurveyBuilderFlowError,
     _rating_answer_is_low,
@@ -1438,10 +1439,18 @@ def _send_message(
     body: str,
     config: dict[str, Any] | None = None,
     question: dict[str, Any] | None = None,
+    pacing: str | None = None,
 ) -> bool:
     config = config or _order_config(order)
     if is_simulator_dry_run(config):
         return True
+
+    pause_before_outbound(
+        pacing=pacing,
+        order_id=str(order.id),
+        recipient_id=str(recipient.id),
+        skip=False,
+    )
 
     variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     template_row = None
@@ -1882,7 +1891,7 @@ def send_first_question(
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
 
-    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q0):
+    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q0, pacing=PACING_STEP):
         logger.info(
             "%s first_question_sent order=%s recipient=%s template_id=%s template_name=%s source=builder_step_sequence",
             LOG_PREFIX,
@@ -1965,7 +1974,7 @@ def _send_first_question_graph(
     payload = SurveySessionService.attach_session_to_result(payload, session)
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
-    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q):
+    if _send_message(db, order=order, recipient=recipient, body=body, config=config, question=q, pacing=PACING_STEP):
         logger.info("%s graph_first_question order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
 
 
@@ -1995,11 +2004,20 @@ def _send_freeform_whatsapp(
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
     body: str,
+    pacing: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> bool:
     """Send a plain WhatsApp session message (requires open 24h customer service window)."""
     text = str(body or "").strip()
     if not text:
         return False
+    cfg = config if config is not None else _order_config(order)
+    pause_before_outbound(
+        pacing=pacing,
+        order_id=str(order.id),
+        recipient_id=str(recipient.id),
+        skip=is_simulator_dry_run(cfg),
+    )
     result = TelnyxMessagingService.send_whatsapp(
         db,
         org_id=order.org_id,
@@ -2084,6 +2102,7 @@ def _complete_linear_survey_thank_you(
             body=closing_body,
             config=config,
             question=thank_q,
+            pacing=PACING_STEP,
         )
     else:
         closing = _personalize(
@@ -2100,7 +2119,7 @@ def _complete_linear_survey_thank_you(
             SurveySessionService.complete_linear(db, session, config=config, final_step=step)
         recipient.status = "completed"
         _save_recipient_result(db, recipient, payload)
-        _send_message(db, order=order, recipient=recipient, body=closing)
+        _send_message(db, order=order, recipient=recipient, body=closing, config=config, pacing=PACING_STEP)
 
     report = {}
     try:
@@ -2118,6 +2137,10 @@ def _complete_linear_survey_thank_you(
     from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
 
     maybe_sync_survey_result_to_hubspot(db, order, recipient)
+
+    from app.services.survey_wa_recommendations_tasks import enqueue_survey_recommendations
+
+    enqueue_survey_recommendations(order.id)
 
     _maybe_complete_order(db, order)
     logger.info("%s completed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
@@ -2208,6 +2231,7 @@ def _handle_final_feedback_inbound(
                 body=retry_body,
                 config=config,
                 question=retry_q,
+                pacing=PACING_STEP,
             )
             return {
                 "handled": True,
@@ -2266,6 +2290,7 @@ def _handle_final_feedback_inbound(
             body=open_text_body,
             config=config,
             question=open_text_q,
+            pacing=PACING_BRANCH,
         )
         log_final_feedback(
             "yes_no_accepted_open_text_prompt_sent",
@@ -2893,6 +2918,8 @@ def handle_inbound_reply(
                     order=order,
                     recipient=recipient,
                     body=followup_text,
+                    pacing=PACING_BRANCH,
+                    config=config,
                 )
                 log_vague_negative_decision(
                     "followup_sent" if sent else "followup_send_failed",
@@ -3065,8 +3092,15 @@ def handle_inbound_reply(
             )
         recipient.status = "in_progress"
         _save_recipient_result(db, recipient, payload, enqueue_translation=True)
+        next_pacing = PACING_BRANCH if payload_source == "builder_tell_us_more_template" else PACING_STEP
         sent = _send_message(
-            db, order=order, recipient=recipient, body=next_body, config=config, question=next_q
+            db,
+            order=order,
+            recipient=recipient,
+            body=next_body,
+            config=config,
+            question=next_q,
+            pacing=next_pacing,
         )
         if sent:
             log_wa_test_mode(
@@ -3126,6 +3160,7 @@ def handle_inbound_reply(
             body=yes_no_body,
             config=config,
             question=yes_no_q,
+            pacing=PACING_BRANCH,
         )
         log_final_feedback(
             "yes_no_prompt_sent",
@@ -3286,7 +3321,12 @@ def _handle_inbound_reply_graph(
                 )
                 _save_recipient_result(db, recipient, payload)
                 sent = _send_freeform_whatsapp(
-                    db, order=order, recipient=recipient, body=followup_text
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    body=followup_text,
+                    pacing=PACING_BRANCH,
+                    config=config,
                 )
                 return {
                     "handled": True,
@@ -3356,6 +3396,9 @@ def _handle_inbound_reply_graph(
         from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
 
         maybe_sync_survey_result_to_hubspot(db, order, recipient)
+        from app.services.survey_wa_recommendations_tasks import enqueue_survey_recommendations
+
+        enqueue_survey_recommendations(order.id)
         _maybe_complete_order(db, order)
         return {
             "handled": True,
@@ -3392,7 +3435,13 @@ def _handle_inbound_reply_graph(
     recipient.status = "in_progress"
     _save_recipient_result(db, recipient, payload)
     sent = _send_message(
-        db, order=order, recipient=recipient, body=next_body, config=config, question=next_q or None
+        db,
+        order=order,
+        recipient=recipient,
+        body=next_body,
+        config=config,
+        question=next_q or None,
+        pacing=PACING_STEP,
     )
     return {
         "handled": True,
