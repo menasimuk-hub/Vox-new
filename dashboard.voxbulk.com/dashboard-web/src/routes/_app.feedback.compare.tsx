@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ApiError } from "@/lib/api";
 import { isMultiLocationFeedbackPlan } from "@/lib/feedback-plan";
 import {
   useFeedbackLocations,
@@ -86,6 +87,8 @@ function FeedbackCompare() {
   const compareQ = useFeedbackResultsCompare(selected);
   const compareLocs = (compareQ.data?.locations || []).map(mapLoc);
   const locById = React.useMemo(() => new Map(compareLocs.map((l) => [l.id, l])), [compareLocs]);
+  const locs = compareLocs.filter((l) => selected.includes(l.id));
+  const chartsLoading = selected.length > 0 && compareQ.isLoading && compareLocs.length === 0;
 
   const sharedQuestions = compareQ.data?.shared_questions || [];
   const allQuestions = compareQ.data?.all_questions || [];
@@ -107,8 +110,6 @@ function FeedbackCompare() {
       </div>
     );
   }
-
-  const locs = compareLocs.filter((l) => selected.includes(l.id));
 
   const trendData = Array.from({ length: 8 }, (_, i) => {
     const row: Record<string, number | string> = { week: `W${i + 1}` };
@@ -201,19 +202,29 @@ function FeedbackCompare() {
         </CardContent>
       </Card>
 
+      {compareQ.isError ? (
+        <CompareError error={compareQ.error} onRetry={() => void compareQ.refetch()} />
+      ) : null}
+
       {compareQ.isFetching && locs.length > 0 ? (
         <p className="text-center text-xs text-muted-foreground">Updating comparison…</p>
       ) : null}
 
-      {locs.length === 0 ? (
+      {selected.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">
           Select at least one location above to start comparing.
+        </CardContent></Card>
+      ) : chartsLoading ? (
+        <CompareChartsSkeleton />
+      ) : locs.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">
+          No comparison data returned for the selected locations. Check that the API is deployed and try again.
         </CardContent></Card>
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-4">
             <Summary label="Locations" value={`${locs.length}`} sub="In comparison" />
-            <Summary label="Total responses" value={totalResponses.toLocaleString()} sub={`of ${totalInvited.toLocaleString()} scans`} />
+            <Summary label="Total responses" value={totalResponses.toLocaleString()} sub={`of ${totalInvited.toLocaleString()} invited`} />
             <Summary label="Avg satisfaction" value={`${avgSat}%`} sub="Across selected" />
             <Summary
               label="Top vs lowest"
@@ -243,7 +254,7 @@ function FeedbackCompare() {
                   <LineChart data={trendData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="week" stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} domain={[0, 100]} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} domain={[40, 100]} />
                     <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     {locs.map((l) => (
@@ -290,7 +301,7 @@ function FeedbackCompare() {
                     data={locs.map((l) => ({
                       name: l.name,
                       Responses: l.responses,
-                      Scans: l.invited,
+                      Invited: l.invited,
                       color: l.color,
                     }))}
                     margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
@@ -300,7 +311,7 @@ function FeedbackCompare() {
                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} />
                     <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Scans" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Invited" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="Responses" radius={[4, 4, 0, 0]}>
                       {locs.map((l) => (
                         <Cell key={l.id} fill={l.color} />
@@ -385,6 +396,52 @@ function FeedbackCompare() {
         </>
       )}
     </div>
+  );
+}
+
+function CompareError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  let title = "Could not load comparison data";
+  let detail = error instanceof Error ? error.message : "Unknown error";
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      title = "Multi-location plan required";
+      detail = "Upgrade your Customer feedback package to compare results across branches.";
+    } else if (error.status === 404) {
+      title = "Compare API not available";
+      detail = "Deploy the latest API on the server, then refresh this page.";
+    }
+  }
+  return (
+    <Card className="border-destructive/40 bg-destructive/5">
+      <CardContent className="flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-medium text-destructive">{title}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CompareChartsSkeleton() {
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-14 rounded-xl" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-[360px] rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-64 rounded-xl" />
+    </>
   );
 }
 

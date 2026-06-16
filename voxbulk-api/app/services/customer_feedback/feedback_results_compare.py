@@ -6,10 +6,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.customer_feedback import FeedbackLocation
+from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
-from app.services.customer_feedback.feedback_results_aggregate import build_aggregates, build_weekly_trend
-from app.services.customer_feedback.location_service import location_to_dict
+from app.services.customer_feedback.feedback_results_aggregate import build_aggregates
 from app.services.customer_feedback.results_service import FeedbackResultsService
 
 LOCATION_COLORS = ("#6366f1", "#14b8a6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#f97316", "#22c55e")
@@ -63,7 +62,7 @@ def compare_locations(
         data = FeedbackResultsService._load_scoped_data(db, org_id, location_id=loc_id)
         summary = data["summary"]
         aggregates = build_aggregates(data["all_responses"], data["templates"])
-        weekly = build_weekly_trend(data["sessions"], data["responses_by_session"])
+        weekly = data["weekly_trend"]
 
         sentiment = summary.get("sentiment_counts") or {}
         sent_total = sum(int(v or 0) for v in sentiment.values()) or 1
@@ -73,7 +72,7 @@ def compare_locations(
             role = str(block.get("step_role") or "").lower()
             if role in {"final_feedback_text", "tell_us_more", "open", "reason"}:
                 continue
-            if block.get("visualization") not in {"sentiment_breakdown", None} and not block.get("breakdown"):
+            if not block.get("breakdown"):
                 continue
             qk = str(block.get("question_key") or "")
             if not qk:
@@ -97,7 +96,7 @@ def compare_locations(
         trend_vals = trend_vals[-8:]
         trend_numeric = [int(v) if v is not None else 0 for v in trend_vals]
 
-        loc_dict = location_to_dict(db, loc)
+        industry = db.get(FeedbackIndustry, loc.industry_id)
         rows.append(
             {
                 "id": loc.id,
@@ -105,8 +104,8 @@ def compare_locations(
                 "color": LOCATION_COLORS[idx % len(LOCATION_COLORS)],
                 "responses": int(summary.get("completed_sessions") or 0),
                 "invited": int(summary.get("total_scans") or loc.scan_count or 0),
-                "satisfaction_pct": summary.get("satisfaction_pct"),
-                "recommend_pct": summary.get("recommend_pct"),
+                "satisfaction_pct": int(summary.get("satisfaction_pct") or 0),
+                "recommend_pct": int(summary.get("recommend_pct") or 0),
                 "sentiment_pct": {
                     "happy": round(int(sentiment.get("happy") or 0) / sent_total * 100),
                     "neutral": round(int(sentiment.get("neutral") or 0) / sent_total * 100),
@@ -114,7 +113,7 @@ def compare_locations(
                 },
                 "weekly_trend": trend_numeric,
                 "per_question": per_question,
-                "industry_name": loc_dict.get("industry_name"),
+                "industry_name": industry.name if industry else None,
             }
         )
 

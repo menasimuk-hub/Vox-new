@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { writeSessionToStorage } from "@/lib/session-storage";
@@ -1977,6 +1977,8 @@ export function useFeedbackResultsCompare(locationIds: string[]) {
         `/customer-feedback/results/compare?location_ids=${encodeURIComponent(key)}`,
       ),
     enabled: locationIds.length > 0,
+    placeholderData: keepPreviousData,
+    retry: 1,
   });
 }
 
