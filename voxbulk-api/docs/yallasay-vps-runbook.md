@@ -24,7 +24,22 @@ git pull origin main
 ./deploy-vps.sh
 ```
 
-Abuu migrations run via `alembic -c alembic_abuu.ini upgrade head` during deploy (includes `0013_abuu_session_context_mediumtext`).
+Abuu migrations run via `alembic -c alembic_abuu.ini upgrade head` during deploy (includes `0014_abuu_menu_intelligence`).
+
+If upgrade fails with `Data too long for column 'version_num'` (revision ids longer than VARCHAR(32)):
+
+```bash
+cd voxbulk-api && source .venv/bin/activate
+mysql -u USER -p sql_abuu -e "ALTER TABLE alembic_version MODIFY version_num VARCHAR(64) NOT NULL;"
+alembic -c alembic_abuu.ini upgrade head
+```
+
+If `0013` DDL already ran but the version stamp failed, widen the column then bump the row manually before upgrading to `0014`:
+
+```sql
+ALTER TABLE alembic_version MODIFY version_num VARCHAR(64) NOT NULL;
+UPDATE alembic_version SET version_num='0013_abuu_session_context_mediumtext' WHERE version_num='0012_abuu_gaza_agent_snapshots';
+```
 
 ## Troubleshooting WhatsApp silence
 
