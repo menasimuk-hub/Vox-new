@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from app.abuu.waiter.intent_router import WaiterIntentRouter
 from app.abuu.waiter.interpretation import InterpretationResult, WaiterInterpretation
 from app.abuu.waiter.reply_composer import WaiterReplyComposer
 from app.abuu.waiter.session_store import WaiterSessionStore
+from app.abuu.waiter.smart_pipeline import SmartPipeline
 from app.abuu.waiter.trace import trace
 from app.core.config import get_settings
 
@@ -60,6 +62,20 @@ class WaiterPipeline:
         stt_confidence: float = 0.0,
         stt_needs_clarification: bool = False,
     ) -> dict[str, Any]:
+        if os.getenv("SMART_PIPELINE_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            return SmartPipeline.handle(
+                abuu_db,
+                main_db,
+                phone=phone,
+                text=text,
+                message_id=message_id,
+                org_id=org_id,
+                interpretation=interpretation,
+                is_voice=is_voice,
+                stt_confidence=stt_confidence,
+                stt_needs_clarification=stt_needs_clarification,
+            )
+
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session, _state = WaiterSessionStore.load(abuu_db, phone)
         session.language = customer.preferred_language or session.language or "ar"
