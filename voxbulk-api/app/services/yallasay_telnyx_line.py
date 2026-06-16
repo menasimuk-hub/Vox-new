@@ -48,16 +48,11 @@ def get_yallasay_line_config(db: Session) -> dict[str, Any]:
     config = _telnyx_config(db)
     phone = get_yallasay_line_e164(db)
     wa_phone = get_yallasay_whatsapp_e164(db)
-    sms_profile = str(
-        config.get("sms_messaging_profile_id_2") or config.get("messaging_profile_id_2") or ""
-    ).strip()
-    wa_profile = str(
-        config.get("whatsapp_messaging_profile_id_2")
-        or config.get("sms_messaging_profile_id_2")
-        or config.get("whatsapp_messaging_profile_id")
-        or config.get("messaging_profile_id")
-        or ""
-    ).strip()
+    sms_profile = str(config.get("sms_messaging_profile_id_2") or "").strip() or None
+    wa_profile = (
+        str(config.get("whatsapp_messaging_profile_id_2") or config.get("sms_messaging_profile_id_2") or "").strip()
+        or None
+    )
     base = str(config.get("webhook_base_url") or "").strip().rstrip("/")
     messaging_webhook_url = str(config.get("messaging_webhook_url") or "").strip()
     if not messaging_webhook_url and base:

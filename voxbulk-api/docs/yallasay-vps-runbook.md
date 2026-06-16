@@ -97,6 +97,46 @@ UPDATE alembic_version SET version_num='0013_abuu_session_context_mediumtext' WH
 
 ## Troubleshooting WhatsApp silence
 
+Run the diagnostic script first:
+
+```bash
+cd /www/voxbulk
+bash scripts/vps-abuu-diag.sh
+bash scripts/vps-abuu-diag.sh --follow   # while sending Yallasay to +447822002099
+```
+
+### Stale API after git pull
+
+Symptom: `git log -1` shows a newer commit than `/health/abuu-runtime` `git_sha`.
+
+```bash
+cd /www/voxbulk
+echo '{"git_sha":"'$(git rev-parse --short HEAD)'","git_branch":"'$(git rev-parse --abbrev-ref HEAD)'","built_at":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > voxbulk-api/build_info.json
+./vox.sh restart
+curl -s http://127.0.0.1:8000/health/abuu-runtime | python3 -m json.tool | grep git_sha
+```
+
+### Wrong Yallasay messaging profile (phone number instead of UUID)
+
+Symptom: diag shows `yallasay_wa_profile_id: +447822002099` or `FAIL: sms_messaging_profile_id_2 is a phone number`.
+
+Telnyx requires a **messaging profile UUID** for outbound WhatsApp — a phone number in that field causes silent send failures.
+
+1. Admin → Integrations → Telnyx
+2. Clear **Yallasay messaging profile ID** if it contains `+447822002099`
+3. Click **Apply Telnyx setup (Yallasay line)** — creates `voxbulk-yallasay` profile and saves the UUID
+4. **Save** Telnyx settings
+5. Re-run `bash scripts/vps-abuu-diag.sh` — expect `yallasay_wa_profile_id: 40000000-....`
+
+### No inbound webhooks for Number 2 (+447822002099)
+
+Symptom: you sent WhatsApp to 099 recently but diag shows no `yallasay_inbound_route` or `abuu_wa_trace IN` lines.
+
+1. Telnyx portal → **Messaging → WhatsApp →** your WABA
+2. Confirm **+447822002099** is linked to the WABA
+3. Set webhook URL to `https://api.voxbulk.com/telnyx/webhooks/messages` (same as Number 1 surveys)
+4. Send `Yallasay` to **+447822002099** (not +447822002055)
+
 ### Telnyx opt-out (STOP)
 
 If logs show `block rule` for your number, send **`UNSTOP`** or **`START`** to the WhatsApp sender (e.g. **+447822002099** for Abuu). Telnyx has no API to remove opt-outs — the user must message back.

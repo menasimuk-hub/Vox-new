@@ -49,6 +49,15 @@ function waTemplateStatusPill(status) {
   return { cls: 'p-cyan', label: s || 'Unknown' }
 }
 
+function looksLikePhoneNotProfile(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return false
+  if (raw.startsWith('+')) return true
+  const digits = raw.replace(/\D/g, '')
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return digits.length >= 10 && !uuidRe.test(raw)
+}
+
 function Field({ label, hint, error, children }) {
   return (
     <div className='telnyxField'>
@@ -317,13 +326,27 @@ export default function TelnyxIntegration({
                 }}
                 placeholder='+447822002099'
               />
+              {String(activeConfig.sms_from_2 || '').trim() ? (
+                <div className='muted telnyxFieldHint' style={{ marginTop: 6 }}>
+                  WhatsApp from (Number 2):{' '}
+                  {String(activeConfig.whatsapp_from_2 || activeConfig.sms_from_2 || '').trim() || '(not set)'}
+                </div>
+              ) : null}
             </Field>
             <Field
               label='Yallasay messaging profile ID'
               hint='Required for inbound SMS. Telnyx → Messaging Profiles UUID, or click Apply Telnyx setup below to create voxbulk-yallasay automatically.'
+              error={
+                looksLikePhoneNotProfile(activeConfig.sms_messaging_profile_id_2)
+                  ? 'Must be a Telnyx messaging profile UUID, not a phone number. Use Apply Telnyx setup.'
+                  : null
+              }
             >
               <input
                 className='input'
+                style={
+                  looksLikePhoneNotProfile(activeConfig.sms_messaging_profile_id_2) ? invalidInputStyle : undefined
+                }
                 value={String(activeConfig.sms_messaging_profile_id_2 || '')}
                 onChange={(e) => {
                   const v = e.target.value

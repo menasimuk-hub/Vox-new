@@ -35,16 +35,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 section "Git + API health"
+GIT_HEAD=""
 if [[ -d "$ROOT/.git" ]]; then
+  GIT_HEAD="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "")"
   git -C "$ROOT" log -1 --oneline 2>/dev/null || warn "git log failed"
 else
   warn "Not a git repo: $ROOT"
 fi
 
+HEALTH_SHA=""
 if curl -sf --max-time 5 http://127.0.0.1:8000/health/abuu-runtime >/tmp/vox-abuu-health.json 2>/dev/null; then
   python3 -m json.tool /tmp/vox-abuu-health.json
+  HEALTH_SHA="$(python3 -c "import json; print(json.load(open('/tmp/vox-abuu-health.json')).get('git_sha',''))" 2>/dev/null || echo "")"
 else
   fail_hint "API not responding on :8000 — run: cd $ROOT && ./vox.sh restart"
+fi
+
+if [[ -n "$GIT_HEAD" && -n "$HEALTH_SHA" && "$GIT_HEAD" != "$HEALTH_SHA" ]]; then
+  fail_hint "API stale: disk=$GIT_HEAD but /health says $HEALTH_SHA — run:"
+  echo "  echo '{\"git_sha\":\"'$GIT_HEAD'\",\"git_branch\":\"'$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)'\",\"built_at\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}' > $API_DIR/build_info.json"
+  echo "  cd $ROOT && ./vox.sh restart"
 fi
 
 section "Telnyx numbers (Number 1 surveys / Number 2 Abuu) — no API keys"
@@ -68,19 +78,29 @@ with get_sessionmaker()() as db:
     cfg = cfg if isinstance(cfg, dict) else {}
     yalla = get_yallasay_whatsapp_e164(db)
     line = get_yallasay_line_config(db)
+    wa_profile = line.get("whatsapp_messaging_profile_id") or ""
+    raw_sms_p2 = str(cfg.get("sms_messaging_profile_id_2") or "").strip()
+    raw_wa_p2 = str(cfg.get("whatsapp_messaging_profile_id_2") or "").strip()
     print("telnyx_integration_enabled:", en)
     print("Number_1_whatsapp_from (surveys):", cfg.get("whatsapp_from") or "(not set)")
     print("Number_2_sms_from_2:", cfg.get("sms_from_2") or "(not set)")
     print("Number_2_whatsapp_from_2:", cfg.get("whatsapp_from_2") or "(not set)")
     print("yallasay_wa_resolved:", yalla or "(NOT SET — Abuu will not route!)")
-    print("yallasay_wa_profile_id:", line.get("whatsapp_messaging_profile_id") or "(NOT SET — sends may fail!)")
+    print("yallasay_wa_profile_id:", wa_profile or "(NOT SET — sends may fail!)")
     print("survey_wa_profile_id:", cfg.get("whatsapp_messaging_profile_id") or "(not set)")
     for n in ("+447822002099", "+447822002055"):
         print(f"is_yallasay_line({n}):", is_yallasay_line(db, n))
 
-    if not yalla:
+    bad_profile = False
+    for label, raw in (("sms_messaging_profile_id_2", raw_sms_p2), ("whatsapp_messaging_profile_id_2", raw_wa_p2)):
+        if raw and ProviderSettingsService.looks_like_phone_not_profile(raw):
+            print(f"FAIL: {label} is a phone number ({raw}) — must be Telnyx profile UUID")
+            bad_profile = True
+    if bad_profile:
+        print("\n>>> FIX: Admin → Telnyx → clear Yallasay profile field → Apply Telnyx setup → Save")
+    elif not yalla:
         print("\n>>> FIX: Admin → Telnyx → Number 2 = +447822002099 → Save → Apply Telnyx setup")
-    elif not line.get("whatsapp_messaging_profile_id"):
+    elif not wa_profile:
         print("\n>>> FIX: Set Yallasay messaging profile ID or click Apply Telnyx setup")
 PY
 fi
@@ -111,9 +131,31 @@ else
   warn "Log missing: $API_LOG"
 fi
 
-section "Recent Abuu / Yallasay log lines (last 40)"
+section "Recent Abuu / Yallasay log lines (last 5 minutes, then tail 40)"
 if [[ -f "$API_LOG" ]]; then
-  grep -E 'yallasay_inbound_route|yallasay_inbound_handler_failed|abuu_wa_trace|abuu_live_trace|abuu_wa_reply_failed|abuu_agent_deepseek|telnyx_message_http_error|abuu_stt_all_providers' "$API_LOG" 2>/dev/null | tail -40 || warn "no Abuu lines yet — send Yallasay to +447822002099"
+  RECENT="$(grep -E 'yallasay_inbound_route|yallasay_inbound_handler_failed|abuu_wa_trace|abuu_live_trace|abuu_wa_reply_failed|abuu_agent_deepseek|telnyx_message_http_error|abuu_stt_all_providers' "$API_LOG" 2>/dev/null | python3 -c "
+import sys
+from datetime import datetime, timedelta, timezone
+cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+for line in sys.stdin:
+    if '\"timestamp\":' not in line:
+        continue
+    try:
+        ts = line.split('\"timestamp\": \"', 1)[1].split('\"', 1)[0]
+        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        if dt >= cutoff:
+            print(line.rstrip())
+    except Exception:
+        pass
+" || true)"
+  if [[ -n "$RECENT" ]]; then
+    echo "--- last 5 minutes ---"
+    echo "$RECENT"
+  else
+    warn "no Abuu lines in last 5 minutes — send Yallasay to +447822002099 while running: bash scripts/vps-abuu-diag.sh --follow"
+  fi
+  echo "--- tail 40 (all time) ---"
+  grep -E 'yallasay_inbound_route|yallasay_inbound_handler_failed|abuu_wa_trace|abuu_live_trace|abuu_wa_reply_failed|abuu_agent_deepseek|telnyx_message_http_error|abuu_stt_all_providers' "$API_LOG" 2>/dev/null | tail -40 || true
 else
   warn "no log file"
 fi
@@ -136,6 +178,23 @@ Expected when working:
 If IN but OUT ok=False → Telnyx send failed (profile/number/opt-out).
 If no IN at all → webhook not reaching API (Telnyx WABA on 099).
 If is_yallasay_line(099) False → Admin Number 2 not saved.
+If yallasay_wa_profile_id starts with + → wrong config (phone saved as profile UUID).
+If git HEAD != health git_sha → run ./vox.sh restart after git pull.
+EOF
+
+section "VPS quick fixes (if diag shows problems)"
+cat <<'EOF'
+1. Stale API after git pull:
+   cd /www/voxbulk
+   echo '{"git_sha":"'$(git rev-parse --short HEAD)'","git_branch":"'$(git rev-parse --abbrev-ref HEAD)'","built_at":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > voxbulk-api/build_info.json
+   ./vox.sh restart
+
+2. Wrong Yallasay profile (phone number in profile field):
+   Admin → Telnyx → clear Yallasay messaging profile ID → Apply Telnyx setup → Save
+
+3. No inbound webhooks for 099:
+   Telnyx portal → Messaging → WhatsApp → WABA → link +447822002099
+   Webhook: https://api.voxbulk.com/telnyx/webhooks/messages
 EOF
 
 if [[ "$FOLLOW" -eq 1 ]]; then

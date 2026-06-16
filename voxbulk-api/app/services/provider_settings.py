@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
 from app.models.provider_config import ProviderConfig
+
+logger = logging.getLogger(__name__)
+
+_MESSAGING_PROFILE_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 class ProviderUnknown(ValueError):
@@ -583,6 +591,36 @@ class ProviderSettingsService:
         return expected
 
     @staticmethod
+    def looks_like_phone_not_profile(value: str | None) -> bool:
+        raw = str(value or "").strip()
+        if not raw:
+            return False
+        if raw.startswith("+"):
+            return True
+        digits = re.sub(r"\D", "", raw)
+        return len(digits) >= 10 and not _MESSAGING_PROFILE_UUID_RE.match(raw)
+
+    @staticmethod
+    def is_valid_messaging_profile_uuid(value: str | None) -> bool:
+        raw = str(value or "").strip()
+        return bool(raw and _MESSAGING_PROFILE_UUID_RE.match(raw))
+
+    @staticmethod
+    def sanitize_messaging_profile_id(value: str | None, *, field: str = "") -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        if ProviderSettingsService.looks_like_phone_not_profile(raw):
+            if field:
+                logger.warning("telnyx_config_clearing_phone_as_profile field=%s value=%r", field, raw)
+            return ""
+        if not _MESSAGING_PROFILE_UUID_RE.match(raw):
+            if field:
+                logger.warning("telnyx_config_invalid_profile_id field=%s value=%r", field, raw)
+            return ""
+        return raw
+
+    @staticmethod
     def _validate_telnyx_config(config: dict[str, Any]) -> dict[str, Any]:
         from app.services.telnyx_api_key import normalize_telnyx_api_key, normalize_telnyx_e164
 
@@ -643,9 +681,10 @@ class ProviderSettingsService:
             except ValueError:
                 pass
             cfg["sms_from_2"] = sms_from_2
-        cfg["sms_messaging_profile_id_2"] = str(
-            cfg.get("sms_messaging_profile_id_2") or cfg.get("messaging_profile_id_2") or ""
-        ).strip()
+        cfg["sms_messaging_profile_id_2"] = ProviderSettingsService.sanitize_messaging_profile_id(
+            str(cfg.get("sms_messaging_profile_id_2") or cfg.get("messaging_profile_id_2") or "").strip(),
+            field="sms_messaging_profile_id_2",
+        )
         whatsapp_from_2 = str(cfg.get("whatsapp_from_2") or "").strip()
         if not whatsapp_from_2 and sms_from_2:
             whatsapp_from_2 = sms_from_2
@@ -655,11 +694,11 @@ class ProviderSettingsService:
             except ValueError:
                 pass
             cfg["whatsapp_from_2"] = whatsapp_from_2
-        cfg["whatsapp_messaging_profile_id_2"] = str(
-            cfg.get("whatsapp_messaging_profile_id_2")
-            or cfg.get("sms_messaging_profile_id_2")
-            or ""
-        ).strip()
+        cfg["whatsapp_messaging_profile_id_2"] = ProviderSettingsService.sanitize_messaging_profile_id(
+            str(cfg.get("whatsapp_messaging_profile_id_2") or "").strip()
+            or cfg["sms_messaging_profile_id_2"],
+            field="whatsapp_messaging_profile_id_2",
+        )
         wa_from = str(cfg.get("whatsapp_from") or "").strip()
         if wa_from:
             try:
