@@ -467,6 +467,14 @@ Recent history without follow:
 ./scripts/vps-abuu-live-trace.sh --history 50
 ```
 
+If the script prints the header then exits immediately, the Python formatter likely crashed (common on Python 3.9). Pull latest `scripts/vps-abuu-live-trace.sh` or use raw grep:
+
+```bash
+tail -f /tmp/voxbulk-api.log | grep --line-buffered -E 'abuu_agent_trace|abuu_wa_trace|abuu_stt_'
+```
+
+The script now uses `voxbulk-api/.venv/bin/python3` when present and stays running with `tail -f` even when no Abuu lines match yet.
+
 **Full STT diagnostic on VPS:**
 
 ```bash

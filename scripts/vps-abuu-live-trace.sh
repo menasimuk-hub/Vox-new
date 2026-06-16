@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # Pretty-print Abuu WhatsApp live trace from API log (JSON or plain text).
-set -euo pipefail
+set -uo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 API_LOG="${VOX_API_LOG:-/tmp/voxbulk-api.log}"
+PYTHON="${VOX_TRACE_PYTHON:-}"
+if [[ -z "$PYTHON" ]]; then
+  if [[ -x "$ROOT/voxbulk-api/.venv/bin/python3" ]]; then
+    PYTHON="$ROOT/voxbulk-api/.venv/bin/python3"
+  else
+    PYTHON="python3"
+  fi
+fi
 HISTORY=0
 FOLLOW=1
 
@@ -48,7 +57,9 @@ if [[ ! -f "$API_LOG" ]]; then
 fi
 
 format_abuu_trace() {
-  python3 - "$@" <<'PY'
+  "$PYTHON" -u - "$@" <<'PY'
+from __future__ import annotations
+
 import json
 import re
 import sys
@@ -160,11 +171,22 @@ for raw in sys.stdin:
 PY
 }
 
+if ! printf '%s\n' '{"message":"abuu_wa_trace IN phone=+1000 type=text text=preflight"}' | format_abuu_trace >/dev/null 2>&1; then
+  echo "Trace formatter failed (Python: $PYTHON). Try:" >&2
+  echo "  VOX_TRACE_PYTHON=$ROOT/voxbulk-api/.venv/bin/python3 bash $0" >&2
+  printf '%s\n' '{"message":"abuu_wa_trace IN phone=+1000 type=text text=preflight"}' | format_abuu_trace 2>&1 | head -5 >&2 || true
+  exit 1
+fi
+
 if [[ "$FOLLOW" -eq 1 ]]; then
   echo "Live Abuu trace from $API_LOG (Ctrl+C to stop)"
+  echo "Python: $PYTHON"
   echo "Send a WhatsApp message to YallaSay while this runs."
   echo "---"
+  # Do not use errexit on the follow pipeline: formatter may idle with no output.
+  set +e
   tail -f "$API_LOG" | format_abuu_trace
+  exit 0
 else
   echo "Last $HISTORY Abuu trace lines from $API_LOG"
   echo "---"
