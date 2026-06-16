@@ -371,3 +371,24 @@ grep -E 'db_operational_error|db_programming_error|smart_agent_(text|voice)_fail
 The smart-agent pipeline auto-falls back to the legacy `agent` pipeline if any tool turn raises,
 so customers receive a reply (legacy "v1") even while the smart-agent issue is being debugged.
 Look for `smart_agent_text_failed_falling_back_to_agent` to confirm a fallback happened.
+
+### One-shot diagnostic script
+
+If repeated `./vox.sh restart` still leaves stale code loaded (e.g. health endpoint shows new
+fields but `grep db_operational_error` returns nothing on a fresh 503), run:
+
+```bash
+cd /www/voxbulk
+git pull origin feat/dashboard-ai-assistant-v1
+sudo bash scripts/vps-fix-503-diag.sh
+```
+
+That script hard-resets the working tree to `origin/feat/dashboard-ai-assistant-v1`, kills every
+`uvicorn main:app` PID (SIGTERM then SIGKILL), restarts the API, waits for `/health`, fires a
+fake Telnyx WhatsApp inbound, and prints a single `VERDICT:` line classifying what happened
+(`db_operational_error`, `smart_agent_failed_fallback_to_legacy`, `unhandled_exception`,
+`success`, `no_log_activity`, etc.). Paste the verdict back to debug further.
+
+Override the target branch / log path / smoke-test phone numbers via env vars
+(`VOX_BRANCH`, `VOX_API_LOG`, `VOX_TO_PHONE`, `VOX_FROM_PHONE`). Use `VOX_SKIP_RESET=1`
+to keep the current working tree as-is.
