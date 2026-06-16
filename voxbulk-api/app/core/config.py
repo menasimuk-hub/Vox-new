@@ -75,12 +75,6 @@ class Settings(BaseSettings):
     abuu_waiter_trace_enabled: bool = Field(default=True, alias="ABUU_WAITER_TRACE_ENABLED")
     abuu_smart_pipeline_enabled: bool = Field(default=False, alias="SMART_PIPELINE_ENABLED")
     abuu_deepseek_polish_enabled: bool = Field(default=True, alias="ABUU_DEEPSEEK_POLISH_ENABLED")
-    # Smart Waiter Agent (new tool-calling DeepSeek pipeline) — opt-in via phone allowlist for A/B.
-    abuu_smart_agent_enabled: bool = Field(default=False, alias="ABUU_SMART_AGENT_ENABLED")
-    abuu_smart_agent_allowlist: str = Field(default="", alias="ABUU_SMART_AGENT_ALLOWLIST")
-    abuu_smart_agent_model: str = Field(default="deepseek-chat", alias="ABUU_SMART_AGENT_MODEL")
-    abuu_smart_agent_max_turns: int = Field(default=6, alias="ABUU_SMART_AGENT_MAX_TURNS")
-    abuu_smart_agent_temperature: float = Field(default=0.3, alias="ABUU_SMART_AGENT_TEMPERATURE")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

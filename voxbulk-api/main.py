@@ -237,17 +237,12 @@ async def lifespan(app: FastAPI):
             from app.core.runtime_build_info import get_runtime_build_info
 
             build = get_runtime_build_info()
-            _sa_allowlist = str(settings.abuu_smart_agent_allowlist or "").strip()
             abuu_live_boot(
                 git_sha=build.get("git_sha"),
                 conversation_mode=settings.abuu_conversation_mode,
                 smart_pipeline=settings.abuu_smart_pipeline_enabled,
                 abuu_agent_enabled=settings.abuu_agent_enabled,
                 abuu_enabled=settings.abuu_enabled,
-                smart_agent_enabled=settings.abuu_smart_agent_enabled,
-                smart_agent_allowlist_count=(
-                    len([p for p in _sa_allowlist.split(",") if p.strip()]) if _sa_allowlist else 0
-                ),
             )
         except Exception:
             logger.exception("abuu_live_trace_boot_failed")
@@ -414,28 +409,8 @@ def _migration_hint_from_db_error(exc: BaseException) -> str | None:
     return None
 
 
-def _log_db_exception(label: str, request: Request, exc: BaseException) -> None:
-    sql_error = str(exc)[:400]
-    dbapi_args = ""
-    orig = getattr(exc, "orig", None)
-    if orig is not None:
-        try:
-            dbapi_args = str(getattr(orig, "args", orig))[:400]
-        except Exception:
-            dbapi_args = repr(orig)[:400]
-    get_logger(__name__).exception(
-        "%s path=%s method=%s sql_error=%r dbapi=%r",
-        label,
-        request.url.path,
-        request.method,
-        sql_error,
-        dbapi_args,
-    )
-
-
 @app.exception_handler(OperationalError)
 async def db_operational_error_handler(request: Request, exc: OperationalError):
-    _log_db_exception("db_operational_error", request, exc)
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs and DATABASE_URL."
     response = JSONResponse(status_code=503, content={"detail": detail})
@@ -444,7 +419,6 @@ async def db_operational_error_handler(request: Request, exc: OperationalError):
 
 @app.exception_handler(ProgrammingError)
 async def db_programming_error_handler(request: Request, exc: ProgrammingError):
-    _log_db_exception("db_programming_error", request, exc)
     hint = _migration_hint_from_db_error(exc)
     detail = hint or "Database error — check API logs."
     response = JSONResponse(status_code=503, content={"detail": detail})
@@ -483,8 +457,6 @@ def health_abuu_runtime():
     settings = get_settings()
     build = get_runtime_build_info()
     allowlist = str(settings.abuu_waiter_v2_allowlist or "").strip()
-    sa_allowlist = str(settings.abuu_smart_agent_allowlist or "").strip()
-    sa_phones = [p.strip() for p in sa_allowlist.split(",") if p.strip()] if sa_allowlist else []
     agent_mode = str(settings.abuu_conversation_mode or "").lower() in {"agent", "deepseek", "gaza_agent"}
     return {
         "status": "ok",
@@ -494,13 +466,6 @@ def health_abuu_runtime():
         "conversation_mode": settings.abuu_conversation_mode,
         "agent_mode": bool(settings.abuu_agent_enabled and agent_mode),
         "smart_pipeline_enabled": settings.abuu_smart_pipeline_enabled,
-        "smart_agent_enabled": settings.abuu_smart_agent_enabled,
-        "smart_agent_enabled_for_all": settings.abuu_smart_agent_enabled and not sa_phones,
-        "smart_agent_allowlist_count": len(sa_phones),
-        "smart_agent_allowlist_preview": [
-            (p[:6] + "***" + p[-2:]) if len(p) > 8 else p for p in sa_phones[:5]
-        ],
-        "smart_agent_model": settings.abuu_smart_agent_model,
         "waiter_trace_enabled": settings.abuu_waiter_trace_enabled,
         "waiter_v2_enabled_for_all": not bool(allowlist),
         "waiter_v2_allowlist_count": len([p for p in allowlist.split(",") if p.strip()]) if allowlist else 0,
