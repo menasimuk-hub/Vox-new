@@ -10,6 +10,7 @@ os.environ.setdefault("ABUU_ENABLED", "true")
 os.environ.setdefault("ABUU_DEEPSEEK_ENABLED", "false")
 os.environ.setdefault("ABUU_IGNORE_DISTANCE", "true")
 os.environ.setdefault("ABUU_AGENT_ENABLED", "false")
+os.environ.setdefault("ABUU_CONVERSATION_MODE", "legacy")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 # Valid Fernet key (32 url-safe base64-encoded bytes)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
@@ -29,6 +30,15 @@ os.environ.setdefault("CELERY_BROKER_URL", "memory://")
 os.environ.setdefault("CELERY_RESULT_BACKEND", "cache+memory://")
 os.environ.setdefault("DENTALLY_BASE_URL", "https://dentally.test")
 os.environ.setdefault("DENTALLY_API_KEY", "")
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache():
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session", autouse=True)

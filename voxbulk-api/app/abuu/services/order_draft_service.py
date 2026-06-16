@@ -240,14 +240,29 @@ class AbuuOrderDraftService:
         customer: CustomerProfile,
         restaurant: Restaurant,
         existing_order: CustomerOrder | None = None,
+        allow_switch: bool = False,
     ) -> CustomerOrder:
         if existing_order is not None:
             if existing_order.restaurant_id != restaurant.id and existing_order.status == "draft":
-                from sqlalchemy import delete
+                has_items = int(existing_order.total_agorot or 0) > 0
+                if has_items and not allow_switch:
+                    from app.abuu.conversation.restaurant_guard import RestaurantMismatchError
 
-                db.execute(delete(CustomerOrderItem).where(CustomerOrderItem.order_id == existing_order.id))
+                    raise RestaurantMismatchError(
+                        bound_id=str(existing_order.restaurant_id),
+                        target_id=restaurant.id,
+                        target_name=restaurant.name_ar or restaurant.name_en or restaurant.id,
+                    )
+                if has_items and allow_switch:
+                    from app.abuu.conversation.restaurant_guard import switch_restaurant_order
+
+                    return switch_restaurant_order(
+                        db,
+                        customer=customer,
+                        order=existing_order,
+                        restaurant=restaurant,
+                    )
                 existing_order.restaurant_id = restaurant.id
-                existing_order.total_agorot = 0
                 existing_order.updated_at = datetime.utcnow()
                 db.add(existing_order)
                 db.flush()

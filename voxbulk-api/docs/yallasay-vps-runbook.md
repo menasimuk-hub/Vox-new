@@ -7,9 +7,11 @@ Deploy target for the restaurant portal and WhatsApp ordering pilot: **restauran
 ```env
 ABUU_MARKET_AGENT=ps-gaza
 ABUU_AGENT_ENABLED=true
-ABUU_AGENT_WAITER_MODE=true
+ABUU_CONVERSATION_MODE=orchestrator
+ABUU_AGENT_WAITER_MODE=false
 ABUU_PILOT_ONLY=true
 ABUU_IGNORE_DISTANCE=true
+ABUU_DEEPSEEK_ENABLED=true
 ABUU_AGENT_MODEL=deepseek-chat
 VOX_UVICORN_WORKERS=2
 ```
@@ -48,15 +50,27 @@ cd .. && ./vox.sh restart
 ## Verify
 
 - Portal login: Sham Chicken (`abuu-rest-chicken`) at https://restaurant.yallasay.com
-- Food API (local): `GET /abuu/food/restaurants`, `GET /abuu/food/restaurants/{id}/menu`
-- WhatsApp: send `yallasay` or `abuu` → should list five pilot restaurants by name (not always the same one)
+- Food API (local): `GET /abuu/food/restaurants?lang=ar` — response must **not** contain `[id=`
+- WhatsApp: send `yallasay` → warm greet + “what are you craving?” (no restaurant dump, no internal IDs)
+- WhatsApp: send `سمك` or `fish` → dish suggestions across pilots (not a restaurant list)
+- Cross-restaurant: add item from restaurant A, then try restaurant B → blocked with 15 ₪ fee explanation
+
+`deploy-vps.sh` rebuilds Abuu snapshots after migrate. To force refresh:
+
+```bash
+curl -X POST http://127.0.0.1:8000/abuu/food/rebuild \
+  -H "X-Abuu-Internal-Key: YOUR_INTERNAL_KEY"
+```
 
 ## Architecture (short)
 
 ```
-WhatsApp → inbound_service → skill_router (lists from snapshots)
-         → Gaza Agent (DeepSeek, 1 turn, waiter mode) when open chat
-         → MySQL abuu_wa_snapshots + /abuu/food/*
+WhatsApp (text + voice transcript)
+  → inbound_service
+  → AbuuConversationOrchestrator (when ABUU_CONVERSATION_MODE=orchestrator)
+       intent_router → fact_bundle (DB) → action_runner + restaurant_guard → reply_composer → wa_sanitize
+  → legacy skill_router for name/address/substitution steps only
+  → MySQL abuu_wa_snapshots + /abuu/food/*
 ```
 
 Future cities: add rows to `abuu_market_agents` and set `ABUU_MARKET_AGENT`.

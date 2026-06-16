@@ -139,6 +139,20 @@ api_deps_and_migrate() {
   python -m alembic upgrade head
   python -m alembic current
   info "Migration OK"
+
+  if [[ "${ABUU_ENABLED:-true}" != "0" && "${ABUU_ENABLED:-true}" != "false" ]]; then
+    info "Rebuilding Abuu WhatsApp snapshots …"
+    python - <<'PY' || warn "Abuu snapshot rebuild failed (non-fatal)"
+from app.core.abuu_database import get_abuu_sessionmaker
+from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
+
+with get_abuu_sessionmaker()() as db:
+    YallasayWaSnapshotService.ensure_gaza_market_agent(db)
+    YallasayWaSnapshotService.rebuild_marketplace(db)
+    db.commit()
+print("Abuu snapshots rebuilt")
+PY
+  fi
 }
 
 build_frontend() {

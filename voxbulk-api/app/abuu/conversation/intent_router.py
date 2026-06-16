@@ -1,0 +1,149 @@
+"""Intent classification for Abuu conversational WhatsApp."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.abuu.agent.session import Session as AgentSession
+from app.abuu.services.intent_service import (
+    detect_intent,
+    is_abuu_start_message,
+    is_restaurant_list_message,
+)
+from app.abuu.agent.session_reset import is_offer_query
+from app.abuu.services.preference_service import match_food_categories
+from app.services.agents.base import AgentMessage
+from app.services.providers.openai_service import OpenAIProviderService
+
+logger = logging.getLogger(__name__)
+
+_INTENT_PROMPT = """You classify WhatsApp food-order messages for YallaSay Abuu (Gaza delivery).
+Return JSON only: {"intent": "...", "categories": [], "item_query": "", "confidence": 0.0}
+
+Intents:
+- greet (start: yallasay, abuu, hello)
+- food_search (user wants food type: fish, chicken, spicy, etc.)
+- restaurant_list (ask which restaurants exist)
+- menu_browse (show menu)
+- offers (deals/promotions)
+- select_item (pick specific dish by name)
+- cart_modify (add/remove drink, salad, etc.)
+- confirm, cancel, address, order_status, support
+- restaurant_switch_confirm (user agrees to switch restaurant after conflict)
+- restaurant_switch_keep (user keeps current restaurant)
+
+Arabic, English, and mixed Arabizi supported."""
+
+
+@dataclass
+class AbuuIntent:
+    name: str
+    categories: list[str] = field(default_factory=list)
+    item_query: str | None = None
+    confidence: float = 0.85
+    source: str = "regex"
+
+
+def _deepseek_intent_enabled() -> bool:
+    flag = str(os.getenv("ABUU_DEEPSEEK_ENABLED", "true")).lower()
+    return flag not in {"0", "false", "no"}
+
+
+def _regex_intent(text: str, session: AgentSession) -> AbuuIntent:
+    normalized = str(text or "").strip()
+    ctx = session.context or {}
+
+    if ctx.get("pending_restaurant_switch"):
+        low = normalized.lower()
+        if any(w in low for w in ("switch", "غيّر", "غير", "change", "بدّل", "بدل")):
+            return AbuuIntent("restaurant_switch_confirm", confidence=0.95)
+        if any(w in low for w in ("keep", "خلي", "لا", "same", "stay", "no")):
+            return AbuuIntent("restaurant_switch_keep", confidence=0.95)
+
+    if is_abuu_start_message(normalized):
+        return AbuuIntent("greet", confidence=0.95)
+
+    intent = detect_intent(normalized, has_active_session=bool(session.active_order_id), step=None)
+    if intent.name == "confirm":
+        return AbuuIntent("confirm", confidence=0.95)
+    if intent.name == "cancel":
+        return AbuuIntent("cancel", confidence=0.95)
+    if intent.name == "order_status":
+        return AbuuIntent("order_status", confidence=0.9)
+
+    if is_restaurant_list_message(normalized):
+        return AbuuIntent("restaurant_list", confidence=0.9)
+
+    if is_offer_query(normalized):
+        return AbuuIntent("offers", confidence=0.9)
+
+    if re.search(r"(?i)\b(menu|منيو|قائمة)\b", normalized):
+        return AbuuIntent("menu_browse", confidence=0.85)
+
+    categories = match_food_categories(normalized)
+    if categories:
+        return AbuuIntent("food_search", categories=categories, confidence=0.88)
+
+    if any(w in normalized.lower() for w in ("help", "manager", "support", "مدير", "دعم")):
+        return AbuuIntent("support", confidence=0.8)
+
+    if session.restaurant_id and len(normalized) > 2:
+        return AbuuIntent("select_item", item_query=normalized, confidence=0.6)
+
+    return AbuuIntent("food_search", item_query=normalized, confidence=0.4)
+
+
+class IntentRouter:
+    @staticmethod
+    def classify(main_db: Session, text: str, session: AgentSession) -> AbuuIntent:
+        regex = _regex_intent(text, session)
+        if regex.confidence >= 0.85 or not _deepseek_intent_enabled():
+            return regex
+
+        try:
+            block = json.dumps(
+                {
+                    "message": text,
+                    "language": session.language,
+                    "restaurant_id": session.restaurant_id,
+                    "has_cart": bool(session.cart),
+                },
+                ensure_ascii=False,
+            )
+            result = OpenAIProviderService.complete(
+                main_db,
+                system_prompt=_INTENT_PROMPT,
+                messages=[AgentMessage(role="user", content=block)],
+                max_tokens=200,
+                temperature=0.1,
+                provider="deepseek",
+            )
+            raw = str(result.assistant_text or "").strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+            parsed = json.loads(raw)
+            name = str(parsed.get("intent") or regex.name)
+            cats = [str(c) for c in (parsed.get("categories") or []) if c]
+            if not cats:
+                cats = regex.categories
+            conf = float(parsed.get("confidence") or 0.0)
+            if conf < 0.5:
+                return regex
+            return AbuuIntent(
+                name=name,
+                categories=cats,
+                item_query=parsed.get("item_query") or regex.item_query,
+                confidence=conf,
+                source="deepseek",
+            )
+        except Exception:
+            logger.warning("abuu_intent_deepseek_fallback", exc_info=True)
+            return regex

@@ -9,7 +9,7 @@ from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.abuu.models.entities import CustomerOrder, DeliveryAssignment, Restaurant
+from app.abuu.models.entities import CustomerOrder, DeliveryAssignment, Restaurant, RestaurantMenuItem
 from app.abuu.services.addon_suggestion_service import suggest_addons
 from app.abuu.services.agent_settings_service import is_skill_enabled
 from app.abuu.services.conversation_ai_service import SkillClassification
@@ -20,7 +20,9 @@ from app.abuu.services.customer_memory_service import (
     save_customer_name,
     saved_address_summary,
 )
-from app.abuu.services.intent_service import is_show_more_message
+from app.abuu.conversation.fact_bundle import FactBundleLoader
+from app.abuu.conversation.intent_router import AbuuIntent
+from app.abuu.conversation.restaurant_guard import RestaurantGuard, RestaurantMismatchError, cross_restaurant_message
 from app.abuu.services.kb_service import answer_kb_question, format_greeting, kb_fallback_message, resolve_settings
 from app.abuu.services.location_service import attach_default_address_if_present, get_default_address
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -49,6 +51,7 @@ from app.abuu.services.reply_service import (
     category_clarification_message,
     conversational_menu_message,
     item_added_message,
+    localized_name,
     order_status_message,
 )
 from app.core.config import get_settings
@@ -149,6 +152,91 @@ class AbuuSkillRouter:
         return f"{reply}\n\n{listing}"
 
     @staticmethod
+    def _pick_from_food_search(ctx: TurnContext, item_ref: str) -> SkillResult | None:
+        pool = list(ctx.context.get("last_food_search") or [])
+        if not pool:
+            return None
+        q = str(item_ref or "").strip().lower()
+        if not q:
+            return None
+        entry: dict | None = None
+        if q.isdigit():
+            idx = int(q) - 1
+            if 0 <= idx < len(pool):
+                entry = pool[idx]
+        else:
+            for candidate in pool:
+                if q in str(candidate.get("name", "")).lower():
+                    entry = candidate
+                    break
+        if entry is None:
+            return None
+        item = ctx.abuu_db.get(RestaurantMenuItem, entry.get("menu_item_id"))
+        restaurant = ctx.abuu_db.get(Restaurant, entry.get("restaurant_id"))
+        if item is None or restaurant is None:
+            return None
+        guard = RestaurantGuard.try_add_item(
+            ctx.abuu_db,
+            customer=ctx.customer,
+            order=ctx.order,
+            context=dict(ctx.context),
+            item=item,
+            restaurant=restaurant,
+            lang=ctx.lang,
+        )
+        if not guard.ok and guard.action == "cross_restaurant_blocked":
+            current = ctx.abuu_db.get(Restaurant, guard.conflict.get("from_restaurant_id")) if guard.conflict else None
+            if current is None and ctx.order:
+                current = ctx.abuu_db.get(Restaurant, ctx.order.restaurant_id)
+            if current:
+                return SkillResult(
+                    skill=SKILL_BUILD_CART,
+                    ok=False,
+                    action="cross_restaurant_blocked",
+                    reply=cross_restaurant_message(
+                        ctx.abuu_db,
+                        lang=ctx.lang,
+                        current_restaurant=current,
+                        target_restaurant=restaurant,
+                        target_item_name=localized_name(item, ctx.lang),
+                    ),
+                )
+            return None
+        if not guard.ok or guard.order is None or guard.item is None:
+            return None
+        order = guard.order
+        context = dict(ctx.context)
+        context["restaurant_id"] = guard.bound_restaurant_id
+        context["restaurant_selected"] = True
+        fingerprint = AbuuOrderDraftService.cart_fingerprint(ctx.abuu_db, order)
+        context = AbuuOrderDraftService.mark_cart_changed(context, fingerprint)
+        addon_msg, context = suggest_addons(
+            ctx.abuu_db,
+            restaurant_id=guard.bound_restaurant_id or "",
+            main_item=guard.item,
+            active_categories=context.get("active_categories") or [],
+            context=context,
+            lang=ctx.lang,
+        )
+        AbuuOrderDraftService.upsert_session(
+            ctx.abuu_db,
+            phone=ctx.phone,
+            step="browsing",
+            context=context,
+            active_order_id=order.id,
+            message_id=ctx.message_id,
+        )
+        return SkillResult(
+            skill=SKILL_BUILD_CART,
+            ok=True,
+            action="item_added",
+            next_step="browsing",
+            reply=item_added_message(guard.item, order, ctx.lang, addon_hint=addon_msg),
+            context_patch=context,
+            extra={"order_id": order.id},
+        )
+
+    @staticmethod
     def _greet_customer(ctx: TurnContext) -> SkillResult:
         lat, lng = AbuuSkillRouter._lat_lng(ctx)
         settings = resolve_settings(ctx.abuu_db)
@@ -194,7 +282,10 @@ class AbuuSkillRouter:
             lang=ctx.lang,
             saved_address=saved_address_summary(ctx.abuu_db, ctx.customer),
         )
-        reply = AbuuSkillRouter._append_restaurant_list(ctx, reply)
+        if ctx.lang == "ar":
+            reply += "\n\nاحكيلي شو جوعان — دجاج، سمك، لحم… وأنا بجهّزلك 👨‍🍳"
+        else:
+            reply += "\n\nTell me what you're craving — chicken, fish, meat… 👨‍🍳"
         return SkillResult(
             skill=SKILL_GREET_CUSTOMER,
             ok=True,
@@ -226,7 +317,10 @@ class AbuuSkillRouter:
             lang=ctx.lang,
             saved_address=saved_address_summary(ctx.abuu_db, ctx.customer),
         )
-        reply = AbuuSkillRouter._append_restaurant_list(ctx, reply)
+        if ctx.lang == "ar":
+            reply += "\n\nاحكيلي شو جوعان — دجاج، سمك، لحم… وأنا بجهّزلك 👨‍🍳"
+        else:
+            reply += "\n\nTell me what you're craving — chicken, fish, meat… 👨‍🍳"
         return SkillResult(
             skill=SKILL_CAPTURE_NAME,
             ok=True,
@@ -264,12 +358,29 @@ class AbuuSkillRouter:
         if picked is not None and not is_show_more_message(ctx.text) and not any(
             w in ctx.text.lower() for w in ("restaurant", "مطاعم", "nearby", "list")
         ):
-            order = AbuuOrderDraftService.ensure_order(
-                ctx.abuu_db,
-                customer=ctx.customer,
-                restaurant=picked,
-                existing_order=ctx.order,
-            )
+            try:
+                order = AbuuOrderDraftService.ensure_order(
+                    ctx.abuu_db,
+                    customer=ctx.customer,
+                    restaurant=picked,
+                    existing_order=ctx.order,
+                )
+            except RestaurantMismatchError:
+                current = ctx.abuu_db.get(Restaurant, ctx.order.restaurant_id) if ctx.order else None
+                if current is None:
+                    current = picked
+                return SkillResult(
+                    skill=SKILL_RESTAURANT_SEARCH,
+                    ok=False,
+                    action="cross_restaurant_blocked",
+                    reply=cross_restaurant_message(
+                        ctx.abuu_db,
+                        lang=ctx.lang,
+                        current_restaurant=current,
+                        target_restaurant=picked,
+                        target_item_name=localized_name(picked, ctx.lang),
+                    ),
+                )
             apply_saved_address_to_order(ctx.abuu_db, order, ctx.customer)
             context["restaurant_id"] = picked.id
             AbuuOrderDraftService.upsert_session(
@@ -352,50 +463,52 @@ class AbuuSkillRouter:
         ).strip()
         lat, lng = AbuuSkillRouter._lat_lng(ctx)
         if not bound_restaurant_id:
-            ranked = rank_restaurants(
-                ctx.abuu_db,
-                lat=lat,
-                lng=lng,
-                categories=categories or None,
-                limit=15,
-                restaurant_ids=AbuuSkillRouter._pilot_restaurant_ids(ctx),
-            )
-            if not ranked:
-                if ctx.lang == "en":
-                    reply = "No restaurants are available for that preference right now."
-                else:
-                    reply = "لا توجد مطاعم متاحة لهذا الاختيار حالياً."
-                return SkillResult(skill=SKILL_MENU_RECOMMEND, ok=False, action="no_match", next_step=None, reply=reply)
-            context = dict(ctx.context)
-            context["active_categories"] = categories
-            context["pending_categories"] = categories
-            context["ranked_restaurants"] = [
-                {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
-                for r in ranked
-            ]
-            if ctx.lang == "en":
-                prefix = "Great — pick your restaurant 🍽️"
-            else:
-                prefix = "تمام! اختار مطعمك 🍽️"
-            reply = prefix + "\n\n" + format_restaurant_list(
-                ranked, lang=ctx.lang, page=0, page_size=max(15, len(ranked))
-            )
-            AbuuOrderDraftService.upsert_session(
-                ctx.abuu_db,
-                phone=ctx.phone,
-                step="choosing_restaurant",
-                context=context,
+            from app.abuu.agent.session import Session as AgentSession
+
+            agent_session = AgentSession(
+                customer_wa_number=ctx.phone,
+                restaurant_id=None,
+                language=ctx.lang,
                 active_order_id=ctx.session.active_order_id if ctx.session else None,
-                message_id=ctx.message_id,
+                context=dict(ctx.context),
             )
-            return SkillResult(
-                skill=SKILL_MENU_RECOMMEND,
-                ok=True,
-                action="restaurant_list",
-                next_step="choosing_restaurant",
-                reply=reply,
-                context_patch=context,
+            food_intent = AbuuIntent("food_search", categories=categories or [])
+            bundle = FactBundleLoader.load(
+                ctx.abuu_db, food_intent, agent_session, customer=ctx.customer
             )
+            if bundle.customer_lines:
+                context = dict(ctx.context)
+                context["active_categories"] = categories
+                context["pending_categories"] = categories
+                context["last_food_search"] = agent_session.context.get("last_food_search") or []
+                AbuuOrderDraftService.upsert_session(
+                    ctx.abuu_db,
+                    phone=ctx.phone,
+                    step="browsing",
+                    context=context,
+                    active_order_id=ctx.session.active_order_id if ctx.session else None,
+                    message_id=ctx.message_id,
+                )
+                header = "هذي اقتراحات تناسب طلبك 🍽️" if ctx.lang == "ar" else "Here's what matches 🍽️"
+                footer = (
+                    "قول اسم الطبق اللي بيعجبك وأنا بضيفه 😋"
+                    if ctx.lang == "ar"
+                    else "Say the dish name you want and I'll add it 😋"
+                )
+                reply = header + "\n" + "\n".join(bundle.customer_lines) + "\n" + footer
+                return SkillResult(
+                    skill=SKILL_MENU_RECOMMEND,
+                    ok=True,
+                    action="food_search",
+                    next_step="browsing",
+                    reply=reply,
+                    context_patch=context,
+                )
+            if ctx.lang == "en":
+                reply = "No matching dishes right now — try another type or ask for restaurants."
+            else:
+                reply = "ما لقيت أطباق لهذا الطلب حالياً — جرّب نوع تاني أو اسأل عن المطاعم 🙏"
+            return SkillResult(skill=SKILL_MENU_RECOMMEND, ok=False, action="no_match", next_step=None, reply=reply)
 
         ranked = rank_restaurants(
             ctx.abuu_db,
@@ -472,14 +585,17 @@ class AbuuSkillRouter:
     @staticmethod
     def _build_cart(ctx: TurnContext) -> SkillResult:
         restaurant_id = str(ctx.context.get("restaurant_id") or (ctx.order.restaurant_id if ctx.order else ""))
+        item_ref = ctx.classification.item_query or ctx.text
         if not restaurant_id or ctx.order is None:
+            picked = AbuuSkillRouter._pick_from_food_search(ctx, item_ref)
+            if picked is not None:
+                return picked
             if ctx.lang == "en":
                 reply = "Tell me what you'd like to eat — chicken, fish, meat, salad, drinks, or say **restaurants**."
             else:
                 reply = "قل لي ماذا تحب — دجاج، سمك، لحم، سلطة، مشروبات، أو **مطاعم**."
             return SkillResult(skill=SKILL_BUILD_CART, ok=False, action="need_preference", next_step=None, reply=reply)
 
-        item_ref = ctx.classification.item_query or ctx.text
         item = AbuuOrderDraftService.resolve_item_from_ref(
             ctx.abuu_db,
             restaurant_id=restaurant_id,

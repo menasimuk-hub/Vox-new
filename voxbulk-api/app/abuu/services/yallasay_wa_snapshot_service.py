@@ -37,8 +37,19 @@ class YallasayWaSnapshotService:
 
     @staticmethod
     def get_body(db: Session, *, scope: str, kind: str, lang: str) -> str | None:
+        from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
+
         row = YallasayWaSnapshotService.get(db, scope=scope, kind=kind, lang=lang)
-        return row.body_text if row else None
+        body = row.body_text if row else None
+        if body and "[id=" in body:
+            if kind == "restaurant_list":
+                YallasayWaSnapshotService.rebuild_marketplace(db)
+                db.flush()
+                row = YallasayWaSnapshotService.get(db, scope=scope, kind=kind, lang=lang)
+                body = row.body_text if row else None
+        if body:
+            body = wa_customer_sanitize(body)
+        return body
 
     @staticmethod
     def upsert(

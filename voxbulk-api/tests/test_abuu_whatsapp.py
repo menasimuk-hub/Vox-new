@@ -68,7 +68,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             message_id=f"{start_msg}-pref",
             org_id=org_id,
         )
-    assert pref_result.get("action") == "restaurant_list"
+    assert pref_result.get("action") == "food_search"
 
     with get_sessionmaker()() as db:
         pick_result = AbuuInboundService.try_handle(
@@ -78,28 +78,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             message_id=f"{start_msg}-pick",
             org_id=org_id,
         )
-    assert pick_result.get("action") == "restaurant_selected"
-
-    with get_sessionmaker()() as db:
-        menu_result = AbuuInboundService.try_handle(
-            db,
-            from_phone=phone,
-            body="chicken",
-            message_id=f"{start_msg}-menu",
-            org_id=org_id,
-        )
-    assert menu_result.get("action") == "preference_menu"
-
-    with get_sessionmaker()() as db:
-        add_result = AbuuInboundService.try_handle(
-            db,
-            from_phone=phone,
-            body="1",
-            message_id=f"{start_msg}-add",
-            org_id=org_id,
-        )
-    assert add_result.get("handled") is True
-    assert add_result.get("action") == "item_added"
+    assert pick_result.get("action") == "item_added"
 
     with get_sessionmaker()() as db:
         confirm_result = AbuuInboundService.try_handle(
@@ -147,7 +126,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             addr = abuu_db.get(CustomerAddress, order.delivery_address_id)
             assert addr.source_message_id == f"{start_msg}-loc"
 
-    assert mock_send.call_count >= 6
+    assert mock_send.call_count >= 4
 
 
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
@@ -207,7 +186,7 @@ def test_abuu_voice_note_transcription_flow(mock_transcribe, mock_send, app_clie
             org_id=org_id,
         )
     assert result.get("handled") is True
-    assert result.get("action") == "restaurant_list"
+    assert result.get("action") == "food_search"
     mock_transcribe.assert_called_once()
 
 
