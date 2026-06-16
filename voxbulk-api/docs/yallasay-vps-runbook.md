@@ -105,6 +105,44 @@ bash scripts/vps-abuu-diag.sh
 bash scripts/vps-abuu-diag.sh --follow   # while sending Yallasay to +447822002099
 ```
 
+### Simulate Yallasay inbound (no phone needed)
+
+Use this when real WhatsApp shows silence but you need to know whether **routing + Abuu** work independently of Telnyx WABA delivery:
+
+```bash
+cd /www/voxbulk
+bash scripts/vps-yallasay-e2e-trace.sh
+bash scripts/vps-yallasay-e2e-trace.sh --omit-to    # Telnyx omits `to` field
+bash scripts/vps-yallasay-e2e-trace.sh --preflight  # config only
+bash scripts/vps-yallasay-e2e-trace.sh --follow     # then tail live trace
+```
+
+The script calls `TelnyxInboundMessagingService.handle_webhook` directly (same code path as production webhooks, no Ed25519 signature needed).
+
+**Expected when working:**
+
+```
+PREFLIGHT  yallasay=+447822002099 profile=40019e47-... agent=True deepseek=True git_sha=...
+SIMULATE   text='Yallasay' from=+447700900123 to=+447822002099 mode=with-to message_id=vps-probe-...
+ROUTE      yallasay_line=True abuu_handled=True reason=... log_id=...
+[...] WA_IN  phone=+447700900123 ...
+[...] WA_OUT channel=whatsapp to=+447700900123 ok=True
+DB         inbound id=... to=+447822002099 ...
+DB         outbound id=... status=queued ...
+EXIT 0 — route + Abuu + outbound OK
+```
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Routed to Yallasay, Abuu handled, outbound OK or queued |
+| 1 | Preflight failed (number missing, API down, Abuu disabled) |
+| 2 | Not routed to Yallasay or Abuu did not handle |
+| 3 | Abuu handled but Telnyx outbound failed (profile / opt-out) |
+
+**If simulate works but real phone does not** → Telnyx WABA webhook on +447822002099 is not reaching the API (see below).
+
+**If simulate fails with exit 3** → run Admin → Telnyx → **Apply Telnyx setup (Yallasay line)** and re-run.
+
 ### Stale API after git pull
 
 Symptom: `git log -1` shows a newer commit than `/health/abuu-runtime` `git_sha`.
