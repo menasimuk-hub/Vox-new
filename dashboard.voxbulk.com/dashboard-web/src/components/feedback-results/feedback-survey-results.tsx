@@ -45,6 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MapPin } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { cn } from "@/lib/utils";
 import type {
   FeedbackSurveyResultsData,
@@ -105,6 +106,27 @@ export function FeedbackSurveyResults({
       return true;
     });
   }, [search, filter, respondents]);
+
+  type SortableRespondent = Respondent & {
+    sortName: string;
+    sortMobile: string;
+    sortSentiment: number;
+    sortCompletedAt: number;
+  };
+
+  const rowsForSort = useMemo<SortableRespondent[]>(
+    () =>
+      filtered.map((r) => ({
+        ...r,
+        sortName: r.name,
+        sortMobile: r.mobile,
+        sortSentiment: r.sentiment === "unhappy" ? 0 : r.sentiment === "neutral" ? 1 : 2,
+        sortCompletedAt: r.completedAtTs,
+      })),
+    [filtered],
+  );
+
+  const tableSort = useTableSort(rowsForSort as Record<string, unknown>[], "sortSentiment", "asc");
 
   const counts = useMemo(() => ({
     unhappy: respondents.filter((r) => r.sentiment === "unhappy").length,
@@ -369,48 +391,83 @@ export function FeedbackSurveyResults({
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="divide-y divide-border">
-                <div className="grid grid-cols-12 gap-3 px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <div className="col-span-3">Customer</div>
-                  <div className="col-span-3">Mobile</div>
-                  <div className="col-span-2">Sentiment</div>
-                  <div className="col-span-3">Quick view</div>
-                  <div className="col-span-1 text-right">Action</div>
+              {tableSort.sorted.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">No respondents match these filters.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <SortHeader
+                          label="Customer"
+                          sortKey="sortName"
+                          active={tableSort.sortKey}
+                          dir={tableSort.sortDir}
+                          onToggle={tableSort.toggleSort}
+                          className="px-4 py-2"
+                        />
+                        <SortHeader
+                          label="Mobile"
+                          sortKey="sortMobile"
+                          active={tableSort.sortKey}
+                          dir={tableSort.sortDir}
+                          onToggle={tableSort.toggleSort}
+                          className="px-4 py-2"
+                        />
+                        <SortHeader
+                          label="Sentiment"
+                          sortKey="sortSentiment"
+                          active={tableSort.sortKey}
+                          dir={tableSort.sortDir}
+                          onToggle={tableSort.toggleSort}
+                          className="px-4 py-2"
+                        />
+                        <SortHeader
+                          label="Completed"
+                          sortKey="sortCompletedAt"
+                          active={tableSort.sortKey}
+                          dir={tableSort.sortDir}
+                          onToggle={tableSort.toggleSort}
+                          className="px-4 py-2"
+                        />
+                        <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Quick view</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-muted-foreground">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(tableSort.sorted as SortableRespondent[]).map((r) => (
+                        <tr
+                          key={r.id}
+                          onClick={() => setOpenId(r.id)}
+                          className={cn(
+                            "cursor-pointer transition-colors hover:bg-muted/50",
+                            r.flagged && "bg-destructive/[0.03]",
+                          )}
+                        >
+                          <td className="px-4 py-3">
+                            <p className="font-medium leading-tight">{r.name}</p>
+                          </td>
+                          <td className="px-4 py-3 tabular-nums text-muted-foreground">{r.mobile}</td>
+                          <td className="px-4 py-3">
+                            <SentimentBadge sentiment={r.sentiment} flagged={r.flagged} />
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">{r.completedAt}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              {r.answers
+                                .filter((a) => a.type !== "Voice")
+                                .map((a, i) => <AnswerDot key={i} a={a as any} />)}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-xs font-medium text-primary">Open →</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                {filtered.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setOpenId(r.id)}
-                    className={cn(
-                      "grid w-full grid-cols-12 items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50",
-                      r.flagged && "bg-destructive/[0.03]",
-                    )}
-                  >
-                    <div className="col-span-3 flex items-center gap-2">
-                      <Avatar name={r.name} sentiment={r.sentiment} />
-                      <div>
-                        <p className="font-medium leading-tight">{r.name}</p>
-                        <p className="text-xs text-muted-foreground">{r.completedAt}</p>
-                      </div>
-                    </div>
-                    <div className="col-span-3 tabular-nums text-muted-foreground">{r.mobile}</div>
-                    <div className="col-span-2">
-                      <SentimentBadge sentiment={r.sentiment} flagged={r.flagged} />
-                    </div>
-                    <div className="col-span-3 flex items-center gap-1">
-                      {r.answers
-                        .filter((a) => a.type !== "Voice")
-                        .map((a, i) => <AnswerDot key={i} a={a as any} />)}
-                    </div>
-                    <div className="col-span-1 text-right">
-                      <span className="text-xs font-medium text-primary">Open →</span>
-                    </div>
-                  </button>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="p-8 text-center text-sm text-muted-foreground">No respondents match these filters.</div>
-                )}
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

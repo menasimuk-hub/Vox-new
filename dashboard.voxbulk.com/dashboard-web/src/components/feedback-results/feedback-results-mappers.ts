@@ -42,6 +42,7 @@ export type Respondent = {
   name: string;
   mobile: string;
   completedAt: string;
+  completedAtTs: number;
   sentiment: "happy" | "neutral" | "unhappy";
   flagged: boolean;
   answers: Array<
@@ -246,11 +247,13 @@ export function mapFeedbackResults(
 
   const respondents: Respondent[] = (data.respondents || []).map((r) => {
     const sentiment = (r.sentiment_label as Respondent["sentiment"]) || "neutral";
+    const completedTs = r.completed_at ? new Date(r.completed_at).getTime() : 0;
     return {
       id: String(r.id || ""),
       name: displayName(r.phone),
       mobile: String(r.phone || "—"),
       completedAt: formatRelative(r.completed_at),
+      completedAtTs: Number.isNaN(completedTs) ? 0 : completedTs,
       sentiment,
       flagged: Boolean(r.flagged || r.is_unhappy),
       answers: mapRespondentAnswers(r, questionByTitle, questions),
