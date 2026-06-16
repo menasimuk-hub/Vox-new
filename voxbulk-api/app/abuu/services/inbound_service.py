@@ -1358,36 +1358,35 @@ class AbuuInboundService:
         reply_text = wa_customer_sanitize(body)
         channel = _abuu_reply_channel.get()
         from_number = _abuu_reply_from.get()
-        if channel == "sms":
-            messaging_profile_id = None
-            if from_number:
-                from app.services.provider_settings import ProviderSettingsService
-                from app.services.yallasay_telnyx_line import get_yallasay_line_e164
+        if from_number:
+            from app.services.yallasay_telnyx_line import get_yallasay_whatsapp_e164, is_yallasay_line
 
-                yallasay_line = get_yallasay_line_e164(main_db)
-                if yallasay_line and from_number == yallasay_line:
-                    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(main_db, provider="telnyx")
-                    config = ProviderSettingsService._validate_telnyx_config(cfg if isinstance(cfg, dict) else {})
-                    messaging_profile_id = (
-                        str(config.get("sms_messaging_profile_id_2") or config.get("messaging_profile_id") or "").strip()
-                        or None
-                    )
-            result = TelnyxMessagingService.send_sms(
-                main_db,
-                to_number=to_phone,
-                body=reply_text,
-                from_number=from_number,
-                messaging_profile_id=messaging_profile_id,
+            if is_yallasay_line(main_db, from_number):
+                channel = "whatsapp"
+                from_number = get_yallasay_whatsapp_e164(main_db) or from_number
+        if channel == "sms":
+            logger.info(
+                "abuu_wa_trace OUT skipped sms channel to=%s from=%r (yallasay is whatsapp-only)",
+                to_phone,
+                from_number,
             )
-        else:
-            result = TelnyxMessagingService.send_whatsapp(
-                main_db,
-                to_number=to_phone,
-                body=reply_text,
-                from_number=from_number,
-                org_id=org_id,
-                meter_usage=False,
-            )
+            return
+        wa_profile = None
+        if from_number:
+            from app.services.yallasay_telnyx_line import get_yallasay_line_config, get_yallasay_whatsapp_e164
+
+            yallasay_wa = get_yallasay_whatsapp_e164(main_db)
+            if yallasay_wa and from_number == yallasay_wa:
+                wa_profile = get_yallasay_line_config(main_db).get("whatsapp_messaging_profile_id")
+        result = TelnyxMessagingService.send_whatsapp(
+            main_db,
+            to_number=to_phone,
+            body=reply_text,
+            from_number=from_number,
+            org_id=org_id,
+            meter_usage=False,
+            messaging_profile_id=wa_profile,
+        )
         logger.info(
             "abuu_wa_trace OUT channel=%s to=%s ok=%s body=%r",
             channel,

@@ -916,6 +916,23 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
     }
 
 
+@router.get("/integrations/telnyx/yallasay-line")
+def get_yallasay_telnyx_line(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.yallasay_telnyx_line import get_yallasay_line_config
+
+    return {"ok": True, **get_yallasay_line_config(db)}
+
+
+@router.post("/integrations/telnyx/yallasay-line/apply-telnyx")
+def apply_yallasay_telnyx_line(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_yallasay_setup_service import apply_yallasay_line_telnyx_setup
+
+    result = apply_yallasay_line_telnyx_setup(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or "Setup failed")
+    return result
+
+
 @router.get("/integrations/telnyx/whatsapp-templates")
 def list_telnyx_whatsapp_templates(
     approved_only: bool = False,
@@ -1004,6 +1021,24 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     template_language = str(payload.get("template_language") or "").strip() or None
     if not to_number:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    wa_from_override: str | None = None
+    wa_profile_override: str | None = None
+    slot = str(payload.get("slot") or "").strip()
+    if slot == "2":
+        from app.services.yallasay_telnyx_line import get_yallasay_line_config, get_yallasay_whatsapp_e164
+
+        wa_from_override = get_yallasay_whatsapp_e164(db)
+        line_cfg = get_yallasay_line_config(db)
+        wa_profile_override = str(line_cfg.get("whatsapp_messaging_profile_id") or "").strip() or None
+        if not wa_from_override:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Yallasay line is not configured (set sms_from_2 in Admin → Telnyx, then Save).",
+            )
+
     template_error = TelnyxMessagingService.validate_whatsapp_template_ref(template_name, template_id)
     if template_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=template_error)
@@ -1062,11 +1097,17 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     elif template_id:
         send_tid = template_id
 
+    def _send(**kwargs):
+        if wa_from_override:
+            kwargs["from_number"] = wa_from_override
+        if wa_profile_override:
+            kwargs["messaging_profile_id"] = wa_profile_override
+        return TelnyxMessagingService.send_whatsapp(db, **kwargs)
+
     result = None
     if send_name:
         for lang in langs:
-            attempt = TelnyxMessagingService.send_whatsapp(
-                db,
+            attempt = _send(
                 to_number=to_number,
                 body=body,
                 template_name=send_name,
@@ -1078,8 +1119,7 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
                 break
     if (result is None or not result.ok) and send_tid:
         for lang in langs:
-            attempt = TelnyxMessagingService.send_whatsapp(
-                db,
+            attempt = _send(
                 to_number=to_number,
                 body=body,
                 template_id=send_tid,
@@ -1090,11 +1130,7 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
             if attempt.ok:
                 break
     if result is None:
-        result = TelnyxMessagingService.send_whatsapp(
-            db,
-            to_number=to_number,
-            body=body,
-        )
+        result = _send(to_number=to_number, body=body)
     if not result.ok:
         detail = result.detail or result.status
         if not (template_name or template_id):
@@ -1119,7 +1155,7 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
         if not org_id:
             fallback = db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
             org_id = str(fallback or "")
-        wa_from = str(config.get("whatsapp_from") or "").strip() or None
+        wa_from = str(wa_from_override or config.get("whatsapp_from") or "").strip() or None
         if not org_id:
             log_warning = "Message sent but not saved to Messages — no organisation in database."
         else:

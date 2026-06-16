@@ -370,6 +370,7 @@ class TelnyxMessagingService:
         template_components: list[dict[str, Any]] | None = None,
         org_id: str | None = None,
         meter_usage: bool = True,
+        messaging_profile_id: str | None = None,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         _, wa_from = TelnyxMessagingService._from_numbers(config)
@@ -418,7 +419,9 @@ class TelnyxMessagingService:
             "type": "WHATSAPP",
             "whatsapp_message": whatsapp_message,
         }
-        wa_profile = TelnyxMessagingService._messaging_profile_for_channel(config, "whatsapp")
+        wa_profile = str(messaging_profile_id or "").strip()
+        if not wa_profile:
+            wa_profile = str(TelnyxMessagingService._messaging_profile_for_channel(config, "whatsapp") or "").strip()
         if wa_profile:
             payload["messaging_profile_id"] = wa_profile
         webhook_url = TelnyxMessagingService._messaging_webhook_url(config)

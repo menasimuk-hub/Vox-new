@@ -123,6 +123,8 @@ export default function TelnyxIntegration({
   telnyxTestResult,
   telnyxSmsTestResult,
   telnyxSms2TestResult,
+  telnyxWa2TestResult,
+  telnyxYallasayApplyResult,
   telnyxZoomTestResult,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
@@ -143,6 +145,8 @@ export default function TelnyxIntegration({
   hangupTelnyxCall,
   testTelnyxSms,
   testTelnyxSms2,
+  testTelnyxWhatsApp2,
+  applyYallasayTelnyxSetup,
   testTelnyxWhatsApp,
   testTelnyxZoom,
   loadTelnyxInboundMessages,
@@ -300,27 +304,51 @@ export default function TelnyxIntegration({
               />
             </Field>
             <Field
-              label='SMS number 2 — Yallasay line'
-              hint='Dedicated Yallasay inbound + outbound (SMS and WhatsApp). Inbound is routed to the ordering bot; replies go out from this number. Assign in Telnyx Messaging Profile.'
+              label='Yallasay line number'
+              hint='Same E.164 for SMS (receive-only) and WhatsApp (Abuu send + receive). SMS is for inbound only (e.g. Meta verification). Abuu replies on WhatsApp only.'
             >
               <input
                 className='input'
                 value={String(activeConfig.sms_from_2 || '')}
-                onChange={(e) => setProviderField('telnyx', 'sms_from_2', e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setProviderField('telnyx', 'sms_from_2', v)
+                  setProviderField('telnyx', 'whatsapp_from_2', v)
+                }}
                 placeholder='+447822002099'
               />
             </Field>
             <Field
-              label='SMS number 2 messaging profile ID (optional)'
-              hint='Only if number 2 uses a different Telnyx Messaging Profile than number 1. Leave blank to reuse SMS profile above.'
+              label='Yallasay messaging profile ID'
+              hint='Required for inbound SMS. Telnyx → Messaging Profiles UUID, or click Apply Telnyx setup below to create voxbulk-yallasay automatically.'
             >
               <input
                 className='input'
                 value={String(activeConfig.sms_messaging_profile_id_2 || '')}
-                onChange={(e) => setProviderField('telnyx', 'sms_messaging_profile_id_2', e.target.value)}
-                placeholder='Optional — same as SMS profile 1'
+                onChange={(e) => {
+                  const v = e.target.value
+                  setProviderField('telnyx', 'sms_messaging_profile_id_2', v)
+                  setProviderField('telnyx', 'whatsapp_messaging_profile_id_2', v)
+                }}
+                placeholder='40000000-0000-0000-0000-000000000000'
               />
             </Field>
+            <div className='note'>
+              <strong>Inbound checklist (same Telnyx API key)</strong>
+              <ol className='telnyxChecklist' style={{ marginTop: 8 }}>
+                <li>Save settings with Yallasay number + profile ID.</li>
+                <li>Click <strong>Apply Telnyx setup</strong> (assigns number + webhook for inbound SMS).</li>
+                <li>In Telnyx → WhatsApp → WABA: link the same number and set webhook to <code>{telnyxMessagingWebhookUrl || `${defaultWebhookBase}/telnyx/webhooks/messages`}</code></li>
+                <li>Inbound SMS → logged in Messages only (Abuu does not reply by SMS).</li>
+                <li>Inbound WhatsApp → Abuu bot replies on WhatsApp.</li>
+              </ol>
+              <div className='actions telnyxTestActions' style={{ marginTop: 8 }}>
+                <button type='button' className='btn soft' onClick={applyYallasayTelnyxSetup} disabled={providerSaving || !String(activeConfig.sms_from_2 || '').trim()}>
+                  Apply Telnyx setup (Yallasay line)
+                </button>
+              </div>
+              {telnyxYallasayApplyResult ? <div className='muted' style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{telnyxYallasayApplyResult}</div> : null}
+            </div>
             <Field label='WhatsApp number' hint='Telnyx → WhatsApp / Meta WABA. Can differ from SMS mobile.'>
               <input
                 className='input'
@@ -358,8 +386,8 @@ export default function TelnyxIntegration({
                       <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'sms')}>
                         SMS 1
                       </button>
-                      <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'sms2')}>
-                        SMS 2
+                      <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'yallasay')}>
+                        Yallasay
                       </button>
                       <button type='button' className='btn soft' onClick={() => applyTelnyxFromNumber(num, 'whatsapp')}>
                         WhatsApp
@@ -468,7 +496,7 @@ export default function TelnyxIntegration({
             <ol className='telnyxChecklist'>
               <li><strong>Landline</strong> → Call Control → voice webhook URL.</li>
               <li><strong>SMS mobile</strong> → Messaging Profile → messaging webhook URL.</li>
-              <li><strong>Yallasay line (SMS number 2)</strong> → same messaging webhook; inbound routes to Yallasay bot.</li>
+              <li><strong>Yallasay line</strong> → same webhook; inbound SMS logged only; inbound WhatsApp → Abuu bot (WhatsApp replies only).</li>
               <li><strong>WhatsApp number</strong> → Meta WABA in Telnyx → same messaging webhook + WABA webhooks.</li>
               <li>Save all three numbers here (they can be different lines).</li>
               <li>Save settings, then <strong>Test connection</strong>.</li>
@@ -658,7 +686,41 @@ export default function TelnyxIntegration({
               <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
             </Field>
             <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>SMS number 1</div>
+              <div className='telnyxTestBlockTitle'>Yallasay line — SMS (inbound test only)</div>
+              <div className='muted telnyxFieldHint'>
+                From: {String(activeConfig.sms_from_2 || '').trim() || '(not set)'} — sends a test SMS so you can reply and verify inbound. Abuu never sends SMS.
+              </div>
+              <div className='actions telnyxTestActions'>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={testTelnyxSms2}
+                  disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim() || !String(activeConfig.sms_from_2 || '').trim()}
+                >
+                  Test inbound SMS setup
+                </button>
+              </div>
+              {telnyxSms2TestResult ? <div className='note'>{telnyxSms2TestResult}</div> : null}
+            </div>
+            <div className='telnyxTestBlock'>
+              <div className='telnyxTestBlockTitle'>Yallasay line — WhatsApp (Abuu outbound)</div>
+              <div className='muted telnyxFieldHint'>
+                From: {String(activeConfig.whatsapp_from_2 || activeConfig.sms_from_2 || '').trim() || '(not set)'} — all Abuu customer replies use this channel.
+              </div>
+              <div className='actions telnyxTestActions'>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={testTelnyxWhatsApp2}
+                  disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim() || !String(activeConfig.sms_from_2 || '').trim()}
+                >
+                  Test WhatsApp (Yallasay)
+                </button>
+              </div>
+              {telnyxWa2TestResult ? <div className='note'>{telnyxWa2TestResult}</div> : null}
+            </div>
+            <div className='telnyxTestBlock'>
+              <div className='telnyxTestBlockTitle'>Platform SMS number 1</div>
               <div className='muted telnyxFieldHint'>Uses SMS number 1 (primary) from Telnyx API tab</div>
               <div className='actions telnyxTestActions'>
                 <button type='button' className='btn soft' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
@@ -668,24 +730,7 @@ export default function TelnyxIntegration({
               {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
             </div>
             <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>SMS number 2</div>
-              <div className='muted telnyxFieldHint'>
-                From: {String(activeConfig.sms_from_2 || '').trim() || '(not set — add on Telnyx API tab and Save)'}
-              </div>
-              <div className='actions telnyxTestActions'>
-                <button
-                  type='button'
-                  className='btn soft'
-                  onClick={testTelnyxSms2}
-                  disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim() || !String(activeConfig.sms_from_2 || '').trim()}
-                >
-                  Test SMS 2
-                </button>
-              </div>
-              {telnyxSms2TestResult ? <div className='note'>{telnyxSms2TestResult}</div> : null}
-            </div>
-            <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>WhatsApp</div>
+              <div className='telnyxTestBlockTitle'>Platform WhatsApp</div>
               <div className='muted telnyxFieldHint'>Uses WhatsApp number from Telnyx API tab</div>
               <Field
                 label='WhatsApp template (approved only)'

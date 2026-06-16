@@ -646,6 +646,20 @@ class ProviderSettingsService:
         cfg["sms_messaging_profile_id_2"] = str(
             cfg.get("sms_messaging_profile_id_2") or cfg.get("messaging_profile_id_2") or ""
         ).strip()
+        whatsapp_from_2 = str(cfg.get("whatsapp_from_2") or "").strip()
+        if not whatsapp_from_2 and sms_from_2:
+            whatsapp_from_2 = sms_from_2
+        if whatsapp_from_2:
+            try:
+                whatsapp_from_2 = normalize_telnyx_e164(whatsapp_from_2)
+            except ValueError:
+                pass
+            cfg["whatsapp_from_2"] = whatsapp_from_2
+        cfg["whatsapp_messaging_profile_id_2"] = str(
+            cfg.get("whatsapp_messaging_profile_id_2")
+            or cfg.get("sms_messaging_profile_id_2")
+            or ""
+        ).strip()
         wa_from = str(cfg.get("whatsapp_from") or "").strip()
         if wa_from:
             try:

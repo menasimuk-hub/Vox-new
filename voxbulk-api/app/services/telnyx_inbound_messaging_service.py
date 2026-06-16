@@ -421,10 +421,20 @@ class TelnyxInboundMessagingService:
         db.refresh(row)
 
         if direction == "inbound":
-            from app.services.yallasay_telnyx_line import get_yallasay_line_e164, is_yallasay_line
+            from app.services.yallasay_telnyx_line import is_yallasay_line
 
             if is_yallasay_line(db, to_norm):
                 inbound_text = (_extract_message_text(record) or body or "").strip()
+                if channel == "sms":
+                    return {
+                        "ok": True,
+                        "log_id": row.id,
+                        "channel": channel,
+                        "org_id": org_id,
+                        "yallasay_line": True,
+                        "abuu": {"handled": False, "reason": "sms_inbound_only"},
+                    }
+
                 if channel == "whatsapp":
                     from app.services.survey_wa_inbound_parse_service import parse_telnyx_wa_inbound_record
 
@@ -434,13 +444,15 @@ class TelnyxInboundMessagingService:
                     )
                     inbound_text = (normalized.normalized_answer or inbound_text).strip()
 
-                yallasay_from = get_yallasay_line_e164(db)
+                from app.services.yallasay_telnyx_line import get_yallasay_whatsapp_e164
+
+                yallasay_from = get_yallasay_whatsapp_e164(db)
                 abuu_result: dict[str, Any] = {"handled": False, "reason": "disabled"}
                 try:
                     from app.core.config import get_settings
                     from app.abuu.services.inbound_service import AbuuInboundService
 
-                    if get_settings().abuu_enabled:
+                    if get_settings().abuu_enabled and channel == "whatsapp":
                         abuu_result = AbuuInboundService.try_handle(
                             db,
                             from_phone=from_norm or from_number or "",
@@ -448,7 +460,7 @@ class TelnyxInboundMessagingService:
                             message_id=message_id,
                             record=record if isinstance(record, dict) else None,
                             org_id=org_id,
-                            reply_channel=channel,
+                            reply_channel="whatsapp",
                             reply_from=yallasay_from,
                         )
                 except Exception:

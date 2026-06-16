@@ -635,6 +635,8 @@ export default function Integrations() {
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxSms2TestResult, setTelnyxSms2TestResult] = useState('')
+  const [telnyxWa2TestResult, setTelnyxWa2TestResult] = useState('')
+  const [telnyxYallasayApplyResult, setTelnyxYallasayApplyResult] = useState('')
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
@@ -694,6 +696,12 @@ export default function Integrations() {
     }
     if (target === 'sms2') {
       setProviderField('telnyx', 'sms_from_2', number)
+      setProviderField('telnyx', 'whatsapp_from_2', number)
+      return
+    }
+    if (target === 'yallasay') {
+      setProviderField('telnyx', 'sms_from_2', number)
+      setProviderField('telnyx', 'whatsapp_from_2', number)
       return
     }
     if (target === 'whatsapp') {
@@ -1331,6 +1339,65 @@ export default function Integrations() {
     }
   }
 
+  const testTelnyxWhatsApp2 = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter your mobile number in E.164 format (+44…).')
+      return
+    }
+    const fromNumber = String(activeConfig?.sms_from_2 || activeConfig?.whatsapp_from_2 || '').trim()
+    if (!fromNumber) {
+      window.alert('Set Yallasay line number on the Telnyx API tab, Save settings, then try again.')
+      return
+    }
+    setProviderError('')
+    setTelnyxWa2TestResult(`Sending test WhatsApp from ${fromNumber}…`)
+    try {
+      const payload = {
+        to_number: toNumber,
+        slot: '2',
+        body: `VOXBULK WhatsApp test from ${fromNumber}`,
+      }
+      if (telnyxWaTemplateId) payload.template_id = telnyxWaTemplateId
+      else if (telnyxWaTemplateName) payload.template_name = telnyxWaTemplateName
+      if (telnyxWaTemplateLang) payload.template_language = telnyxWaTemplateLang
+      const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setTelnyxWa2TestResult(result.message || 'WhatsApp queued')
+      await loadTelnyxInboundMessages(true)
+    } catch (e) {
+      setTelnyxWa2TestResult('')
+      setProviderError(e?.message || 'Yallasay WhatsApp test failed')
+    }
+  }
+
+  const applyYallasayTelnyxSetup = async () => {
+    setProviderError('')
+    setTelnyxYallasayApplyResult('Applying Telnyx webhook + profile for Yallasay line…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/yallasay-line/apply-telnyx', { method: 'POST' })
+      const parts = [
+        `Profile ${result.messaging_profile_id || '—'}`,
+        `Webhook probe HTTP ${result.webhook_probe_status}`,
+        result.phone ? `Number ${result.phone}` : '',
+      ].filter(Boolean)
+      setTelnyxYallasayApplyResult(parts.join(' · '))
+      if (result.messaging_profile_id) {
+        setProviderField('telnyx', 'sms_messaging_profile_id_2', result.messaging_profile_id)
+        setProviderField('telnyx', 'whatsapp_messaging_profile_id_2', result.messaging_profile_id)
+      }
+      if (Array.isArray(result.next_steps) && result.next_steps.length) {
+        setTelnyxYallasayApplyResult(`${parts.join(' · ')}\n${result.next_steps.join('\n')}`)
+      }
+      await reloadSummaries()
+    } catch (e) {
+      setTelnyxYallasayApplyResult('')
+      setProviderError(e?.message || 'Could not apply Telnyx setup for Yallasay line')
+    }
+  }
+
   const loadTelnyxWaTemplates = async (silent = false) => {
     try {
       const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
@@ -1637,6 +1704,8 @@ export default function Integrations() {
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxSms2TestResult={telnyxSms2TestResult}
+          telnyxWa2TestResult={telnyxWa2TestResult}
+          telnyxYallasayApplyResult={telnyxYallasayApplyResult}
           telnyxZoomTestResult={telnyxZoomTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
@@ -1658,6 +1727,8 @@ export default function Integrations() {
           testTelnyxZoom={testTelnyxZoom}
           testTelnyxSms={testTelnyxSms}
           testTelnyxSms2={testTelnyxSms2}
+          testTelnyxWhatsApp2={testTelnyxWhatsApp2}
+          applyYallasayTelnyxSetup={applyYallasayTelnyxSetup}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
           telnyxMessageFilters={telnyxMessageFilters}
