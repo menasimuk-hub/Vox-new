@@ -295,7 +295,7 @@ export default function TelnyxIntegration({
                 placeholder='+4420… landline'
               />
             </Field>
-            <Field label='SMS number 1 (primary)' hint='Platform default SMS line — outbound + inbound for surveys, etc.'>
+            <Field label='SMS number 1 (primary)' hint='Number 1 — platform line for surveys and general SMS. Not Abuu/YallaSay.'>
               <input
                 className='input'
                 value={String(activeConfig.sms_from || '')}
@@ -304,8 +304,8 @@ export default function TelnyxIntegration({
               />
             </Field>
             <Field
-              label='Yallasay line number'
-              hint='Same E.164 for SMS (receive-only) and WhatsApp (Abuu send + receive). SMS is for inbound only (e.g. Meta verification). Abuu replies on WhatsApp only.'
+              label='Number 2 — Yallasay / Abuu line'
+              hint='Number 2 only — Abuu / YallaSay WhatsApp ordering (+447822002099). Same E.164 for SMS (receive-only, e.g. Meta verification) and WhatsApp send/receive. Not used for surveys or AI calling.'
             >
               <input
                 className='input'
@@ -334,13 +334,13 @@ export default function TelnyxIntegration({
               />
             </Field>
             <div className='note'>
-              <strong>Inbound checklist (same Telnyx API key)</strong>
+              <strong>Number 2 inbound (Abuu only)</strong>
               <ol className='telnyxChecklist' style={{ marginTop: 8 }}>
-                <li>Save settings with Yallasay number + profile ID.</li>
-                <li>Click <strong>Apply Telnyx setup</strong> (assigns number + webhook for inbound SMS).</li>
-                <li>In Telnyx → WhatsApp → WABA: link the same number and set webhook to <code>{telnyxMessagingWebhookUrl || `${defaultWebhookBase}/telnyx/webhooks/messages`}</code></li>
-                <li>Inbound SMS → logged in Messages only (Abuu does not reply by SMS).</li>
-                <li>Inbound WhatsApp → Abuu bot replies on WhatsApp.</li>
+                <li>Save Number 2 above (+447822002099) + Yallasay messaging profile ID.</li>
+                <li>Click <strong>Apply Telnyx setup</strong> (assigns Number 2 + webhook).</li>
+                <li>In Telnyx → WhatsApp → WABA: link Number 2 and set webhook to <code>{telnyxMessagingWebhookUrl || `${defaultWebhookBase}/telnyx/webhooks/messages`}</code></li>
+                <li>Inbound SMS on Number 2 → logged in Messages only (Abuu does not reply by SMS).</li>
+                <li>Inbound WhatsApp on Number 2 → Abuu bot only.</li>
               </ol>
               <div className='actions telnyxTestActions' style={{ marginTop: 8 }}>
                 <button type='button' className='btn soft' onClick={applyYallasayTelnyxSetup} disabled={providerSaving || !String(activeConfig.sms_from_2 || '').trim()}>
@@ -349,12 +349,12 @@ export default function TelnyxIntegration({
               </div>
               {telnyxYallasayApplyResult ? <div className='muted' style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{telnyxYallasayApplyResult}</div> : null}
             </div>
-            <Field label='WhatsApp number' hint='Telnyx → WhatsApp / Meta WABA. Can differ from SMS mobile.'>
+            <Field label='Number 1 — WhatsApp (surveys)' hint='Number 1 only — WA surveys + customer feedback (+447822002055). AI voice outbound uses the landline above. Not Abuu/YallaSay.'>
               <input
                 className='input'
                 value={String(activeConfig.whatsapp_from || '')}
                 onChange={(e) => setProviderField('telnyx', 'whatsapp_from', e.target.value)}
-                placeholder='+447… WA line'
+                placeholder='+447822002055'
               />
             </Field>
             <Field label='SMS messaging profile ID' hint='UUID for the profile that owns your SMS mobile number.'>
@@ -703,9 +703,9 @@ export default function TelnyxIntegration({
               {telnyxSms2TestResult ? <div className='note'>{telnyxSms2TestResult}</div> : null}
             </div>
             <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>Yallasay line — WhatsApp (Abuu outbound)</div>
+              <div className='telnyxTestBlockTitle'>Number 2 — WhatsApp (Abuu / YallaSay)</div>
               <div className='muted telnyxFieldHint'>
-                From: {String(activeConfig.whatsapp_from_2 || activeConfig.sms_from_2 || '').trim() || '(not set)'} — all Abuu customer replies use this channel.
+                From: {String(activeConfig.whatsapp_from_2 || activeConfig.sms_from_2 || '').trim() || '(not set)'} — all Abuu customer replies use Number 2 only.
               </div>
               <div className='actions telnyxTestActions'>
                 <button
@@ -730,8 +730,8 @@ export default function TelnyxIntegration({
               {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
             </div>
             <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>Platform WhatsApp</div>
-              <div className='muted telnyxFieldHint'>Uses WhatsApp number from Telnyx API tab</div>
+              <div className='telnyxTestBlockTitle'>Number 1 — WhatsApp (surveys)</div>
+              <div className='muted telnyxFieldHint'>Uses Number 1 WhatsApp (+447822002055) — survey templates only, not Abuu.</div>
               <Field
                 label='WhatsApp template (approved only)'
                 hint='Pick from the list on the left, or choose here.'

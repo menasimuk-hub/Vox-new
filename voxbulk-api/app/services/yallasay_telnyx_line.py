@@ -1,4 +1,9 @@
-"""Yallasay dedicated Telnyx line — SMS inbound-only, WhatsApp for Abuu send + receive."""
+"""Yallasay dedicated Telnyx line (Number 2) — Abuu WhatsApp only.
+
+Number 1 (whatsapp_from): surveys + AI calling — never Abuu.
+Number 2 (sms_from_2 / whatsapp_from_2): Abuu / YallaSay ordering only.
+Both numbers can receive inbound WhatsApp; routing uses is_yallasay_line(to).
+"""
 
 from __future__ import annotations
 

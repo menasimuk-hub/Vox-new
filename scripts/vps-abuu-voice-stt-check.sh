@@ -42,7 +42,7 @@ fi
 
 section "Recent Abuu voice lines (last 15)"
 if [[ -f "$API_LOG" ]]; then
-  grep -E 'abuu_wa_trace|abuu_voice|voice_interpretation|abuu_stt_|transcription_failed' "$API_LOG" 2>/dev/null | tail -15 || warn "no abuu voice lines — deploy abuu_wa_trace commit and send a voice note"
+  grep -E 'abuu_wa_trace|abuu_voice|voice_interpretation|abuu_stt_|transcription_failed' "$API_LOG" 2>/dev/null | tail -15 || warn "no abuu voice lines — send a voice note to +447822002099 while tracing"
 fi
 
 section "Env flags (from .env, no secrets)"

@@ -300,9 +300,14 @@ class AbuuVoiceService:
         from app.abuu.voice_interpretation.stt_config import stt_provider_order
 
         providers = stt_provider_order()
+        deepinfra_ready = DeepInfraProviderService.is_configured(main_db)
+        failures: list[str] = []
         for provider in providers:
             try:
-                if provider == "deepinfra" and DeepInfraProviderService.is_configured(main_db):
+                if provider == "deepinfra":
+                    if not deepinfra_ready:
+                        failures.append("deepinfra:not_configured")
+                        continue
                     text = AbuuVoiceService._transcribe_deepinfra(
                         main_db,
                         audio_path,
@@ -310,7 +315,9 @@ class AbuuVoiceService:
                         dialect_prompt=dialect_prompt,
                     )
                     if text:
+                        logger.info("abuu_stt_ok provider=deepinfra chars=%s", len(text))
                         return text
+                    failures.append("deepinfra:empty")
                 elif provider == "whisper_cpp":
                     text = AbuuVoiceService._transcribe_whisper_cpp(
                         audio_path,
@@ -318,7 +325,9 @@ class AbuuVoiceService:
                         dialect_prompt=dialect_prompt,
                     )
                     if text:
+                        logger.info("abuu_stt_ok provider=whisper_cpp chars=%s", len(text))
                         return text
+                    failures.append("whisper_cpp:empty")
                 elif provider == "groq":
                     text = AbuuVoiceService._transcribe_groq(
                         main_db,
@@ -327,13 +336,19 @@ class AbuuVoiceService:
                         dialect_prompt=dialect_prompt,
                     )
                     if text:
+                        logger.info("abuu_stt_ok provider=groq chars=%s", len(text))
                         return text
-            except Exception:
+                    failures.append("groq:empty")
+                else:
+                    failures.append(f"{provider}:unknown")
+            except Exception as exc:
+                failures.append(f"{provider}:{type(exc).__name__}")
                 logger.warning("abuu_stt_provider_failed provider=%s", provider, exc_info=True)
         logger.warning(
-            "abuu_stt_all_providers_failed path=%s providers=%s deepinfra=%s",
+            "abuu_stt_all_providers_failed path=%s providers=%s deepinfra=%s failures=%s",
             audio_path,
             ",".join(providers),
-            DeepInfraProviderService.is_configured(main_db),
+            deepinfra_ready,
+            ",".join(failures) or "none",
         )
         return ""

@@ -22,11 +22,16 @@ async def abuu_inbound_webhook(request: Request, db: Session = Depends(get_db)):
     from_phone = _phone_from(record.get("from"))
     body = _extract_message_text(record)
     message_id = str(record.get("id") or record.get("message_id") or "").strip() or None
+    from app.services.yallasay_telnyx_line import get_yallasay_whatsapp_e164
+
+    yallasay_from = get_yallasay_whatsapp_e164(db)
     result = AbuuInboundService.try_handle(
         db,
         from_phone=from_phone,
         body=body,
         message_id=message_id,
         record=record,
+        reply_channel="whatsapp",
+        reply_from=yallasay_from,
     )
     return {"ok": True, "abuu": result}

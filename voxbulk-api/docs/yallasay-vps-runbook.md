@@ -43,6 +43,33 @@ Send WhatsApp while the script runs. Expect `ROUTE pipeline=agent` (not `smart`,
 | `OUT forbidden_hit=True` | Old orchestrator reply_composer path — agent mode not active |
 | `agent_mode=false` in health | `ABUU_AGENT_ENABLED=false` or mode not `agent`/`deepseek`/`gaza_agent` |
 
+## WhatsApp numbers — Number 1 vs Number 2
+
+Both lines can **receive** inbound WhatsApp. Routing is by the webhook `to` number:
+
+| Line | E.164 | Admin field | WhatsApp use |
+|------|-------|-------------|--------------|
+| **Number 1** | +447822002055 | `whatsapp_from` | WA **surveys** + customer feedback + AI voice outbound (landline) — **not Abuu** |
+| **Number 2** | +447822002099 | `sms_from_2` + `whatsapp_from_2` | **Abuu / YallaSay** ordering only — text + voice |
+
+Abuu inbound runs **only** when `to` matches Number 2 (`is_yallasay_line`). WA messages to Number 1 go to survey/feedback paths only.
+
+### Admin → Integrations → Telnyx (Save, then Apply Telnyx setup on Number 2)
+
+1. **Number 2 (Abuu):** `+447822002099` → `sms_from_2` and `whatsapp_from_2`
+2. **Number 1 (surveys):** `+447822002055` → `whatsapp_from`
+3. Click **Apply Telnyx setup (Yallasay line)** — assigns **Number 2** to profile `voxbulk-yallasay` + webhook
+4. In **Telnyx console → WhatsApp → WABA:** link **Number 2** (+447822002099), webhook → `https://api.voxbulk.com/telnyx/webhooks/messages`
+5. Keep **Number 1** (+447822002055) on the survey WABA/profile only; do not attach Number 1 to the Yallasay profile
+
+Verify:
+
+```bash
+curl -s http://127.0.0.1:8000/health/abuu-runtime | python3 -m json.tool
+# WA to Number 2 (+447822002099) → ROUTE pipeline=agent
+# WA to Number 1 (+447822002055) → survey only, no Abuu
+```
+
 ## Deploy
 
 ```bash
@@ -72,7 +99,7 @@ UPDATE alembic_version SET version_num='0013_abuu_session_context_mediumtext' WH
 
 ### Telnyx opt-out (STOP)
 
-If logs show `block rule` for your number, send **`UNSTOP`** or **`START`** to the WhatsApp sender (e.g. `+447822002055`). Telnyx has no API to remove opt-outs — the user must message back.
+If logs show `block rule` for your number, send **`UNSTOP`** or **`START`** to the WhatsApp sender (e.g. **+447822002099** for Abuu). Telnyx has no API to remove opt-outs — the user must message back.
 
 ### Bloated Abuu session (`context_json` too long)
 
@@ -247,7 +274,35 @@ Config (`.env`):
 - `ABUU_ALLERGEN_STRICT_MODE=true` — exclude items missing dietary confirmation when customer requires vegan/vegetarian/etc.
 - `ABUU_PORTAL_TOKEN_EXPIRE_DAYS=30` — restaurant/driver portal JWT lifetime
 
-## Voice interpretation (post-STT)
+## Voice notes (agent mode)
+
+Send voice to **+447822002099** only (not the survey number **055**).
+
+STT chain (default): **DeepInfra Whisper** → whisper_cpp (local, usually absent) → Groq. No provider change needed if DeepInfra is configured in Admin → Integrations.
+
+Recommended for v1 agent:
+
+```env
+ABUU_VOICE_INTERPRETATION_ENABLED=false
+```
+
+Diagnose on VPS:
+
+```bash
+./scripts/vps-abuu-voice-stt-check.sh
+./scripts/vps-abuu-live-trace.sh
+# Send Arabic voice note to +447822002099 while tracing
+```
+
+| Log line | Fix |
+|----------|-----|
+| `abuu_stt_all_providers_failed ... failures=deepinfra:not_configured` | Set DeepInfra API key in Admin → Integrations |
+| `abuu_stt_all_providers_failed ... failures=deepinfra:empty,groq:...` | Check audio download; verify Groq key as backup |
+| No `abuu_wa_trace IN type=voice` | Wrong number or webhook not hitting API |
+| `abuu_wa_reply_failed` | Yallasay line not set to 099 or messaging profile missing |
+| `ROUTE pipeline=agent` + STT ok but no reply | DeepSeek key in Admin → Integrations |
+
+## Voice interpretation (post-STT — orchestrator / v2 only)
 
 **Product rule:** Raw STT transcript is only an input signal, not final customer intent. Abuu normalizes and interprets Arabic food-ordering speech against menu vocabulary before deciding how to respond.
 
