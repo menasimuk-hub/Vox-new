@@ -75,7 +75,12 @@ def _parse_whisper_output(stdout: str, stderr: str, txt_path: Path | None) -> tu
     return text, detected_language
 
 
-def transcribe_with_whisper_cpp(audio_path: Path) -> dict:
+def transcribe_with_whisper_cpp(
+    audio_path: Path,
+    *,
+    language: str | None = None,
+    initial_prompt: str | None = None,
+) -> dict:
     cfg = voice_note_settings()
     binary = cfg["whisper_cpp_binary"]
     model = cfg["whisper_cpp_model"]
@@ -88,36 +93,47 @@ def transcribe_with_whisper_cpp(audio_path: Path) -> dict:
     timeout_seconds = int(cfg["voice_note_transcription_timeout_seconds"] or 180)
     wav_path = normalize_audio_for_whisper(audio_path, ffmpeg_binary=ffmpeg, timeout_seconds=timeout_seconds)
 
+    whisper_lang = str(language or "auto").strip().lower() or "auto"
+    if whisper_lang not in {"auto", "ar", "en"}:
+        whisper_lang = "auto"
+
     with tempfile.TemporaryDirectory(prefix="whisper-out-") as tmp:
         out_base = str(Path(tmp) / "transcript")
         out_txt = Path(f"{out_base}.txt")
         started = time.perf_counter()
-        commands = [
-            [
+
+        def _build_cmd(*, use_prompt: bool) -> list[str]:
+            cmd_a = [
                 binary,
                 "-m",
                 model,
                 "-f",
                 str(wav_path),
                 "-l",
-                "auto",
+                whisper_lang,
                 "-otxt",
                 "-of",
                 out_base,
-            ],
-            [
+            ]
+            cmd_b = [
                 binary,
                 "-m",
                 model,
                 "-f",
                 str(wav_path),
                 "-l",
-                "auto",
+                whisper_lang,
                 "--output-txt",
                 "--output-file",
                 out_base,
-            ],
-        ]
+            ]
+            if use_prompt and initial_prompt:
+                cmd_a.extend(["--prompt", str(initial_prompt).strip()])
+                cmd_b.extend(["--prompt", str(initial_prompt).strip()])
+            return [cmd_a, cmd_b]
+
+        commands = _build_cmd(use_prompt=True)
+        prompt_fallback = bool(initial_prompt)
         last_error = ""
         stdout = stderr = ""
         for cmd in commands:
@@ -152,4 +168,39 @@ def transcribe_with_whisper_cpp(audio_path: Path) -> dict:
                         "transcription_duration_ms": elapsed_ms,
                     }
             last_error = (stderr or stdout or f"exit {proc.returncode}").strip()
+        if prompt_fallback:
+            logger.warning("%s whisper_prompt_unsupported retrying_without_prompt", LOG_PREFIX)
+            commands = _build_cmd(use_prompt=False)
+            for cmd in commands:
+                logger.info("%s whisper_started cmd=%s", LOG_PREFIX, " ".join(cmd))
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=max(30, timeout_seconds),
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise WhisperTranscriptionError("Whisper transcription timed out") from exc
+                stdout = proc.stdout or ""
+                stderr = proc.stderr or ""
+                if proc.returncode == 0:
+                    text, language = _parse_whisper_output(stdout, stderr, out_txt if out_txt.exists() else None)
+                    if text:
+                        elapsed_ms = int((time.perf_counter() - started) * 1000)
+                        logger.info(
+                            "%s whisper_completed language=%s duration_ms=%s chars=%s",
+                            LOG_PREFIX,
+                            language,
+                            elapsed_ms,
+                            len(text),
+                        )
+                        return {
+                            "text": text,
+                            "detected_language": language,
+                            "transcription_model": Path(model).name,
+                            "transcription_duration_ms": elapsed_ms,
+                        }
+                last_error = (stderr or stdout or f"exit {proc.returncode}").strip()
         raise WhisperTranscriptionError(last_error[:500] or "Whisper produced empty transcript")

@@ -136,6 +136,7 @@ class AbuuInboundService:
             lang = customer.preferred_language or "ar"
             transcript_confidence: float | None = None
             voice_meta: dict[str, Any] = {}
+            voice_stt_needs_clarification = False
             logger.info(
                 "abuu_wa_trace IN phone=%s type=%s text=%r",
                 phone,
@@ -155,11 +156,21 @@ class AbuuInboundService:
                     "content_type": voice.content_type,
                     "storage_path": voice.storage_path,
                     "error": voice.error,
+                    "raw_transcript": voice.raw_transcript,
+                    "corrected_transcript": voice.corrected_transcript,
+                    "correction_applied": voice.correction_applied,
+                    "garbage_detected": voice.garbage_detected,
+                    "stt_needs_clarification": voice.needs_clarification,
+                    "clarification_reason": voice.clarification_reason,
                 }
                 transcript_confidence = voice.confidence
+                use_waiter = WaiterPipeline.enabled_for_phone(phone)
+                voice_stt_needs_clarification = bool(voice.needs_clarification)
                 if not voice.ok:
                     partial = str(voice.transcript or "").strip()
-                    if partial and not is_low_quality_transcript(partial):
+                    if use_waiter and voice_stt_needs_clarification and partial:
+                        text = partial
+                    elif partial and not is_low_quality_transcript(partial):
                         text = partial
                     else:
                         context = {}
@@ -202,38 +213,41 @@ class AbuuInboundService:
                         abuu_db.commit()
                         return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
                 if is_low_quality_transcript(voice.transcript):
-                    AbuuInboundService._send_reply(
-                        main_db,
-                        phone,
-                        voice_unclear_transcript_message(lang),
-                        org_id=org_id,
-                    )
-                    if session:
-                        session.last_message_id = message_id
-                        abuu_db.add(session)
-                    AbuuInboundMessageService.save(
-                        abuu_db,
-                        customer_phone=phone,
-                        customer_id=customer.id,
-                        source_message_id=message_id,
-                        message_type="voice",
-                        body_text=text or None,
-                        transcript_text=voice.transcript or None,
-                        transcript_confidence=voice.confidence,
-                        voice_media_url=voice.media_url,
-                        voice_content_type=voice.content_type,
-                        voice_storage_path=voice.storage_path,
-                        payload=voice_meta,
-                    )
-                    abuu_db.commit()
-                    return {
-                        "handled": True,
-                        "reason": "voice_unclear_transcript",
-                        "transcript": voice.transcript,
-                    }
-                text = voice.transcript
+                    if use_waiter and voice_stt_needs_clarification and str(voice.transcript or "").strip():
+                        text = voice.transcript
+                    else:
+                        AbuuInboundService._send_reply(
+                            main_db,
+                            phone,
+                            voice_unclear_transcript_message(lang),
+                            org_id=org_id,
+                        )
+                        if session:
+                            session.last_message_id = message_id
+                            abuu_db.add(session)
+                        AbuuInboundMessageService.save(
+                            abuu_db,
+                            customer_phone=phone,
+                            customer_id=customer.id,
+                            source_message_id=message_id,
+                            message_type="voice",
+                            body_text=text or None,
+                            transcript_text=voice.transcript or None,
+                            transcript_confidence=voice.confidence,
+                            voice_media_url=voice.media_url,
+                            voice_content_type=voice.content_type,
+                            voice_storage_path=voice.storage_path,
+                            payload=voice_meta,
+                        )
+                        abuu_db.commit()
+                        return {
+                            "handled": True,
+                            "reason": "voice_unclear_transcript",
+                            "transcript": voice.transcript,
+                        }
+                if not text:
+                    text = voice.transcript
                 voice_interpretation_payload: dict[str, Any] | None = None
-                use_waiter = WaiterPipeline.enabled_for_phone(phone)
                 if text and VoiceInterpretationService.enabled() and not use_waiter:
                     from app.abuu.agent.session import load_session, save_session
 
@@ -346,6 +360,7 @@ class AbuuInboundService:
                         org_id=org_id,
                         is_voice=True,
                         stt_confidence=float(transcript_confidence or 0.0),
+                        stt_needs_clarification=voice_stt_needs_clarification,
                     )
                     abuu_db.commit()
                     return result
@@ -1039,6 +1054,7 @@ class AbuuInboundService:
         org_id: str | None,
         is_voice: bool = False,
         stt_confidence: float = 0.0,
+        stt_needs_clarification: bool = False,
     ) -> dict[str, Any]:
         result = WaiterPipeline.handle(
             abuu_db,
@@ -1049,6 +1065,7 @@ class AbuuInboundService:
             org_id=org_id,
             is_voice=is_voice,
             stt_confidence=stt_confidence,
+            stt_needs_clarification=stt_needs_clarification,
         )
         if result.get("action") == "delegate_confirm":
             order = (

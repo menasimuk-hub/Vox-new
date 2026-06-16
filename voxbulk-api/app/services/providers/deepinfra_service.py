@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import ssl
 import time
 from pathlib import Path
@@ -10,6 +11,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.services.provider_settings import ProviderSettingsService
+
+logger = logging.getLogger(__name__)
 
 DEEPINFRA_DEFAULT_MODEL = "openai/whisper-large-v3-turbo"
 DEEPINFRA_DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo"
@@ -64,13 +67,11 @@ class DeepInfraProviderService:
         *,
         audio_path: Path,
         language: str | None = None,
+        prompt: str | None = None,
     ) -> dict[str, Any]:
         start = time.perf_counter()
         config = DeepInfraProviderService._config(db)
         headers = {"Authorization": f"Bearer {config['api_key']}"}
-        data: dict[str, str] = {}
-        if language:
-            data["language"] = str(language).strip().lower()
 
         mime = "audio/wav"
         suffix = audio_path.suffix.lower()
@@ -81,10 +82,26 @@ class DeepInfraProviderService:
         elif suffix in {".m4a", ".mp4"}:
             mime = "audio/mp4"
 
-        with audio_path.open("rb") as handle:
-            files = {"audio": (audio_path.name, handle, mime)}
-            with httpx.Client(timeout=90.0, verify=DeepInfraProviderService._ssl_context()) as client:
-                response = client.post(config["base_url"], headers=headers, data=data or None, files=files)
+        def _post(data: dict[str, str]) -> httpx.Response:
+            with audio_path.open("rb") as handle:
+                files = {"audio": (audio_path.name, handle, mime)}
+                with httpx.Client(timeout=90.0, verify=DeepInfraProviderService._ssl_context()) as client:
+                    return client.post(config["base_url"], headers=headers, data=data or None, files=files)
+
+        data: dict[str, str] = {}
+        if language:
+            data["language"] = str(language).strip().lower()
+        if prompt:
+            data["prompt"] = str(prompt).strip()
+
+        response = _post(data)
+        if not response.is_success and prompt:
+            logger.warning(
+                "abuu_stt_prompt_unsupported provider=deepinfra status=%s retrying_without_prompt",
+                response.status_code,
+            )
+            retry_data = {k: v for k, v in data.items() if k != "prompt"}
+            response = _post(retry_data)
 
         elapsed = int((time.perf_counter() - start) * 1000)
         if not response.is_success:

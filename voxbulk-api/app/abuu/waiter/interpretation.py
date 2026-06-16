@@ -38,6 +38,9 @@ from app.abuu.waiter.protected_lexicon import (
 from app.abuu.waiter.trace import trace
 from app.core.config import get_settings
 
+STT_CLARIFY_MESSAGE_AR = "ما سمعتك منيح — ممكن تعيد أو تكتب طلبك؟ 🙏"
+STT_CLARIFY_MESSAGE_EN = "I didn't catch that clearly — could you repeat or type your order? 🙏"
+
 
 @dataclass
 class InterpretationResult:
@@ -100,6 +103,7 @@ class WaiterInterpretation:
         customer=None,
         lang: str = "ar",
         is_voice: bool = False,
+        stt_needs_clarification: bool = False,
     ) -> InterpretationResult:
         raw = str(transcript or "").strip()
         normalized = conservative_transcript(raw, language=lang)
@@ -153,7 +157,11 @@ class WaiterInterpretation:
         clarification_count = int((session.context or {}).get("clarification_count") or 0) if session else 0
         skip_clarify = word_count <= 10 or clarification_count >= 1
 
-        if allergy_uncertain and not skip_clarify:
+        if stt_needs_clarification and is_voice and clarification_count == 0:
+            needs_clarification = True
+            clarification_reason = "stt_low_quality"
+            clarification_prompt = STT_CLARIFY_MESSAGE_AR if lang.startswith("ar") else STT_CLARIFY_MESSAGE_EN
+        elif allergy_uncertain and not skip_clarify:
             needs_clarification = True
             clarification_reason = "allergy_uncertain"
             clarification_prompt = allergy_clarification(lang=lang)

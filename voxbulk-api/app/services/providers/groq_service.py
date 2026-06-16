@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import ssl
 import time
@@ -10,6 +11,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.services.provider_settings import ProviderSettingsService
+
+logger = logging.getLogger(__name__)
 
 
 GROQ_DEFAULT_BASE_URL = "https://api.groq.com/openai"
@@ -77,6 +80,7 @@ class GroqProviderService:
         filename: str = "audio.webm",
         content_type: str = "audio/webm",
         language: str | None = None,
+        prompt: str | None = None,
     ) -> dict[str, Any]:
         start = time.perf_counter()
         config = GroqProviderService._config(db)
@@ -87,10 +91,30 @@ class GroqProviderService:
             "language": stt_lang,
             "response_format": "json",
         }
+        if prompt:
+            data["prompt"] = str(prompt).strip()
         headers = {"Authorization": f"Bearer {config['api_key']}"}
-        with httpx.Client(timeout=45.0, verify=GroqProviderService._ssl_context()) as client:
-            response = client.post(f"{config['base_url']}/v1/audio/transcriptions", data=data, files=files, headers=headers)
+
+        def _post(form_data: dict[str, str]) -> httpx.Response:
+            with httpx.Client(timeout=45.0, verify=GroqProviderService._ssl_context()) as client:
+                return client.post(
+                    f"{config['base_url']}/v1/audio/transcriptions",
+                    data=form_data,
+                    files=files,
+                    headers=headers,
+                )
+
+        response = _post(data)
         elapsed = int((time.perf_counter() - start) * 1000)
+        if not response.is_success and prompt:
+            logger.warning(
+                "abuu_stt_prompt_unsupported provider=groq status=%s retrying_without_prompt",
+                response.status_code,
+            )
+            retry_data = {k: v for k, v in data.items() if k != "prompt"}
+            response = _post(retry_data)
+            elapsed = int((time.perf_counter() - start) * 1000)
+
         if not response.is_success:
             body: Any
             try:

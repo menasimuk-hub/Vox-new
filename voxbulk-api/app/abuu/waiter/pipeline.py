@@ -52,6 +52,7 @@ class WaiterPipeline:
         interpretation: InterpretationResult | None = None,
         is_voice: bool = False,
         stt_confidence: float = 0.0,
+        stt_needs_clarification: bool = False,
     ) -> dict[str, Any]:
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session, _state = WaiterSessionStore.load(abuu_db, phone)
@@ -68,6 +69,7 @@ class WaiterPipeline:
                 customer=customer,
                 lang=session.language,
                 is_voice=True,
+                stt_needs_clarification=stt_needs_clarification,
             )
         if interpretation:
             working_text = interpretation.corrected_transcript

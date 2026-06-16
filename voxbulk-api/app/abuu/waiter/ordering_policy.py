@@ -92,7 +92,7 @@ def should_block_turn_for_clarification(
     """True only when we should stop the turn and send a clarification message."""
     if not reason:
         return False
-    if reason in {"allergy_uncertain", "item_ambiguous", "category_ambiguous"}:
+    if reason in {"allergy_uncertain", "item_ambiguous", "category_ambiguous", "stt_low_quality"}:
         return True
     if reason == "low_confidence" and has_strong_food_signal(
         protected_tokens=protected_tokens,
