@@ -126,3 +126,43 @@ def test_resolve_inbound_wa_to_returns_none_without_profile():
         from app.services.yallasay_telnyx_line import resolve_inbound_wa_to_e164
 
         assert resolve_inbound_wa_to_e164(_FakeDb(), {"type": "WHATSAPP"}) is None
+
+
+def test_resolve_yallasay_profile_from_config():
+    telnyx_cfg = {
+        "sms_from_2": YALLASAY_PHONE,
+        "whatsapp_messaging_profile_id_2": VALID_UUID,
+    }
+
+    class _FakeDb:
+        pass
+
+    with patch(
+        "app.services.yallasay_telnyx_line.ProviderSettingsService.get_platform_config_decrypted",
+        return_value=(telnyx_cfg, True),
+    ):
+        from app.services.yallasay_telnyx_line import resolve_yallasay_whatsapp_messaging_profile_id
+
+        assert resolve_yallasay_whatsapp_messaging_profile_id(_FakeDb()) == VALID_UUID
+
+
+def test_resolve_yallasay_profile_fetches_by_name_and_persists():
+    telnyx_cfg = {"sms_from_2": YALLASAY_PHONE}
+
+    class _FakeDb:
+        pass
+
+    with patch(
+        "app.services.yallasay_telnyx_line.ProviderSettingsService.get_platform_config_decrypted",
+        return_value=(telnyx_cfg, True),
+    ), patch(
+        "app.services.yallasay_telnyx_line.fetch_voxbulk_yallasay_profile_id_from_telnyx",
+        return_value=VALID_UUID,
+    ), patch(
+        "app.services.yallasay_telnyx_line.persist_yallasay_profile_ids",
+    ) as mock_persist:
+        from app.services.yallasay_telnyx_line import resolve_yallasay_whatsapp_messaging_profile_id
+
+        db = _FakeDb()
+        assert resolve_yallasay_whatsapp_messaging_profile_id(db, persist=True) == VALID_UUID
+        mock_persist.assert_called_once_with(db, VALID_UUID)

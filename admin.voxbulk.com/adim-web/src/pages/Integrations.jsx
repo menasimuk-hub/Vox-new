@@ -1388,6 +1388,9 @@ export default function Integrations() {
         setProviderField('telnyx', 'sms_messaging_profile_id_2', result.messaging_profile_id)
         setProviderField('telnyx', 'whatsapp_messaging_profile_id_2', result.messaging_profile_id)
       }
+      if (Array.isArray(result.warnings) && result.warnings.length) {
+        setTelnyxYallasayApplyResult(`${parts.join(' · ')}\n${result.warnings.join('\n')}`)
+      }
       if (Array.isArray(result.next_steps) && result.next_steps.length) {
         setTelnyxYallasayApplyResult(`${parts.join(' · ')}\n${result.next_steps.join('\n')}`)
       }

@@ -12,7 +12,7 @@ from app.core.http_ssl import httpx_ssl_verify
 from app.services.messaging_log_service import normalize_e164
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_api_key import require_telnyx_api_key
-from app.services.yallasay_telnyx_line import get_yallasay_line_config
+from app.services.yallasay_telnyx_line import get_yallasay_line_config, persist_yallasay_profile_ids
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -72,29 +72,25 @@ def apply_yallasay_line_telnyx_setup(db: Session) -> dict[str, Any]:
                 json={"webhook_url": webhook_url, "webhook_api_version": "2"},
             ).raise_for_status()
 
-        client.patch(
-            f"https://api.telnyx.com/v2/messaging_phone_numbers/{quote(phone, safe='')}",
-            json={"messaging_profile_id": profile_id},
-        ).raise_for_status()
+        try:
+            client.patch(
+                f"https://api.telnyx.com/v2/messaging_phone_numbers/{quote(phone, safe='')}",
+                json={"messaging_profile_id": profile_id},
+            ).raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            warnings.append(
+                f"Could not assign profile to {phone} via messaging_phone_numbers (HTTP {status}). "
+                "Profile UUID was still saved — WhatsApp may use WABA linkage instead."
+            )
+        except Exception as exc:
+            warnings.append(f"Could not assign profile to {phone}: {exc}")
 
         probe = httpx.get(webhook_url, timeout=15.0, verify=httpx_ssl_verify())
         webhook_ok = probe.status_code < 400
 
     if profile_id:
-        row = ProviderSettingsService.get_platform_config(db, provider="telnyx")
-        merged = dict(cfg if isinstance(cfg, dict) else {})
-        merged["sms_messaging_profile_id_2"] = profile_id
-        merged["whatsapp_messaging_profile_id_2"] = profile_id
-        if phone:
-            merged["sms_from_2"] = phone
-            merged["whatsapp_from_2"] = phone
-        ProviderSettingsService.upsert_platform_config(
-            db,
-            provider="telnyx",
-            is_enabled=bool(row.is_enabled if row else enabled),
-            config=merged,
-        )
-        db.commit()
+        persist_yallasay_profile_ids(db, profile_id, phone=phone)
 
     return {
         "ok": True,
