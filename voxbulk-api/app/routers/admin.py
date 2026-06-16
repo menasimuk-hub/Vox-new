@@ -1147,7 +1147,6 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
         from sqlalchemy import select
 
         from app.models.organisation import Organisation
-        from app.services.provider_settings import ProviderSettingsService
 
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
         config = cfg if isinstance(cfg, dict) else {}
