@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -62,7 +61,7 @@ class WaiterPipeline:
         stt_confidence: float = 0.0,
         stt_needs_clarification: bool = False,
     ) -> dict[str, Any]:
-        if os.getenv("SMART_PIPELINE_ENABLED", "false").lower() in {"1", "true", "yes"}:
+        if get_settings().abuu_smart_pipeline_enabled:
             return SmartPipeline.handle(
                 abuu_db,
                 main_db,

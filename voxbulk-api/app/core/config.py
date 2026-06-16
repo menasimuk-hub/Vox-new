@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     abuu_waiter_v2_allowlist: str = Field(default="", alias="ABUU_WAITER_V2_ALLOWLIST")
     abuu_waiter_deepseek_timeout_seconds: float = Field(default=8.0, alias="ABUU_WAITER_DEEPSEEK_TIMEOUT_SECONDS")
     abuu_waiter_trace_enabled: bool = Field(default=True, alias="ABUU_WAITER_TRACE_ENABLED")
+    abuu_smart_pipeline_enabled: bool = Field(default=False, alias="SMART_PIPELINE_ENABLED")
     abuu_deepseek_polish_enabled: bool = Field(default=True, alias="ABUU_DEEPSEEK_POLISH_ENABLED")
 
     # CORS / hosts

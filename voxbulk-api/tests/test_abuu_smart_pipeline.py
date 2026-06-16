@@ -250,9 +250,14 @@ def test_pipeline_guard_routes_to_smart(mock_smart, abuu_seeded, main_db):
     phone = "+972509999007"
 
     with patch.dict(os.environ, {"SMART_PIPELINE_ENABLED": "true"}):
+        from app.core.config import get_settings
         from app.abuu.waiter.pipeline import WaiterPipeline
 
-        WaiterPipeline.handle(abuu_db, main_db, phone=phone, text="1")
+        get_settings.cache_clear()
+        try:
+            WaiterPipeline.handle(abuu_db, main_db, phone=phone, text="1")
+        finally:
+            get_settings.cache_clear()
 
     mock_smart.assert_called_once()
 
