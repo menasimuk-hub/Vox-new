@@ -452,8 +452,9 @@ def test_start_session_sends_whatsapp_with_to_number_kwarg():
     from unittest.mock import MagicMock
 
     from app.models.customer_feedback import FeedbackLocation, FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
-    from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
 
     with get_sessionmaker()() as db:
         org_id, _user_id = _seed_org()
@@ -499,6 +500,7 @@ def test_start_session_sends_whatsapp_with_to_number_kwarg():
                 language="en_GB",
                 body_text="How was the food?",
                 is_active=True,
+                telnyx_sync_status="approved",
             )
         )
         db.commit()
@@ -506,8 +508,8 @@ def test_start_session_sends_whatsapp_with_to_number_kwarg():
         send_mock = MagicMock(
             return_value=TelnyxMessageResult(ok=True, status="sent", detail=None, channel="whatsapp")
         )
-        original_send = TelnyxMessagingService.send_whatsapp
-        TelnyxMessagingService.send_whatsapp = staticmethod(send_mock)
+        original_send = FeedbackWaSendService.send_plain_or_template
+        FeedbackWaSendService.send_plain_or_template = staticmethod(send_mock)
         try:
             result = FeedbackWhatsappService.try_handle_inbound(
                 db,
@@ -516,7 +518,7 @@ def test_start_session_sends_whatsapp_with_to_number_kwarg():
                 org_id="wrong-org-id-for-webhook",
             )
         finally:
-            TelnyxMessagingService.send_whatsapp = original_send
+            FeedbackWaSendService.send_plain_or_template = original_send
 
         assert result.get("handled") is True
         assert result.get("session_id")
@@ -524,23 +526,25 @@ def test_start_session_sends_whatsapp_with_to_number_kwarg():
         send_mock.assert_called()
         kwargs = send_mock.call_args.kwargs
         assert kwargs.get("to_number") == "+447700900123"
-        assert "to" not in kwargs
+        assert kwargs.get("tpl") is not None
+        assert kwargs.get("location") is not None
 
 
 def test_share_feedback_without_token_replies_helpfully():
     from unittest.mock import MagicMock
 
+    from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
     from app.services.customer_feedback.location_service import SCAN_QR_HINT
     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
-    from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
 
     with get_sessionmaker()() as db:
         org_id, _user_id = _seed_org()
         send_mock = MagicMock(
             return_value=TelnyxMessageResult(ok=True, status="sent", detail=None, channel="whatsapp")
         )
-        original_send = TelnyxMessagingService.send_whatsapp
-        TelnyxMessagingService.send_whatsapp = staticmethod(send_mock)
+        original_send = FeedbackWaSendService.send_plain_or_template
+        FeedbackWaSendService.send_plain_or_template = staticmethod(send_mock)
         try:
             result = FeedbackWhatsappService.try_handle_inbound(
                 db,
@@ -549,9 +553,52 @@ def test_share_feedback_without_token_replies_helpfully():
                 org_id=org_id,
             )
         finally:
-            TelnyxMessagingService.send_whatsapp = original_send
+            FeedbackWaSendService.send_plain_or_template = original_send
 
         assert result.get("handled") is True
         assert result.get("reason") == "missing_token"
         send_mock.assert_called_once()
         assert send_mock.call_args.kwargs.get("body") == SCAN_QR_HINT
+        assert send_mock.call_args.kwargs.get("tpl") is None
+
+
+def test_send_feedback_template_uses_meta_template_name():
+    from unittest.mock import MagicMock
+
+    from app.models.customer_feedback import FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
+
+    with get_sessionmaker()() as db:
+        tpl = FeedbackWaTemplate(
+            template_key="thank_you",
+            language="en_GB",
+            body_text="Thank you for your feedback.",
+            is_active=True,
+            telnyx_sync_status="approved",
+        )
+        db.add(tpl)
+        db.commit()
+        db.refresh(tpl)
+
+        send_mock = MagicMock(
+            return_value=TelnyxMessageResult(ok=True, status="sent", detail=None, channel="whatsapp")
+        )
+        original_send = TelnyxMessagingService.send_whatsapp
+        TelnyxMessagingService.send_whatsapp = staticmethod(send_mock)
+        try:
+            result = FeedbackWaSendService.send_template(
+                db,
+                to_number="+447700900999",
+                org_id="org-1",
+                tpl=tpl,
+            )
+        finally:
+            TelnyxMessagingService.send_whatsapp = original_send
+
+        assert result.ok is True
+        send_mock.assert_called()
+        kwargs = send_mock.call_args.kwargs
+        assert kwargs.get("template_name", "").startswith("voxbulk_cf_")
+        assert kwargs.get("to_number") == "+447700900999"
+        assert kwargs.get("template_language")

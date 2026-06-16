@@ -24,6 +24,7 @@ from app.services.customer_feedback.feedback_answer_service import (
     translate_answer_to_english,
 )
 from app.services.customer_feedback.locale_service import resolve_session_language
+from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
 from app.services.customer_feedback.location_service import FeedbackLocationService, SCAN_QR_HINT
 from app.services.customer_feedback.survey_config_service import (
     format_template_message,
@@ -31,7 +32,6 @@ from app.services.customer_feedback.survey_config_service import (
     load_survey_config,
     template_for_step,
 )
-from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +46,25 @@ class FeedbackWhatsappService:
         to_number: str,
         body: str,
         org_id: str | None,
+        tpl: FeedbackWaTemplate | None = None,
+        location: FeedbackLocation | None = None,
     ) -> bool:
-        result = TelnyxMessagingService.send_whatsapp(
+        result = FeedbackWaSendService.send_plain_or_template(
             db,
             to_number=to_number,
             body=body,
             org_id=org_id,
+            tpl=tpl,
+            location=location,
         )
         if not result.ok:
             logger.warning(
-                "feedback_wa_reply_failed to=%s status=%s detail=%s org_id=%s",
+                "feedback_wa_reply_failed to=%s status=%s detail=%s org_id=%s template_key=%s",
                 to_number,
                 result.status,
                 result.detail,
                 org_id,
+                tpl.template_key if tpl else None,
             )
         return result.ok
 
@@ -227,6 +232,8 @@ class FeedbackWhatsappService:
             to_number=from_phone,
             body=message,
             org_id=location.org_id,
+            tpl=tpl,
+            location=location,
         )
         return {"handled": True, "session_id": session.id, "org_id": location.org_id}
 
@@ -356,6 +363,8 @@ class FeedbackWhatsappService:
                         to_number=session.visitor_phone,
                         body=tell_more.body_text,
                         org_id=session.org_id,
+                        tpl=tell_more,
+                        location=location,
                     )
 
         session.current_step = step_index + 1
@@ -374,6 +383,8 @@ class FeedbackWhatsappService:
                 to_number=session.visitor_phone,
                 body=thank_body,
                 org_id=session.org_id,
+                tpl=thank_tpl,
+                location=location,
             )
             return {"handled": True, "completed": True}
 
@@ -385,5 +396,7 @@ class FeedbackWhatsappService:
             to_number=session.visitor_phone,
             body=next_message,
             org_id=session.org_id,
+            tpl=next_tpl,
+            location=location,
         )
         return {"handled": True, "session_id": session.id}
