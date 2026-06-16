@@ -237,12 +237,17 @@ async def lifespan(app: FastAPI):
             from app.core.runtime_build_info import get_runtime_build_info
 
             build = get_runtime_build_info()
+            _sa_allowlist = str(settings.abuu_smart_agent_allowlist or "").strip()
             abuu_live_boot(
                 git_sha=build.get("git_sha"),
                 conversation_mode=settings.abuu_conversation_mode,
                 smart_pipeline=settings.abuu_smart_pipeline_enabled,
                 abuu_agent_enabled=settings.abuu_agent_enabled,
                 abuu_enabled=settings.abuu_enabled,
+                smart_agent_enabled=settings.abuu_smart_agent_enabled,
+                smart_agent_allowlist_count=(
+                    len([p for p in _sa_allowlist.split(",") if p.strip()]) if _sa_allowlist else 0
+                ),
             )
         except Exception:
             logger.exception("abuu_live_trace_boot_failed")
@@ -457,6 +462,8 @@ def health_abuu_runtime():
     settings = get_settings()
     build = get_runtime_build_info()
     allowlist = str(settings.abuu_waiter_v2_allowlist or "").strip()
+    sa_allowlist = str(settings.abuu_smart_agent_allowlist or "").strip()
+    sa_phones = [p.strip() for p in sa_allowlist.split(",") if p.strip()] if sa_allowlist else []
     agent_mode = str(settings.abuu_conversation_mode or "").lower() in {"agent", "deepseek", "gaza_agent"}
     return {
         "status": "ok",
@@ -466,6 +473,13 @@ def health_abuu_runtime():
         "conversation_mode": settings.abuu_conversation_mode,
         "agent_mode": bool(settings.abuu_agent_enabled and agent_mode),
         "smart_pipeline_enabled": settings.abuu_smart_pipeline_enabled,
+        "smart_agent_enabled": settings.abuu_smart_agent_enabled,
+        "smart_agent_enabled_for_all": settings.abuu_smart_agent_enabled and not sa_phones,
+        "smart_agent_allowlist_count": len(sa_phones),
+        "smart_agent_allowlist_preview": [
+            (p[:6] + "***" + p[-2:]) if len(p) > 8 else p for p in sa_phones[:5]
+        ],
+        "smart_agent_model": settings.abuu_smart_agent_model,
         "waiter_trace_enabled": settings.abuu_waiter_trace_enabled,
         "waiter_v2_enabled_for_all": not bool(allowlist),
         "waiter_v2_allowlist_count": len([p for p in allowlist.split(",") if p.strip()]) if allowlist else 0,
