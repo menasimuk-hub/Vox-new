@@ -328,7 +328,14 @@ class TelnyxMessagingService:
         return {"type": "text", "text": {"body": text_body}}
 
     @staticmethod
-    def send_sms(db: Session, *, to_number: str, body: str, from_number: str | None = None) -> TelnyxMessageResult:
+    def send_sms(
+        db: Session,
+        *,
+        to_number: str,
+        body: str,
+        from_number: str | None = None,
+        messaging_profile_id: str | None = None,
+    ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         sms_from, _ = TelnyxMessagingService._from_numbers(config)
         sender = normalize_telnyx_e164(from_number or sms_from)
@@ -342,10 +349,13 @@ class TelnyxMessagingService:
             )
         if not recipient:
             return TelnyxMessageResult(ok=False, status="invalid_to", detail="Recipient phone number is invalid.", channel="sms")
-        return TelnyxMessagingService._post_message(
-            db,
-            {"from": sender, "to": recipient, "text": str(body or ""), "type": "SMS"},
-        )
+        payload: dict[str, Any] = {"from": sender, "to": recipient, "text": str(body or ""), "type": "SMS"}
+        profile = str(messaging_profile_id or "").strip()
+        if not profile:
+            profile = str(TelnyxMessagingService._messaging_profile_for_channel(config, "sms") or "").strip()
+        if profile:
+            payload["messaging_profile_id"] = profile
+        return TelnyxMessagingService._post_message(db, payload)
 
     @staticmethod
     def send_whatsapp(

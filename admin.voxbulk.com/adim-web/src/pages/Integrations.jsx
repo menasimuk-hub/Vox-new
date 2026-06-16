@@ -634,6 +634,7 @@ export default function Integrations() {
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
+  const [telnyxSms2TestResult, setTelnyxSms2TestResult] = useState('')
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
@@ -689,6 +690,10 @@ export default function Integrations() {
   function applyTelnyxFromNumber(number, target = 'voice') {
     if (target === 'sms') {
       setProviderField('telnyx', 'sms_from', number)
+      return
+    }
+    if (target === 'sms2') {
+      setProviderField('telnyx', 'sms_from_2', number)
       return
     }
     if (target === 'whatsapp') {
@@ -1295,6 +1300,37 @@ export default function Integrations() {
     }
   }
 
+  const testTelnyxSms2 = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter your mobile number in E.164 format (+44…).')
+      return
+    }
+    const fromNumber = String(activeConfig?.sms_from_2 || '').trim()
+    if (!fromNumber) {
+      window.alert('Set SMS number 2 on the Telnyx API tab, click Save settings, then try again.')
+      return
+    }
+    setProviderError('')
+    setTelnyxSms2TestResult(`Sending test SMS from ${fromNumber}…`)
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-sms', {
+        method: 'POST',
+        body: JSON.stringify({
+          to_number: toNumber,
+          slot: '2',
+          body: `VOXBULK SMS test from ${fromNumber} — reply if you received this.`,
+        }),
+      })
+      const fromLine = result.from_number ? ` from ${result.from_number}` : ''
+      setTelnyxSms2TestResult(`${result.message || 'SMS queued'}${fromLine}${result.external_id ? ` (${result.external_id})` : ''}`)
+      await loadTelnyxInboundMessages(true)
+    } catch (e) {
+      setTelnyxSms2TestResult('')
+      setProviderError(e?.message || 'Telnyx SMS number 2 test failed')
+    }
+  }
+
   const loadTelnyxWaTemplates = async (silent = false) => {
     try {
       const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
@@ -1600,6 +1636,7 @@ export default function Integrations() {
           setTelnyxWaTemplateLang={setTelnyxWaTemplateLang}
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
+          telnyxSms2TestResult={telnyxSms2TestResult}
           telnyxZoomTestResult={telnyxZoomTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
@@ -1620,6 +1657,7 @@ export default function Integrations() {
           hangupTelnyxCall={hangupTelnyxCall}
           testTelnyxZoom={testTelnyxZoom}
           testTelnyxSms={testTelnyxSms}
+          testTelnyxSms2={testTelnyxSms2}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
           telnyxMessageFilters={telnyxMessageFilters}

@@ -877,10 +877,43 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
     body = str(payload.get("body") or "VOXBULK Telnyx SMS test").strip()
     if not to_number:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
-    result = TelnyxMessagingService.send_sms(db, to_number=to_number, body=body)
+
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+
+    from_number = str(payload.get("from_number") or "").strip() or None
+    messaging_profile_id = str(payload.get("messaging_profile_id") or "").strip() or None
+    slot = str(payload.get("slot") or "").strip()
+    if slot == "2":
+        from_number = from_number or str(config.get("sms_from_2") or "").strip() or None
+        messaging_profile_id = (
+            messaging_profile_id
+            or str(config.get("sms_messaging_profile_id_2") or "").strip()
+            or str(config.get("messaging_profile_id") or "").strip()
+            or None
+        )
+        if not from_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SMS number 2 is not configured (set sms_from_2 in Admin → Telnyx, then Save).",
+            )
+
+    result = TelnyxMessagingService.send_sms(
+        db,
+        to_number=to_number,
+        body=body,
+        from_number=from_number,
+        messaging_profile_id=messaging_profile_id,
+    )
     if not result.ok:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result.detail or result.status)
-    return {"ok": True, "message": "SMS queued", "external_id": result.external_id, "status": result.status}
+    return {
+        "ok": True,
+        "message": "SMS queued",
+        "external_id": result.external_id,
+        "status": result.status,
+        "from_number": from_number,
+    }
 
 
 @router.get("/integrations/telnyx/whatsapp-templates")

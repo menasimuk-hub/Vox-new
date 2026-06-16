@@ -420,6 +420,54 @@ class TelnyxInboundMessagingService:
         db.commit()
         db.refresh(row)
 
+        if direction == "inbound":
+            from app.services.yallasay_telnyx_line import get_yallasay_line_e164, is_yallasay_line
+
+            if is_yallasay_line(db, to_norm):
+                inbound_text = (_extract_message_text(record) or body or "").strip()
+                if channel == "whatsapp":
+                    from app.services.survey_wa_inbound_parse_service import parse_telnyx_wa_inbound_record
+
+                    normalized = parse_telnyx_wa_inbound_record(
+                        record,
+                        sender_phone=from_norm or from_number or "",
+                    )
+                    inbound_text = (normalized.normalized_answer or inbound_text).strip()
+
+                yallasay_from = get_yallasay_line_e164(db)
+                abuu_result: dict[str, Any] = {"handled": False, "reason": "disabled"}
+                try:
+                    from app.core.config import get_settings
+                    from app.abuu.services.inbound_service import AbuuInboundService
+
+                    if get_settings().abuu_enabled:
+                        abuu_result = AbuuInboundService.try_handle(
+                            db,
+                            from_phone=from_norm or from_number or "",
+                            body=inbound_text,
+                            message_id=message_id,
+                            record=record if isinstance(record, dict) else None,
+                            org_id=org_id,
+                            reply_channel=channel,
+                            reply_from=yallasay_from,
+                        )
+                except Exception:
+                    logger.exception(
+                        "yallasay_inbound_handler_failed channel=%s from=%r to=%r body=%r",
+                        channel,
+                        from_norm or from_number,
+                        to_norm,
+                        inbound_text[:120],
+                    )
+                return {
+                    "ok": True,
+                    "log_id": row.id,
+                    "channel": channel,
+                    "org_id": org_id,
+                    "yallasay_line": True,
+                    "abuu": abuu_result,
+                }
+
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False
             handled_survey = False

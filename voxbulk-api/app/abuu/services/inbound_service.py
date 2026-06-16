@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -69,6 +70,9 @@ from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
 
+_abuu_reply_channel: ContextVar[str] = ContextVar("abuu_reply_channel", default="whatsapp")
+_abuu_reply_from: ContextVar[str | None] = ContextVar("abuu_reply_from", default=None)
+
 
 def _voice_should_block_clarification(interpretation) -> bool:
     from app.abuu.waiter.ordering_policy import should_block_turn_for_clarification
@@ -110,6 +114,33 @@ class AbuuInboundService:
         message_id: str | None = None,
         record: dict[str, Any] | None = None,
         org_id: str | None = None,
+        reply_channel: str = "whatsapp",
+        reply_from: str | None = None,
+    ) -> dict[str, Any]:
+        channel_token = _abuu_reply_channel.set(str(reply_channel or "whatsapp").lower())
+        from_token = _abuu_reply_from.set(str(reply_from or "").strip() or None)
+        try:
+            return AbuuInboundService._try_handle_impl(
+                main_db,
+                from_phone=from_phone,
+                body=body,
+                message_id=message_id,
+                record=record,
+                org_id=org_id,
+            )
+        finally:
+            _abuu_reply_channel.reset(channel_token)
+            _abuu_reply_from.reset(from_token)
+
+    @staticmethod
+    def _try_handle_impl(
+        main_db: Session,
+        *,
+        from_phone: str,
+        body: str,
+        message_id: str | None = None,
+        record: dict[str, Any] | None = None,
+        org_id: str | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
         if not settings.abuu_enabled:
@@ -135,20 +166,26 @@ class AbuuInboundService:
         with get_abuu_sessionmaker()() as abuu_db:
             session = AbuuOrderDraftService.get_session(abuu_db, phone)
             has_session = bool(session and session.step not in {"", "idle"})
-            if not has_session and not is_abuu_start_message(text) and not AbuuInboundService._is_voice_inbound(record):
+            yallasay_line = bool(_abuu_reply_from.get())
+            if (
+                not has_session
+                and not is_abuu_start_message(text)
+                and not AbuuInboundService._is_voice_inbound(record)
+                and not yallasay_line
+            ):
                 trace_skip(phone=phone, reason="not_abuu", text=text[:120])
                 return {"handled": False, "reason": "not_abuu"}
 
             message_type = "voice" if AbuuInboundService._is_voice_inbound(record) else "text"
             idem_payload = {"body": text, "message_type": message_type}
             idem_key = (
-                f"wa:{message_id}"
+                f"{_abuu_reply_channel.get()}:{message_id}"
                 if message_id
-                else f"wa:{phone}:{payload_hash({'body': text, 'record': record or {}, 'message_type': message_type})}"
+                else f"{_abuu_reply_channel.get()}:{phone}:{payload_hash({'body': text, 'record': record or {}, 'message_type': message_type})}"
             )
             event = AbuuEventIdempotencyService.begin_event(
                 abuu_db,
-                source="whatsapp",
+                source=_abuu_reply_channel.get(),
                 event_type="inbound_message",
                 idempotency_key=idem_key,
                 source_message_id=message_id,
@@ -1319,18 +1356,50 @@ class AbuuInboundService:
     @staticmethod
     def _send_reply(main_db: Session, to_phone: str, body: str, *, org_id: str | None) -> None:
         reply_text = wa_customer_sanitize(body)
-        result = TelnyxMessagingService.send_whatsapp(
-            main_db,
-            to_number=to_phone,
-            body=reply_text,
-            org_id=org_id,
-            meter_usage=False,
-        )
+        channel = _abuu_reply_channel.get()
+        from_number = _abuu_reply_from.get()
+        if channel == "sms":
+            messaging_profile_id = None
+            if from_number:
+                from app.services.provider_settings import ProviderSettingsService
+                from app.services.yallasay_telnyx_line import get_yallasay_line_e164
+
+                yallasay_line = get_yallasay_line_e164(main_db)
+                if yallasay_line and from_number == yallasay_line:
+                    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(main_db, provider="telnyx")
+                    config = ProviderSettingsService._validate_telnyx_config(cfg if isinstance(cfg, dict) else {})
+                    messaging_profile_id = (
+                        str(config.get("sms_messaging_profile_id_2") or config.get("messaging_profile_id") or "").strip()
+                        or None
+                    )
+            result = TelnyxMessagingService.send_sms(
+                main_db,
+                to_number=to_phone,
+                body=reply_text,
+                from_number=from_number,
+                messaging_profile_id=messaging_profile_id,
+            )
+        else:
+            result = TelnyxMessagingService.send_whatsapp(
+                main_db,
+                to_number=to_phone,
+                body=reply_text,
+                from_number=from_number,
+                org_id=org_id,
+                meter_usage=False,
+            )
         logger.info(
-            "abuu_wa_trace OUT to=%s ok=%s body=%r",
+            "abuu_wa_trace OUT channel=%s to=%s ok=%s body=%r",
+            channel,
             to_phone,
             result.ok,
             reply_text[:300],
         )
         if not result.ok:
-            logger.warning("abuu_wa_reply_failed to=%s status=%s detail=%s", to_phone, result.status, result.detail)
+            logger.warning(
+                "abuu_wa_reply_failed channel=%s to=%s status=%s detail=%s",
+                channel,
+                to_phone,
+                result.status,
+                result.detail,
+            )
