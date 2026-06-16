@@ -56,6 +56,8 @@ import sys
 MARKERS = (
     "abuu_live_trace",
     "abuu_wa_trace",
+    "abuu_agent_trace",
+    "abuu_stt_",
     "abuu_smart_pipeline",
     "abuu_waiter_trace",
     "abuu_wa_inbound_handler_failed",
@@ -69,6 +71,14 @@ EVENT_LABELS = {
     "think": "THINK",
     "out": "OUT",
     "skip": "SKIP",
+    "stt_ok": "STT",
+    "stt_fail": "STT_FAIL",
+    "turn_start": "AGENT",
+    "prefetch": "AGENT",
+    "llm_request": "AGENT",
+    "llm_tool": "AGENT",
+    "llm_reply": "AGENT",
+    "turn_end": "AGENT",
 }
 
 
@@ -103,6 +113,17 @@ def format_message(msg: str, ts: str) -> str | None:
             label = EVENT_LABELS.get(event, event.upper())
             return f"{stamp} {label:<6} {pick_fields(rest) or rest}"
         return f"{stamp} TRACE  {msg}"
+
+    if "abuu_agent_trace" in msg:
+        m = re.search(r"abuu_agent_trace\s+(\w+)\s+(.*)", msg)
+        if m:
+            event, rest = m.group(1), m.group(2).strip()
+            label = EVENT_LABELS.get(event, "AGENT")
+            return f"{stamp} {label:<6} {pick_fields(rest) or rest}"
+        return f"{stamp} AGENT  {msg}"
+
+    if "abuu_stt_" in msg:
+        return f"{stamp} STT    {msg.split('abuu_stt_', 1)[-1].strip()}"
 
     if "abuu_wa_trace IN" in msg:
         return f"{stamp} WA_IN  {msg.split('abuu_wa_trace IN', 1)[-1].strip()}"
@@ -147,5 +168,5 @@ if [[ "$FOLLOW" -eq 1 ]]; then
 else
   echo "Last $HISTORY Abuu trace lines from $API_LOG"
   echo "---"
-  grep -E 'abuu_live_trace|abuu_wa_trace|abuu_smart_pipeline|abuu_waiter_trace|abuu_wa_inbound_handler_failed' "$API_LOG" 2>/dev/null | tail -n "$HISTORY" | format_abuu_trace || true
+  grep -E 'abuu_live_trace|abuu_agent_trace|abuu_wa_trace|abuu_stt_|abuu_smart_pipeline|abuu_waiter_trace|abuu_wa_inbound_handler_failed' "$API_LOG" 2>/dev/null | tail -n "$HISTORY" | format_abuu_trace || true
 fi

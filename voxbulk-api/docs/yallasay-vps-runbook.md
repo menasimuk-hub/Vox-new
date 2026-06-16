@@ -433,10 +433,38 @@ Config (`.env`):
 
 After deploy with orchestrator mode, inspect logs for `abuu_voice_interpretation` fields when testing voice notes.
 
-**Live trace (after deploy with `abuu_wa_trace` logging):**
+**Live trace (end-to-end: STT → agent → reply):**
 
 ```bash
-tail -f /tmp/voxbulk-api.log | grep --line-buffered abuu_wa_trace
+chmod +x scripts/vps-abuu-live-trace.sh
+./scripts/vps-abuu-live-trace.sh
+```
+
+Or raw grep (broader):
+
+```bash
+tail -f /tmp/voxbulk-api.log | grep --line-buffered -E 'abuu_agent_trace|abuu_wa_trace|abuu_stt_'
+```
+
+`abuu_agent_trace` is always-on at INFO (no env flag). One WhatsApp message produces a correlated chain:
+
+| Event | Meaning |
+|-------|---------|
+| `stt_ok` | Voice transcript after STT |
+| `route` | Pipeline chosen (`pipeline=agent`) |
+| `turn_start` | Agent session snapshot (stage, restaurant, cart) |
+| `prefetch` | Offers/restaurants/menu loaded into context |
+| `llm_request` | Text sent to DeepSeek (last user message) |
+| `llm_tool` | Tool call + result preview |
+| `llm_reply` | Final assistant text |
+| `turn_end` | Agent turn complete |
+
+Voice inbound also logs `abuu_wa_trace IN type=voice text=...` **after** STT with the transcript (not `[voice-note]`).
+
+Recent history without follow:
+
+```bash
+./scripts/vps-abuu-live-trace.sh --history 50
 ```
 
 **Full STT diagnostic on VPS:**

@@ -24,6 +24,7 @@ from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyServ
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
 from app.abuu.agent.agent import AbuuAgentLoop, _deepseek_platform_ready
 from app.abuu.conversation.orchestrator import AbuuConversationOrchestrator
+from app.abuu import agent_trace
 from app.abuu.live_trace import route as trace_route
 from app.abuu.live_trace import skip as trace_skip
 from app.abuu.waiter.pipeline import WaiterPipeline
@@ -201,12 +202,13 @@ class AbuuInboundService:
             transcript_confidence: float | None = None
             voice_meta: dict[str, Any] = {}
             voice_stt_needs_clarification = False
-            logger.info(
-                "abuu_wa_trace IN phone=%s type=%s text=%r",
-                phone,
-                message_type,
-                text[:200] if message_type == "text" else "[voice-note]",
-            )
+            if message_type == "text":
+                logger.info(
+                    "abuu_wa_trace IN phone=%s type=%s text=%r",
+                    phone,
+                    message_type,
+                    text[:200],
+                )
 
             if message_type == "voice":
                 voice = AbuuVoiceService.transcribe_inbound(
@@ -275,6 +277,12 @@ class AbuuInboundService:
                             voice_storage_path=voice.storage_path,
                             payload=voice_meta,
                         )
+                        agent_trace.stt_fail(
+                            phone=phone,
+                            msg_id=message_id,
+                            reason="voice_low_confidence",
+                            confidence=voice.confidence,
+                        )
                         abuu_db.commit()
                         return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
                 if is_low_quality_transcript(voice.transcript):
@@ -303,6 +311,12 @@ class AbuuInboundService:
                             voice_content_type=voice.content_type,
                             voice_storage_path=voice.storage_path,
                             payload=voice_meta,
+                        )
+                        agent_trace.stt_fail(
+                            phone=phone,
+                            msg_id=message_id,
+                            reason="voice_unclear_transcript",
+                            confidence=voice.confidence,
                         )
                         abuu_db.commit()
                         return {
@@ -372,6 +386,12 @@ class AbuuInboundService:
                                 voice_storage_path=voice.storage_path,
                                 payload=voice_meta,
                             )
+                            agent_trace.stt_fail(
+                                phone=phone,
+                                msg_id=message_id,
+                                reason="voice_clarification",
+                                confidence=voice.confidence,
+                            )
                             abuu_db.commit()
                             return {
                                 "handled": True,
@@ -383,6 +403,19 @@ class AbuuInboundService:
                     if not interpretation.needs_clarification:
                         agent_session.context.pop("voice_clarification_sent", None)
                     save_session(abuu_db, agent_session, message_id=message_id)
+                if str(text or "").strip():
+                    agent_trace.stt_ok(
+                        phone=phone,
+                        msg_id=message_id,
+                        transcript=agent_trace.clip(text),
+                        confidence=transcript_confidence,
+                    )
+                    logger.info(
+                        "abuu_wa_trace IN phone=%s type=voice text=%r confidence=%s",
+                        phone,
+                        text[:200],
+                        transcript_confidence,
+                    )
                 AbuuInboundMessageService.save(
                     abuu_db,
                     customer_phone=phone,
@@ -1162,6 +1195,13 @@ class AbuuInboundService:
             pipeline="agent",
             voice=input_source == "voice",
         )
+        agent_trace.route(
+            phone=phone,
+            msg_id=message_id,
+            pipeline="agent",
+            voice=input_source == "voice",
+            text=agent_trace.clip(text),
+        )
         if input_source == "voice" and not get_settings().abuu_agent_waiter_mode:
             AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
         result = AbuuAgentLoop.run(
@@ -1174,6 +1214,12 @@ class AbuuInboundService:
             input_source=input_source,
         )
         reply = result.get("reply")
+        agent_trace.turn_end(
+            phone=phone,
+            msg_id=message_id,
+            action=result.get("action"),
+            reply_preview=agent_trace.clip(reply),
+        )
         if reply:
             AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
         if session:

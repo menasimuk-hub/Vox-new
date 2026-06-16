@@ -14,6 +14,7 @@ from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
 from app.abuu.agent.session_reset import clear_restaurant_binding, is_offer_query, is_session_reset_message
 from app.abuu.agent.skills import enabled_openai_tools, execute_tool
+from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import unknown_message
 from app.core.config import get_settings
@@ -45,6 +46,13 @@ def _chat_messages_from_history(messages: list[dict[str, Any]]) -> list[dict[str
             content = "\n".join(p for p in text_parts if p).strip()
         converted.append({"role": role, "content": str(content or "")})
     return converted
+
+
+def _last_user_message(messages: list[dict[str, Any]]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            return str(msg.get("content") or "")
+    return ""
 
 
 def _deepseek_platform_ready(main_db: Session) -> bool:
@@ -83,6 +91,17 @@ class AbuuAgentLoop:
 
         session.messages.append({"role": "user", "content": user_turn})
 
+        agent_trace.turn_start(
+            phone=phone,
+            msg_id=message_id,
+            input_source=input_source,
+            text=agent_trace.clip(text),
+            stage=session.stage,
+            restaurant_id=session.restaurant_id or "",
+            cart_items=len(session.cart or []),
+            history_len=len(session.messages),
+        )
+
         if not _deepseek_platform_ready(main_db):
             logger.error("abuu_agent_deepseek_not_configured phone=%s", phone)
             reply = unknown_message(session.language)
@@ -91,7 +110,16 @@ class AbuuAgentLoop:
             return {"handled": True, "action": "agent_error", "reply": reply}
 
         try:
-            reply = AbuuAgentLoop._run_loop(abuu_db, main_db, session, customer=customer, user_text=text)
+            reply = AbuuAgentLoop._run_loop(
+                abuu_db,
+                main_db,
+                session,
+                customer=customer,
+                user_text=text,
+                phone=phone,
+                message_id=message_id,
+                input_source=input_source,
+            )
         except Exception:
             logger.exception(
                 "abuu_agent_loop_failed phone=%s restaurant=%s",
@@ -122,6 +150,9 @@ class AbuuAgentLoop:
         *,
         customer: Any,
         user_text: str = "",
+        phone: str = "",
+        message_id: str | None = None,
+        input_source: str = "text",
     ) -> str:
         settings = get_settings()
         prefetch_gaza_agent_context(abuu_db, session, customer=customer)
@@ -130,16 +161,49 @@ class AbuuAgentLoop:
         if is_offer_query(user_text):
             prefetch_offers(abuu_db, session, query=user_text)
 
+        agent_trace.prefetch(
+            phone=phone,
+            msg_id=message_id,
+            offers=bool(session.context.get("prefetched_offers")),
+            restaurants=bool(session.context.get("prefetched_restaurant_list")),
+            menu=bool(session.context.get("prefetched_menu")),
+        )
+
         system_prompt = build_system_prompt(abuu_db, session, customer=customer)
         history = _truncate_messages(session.messages, settings.abuu_agent_max_history)
         chat_messages: list[dict[str, Any]] = _chat_messages_from_history(history)
 
         if settings.abuu_agent_waiter_mode:
-            return AbuuAgentLoop._waiter_completion(main_db, system_prompt, chat_messages, settings)
+            agent_trace.llm_request(
+                phone=phone,
+                msg_id=message_id,
+                turn=1,
+                waiter_mode=True,
+                tools=0,
+                user_msg=agent_trace.clip(_last_user_message(chat_messages)),
+            )
+            reply = AbuuAgentLoop._waiter_completion(main_db, system_prompt, chat_messages, settings)
+            agent_trace.llm_reply(
+                phone=phone,
+                msg_id=message_id,
+                turn=1,
+                reply_preview=agent_trace.clip(reply),
+                action="agent_reply",
+            )
+            return reply
 
         openai_tools = enabled_openai_tools(abuu_db)
         max_turns = max(1, settings.abuu_agent_max_turns)
-        for _turn in range(max_turns):
+        for turn_idx in range(max_turns):
+            turn_num = turn_idx + 1
+            agent_trace.llm_request(
+                phone=phone,
+                msg_id=message_id,
+                turn=turn_num,
+                waiter_mode=False,
+                tools=len(openai_tools or []),
+                user_msg=agent_trace.clip(_last_user_message(chat_messages)),
+            )
             completion = OpenAIProviderService.complete_chat_raw(
                 main_db,
                 system_prompt=system_prompt,
@@ -170,12 +234,21 @@ class AbuuAgentLoop:
                 }
                 chat_messages.append(assistant_msg)
                 for call in completion.tool_calls:
+                    tool_input = call.arguments if isinstance(call.arguments, dict) else {}
                     result = execute_tool(
                         abuu_db,
                         session,
                         customer=customer,
                         tool_name=call.name,
-                        tool_input=call.arguments if isinstance(call.arguments, dict) else {},
+                        tool_input=tool_input,
+                    )
+                    agent_trace.llm_tool(
+                        phone=phone,
+                        msg_id=message_id,
+                        turn=turn_num,
+                        tool=call.name,
+                        args=tool_input,
+                        result_preview=agent_trace.clip(result),
                     )
                     chat_messages.append(
                         {
@@ -187,11 +260,24 @@ class AbuuAgentLoop:
                 continue
 
             if completion.assistant_text:
+                agent_trace.llm_reply(
+                    phone=phone,
+                    msg_id=message_id,
+                    turn=turn_num,
+                    reply_preview=agent_trace.clip(completion.assistant_text),
+                    action="agent_reply",
+                )
                 return completion.assistant_text
 
-        if session.language == "ar":
-            return "كيف أقدر أساعدك في طلبك؟"
-        return "How can I help with your order?"
+        fallback = "كيف أقدر أساعدك في طلبك؟" if session.language == "ar" else "How can I help with your order?"
+        agent_trace.llm_reply(
+            phone=phone,
+            msg_id=message_id,
+            turn=max_turns,
+            reply_preview=agent_trace.clip(fallback),
+            action="agent_fallback",
+        )
+        return fallback
 
     @staticmethod
     def _waiter_completion(
