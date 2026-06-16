@@ -11,6 +11,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.abuu.agent.session_persist import (
+    prepare_context_for_storage,
+    strip_volatile_context_keys,
+    truncate_messages,
+)
 from app.abuu.models.entities import CustomerOrder, CustomerOrderItem, CustomerProfile
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.core.config import get_settings
@@ -148,11 +153,17 @@ def load_session(
     messages = context.get("messages") or []
     if not isinstance(messages, list):
         messages = []
+    settings = get_settings()
+    trimmed_messages = truncate_messages(
+        [m for m in messages if isinstance(m, dict)],
+        settings.abuu_agent_max_history,
+    )
+    strip_volatile_context_keys(context)
 
     session = Session(
         customer_wa_number=phone,
         restaurant_id=str(resolved_restaurant) if resolved_restaurant else None,
-        messages=[m for m in messages if isinstance(m, dict)],
+        messages=trimmed_messages,
         cart=_cart_from_order(db, order),
         stage=step_to_stage(step if order and order.status == "confirmed" else step),
         language=customer.preferred_language or "ar",
@@ -171,7 +182,10 @@ def save_session(db: Session, session: Session, *, message_id: str | None = None
         customer.preferred_language = session.language
         db.add(customer)
 
-    context = session.to_context_json()
+    settings = get_settings()
+    session.messages = truncate_messages(session.messages, settings.abuu_agent_max_history)
+    strip_volatile_context_keys(session.context)
+    context = prepare_context_for_storage(session.to_context_json())
     step = stage_to_step(session.stage)
     AbuuOrderDraftService.upsert_session(
         db,

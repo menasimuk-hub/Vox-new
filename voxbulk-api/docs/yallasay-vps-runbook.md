@@ -24,7 +24,35 @@ git pull origin main
 ./deploy-vps.sh
 ```
 
-Abuu migrations run via `alembic -c alembic_abuu.ini upgrade head` during deploy (includes `0012_abuu_gaza_agent_snapshots`).
+Abuu migrations run via `alembic -c alembic_abuu.ini upgrade head` during deploy (includes `0013_abuu_session_context_mediumtext`).
+
+## Troubleshooting WhatsApp silence
+
+### Telnyx opt-out (STOP)
+
+If logs show `block rule` for your number, send **`UNSTOP`** or **`START`** to the WhatsApp sender (e.g. `+447822002055`). Telnyx has no API to remove opt-outs — the user must message back.
+
+### Bloated Abuu session (`context_json` too long)
+
+Symptom: inbound logged but no reply; manual test raises `Data too long for column 'context_json'`.
+
+Clear session for a phone:
+
+```bash
+cd voxbulk-api && source .venv/bin/activate
+python - <<'PY'
+from app.core.abuu_database import get_abuu_sessionmaker
+from app.abuu.services.order_draft_service import AbuuOrderDraftService
+phone = "+447954823445"  # your test number
+with get_abuu_sessionmaker()() as db:
+    AbuuOrderDraftService.clear_session(db, phone)
+    db.commit()
+print("cleared", phone)
+PY
+redis-cli DEL "abuu:session:+447954823445"
+```
+
+After deploy with session compaction fix, new sessions stay small automatically.
 
 ## Seed five pilot restaurants + menus
 

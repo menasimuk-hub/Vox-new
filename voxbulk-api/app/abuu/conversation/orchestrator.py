@@ -75,7 +75,15 @@ class AbuuConversationOrchestrator:
         session.messages.append({"role": "assistant", "content": reply})
         if action.action == "item_added":
             session.stage = "browsing"
-        save_session(abuu_db, session, message_id=message_id)
+        try:
+            save_session(abuu_db, session, message_id=message_id)
+        except Exception:
+            logger.exception(
+                "abuu_orchestrator_session_save_failed phone=%s message_id=%s",
+                phone,
+                message_id,
+            )
+            raise
 
         return {
             "handled": True,

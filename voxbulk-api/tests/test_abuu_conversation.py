@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from app.abuu.agent.session import Session as AgentSession
+from app.abuu.agent.session_persist import fit_context_json_size, prepare_context_for_storage
 from app.abuu.conversation.fact_bundle import FactBundleLoader
 from app.abuu.conversation.intent_router import IntentRouter
 from app.abuu.conversation.orchestrator import AbuuConversationOrchestrator
@@ -150,3 +151,37 @@ def test_conversation_mode_enabled():
 
         get_settings.cache_clear()
         assert AbuuConversationOrchestrator.conversation_enabled()
+
+
+def test_session_context_compaction_strips_prefetch_and_caps_messages():
+    huge_messages = [
+        {"role": "user", "content": f"turn {i} " + ("x" * 3000)}
+        for i in range(80)
+    ]
+    context = {
+        "messages": huge_messages,
+        "prefetched_restaurant_list": [{"id": "r1", "name": "x" * 5000}],
+        "prefetched_menu": {"items": list(range(500))},
+        "last_food_search": [{"name": f"item-{i}"} for i in range(50)],
+        "suggested_items": [{"idx": i, "menu_item_id": f"id-{i}"} for i in range(100)],
+        "greeting_sent": True,
+    }
+    compact = prepare_context_for_storage(context)
+    assert "prefetched_restaurant_list" not in compact
+    assert "prefetched_menu" not in compact
+    assert len(compact["messages"]) <= 16
+    assert all(len(str(m.get("content") or "")) <= 1500 for m in compact["messages"])
+    assert len(compact["last_food_search"]) <= 12
+    assert len(compact["suggested_items"]) <= 24
+    payload = __import__("json").dumps(compact, ensure_ascii=False).encode("utf-8")
+    assert len(payload) < 52_000
+
+
+def test_fit_context_json_size_shrinks_oversized_payload():
+    context = {
+        "greeting_sent": True,
+        "messages": [{"role": "user", "content": "y" * 40_000}],
+    }
+    fitted = fit_context_json_size(context, max_bytes=8_000)
+    assert len(__import__("json").dumps(fitted, ensure_ascii=False).encode("utf-8")) <= 8_000
+

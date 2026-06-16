@@ -43,20 +43,23 @@ class AbuuOrderDraftService:
         active_order_id: str | None = None,
         message_id: str | None = None,
     ) -> AbuuConversationSession:
+        from app.abuu.agent.session_persist import prepare_context_for_storage
+
+        stored_context = prepare_context_for_storage(context or {})
         row = AbuuOrderDraftService.get_session(db, phone)
         now = datetime.utcnow()
         if row is None:
             row = AbuuConversationSession(
                 customer_phone=phone,
                 step=step,
-                context_json=json.dumps(context or {}),
+                context_json=json.dumps(stored_context),
                 active_order_id=active_order_id,
                 last_message_id=message_id,
                 expires_at=now + timedelta(hours=24),
             )
         else:
             row.step = step
-            row.context_json = json.dumps(context or {})
+            row.context_json = json.dumps(stored_context)
             row.active_order_id = active_order_id
             row.last_message_id = message_id
             row.expires_at = now + timedelta(hours=24)

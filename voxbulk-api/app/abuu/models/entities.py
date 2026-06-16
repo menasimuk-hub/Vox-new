@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.abuu.models.base import AbuuSoftDeleteMixin, AbuuTimestampMixin, new_uuid
@@ -256,7 +257,10 @@ class AbuuConversationSession(AbuuBase, AbuuTimestampMixin):
     customer_phone: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     active_order_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("abuu_orders.id"), nullable=True)
     step: Mapped[str] = mapped_column(String(64), nullable=False, default="idle")
-    context_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_json: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT, "mysql"),
+        nullable=True,
+    )
     last_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
