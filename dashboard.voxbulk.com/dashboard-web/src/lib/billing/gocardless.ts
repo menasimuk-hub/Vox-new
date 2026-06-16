@@ -31,14 +31,55 @@ export function resolveRedirectFlowId(
   params: BillingReturnParams,
   kind: "subscription" | "order" | "mandate",
 ) {
-  if (params.redirectFlowId) return params.redirectFlowId;
   const key =
     kind === "order" ? GC_ORDER_FLOW_KEY : kind === "mandate" ? GC_MANDATE_FLOW_KEY : GC_FLOW_KEY;
   try {
-    return (sessionStorage.getItem(key) || "").trim();
+    const stored = (sessionStorage.getItem(key) || "").trim();
+    if (stored) return stored;
   } catch {
-    return "";
+    /* ignore */
   }
+  if (params.redirectFlowId && kind === "subscription") {
+    try {
+      const feedbackStored = (sessionStorage.getItem(GC_FEEDBACK_FLOW_KEY) || "").trim();
+      if (feedbackStored && feedbackStored === params.redirectFlowId) return "";
+    } catch {
+      /* ignore */
+    }
+  }
+  if (params.redirectFlowId && kind !== "subscription") return params.redirectFlowId;
+  return "";
+}
+
+export type SubscriptionCheckoutKind = "feedback" | "core" | null;
+
+export function resolveSubscriptionCheckoutKind(params: BillingReturnParams): SubscriptionCheckoutKind {
+  const urlId = (params.redirectFlowId || "").trim();
+  try {
+    const feedbackStored = (sessionStorage.getItem(GC_FEEDBACK_FLOW_KEY) || "").trim();
+    if (feedbackStored && (!urlId || feedbackStored === urlId)) return "feedback";
+    const coreStored = (sessionStorage.getItem(GC_FLOW_KEY) || "").trim();
+    if (coreStored && (!urlId || coreStored === urlId)) return "core";
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function resolveFeedbackRedirectFlowId(params: BillingReturnParams) {
+  if (resolveSubscriptionCheckoutKind(params) !== "feedback") return "";
+  try {
+    const stored = (sessionStorage.getItem(GC_FEEDBACK_FLOW_KEY) || "").trim();
+    if (stored) return stored;
+  } catch {
+    /* ignore */
+  }
+  return (params.redirectFlowId || "").trim();
+}
+
+export function resolveCoreRedirectFlowId(params: BillingReturnParams) {
+  if (resolveSubscriptionCheckoutKind(params) !== "core") return "";
+  return resolveRedirectFlowId(params, "subscription") || (params.redirectFlowId || "").trim();
 }
 
 export function clearBillingReturnState(kind?: "subscription" | "order" | "mandate" | "all") {
@@ -112,15 +153,6 @@ export async function completeFeedbackGoCardlessSubscription(redirectFlowId: str
     method: "POST",
     body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
   });
-}
-
-export function resolveFeedbackRedirectFlowId(params: BillingReturnParams) {
-  if (params.redirectFlowId) return params.redirectFlowId;
-  try {
-    return (sessionStorage.getItem(GC_FEEDBACK_FLOW_KEY) || "").trim();
-  } catch {
-    return "";
-  }
 }
 
 export function clearFeedbackBillingReturnState() {

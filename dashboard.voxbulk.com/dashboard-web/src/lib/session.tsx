@@ -31,6 +31,7 @@ import {
   GC_ORDER_ID_KEY,
   readBillingReturnParams,
   resolveFeedbackRedirectFlowId,
+  resolveCoreRedirectFlowId,
   resolveRedirectFlowId,
   startGoCardlessOrderPayment,
   startPaidInterviewOrder,
@@ -326,7 +327,7 @@ function GoCardlessReturnHandler({
       return;
     }
 
-    const redirectFlowId = resolveRedirectFlowId(params, "subscription");
+    const redirectFlowId = resolveCoreRedirectFlowId(params);
 
     if (!redirectFlowId) {
 
@@ -348,9 +349,11 @@ function GoCardlessReturnHandler({
 
         clearBillingQuery();
 
-        toast.success("Subscription activated successfully.");
+        toast.success("Core platform subscription activated successfully.");
 
         onComplete();
+
+        void navigate({ to: "/account/packages", replace: true });
 
       } catch (e) {
 
@@ -458,6 +461,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     void qc.invalidateQueries({ queryKey: ["service-orders"] });
 
     void qc.invalidateQueries({ queryKey: ["interview-draft"] });
+
+    void qc.invalidateQueries({ queryKey: ["billing", "pricing"] });
+
+    void qc.invalidateQueries({ queryKey: queryKeys.billingWallet });
+
+    void qc.invalidateQueries({ queryKey: queryKeys.billingAccess });
+
+    void qc.invalidateQueries({ queryKey: queryKeys.billingUsage });
 
   }, [q, qc]);
 

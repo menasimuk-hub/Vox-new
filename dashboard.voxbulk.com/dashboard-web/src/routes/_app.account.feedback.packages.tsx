@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
+import { feedbackPlanButtonLabel, planChangeToast } from "@/lib/billing/plans";
 import { changeFeedbackPlan, useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries";
@@ -60,8 +61,9 @@ function FeedbackPackagesPage() {
     setBusyPlanId(pkg.plan_id);
     try {
       if (subscription?.active) {
-        await changeFeedbackPlan(pkg.plan_id);
-        toast.success("Plan updated");
+        const result = await changeFeedbackPlan(pkg.plan_id);
+        const planName = pkg.plan_name || pkg.plan_code || "plan";
+        toast.success(planChangeToast(result.direction, planName));
         setBusyPlanId(null);
         await Promise.all([
           qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
@@ -184,6 +186,10 @@ function FeedbackPackagesPage() {
             {packages.map((pkg) => {
               const isCurrent = currentPlanId === pkg.plan_id;
               const busy = busyPlanId === pkg.plan_id;
+              const btnLabel = feedbackPlanButtonLabel(pkg, packages, {
+                busy,
+                currentPlanId,
+              });
               const features = pkg.features?.length
                 ? pkg.features
                 : [
@@ -231,12 +237,8 @@ function FeedbackPackagesPage() {
                         <>
                           <Loader2 className="mr-2 size-4 animate-spin" /> Redirecting…
                         </>
-                      ) : isCurrent ? (
-                        "Current plan"
-                      ) : subscription?.active ? (
-                        "Switch plan"
                       ) : (
-                        "Subscribe via Direct Debit"
+                        btnLabel
                       )}
                     </Button>
                   </CardContent>

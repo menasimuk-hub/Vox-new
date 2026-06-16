@@ -17,11 +17,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import { marketLabel } from "@/lib/billing/market";
-import { isSamePlan, planButtonLabel, sortedPlans, type PlanLike } from "@/lib/billing/plans";
-import { changeFeedbackPlan, useBillingPricing, useBillingWallet, useCreateSupportTicket, useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
+import {
+  feedbackPlanButtonLabel,
+  isSamePlan,
+  planButtonLabel,
+  planChangeToast,
+  sortedPlans,
+  type PlanLike,
+} from "@/lib/billing/plans";
+import {
+  changeCorePlan,
+  changeFeedbackPlan,
+  useBillingPricing,
+  useBillingWallet,
+  useCreateSupportTicket,
+  useFeedbackPackages,
+  useFeedbackSubscription,
+  useOrganisation,
+  queryKeys,
+} from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import type { FeedbackPackage } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { requireBillingAccess } from "@/lib/guards/billing-route";
 
@@ -71,7 +89,8 @@ function interviewCost(perMin: number, duration: number, conn: number, count: nu
 
 function PackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
-  const { session } = useSession();
+  const { session, refetch: refetchSession } = useSession();
+  const qc = useQueryClient();
   const orgQ = useOrganisation();
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
@@ -93,7 +112,13 @@ function PackagesPage() {
   const countryLabel = orgCountry || String(data?.org_country || "").trim() || "Not set";
   const subscription = session?.subscription;
   const currentPlan = (subscription?.plan || null) as PlanLike | null;
+  const currentCorePlanId = subscription?.subscription?.plan_id || currentPlan?.id || null;
+  const pendingCorePlanId = subscription?.pending_plan?.id || subscription?.subscription?.pending_plan_id || null;
   const gcReady = gocardlessAvailable(subscription as Record<string, unknown> | null);
+  const coreSubStatus = String(subscription?.subscription?.status || "").toLowerCase();
+  const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
+  const hasActiveCoreGcSub =
+    (coreSubStatus === "active" || coreSubStatus === "trial") && corePaymentProvider === "gocardless";
   const settings = (data?.settings || {}) as Record<string, unknown>;
   const plans = sortedPlans((data?.plans || []) as PlanRow[]);
   const services = (data?.services || {}) as Record<string, unknown>;
@@ -128,14 +153,26 @@ function PackagesPage() {
     };
   }, [topupPence, connPence, paygPerMin, waPkgFee, atsFee, settings.estimator_default_duration_min, duration]);
 
+  const invalidateBilling = React.useCallback(async () => {
+    await Promise.all([
+      refetchSession(),
+      qc.invalidateQueries({ queryKey: ["billing", "pricing"] }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingWallet }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingAccess }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingUsage }),
+    ]);
+  }, [qc, refetchSession]);
+
   const onSubscribe = async (plan: PlanRow) => {
     if (plan.is_enterprise) return;
-    if (isSamePlan(plan, currentPlan, plans)) return;
+    if (isSamePlan(plan, currentPlan, plans, currentCorePlanId)) return;
+    if (pendingCorePlanId && String(plan.id) === String(pendingCorePlanId)) return;
     if (isPaygPlan(plan)) {
       setBusyPlanId(String(plan.id));
       try {
         await apiFetch("/billing/subscription/pay-as-you-go", { method: "POST", body: "{}" });
         toast.success("Switched to Pay as you go — top up your wallet when you're ready.");
+        await invalidateBilling();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not switch plan");
       } finally {
@@ -149,6 +186,16 @@ function PackagesPage() {
     }
     setBusyPlanId(String(plan.id));
     try {
+      if (hasActiveCoreGcSub) {
+        const result = await changeCorePlan(String(plan.id));
+        const planName = String(result.plan?.name || plan.name || "plan");
+        toast.success(
+          planChangeToast(result.direction, planName, { awaitingAdmin: result.awaiting_admin_approval }),
+        );
+        setBusyPlanId(null);
+        await invalidateBilling();
+        return;
+      }
       await startGoCardlessSubscription(String(plan.id));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start checkout");
@@ -211,9 +258,14 @@ function PackagesPage() {
     setBusyFeedbackPlanId(pkg.plan_id);
     try {
       if (feedbackSub?.active) {
-        await changeFeedbackPlan(pkg.plan_id);
-        toast.success("Feedback plan updated");
+        const result = await changeFeedbackPlan(pkg.plan_id);
+        const planName = pkg.plan_name || pkg.plan_code || "plan";
+        toast.success(planChangeToast(result.direction, planName));
         setBusyFeedbackPlanId(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+        ]);
         return;
       }
       await startFeedbackGoCardlessSubscription(pkg.plan_id);
@@ -334,10 +386,16 @@ function PackagesPage() {
               const conn = connEnabled ? connPence : 0;
               const low = Number(p.typical_call_low_display?.toString().replace(/[^\d.]/g, "") || (conn + perMin * 10) / 100);
               const high = Number(p.typical_call_high_display?.toString().replace(/[^\d.]/g, "") || (conn + perMin * 15) / 100);
-              const isCurrent = isSamePlan(p, currentPlan, plans);
+              const isCurrent = isSamePlan(p, currentPlan, plans, currentCorePlanId);
               const isFeatured = Boolean(p.is_featured);
               const payg = isPaygPlan(p);
-              const btnLabel = planButtonLabel(p, currentPlan, { busy: busyPlanId === String(p.id), plans });
+              const isPendingDowngrade = Boolean(pendingCorePlanId && String(p.id) === String(pendingCorePlanId));
+              const btnLabel = planButtonLabel(p, currentPlan, {
+                busy: busyPlanId === String(p.id),
+                plans,
+                currentPlanId: currentCorePlanId,
+                pendingPlanId: pendingCorePlanId,
+              });
               return (
                 <div key={String(p.id)} className="relative flex pt-3">
                   {isFeatured && (
@@ -380,7 +438,7 @@ function PackagesPage() {
                       <Button
                         className="mt-3 w-full"
                         variant={isFeatured && !isCurrent ? "default" : "outline"}
-                        disabled={isCurrent || Boolean(busyPlanId)}
+                        disabled={isCurrent || isPendingDowngrade || Boolean(busyPlanId)}
                         onClick={() => (ent ? openEnterpriseContact() : void onSubscribe(p))}
                       >
                         {ent ? "Let's talk" : btnLabel}
@@ -518,6 +576,10 @@ function PackagesPage() {
                           {feedbackPackages.map((pkg) => {
                             const featured = Boolean(pkg.is_featured);
                             const isCurrent = currentFeedbackPlanId === pkg.plan_id;
+                            const fbBtnLabel = feedbackPlanButtonLabel(pkg, feedbackPackages, {
+                              busy: busyFeedbackPlanId === pkg.plan_id,
+                              currentPlanId: currentFeedbackPlanId,
+                            });
                             return (
                               <Card key={pkg.id} className={featured ? "border-success shadow-md" : ""}>
                                 <CardHeader className="pb-2">
@@ -542,7 +604,7 @@ function PackagesPage() {
                                     disabled={isCurrent || busyFeedbackPlanId === pkg.plan_id}
                                     onClick={() => void onFeedbackSubscribe(pkg)}
                                   >
-                                    {isCurrent ? "Current plan" : busyFeedbackPlanId === pkg.plan_id ? <Loader2 className="size-4 animate-spin" /> : "Choose plan"}
+                                    {isCurrent ? "Current plan" : busyFeedbackPlanId === pkg.plan_id ? <Loader2 className="size-4 animate-spin" /> : fbBtnLabel}
                                   </Button>
                                 </CardContent>
                               </Card>

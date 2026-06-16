@@ -136,15 +136,21 @@ export type BillingSubscription = {
   subscription?: {
     status?: string;
     plan_id?: string;
+    pending_plan_id?: string | null;
+    payment_provider?: string | null;
   } | null;
   plan?: {
     id?: string;
+    code?: string;
     name?: string;
+    sort_order?: number;
+    price_gbp_pence?: number;
     price_pence?: number;
   } | null;
   pending_plan?: {
     id?: string;
     name?: string;
+    code?: string;
   } | null;
   test_cash_billing_enabled?: boolean;
   gocardless_checkout_available?: boolean;

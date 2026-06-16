@@ -2025,7 +2025,27 @@ export function useSetBillingOverage() {
 }
 
 export async function changeFeedbackPlan(planId: string) {
-  return apiFetch<{ ok?: boolean; subscription?: FeedbackSubscription }>("/customer-feedback/subscription/change-plan", {
+  return apiFetch<{
+    ok?: boolean;
+    direction?: string;
+    subscription?: FeedbackSubscription;
+    pending_plan_id?: string | null;
+  }>("/customer-feedback/subscription/change-plan", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId }),
+  });
+}
+
+export async function changeCorePlan(planId: string) {
+  return apiFetch<{
+    ok?: boolean;
+    direction?: string;
+    awaiting_admin_approval?: boolean;
+    subscription?: Record<string, unknown>;
+    plan?: { id?: string; name?: string; code?: string };
+    pending_plan?: { id?: string; name?: string; code?: string } | null;
+    billing?: { pro_rata_minor?: number; invoice_id?: string | null };
+  }>("/billing/subscription/change-plan", {
     method: "POST",
     body: JSON.stringify({ plan_id: planId }),
   });

@@ -157,10 +157,41 @@ def _resolve_org_id(db, email: str, org_id: str | None) -> str:
     return memberships[0].org_id
 
 
-def _pick_location(db, org_id: str, location_id: str | None) -> FeedbackLocation:
+def _pick_location(
+    db,
+    org_id: str,
+    location_id: str | None,
+    location_name: str | None = None,
+) -> FeedbackLocation:
+    if location_id and location_name:
+        raise SystemExit("Use only one of --location-id or --location-name.")
     q = select(FeedbackLocation).where(FeedbackLocation.org_id == org_id).order_by(FeedbackLocation.name)
     if location_id:
         q = q.where(FeedbackLocation.id == location_id)
+        loc = db.execute(q.limit(1)).scalar_one_or_none()
+        if loc is None:
+            raise SystemExit(f"No Customer Feedback location found with id: {location_id}")
+        return loc
+    if location_name:
+        needle = str(location_name).strip().lower()
+        matches = list(
+            db.execute(
+                select(FeedbackLocation).where(FeedbackLocation.org_id == org_id).order_by(FeedbackLocation.name)
+            ).scalars().all()
+        )
+        hits = [m for m in matches if str(m.name or "").strip().lower() == needle]
+        if not hits:
+            names = ", ".join(f'"{m.name}"' for m in matches[:8]) or "(none)"
+            raise SystemExit(
+                f"No Customer Feedback location named {location_name!r} for this org. "
+                f"Existing: {names}"
+            )
+        if len(hits) > 1:
+            ids = ", ".join(h.id for h in hits)
+            raise SystemExit(
+                f"Multiple locations named {location_name!r}. Use --location-id. Matches: {ids}"
+            )
+        return hits[0]
     loc = db.execute(q.limit(1)).scalar_one_or_none()
     if loc is None:
         raise SystemExit(
@@ -195,6 +226,7 @@ def seed_respondents(
     count: int,
     seed: int,
     location_id: str | None,
+    location_name: str | None,
     org_id: str | None,
     clear: bool,
     unhappy_pct: int,
@@ -204,7 +236,7 @@ def seed_respondents(
 
     with get_sessionmaker()() as db:
         resolved_org = _resolve_org_id(db, email, org_id)
-        location = _pick_location(db, resolved_org, location_id)
+        location = _pick_location(db, resolved_org, location_id, location_name)
         steps = _answerable_steps(db, location)
         if not steps:
             raise SystemExit(f"Location {location.name} has no answerable survey steps.")
@@ -327,6 +359,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="Number of respondents (default: 100)")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible mix")
     parser.add_argument("--location-id", default=None, help="Feedback location UUID (default: first for org)")
+    parser.add_argument("--location-name", default=None, help="Feedback location name (case-insensitive, e.g. acton)")
     parser.add_argument("--org-id", default=None, help="Organisation UUID when user has multiple orgs")
     parser.add_argument("--unhappy-pct", type=int, default=40, help="Percent unhappy respondents (default: 40)")
     parser.add_argument("--clear", action="store_true", help=f"Remove prior seeded sessions ({PHONE_PREFIX}*)")
@@ -341,6 +374,7 @@ def main() -> None:
         count=args.count,
         seed=args.seed,
         location_id=args.location_id,
+        location_name=args.location_name,
         org_id=args.org_id,
         clear=args.clear,
         unhappy_pct=args.unhappy_pct,
