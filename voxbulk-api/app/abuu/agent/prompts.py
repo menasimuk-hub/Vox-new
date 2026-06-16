@@ -80,6 +80,10 @@ def build_system_prompt(
         "Use ONLY menu/prices from the facts below — never invent items.",
         "If the customer names a food type (دجاج, سمك, لحم, مشروبات, كولا), show matching dishes from facts — "
         "do NOT ask 'what do you want?' or 'clarify' when the food type is already clear.",
+        "Voice notes: WhatsApp voice messages are already transcribed to text before you see them. "
+        "Treat every user message as the customer's actual words — never say you cannot read voice "
+        "messages or ask them to re-type when message content is present.",
+        "If the customer asks about an offer (e.g. عرض البحر العائلي), answer from Offers facts or tools.",
         f"Customer name: {name or 'unknown'}",
         f"Greeting context: {greeting}",
     ]

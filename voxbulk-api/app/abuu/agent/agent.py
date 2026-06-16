@@ -53,12 +53,13 @@ def _deepseek_platform_ready(main_db: Session) -> bool:
 
 
 def _format_user_turn(text: str, *, input_source: str, lang: str) -> str:
-    cleaned = str(text or "").strip()
-    if input_source != "voice":
-        return cleaned
-    if lang == "en":
-        return f"[Voice note transcript — interpret food order intent]: {cleaned}"
-    return f"[رسالة صوتية — فهم نية الطلب]: {cleaned}"
+    """Format inbound text for agent chat history.
+
+    Voice notes are transcribed server-side before this runs; pass the transcript
+    as plain user text so the LLM treats it like a typed WhatsApp message.
+    """
+    del input_source, lang  # kept for call-site compatibility
+    return str(text or "").strip()
 
 
 class AbuuAgentLoop:

@@ -7,8 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.abuu.agent.agent import AbuuAgentLoop
+from app.abuu.agent.agent import AbuuAgentLoop, _format_user_turn
 from app.abuu.agent.kb import get_menu, invalidate_menu_cache, search_menu
+from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import clear_session, load_session, save_session
 from app.abuu.agent.skills import execute_tool
 from app.abuu.services.inbound_service import AbuuInboundService
@@ -77,6 +78,54 @@ def _tool_then_text(tool_name: str, tool_input: dict, final_text: str):
         finish_reason="tool_calls",
     )
     return [tool_response, _text_completion(final_text)]
+
+
+def test_format_user_turn_voice_uses_plain_transcript():
+    transcript = "طيب انت هيك سمعني احسن انا بدي عرض البحر العائلي"
+    formatted = _format_user_turn(transcript, input_source="voice", lang="ar")
+    assert formatted == transcript
+    assert "[رسالة صوتية" not in formatted
+    assert "Voice note transcript" not in formatted
+
+
+def test_format_user_turn_text_unchanged():
+    text = "بدي دجاج مشوي"
+    assert _format_user_turn(text, input_source="text", lang="ar") == text
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_voice_agent_sends_plain_transcript_to_llm(mock_complete, abuu_seeded, deepseek_configured):
+    _db, _restaurant_id, _restaurant = abuu_seeded
+    mock_complete.return_value = _text_completion("عرض البحر العائلي فيه سمك ومشروبات.")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    transcript = "بدي عرض البحر العائلي"
+    phone = "+972509990016"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        session = load_session(abuu_db, phone)
+        system_prompt = build_system_prompt(abuu_db, session, customer=customer)
+        assert "Voice notes:" in system_prompt
+        assert "never say you cannot read voice" in system_prompt.lower()
+
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=transcript,
+            input_source="voice",
+        )
+
+    assert result["action"] == "agent_reply"
+    mock_complete.assert_called()
+    call_kwargs = mock_complete.call_args.kwargs
+    assert "Voice notes:" in call_kwargs["system_prompt"]
+    user_messages = [m for m in call_kwargs["messages"] if m.get("role") == "user"]
+    assert user_messages
+    assert user_messages[-1]["content"] == transcript
+    assert "[رسالة صوتية" not in user_messages[-1]["content"]
 
 
 @patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
