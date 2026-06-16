@@ -207,3 +207,63 @@ def get_results(
     return FeedbackResultsService.customer_results(
         db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
     )
+
+
+@router.get("/results/insights")
+def get_results_insights(
+    location_id: str | None = None,
+    survey_type_id: str | None = None,
+    force: bool = Query(False),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_feedback_enabled(db, principal.org_id)
+    return FeedbackResultsService.customer_insights(
+        db,
+        principal.org_id,
+        location_id=location_id,
+        survey_type_id=survey_type_id,
+        force=force,
+    )
+
+
+@router.get("/results/export.csv")
+def export_results_csv(
+    location_id: str | None = None,
+    survey_type_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    _require_feedback_enabled(db, principal.org_id)
+    csv_text = FeedbackResultsService.export_csv(
+        db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
+    )
+    suffix = (location_id or "all")[:8]
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="feedback-results-{suffix}.csv"'},
+    )
+
+
+@router.get("/results/export.pdf")
+def export_results_pdf(
+    location_id: str | None = None,
+    survey_type_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    _require_feedback_enabled(db, principal.org_id)
+    pdf_bytes = FeedbackResultsService.export_pdf(
+        db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
+    )
+    suffix = (location_id or "all")[:8]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="feedback-results-{suffix}.pdf"'},
+    )

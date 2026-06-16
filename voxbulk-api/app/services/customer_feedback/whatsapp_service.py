@@ -77,8 +77,36 @@ class FeedbackWhatsappService:
         from_phone: str,
         body: str,
         org_id: str | None = None,
+        record: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized_body = str(body or "").strip()
+        answer_source = "text"
+        if not normalized_body:
+            from app.services.customer_feedback.feedback_voice_service import is_voice_inbound, transcribe_inbound
+
+            if is_voice_inbound(record):
+                session = FeedbackWhatsappService._active_session(db, from_phone=from_phone)
+                lang = session.detected_language if session else None
+                transcript, ok = transcribe_inbound(
+                    db,
+                    record=record or {},
+                    customer_phone=from_phone,
+                    language=lang,
+                )
+                if ok and transcript:
+                    normalized_body = transcript
+                    answer_source = "voice"
+                elif session:
+                    FeedbackWhatsappService._send_wa(
+                        db,
+                        to_number=from_phone,
+                        body="Sorry, I couldn't hear that clearly. Please try again or type your reply.",
+                        org_id=session.org_id,
+                    )
+                    return {"handled": True, "reason": "voice_unclear"}
+                else:
+                    return {"handled": False, "reason": "voice_no_session"}
+
         if normalized_body.lower() in STOP_WORDS:
             return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=org_id)
 
@@ -107,7 +135,12 @@ class FeedbackWhatsappService:
                 )
                 return {"handled": True, "reason": "missing_token"}
             return {"handled": False, "reason": "no_session"}
-        return FeedbackWhatsappService._advance_session(db, session=session, answer=normalized_body)
+        return FeedbackWhatsappService._advance_session(
+            db,
+            session=session,
+            answer=normalized_body,
+            answer_source=answer_source,
+        )
 
     @staticmethod
     def _handle_stop(db: Session, *, from_phone: str, org_id: str | None) -> dict[str, Any]:
@@ -266,6 +299,7 @@ class FeedbackWhatsappService:
         tpl: FeedbackWaTemplate | None,
         answer: str,
         step_index: int,
+        answer_source: str = "text",
     ) -> None:
         original = str(answer or "").strip()
         translated = translate_answer_to_english(
@@ -288,12 +322,19 @@ class FeedbackWhatsappService:
                 original_text=original,
                 answer_text_en=answer_en,
                 step_order=step_index + 1,
+                answer_source=answer_source or "text",
                 created_at=datetime.utcnow(),
             )
         )
 
     @staticmethod
-    def _advance_session(db: Session, *, session: FeedbackSession, answer: str) -> dict[str, Any]:
+    def _advance_session(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        answer: str,
+        answer_source: str = "text",
+    ) -> dict[str, Any]:
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
             session.status = "failed"
@@ -355,6 +396,7 @@ class FeedbackWhatsappService:
                 tpl=tpl,
                 answer=answer,
                 step_index=step_index,
+                answer_source=answer_source,
             )
         else:
             FeedbackWhatsappService._save_answer(
@@ -365,6 +407,7 @@ class FeedbackWhatsappService:
                 tpl=tpl,
                 answer=answer,
                 step_index=step_index,
+                answer_source=answer_source,
             )
             if (
                 current_step.get("kind") == "topic"

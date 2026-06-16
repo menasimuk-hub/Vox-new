@@ -461,6 +461,7 @@ class TelnyxInboundMessagingService:
                         from_phone=from_norm or from_number or "",
                         body=inbound_text,
                         org_id=org_id,
+                        record=record if isinstance(record, dict) else None,
                     )
                     handled_feedback = bool(feedback_result.get("handled"))
                     _log_feedback_wa_route(
@@ -568,6 +569,7 @@ class TelnyxInboundMessagingService:
                         from_phone=from_norm or from_number or "",
                         body=inbound_text,
                         org_id=org_id,
+                        record=record if isinstance(record, dict) else None,
                     )
                     handled_feedback = bool(feedback_result.get("handled"))
                     _log_feedback_wa_route(

@@ -71,6 +71,8 @@ export const queryKeys = {
   feedbackIndustries: ["customer-feedback", "catalog", "industries"] as const,
   feedbackSurveyTypes: (industryId: string) => ["customer-feedback", "catalog", "survey-types", industryId] as const,
   feedbackResults: (filters: Record<string, string>) => ["customer-feedback", "results", filters] as const,
+  feedbackResultsInsights: (filters: Record<string, string>) =>
+    ["customer-feedback", "results", "insights", filters] as const,
   feedbackPackages: ["customer-feedback", "packages"] as const,
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
@@ -169,23 +171,84 @@ export type FeedbackSubscription = {
 
 export type FeedbackResultsPayload = {
   ok?: boolean;
+  location_name?: string | null;
   locations: FeedbackLocation[];
+  survey_types?: Array<{ id: string; name: string; slug?: string }>;
   summary: {
     sessions: number;
     completed_sessions: number;
     responses: number;
     total_scans: number;
+    satisfaction_pct?: number | null;
+    recommend_pct?: number | null;
+    completion_rate_pct?: number | null;
+    sentiment_counts?: { unhappy: number; neutral: number; happy: number };
+    unhappy_count?: number;
   };
+  aggregates?: FeedbackAggregateBlock[];
+  weekly_trend?: Array<{ week: string; satisfaction?: number | null; responses?: number }>;
+  respondents?: FeedbackRespondent[];
+  open_comments?: FeedbackOpenComment[];
   rows: Array<{
     id: string;
+    session_id?: string;
     location_id: string;
     location_name?: string | null;
     survey_type_id?: string;
     survey_type_name?: string | null;
     question_key?: string;
+    question?: string | null;
     answer_text?: string;
+    original_text?: string | null;
+    answer_source?: string | null;
+    visitor_phone?: string | null;
     created_at?: string | null;
   }>;
+};
+
+export type FeedbackAggregateBlock = {
+  question_key?: string;
+  question?: string;
+  step_role?: string | null;
+  total?: number;
+  visualization?: string;
+  breakdown?: Array<{ label: string; key: string; count: number; pct: number }>;
+  responses?: Array<{ answer: string; count: number }>;
+};
+
+export type FeedbackRespondent = {
+  id?: string;
+  phone?: string | null;
+  location_id?: string;
+  location_name?: string | null;
+  completed_at?: string | null;
+  is_unhappy?: boolean;
+  flagged?: boolean;
+  sentiment_label?: string | null;
+  answers?: Array<{ question?: string; answer?: string; step_role?: string | null; answer_source?: string }>;
+  quote?: string | null;
+};
+
+export type FeedbackOpenComment = {
+  id?: string;
+  session_id?: string;
+  text?: string;
+  original_text?: string | null;
+  answer_source?: string;
+  theme?: string | null;
+  sentiment?: string;
+  created_at?: string | null;
+};
+
+export type FeedbackResultsInsightsPayload = {
+  ok?: boolean;
+  ai?: {
+    themes?: Array<{ label: string; value: number; sentiment: string }>;
+    recommendations?: Array<{ title: string; text: string; impact?: string }>;
+    generated_at?: string | null;
+    source?: string;
+  };
+  open_comments?: FeedbackOpenComment[];
 };
 
 export function useHomeSummary() {
@@ -1866,6 +1929,20 @@ export function useFeedbackResults(filters: { location_id?: string; survey_type_
     queryKey: queryKeys.feedbackResults(filterKey),
     queryFn: () =>
       apiFetch<FeedbackResultsPayload>(`/customer-feedback/results${qs ? `?${qs}` : ""}`),
+  });
+}
+
+export function useFeedbackResultsInsights(filters: { location_id?: string; survey_type_id?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.location_id) params.set("location_id", filters.location_id);
+  if (filters.survey_type_id) params.set("survey_type_id", filters.survey_type_id);
+  const qs = params.toString();
+  const filterKey = Object.fromEntries(params.entries());
+  return useQuery({
+    queryKey: queryKeys.feedbackResultsInsights(filterKey),
+    queryFn: () =>
+      apiFetch<FeedbackResultsInsightsPayload>(`/customer-feedback/results/insights${qs ? `?${qs}` : ""}`),
+    staleTime: 1000 * 60 * 5,
   });
 }
 

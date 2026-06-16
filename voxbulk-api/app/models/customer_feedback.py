@@ -155,7 +155,23 @@ class FeedbackResponse(Base):
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     answer_text_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    answer_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackResultsInsightsCache(Base):
+    __tablename__ = "feedback_results_insights"
+    __table_args__ = (UniqueConstraint("org_id", "location_key", name="uq_feedback_insights_org_loc"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    location_key: Mapped[str] = mapped_column(String(64), nullable=False, default="__all__")
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    themes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommendations_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class FeedbackMarketingSubscriber(Base):
