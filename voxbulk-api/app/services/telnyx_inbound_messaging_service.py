@@ -235,6 +235,118 @@ def _message_channel(msg_type: str) -> str:
     return "whatsapp" if "whatsapp" in clean else "sms"
 
 
+def _extract_to_e164(record: dict[str, Any]) -> str:
+    to_entries = record.get("to")
+    to_number = ""
+    if isinstance(to_entries, list) and to_entries:
+        to_number = _phone_from(to_entries[0])
+    elif isinstance(to_entries, dict):
+        to_number = _phone_from(to_entries)
+    if not to_number:
+        return ""
+    try:
+        return normalize_e164(to_number)
+    except ValueError:
+        return to_number
+
+
+def _resolve_inbound_to_norm(
+    db: Session,
+    record: dict[str, Any],
+    *,
+    channel: str,
+    direction: str,
+    to_norm: str | None,
+) -> str | None:
+    if direction != "inbound" or channel != "whatsapp" or to_norm:
+        return to_norm
+    from app.services.yallasay_telnyx_line import resolve_inbound_wa_to_e164
+
+    return resolve_inbound_wa_to_e164(db, record)
+
+
+def _handle_yallasay_inbound(
+    db: Session,
+    *,
+    record: dict[str, Any],
+    channel: str,
+    from_norm: str | None,
+    from_number: str,
+    to_norm: str | None,
+    body: str,
+    message_id: str | None,
+    org_id: str,
+    log_id: int,
+) -> dict[str, Any] | None:
+    from app.services.yallasay_telnyx_line import get_yallasay_whatsapp_e164, is_yallasay_line
+
+    if not is_yallasay_line(db, to_norm):
+        return None
+
+    inbound_text = (_extract_message_text(record) or body or "").strip()
+    if channel == "sms":
+        return {
+            "ok": True,
+            "log_id": log_id,
+            "channel": channel,
+            "org_id": org_id,
+            "yallasay_line": True,
+            "abuu": {"handled": False, "reason": "sms_inbound_only"},
+        }
+
+    if channel == "whatsapp":
+        from app.services.survey_wa_inbound_parse_service import parse_telnyx_wa_inbound_record
+
+        normalized = parse_telnyx_wa_inbound_record(
+            record,
+            sender_phone=from_norm or from_number or "",
+        )
+        inbound_text = (normalized.normalized_answer or inbound_text).strip()
+
+    yallasay_from = get_yallasay_whatsapp_e164(db)
+    abuu_result: dict[str, Any] = {"handled": False, "reason": "disabled"}
+    try:
+        from app.core.config import get_settings
+        from app.abuu.services.inbound_service import AbuuInboundService
+
+        if get_settings().abuu_enabled and channel == "whatsapp":
+            abuu_result = AbuuInboundService.try_handle(
+                db,
+                from_phone=from_norm or from_number or "",
+                body=inbound_text,
+                message_id=message_id,
+                record=record if isinstance(record, dict) else None,
+                org_id=org_id,
+                reply_channel="whatsapp",
+                reply_from=yallasay_from,
+            )
+    except Exception:
+        logger.exception(
+            "yallasay_inbound_handler_failed channel=%s from=%r to=%r body=%r",
+            channel,
+            from_norm or from_number,
+            to_norm,
+            inbound_text[:120],
+        )
+    logger.info(
+        "yallasay_inbound_route channel=%s from=%r to=%r body=%r abuu_handled=%s abuu_reason=%s",
+        channel,
+        from_norm or from_number,
+        to_norm,
+        inbound_text[:120],
+        abuu_result.get("handled"),
+        abuu_result.get("reason"),
+    )
+    return {
+        "ok": True,
+        "log_id": log_id,
+        "channel": channel,
+        "org_id": org_id,
+        "yallasay_line": True,
+        "abuu": abuu_result,
+    }
+
+
 def _log_feedback_wa_route(
     *,
     message_id: str | None,
@@ -294,12 +406,7 @@ class TelnyxInboundMessagingService:
         channel = _message_channel(msg_type)
 
         from_number = _phone_from(record.get("from"))
-        to_entries = record.get("to")
-        to_number = ""
-        if isinstance(to_entries, list) and to_entries:
-            to_number = _phone_from(to_entries[0])
-        elif isinstance(to_entries, dict):
-            to_number = _phone_from(to_entries)
+        to_number = _extract_to_e164(record) if isinstance(record, dict) else ""
 
         body = _extract_message_text(record)
         status = _extract_delivery_status(record) or ("received" if direction == "inbound" else "sent")
@@ -313,10 +420,16 @@ class TelnyxInboundMessagingService:
             from_norm = normalize_e164(from_number) if from_number else from_number
         except ValueError:
             from_norm = from_number
-        try:
-            to_norm = normalize_e164(to_number) if to_number else to_number
-        except ValueError:
-            to_norm = to_number
+        to_norm = to_number or None
+        to_norm = _resolve_inbound_to_norm(
+            db,
+            record if isinstance(record, dict) else {},
+            channel=channel,
+            direction=direction,
+            to_norm=to_norm,
+        )
+        if to_norm:
+            to_number = to_norm
 
         if message_id:
             existing = db.execute(
@@ -357,6 +470,25 @@ class TelnyxInboundMessagingService:
                     "status": status,
                 }
                 if direction == "inbound" and channel == "whatsapp":
+                    if not existing.to_number and to_norm:
+                        existing.to_number = to_norm
+                        db.add(existing)
+                        db.commit()
+                    yallasay_dup = _handle_yallasay_inbound(
+                        db,
+                        record=record if isinstance(record, dict) else {},
+                        channel=channel,
+                        from_norm=from_norm,
+                        from_number=from_number,
+                        to_norm=to_norm,
+                        body=body or "",
+                        message_id=message_id,
+                        org_id=org_id,
+                        log_id=existing.id,
+                    )
+                    if yallasay_dup is not None:
+                        result.update(yallasay_dup)
+                        return result
                     try:
                         from app.services.survey_wa_inbound_parse_service import (
                             parse_telnyx_wa_inbound_record,
@@ -421,73 +553,20 @@ class TelnyxInboundMessagingService:
         db.refresh(row)
 
         if direction == "inbound":
-            from app.services.yallasay_telnyx_line import is_yallasay_line
-
-            if is_yallasay_line(db, to_norm):
-                inbound_text = (_extract_message_text(record) or body or "").strip()
-                if channel == "sms":
-                    return {
-                        "ok": True,
-                        "log_id": row.id,
-                        "channel": channel,
-                        "org_id": org_id,
-                        "yallasay_line": True,
-                        "abuu": {"handled": False, "reason": "sms_inbound_only"},
-                    }
-
-                if channel == "whatsapp":
-                    from app.services.survey_wa_inbound_parse_service import parse_telnyx_wa_inbound_record
-
-                    normalized = parse_telnyx_wa_inbound_record(
-                        record,
-                        sender_phone=from_norm or from_number or "",
-                    )
-                    inbound_text = (normalized.normalized_answer or inbound_text).strip()
-
-                from app.services.yallasay_telnyx_line import get_yallasay_whatsapp_e164
-
-                yallasay_from = get_yallasay_whatsapp_e164(db)
-                abuu_result: dict[str, Any] = {"handled": False, "reason": "disabled"}
-                try:
-                    from app.core.config import get_settings
-                    from app.abuu.services.inbound_service import AbuuInboundService
-
-                    if get_settings().abuu_enabled and channel == "whatsapp":
-                        abuu_result = AbuuInboundService.try_handle(
-                            db,
-                            from_phone=from_norm or from_number or "",
-                            body=inbound_text,
-                            message_id=message_id,
-                            record=record if isinstance(record, dict) else None,
-                            org_id=org_id,
-                            reply_channel="whatsapp",
-                            reply_from=yallasay_from,
-                        )
-                except Exception:
-                    logger.exception(
-                        "yallasay_inbound_handler_failed channel=%s from=%r to=%r body=%r",
-                        channel,
-                        from_norm or from_number,
-                        to_norm,
-                        inbound_text[:120],
-                    )
-                logger.info(
-                    "yallasay_inbound_route channel=%s from=%r to=%r body=%r abuu_handled=%s abuu_reason=%s",
-                    channel,
-                    from_norm or from_number,
-                    to_norm,
-                    inbound_text[:120],
-                    abuu_result.get("handled"),
-                    abuu_result.get("reason"),
-                )
-                return {
-                    "ok": True,
-                    "log_id": row.id,
-                    "channel": channel,
-                    "org_id": org_id,
-                    "yallasay_line": True,
-                    "abuu": abuu_result,
-                }
+            yallasay_result = _handle_yallasay_inbound(
+                db,
+                record=record if isinstance(record, dict) else {},
+                channel=channel,
+                from_norm=from_norm,
+                from_number=from_number,
+                to_norm=to_norm,
+                body=body or "",
+                message_id=message_id,
+                org_id=org_id,
+                log_id=row.id,
+            )
+            if yallasay_result is not None:
+                return yallasay_result
 
         if direction == "inbound" and channel == "whatsapp":
             handled_interview = False

@@ -137,6 +137,10 @@ Symptom: you sent WhatsApp to 099 recently but diag shows no `yallasay_inbound_r
 3. Set webhook URL to `https://api.voxbulk.com/telnyx/webhooks/messages` (same as Number 1 surveys)
 4. Send `Yallasay` to **+447822002099** (not +447822002055)
 
+Symptom: Admin Messages show inbound `received` but To is `—` and Abuu never replies.
+
+Telnyx sometimes omits the `to` field on WhatsApp webhooks. The API infers the destination from `messaging_profile_id` when present (Yallasay profile → Number 2). If profile is also missing, Apply Telnyx setup and ensure WABA webhook is configured.
+
 ### Telnyx opt-out (STOP)
 
 If logs show `block rule` for your number, send **`UNSTOP`** or **`START`** to the WhatsApp sender (e.g. **+447822002099** for Abuu). Telnyx has no API to remove opt-outs — the user must message back.

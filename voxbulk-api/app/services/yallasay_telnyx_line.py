@@ -7,12 +7,15 @@ Both numbers can receive inbound WhatsApp; routing uses is_yallasay_line(to).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.services.messaging_log_service import normalize_e164
 from app.services.provider_settings import ProviderSettingsService
+
+logger = logging.getLogger(__name__)
 
 
 def _telnyx_config(db: Session) -> dict[str, Any]:
@@ -76,3 +79,62 @@ def is_yallasay_line(db: Session, phone: str | None) -> bool:
         if candidate and candidate == target:
             return True
     return False
+
+
+def _extract_messaging_profile_id(record: dict[str, Any]) -> str:
+    if not isinstance(record, dict):
+        return ""
+    direct = str(record.get("messaging_profile_id") or "").strip()
+    if direct:
+        return direct
+    for nested_key in ("payload", "message", "data"):
+        nested = record.get(nested_key)
+        if isinstance(nested, dict):
+            nested_id = str(nested.get("messaging_profile_id") or "").strip()
+            if nested_id:
+                return nested_id
+    return ""
+
+
+def resolve_inbound_wa_to_e164(
+    db: Session,
+    record: dict[str, Any],
+    *,
+    explicit_to: str | None = None,
+) -> str | None:
+    """Resolve inbound WhatsApp destination when Telnyx omits the `to` field.
+
+    Uses messaging_profile_id only — never blind-defaults to Yallasay.
+    """
+    resolved = _norm(explicit_to) if explicit_to else None
+    if resolved:
+        return resolved
+
+    profile_id = _extract_messaging_profile_id(record)
+    if not profile_id:
+        return None
+
+    config = _telnyx_config(db)
+    line = get_yallasay_line_config(db)
+    yalla_profiles = {
+        str(line.get("whatsapp_messaging_profile_id") or "").strip(),
+        str(line.get("messaging_profile_id") or "").strip(),
+    } - {""}
+    survey_profile = str(
+        config.get("whatsapp_messaging_profile_id") or config.get("messaging_profile_id") or ""
+    ).strip()
+
+    if profile_id in yalla_profiles:
+        inferred = get_yallasay_whatsapp_e164(db)
+        if inferred:
+            logger.info(
+                "yallasay_inbound_to_inferred source=messaging_profile_id to=%s profile=%s",
+                inferred,
+                profile_id,
+            )
+        return inferred
+
+    if survey_profile and profile_id == survey_profile:
+        return _norm(str(config.get("whatsapp_from") or ""))
+
+    return None
