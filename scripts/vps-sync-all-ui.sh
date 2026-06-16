@@ -19,23 +19,30 @@ VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
 DEPLOY_LOG="${VOX_DEPLOY_LOG:-/tmp/voxbulk-deploy.log}"
 
+# Print immediately (before redirect) so the terminal is never silent.
+echo "=== VoxBulk full UI sync (admin + dashboard) ==="
+echo "Repo:    $ROOT"
+echo "Admin:   $VOX_ADMIN_DIST"
+echo "Dash:    $VOX_DASH_DIST"
+echo "Branch:  ${VOX_GIT_BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+echo "Log:     $DEPLOY_LOG  (if terminal looks stuck: tail -f $DEPLOY_LOG)"
+echo ""
+
 # shellcheck source=lib/vps-git-sync.sh
 source "$ROOT/scripts/lib/vps-git-sync.sh"
 
-exec > >(tee -a "$DEPLOY_LOG") 2>&1
+# stdbuf -oL keeps line-by-line output on the terminal (plain tee buffers when stdout is a pipe).
+if command -v stdbuf >/dev/null 2>&1; then
+  exec > >(stdbuf -oL -eL tee -a "$DEPLOY_LOG") 2>&1
+else
+  exec > >(tee -a "$DEPLOY_LOG") 2>&1
+fi
 
 on_fail() {
   vox_print_deploy_banner FAILED "$ROOT"
   exit 1
 }
 trap on_fail ERR
-
-echo "=== VoxBulk full UI sync (admin + dashboard) ==="
-echo "Repo:    $ROOT"
-echo "Admin:   $VOX_ADMIN_DIST"
-echo "Dash:    $VOX_DASH_DIST"
-echo "Branch:  ${VOX_GIT_BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
-echo ""
 
 vox_git_sync "$ROOT"
 

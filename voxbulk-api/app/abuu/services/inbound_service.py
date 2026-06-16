@@ -1367,6 +1367,12 @@ class AbuuInboundService:
                 channel = "whatsapp"
                 from_number = yallasay_wa
                 wa_profile = get_yallasay_line_config(main_db).get("whatsapp_messaging_profile_id")
+                if not wa_profile:
+                    logger.warning(
+                        "abuu_wa_reply_failed reason=yallasay_profile_missing to=%s from=%s",
+                        to_phone,
+                        from_number,
+                    )
         if channel == "sms":
             logger.info(
                 "abuu_wa_trace OUT skipped sms channel to=%s from=%r (yallasay is whatsapp-only)",

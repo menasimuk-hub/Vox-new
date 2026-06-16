@@ -471,6 +471,15 @@ class TelnyxInboundMessagingService:
                         to_norm,
                         inbound_text[:120],
                     )
+                logger.info(
+                    "yallasay_inbound_route channel=%s from=%r to=%r body=%r abuu_handled=%s abuu_reason=%s",
+                    channel,
+                    from_norm or from_number,
+                    to_norm,
+                    inbound_text[:120],
+                    abuu_result.get("handled"),
+                    abuu_result.get("reason"),
+                )
                 return {
                     "ok": True,
                     "log_id": row.id,
