@@ -602,3 +602,44 @@ def test_send_feedback_template_uses_meta_template_name():
         assert kwargs.get("template_name", "").startswith("voxbulk_cf_")
         assert kwargs.get("to_number") == "+447700900999"
         assert kwargs.get("template_language")
+
+
+def test_fitness_meta_name_uses_template_row_not_location():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        fitness = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(
+                FeedbackSurveyType.industry_id == fitness.id,
+                FeedbackSurveyType.slug == "overall-experience",
+            )
+        ).scalar_one()
+        thank_tpl = FeedbackWaTemplate(
+            template_key="thank_you",
+            language="en_GB",
+            body_text="Thank you!",
+            is_active=True,
+            telnyx_sync_status="approved",
+        )
+        db.add(thank_tpl)
+        org_id, _user_id = _seed_org()
+        location = FeedbackLocation(
+            org_id=org_id,
+            industry_id=fitness.id,
+            survey_type_id=survey_type.id,
+            name="Gym",
+            qr_token=f"fitness-gym-{uuid.uuid4().hex[:6]}",
+            wa_sender_country="gb",
+            status="active",
+        )
+        db.add(location)
+        db.commit()
+        db.refresh(thank_tpl)
+
+        meta_name = FeedbackWaSendService.resolve_meta_template_name(db, thank_tpl)
+        assert meta_name.startswith("voxbulk_cf_thank_you_")
+        assert "fitness" not in meta_name
+        assert "overall" not in meta_name

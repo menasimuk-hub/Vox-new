@@ -7,8 +7,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
+from app.models.customer_feedback import FeedbackLocation, FeedbackWaTemplate
 from app.services.customer_feedback.feedback_telnyx_push_service import (
+    _feedback_template_meta_context,
     english_anchor_template,
     feedback_meta_template_name,
     normalize_feedback_language,
@@ -23,31 +24,15 @@ _APPROVED_SYNC_STATUSES = frozenset({"approved", "synced", "live"})
 
 class FeedbackWaSendService:
     @staticmethod
-    def _resolve_slugs(
-        db: Session,
-        tpl: FeedbackWaTemplate,
-        location: FeedbackLocation | None,
-    ) -> tuple[str | None, str | None]:
-        industry_slug: str | None = None
-        survey_slug: str | None = None
-
-        if location is not None:
-            industry = db.get(FeedbackIndustry, location.industry_id)
-            industry_slug = industry.slug if industry else None
-            survey_type = db.get(FeedbackSurveyType, location.survey_type_id)
-            survey_slug = survey_type.slug if survey_type else None
-            return industry_slug, survey_slug
-
-        if tpl.industry_id:
-            industry = db.get(FeedbackIndustry, tpl.industry_id)
-            industry_slug = industry.slug if industry else None
-        if tpl.survey_type_id:
-            survey_type = db.get(FeedbackSurveyType, tpl.survey_type_id)
-            survey_slug = survey_type.slug if survey_type else None
-            if survey_type and not industry_slug:
-                industry = db.get(FeedbackIndustry, survey_type.industry_id)
-                industry_slug = industry.slug if industry else None
-        return industry_slug, survey_slug
+    def resolve_meta_template_name(db: Session, tpl: FeedbackWaTemplate) -> str:
+        industry_slug, survey_slug = _feedback_template_meta_context(db, tpl)
+        anchor = english_anchor_template(db, tpl)
+        return feedback_meta_template_name(
+            tpl,
+            industry_slug=industry_slug,
+            survey_type_slug=survey_slug,
+            name_anchor_id=anchor.id,
+        )
 
     @staticmethod
     def _language_candidates(tpl: FeedbackWaTemplate) -> list[str]:
@@ -68,6 +53,7 @@ class FeedbackWaSendService:
         tpl: FeedbackWaTemplate,
         location: FeedbackLocation | None = None,
     ) -> TelnyxMessageResult:
+        _ = location  # Meta template names come from the template row, not the QR location.
         sync_status = str(tpl.telnyx_sync_status or "").lower()
         if sync_status not in _APPROVED_SYNC_STATUSES:
             logger.warning(
@@ -77,14 +63,7 @@ class FeedbackWaSendService:
                 sync_status or "draft",
             )
 
-        industry_slug, survey_slug = FeedbackWaSendService._resolve_slugs(db, tpl, location)
-        anchor = english_anchor_template(db, tpl)
-        meta_name = feedback_meta_template_name(
-            tpl,
-            industry_slug=industry_slug,
-            survey_type_slug=survey_slug,
-            name_anchor_id=anchor.id,
-        )
+        meta_name = FeedbackWaSendService.resolve_meta_template_name(db, tpl)
         rendered_body = format_template_message(tpl)
         langs = FeedbackWaSendService._language_candidates(tpl)
 
@@ -134,6 +113,7 @@ class FeedbackWaSendService:
         org_id: str | None,
         tpl: FeedbackWaTemplate | None = None,
         location: FeedbackLocation | None = None,
+        require_template: bool = False,
     ) -> TelnyxMessageResult:
         if tpl is not None:
             return FeedbackWaSendService.send_template(
@@ -142,6 +122,19 @@ class FeedbackWaSendService:
                 org_id=org_id,
                 tpl=tpl,
                 location=location,
+            )
+        if require_template:
+            logger.error(
+                "feedback_wa_template_required to=%s org_id=%s body=%r",
+                to_number,
+                org_id,
+                str(body or "")[:120],
+            )
+            return TelnyxMessageResult(
+                ok=False,
+                status="missing_template",
+                detail="No approved WhatsApp template matched this feedback step.",
+                channel="whatsapp",
             )
         logger.warning(
             "feedback_wa_plain_text_fallback to=%s org_id=%s body=%r",

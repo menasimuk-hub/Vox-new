@@ -48,6 +48,7 @@ class FeedbackWhatsappService:
         org_id: str | None,
         tpl: FeedbackWaTemplate | None = None,
         location: FeedbackLocation | None = None,
+        require_template: bool = False,
     ) -> bool:
         result = FeedbackWaSendService.send_plain_or_template(
             db,
@@ -56,6 +57,7 @@ class FeedbackWhatsappService:
             org_id=org_id,
             tpl=tpl,
             location=location,
+            require_template=require_template,
         )
         if not result.ok:
             logger.warning(
@@ -216,26 +218,43 @@ class FeedbackWhatsappService:
 
         steps = FeedbackWhatsappService._steps_for_location(db, location)
         if not steps:
-            FeedbackWhatsappService._send_wa(
-                db,
-                to_number=from_phone,
-                body="Thanks for your feedback! Reply with your rating from 1 (poor) to 5 (excellent).",
-                org_id=location.org_id,
+            logger.error(
+                "feedback_wa_no_steps location_id=%s industry_id=%s survey_type_id=%s",
+                location.id,
+                location.industry_id,
+                location.survey_type_id,
             )
-            return {"handled": True, "session_id": session.id, "fallback": True, "org_id": location.org_id}
+            return {"handled": True, "reason": "missing_steps", "org_id": location.org_id}
 
         first_step = steps[0]
         tpl = template_for_step(db, location, first_step, language=session.detected_language)
-        message = format_template_message(tpl) if tpl else "Thanks for your feedback. Please reply to continue."
-        FeedbackWhatsappService._send_wa(
+        if tpl is None:
+            logger.error(
+                "feedback_wa_no_template location_id=%s industry_id=%s step=%s language=%s",
+                location.id,
+                location.industry_id,
+                first_step,
+                session.detected_language,
+            )
+            return {"handled": True, "reason": "missing_template", "org_id": location.org_id}
+
+        message = format_template_message(tpl)
+        sent = FeedbackWhatsappService._send_wa(
             db,
             to_number=from_phone,
             body=message,
             org_id=location.org_id,
             tpl=tpl,
             location=location,
+            require_template=True,
         )
-        return {"handled": True, "session_id": session.id, "org_id": location.org_id}
+        return {
+            "handled": True,
+            "session_id": session.id,
+            "org_id": location.org_id,
+            "template_sent": sent,
+            "template_key": tpl.template_key,
+        }
 
     @staticmethod
     def _save_answer(
@@ -365,6 +384,7 @@ class FeedbackWhatsappService:
                         org_id=session.org_id,
                         tpl=tell_more,
                         location=location,
+                        require_template=True,
                     )
 
         session.current_step = step_index + 1
@@ -385,12 +405,22 @@ class FeedbackWhatsappService:
                 org_id=session.org_id,
                 tpl=thank_tpl,
                 location=location,
+                require_template=thank_tpl is not None,
             )
             return {"handled": True, "completed": True}
 
         next_step = steps[session.current_step]
         next_tpl = template_for_step(db, location, next_step, language=session.detected_language)
-        next_message = format_template_message(next_tpl) if next_tpl else "Please reply to continue."
+        if next_tpl is None:
+            logger.error(
+                "feedback_wa_no_template location_id=%s step=%s language=%s session_id=%s",
+                location.id,
+                next_step,
+                session.detected_language,
+                session.id,
+            )
+            return {"handled": True, "reason": "missing_template", "session_id": session.id}
+        next_message = format_template_message(next_tpl)
         FeedbackWhatsappService._send_wa(
             db,
             to_number=session.visitor_phone,
@@ -398,5 +428,6 @@ class FeedbackWhatsappService:
             org_id=session.org_id,
             tpl=next_tpl,
             location=location,
+            require_template=True,
         )
         return {"handled": True, "session_id": session.id}
