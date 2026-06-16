@@ -77,6 +77,40 @@ def switch_restaurant_order(
     return AbuuOrderDraftService.start_draft(db, customer=customer, restaurant=restaurant)
 
 
+def clear_switch_context(context: dict) -> dict:
+    """Remove stale cart/switch state after restaurant change."""
+    ctx = dict(context)
+    for key in (
+        "pending_restaurant_switch",
+        "suggested_items",
+        "last_food_search",
+        "confirmed_cart_fingerprint",
+        "cart_fingerprint",
+        "pending_confirm_fingerprint",
+        "last_addon_suggestions",
+        "pending_addon_items",
+        "cart_item_ids",
+        "last_main_item_type",
+    ):
+        ctx.pop(key, None)
+    return ctx
+
+
+def order_is_bound(order: CustomerOrder | None, context: dict) -> bool:
+    if order is None or order.status != "draft":
+        return False
+    if int(order.total_agorot or 0) > 0:
+        return True
+    return bool(context.get("restaurant_selected") and order.restaurant_id)
+
+
+def bind_restaurant_context(context: dict, restaurant_id: str) -> dict:
+    ctx = dict(context)
+    ctx["restaurant_id"] = restaurant_id
+    ctx["restaurant_selected"] = True
+    return ctx
+
+
 def cross_restaurant_message(
     db: Session,
     *,

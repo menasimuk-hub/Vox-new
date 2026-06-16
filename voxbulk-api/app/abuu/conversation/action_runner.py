@@ -13,6 +13,8 @@ from app.abuu.conversation.intent_router import AbuuIntent
 from app.abuu.conversation.restaurant_guard import (
     RestaurantGuard,
     bound_restaurant_id,
+    bind_restaurant_context,
+    clear_switch_context,
     cross_restaurant_message,
     switch_restaurant_order,
 )
@@ -71,7 +73,8 @@ class ActionRunner:
                 session.restaurant_id = guard.bound_restaurant_id
                 session.active_order_id = guard.order.id
                 session.cart = ActionRunner._reload_cart(db, guard.order)
-                ctx.update({"restaurant_id": guard.bound_restaurant_id, "restaurant_selected": True})
+                ctx = bind_restaurant_context(ctx, str(guard.bound_restaurant_id or ""))
+                ctx = clear_switch_context(ctx)
                 session.context = ctx
                 addon_msg, ctx = suggest_addons(
                     db,
@@ -174,8 +177,8 @@ class ActionRunner:
             session.restaurant_id = guard.bound_restaurant_id
             session.active_order_id = guard.order.id
             session.cart = ActionRunner._reload_cart(db, guard.order)
-            ctx["restaurant_id"] = guard.bound_restaurant_id
-            ctx["restaurant_selected"] = True
+            ctx = bind_restaurant_context(ctx, str(guard.bound_restaurant_id or ""))
+            ctx = clear_switch_context(ctx)
             addon_msg, ctx = suggest_addons(
                 db,
                 restaurant_id=guard.bound_restaurant_id or "",

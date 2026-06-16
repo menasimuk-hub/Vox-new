@@ -23,6 +23,7 @@ from app.abuu.services.event_idempotency_service import AbuuEventIdempotencyServ
 from app.abuu.services.inbound_message_service import AbuuInboundMessageService
 from app.abuu.agent.agent import AbuuAgentLoop, _deepseek_platform_ready
 from app.abuu.conversation.orchestrator import AbuuConversationOrchestrator
+from app.abuu.waiter.pipeline import WaiterPipeline
 from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.services.conversation_ai_service import classify_turn
 from app.abuu.services.intent_service import detect_intent, is_abuu_start_message
@@ -221,7 +222,8 @@ class AbuuInboundService:
                     }
                 text = voice.transcript
                 voice_interpretation_payload: dict[str, Any] | None = None
-                if text and VoiceInterpretationService.enabled():
+                use_waiter = WaiterPipeline.enabled_for_phone(phone)
+                if text and VoiceInterpretationService.enabled() and not use_waiter:
                     from app.abuu.agent.session import load_session, save_session
 
                     agent_session = load_session(abuu_db, phone)
@@ -318,6 +320,21 @@ class AbuuInboundService:
                 return {"handled": False, "reason": "not_abuu"}
 
             if message_type == "voice" and text:
+                if WaiterPipeline.enabled_for_phone(phone):
+                    result = AbuuInboundService._run_waiter_v2_turn(
+                        abuu_db,
+                        main_db,
+                        phone=phone,
+                        text=text,
+                        session=session,
+                        message_id=message_id,
+                        org_id=org_id,
+                        is_voice=True,
+                        stt_confidence=float(transcript_confidence or 0.0),
+                    )
+                    abuu_db.commit()
+                    return result
+
                 if AbuuInboundService._should_use_orchestrator(session):
                     result = AbuuInboundService._run_orchestrator_turn(
                         abuu_db,
@@ -414,6 +431,24 @@ class AbuuInboundService:
                 abuu_db.add(session)
             if result.get("handled"):
                 return result
+
+        if WaiterPipeline.enabled_for_phone(phone):
+            result = AbuuInboundService._run_waiter_v2_turn(
+                abuu_db,
+                main_db,
+                phone=phone,
+                text=text,
+                session=session,
+                customer=customer,
+                lang=lang,
+                message_id=message_id,
+                org_id=org_id,
+                is_voice=transcript_confidence is not None,
+                stt_confidence=float(transcript_confidence or 0.0),
+            )
+            if transcript_confidence is not None:
+                result["transcript_confidence"] = transcript_confidence
+            return result
 
         if AbuuInboundService._should_use_orchestrator(session):
             result = AbuuInboundService._run_orchestrator_turn(
@@ -970,6 +1005,69 @@ class AbuuInboundService:
         if step in {"awaiting_substitution", "awaiting_name", "awaiting_delivery"}:
             return False
         return True
+
+    @staticmethod
+    def _run_waiter_v2_turn(
+        abuu_db: Session,
+        main_db: Session,
+        *,
+        phone: str,
+        text: str,
+        session,
+        customer=None,
+        lang: str = "ar",
+        message_id: str | None,
+        org_id: str | None,
+        is_voice: bool = False,
+        stt_confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        result = WaiterPipeline.handle(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=text,
+            message_id=message_id,
+            org_id=org_id,
+            is_voice=is_voice,
+            stt_confidence=stt_confidence,
+        )
+        if result.get("action") == "delegate_confirm":
+            order = (
+                abuu_db.get(CustomerOrder, session.active_order_id)
+                if session and session.active_order_id
+                else None
+            )
+            if order is None:
+                from app.abuu.agent.session import load_session
+
+                agent_session = load_session(abuu_db, phone)
+                if agent_session.active_order_id:
+                    order = abuu_db.get(CustomerOrder, agent_session.active_order_id)
+            if order is not None:
+                context = AbuuInboundService._load_context(session) if session else {}
+                return AbuuInboundService._finalize_confirm(
+                    abuu_db,
+                    main_db,
+                    phone=phone,
+                    order=order,
+                    lang=lang,
+                    org_id=org_id,
+                    context=context,
+                )
+        if result.get("action") == "cancelled":
+            AbuuInboundService._send_reply(main_db, phone, cancel_message(lang), org_id=org_id)
+            if session:
+                session.last_message_id = message_id
+                abuu_db.add(session)
+            return {"handled": True, "action": "cancelled", "intent": result.get("intent")}
+
+        reply = result.get("reply")
+        if reply:
+            AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+        if session:
+            session.last_message_id = message_id
+            abuu_db.add(session)
+        return result
 
     @staticmethod
     def _run_orchestrator_turn(

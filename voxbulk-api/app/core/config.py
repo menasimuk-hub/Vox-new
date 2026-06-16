@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     abuu_voice_intent_clarify_threshold: float = Field(default=0.45, alias="ABUU_VOICE_INTENT_CLARIFY_THRESHOLD")
     abuu_voice_menu_fuzzy_min_score: int = Field(default=45, alias="ABUU_VOICE_MENU_FUZZY_MIN_SCORE")
     abuu_voice_deepseek_recovery_enabled: bool = Field(default=True, alias="ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED")
+    abuu_waiter_v2_allowlist: str = Field(default="", alias="ABUU_WAITER_V2_ALLOWLIST")
+    abuu_waiter_deepseek_timeout_seconds: float = Field(default=8.0, alias="ABUU_WAITER_DEEPSEEK_TIMEOUT_SECONDS")
+    abuu_waiter_trace_enabled: bool = Field(default=True, alias="ABUU_WAITER_TRACE_ENABLED")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

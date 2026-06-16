@@ -22,7 +22,12 @@ from app.abuu.services.customer_memory_service import (
 )
 from app.abuu.conversation.fact_bundle import FactBundleLoader
 from app.abuu.conversation.intent_router import AbuuIntent
-from app.abuu.conversation.restaurant_guard import RestaurantGuard, RestaurantMismatchError, cross_restaurant_message
+from app.abuu.conversation.restaurant_guard import (
+    RestaurantGuard,
+    RestaurantMismatchError,
+    bind_restaurant_context,
+    cross_restaurant_message,
+)
 from app.abuu.services.kb_service import answer_kb_question, format_greeting, kb_fallback_message, resolve_settings
 from app.abuu.services.location_service import attach_default_address_if_present, get_default_address
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -189,6 +194,22 @@ class AbuuSkillRouter:
             if current is None and ctx.order:
                 current = ctx.abuu_db.get(Restaurant, ctx.order.restaurant_id)
             if current:
+                conflict = guard.conflict or {}
+                context = dict(ctx.context)
+                context["pending_restaurant_switch"] = {
+                    "from_restaurant_id": conflict.get("from_restaurant_id"),
+                    "to_restaurant_id": conflict.get("to_restaurant_id"),
+                    "item_id": conflict.get("item_id"),
+                    "item_name": conflict.get("item_name") or localized_name(item, ctx.lang),
+                }
+                AbuuOrderDraftService.upsert_session(
+                    ctx.abuu_db,
+                    phone=ctx.phone,
+                    step=ctx.session.step if ctx.session else "browsing",
+                    context=context,
+                    active_order_id=ctx.order.id if ctx.order else None,
+                    message_id=ctx.message_id,
+                )
                 return SkillResult(
                     skill=SKILL_BUILD_CART,
                     ok=False,
@@ -364,11 +385,26 @@ class AbuuSkillRouter:
                     customer=ctx.customer,
                     restaurant=picked,
                     existing_order=ctx.order,
+                    context=context,
                 )
             except RestaurantMismatchError:
                 current = ctx.abuu_db.get(Restaurant, ctx.order.restaurant_id) if ctx.order else None
                 if current is None:
                     current = picked
+                context["pending_restaurant_switch"] = {
+                    "from_restaurant_id": str(ctx.order.restaurant_id) if ctx.order else None,
+                    "to_restaurant_id": picked.id,
+                    "item_id": None,
+                    "item_name": localized_name(picked, ctx.lang),
+                }
+                AbuuOrderDraftService.upsert_session(
+                    ctx.abuu_db,
+                    phone=ctx.phone,
+                    step="choosing_restaurant",
+                    context=context,
+                    active_order_id=ctx.order.id if ctx.order else None,
+                    message_id=ctx.message_id,
+                )
                 return SkillResult(
                     skill=SKILL_RESTAURANT_SEARCH,
                     ok=False,
@@ -382,7 +418,7 @@ class AbuuSkillRouter:
                     ),
                 )
             apply_saved_address_to_order(ctx.abuu_db, order, ctx.customer)
-            context["restaurant_id"] = picked.id
+            context = bind_restaurant_context(context, picked.id)
             AbuuOrderDraftService.upsert_session(
                 ctx.abuu_db,
                 phone=ctx.phone,
@@ -554,6 +590,7 @@ class AbuuSkillRouter:
         indexed = list(enumerate(items, start=1))
         context = dict(ctx.context)
         context["restaurant_id"] = restaurant.id
+        context["restaurant_selected"] = True
         context["active_categories"] = categories
         context["suggested_items"] = AbuuOrderDraftService.build_suggestion_index(items)
         context.pop("pending_categories", None)

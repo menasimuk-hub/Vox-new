@@ -112,9 +112,36 @@ WhatsApp (text + voice transcript)
   → inbound_service
   → AbuuConversationOrchestrator (when ABUU_CONVERSATION_MODE=orchestrator)
        intent_router → fact_bundle (DB) → action_runner + restaurant_guard → reply_composer → wa_sanitize
+  → WaiterPipeline (when ABUU_CONVERSATION_MODE=waiter_v2)
+       normalization → conservative interpretation → intent → menu intel → guard → reply
   → legacy skill_router for name/address/substitution steps only
   → MySQL abuu_wa_snapshots + /abuu/food/*
 ```
+
+## Waiter v2 rollout (`ABUU_CONVERSATION_MODE=waiter_v2`)
+
+Pilot on internal phones first:
+
+```env
+ABUU_CONVERSATION_MODE=waiter_v2
+ABUU_WAITER_V2_ALLOWLIST=+9725XXXXXXXX,+4479XXXXXXXX
+ABUU_WAITER_TRACE_ENABLED=true
+ABUU_WAITER_DEEPSEEK_TIMEOUT_SECONDS=8
+```
+
+Empty `ABUU_WAITER_V2_ALLOWLIST` = all phones use waiter_v2 when mode is set.
+
+**Live waiter trace:**
+
+```bash
+chmod +x scripts/vps-abuu-waiter-trace.sh
+./scripts/vps-abuu-waiter-trace.sh
+# or: tail -f /tmp/voxbulk-api.log | grep --line-buffered abuu_waiter_trace
+```
+
+Rollback: set `ABUU_CONVERSATION_MODE=orchestrator` and `./vox.sh restart`.
+
+See also `docs/ABUU_WAITER_ARCHITECTURE.md`.
 
 ## Menu intelligence (migration 0014)
 
