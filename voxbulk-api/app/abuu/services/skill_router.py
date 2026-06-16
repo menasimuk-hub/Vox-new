@@ -42,6 +42,8 @@ from app.abuu.services.skill_definitions import (
     SKILL_ORDER_STATUS,
     SKILL_RESTAURANT_SEARCH,
 )
+from app.abuu.market.registry import get_market_agent, marketplace_scope
+from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
 from app.abuu.services.reply_service import (
     ask_name_message,
     category_clarification_message,
@@ -49,6 +51,7 @@ from app.abuu.services.reply_service import (
     item_added_message,
     order_status_message,
 )
+from app.core.config import get_settings
 
 
 @dataclass
@@ -110,6 +113,42 @@ class AbuuSkillRouter:
         return None, None
 
     @staticmethod
+    def _pilot_restaurant_ids(ctx: TurnContext) -> tuple[str, ...] | None:
+        if not get_settings().abuu_pilot_only:
+            return None
+        return get_market_agent(ctx.abuu_db).pilot_restaurant_ids
+
+    @staticmethod
+    def _market_restaurant_list(ctx: TurnContext) -> str | None:
+        market = get_market_agent(ctx.abuu_db)
+        lang = ctx.lang if ctx.lang in {"ar", "en"} else "ar"
+        return YallasayWaSnapshotService.get_body(
+            ctx.abuu_db,
+            scope=marketplace_scope(market.id),
+            kind="restaurant_list",
+            lang=lang,
+        )
+
+    @staticmethod
+    def _append_restaurant_list(ctx: TurnContext, reply: str) -> str:
+        listing = AbuuSkillRouter._market_restaurant_list(ctx)
+        if listing:
+            return f"{reply}\n\n{listing}"
+        lat, lng = AbuuSkillRouter._lat_lng(ctx)
+        ranked = rank_restaurants(
+            ctx.abuu_db,
+            lat=lat,
+            lng=lng,
+            categories=None,
+            limit=15,
+            restaurant_ids=AbuuSkillRouter._pilot_restaurant_ids(ctx),
+        )
+        if not ranked:
+            return reply
+        listing = format_restaurant_list(ranked, lang=ctx.lang, page=0, page_size=max(15, len(ranked)))
+        return f"{reply}\n\n{listing}"
+
+    @staticmethod
     def _greet_customer(ctx: TurnContext) -> SkillResult:
         lat, lng = AbuuSkillRouter._lat_lng(ctx)
         settings = resolve_settings(ctx.abuu_db)
@@ -155,6 +194,7 @@ class AbuuSkillRouter:
             lang=ctx.lang,
             saved_address=saved_address_summary(ctx.abuu_db, ctx.customer),
         )
+        reply = AbuuSkillRouter._append_restaurant_list(ctx, reply)
         return SkillResult(
             skill=SKILL_GREET_CUSTOMER,
             ok=True,
@@ -186,6 +226,7 @@ class AbuuSkillRouter:
             lang=ctx.lang,
             saved_address=saved_address_summary(ctx.abuu_db, ctx.customer),
         )
+        reply = AbuuSkillRouter._append_restaurant_list(ctx, reply)
         return SkillResult(
             skill=SKILL_CAPTURE_NAME,
             ok=True,
@@ -207,7 +248,8 @@ class AbuuSkillRouter:
             lat=lat,
             lng=lng,
             categories=categories or None,
-            limit=10,
+            limit=15,
+            restaurant_ids=AbuuSkillRouter._pilot_restaurant_ids(ctx),
         )
         context = dict(ctx.context)
         context["restaurant_page"] = page
@@ -253,7 +295,7 @@ class AbuuSkillRouter:
                 extra={"order_id": order.id},
             )
 
-        reply = format_restaurant_list(ranked, lang=ctx.lang, page=page, page_size=3)
+        reply = format_restaurant_list(ranked, lang=ctx.lang, page=page, page_size=max(15, len(ranked) or 15))
         AbuuOrderDraftService.upsert_session(
             ctx.abuu_db,
             phone=ctx.phone,
@@ -305,8 +347,64 @@ class AbuuSkillRouter:
         if not categories:
             categories = ctx.classification.categories
 
+        bound_restaurant_id = str(
+            ctx.context.get("restaurant_id") or (ctx.order.restaurant_id if ctx.order else "") or ""
+        ).strip()
         lat, lng = AbuuSkillRouter._lat_lng(ctx)
-        ranked = rank_restaurants(ctx.abuu_db, lat=lat, lng=lng, categories=categories, limit=5)
+        if not bound_restaurant_id:
+            ranked = rank_restaurants(
+                ctx.abuu_db,
+                lat=lat,
+                lng=lng,
+                categories=categories or None,
+                limit=15,
+                restaurant_ids=AbuuSkillRouter._pilot_restaurant_ids(ctx),
+            )
+            if not ranked:
+                if ctx.lang == "en":
+                    reply = "No restaurants are available for that preference right now."
+                else:
+                    reply = "لا توجد مطاعم متاحة لهذا الاختيار حالياً."
+                return SkillResult(skill=SKILL_MENU_RECOMMEND, ok=False, action="no_match", next_step=None, reply=reply)
+            context = dict(ctx.context)
+            context["active_categories"] = categories
+            context["pending_categories"] = categories
+            context["ranked_restaurants"] = [
+                {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
+                for r in ranked
+            ]
+            if ctx.lang == "en":
+                prefix = "Pick a restaurant first — here are your options:"
+            else:
+                prefix = "اختار المطعم أولاً — هذي الخيارات:"
+            reply = prefix + "\n\n" + format_restaurant_list(
+                ranked, lang=ctx.lang, page=0, page_size=max(15, len(ranked))
+            )
+            AbuuOrderDraftService.upsert_session(
+                ctx.abuu_db,
+                phone=ctx.phone,
+                step="choosing_restaurant",
+                context=context,
+                active_order_id=ctx.session.active_order_id if ctx.session else None,
+                message_id=ctx.message_id,
+            )
+            return SkillResult(
+                skill=SKILL_MENU_RECOMMEND,
+                ok=True,
+                action="restaurant_list",
+                next_step="choosing_restaurant",
+                reply=reply,
+                context_patch=context,
+            )
+
+        ranked = rank_restaurants(
+            ctx.abuu_db,
+            lat=lat,
+            lng=lng,
+            categories=categories,
+            limit=15,
+            restaurant_ids=AbuuSkillRouter._pilot_restaurant_ids(ctx),
+        )
         if not ranked:
             if ctx.lang == "en":
                 reply = "No nearby restaurants have items for that preference right now."
@@ -315,6 +413,10 @@ class AbuuSkillRouter:
             return SkillResult(skill=SKILL_MENU_RECOMMEND, ok=False, action="no_match", next_step=None, reply=reply)
 
         restaurant = ranked[0].restaurant
+        if bound_restaurant_id:
+            picked = ctx.abuu_db.get(Restaurant, bound_restaurant_id)
+            if picked is not None:
+                restaurant = picked
         order = AbuuOrderDraftService.ensure_order(
             ctx.abuu_db,
             customer=ctx.customer,

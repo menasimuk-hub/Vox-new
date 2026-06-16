@@ -217,4 +217,175 @@ YALLASAY_OFFER_TEMPLATES: list[OfferSpec] = [
             {"item_key": "pepsi", "quantity": 1},
         ],
     },
+    {
+        "key": "mixed-grill-platter",
+        "title_en": "Mixed Grill Platter",
+        "title_ar": "عرض مشاوي مشكلة",
+        "description_en": "Mixed grill + Arabic salad + 2 soft drinks",
+        "description_ar": "مشاوي مشكلة + سلطة عربية + 2 مشروبات",
+        "discount_pct": 15,
+        "tags": ["meat", "food", "drinks"],
+        "items": [
+            {"item_key": "mixed-grill", "quantity": 1},
+            {"item_key": "arabic-salad", "quantity": 1},
+            {"item_key": "coca-cola", "quantity": 2},
+        ],
+    },
+    {
+        "key": "seafood-combo",
+        "title_en": "Seafood Combo",
+        "title_ar": "عرض السمك",
+        "description_en": "Grilled fish + fries + Fanta",
+        "description_ar": "سمك مشوي + بطاطا + فanta",
+        "discount_pct": 14,
+        "tags": ["fish", "food", "drinks"],
+        "items": [
+            {"item_key": "grilled-fish", "quantity": 1},
+            {"item_key": "fries-regular", "quantity": 1},
+            {"item_key": "fanta-orange", "quantity": 1},
+        ],
+    },
+    {
+        "key": "vegan-bowl-deal",
+        "title_en": "Vegan Bowl Deal",
+        "title_ar": "عرض الوعاء النباتي",
+        "description_en": "Veggie bowl + fresh juice",
+        "description_ar": "وعاء نباتي + عصير طازج",
+        "discount_pct": 12,
+        "tags": ["vegan", "food", "drinks"],
+        "items": [
+            {"item_key": "veggie-bowl", "quantity": 1},
+            {"item_key": "orange-juice", "quantity": 1},
+        ],
+    },
 ]
+
+YALLASAY_DRINK_CATEGORIES: list[CategorySpec] = [
+    cat for cat in YALLASAY_FULL_MENU if cat["key"] in {"soft-drinks", "juices"}
+]
+
+YALLASAY_SHARED_CATEGORIES: list[CategorySpec] = [
+    cat for cat in YALLASAY_FULL_MENU if cat["key"] in {"salads", "desserts", "addons"}
+]
+
+YALLASAY_PROFILE_MAINS: dict[str, list[CategorySpec]] = {
+    "chicken": [
+        YALLASAY_FULL_MENU[1],  # chicken
+        {
+            "key": "chicken-extras",
+            "name_en": "Chicken Favorites",
+            "name_ar": "مفضلات الدجاج",
+            "items": [
+                _item("crispy-chicken-burger", "Crispy chicken burger", "برجر دجاج مقرمش", "food", 4500),
+                _item("nuggets-6", "Chicken nuggets (6)", "ناجتس دجاج (6)", "food", 3000),
+            ],
+        },
+        YALLASAY_FULL_MENU[2],  # fast-snacks subset useful for chicken
+    ],
+    "meat": [
+        {
+            "key": "meat-grills",
+            "name_en": "Grills & Kebab",
+            "name_ar": "مشاوي وكباب",
+            "items": [
+                _item("mixed-grill", "Mixed grill platter", "طبق مشاوي مشكلة", "food", 7200),
+                _item("kafta-plate", "Kafta plate", "طبق كفتة", "food", 5800),
+                _item("kebab-skewers", "Kebab skewers (3)", "أسياخ كباب (3)", "food", 6200),
+                _item("lamb-chops", "Lamb chops", "ريش غنم", "food", 7800),
+                _item("shish-tawook", "Shish tawook plate", "طبق شيش طاووق", "food", 5600),
+            ],
+        },
+        {
+            "key": "meat-burgers",
+            "name_en": "Burgers",
+            "name_ar": "برجر",
+            "items": [
+                _item("classic-burger", "Classic beef burger", "برجر لحم كلاسيك", "food", 4200),
+                _item("double-burger", "Double smash burger", "برجر دبل", "food", 5800),
+                _item("cheese-burger", "Cheese burger", "برجر بالجبنة", "food", 4600),
+            ],
+        },
+        YALLASAY_FULL_MENU[2],
+    ],
+    "fish": [
+        {
+            "key": "seafood-mains",
+            "name_en": "Seafood Mains",
+            "name_ar": "أطباق بحرية",
+            "items": [
+                _item("grilled-fish", "Grilled sea bream", "سمك دنيس مشوي", "food", 6800),
+                _item("fish-fillet", "Fish fillet plate", "طبق فيليه سمك", "food", 6200),
+                _item("shrimp-skewers", "Shrimp skewers", "أسياخ روبيان", "food", 7200),
+                _item("fish-rice", "Seafood rice", "أرز بحري", "food", 5800),
+                _item("fish-burger", "Fish burger", "برجر سمك", "food", 4400),
+            ],
+        },
+        YALLASAY_FULL_MENU[2],
+    ],
+    "fastfood": [
+        YALLASAY_FULL_MENU[0],
+        YALLASAY_FULL_MENU[2],
+    ],
+    "vegan": [
+        {
+            "key": "plant-mains",
+            "name_en": "Plant-Based Mains",
+            "name_ar": "أطباق نباتية",
+            "items": [
+                _item("veggie-bowl", "Grilled vegetable bowl", "وعاء خضار مشوي", "food", 4500),
+                _item("falafel-wrap", "Falafel wrap", "ساندwich فلافل", "food", 3800),
+                _item("lentil-stew", "Lentil stew", "يخنة عدس", "food", 4200),
+                _item("veggie-burger", "Veggie burger", "برجر نباتي", "food", 4000),
+                _item("stuffed-vine", "Stuffed vine leaves", "ورق عنب", "food", 4000),
+            ],
+        },
+        YALLASAY_FULL_MENU[5],  # salads
+    ],
+}
+
+YALLASAY_PILOT_RESTAURANTS: dict[str, str] = {
+    "abuu-rest-chicken": "chicken",
+    "abuu-rest-meat": "meat",
+    "abuu-rest-fish": "fish",
+    "abuu-rest-fastfood": "fastfood",
+    "abuu-rest-vegetarian": "vegan",
+}
+
+YALLASAY_PILOT_RESTAURANT_IDS: tuple[str, ...] = tuple(YALLASAY_PILOT_RESTAURANTS.keys())
+
+YALLASAY_OFFERS_BY_PROFILE: dict[str, list[str]] = {
+    "chicken": ["shawarma-duo", "wings-feast", "lunch-combo", "drinks-six-pack"],
+    "meat": ["mixed-grill-platter", "family-burger", "drinks-six-pack"],
+    "fish": ["seafood-combo", "drinks-six-pack"],
+    "fastfood": ["family-burger", "lunch-combo", "drinks-six-pack"],
+    "vegan": ["vegan-bowl-deal", "drinks-six-pack"],
+}
+
+_OFFER_BY_KEY = {spec["key"]: spec for spec in YALLASAY_OFFER_TEMPLATES}
+
+
+def menu_for_profile(profile: str) -> list[CategorySpec]:
+    mains = YALLASAY_PROFILE_MAINS.get(profile) or YALLASAY_PROFILE_MAINS["fastfood"]
+    shared = list(YALLASAY_SHARED_CATEGORIES)
+    if profile == "vegan":
+        shared = [cat for cat in shared if cat["key"] != "addons"] + [
+            {
+                "key": "addons",
+                "name_en": "Add-ons",
+                "name_ar": "إضافات",
+                "items": [
+                    _item("extra-sauce", "Extra sauce", "صلصة إضافية", "addon", 400),
+                    _item("pita-bread", "Pita bread", "خبز pita", "addon", 400),
+                ],
+            }
+        ]
+    return list(mains) + list(YALLASAY_DRINK_CATEGORIES) + shared
+
+
+def offers_for_profile(profile: str) -> list[OfferSpec]:
+    keys = YALLASAY_OFFERS_BY_PROFILE.get(profile) or YALLASAY_OFFERS_BY_PROFILE["fastfood"]
+    return [_OFFER_BY_KEY[key] for key in keys if key in _OFFER_BY_KEY]
+
+
+def profile_for_restaurant(restaurant_id: str) -> str:
+    return YALLASAY_PILOT_RESTAURANTS.get(restaurant_id, "fastfood")

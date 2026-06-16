@@ -71,7 +71,7 @@ export default function AbuuRestaurants() {
       <div className='cardBody'>
         <p className='muted'>
           Seeded restaurants have no portal login until you set one here. Use that email + password at{' '}
-          <strong>abuu.voxbulk.com</strong>.
+          <strong>restaurant.yallasay.com</strong>.
         </p>
         {error ? <p className='formError'>{error}</p> : null}
         {loading ? (
@@ -119,7 +119,7 @@ export default function AbuuRestaurants() {
           <form className='formGrid card nested' style={{ marginTop: 20 }} onSubmit={savePortalLogin}>
             <h3 className='h3'>Restaurant portal login</h3>
             <label>
-              Login email (for abuu.voxbulk.com)
+              Login email (for restaurant.yallasay.com)
               <input
                 type='email'
                 value={editing.login_email}

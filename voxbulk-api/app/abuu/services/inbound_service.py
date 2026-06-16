@@ -209,7 +209,8 @@ class AbuuInboundService:
 
             if message_type == "voice" and text:
                 if AbuuInboundService._should_use_voice_agent(main_db):
-                    AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
+                    if not get_settings().abuu_agent_waiter_mode:
+                        AbuuInboundService._send_agent_ack(main_db, phone, lang, org_id=org_id)
                     result = AbuuAgentLoop.run(
                         abuu_db,
                         main_db,

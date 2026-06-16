@@ -82,10 +82,8 @@ def _tool_then_text(tool_name: str, tool_input: dict, final_text: str):
 @patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
 def test_agent_english_browse_and_reply(mock_complete, abuu_seeded, deepseek_configured):
     _db, restaurant_id, _restaurant = abuu_seeded
-    mock_complete.side_effect = _tool_then_text(
-        "list_restaurants",
-        {},
-        "Here are some restaurants — which one would you like?",
+    mock_complete.return_value = _text_completion(
+        "Here are some restaurants — which one would you like?"
     )
 
     from app.core.abuu_database import get_abuu_sessionmaker
@@ -134,6 +132,9 @@ def test_inbound_start_uses_legacy_flow_when_agent_enabled(mock_send, mock_compl
         org_id = org.id
 
     phone = "+972509990003"
+    import uuid
+
+    msg_id = f"agent-msg-{uuid.uuid4().hex[:12]}"
     with patch.dict(os.environ, {"ABUU_AGENT_ENABLED": "true"}):
         from app.core.config import get_settings
 
@@ -143,7 +144,7 @@ def test_inbound_start_uses_legacy_flow_when_agent_enabled(mock_send, mock_compl
                 db,
                 from_phone=phone,
                 body="abuu",
-                message_id="agent-msg-1",
+                message_id=msg_id,
                 org_id=org_id,
             )
     assert result.get("handled") is True
@@ -155,6 +156,8 @@ def test_inbound_start_uses_legacy_flow_when_agent_enabled(mock_send, mock_compl
 @patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
 def test_inbound_agent_mode_for_open_chat(mock_send, mock_complete, abuu_seeded, app_client, deepseek_configured):
+    import uuid
+
     _db, restaurant_id, _restaurant = abuu_seeded
     mock_complete.return_value = _text_completion("Try our grilled chicken today.")
 
@@ -191,7 +194,7 @@ def test_inbound_agent_mode_for_open_chat(mock_send, mock_complete, abuu_seeded,
                 db,
                 from_phone=phone,
                 body="what do you recommend?",
-                message_id="agent-msg-2",
+                message_id=f"agent-msg-{uuid.uuid4().hex[:12]}",
                 org_id=org_id,
             )
     assert result.get("handled") is True

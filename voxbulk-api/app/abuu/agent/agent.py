@@ -1,4 +1,4 @@
-"""DeepSeek tool-use agent loop for Abuu WhatsApp ordering."""
+"""DeepSeek Gaza Agent loop for Abuu WhatsApp ordering."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.abuu.agent.gaza_context import prefetch_gaza_agent_context
 from app.abuu.agent.prefetch import prefetch_offers, prefetch_restaurant_list
 from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
@@ -72,7 +73,6 @@ class AbuuAgentLoop:
         org_id: str | None = None,
         input_source: str = "text",
     ) -> dict[str, Any]:
-        settings = get_settings()
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session = load_session(abuu_db, phone)
         user_turn = _format_user_turn(text, input_source=input_source, lang=session.language or "ar")
@@ -123,17 +123,22 @@ class AbuuAgentLoop:
         user_text: str = "",
     ) -> str:
         settings = get_settings()
-        if not session.restaurant_id:
+        prefetch_gaza_agent_context(abuu_db, session, customer=customer)
+        if not session.restaurant_id and not session.context.get("prefetched_restaurant_list"):
             prefetch_restaurant_list(abuu_db, session, customer_id=customer.id)
         if is_offer_query(user_text):
             prefetch_offers(abuu_db, session, query=user_text)
 
         system_prompt = build_system_prompt(abuu_db, session, customer=customer)
-        openai_tools = enabled_openai_tools(abuu_db)
         history = _truncate_messages(session.messages, settings.abuu_agent_max_history)
         chat_messages: list[dict[str, Any]] = _chat_messages_from_history(history)
 
-        for _turn in range(max(1, settings.abuu_agent_max_turns)):
+        if settings.abuu_agent_waiter_mode:
+            return AbuuAgentLoop._waiter_completion(main_db, system_prompt, chat_messages, settings)
+
+        openai_tools = enabled_openai_tools(abuu_db)
+        max_turns = max(1, settings.abuu_agent_max_turns)
+        for _turn in range(max_turns):
             completion = OpenAIProviderService.complete_chat_raw(
                 main_db,
                 system_prompt=system_prompt,
@@ -186,3 +191,25 @@ class AbuuAgentLoop:
         if session.language == "ar":
             return "كيف أقدر أساعدك في طلبك؟"
         return "How can I help with your order?"
+
+    @staticmethod
+    def _waiter_completion(
+        main_db: Session,
+        system_prompt: str,
+        chat_messages: list[dict[str, Any]],
+        settings: Any,
+    ) -> str:
+        completion = OpenAIProviderService.complete_chat_raw(
+            main_db,
+            system_prompt=system_prompt,
+            messages=chat_messages,
+            tools=None,
+            model=settings.abuu_agent_model,
+            max_tokens=512,
+            provider="deepseek",
+        )
+        if completion.usage:
+            logger.info("gaza_agent_llm_usage usage=%s", completion.usage)
+        if completion.assistant_text:
+            return completion.assistant_text.strip()
+        return "كيف أقدر أساعدك في طلبك؟"

@@ -24,6 +24,8 @@ class Restaurant(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     login_email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    city_slug: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
 
 class RestaurantMenuCategory(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
@@ -338,4 +340,32 @@ class RestaurantPromoOffer(AbuuBase, AbuuTimestampMixin, AbuuSoftDeleteMixin):
     original_price_agorot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class AbuuWaSnapshot(AbuuBase):
+    __tablename__ = "abuu_wa_snapshots"
+    __table_args__ = (UniqueConstraint("scope", "kind", "lang", name="uq_abuu_wa_snapshots_scope_kind_lang"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    scope: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    lang: Mapped[str] = mapped_column(String(8), nullable=False)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AbuuMarketAgent(AbuuBase, AbuuTimestampMixin):
+    __tablename__ = "abuu_market_agents"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    country_code: Mapped[str] = mapped_column(String(8), nullable=False)
+    city_slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name_ar: Mapped[str] = mapped_column(String(255), nullable=False)
+    dialect_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_provider: Mapped[str] = mapped_column(String(32), nullable=False, default="deepseek")
+    llm_model: Mapped[str] = mapped_column(String(128), nullable=False, default="deepseek-chat")
+    pilot_restaurant_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

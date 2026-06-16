@@ -1,4 +1,4 @@
-"""Dynamic system prompts for Yallasay conversational agent."""
+"""Dynamic system prompts for Gaza Agent (DeepSeek chat waiter)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.agent.skills import enabled_tool_schemas
+from app.abuu.market.registry import get_market_agent
 from app.abuu.models.entities import CustomerProfile, Restaurant
 from app.abuu.services.customer_memory_service import first_name, saved_address_summary
 from app.abuu.services.kb_service import format_greeting, resolve_settings
 from app.abuu.services.reply_service import format_shekel
+from app.core.config import get_settings
 
 
 def _cart_summary(session: AgentSession, lang: str) -> str:
@@ -23,7 +25,9 @@ def _cart_summary(session: AgentSession, lang: str) -> str:
         lines.append(f"- {row['name']} x{row['quantity']}")
     total = format_shekel(total_agorot)
     header = "Cart:" if lang == "en" else "السلة:"
-    return f"{header}\n" + "\n".join(lines) + f"\nTotal: {total}" if lang == "en" else f"{header}\n" + "\n".join(lines) + f"\nالمجموع: {total}"
+    if lang == "en":
+        return f"{header}\n" + "\n".join(lines) + f"\nTotal: {total}"
+    return f"{header}\n" + "\n".join(lines) + f"\nالمجموع: {total}"
 
 
 def build_system_prompt(
@@ -33,6 +37,9 @@ def build_system_prompt(
     customer: CustomerProfile,
 ) -> str:
     lang = session.language or "ar"
+    market = get_market_agent(db)
+    agent_label = market.display_name_ar if lang == "ar" else market.display_name_en
+
     restaurant_name = "multiple restaurants"
     if session.restaurant_id:
         restaurant = db.get(Restaurant, session.restaurant_id)
@@ -42,7 +49,6 @@ def build_system_prompt(
 
     settings = resolve_settings(db, restaurant_id=session.restaurant_id)
     cart_summary = _cart_summary(session, lang)
-    tool_names = ", ".join(schema["name"] for schema in enabled_tool_schemas(db))
     saved_addr = saved_address_summary(db, customer)
     name = first_name(customer.name)
     greeting = format_greeting(
@@ -50,14 +56,6 @@ def build_system_prompt(
         first_name=name,
         lang=lang,
         saved_address=saved_addr,
-    )
-
-    dialect_note = (
-        "Default language is Levantine Arabic (Palestinian/Gaza style) — warm, natural, and local. "
-        "Do not use Gulf dialect or formal Modern Standard Arabic unless the customer writes that way. "
-        "Only switch to English if the customer clearly writes in English."
-        if lang == "ar"
-        else "Reply in clear, friendly English."
     )
 
     kb_bits: list[str] = []
@@ -69,45 +67,58 @@ def build_system_prompt(
         kb_bits.append(f"Minimum order: {format_shekel(settings.min_order_agorot)}")
 
     lines = [
-        f"You are Yallasay, a friendly AI food ordering assistant for {restaurant_name}.",
-        "You help customers order food via WhatsApp. Default to Levantine Arabic unless the customer writes in English.",
-        dialect_note,
-        "Keep replies under 3 short lines for WhatsApp.",
-        "Voice notes arrive as auto-transcripts and may contain errors or noise. Infer the customer's food order intent. "
-        "If the transcript is unclear (laughter, gibberish, or too short), politely ask them to repeat or type their order in Arabic.",
+        f"You are {agent_label} — a friendly Gaza restaurant waiter on WhatsApp.",
+        market.dialect_prompt,
+        "Scope: food ordering ONLY (restaurants, menu, offers, cart, delivery, confirm). "
+        "If off-topic, gently redirect to ordering.",
+        "Sound like a real waiter — NOT an IVR phone tree. Do not say 'press 1' or 'choose a number' unless asked.",
+        "When no restaurant is selected, mention ALL available restaurants BY NAME in natural speech.",
+        "Never auto-pick a restaurant the customer did not choose.",
+        "Keep replies under 3 short WhatsApp lines.",
+        "Use ONLY menu/prices from the facts below — never invent items.",
         f"Customer name: {name or 'unknown'}",
         f"Greeting context: {greeting}",
     ]
     if saved_addr:
         lines.append(f"Saved delivery address: {saved_addr}")
+
     prefetched_list = session.context.get("prefetched_restaurant_list")
     if isinstance(prefetched_list, str) and prefetched_list.strip() and not session.restaurant_id:
-        lines.append(f"Available restaurants (already loaded — do not call list_restaurants again this turn):\n{prefetched_list}")
+        lines.append(f"Restaurants (facts — weave into natural speech):\n{prefetched_list}")
+
+    prefetched_menu = session.context.get("prefetched_menu")
+    if isinstance(prefetched_menu, str) and prefetched_menu.strip() and session.restaurant_id:
+        lines.append(f"Menu (facts):\n{prefetched_menu}")
+
     prefetched_offers = session.context.get("prefetched_offers")
     if isinstance(prefetched_offers, str) and prefetched_offers.strip():
-        lines.append(f"Active offers (already loaded — prefer this over list_offers this turn):\n{prefetched_offers}")
+        lines.append(f"Offers (facts):\n{prefetched_offers}")
+
     lines.extend(
         [
             f"Current cart: {cart_summary}",
             f"Current stage: {session.stage}",
             "Business facts: " + "; ".join(kb_bits) if kb_bits else "",
-            "",
-            "You have access to these tools:",
-            tool_names,
-            "",
-            "Rules:",
-            "- Never assume a restaurant. If none is selected, show the full restaurant list unless the customer explicitly picked one.",
-            "- Use change_restaurant when the customer wants a different restaurant or says اعرض المطاعم / مطعم ثاني.",
-            "- Use list_offers when the customer asks about عروض, deals, promos, or discounts — mention chicken and fish offers when relevant.",
-            "- Always search the menu before listing items — never invent items or prices",
-            "- Be warm, concise, and helpful like a good waiter",
-            "- Naturally suggest combos and sides after main items",
-            "- When cart has items, offer to confirm or continue adding",
-            "- Before confirming, ensure delivery location is saved; ask for WhatsApp location pin if missing",
-            "- After confirming, give the order ID, estimated wait time, and note payment is pending manual confirmation",
-            "- Never expose errors or technical details to the customer",
-            "- Use save_customer_name if the customer introduces themselves and name is unknown",
-            "- Use list_restaurants / select_restaurant when no restaurant is chosen yet",
         ]
     )
+
+    if not get_settings().abuu_agent_waiter_mode:
+        tool_names = ", ".join(schema["name"] for schema in enabled_tool_schemas(db))
+        lines.extend(
+            [
+                "",
+                "You have access to these tools:",
+                tool_names,
+                "",
+                "Rules:",
+                "- Use tools for cart changes and confirmations.",
+                "- Never assume a restaurant without customer choice.",
+            ]
+        )
+    else:
+        lines.append(
+            "Waiter mode: reply in natural language only this turn. "
+            "Cart changes happen server-side when customer picks items by name or number from the menu facts."
+        )
+
     return "\n".join(line for line in lines if line)

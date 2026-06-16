@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.abuu.services.intent_service import detect_intent, is_restaurant_list_message, is_show_more_message
+from app.abuu.services.intent_service import detect_intent, is_abuu_start_message, is_restaurant_list_message, is_show_more_message
 from app.abuu.services.kb_service import detect_kb_topic
 from app.abuu.services.preference_service import match_food_categories
 from app.abuu.services.skill_definitions import (
@@ -72,12 +72,23 @@ def classify_regex(
     has_session: bool,
 ) -> SkillClassification:
     normalized = str(text or "").strip()
+    if is_abuu_start_message(normalized):
+        return SkillClassification(skill=SKILL_GREET_CUSTOMER, categories=[], confidence=0.95, source="regex")
+
     intent = detect_intent(normalized, has_active_session=has_session, step=step)
 
     if intent.name == "order_food":
         return SkillClassification(skill=SKILL_GREET_CUSTOMER, categories=[], confidence=0.9, source="regex")
     if step == "awaiting_name" and intent.name == "provide_name":
         return SkillClassification(skill=SKILL_CAPTURE_NAME, categories=[], confidence=0.95, source="regex")
+    if step == "choosing_restaurant" and re.fullmatch(r"\d{1,2}", normalized):
+        return SkillClassification(
+            skill=SKILL_RESTAURANT_SEARCH,
+            categories=[],
+            restaurant_ref=normalized,
+            confidence=0.95,
+            source="regex",
+        )
     if intent.name == "cancel":
         return SkillClassification(skill=SKILL_CANCEL_OR_REFUND, categories=[], confidence=0.95, source="regex")
     if intent.name == "confirm":

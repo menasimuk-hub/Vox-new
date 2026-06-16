@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
-from app.abuu.services.yallasay_menu_catalog import YALLASAY_FULL_MENU, YALLASAY_OFFER_TEMPLATES
+from app.abuu.services.yallasay_menu_catalog import (
+    YALLASAY_PILOT_RESTAURANT_IDS,
+    menu_for_profile,
+    offers_for_profile,
+    profile_for_restaurant,
+)
 
 # UUID namespace for deterministic 36-char ids (abuu id columns are String(36)).
 _YALLASAY_NS = uuid.UUID("a3b8c2e1-7f4d-4e9a-b2c1-8d6e5f4a3b2c")
@@ -54,7 +59,11 @@ class YallasayMenuSeedService:
         items_upserted = 0
         item_price_map: dict[str, int] = {}
 
-        for cat_idx, cat_spec in enumerate(YALLASAY_FULL_MENU, start=1):
+        profile = profile_for_restaurant(restaurant_id)
+        menu_catalog = menu_for_profile(profile)
+        offer_templates = offers_for_profile(profile)
+
+        for cat_idx, cat_spec in enumerate(menu_catalog, start=1):
             cat_id = _cat_id(restaurant_id, cat_spec["key"])
             category = db.get(RestaurantMenuCategory, cat_id)
             if category is None:
@@ -122,6 +131,7 @@ class YallasayMenuSeedService:
                 db,
                 restaurant_id=restaurant_id,
                 item_price_map=item_price_map,
+                offer_templates=offer_templates,
                 now=now,
             )
 
@@ -139,10 +149,11 @@ class YallasayMenuSeedService:
         *,
         restaurant_id: str,
         item_price_map: dict[str, int],
+        offer_templates: list[dict[str, Any]],
         now: datetime,
     ) -> int:
         upserted = 0
-        for spec in YALLASAY_OFFER_TEMPLATES:
+        for spec in offer_templates:
             offer_items: list[dict[str, Any]] = []
             original_total = 0
             for row in spec["items"]:
@@ -223,3 +234,11 @@ class YallasayMenuSeedService:
                     }
                 )
         return results
+
+    @staticmethod
+    def seed_pilot_five(db: Session, *, with_offers: bool = True) -> list[dict[str, int]]:
+        return YallasayMenuSeedService.seed_all_active(
+            db,
+            with_offers=with_offers,
+            restaurant_ids=list(YALLASAY_PILOT_RESTAURANT_IDS),
+        )

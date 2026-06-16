@@ -25,6 +25,8 @@ def test_preference_category_matching():
 
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
 def test_abuu_whatsapp_order_flow(mock_send, app_client):
+    import uuid
+
     from app.core.database import get_sessionmaker
     from app.models.organisation import Organisation
 
@@ -34,13 +36,14 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
         db.commit()
         org_id = org.id
 
-    phone = "+972501234567"
+    phone = f"+97250{uuid.uuid4().int % 10_000_000:07d}"
+    start_msg = f"msg-abuu-{uuid.uuid4().hex[:12]}"
     with get_sessionmaker()() as db:
         result = AbuuInboundService.try_handle(
             db,
             from_phone=phone,
             body="abuu",
-            message_id="msg-abuu-1",
+            message_id=start_msg,
             org_id=org_id,
         )
     assert result.get("handled") is True
@@ -52,7 +55,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             db,
             from_phone=phone,
             body="Ahmad",
-            message_id="msg-abuu-1b",
+            message_id=f"{start_msg}-name",
             org_id=org_id,
         )
     assert name_result.get("action") == "name_saved"
@@ -62,17 +65,37 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             db,
             from_phone=phone,
             body="chicken",
-            message_id="msg-abuu-1c",
+            message_id=f"{start_msg}-pref",
             org_id=org_id,
         )
-    assert pref_result.get("action") == "preference_menu"
+    assert pref_result.get("action") == "restaurant_list"
+
+    with get_sessionmaker()() as db:
+        pick_result = AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="1",
+            message_id=f"{start_msg}-pick",
+            org_id=org_id,
+        )
+    assert pick_result.get("action") == "restaurant_selected"
+
+    with get_sessionmaker()() as db:
+        menu_result = AbuuInboundService.try_handle(
+            db,
+            from_phone=phone,
+            body="chicken",
+            message_id=f"{start_msg}-menu",
+            org_id=org_id,
+        )
+    assert menu_result.get("action") == "preference_menu"
 
     with get_sessionmaker()() as db:
         add_result = AbuuInboundService.try_handle(
             db,
             from_phone=phone,
             body="1",
-            message_id="msg-abuu-2",
+            message_id=f"{start_msg}-add",
             org_id=org_id,
         )
     assert add_result.get("handled") is True
@@ -83,7 +106,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             db,
             from_phone=phone,
             body="تأكيد",
-            message_id="msg-abuu-3",
+            message_id=f"{start_msg}-confirm",
             org_id=org_id,
         )
     assert confirm_result.get("handled") is True
@@ -101,7 +124,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             db,
             from_phone=phone,
             body="",
-            message_id="msg-abuu-4",
+            message_id=f"{start_msg}-loc",
             record=location_record,
             org_id=org_id,
         )
@@ -122,7 +145,7 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
             ).scalars().first()
             assert order.status == "sent_to_restaurant"
             addr = abuu_db.get(CustomerAddress, order.delivery_address_id)
-            assert addr.source_message_id == "msg-abuu-4"
+            assert addr.source_message_id == f"{start_msg}-loc"
 
     assert mock_send.call_count >= 6
 
@@ -130,6 +153,8 @@ def test_abuu_whatsapp_order_flow(mock_send, app_client):
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
 @patch("app.abuu.services.inbound_service.AbuuVoiceService.transcribe_inbound")
 def test_abuu_voice_note_transcription_flow(mock_transcribe, mock_send, app_client):
+    import uuid
+
     from app.abuu.services.abuu_voice_service import AbuuVoiceTranscription
     from app.core.database import get_sessionmaker
     from app.models.organisation import Organisation
@@ -149,20 +174,21 @@ def test_abuu_voice_note_transcription_flow(mock_transcribe, mock_send, app_clie
         db.commit()
         org_id = org.id
 
-    phone = "+972501234568"
+    phone = f"+97250{uuid.uuid4().int % 10_000_000:07d}"
+    start_msg = f"msg-voice-{uuid.uuid4().hex[:12]}"
     with get_sessionmaker()() as db:
         AbuuInboundService.try_handle(
             db,
             from_phone=phone,
             body="abuu",
-            message_id="msg-voice-1",
+            message_id=start_msg,
             org_id=org_id,
         )
         AbuuInboundService.try_handle(
             db,
             from_phone=phone,
             body="Sara",
-            message_id="msg-voice-1b",
+            message_id=f"{start_msg}-name",
             org_id=org_id,
         )
 
@@ -176,18 +202,20 @@ def test_abuu_voice_note_transcription_flow(mock_transcribe, mock_send, app_clie
             db,
             from_phone=phone,
             body="media-id-12345",
-            message_id="msg-voice-2",
+            message_id=f"msg-voice-{uuid.uuid4().hex[:12]}",
             record=voice_record,
             org_id=org_id,
         )
     assert result.get("handled") is True
-    assert result.get("action") == "preference_menu"
+    assert result.get("action") == "restaurant_list"
     mock_transcribe.assert_called_once()
 
 
 @patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
 @patch("app.abuu.services.inbound_service.AbuuVoiceService.transcribe_inbound")
 def test_abuu_voice_note_low_confidence(mock_transcribe, mock_send, app_client):
+    import uuid
+
     from app.abuu.services.abuu_voice_service import AbuuVoiceTranscription
     from app.core.database import get_sessionmaker
     from app.models.organisation import Organisation
@@ -207,9 +235,12 @@ def test_abuu_voice_note_low_confidence(mock_transcribe, mock_send, app_client):
         org_id = org.id
 
     phone = "+972501234569"
+    start_msg = f"msg-vl-{uuid.uuid4().hex[:12]}"
     with get_sessionmaker()() as db:
-        AbuuInboundService.try_handle(db, from_phone=phone, body="abuu", message_id="msg-vl-1", org_id=org_id)
-        AbuuInboundService.try_handle(db, from_phone=phone, body="Ali", message_id="msg-vl-1b", org_id=org_id)
+        AbuuInboundService.try_handle(db, from_phone=phone, body="abuu", message_id=start_msg, org_id=org_id)
+        AbuuInboundService.try_handle(
+            db, from_phone=phone, body="Ali", message_id=f"{start_msg}-name", org_id=org_id
+        )
 
     voice_record = {
         "type": "audio",
@@ -220,7 +251,7 @@ def test_abuu_voice_note_low_confidence(mock_transcribe, mock_send, app_client):
             db,
             from_phone=phone,
             body="",
-            message_id="msg-vl-2",
+            message_id=f"msg-vl-{uuid.uuid4().hex[:12]}",
             record=voice_record,
             org_id=org_id,
         )

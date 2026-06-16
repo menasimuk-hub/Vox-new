@@ -36,8 +36,10 @@ def rank_restaurants(
     lng: float | None,
     categories: list[str] | None = None,
     limit: int = 5,
+    restaurant_ids: list[str] | tuple[str, ...] | None = None,
 ) -> list[RankedRestaurant]:
     categories = categories or []
+    allowed = set(restaurant_ids or [])
     if lat is not None and lng is not None and not ignore_delivery_distance():
         nearest = find_nearest_restaurants(db, lat=lat, lng=lng, limit=20)
         candidates = [row.restaurant for row in nearest]
@@ -58,6 +60,8 @@ def rank_restaurants(
 
     ranked: list[RankedRestaurant] = []
     for restaurant in candidates:
+        if allowed and restaurant.id not in allowed:
+            continue
         if not restaurant.is_available or restaurant.status != "active":
             continue
         settings = resolve_settings(db, restaurant_id=restaurant.id)

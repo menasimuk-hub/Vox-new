@@ -99,6 +99,44 @@ class AbuuSeedService:
         return created
 
     @staticmethod
+    def ensure_pilot_restaurants(db: Session) -> int:
+        """Insert missing pilot restaurant rows (e.g. abuu-rest-meat on existing VPS DBs)."""
+        from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
+
+        pilot_specs = [spec for spec in _RESTAURANT_SPECS if spec["id"] in YALLASAY_PILOT_RESTAURANT_IDS]
+        now = datetime.utcnow()
+        created = 0
+        for spec in pilot_specs:
+            existing = db.get(Restaurant, spec["id"])
+            if existing is not None:
+                continue
+            _insert_row(
+                db,
+                Restaurant,
+                dict(
+                    id=spec["id"],
+                    name_en=spec["name_en"],
+                    name_ar=spec["name_ar"],
+                    status="active",
+                    is_available=True,
+                    delivery_radius_km=5.0,
+                    latitude=spec["latitude"],
+                    longitude=spec["longitude"],
+                    address_text=spec["address_text"],
+                    phone=spec["phone"],
+                    login_email=spec.get("login_email"),
+                    password_hash=spec.get("password_hash"),
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                    deleted_at=None,
+                ),
+            )
+            created += 1
+        db.flush()
+        return created
+
+    @staticmethod
     def seed_city_expansion(db: Session) -> dict:
         """Add restaurants up to 15 and drivers up to 4 for E2E testing."""
         from app.abuu.models.entities import Driver
@@ -403,6 +441,55 @@ _RESTAURANT_SPECS: list[dict] = [
                 "items": [
                     _item("abuu-item-fish-a1", "Garlic sauce", "صلصة ثوم", "addon", 600),
                     _item("abuu-item-fish-a2", "Lemon wedge pack", "شرائح ليمون", "addon", 300),
+                ],
+            },
+        ],
+    },
+    {
+        "id": "abuu-rest-meat",
+        "name_en": "Abu Hassan Grill",
+        "name_ar": "مشاوي أبو حسن",
+        "latitude": 31.3530,
+        "longitude": 34.3070,
+        "address_text": "Gaza — mixed grill",
+        "phone": "+972501000005",
+        "categories": [
+            {
+                "id": "abuu-cat-meat-mains",
+                "name_en": "Mains",
+                "name_ar": "أطباق رئيسية",
+                "items": [
+                    _item("abuu-item-meat-1", "Mixed grill platter", "طبق مشاوي مشكلة", "food", 7200),
+                    _item("abuu-item-meat-2", "Kafta plate", "طبق كفتة", "food", 5800),
+                    _item("abuu-item-meat-3", "Kebab skewers", "أسياخ كباب", "food", 6200),
+                    _item("abuu-item-meat-4", "Lamb chops", "ريش غنم", "food", 7800),
+                ],
+            },
+            {
+                "id": "abuu-cat-meat-drinks",
+                "name_en": "Drinks",
+                "name_ar": "مشروبات",
+                "items": [
+                    _item("abuu-item-meat-d1", "Cola", "كولا", "drink", 1000),
+                    _item("abuu-item-meat-d2", "Ayran", "عيران", "drink", 1100),
+                ],
+            },
+            {
+                "id": "abuu-cat-meat-salads",
+                "name_en": "Salads",
+                "name_ar": "سلطات",
+                "items": [
+                    _item("abuu-item-meat-s1", "Arabic salad", "سلطة عربية", "salad", 2400),
+                    _item("abuu-item-meat-s2", "Tabbouleh", "تبولة", "salad", 2600),
+                ],
+            },
+            {
+                "id": "abuu-cat-meat-addons",
+                "name_en": "Add-ons",
+                "name_ar": "إضافات",
+                "items": [
+                    _item("abuu-item-meat-a1", "Garlic sauce", "صلصة ثوم", "addon", 500),
+                    _item("abuu-item-meat-a2", "Extra pita", "خبز إضافي", "addon", 400),
                 ],
             },
         ],

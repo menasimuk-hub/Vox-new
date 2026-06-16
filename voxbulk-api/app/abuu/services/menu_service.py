@@ -148,8 +148,11 @@ class AbuuMenuService:
                 after=AbuuMenuService._item_snapshot(row),
             )
             from app.abuu.agent.kb import invalidate_menu_cache
+            from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
 
             invalidate_menu_cache(restaurant_id)
+            YallasayWaSnapshotService.rebuild_restaurant(db, restaurant_id)
+            YallasayWaSnapshotService.rebuild_marketplace(db)
         return row
 
     @staticmethod
@@ -189,8 +192,11 @@ class AbuuMenuService:
                 after=AbuuMenuService._item_snapshot(row),
             )
             from app.abuu.agent.kb import invalidate_menu_cache
+            from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
 
             invalidate_menu_cache(restaurant_id)
+            YallasayWaSnapshotService.rebuild_restaurant(db, restaurant_id)
+            YallasayWaSnapshotService.rebuild_marketplace(db)
         return row
 
     @staticmethod
