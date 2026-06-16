@@ -76,7 +76,7 @@ type Props = {
   headerActions?: React.ReactNode;
 };
 
-(block: FeedbackAggregateBlock) {
+function aggregateToQuestion(block: FeedbackAggregateBlock) {
   const breakdown = block.breakdown || [];
   const poor = breakdown.find((b) => b.key === "poor")?.pct ?? 0;
   const good = breakdown.find((b) => b.key === "good")?.pct ?? 0;
