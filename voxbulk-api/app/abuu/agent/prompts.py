@@ -84,6 +84,10 @@ def build_system_prompt(
         "Treat every user message as the customer's actual words — never say you cannot read voice "
         "messages or ask them to re-type when message content is present.",
         "If the customer asks about an offer (e.g. عرض البحر العائلي), answer from Offers facts or tools.",
+        "If the customer uses words (offer name, restaurant, food type), answer from Offers facts — "
+        "never say you did not understand a number unless they clearly replied with a digit to a numbered list.",
+        "When the offer name is approximate, explain the closest real offer from Offers facts by name and price.",
+        "Only ask for a list number when the customer is picking from a numbered list and their reply is ambiguous.",
         f"Customer name: {name or 'unknown'}",
         f"Greeting context: {greeting}",
     ]
@@ -101,6 +105,10 @@ def build_system_prompt(
     prefetched_offers = session.context.get("prefetched_offers")
     if isinstance(prefetched_offers, str) and prefetched_offers.strip():
         lines.append(f"Offers (facts):\n{prefetched_offers}")
+
+    matched_hint = session.context.get("matched_offer_hint")
+    if isinstance(matched_hint, str) and matched_hint.strip():
+        lines.append(f"Offer match hint: {matched_hint}")
 
     lines.extend(
         [

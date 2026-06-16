@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.market.registry import get_market_agent, marketplace_scope, restaurant_scope
 from app.abuu.services.location_service import get_default_address, ignore_delivery_distance
-from app.abuu.services.offer_service import AbuuOfferService, categories_from_offer_query, format_offers_list
+from app.abuu.services.offer_service import (
+    AbuuOfferService,
+    best_offer_match,
+    categories_from_offer_query,
+    format_offer_match_hint,
+    format_offers_list,
+    rank_offers_by_query,
+)
 from app.abuu.services.restaurant_discovery_service import format_restaurant_list, rank_restaurants
 from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
 from app.core.config import get_settings
@@ -84,17 +91,51 @@ def prefetch_offers(db: Session, session: AgentSession, *, query: str = "") -> s
             kind="offers",
             lang=lang if lang in {"ar", "en"} else "ar",
         )
-        if cached:
+        if cached and not str(query or "").strip():
             session.context["prefetched_offers"] = cached
             return cached
 
-    categories = categories_from_offer_query(query) if query else None
-    offers = AbuuOfferService.list_active(
-        db,
-        restaurant_id=session.restaurant_id,
-        categories=categories,
-        limit=15,
-    )
+    cleaned_query = str(query or "").strip()
+    session.context.pop("matched_offer_id", None)
+    session.context.pop("matched_offer_hint", None)
+
+    offers: list = []
+    if cleaned_query:
+        ranked = rank_offers_by_query(
+            db,
+            cleaned_query,
+            restaurant_id=session.restaurant_id,
+            limit=15,
+        )
+        if ranked:
+            offers = [row.offer for row in ranked]
+            best = ranked[0]
+            if best.score >= 5.0:
+                session.context["matched_offer_id"] = best.offer.id
+                session.context["matched_offer_hint"] = format_offer_match_hint(db, best, lang=lang)
+
+    if not offers:
+        categories = categories_from_offer_query(cleaned_query) if cleaned_query else None
+        offers = AbuuOfferService.list_active(
+            db,
+            restaurant_id=session.restaurant_id,
+            categories=categories,
+            limit=15,
+        )
+        if cleaned_query and not session.context.get("matched_offer_id"):
+            fallback = best_offer_match(
+                db,
+                cleaned_query,
+                restaurant_id=session.restaurant_id,
+                lang=lang,
+            )
+            if fallback is not None:
+                session.context["matched_offer_id"] = fallback.offer.id
+                session.context["matched_offer_hint"] = format_offer_match_hint(db, fallback, lang=lang)
+
     listing = format_offers_list(db, offers, lang=lang)
+    hint = session.context.get("matched_offer_hint")
+    if isinstance(hint, str) and hint.strip():
+        listing = f"{listing}\n{hint}"
     session.context["prefetched_offers"] = listing
     return listing
