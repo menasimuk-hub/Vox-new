@@ -699,6 +699,26 @@ def test_telnyx_connection(db: Session = Depends(get_db), _admin=Depends(require
         except Exception as e:
             warnings.append(f"Could not reach voice webhook ({voice_url}): {e}")
 
+    messaging_url = str(config.get("messaging_webhook_url") or "").strip()
+    if messaging_url:
+        try:
+            probe = httpx.get(messaging_url, timeout=12.0, follow_redirects=True)
+            if probe.status_code >= 400:
+                local_hint = ""
+                if "/telnyx/webhooks/messages" in messaging_url:
+                    try:
+                        local = httpx.get("http://127.0.0.1:8000/telnyx/webhooks/messages", timeout=5.0)
+                        if local.status_code == 200:
+                            local_hint = " Local API is OK — fix your public URL (ngrok path must end with /telnyx/webhooks/messages)."
+                    except Exception:
+                        pass
+                warnings.append(
+                    f"Messaging webhook probe returned HTTP {probe.status_code} (expected 200).{local_hint} "
+                    f"URL tested: {messaging_url}"
+                )
+        except Exception as e:
+            warnings.append(f"Could not reach messaging webhook ({messaging_url}): {e}")
+
     try:
         telnyx_numbers = TelnyxVoiceAdapter.list_account_phone_numbers(api_key=api_key)
     except Exception:
@@ -740,13 +760,14 @@ def test_telnyx_connection(db: Session = Depends(get_db), _admin=Depends(require
             detail={"message": "Telnyx API check failed", "status_code": response.status_code, "payload": body},
         )
 
-    message = "Telnyx API key OK. Voice webhook and media stream URLs are set."
+    message = "Telnyx API key OK. Voice and messaging webhook URLs are set."
     if warnings:
         message = f"{message} Warnings: {' | '.join(warnings)}"
     return {
         "ok": True,
         "message": message,
         "voice_webhook_url": voice_url,
+        "messaging_webhook_url": messaging_url,
         "media_stream_url": str(config.get("media_stream_url") or ""),
         "warnings": warnings,
         "key_source": key_source,
