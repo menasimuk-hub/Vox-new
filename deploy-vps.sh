@@ -138,6 +138,11 @@ api_deps_and_migrate() {
   info "Running database migrations …"
   python -m alembic upgrade head
   python -m alembic current
+  if [[ "${ABUU_ENABLED:-true}" != "0" && "${ABUU_ENABLED:-true}" != "false" ]]; then
+    info "Running Abuu database migrations …"
+    python -m alembic -c alembic_abuu.ini upgrade head
+    python -m alembic -c alembic_abuu.ini current
+  fi
   info "Migration OK"
 
   if [[ "${ABUU_ENABLED:-true}" != "0" && "${ABUU_ENABLED:-true}" != "false" ]]; then

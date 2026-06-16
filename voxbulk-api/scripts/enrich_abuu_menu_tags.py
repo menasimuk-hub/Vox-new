@@ -24,7 +24,25 @@ from app.abuu.menu_intelligence.enrich_rules import apply_inferred_tags, infer_t
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem
 from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS, menu_for_profile, profile_for_restaurant
 from app.abuu.services.yallasay_menu_seed_service import _item_id
-from app.core.abuu_database import get_abuu_sessionmaker
+from app.core.abuu_database import get_abuu_sessionmaker, get_abuu_migration_head
+
+
+def _require_menu_intelligence_schema(db) -> None:
+    from sqlalchemy import inspect
+
+    cols = {c["name"] for c in inspect(db.bind).get_columns("abuu_menu_categories")}
+    if "category_kind" not in cols:
+        head = get_abuu_migration_head() or "unknown"
+        print(
+            "Abuu DB is missing menu-intelligence columns (category_kind).\n"
+            f"Current Abuu alembic revision: {head}\n"
+            "Run:\n"
+            "  cd voxbulk-api && source .venv/bin/activate\n"
+            "  alembic -c alembic_abuu.ini upgrade head\n"
+            "Expected head: 0014_abuu_menu_intelligence",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 def enrich_restaurant(db, restaurant_id: str, *, apply: bool, force: bool) -> dict[str, int]:
@@ -116,6 +134,7 @@ def main() -> int:
     args = parser.parse_args()
 
     with get_abuu_sessionmaker()() as db:
+        _require_menu_intelligence_schema(db)
         if args.audit_unclassified:
             report = audit_unclassified(db)
             print(json.dumps(report, ensure_ascii=False, indent=2))
