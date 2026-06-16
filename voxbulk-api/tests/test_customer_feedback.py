@@ -437,3 +437,121 @@ def test_gocardless_service_code_from_plan_kind():
     assert BillingService._subscription_service_code(plan=feedback_plan, flow_purpose=None) == "customer_feedback"
     assert BillingService._subscription_service_code(plan=vox_plan, flow_purpose="customer_feedback") == "voxbulk"
     assert BillingService._subscription_service_code(plan=vox_plan, flow_purpose=None) == "voxbulk"
+
+
+def test_is_feedback_intent_message():
+    assert FeedbackLocationService.is_feedback_intent_message("Hi! I'd like to share feedback for Acme") is True
+    assert FeedbackLocationService.is_feedback_intent_message("Can I share feedback please?") is True
+    assert FeedbackLocationService.is_feedback_intent_message("abuu") is False
+    assert FeedbackLocationService.is_feedback_intent_message(
+        "Hi! I'd like to share feedback for Acme at Branch. acme-branch-a3f2b1"
+    ) is False
+
+
+def test_start_session_sends_whatsapp_with_to_number_kwarg():
+    from unittest.mock import MagicMock
+
+    from app.models.customer_feedback import FeedbackLocation, FeedbackWaTemplate
+    from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
+
+    with get_sessionmaker()() as db:
+        org_id, _user_id = _seed_org()
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(
+            select(Plan).where(Plan.code == "cf_starter_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        sub = Subscription(
+            org_id=org_id,
+            service_code=FEEDBACK_SERVICE_CODE,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            current_period_end=datetime.utcnow(),
+        )
+        db.add(sub)
+        db.commit()
+        FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "restaurant")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(
+                FeedbackSurveyType.industry_id == industry.id,
+                FeedbackSurveyType.slug == "food-quality",
+            )
+        ).scalar_one()
+        token = f"acme-downtown-{uuid.uuid4().hex[:6]}"
+        location = FeedbackLocation(
+            org_id=org_id,
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            name="Downtown",
+            qr_token=token,
+            wa_sender_country="gb",
+            status="active",
+        )
+        db.add(location)
+        db.flush()
+        db.add(
+            FeedbackWaTemplate(
+                survey_type_id=survey_type.id,
+                template_key="food_quality",
+                language="en_GB",
+                body_text="How was the food?",
+                is_active=True,
+            )
+        )
+        db.commit()
+
+        send_mock = MagicMock(
+            return_value=TelnyxMessageResult(ok=True, status="sent", detail=None, channel="whatsapp")
+        )
+        original_send = TelnyxMessagingService.send_whatsapp
+        TelnyxMessagingService.send_whatsapp = staticmethod(send_mock)
+        try:
+            result = FeedbackWhatsappService.try_handle_inbound(
+                db,
+                from_phone="+447700900123",
+                body=f"Hi! I'd like to share feedback for Acme at Downtown. {token}",
+                org_id="wrong-org-id-for-webhook",
+            )
+        finally:
+            TelnyxMessagingService.send_whatsapp = original_send
+
+        assert result.get("handled") is True
+        assert result.get("session_id")
+        assert result.get("org_id") == org_id
+        send_mock.assert_called()
+        kwargs = send_mock.call_args.kwargs
+        assert kwargs.get("to_number") == "+447700900123"
+        assert "to" not in kwargs
+
+
+def test_share_feedback_without_token_replies_helpfully():
+    from unittest.mock import MagicMock
+
+    from app.services.customer_feedback.location_service import SCAN_QR_HINT
+    from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMessagingService
+
+    with get_sessionmaker()() as db:
+        org_id, _user_id = _seed_org()
+        send_mock = MagicMock(
+            return_value=TelnyxMessageResult(ok=True, status="sent", detail=None, channel="whatsapp")
+        )
+        original_send = TelnyxMessagingService.send_whatsapp
+        TelnyxMessagingService.send_whatsapp = staticmethod(send_mock)
+        try:
+            result = FeedbackWhatsappService.try_handle_inbound(
+                db,
+                from_phone="+447700900456",
+                body="Hi! I'd like to share feedback for my visit",
+                org_id=org_id,
+            )
+        finally:
+            TelnyxMessagingService.send_whatsapp = original_send
+
+        assert result.get("handled") is True
+        assert result.get("reason") == "missing_token"
+        send_mock.assert_called_once()
+        assert send_mock.call_args.kwargs.get("body") == SCAN_QR_HINT

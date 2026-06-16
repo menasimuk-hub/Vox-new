@@ -29,6 +29,12 @@ TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", r
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
 LANGUAGE_HINT_PATTERN = re.compile(r"\(\s*(ar|en|en_gb|en_us|en_au|arabic|english)\s*\)\s*$", re.IGNORECASE)
+_FEEDBACK_INTENT_PATTERNS = (
+    re.compile(r"(?i)\bshare feedback\b"),
+    re.compile(r"(?i)\bi['']?d like to share feedback\b"),
+    re.compile(r"(?i)\bleave feedback\b"),
+)
+SCAN_QR_HINT = "Please scan the QR code at the location to start your feedback survey."
 
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
@@ -254,6 +260,13 @@ class FeedbackLocationService:
         if not match:
             return None
         return str(match.group(1)).strip().lower()
+
+    @staticmethod
+    def is_feedback_intent_message(body: str) -> bool:
+        text = str(body or "").strip()
+        if not text or FeedbackLocationService.parse_trigger_ref(text):
+            return False
+        return any(pattern.search(text) for pattern in _FEEDBACK_INTENT_PATTERNS)
 
     @staticmethod
     def parse_trigger_ref(body: str) -> str | None:

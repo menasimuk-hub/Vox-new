@@ -82,6 +82,8 @@ class AbuuInboundService:
         text = str(body or "").strip()
         if FeedbackLocationService.parse_trigger_ref(text):
             return {"handled": False, "reason": "feedback_trigger"}
+        if FeedbackLocationService.is_feedback_intent_message(text):
+            return {"handled": False, "reason": "feedback_intent"}
 
         try:
             phone = normalize_e164(from_phone)

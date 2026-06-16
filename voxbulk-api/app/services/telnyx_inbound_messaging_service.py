@@ -235,6 +235,33 @@ def _message_channel(msg_type: str) -> str:
     return "whatsapp" if "whatsapp" in clean else "sms"
 
 
+def _log_feedback_wa_route(
+    *,
+    message_id: str | None,
+    from_phone: str,
+    inbound_text: str,
+    webhook_org_id: str,
+    feedback_result: dict[str, Any] | None,
+    route: str,
+) -> None:
+    result = feedback_result if isinstance(feedback_result, dict) else {}
+    logger.info(
+        "feedback_wa_inbound_route route=%s message_id=%s from=%r inbound_text=%r "
+        "webhook_org_id=%s handled=%s reason=%s token=%s location_org_id=%s session_id=%s log_id=%s",
+        route,
+        message_id,
+        from_phone,
+        inbound_text[:120],
+        webhook_org_id,
+        result.get("handled"),
+        result.get("reason"),
+        result.get("token"),
+        result.get("org_id"),
+        result.get("session_id"),
+        result.get("log_id"),
+    )
+
+
 class TelnyxInboundMessagingService:
     @staticmethod
     def handle_webhook(db: Session, payload: dict[str, Any], *, header_org_id: str | None = None) -> dict[str, Any]:
@@ -421,30 +448,11 @@ class TelnyxInboundMessagingService:
 
             handled_feedback = False
             handled_abuu = False
+            feedback_result: dict[str, Any] | None = None
             from app.services.customer_feedback.location_service import FeedbackLocationService
 
-            try:
-                from app.core.config import get_settings
-                from app.abuu.services.inbound_service import AbuuInboundService
-
-                if get_settings().abuu_enabled:
-                    abuu_result = AbuuInboundService.try_handle(
-                        db,
-                        from_phone=from_norm or from_number or "",
-                        body=inbound_text,
-                        message_id=message_id,
-                        record=record,
-                        org_id=org_id,
-                    )
-                    handled_abuu = bool(abuu_result.get("handled"))
-            except Exception:
-                logger.exception(
-                    "abuu_wa_inbound_handler_failed from=%r body=%r",
-                    from_norm or from_number,
-                    inbound_text[:120],
-                )
-
-            if not handled_abuu and FeedbackLocationService.parse_trigger_ref(inbound_text):
+            feedback_trigger_token = FeedbackLocationService.parse_trigger_ref(inbound_text)
+            if feedback_trigger_token:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -455,11 +463,41 @@ class TelnyxInboundMessagingService:
                         org_id=org_id,
                     )
                     handled_feedback = bool(feedback_result.get("handled"))
+                    _log_feedback_wa_route(
+                        message_id=message_id,
+                        from_phone=from_norm or from_number or "",
+                        inbound_text=inbound_text,
+                        webhook_org_id=org_id,
+                        feedback_result=feedback_result,
+                        route="trigger",
+                    )
                 except Exception:
                     logger.exception(
                         "feedback_wa_inbound_handler_failed body=%r from=%r",
                         inbound_text[:120],
                         from_norm or from_number,
+                    )
+
+            if not handled_feedback:
+                try:
+                    from app.core.config import get_settings
+                    from app.abuu.services.inbound_service import AbuuInboundService
+
+                    if get_settings().abuu_enabled:
+                        abuu_result = AbuuInboundService.try_handle(
+                            db,
+                            from_phone=from_norm or from_number or "",
+                            body=inbound_text,
+                            message_id=message_id,
+                            record=record,
+                            org_id=org_id,
+                        )
+                        handled_abuu = bool(abuu_result.get("handled"))
+                except Exception:
+                    logger.exception(
+                        "abuu_wa_inbound_handler_failed from=%r body=%r",
+                        from_norm or from_number,
+                        inbound_text[:120],
                     )
 
             # Survey WA is isolated from interview booking: route survey first when applicable.
@@ -532,6 +570,14 @@ class TelnyxInboundMessagingService:
                         org_id=org_id,
                     )
                     handled_feedback = bool(feedback_result.get("handled"))
+                    _log_feedback_wa_route(
+                        message_id=message_id,
+                        from_phone=from_norm or from_number or "",
+                        inbound_text=inbound_text,
+                        webhook_org_id=org_id,
+                        feedback_result=feedback_result,
+                        route="session",
+                    )
                 except Exception:
                     logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
 
