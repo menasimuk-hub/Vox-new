@@ -44,12 +44,15 @@ class AbuuConversationOrchestrator:
 
         from app.abuu.menu_intelligence.dietary_detector import DietaryDetector
 
+        voice_ctx = (session.context or {}).get("voice_interpretation") or {}
+        allergy_uncertain = bool(voice_ctx.get("allergy_uncertain"))
+
         dietary = DietaryDetector.detect(text)
-        if dietary.allergens_avoid:
+        if dietary.allergens_avoid and not allergy_uncertain:
             session.context["allergen_avoid"] = dietary.allergens_avoid
         if dietary.dietary_tags:
             session.context["dietary_tags"] = dietary.dietary_tags
-        if dietary.kitchen_note:
+        if dietary.kitchen_note and not allergy_uncertain:
             session.context["kitchen_allergy_note"] = dietary.kitchen_note
 
         intent = IntentRouter.classify(main_db, text, session)

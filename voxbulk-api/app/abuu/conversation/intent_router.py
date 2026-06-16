@@ -57,9 +57,23 @@ def _deepseek_intent_enabled() -> bool:
     return flag not in {"0", "false", "no"}
 
 
-def _regex_intent(text: str, session: AgentSession) -> AbuuIntent:
-    normalized = str(text or "").strip()
+def _regex_intent(text: str, session: AgentSession, pre_inferred: dict[str, Any] | None = None) -> AbuuIntent:
+    from app.abuu.voice_interpretation.normalize import normalize_ordering_text
+
+    normalized = normalize_ordering_text(text, language=session.language or "ar")
     ctx = session.context or {}
+
+    if pre_inferred:
+        pre_cats = [str(c) for c in (pre_inferred.get("inferred_categories") or []) if c]
+        pre_conf = float(pre_inferred.get("intent_confidence") or 0.0)
+        if pre_cats and pre_conf >= 0.72:
+            return AbuuIntent(
+                "food_search",
+                categories=pre_cats,
+                item_query=pre_inferred.get("inferred_item_query"),
+                confidence=max(0.88, pre_conf),
+                source="voice_interpretation",
+            )
 
     if ctx.get("pending_restaurant_switch"):
         low = normalized.lower()
@@ -109,7 +123,8 @@ def _regex_intent(text: str, session: AgentSession) -> AbuuIntent:
 class IntentRouter:
     @staticmethod
     def classify(main_db: Session, text: str, session: AgentSession) -> AbuuIntent:
-        regex = _regex_intent(text, session)
+        pre = (session.context or {}).get("voice_interpretation")
+        regex = _regex_intent(text, session, pre_inferred=pre if isinstance(pre, dict) else None)
         if regex.confidence >= 0.85 or not _deepseek_intent_enabled():
             return regex
 

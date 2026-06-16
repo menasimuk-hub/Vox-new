@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.abuu.models.entities import CustomerOrder, Restaurant
 from app.abuu.services.abuu_voice_service import AbuuVoiceService, is_low_quality_transcript
+from app.abuu.voice_interpretation import VoiceInterpretationService
 from app.abuu.services.customer_memory_service import (
     apply_saved_address_to_order,
     first_name,
@@ -138,20 +139,6 @@ class AbuuInboundService:
                     "error": voice.error,
                 }
                 transcript_confidence = voice.confidence
-                AbuuInboundMessageService.save(
-                    abuu_db,
-                    customer_phone=phone,
-                    customer_id=customer.id,
-                    source_message_id=message_id,
-                    message_type="voice",
-                    body_text=text or None,
-                    transcript_text=voice.transcript or None,
-                    transcript_confidence=voice.confidence,
-                    voice_media_url=voice.media_url,
-                    voice_content_type=voice.content_type,
-                    voice_storage_path=voice.storage_path,
-                    payload=voice_meta,
-                )
                 if not voice.ok:
                     partial = str(voice.transcript or "").strip()
                     if partial and not is_low_quality_transcript(partial):
@@ -180,6 +167,20 @@ class AbuuInboundService:
                         if session:
                             session.last_message_id = message_id
                             abuu_db.add(session)
+                        AbuuInboundMessageService.save(
+                            abuu_db,
+                            customer_phone=phone,
+                            customer_id=customer.id,
+                            source_message_id=message_id,
+                            message_type="voice",
+                            body_text=text or None,
+                            transcript_text=voice.transcript or None,
+                            transcript_confidence=voice.confidence,
+                            voice_media_url=voice.media_url,
+                            voice_content_type=voice.content_type,
+                            voice_storage_path=voice.storage_path,
+                            payload=voice_meta,
+                        )
                         abuu_db.commit()
                         return {"handled": True, "reason": "voice_low_confidence", "confidence": voice.confidence}
                 if is_low_quality_transcript(voice.transcript):
@@ -192,6 +193,20 @@ class AbuuInboundService:
                     if session:
                         session.last_message_id = message_id
                         abuu_db.add(session)
+                    AbuuInboundMessageService.save(
+                        abuu_db,
+                        customer_phone=phone,
+                        customer_id=customer.id,
+                        source_message_id=message_id,
+                        message_type="voice",
+                        body_text=text or None,
+                        transcript_text=voice.transcript or None,
+                        transcript_confidence=voice.confidence,
+                        voice_media_url=voice.media_url,
+                        voice_content_type=voice.content_type,
+                        voice_storage_path=voice.storage_path,
+                        payload=voice_meta,
+                    )
                     abuu_db.commit()
                     return {
                         "handled": True,
@@ -199,6 +214,87 @@ class AbuuInboundService:
                         "transcript": voice.transcript,
                     }
                 text = voice.transcript
+                voice_interpretation_payload: dict[str, Any] | None = None
+                if text and VoiceInterpretationService.enabled():
+                    from app.abuu.agent.session import load_session, save_session
+
+                    agent_session = load_session(abuu_db, phone)
+                    interpretation = VoiceInterpretationService.interpret(
+                        abuu_db,
+                        main_db,
+                        transcript=text,
+                        stt_confidence=float(voice.confidence or 0.0),
+                        session=agent_session,
+                        customer=customer,
+                        lang=lang,
+                    )
+                    VoiceInterpretationService.log_internal(interpretation)
+                    voice_interpretation_payload = interpretation.to_context_json()
+                    voice_meta["voice_interpretation"] = voice_interpretation_payload
+
+                    if interpretation.needs_clarification and interpretation.clarification_prompt:
+                        context = AbuuInboundService._load_context(session) if session else {}
+                        if not context.get("voice_clarification_sent"):
+                            AbuuInboundService._send_reply(
+                                main_db,
+                                phone,
+                                interpretation.clarification_prompt,
+                                org_id=org_id,
+                            )
+                            context["voice_clarification_sent"] = True
+                            agent_session.context["voice_interpretation"] = voice_interpretation_payload
+                            save_session(abuu_db, agent_session, message_id=message_id)
+                            if session:
+                                AbuuOrderDraftService.upsert_session(
+                                    abuu_db,
+                                    phone=phone,
+                                    step=session.step,
+                                    context=context,
+                                    active_order_id=session.active_order_id,
+                                    message_id=message_id,
+                                )
+                            if session:
+                                session.last_message_id = message_id
+                                abuu_db.add(session)
+                            AbuuInboundMessageService.save(
+                                abuu_db,
+                                customer_phone=phone,
+                                customer_id=customer.id,
+                                source_message_id=message_id,
+                                message_type="voice",
+                                body_text=text or None,
+                                transcript_text=voice.transcript or None,
+                                transcript_confidence=voice.confidence,
+                                voice_media_url=voice.media_url,
+                                voice_content_type=voice.content_type,
+                                voice_storage_path=voice.storage_path,
+                                payload=voice_meta,
+                            )
+                            abuu_db.commit()
+                            return {
+                                "handled": True,
+                                "reason": "voice_clarification",
+                                "clarification_reason": interpretation.clarification_reason,
+                            }
+                    text = interpretation.corrected_transcript
+                    agent_session.context["voice_interpretation"] = voice_interpretation_payload
+                    if not interpretation.needs_clarification:
+                        agent_session.context.pop("voice_clarification_sent", None)
+                    save_session(abuu_db, agent_session, message_id=message_id)
+                AbuuInboundMessageService.save(
+                    abuu_db,
+                    customer_phone=phone,
+                    customer_id=customer.id,
+                    source_message_id=message_id,
+                    message_type="voice",
+                    body_text=text or None,
+                    transcript_text=voice.transcript or None,
+                    transcript_confidence=voice.confidence,
+                    voice_media_url=voice.media_url,
+                    voice_content_type=voice.content_type,
+                    voice_storage_path=voice.storage_path,
+                    payload=voice_meta,
+                )
             else:
                 AbuuInboundMessageService.save(
                     abuu_db,

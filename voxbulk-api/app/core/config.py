@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     abuu_menu_intelligence_enabled: bool = Field(default=True, alias="ABUU_MENU_INTELLIGENCE_ENABLED")
     abuu_allergen_strict_mode: bool = Field(default=True, alias="ABUU_ALLERGEN_STRICT_MODE")
     abuu_portal_token_expire_days: int = Field(default=30, alias="ABUU_PORTAL_TOKEN_EXPIRE_DAYS")
+    abuu_voice_interpretation_enabled: bool = Field(default=True, alias="ABUU_VOICE_INTERPRETATION_ENABLED")
+    abuu_voice_intent_strong_threshold: float = Field(default=0.72, alias="ABUU_VOICE_INTENT_STRONG_THRESHOLD")
+    abuu_voice_intent_clarify_threshold: float = Field(default=0.45, alias="ABUU_VOICE_INTENT_CLARIFY_THRESHOLD")
+    abuu_voice_menu_fuzzy_min_score: int = Field(default=45, alias="ABUU_VOICE_MENU_FUZZY_MIN_SCORE")
+    abuu_voice_deepseek_recovery_enabled: bool = Field(default=True, alias="ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED")
 
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")

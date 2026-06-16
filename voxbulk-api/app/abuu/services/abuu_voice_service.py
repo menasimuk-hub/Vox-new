@@ -148,24 +148,25 @@ class AbuuVoiceService:
             )
 
     @staticmethod
-    def _transcribe_file(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+    def _transcribe_deepinfra(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         stt_lang = _stt_language(language)
-        if DeepInfraProviderService.is_configured(main_db):
-            result = DeepInfraProviderService.transcribe_audio_file(
-                main_db,
-                audio_path=audio_path,
-                language=stt_lang,
-            )
-            return str(result.get("text") or "").strip()
+        result = DeepInfraProviderService.transcribe_audio_file(
+            main_db,
+            audio_path=audio_path,
+            language=stt_lang,
+        )
+        return str(result.get("text") or "").strip()
 
-        try:
-            from app.services.survey_wa_whisper_service import transcribe_with_whisper_cpp
+    @staticmethod
+    def _transcribe_whisper_cpp(audio_path: Path) -> str:
+        from app.services.survey_wa_whisper_service import transcribe_with_whisper_cpp
 
-            result = transcribe_with_whisper_cpp(audio_path)
-            return str(result.get("text") or "").strip()
-        except Exception:
-            pass
+        result = transcribe_with_whisper_cpp(audio_path)
+        return str(result.get("text") or "").strip()
 
+    @staticmethod
+    def _transcribe_groq(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+        stt_lang = _stt_language(language)
         with tempfile.NamedTemporaryFile(suffix=audio_path.suffix, delete=False) as tmp:
             tmp.write(audio_path.read_bytes())
             tmp_path = Path(tmp.name)
@@ -185,3 +186,26 @@ class AbuuVoiceService:
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    @staticmethod
+    def _transcribe_file(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+        from app.abuu.voice_interpretation.stt_config import stt_provider_order
+
+        providers = stt_provider_order()
+        for provider in providers:
+            try:
+                if provider == "deepinfra" and DeepInfraProviderService.is_configured(main_db):
+                    text = AbuuVoiceService._transcribe_deepinfra(main_db, audio_path, language=language)
+                    if text:
+                        return text
+                elif provider == "whisper_cpp":
+                    text = AbuuVoiceService._transcribe_whisper_cpp(audio_path)
+                    if text:
+                        return text
+                elif provider == "groq":
+                    text = AbuuVoiceService._transcribe_groq(main_db, audio_path, language=language)
+                    if text:
+                        return text
+            except Exception:
+                logger.warning("abuu_stt_provider_failed provider=%s", provider, exc_info=True)
+        return ""

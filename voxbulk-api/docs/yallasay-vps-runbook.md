@@ -139,6 +139,21 @@ Config (`.env`):
 - `ABUU_ALLERGEN_STRICT_MODE=true` — exclude items missing dietary confirmation when customer requires vegan/vegetarian/etc.
 - `ABUU_PORTAL_TOKEN_EXPIRE_DAYS=30` — restaurant/driver portal JWT lifetime
 
+## Voice interpretation (post-STT)
+
+**Product rule:** Raw STT transcript is only an input signal, not final customer intent. Abuu normalizes and interprets Arabic food-ordering speech against menu vocabulary before deciding how to respond.
+
+Config (`.env`):
+
+- `ABUU_VOICE_INTERPRETATION_ENABLED=true` — normalize + lexicon + menu fuzzy before orchestrator
+- `ABUU_VOICE_INTENT_STRONG_THRESHOLD=0.72` — proceed without clarification
+- `ABUU_VOICE_INTENT_CLARIFY_THRESHOLD=0.45` — ask one short Arabic clarification below strong
+- `ABUU_VOICE_MENU_FUZZY_MIN_SCORE=45` — rapidfuzz threshold (same as agent kb)
+- `ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED=true` — cheap JSON recovery only when lexicon+fuzzy weak
+- `ABUU_VOICE_STT_PROVIDER_ORDER=deepinfra,whisper_cpp,groq` — STT chain order (future extension)
+
+After deploy with orchestrator mode, inspect logs for `abuu_voice_interpretation` fields when testing voice notes.
+
 **Note:** Customer-stated `allergy_note` on an order is separate from item-level `allergen_tags_json` on menu items. The waiter captures the note at confirm time; tags drive search safety.
 
 Future cities: add rows to `abuu_market_agents` and set `ABUU_MARKET_AGENT`.

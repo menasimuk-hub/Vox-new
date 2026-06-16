@@ -168,36 +168,71 @@ class FactBundleLoader:
         customer,
         lang: str,
     ) -> FactBundle:
+        from app.abuu.voice_interpretation.fuzzy_match import best_fuzzy_match
+        from app.core.config import get_settings
+
         bundle = FactBundle(intent="select_item")
-        q = str(query or "").strip().lower()
-        candidates: list[tuple[RestaurantMenuItem, Restaurant]] = []
+        min_score = int(get_settings().abuu_voice_menu_fuzzy_min_score)
+        candidates: list[tuple[RestaurantMenuItem, Restaurant, int]] = []
 
         search_pool = session.context.get("last_food_search") or []
-        for entry in search_pool:
-            if q in str(entry.get("name", "")).lower():
-                item = db.get(RestaurantMenuItem, entry["menu_item_id"])
-                rest = db.get(Restaurant, entry["restaurant_id"])
+        pool_rows = [
+            {
+                "id": entry.get("menu_item_id"),
+                "name": entry.get("name") or "",
+                "name_ar": entry.get("name") or "",
+                "name_en": entry.get("name") or "",
+                "restaurant_id": entry.get("restaurant_id"),
+            }
+            for entry in search_pool
+        ]
+        best_pool, pool_score, ranked_pool = best_fuzzy_match(query, pool_rows, language=lang, min_score=min_score)
+        if best_pool and pool_score >= min_score:
+            item = db.get(RestaurantMenuItem, best_pool["id"])
+            rest = db.get(Restaurant, best_pool.get("restaurant_id"))
+            if item and rest:
+                candidates.append((item, rest, pool_score))
+        elif len(ranked_pool) >= 2 and (ranked_pool[0][1] - ranked_pool[1][1]) < 8:
+            for row, score in ranked_pool[:3]:
+                item = db.get(RestaurantMenuItem, row["id"])
+                rest = db.get(Restaurant, row.get("restaurant_id"))
                 if item and rest:
-                    candidates.append((item, rest))
+                    candidates.append((item, rest, score))
 
         if not candidates:
             pilot = _pilot_ids(db)
             rids = list(pilot) if pilot else [r.restaurant.id for r in rank_restaurants(db, limit=15)]
+            menu_rows: list[dict] = []
+            row_index: dict[str, tuple[RestaurantMenuItem, Restaurant]] = {}
             for rid in rids:
                 restaurant = db.get(Restaurant, rid)
                 if not restaurant:
                     continue
                 for item in AbuuOrderDraftService.list_menu_items(db, rid, limit=40, customer=customer):
-                    hay = f"{item.name_en} {item.name_ar}".lower()
-                    if q in hay or any(w in hay for w in q.split() if len(w) > 2):
-                        candidates.append((item, restaurant))
-                        if len(candidates) >= 3:
-                            break
-                if len(candidates) >= 3:
-                    break
+                    menu_rows.append(
+                        {
+                            "id": item.id,
+                            "name": item.name_ar or item.name_en or "",
+                            "name_ar": item.name_ar or "",
+                            "name_en": item.name_en or "",
+                            "category": "",
+                            "restaurant_id": rid,
+                        }
+                    )
+                    row_index[item.id] = (item, restaurant)
+            best, score, ranked = best_fuzzy_match(query, menu_rows, language=lang, min_score=min_score)
+            if best and score >= min_score:
+                pair = row_index.get(best["id"])
+                if pair:
+                    candidates.append((pair[0], pair[1], score))
+            elif len(ranked) >= 2:
+                for row, sc in ranked[:3]:
+                    pair = row_index.get(row["id"])
+                    if pair:
+                        candidates.append((pair[0], pair[1], sc))
 
         if len(candidates) == 1:
-            item, rest = candidates[0]
+            item, rest, _score = candidates[0]
             bundle.food_items = [
                 FoodItemFact(
                     menu_item_id=item.id,
@@ -209,7 +244,7 @@ class FactBundleLoader:
             ]
             bundle.internal_index["pick"] = {"menu_item_id": item.id, "restaurant_id": rest.id}
         elif len(candidates) > 1:
-            for item, rest in candidates[:5]:
+            for item, rest, _score in candidates[:5]:
                 bundle.food_items.append(
                     FoodItemFact(
                         menu_item_id=item.id,

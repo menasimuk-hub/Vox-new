@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from typing import Any
 
@@ -14,24 +13,13 @@ from sqlalchemy.orm import Session
 from app.abuu.models.entities import CustomerProfile, RestaurantMenuCategory, RestaurantMenuItem
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import localized_name
+from app.abuu.voice_interpretation.normalize import normalize_ar as _normalize_ar
+from app.abuu.voice_interpretation.normalize import normalize_query as _normalize_query
 
 logger = logging.getLogger(__name__)
 
 _MENU_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _CACHE_TTL_SECONDS = 300
-
-
-def _normalize_ar(text: str) -> str:
-    cleaned = str(text or "").strip().lower()
-    cleaned = re.sub(r"[\u064B-\u065F\u0670]", "", cleaned)
-    cleaned = cleaned.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ى", "ي").replace("ة", "ه")
-    return cleaned
-
-
-def _normalize_query(text: str, language: str) -> str:
-    if language == "ar":
-        return _normalize_ar(text)
-    return str(text or "").strip().lower()
 
 
 def invalidate_menu_cache(restaurant_id: str | None = None) -> None:
