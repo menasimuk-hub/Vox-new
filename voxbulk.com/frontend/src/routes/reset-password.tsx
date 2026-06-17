@@ -4,6 +4,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { Lock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { apiFetch } from "@/lib/api";
 import { createFileRoute } from "@tanstack/react-router";
 
 export function ResetPassword() {
@@ -42,16 +43,10 @@ export function ResetPassword() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/reset-password`, {
+      await apiFetch("/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
       });
-
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.detail || "Failed to reset password");
-      }
 
       toast.success("Password reset successfully!");
       setTimeout(() => navigate({ to: "/signin" }), 1500);

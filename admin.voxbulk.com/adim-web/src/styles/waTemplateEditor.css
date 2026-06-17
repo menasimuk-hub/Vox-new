@@ -375,7 +375,7 @@
 .waTplEd-textarea,
 .waTplEd-select {
   width: 100%;
-  background: var(--wa-surface2);
+  background: #ffffff;
   border: 1px solid var(--wa-border2);
   border-radius: var(--wa-r);
   color: var(--wa-text);

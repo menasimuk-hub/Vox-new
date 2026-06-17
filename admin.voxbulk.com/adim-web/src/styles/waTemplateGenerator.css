@@ -177,7 +177,7 @@
 .waTplGen-field input,
 .waTplGen-field select,
 .waTplGen-field textarea {
-  background: var(--wa-surface2);
+  background: #ffffff;
   border: 1px solid var(--wa-border2);
   border-radius: var(--wa-radius-sm);
   color: var(--wa-text);
@@ -810,7 +810,7 @@
 .waTplGen-modal-field input,
 .waTplGen-modal-field textarea,
 .waTplGen-modal-field select {
-  background: var(--wa-surface2);
+  background: #ffffff;
   border: 1px solid var(--wa-border2);
   border-radius: var(--wa-radius-sm);
   color: var(--wa-text);

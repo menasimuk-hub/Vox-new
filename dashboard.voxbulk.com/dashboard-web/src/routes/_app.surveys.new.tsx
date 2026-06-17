@@ -181,7 +181,6 @@ function CreateSurvey() {
   const eligibilityInFlightRef = React.useRef<Promise<SurveyLaunchEligibility | null> | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
-  const [uploadTypeAck, setUploadTypeAck] = React.useState(false);
   const [uploadConsent, setUploadConsent] = React.useState(false);
   const [launchConsent, setLaunchConsent] = React.useState(false);
   const qc = useQueryClient();
@@ -372,7 +371,6 @@ function CreateSurvey() {
     if (hydrated.waPreview) setWaPreview(hydrated.waPreview);
     const cfg = (order.config || {}) as Record<string, unknown>;
     if (cfg.upload_consent_at) {
-      setUploadTypeAck(true);
       setUploadConsent(true);
     }
     if (cfg.launch_consent_at) setLaunchConsent(true);
@@ -589,7 +587,7 @@ function CreateSurvey() {
       const id = await ensureOrder();
       const nowIso = new Date().toISOString();
       const draftConfig = buildDraftConfig();
-      if (uploadTypeAck && uploadConsent) {
+      if (uploadConsent) {
         draftConfig.upload_consent_at = String(draftConfig.upload_consent_at || nowIso);
       }
       if (purpose === "launch" && launchConsent) {
@@ -626,7 +624,6 @@ function CreateSurvey() {
       startAt,
       endAt,
       surveyName,
-      uploadTypeAck,
       uploadConsent,
       launchConsent,
     ],
@@ -1461,8 +1458,6 @@ function CreateSurvey() {
             await ensureOrder();
             await saveSurveyDraft("save");
           }}
-          uploadTypeAck={uploadTypeAck}
-          setUploadTypeAck={setUploadTypeAck}
           uploadConsent={uploadConsent}
           setUploadConsent={setUploadConsent}
           launchConsent={launchConsent}
@@ -1523,8 +1518,6 @@ function CreateSurvey() {
           onRecipientContactChange={onRecipientContactChange}
           onRecipientContactBlur={onRecipientContactBlur}
           patchRecipientPending={patchRecipientM.isPending}
-          uploadTypeAck={uploadTypeAck}
-          setUploadTypeAck={setUploadTypeAck}
           uploadConsent={uploadConsent}
           setUploadConsent={setUploadConsent}
           launchConsent={launchConsent}
@@ -1582,8 +1575,9 @@ function CreateSurvey() {
         onOpenChange={setTopupOpen}
         initialAmountMinor={
           Math.max(
-            Number(launchEligibility?.amount_due_pence || 0),
+            Number(launchEligibility?.top_up_minor || 0),
             Number(launchEligibility?.wallet_shortfall_minor || 0),
+            Number(launchEligibility?.amount_due_pence || 0),
             500,
           )
         }

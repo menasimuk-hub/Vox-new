@@ -1525,23 +1525,7 @@ function CreateInterview() {
   };
 
   const onPayLaunch = async (): Promise<void> => {
-    if (!orderId) {
-      throw new Error("Save your draft before paying");
-    }
-    if (launchErrors.length > 0) {
-      throw new Error(launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · "));
-    }
-    if (!gcReady) {
-      throw new Error("GoCardless checkout is not configured");
-    }
-    setPayBusy(true);
-    try {
-      await onSaveDraft(true);
-      await startGoCardlessOrderPayment(orderId);
-    } catch (e) {
-      setPayBusy(false);
-      throw e instanceof Error ? e : new Error("Could not start GoCardless checkout");
-    }
+    await onLaunchFromPackage();
   };
 
   const launchStatusRef = React.useRef<HTMLDivElement | null>(null);

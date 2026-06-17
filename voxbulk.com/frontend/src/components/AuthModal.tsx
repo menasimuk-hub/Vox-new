@@ -6,8 +6,8 @@ import { Mail, Lock, ArrowRight, Loader2, X } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SocialAuthButtons } from "@/components/SocialAuthButtons";
 import { useAuth } from "@/lib/auth";
-import { resolvePostLoginDestination } from "@/lib/api";
-import type { AuthUser } from "@/lib/auth";
+import { resolvePostLoginDestination, apiFetch } from "@/lib/api";
+import type { AuthUser, LoginResult } from "@/lib/auth";
 
 type AuthModalCtx = { open: () => void; close: () => void; isOpen: boolean };
 const Ctx = createContext<AuthModalCtx>({ open: () => {}, close: () => {}, isOpen: false });
@@ -69,12 +69,10 @@ function AuthModal({ onClose }: { onClose: () => void }) {
       if (!parsed.success) { toast.error(parsed.error.message); return; }
       setLoading(true);
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/forgot-password`, {
+        await apiFetch("/auth/forgot-password", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
         });
-        if (!res.ok) throw new Error("Failed to send reset email");
         toast.success("Check your email for a password reset link!");
         setMode("signin");
         setEmail("");
@@ -93,12 +91,21 @@ function AuthModal({ onClose }: { onClose: () => void }) {
     }
     setLoading(true);
     try {
-      const user =
-        mode === "signup"
-          ? await auth.register(email, password, orgName.trim())
-          : await auth.login(email, password);
-      toast.success(mode === "signup" ? "Account created!" : "Welcome back!");
-      routeAfterAuth(user);
+      if (mode === "signup") {
+        const user = await auth.register(email, password, orgName.trim());
+        toast.success("Account created!");
+        routeAfterAuth(user);
+        return;
+      }
+      const result: LoginResult = await auth.login(email, password);
+      if (result.kind === "org_selection") {
+        toast.message("Choose which company to open on the sign-in page.");
+        onClose();
+        navigate({ to: "/signin" });
+        return;
+      }
+      toast.success("Welcome back!");
+      routeAfterAuth(result.user);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Something went wrong");
     } finally {

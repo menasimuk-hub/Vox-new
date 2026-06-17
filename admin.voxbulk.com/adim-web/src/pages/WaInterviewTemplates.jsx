@@ -100,18 +100,18 @@ export default function WaInterviewTemplates() {
   }
 
   return (
-    <div className="page-shell">
-      <div className="page-header">
+    <div className="pageShell">
+      <div className="pageTop">
         <div>
-          <p className="eyebrow">Platform Settings</p>
+          <p className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Platform Settings</p>
           <h1>WA Interview templates</h1>
-          <p className="text-muted">
+          <p className="muted">
             Manage WhatsApp templates used by the AI Interview flow — launch email notice, booking confirmation, cancel, and job closed.
           </p>
         </div>
-        <div className="page-actions">
-          <Link className="btn btn-ghost" to="/settings/email">Email settings</Link>
-          <button type="button" className="btn btn-primary" disabled={working === 'sync'} onClick={() => void syncAll()}>
+        <div className="actions">
+          <Link className="btn" to="/settings/email">Email settings</Link>
+          <button type="button" className="btn primary" disabled={working === 'sync'} onClick={() => void syncAll()}>
             {working === 'sync' ? 'Syncing…' : 'Sync from Telnyx'}
           </button>
         </div>
@@ -121,70 +121,72 @@ export default function WaInterviewTemplates() {
       {msg ? <div className="alert ok">{msg}</div> : null}
 
       {loading ? (
-        <p className="text-muted">Loading templates…</p>
+        <p className="muted">Loading templates…</p>
       ) : (
         <div className="card">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Template</th>
-                <th>Telnyx name</th>
-                <th>Status</th>
-                <th>Visibility</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {templates.map((tpl) => (
-                <tr key={tpl.id}>
-                  <td>
-                    <strong>{tpl.display_name || tpl.name}</strong>
-                    <div className="text-muted text-sm">{tpl.description || tpl.sales_template_key}</div>
-                  </td>
-                  <td><code>{tpl.name}</code></td>
-                  <td>
-                    <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
-                      {resolveTelnyxSyncLabel(tpl)}
-                    </span>
-                  </td>
-                  <td>{tpl.active_for_interview === false ? 'Hidden' : 'Active'}</td>
-                  <td>{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</td>
-                  <td>
-                    <div className="table-actions">
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditId(tpl.id)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={!!working}
-                        onClick={() => void toggleHidden(tpl)}
-                      >
-                        {tpl.active_for_interview === false ? 'Show' : 'Hide'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={!!working}
-                        onClick={() => void pushTemplate(tpl)}
-                      >
-                        Sync
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm text-danger"
-                        disabled={!!working}
-                        onClick={() => void deleteTemplate(tpl)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
+          <div className="tableWrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Template</th>
+                  <th>Telnyx name</th>
+                  <th>Status</th>
+                  <th>Visibility</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {templates.map((tpl) => (
+                  <tr key={tpl.id}>
+                    <td>
+                      <strong>{tpl.display_name || tpl.name}</strong>
+                      <div className="muted" style={{ fontSize: '11.5px', marginTop: '3px' }}>{tpl.description || tpl.sales_template_key}</div>
+                    </td>
+                    <td><code>{tpl.name}</code></td>
+                    <td>
+                      <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
+                        {resolveTelnyxSyncLabel(tpl)}
+                      </span>
+                    </td>
+                    <td>{tpl.active_for_interview === false ? 'Hidden' : 'Active'}</td>
+                    <td>{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
+                        <button type="button" className="btn soft sm" onClick={() => setEditId(tpl.id)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn soft sm"
+                          disabled={!!working}
+                          onClick={() => void toggleHidden(tpl)}
+                        >
+                          {tpl.active_for_interview === false ? 'Show' : 'Hide'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn soft sm"
+                          disabled={!!working}
+                          onClick={() => void pushTemplate(tpl)}
+                        >
+                          Sync
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm danger"
+                          disabled={!!working}
+                          onClick={() => void deleteTemplate(tpl)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

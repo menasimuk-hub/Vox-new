@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
+from app.services.billing_access_service import BillingAccessService
 from app.services.billing_currency import money_display, resolve_org_currency
 from app.services.launch_billing_service import LaunchBillingError, LaunchBillingService
 from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
@@ -141,7 +142,11 @@ class SurveyLaunchEligibilityService:
 
         from app.services.billing_access_service import BillingAccessService
 
-        access_block = BillingAccessService.launch_block_reason(db, org)
+        access_block = BillingAccessService.launch_block_reason(
+            db,
+            org,
+            payg_wallet_launch=bool(billing.get("is_payg_plan")),
+        )
         if access_block:
             return SurveyLaunchEligibilityService._set_block(
                 base,
@@ -259,6 +264,13 @@ class SurveyLaunchEligibilityService:
                 "pricing_source": "voxbulk_plan_prices",
                 "amount_due_pence": total,
                 "amount_due_display": est.get("total_display"),
+                "estimated_cost_minor": int(est.get("estimated_cost_minor") or total),
+                "estimated_cost_display": est.get("estimated_cost_display") or est.get("total_display"),
+                "required_wallet_minor": int(est.get("required_wallet_minor") or est.get("wallet_charge_minor") or 0),
+                "required_wallet_display": est.get("required_wallet_display"),
+                "wallet_buffer_percent": int(est.get("wallet_buffer_percent") or 100),
+                "top_up_minor": int(est.get("top_up_minor") or est.get("wallet_shortfall_minor") or 0),
+                "top_up_display": est.get("top_up_display"),
                 "extra_cost_pence": total,
                 "extra_cost_display": est.get("total_display"),
                 "quote_total_pence": total,
@@ -363,23 +375,33 @@ class SurveyLaunchEligibilityService:
                 }
             )
         elif method == "wallet":
+            hold = est.get("wallet_charge_display") or est.get("total_display")
+            est_cost = est.get("estimated_cost_display") or est.get("total_display")
+            payg_hold = int(est.get("wallet_buffer_percent") or 100) > 100
+            if payg_hold:
+                summary = (
+                    f"Pay as you go: {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
+                    f"= {est_cost}. 125% hold ({hold}) debited at launch; unused hold refunded after."
+                )
+            elif billing.get("shared_package_pool"):
+                summary = (
+                    f"Package allowance exhausted — {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
+                    f"= {est.get('total_display')} charged to your wallet at launch "
+                    f"({est.get('wallet_balance_display')} available)."
+                )
+            else:
+                summary = (
+                    f"Pay as you go: {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
+                    f"= {est.get('total_display')} — charged to your wallet at launch "
+                    f"({est.get('wallet_balance_display')} available)."
+                )
             base.update(
                 {
                     "can_launch": True,
                     "payment_required": False,
                     "mode": "wallet",
                     "launch_action": "launch",
-                    "summary": (
-                        f"Package allowance exhausted — {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
-                        f"= {est.get('total_display')} charged to your wallet at launch "
-                        f"({est.get('wallet_balance_display')} available)."
-                        if billing.get("shared_package_pool")
-                        else (
-                            f"Pay as you go: {extra} recipient{'s' if extra != 1 else ''} × {rate_display} "
-                            f"= {est.get('total_display')} — charged to your wallet at launch "
-                            f"({est.get('wallet_balance_display')} available)."
-                        )
-                    ),
+                    "summary": summary,
                 }
             )
         else:
@@ -408,7 +430,11 @@ class SurveyLaunchEligibilityService:
         config: dict[str, Any],
     ) -> dict[str, Any]:
         can_invoice = bool(billing.get("can_launch_and_invoice"))
-        duration = config.get("estimated_duration_min") or config.get("duration_min")
+        duration = (
+            config.get("estimated_duration_min")
+            or config.get("expected_duration_minutes")
+            or config.get("duration_min")
+        )
         try:
             duration_min = max(1, int(duration)) if duration else 12
         except (TypeError, ValueError):
@@ -488,6 +514,14 @@ class SurveyLaunchEligibilityService:
                 }
             )
         elif method == "wallet":
+            hold = est.get("wallet_charge_display") or est.get("total_display")
+            est_cost = est.get("estimated_cost_display") or est.get("total_display")
+            payg_hold = int(est.get("wallet_buffer_percent") or 100) > 100
+            hold_line = (
+                f" Estimated {est_cost} — 125% hold ({hold}) debited at launch; unused hold refunded after."
+                if payg_hold
+                else f" {est.get('total_display')} charged to your wallet at launch"
+            )
             base.update(
                 {
                     "can_launch": True,
@@ -495,8 +529,7 @@ class SurveyLaunchEligibilityService:
                     "mode": "wallet",
                     "launch_action": "launch",
                     "summary": (
-                        f"AI phone survey: pay as you go — {est.get('total_display')} "
-                        f"({per_call_display}/call × {recipient_count}) charged to your wallet at launch "
+                        f"AI phone survey: pay as you go —{hold_line} "
                         f"({est.get('wallet_balance_display')} available)."
                     ),
                 }

@@ -1564,6 +1564,7 @@ export type SurveyLaunchEligibility = {
     whatsapp_included?: number;
     survey_credits?: number;
     has_whatsapp_allowance?: boolean;
+    is_payg_plan?: boolean;
     whatsapp_used?: number;
     shared_package_pool?: boolean;
     package_included?: number;

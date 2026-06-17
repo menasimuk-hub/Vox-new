@@ -161,7 +161,9 @@ def test_launch_eligibility_payg_wallet_covers(app_client):
     assert body["mode"] == "wallet"
     assert body["can_launch"] is True
     assert body["launch_action"] == "launch"
-    assert int(body["wallet_charge_minor"]) == int(body["amount_due_pence"])
+    assert int(body["amount_due_pence"]) == 98  # 2 × 49p
+    assert int(body["wallet_charge_minor"]) == 123  # ceil(98 × 1.25)
+    assert int(body.get("wallet_buffer_percent") or 0) == 125
 
 
 def test_launch_with_promo_credits(app_client):

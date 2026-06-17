@@ -70,8 +70,6 @@ export type SurveyPhoneWizardProps = {
   onRecipientContactChange?: (row: UploadedContactRow, field: "name" | "phone" | "email", value: string) => void;
   onRecipientContactBlur?: (row: UploadedContactRow, field: "name" | "phone" | "email") => void;
   patchRecipientPending?: boolean;
-  uploadTypeAck: boolean;
-  setUploadTypeAck: (v: boolean) => void;
   uploadConsent: boolean;
   setUploadConsent: (v: boolean) => void;
   launchConsent: boolean;
@@ -100,7 +98,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const missingCallingWindow = !props.startAt || !props.endAt;
   const launchBlockers = props.launchBlockers || [];
   const hasContacts = (props.contactsCount ?? 0) > 0;
-  const uploadReady = props.uploadTypeAck && props.uploadConsent;
+  const uploadReady = props.uploadConsent;
 
   const canNext = React.useMemo(() => {
     if (step === 1) {
@@ -138,7 +136,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
       } else if (step === 2 && !hasContacts) {
         toast.error("Upload at least one contact before continuing");
       } else if (step === 2 && !uploadReady) {
-        toast.error("Confirm survey type and upload consent before continuing");
+        toast.error("Confirm upload consent before continuing");
       }
       return;
     }
@@ -346,9 +344,6 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
               />
 
               <SurveyUploadConsent
-                channel="phone"
-                typeAck={props.uploadTypeAck}
-                setTypeAck={props.setUploadTypeAck}
                 uploadConsent={props.uploadConsent}
                 setUploadConsent={props.setUploadConsent}
               />

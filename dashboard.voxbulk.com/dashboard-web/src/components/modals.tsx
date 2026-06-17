@@ -783,7 +783,6 @@ export function InterviewPreviewQuoteModal({
     !hasPackageSubscription &&
     scriptApproved &&
     previewApproved &&
-    Boolean(quoteTotal) &&
     !quoteLoading &&
     !actionBusy &&
     launchReadinessErrors.length === 0;
@@ -799,13 +798,7 @@ export function InterviewPreviewQuoteModal({
         ? "Approve the script in this dialog first."
         : !previewApproved
           ? 'Click "Confirm preview" to unlock launch.'
-          : hasPackageSubscription
-            ? null
-          : !quoteTotal
-            ? "Quote not ready — save draft with a calling window, then retry."
-            : !gcAvailable
-              ? "GoCardless is not configured."
-              : null;
+          : null;
   const waBody =
     data.waPreviewBody ||
     `Dear Alex 👋\nWe have sent you an email from 📧 careers@voxbulk.com regarding your interview for the position of *${data.role || "Interview"}* at *Your Company*\nPlease check your Spam / Junk folder in case it landed there 📁\nOnce you receive it, kindly book your interview slot as mentioned in the email 📅\nWe look forward to hearing from you! 🤝\nYour Company 🏢`;
@@ -1363,6 +1356,8 @@ export function SurveyLaunchQuoteModal({
                     label="Package"
                     value={`Active${eligibility?.billing?.plan_name ? ` · ${eligibility?.billing?.plan_name}` : ""}`}
                   />
+                ) : eligibility?.billing?.is_payg_plan !== false ? (
+                  <QuoteRow label="Billing" value="Pay as you go · wallet" />
                 ) : (
                   <QuoteRow label="Package" value="No active subscription package" />
                 )}
@@ -1419,11 +1414,38 @@ export function SurveyLaunchQuoteModal({
                 {eligibility?.wallet_balance_display ? (
                   <QuoteRow label="Wallet balance" value={eligibility.wallet_balance_display} />
                 ) : null}
+                {(eligibility as { estimated_cost_display?: string })?.estimated_cost_display ? (
+                  <QuoteRow label="Estimated cost" value={(eligibility as { estimated_cost_display?: string }).estimated_cost_display || "—"} />
+                ) : null}
+                {(eligibility as { required_wallet_display?: string })?.required_wallet_display &&
+                Number((eligibility as { wallet_buffer_percent?: number }).wallet_buffer_percent || 100) > 100 ? (
+                  <QuoteRow
+                    label="Wallet hold (125%)"
+                    value={(eligibility as { required_wallet_display?: string }).required_wallet_display || "—"}
+                  />
+                ) : null}
                 {walletMode && typeof eligibility?.wallet_charge_minor === "number" && eligibility.wallet_charge_minor > 0 ? (
-                  <QuoteRow label="Charged to wallet at launch" value={amountDue || "—"} bold />
+                  <QuoteRow
+                    label="Charged to wallet at launch"
+                    value={
+                      (eligibility as { wallet_charge_display?: string }).wallet_charge_display ||
+                      (eligibility as { required_wallet_display?: string }).required_wallet_display ||
+                      amountDue ||
+                      "—"
+                    }
+                    bold
+                  />
                 ) : null}
                 {needsWalletTopup ? (
-                  <QuoteRow label="Top-up needed" value={amountDue || "—"} bold />
+                  <QuoteRow
+                    label="Top-up needed"
+                    value={
+                      (eligibility as { top_up_display?: string | null }).top_up_display ||
+                      amountDue ||
+                      "—"
+                    }
+                    bold
+                  />
                 ) : null}
                 {canPayLaunch && amountDue ? <QuoteRow label="Amount due at checkout" value={amountDue} bold /> : null}
                 {canLaunchNow && !canPayLaunch ? (

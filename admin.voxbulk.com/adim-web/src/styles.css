@@ -9,6 +9,7 @@
   --s3:  #e8e2d8;
   --b1:  rgba(42, 38, 32, 0.08);
   --b2:  rgba(42, 38, 32, 0.14);
+  --input-bg: #ffffff;
   --t1:  #2a2620;
   --t2:  #6b6458;
   --t3:  #9a9288;
@@ -66,6 +67,7 @@ body.dark {
   --s3:  #363028;
   --b1:  rgba(255,255,255,0.07);
   --b2:  rgba(255,255,255,0.13);
+  --input-bg: var(--s1);
   --t1:  #f5f1ea;
   --t2:  #b8b0a4;
   --t3:  #8a8278;
@@ -633,7 +635,7 @@ body.dark .sb-logo-icon .icon-light { display: none; }
   height: 38px;
   padding: 0 12px;
   border-radius: 9px; border: 1.5px solid var(--b2);
-  background: var(--s2); color: var(--t1);
+  background: var(--input-bg); color: var(--t1);
   font-family: inherit;
   transition: border-color .15s;
 }
@@ -812,7 +814,7 @@ textarea.input {
   padding:0 12px;
   border:1.5px solid var(--b2);
   border-radius:9px;
-  background:var(--s2);
+  background:var(--input-bg);
   color:var(--t1);
 }
 

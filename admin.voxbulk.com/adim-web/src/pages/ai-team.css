@@ -162,7 +162,7 @@
 .ai-team-page .ait-field textarea {
   font-size: 12px; font-family: var(--ait-font); border: 1px solid var(--ait-border);
   border-radius: var(--ait-r-sm); padding: 0 10px; height: 34px;
-  background: var(--ait-bg3); color: var(--ait-text); width: 100%;
+  background: #ffffff; color: var(--ait-text); width: 100%;
 }
 .ai-team-page .ait-field textarea { height: 80px; padding: 8px 10px; resize: vertical; }
 .ai-team-page .ait-fg-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

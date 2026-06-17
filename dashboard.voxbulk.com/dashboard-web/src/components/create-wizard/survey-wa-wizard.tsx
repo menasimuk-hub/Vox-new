@@ -123,8 +123,6 @@ export type SurveyWaWizardProps = {
   patchRecipientPending?: boolean;
   surveyId?: string | null;
   onEnsureDraft?: () => void | Promise<void>;
-  uploadTypeAck: boolean;
-  setUploadTypeAck: (v: boolean) => void;
   uploadConsent: boolean;
   setUploadConsent: (v: boolean) => void;
   launchConsent: boolean;

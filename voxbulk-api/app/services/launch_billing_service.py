@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +23,9 @@ from app.services.billing_currency import money_display, resolve_org_currency
 from app.services.plan_price_service import PlanPriceService
 
 logger = logging.getLogger(__name__)
+
+# PAYG launches hold 125% of estimated cost to cover calls running longer than estimate.
+PAYG_WALLET_BUFFER_MULTIPLIER = 1.25
 
 
 class LaunchBillingError(ValueError):
@@ -137,24 +141,35 @@ class LaunchBillingService:
         from app.services.wallet_service import WalletService
 
         wallet_balance = WalletService.balance_minor(org)
-        total = max(0, int(total_minor or 0))
+        estimated_cost = max(0, int(total_minor or 0))
+        required_wallet = (
+            math.ceil(estimated_cost * PAYG_WALLET_BUFFER_MULTIPLIER)
+            if estimated_cost > 0 and not collect_by_dd
+            else estimated_cost
+        )
 
-        if total <= 0:
+        if estimated_cost <= 0:
             wallet_charge = 0
             dd_charge = 0
             method = "allowance"
             can_launch = True
             block_reason = None
-        elif wallet_balance >= total:
-            wallet_charge = total
+        elif collect_by_dd and wallet_balance >= estimated_cost:
+            wallet_charge = estimated_cost
             dd_charge = 0
             method = "wallet"
             can_launch = True
             block_reason = None
         elif collect_by_dd:
             wallet_charge = 0
-            dd_charge = total
+            dd_charge = estimated_cost
             method = "direct_debit"
+            can_launch = True
+            block_reason = None
+        elif wallet_balance >= required_wallet:
+            wallet_charge = required_wallet
+            dd_charge = 0
+            method = "wallet"
             can_launch = True
             block_reason = None
         else:
@@ -162,25 +177,38 @@ class LaunchBillingService:
             dd_charge = 0
             method = "blocked"
             can_launch = False
-            shortfall = total - wallet_balance
+            shortfall = required_wallet - wallet_balance
+            hold_display = money_display(required_wallet, currency)
+            est_display = money_display(estimated_cost, currency)
             block_reason = (
-                f"Wallet balance is insufficient — {money_display(total, currency)} required, "
-                f"{money_display(wallet_balance, currency)} available. "
-                f"Top up at least {money_display(shortfall, currency)} to launch."
+                f"Estimated cost {est_display}. We hold 125% ({hold_display}) for longer calls. "
+                f"Your wallet has {money_display(wallet_balance, currency)} — "
+                f"top up at least {money_display(shortfall, currency)} to launch."
             )
 
         return {
             **base,
             "currency": currency,
-            "total_minor": total,
-            "total_display": money_display(total, currency),
+            "estimated_cost_minor": estimated_cost,
+            "estimated_cost_display": money_display(estimated_cost, currency),
+            "required_wallet_minor": required_wallet if not collect_by_dd else estimated_cost,
+            "required_wallet_display": money_display(
+                required_wallet if not collect_by_dd else estimated_cost, currency
+            ),
+            "wallet_buffer_percent": int(PAYG_WALLET_BUFFER_MULTIPLIER * 100) if not collect_by_dd else 100,
+            "total_minor": estimated_cost,
+            "total_display": money_display(estimated_cost, currency),
             "wallet_charge_minor": wallet_charge,
             "wallet_charge_display": money_display(wallet_charge, currency),
             "dd_charge_minor": dd_charge,
             "dd_charge_display": money_display(dd_charge, currency),
             "wallet_balance_minor": wallet_balance,
             "wallet_balance_display": money_display(wallet_balance, currency),
-            "wallet_shortfall_minor": max(0, total - wallet_balance) if method == "blocked" else 0,
+            "wallet_shortfall_minor": max(0, required_wallet - wallet_balance) if method == "blocked" else 0,
+            "top_up_minor": max(0, required_wallet - wallet_balance) if method == "blocked" else 0,
+            "top_up_display": money_display(max(0, required_wallet - wallet_balance), currency)
+            if method == "blocked"
+            else None,
             "payment_method": method,
             "can_launch": can_launch,
             "block_reason": block_reason,

@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu, MonitorDown } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -18,6 +18,7 @@ import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 import { brandAssets } from "@/lib/brand";
+import { usePwaInstall } from "@/hooks/use-pwa-install";
 
 function AiBrandIcon({ className }: { className?: string }) {
   return <img src={brandAssets.iconDark} alt="" className={className} aria-hidden />;
@@ -36,6 +37,25 @@ function SidebarToggle() {
       <Menu className="size-4" />
       <span className="sr-only">Toggle sidebar</span>
     </button>
+  );
+}
+
+function PwaInstallButton() {
+  const { canInstall, install } = usePwaInstall();
+  if (!canInstall) return null;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="hidden h-8 gap-1.5 px-2 sm:inline-flex sm:h-9 sm:px-3"
+      onClick={() => void install()}
+      aria-label="Install VoxBulk app"
+      title="Install to desktop"
+    >
+      <MonitorDown className="size-4" />
+      <span className="hidden text-xs font-medium md:inline">Install app</span>
+    </Button>
   );
 }
 
@@ -76,6 +96,7 @@ export function TopBar() {
           <Sparkles className="size-4 text-amber-300 animate-pulse" />
           <span className="hidden text-xs font-semibold sm:inline">Ask AI</span>
         </Button>
+        <PwaInstallButton />
         <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
@@ -341,21 +362,10 @@ export function LiveChatFab() {
 
   return (
     <>
-      {!chatOpen ? (
-        <button
-          type="button"
-          onClick={openChat}
-          aria-label="Open VoxBulk AI assistant"
-          className="fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full bg-[#0f1b3d] text-white shadow-[0_0_18px_rgba(15,27,61,0.35)] transition hover:scale-105 active:scale-95"
-        >
-          <Sparkles className="size-6 text-amber-300 animate-pulse" />
-        </button>
-      ) : null}
-
       {chatOpen && (
         <div
-          className="fixed z-20 flex h-[min(520px,calc(100vh-6rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl touch-none"
-          style={{ bottom: 72, right: 16, transform: `translate(${pos.x}px, ${pos.y}px)` }}
+          className="fixed z-50 flex h-[min(520px,calc(100vh-6rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-popover shadow-2xl touch-none"
+          style={{ bottom: 16, right: 16, transform: `translate(${pos.x}px, ${pos.y}px)` }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

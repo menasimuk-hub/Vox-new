@@ -163,10 +163,10 @@ export function getPublicSignInUrl() {
   if (raw) return raw;
   if (typeof window !== "undefined") {
     const h = window.location.hostname;
-    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "http://localhost:5173/signin";
-    if (h === "dashboard.voxbulk.com") return "https://voxbulk.com/signin";
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "/login";
+    if (h === "dashboard.voxbulk.com") return "/login";
   }
-  return "/signin";
+  return "/login";
 }
 
 const DEV_PUBLIC_MARKETING = "http://localhost:5173";
@@ -205,7 +205,7 @@ export function logoutDashboard() {
   } catch {
     /* ignore */
   }
-  window.location.replace(getPublicLogoutLandingUrl());
+  window.location.replace("/login?logout=1");
 }
 
 export function redirectToSignIn() {

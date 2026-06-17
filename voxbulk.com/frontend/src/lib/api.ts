@@ -236,14 +236,30 @@ export type InvitePreview = {
   role: string | null;
 };
 
+function localDevHandoffUrl(raw: string, localOrigin: string, productionFallback: string) {
+  if (isViteDevelopment() && isLocalDevHost()) {
+    const lower = raw.toLowerCase();
+    if (
+      !raw ||
+      lower.includes("admin.voxbulk.com") ||
+      lower.includes("dashboard.voxbulk.com") ||
+      lower.includes("admin.microgreenia.com") ||
+      lower.includes("dashboard.microgreenia.com")
+    ) {
+      return localOrigin;
+    }
+  }
+  return normalizeHandoffBaseUrl(raw, productionFallback);
+}
+
 export function getDashboardUrl() {
   const raw = String(import.meta.env.VITE_POST_LOGIN_DASHBOARD_URL || "").trim().replace(/\/+$/, "");
-  return normalizeHandoffBaseUrl(raw, "https://dashboard.voxbulk.com");
+  return localDevHandoffUrl(raw, "http://127.0.0.1:5175", "https://dashboard.voxbulk.com");
 }
 
 export function getAdminUrl() {
   const raw = String(import.meta.env.VITE_POST_LOGIN_ADMIN_URL || "").trim().replace(/\/+$/, "");
-  return normalizeHandoffBaseUrl(raw, "https://admin.voxbulk.com");
+  return localDevHandoffUrl(raw, "http://127.0.0.1:5174", "https://admin.voxbulk.com");
 }
 
 function buildAuthHandoffUrl(base: string) {

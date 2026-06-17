@@ -854,6 +854,32 @@ def get_survey_launch_eligibility(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{order_id}/interview/launch-eligibility")
+def get_interview_launch_eligibility(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.models.organisation import Organisation
+    from app.services.billing_currency import currency_symbol
+    from app.services.interview_launch_eligibility_service import InterviewLaunchEligibilityService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Launch eligibility is only for interview orders")
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        payload = InterviewLaunchEligibilityService.compute(db, order, org)
+        payload["currency_symbol"] = currency_symbol(str(payload.get("currency") or "GBP"))
+        return payload
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/{order_id}/survey/launch")
 def launch_survey_campaign(
     order_id: str,
@@ -1502,7 +1528,15 @@ def launch_interview_after_payment(
     body = payload if isinstance(payload, dict) else {}
     try:
         if order.payment_status != "approved":
-            order = InterviewLaunchService.approve_for_subscription_package(db, order, org)
+            from app.services.interview_launch_eligibility_service import (
+                InterviewLaunchEligibilityError,
+                InterviewLaunchEligibilityService,
+            )
+
+            try:
+                order = InterviewLaunchEligibilityService.approve_if_covered(db, order, org)
+            except InterviewLaunchEligibilityError as e:
+                raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
         launch_channels = body.get("channels")
         if not launch_channels:
             launch_channels = ["email", "whatsapp"]

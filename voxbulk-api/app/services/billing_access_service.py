@@ -115,7 +115,12 @@ class BillingAccessService:
         return str(sub.status or "").strip().lower() == "pending_first_payment"
 
     @staticmethod
-    def launch_block_reason(db: Session, org: Organisation) -> str | None:
+    def launch_block_reason(
+        db: Session,
+        org: Organisation,
+        *,
+        payg_wallet_launch: bool = False,
+    ) -> str | None:
         exceeded, detail = BillingAccessService.credit_limit_exceeded(db, org)
         if exceeded:
             return (
@@ -123,7 +128,7 @@ class BillingAccessService:
                 f"({detail['credit_limit_display']}). Pay or resolve open invoices before launching."
             )
         mandate_block = BillingAccessService.mandate_blocks_launch(db, org.id)
-        if mandate_block:
+        if mandate_block and not payg_wallet_launch:
             return mandate_block
         sub = BillingAccessService.get_subscription(db, org.id)
         if sub is not None:
@@ -133,9 +138,13 @@ class BillingAccessService:
             )
 
             cancel_status = str(sub.cancellation_status or "none").strip().lower()
-            if cancel_status == CANCELLATION_CANCELLED or SubscriptionCancellationService.effective_status(sub) == "cancelled":
+            cancelled = (
+                cancel_status == CANCELLATION_CANCELLED
+                or SubscriptionCancellationService.effective_status(sub) == "cancelled"
+            )
+            if cancelled and not payg_wallet_launch:
                 return "Your subscription has ended. Choose a plan on Packages & pricing to launch new campaigns."
-            if str(sub.status or "").strip().lower() == "past_due":
+            if str(sub.status or "").strip().lower() == "past_due" and not payg_wallet_launch:
                 return "Your account has a past-due invoice. Resolve billing before launching new campaigns."
         return None
 
