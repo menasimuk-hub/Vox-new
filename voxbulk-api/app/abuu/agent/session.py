@@ -146,6 +146,8 @@ def load_session(
         resolved_restaurant = None
         context.pop("restaurant_id", None)
         context.pop("restaurant_selected", None)
+        active_order_id = None
+        order = None
     elif not context.get("restaurant_selected"):
         resolved_restaurant = None
         context.pop("restaurant_id", None)

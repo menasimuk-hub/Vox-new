@@ -93,7 +93,11 @@ def _record_agent_final_order(
     if order is None:
         return
     requested = requested_restaurant_id or session.context.get("phase1_requested_restaurant_id")
-    if not requested and not session.restaurant_id and order.status == "cancelled":
+    if order.status in {"cancelled", "delivered"}:
+        return
+    if requested and str(order.restaurant_id or "") != str(requested):
+        return
+    if session.restaurant_id and str(order.restaurant_id or "") != str(session.restaurant_id):
         return
     VoiceOrderDebugService.record_final_order(
         abuu_db,

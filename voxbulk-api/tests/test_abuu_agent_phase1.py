@@ -390,6 +390,59 @@ def test_phase1_stage6_skips_stale_cancelled_on_clarify(mock_complete, abuu_seed
     mock_complete.assert_not_called()
 
 
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_load_session_clears_stale_cancelled_order(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    _db, fastfood, fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("deterministic path should handle VPS STT")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    phone = "+972509991011"
+    stt = "الوجبات السريعة أنت كاتب فوق الوجبات السريعة مدلي أشوف المنيو تبعها"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        stale = AbuuOrderDraftService.start_draft(abuu_db, customer=customer, restaurant=fish)
+        stale.status = "cancelled"
+        abuu_db.add(stale)
+        AbuuOrderDraftService.upsert_session(
+            abuu_db,
+            phone=phone,
+            step="browsing",
+            context={"restaurant_id": None, "restaurant_selected": False},
+            active_order_id=stale.id,
+        )
+        abuu_db.commit()
+        request_id = VoiceOrderDebugService.begin(
+            abuu_db,
+            customer_phone=phone,
+            message_id="phase1-stale-load",
+            pipeline="agent",
+        )
+        set_debug_request_id(request_id)
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=stt,
+            input_source="voice",
+            message_id="phase1-stale-load",
+        )
+        abuu_db.commit()
+        session = load_session(abuu_db, phone)
+        bundle = VoiceOrderDebugService.get_bundle(abuu_db, request_id)
+
+    assert result["restaurant_id"] == FASTFOOD_ID
+    assert session.active_order_id != stale.id
+    assert session.restaurant_id == FASTFOOD_ID
+    stage6 = bundle["stages"]["6_final_order"]
+    assert stage6["requested_restaurant_id"] == FASTFOOD_ID
+    assert stage6["active_order_restaurant_id"] == FASTFOOD_ID
+    assert stage6["restaurant_match"] is True
+    assert stage6["active_order"]["status"] == "draft"
+    mock_complete.assert_not_called()
+
+
 def test_phase1_guard_blocks_change_restaurant_no_mutation(abuu_seeded, phase1_env):
     _db, _fastfood, fish = abuu_seeded
     from app.core.abuu_database import get_abuu_sessionmaker
