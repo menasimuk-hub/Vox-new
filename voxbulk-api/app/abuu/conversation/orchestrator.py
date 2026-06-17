@@ -28,6 +28,15 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def _menu_browse_slot(text: str) -> bool:
+    from app.abuu.agent.intent_gate import is_menu_browse_request
+    from app.abuu.agent.pending_action import has_explicit_cart_noun
+
+    if has_explicit_cart_noun(text):
+        return False
+    return is_menu_browse_request(text)
+
+
 class AbuuConversationOrchestrator:
     @staticmethod
     def handle(
@@ -83,7 +92,7 @@ class AbuuConversationOrchestrator:
                     "branch": branch,
                 }
 
-        if is_cart_inquiry(text):
+        if is_cart_inquiry(text, menu_browse=_menu_browse_slot(text)):
             reply = format_cart_summary_for_session(abuu_db, session, lang)
             session.messages.append({"role": "user", "content": text})
             session.messages.append({"role": "assistant", "content": reply})

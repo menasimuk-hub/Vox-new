@@ -17,13 +17,12 @@ from app.abuu.agent.pending_action import (
     clear_transactional_context,
     format_cart_summary_for_session,
     get_pending_action,
-    is_affirmative_reply,
     is_cart_inquiry,
     is_explicit_flow_exit,
-    is_negative_reply,
     merge_pending_items,
     parse_pending_quantity_edit,
     pending_edit_hint,
+    score_pending_intent,
 )
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.agent.usage_help import is_usage_help_request
@@ -122,22 +121,36 @@ def classify_turn_intent(
     state: ConversationState | None = None,
 ) -> TurnIntent:
     current_state = state or derive_state(session)
-    normalized = _normalized(text)
+    from app.abuu.agent.intent_gate import is_menu_browse_request
 
     if is_usage_help_request(text):
         return "usage_help"
     if is_explicit_flow_exit(text) or is_restaurant_list_message(text):
         return "exit_flow"
-    if is_affirmative_reply(text):
-        return "confirm"
-    if is_negative_reply(text):
-        return "cancel"
 
-    menu_browse = bool(re.search(r"منيو|قائمة|menu", normalized, re.I))
+    menu_browse = is_menu_browse_request(text) or bool(
+        re.search(r"منيو|قائمة|menu", _normalized(text), re.I)
+    )
+
+    pending = get_pending_action(session)
+    if pending is not None or current_state == "cart_confirmation":
+        intent_name, confidence = score_pending_intent(text, menu_browse=menu_browse)
+        if confidence >= 0.45:
+            mapping: dict[str, TurnIntent] = {
+                "confirm": "confirm",
+                "cancel": "cancel",
+                "cart": "cart_inquiry",
+                "qty_edit": "qty_edit",
+                "add_items": "menu_pick",
+                "correction": "correction_pivot",
+            }
+            mapped = mapping.get(intent_name)
+            if mapped:
+                return mapped
+
     if is_cart_inquiry(text, menu_browse=menu_browse):
         return "cart_inquiry"
 
-    pending = get_pending_action(session)
     if pending is not None:
         if parse_pending_quantity_edit(text, pending, lang=session.language or "ar"):
             return "qty_edit"

@@ -61,6 +61,14 @@ def is_tool_error_result(result: str) -> bool:
     return any(text.startswith(prefix) for prefix in _ERROR_PREFIXES)
 
 
+def is_proposal_success(tool_name: str, result: str, session: AgentSession) -> bool:
+    if str(tool_name or "").strip() != "propose_add_to_cart":
+        return False
+    from app.abuu.agent.pending_action import get_pending_action
+
+    return not is_tool_error_result(result) and get_pending_action(session) is not None
+
+
 def validate_tool_call(
     *,
     tool_name: str,

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from sqlalchemy.orm import Session
+
 from app.abuu.models.entities import CustomerOrder, Restaurant, RestaurantMenuItem
 
 
@@ -179,6 +183,23 @@ def conversational_menu_message(
         lines.append(f"{idx}. {label} — {format_shekel(item.price_agorot)}")
     lines.append(menu_keyboard_hint(lang).strip())
     return "\n".join(lines)
+
+
+def format_pending_confirmation(
+    db: Session,
+    *,
+    restaurant_id: str,
+    items: list[dict[str, Any]],
+    lang: str,
+) -> str:
+    from app.abuu.agent.pending_action import format_proposal_message
+
+    return format_proposal_message(
+        db,
+        restaurant_id=restaurant_id,
+        items=items,
+        lang=lang,
+    )
 
 
 def order_status_message(order: CustomerOrder, assignment, lang: str) -> str:

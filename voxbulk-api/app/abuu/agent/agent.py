@@ -11,14 +11,14 @@ from sqlalchemy.orm import Session
 
 from app.abuu.agent.gaza_context import prefetch_gaza_agent_context
 from app.abuu.agent.intent_gate import phase1_enabled
-from app.abuu.agent.pending_action import get_pending_action
+from app.abuu.agent.pending_action import get_pending_action, pending_edit_hint, reply_from_pending_session
 from app.abuu.agent.prefetch import prefetch_offers, prefetch_restaurant_list
 from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
 from app.abuu.agent.session_reset import clear_restaurant_binding, hard_reset_session, is_offer_query, is_session_reset_message
 from app.abuu.services.intent_service import is_abuu_start_message
 from app.abuu.agent.skills import enabled_openai_tools, execute_tool
-from app.abuu.agent.tool_guard import execute_tool_guarded, is_tool_error_result
+from app.abuu.agent.tool_guard import execute_tool_guarded, is_proposal_success, is_tool_error_result
 from app.abuu.agent.turn_router import try_turn_router_reply
 from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -348,6 +348,8 @@ class AbuuAgentLoop:
         tool_rounds = 0
         tool_executions = 0
         tool_failures = 0
+        last_tool_result: str | None = None
+        last_tool_name: str | None = None
         for turn_idx in range(max_turns):
             turn_num = turn_idx + 1
             if phase1 and tool_rounds >= phase1_max_tool_rounds and tool_failures > 0:
@@ -423,6 +425,8 @@ class AbuuAgentLoop:
                             tool_input=tool_input,
                         )
                     tool_executions += 1
+                    last_tool_result = str(result or "")
+                    last_tool_name = call.name
                     if phase1 and is_tool_error_result(result):
                         tool_failures += 1
                     agent_trace.llm_tool(
@@ -441,6 +445,16 @@ class AbuuAgentLoop:
                             "content": result,
                         }
                     )
+                    if is_proposal_success(call.name, result, session):
+                        agent_trace.llm_reply(
+                            phone=phone,
+                            msg_id=message_id,
+                            correlation_id=correlation_id,
+                            turn=turn_num,
+                            reply_preview=agent_trace.clip(result),
+                            action="propose_short_circuit",
+                        )
+                        return result
                 if phase1 and tool_failures > 0:
                     break
                 continue
@@ -468,33 +482,45 @@ class AbuuAgentLoop:
                 )
                 return completion.assistant_text
 
-        if phase1 and tool_failures > 0:
+        lang = session.language or "ar"
+        pending = get_pending_action(session)
+        active_flow = str(session.context.get("active_flow") or "")
+        parse_error = "max_turns_exceeded"
+
+        if pending or active_flow == "cart_confirmation":
+            if (
+                last_tool_name == "propose_add_to_cart"
+                and last_tool_result
+                and not is_tool_error_result(last_tool_result)
+            ):
+                fallback = last_tool_result
+                parse_error = "propose_short_circuit_fallback"
+            else:
+                rebuilt = reply_from_pending_session(abuu_db, session, lang)
+                if rebuilt:
+                    fallback = rebuilt
+                    parse_error = "pending_rebuilt_fallback"
+                else:
+                    fallback = pending_edit_hint(lang)
+                    parse_error = "transactional_confirm_clarify"
+        elif phase1 and tool_failures > 0:
             last_tool = collected_tool_calls[-1]["name"] if collected_tool_calls else ""
-            pending = get_pending_action(session)
-            active_flow = str(session.context.get("active_flow") or "")
-            if pending or active_flow == "cart_confirmation":
-                fallback = (
-                    "ما فهمت تأكيدك. قول نعم أو لا."
-                    if session.language == "ar"
-                    else "I didn't catch that. Say yes or no."
-                )
-                parse_error = "transactional_confirm_clarify"
-            elif last_tool == "change_restaurant":
+            if last_tool == "change_restaurant":
                 fallback = (
                     "ما قدرت أغيّر المطعم. قول اسم المطعم أو اعرض المطاعم."
-                    if session.language == "ar"
+                    if lang == "ar"
                     else "I couldn't switch restaurants. Say a restaurant name or ask for the list."
                 )
                 parse_error = "phase1_tool_blocked"
             else:
                 fallback = (
                     "كيف أقدر أساعدك في طلبك؟"
-                    if session.language == "ar"
+                    if lang == "ar"
                     else "How can I help with your order?"
                 )
                 parse_error = "phase1_tool_blocked"
         else:
-            fallback = "كيف أقدر أساعدك في طلبك؟" if session.language == "ar" else "How can I help with your order?"
+            fallback = "كيف أقدر أساعدك في طلبك؟" if lang == "ar" else "How can I help with your order?"
             parse_error = "max_turns_exceeded"
         if debug_enabled() and input_source == "voice":
             VoiceOrderDebugService.record_llm_raw(abuu_db, raw_response=last_raw_response or fallback)
@@ -517,7 +543,13 @@ class AbuuAgentLoop:
             correlation_id=correlation_id,
             turn=max_turns,
             reply_preview=agent_trace.clip(fallback),
-            action="agent_fallback" if parse_error == "max_turns_exceeded" else "phase1_tool_blocked",
+            action=(
+                "agent_fallback"
+                if parse_error == "max_turns_exceeded"
+                else "propose_short_circuit"
+                if parse_error.startswith("propose_") or parse_error == "pending_rebuilt_fallback"
+                else "phase1_tool_blocked"
+            ),
         )
         agent_trace.turn_end(
             phone=phone,

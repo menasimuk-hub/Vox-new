@@ -34,9 +34,13 @@ _AFFIRMATIVE_PATTERNS = (
     re.compile(r"^\s*(yes|ok|okay|yep|yeah|sure|add them|add it)\s*$", re.I),
     re.compile(r"^\s*(نعم|تمام|اوكي|أوكي|يلا|يلّا|موافق|أكيد|اكيد)\s*$"),
     re.compile(r"ضيفهم"),
+    re.compile(r"ضيفوا"),
     re.compile(r"أضيفهم"),
     re.compile(r"اضيفهم"),
     re.compile(r"على السلة"),
+    re.compile(r"مع السلة"),
+    re.compile(r"حطه"),
+    re.compile(r"حطهم"),
     re.compile(r"^add\s*$", re.I),
 )
 
@@ -89,6 +93,9 @@ def _normalized(text: str) -> str:
 
 
 def is_affirmative_reply(text: str) -> bool:
+    intent, confidence = score_pending_intent(text)
+    if intent == "confirm" and confidence >= 0.45:
+        return True
     normalized = _normalized(text)
     if not normalized:
         return False
@@ -96,10 +103,99 @@ def is_affirmative_reply(text: str) -> bool:
 
 
 def is_negative_reply(text: str) -> bool:
+    intent, confidence = score_pending_intent(text)
+    if intent == "cancel" and confidence >= 0.45:
+        return True
     normalized = _normalized(text)
     if not normalized:
         return False
     return any(p.search(normalized) for p in _NEGATIVE_PATTERNS)
+
+
+def _confirm_score(normalized: str) -> float:
+    score = 0.0
+    if re.search(r"(?:ضيف|أضف|اضف|add|حط|put)", normalized, re.I):
+        score += 0.85
+    if re.search(r"(?:تمام|نعم|أيو|ok|yes|يلا|موافق|أكيد|sure|yep|yeah)", normalized, re.I):
+        score += 0.5
+    if score > 0 and re.search(r"(?:سل|cart|basket)", normalized, re.I):
+        score += 0.25
+    return score
+
+
+def _cancel_score(normalized: str) -> float:
+    if re.search(r"(?:^|\s)(?:no|nope|cancel|stop|لا|لأ|بديش|مش)(?:\s|$)", normalized, re.I):
+        return 0.85
+    return 0.0
+
+
+def score_pending_intent(text: str, *, menu_browse: bool = False) -> tuple[str, float]:
+    """Semantic pending intent: meaning over exact phrase matching."""
+    from app.abuu.voice_interpretation.normalize import normalize_ordering_text
+
+    normalized = normalize_ordering_text(str(text or "").strip(), language="ar")
+    if not normalized:
+        return "defer", 0.0
+
+    scores: dict[str, float] = {}
+
+    if is_cart_inquiry(text, menu_browse=menu_browse):
+        scores["cart"] = 0.92
+
+    from app.abuu.agent.menu_pick_parser import parse_menu_pick_tokens
+
+    if parse_menu_pick_tokens(text):
+        scores["add_items"] = 0.88
+
+    if re.search(r"(?:زيد|زود|increase|more)", normalized, re.I):
+        scores["qty_edit"] = max(scores.get("qty_edit", 0.0), 0.65)
+
+    qty = parse_quantity_from_text(text)
+    if qty is not None and not parse_menu_pick_tokens(text):
+        scores["qty_edit"] = max(scores.get("qty_edit", 0.0), 0.75)
+
+    if re.search(r"(?:كمان|also|too|اضف|أضف|add)", normalized, re.I):
+        if not re.search(r"(?:لا|مو|no|not|بدل|instead)", normalized, re.I):
+            scores["add_items"] = max(scores.get("add_items", 0.0), 0.55)
+
+    want_more = bool(re.search(r"(?:^|\s)(?:بدي|bade|badde|want)(?:\s|$)", normalized, re.I))
+
+    if re.search(r"(?:بدل|instead|replace)", normalized, re.I):
+        scores["correction"] = 0.82
+    elif (
+        qty is None
+        and not want_more
+        and re.search(r"(?:^|\s)(?:لا|لأ|مو|بديش|بدون)(?:\s|$)", normalized, re.I)
+        and re.search(
+            r"(?:دجاج|سمك|لحم|حلو|سلط|مشروب|chicken|fish|meat|salad|dessert)",
+            normalized,
+            re.I,
+        )
+    ):
+        scores["correction"] = 0.82
+
+    if scores.get("qty_edit", 0) >= 0.6:
+        scores["correction"] = scores.get("correction", 0.0) * 0.1
+
+    cancel = _cancel_score(normalized)
+    if cancel >= 0.6 and "add_items" not in scores:
+        scores["cancel"] = cancel
+
+    confirm = _confirm_score(normalized)
+    if confirm >= 0.45:
+        scores["confirm"] = confirm
+
+    if scores.get("qty_edit", 0) >= 0.6 and scores.get("confirm", 0) > 0:
+        scores["confirm"] *= 0.25
+
+    if not scores:
+        return "defer", 0.0
+
+    best = max(scores, key=lambda k: scores[k])
+    confidence = scores[best]
+    if confidence < 0.45:
+        return "defer", confidence
+    return best, confidence
 
 
 def has_explicit_cart_noun(text: str) -> bool:
@@ -476,7 +572,9 @@ def parse_pending_quantity_edit(
     normalized = normalize_ordering_text(str(text or "").strip(), language="ar")
     if not normalized:
         return None
-    if is_affirmative_reply(text) or is_negative_reply(text) or is_cart_inquiry(text):
+    if is_affirmative_reply(text) or is_negative_reply(text):
+        return None
+    if is_cart_inquiry(text):
         return None
     from app.abuu.agent.menu_pick_parser import parse_menu_pick_tokens
 
@@ -666,8 +764,13 @@ def format_proposal_message(
     for idx, row in enumerate(stored, start=1):
         item_name = row["name_ar"] if lang == "ar" else row["name_en"]
         item_name = item_name or row["name_en"] or row["name_ar"]
-        price = format_shekel(int(row["price_agorot"]))
-        lines.append(f"{idx}. *{item_name}* — {price}")
+        qty = max(1, int(row.get("quantity") or 1))
+        unit_price = int(row["price_agorot"])
+        if qty > 1:
+            line_total = format_shekel(unit_price * qty)
+            lines.append(f"{idx}. *{item_name}* × {qty} — {line_total}")
+        else:
+            lines.append(f"{idx}. *{item_name}* — {format_shekel(unit_price)}")
     subtotal = format_shekel(total)
     if lang == "ar":
         lines.append(f"\nالمجموع: *{subtotal}*" + (f" + توصيل {format_shekel(delivery_fee)}" if delivery_fee else ""))
@@ -676,6 +779,28 @@ def format_proposal_message(
         lines.append(f"\nSubtotal: *{subtotal}*" + (f" + delivery {format_shekel(delivery_fee)}" if delivery_fee else ""))
         lines.append(f"\n{confirmation_prompt(lang)}")
     return "\n".join(lines)
+
+
+def reply_from_pending_session(
+    db: Session,
+    session: AgentSession,
+    lang: str,
+) -> str | None:
+    pending = get_pending_action(session)
+    if pending is None:
+        return None
+    restaurant_id = str(pending.get("restaurant_id") or session.restaurant_id or "").strip()
+    if not restaurant_id:
+        return None
+    items = _pending_items_as_proposal_rows(pending)
+    if not items:
+        return None
+    return format_proposal_message(
+        db,
+        restaurant_id=restaurant_id,
+        items=items,
+        lang=lang,
+    )
 
 
 def propose_menu_picks_from_text(

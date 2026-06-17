@@ -128,8 +128,8 @@ def build_system_prompt(
                 "",
                 "Rules:",
                 "- Use tools for cart changes and confirmations.",
-                "- When offering specific dishes and asking to add them, you MUST call propose_add_to_cart first, then ask confirmation in your reply.",
-                "- Never ask 'أضيفهم عالسلة؟' without having called propose_add_to_cart in the same turn.",
+                "- When offering specific dishes, call propose_add_to_cart — the tool reply is sent to the customer as the confirmation message.",
+                "- Do not repeat 'أضيفهم عالسلة؟' in a follow-up assistant message after propose_add_to_cart; the tool output already includes it.",
                 "- Never assume a restaurant without customer choice.",
             ]
         )

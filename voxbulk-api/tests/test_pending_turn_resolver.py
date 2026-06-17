@@ -261,3 +261,15 @@ def test_orchestrator_pending_qty_edit(mock_deepseek, abuu_seeded, phase1_env):
     assert pending is not None
     assert pending["items"][0]["quantity"] == 3
     assert "ما فهمت تأكيدك" not in result["reply"]
+
+
+def test_confirm_composite_phrase_via_router(abuu_seeded, phase1_env):
+    db, _ = abuu_seeded
+    phone = "+972509993010"
+    customer, session = _setup_multi_pending(db, phone)
+
+    routed = try_turn_router_reply(db, session, customer=customer, user_text="تمام تمام ضيفوا مع السلة")
+    assert routed is not None
+    reply, branch, _ = routed
+    assert branch == "transactional_pending_confirmed"
+    assert "أضفتهم" in reply or "السلة" in reply
