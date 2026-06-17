@@ -46,16 +46,15 @@ _NEGATIVE_PATTERNS = (
 
 _CART_INQUIRY_PATTERNS = (
     re.compile(r"السلة"),
-    re.compile(r"سلة"),
+    re.compile(r"\bسلة\b"),
     re.compile(r"cart", re.I),
     re.compile(r"شو عندي"),
     re.compile(r"ايش عندي"),
     re.compile(r"إيش عندي"),
-    re.compile(r"شو في"),
-    re.compile(r"ايش في"),
     re.compile(r"كم صار"),
     re.compile(r"كم المجموع"),
     re.compile(r"what.*cart", re.I),
+    re.compile(r"(ايش|شو|إيش)\s+في\s+(ال)?سلة"),
 )
 
 _EXPLICIT_EXIT_PATTERNS = (
@@ -89,9 +88,22 @@ def is_negative_reply(text: str) -> bool:
     return any(p.search(normalized) for p in _NEGATIVE_PATTERNS)
 
 
-def is_cart_inquiry(text: str) -> bool:
+def has_explicit_cart_noun(text: str) -> bool:
     normalized = _normalized(text)
     if not normalized:
+        return False
+    return bool(
+        re.search(r"السلة|\bسلة\b|cart|عندي|المجموع|الطلب", normalized, re.I)
+    )
+
+
+def is_cart_inquiry(text: str, *, menu_browse: bool = False) -> bool:
+    if menu_browse:
+        return False
+    normalized = _normalized(text)
+    if not normalized:
+        return False
+    if re.search(r"منيو|قائمة|menu", normalized, re.I):
         return False
     return any(p.search(normalized) for p in _CART_INQUIRY_PATTERNS)
 

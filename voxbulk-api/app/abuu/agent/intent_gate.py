@@ -401,81 +401,14 @@ def try_deterministic_reply(
     customer: CustomerProfile,
     user_text: str,
 ) -> tuple[str, Phase1Branch] | None:
-    if not phase1_enabled():
+    """Backward-compatible shim; use try_turn_router_reply instead."""
+    from app.abuu.agent.turn_router import try_turn_router_reply
+
+    result = try_turn_router_reply(db, session, customer=customer, user_text=user_text)
+    if result is None:
         return None
-
-    lang = session.language or "ar"
-
-    if is_cart_inquiry(user_text):
-        summary = format_cart_summary_for_session(db, session, lang)
-        return summary, "phase1_cart_summary"
-
-    transactional = is_transactional_flow(session)
-    explicit_exit = is_explicit_flow_exit(user_text)
-
-    if not session.context.get("prefetched_restaurant_list") and not session.restaurant_id:
-        prefetch_restaurant_list(db, session, customer_id=customer.id)
-
-    ranked_rows = freeze_turn_restaurant_snapshot(db, session, customer_id=customer.id)
-    ranked = ranked_from_snapshot(db, ranked_rows)
-
-    if not session.restaurant_id and is_restaurant_list_message(user_text):
-        listing = session.context.get("prefetched_restaurant_list")
-        if isinstance(listing, str) and listing.strip():
-            return listing, "phase1_restaurant_list"
-
-    intent = extract_intent(db, text=user_text, ranked=ranked)
-
-    if intent.action == "show_menu" and intent.confidence == "low" and not session.restaurant_id:
-        if transactional and not explicit_exit:
-            return None
-        if lang == "ar":
-            return (
-                "من أي مطعم بدك تشوف المنيو؟ اكتب اسم المطعم أو قول اعرض المطاعم.",
-                "phase1_menu_clarify",
-            )
-        return (
-            "Which restaurant menu should I show? Say the restaurant name or ask for the list.",
-            "phase1_menu_clarify",
-        )
-
-    if intent.confidence != "high" or intent.action == "none":
-        category_reply = try_category_without_restaurant_reply(
-            db, session, user_text=user_text, ranked_rows=ranked_rows
-        )
-        if category_reply is not None:
-            if transactional and not explicit_exit:
-                return None
-            return category_reply, "phase1_category_clarify"
-        return None
-
-    restaurant = db.get(Restaurant, intent.restaurant_id) if intent.restaurant_id else None
-    if restaurant is None:
-        return None
-
-    switched = apply_restaurant_selection(
-        db,
-        session,
-        customer=customer,
-        restaurant=restaurant,
-        ranked_rows=ranked_rows,
-    )
-    name = localized_name(restaurant, lang)
-    prefix = cart_cleared_notice(lang) if switched else ""
-    if intent.action == "select_restaurant_and_show_menu":
-        menu_text = format_restaurant_menu(
-            db,
-            restaurant_id=restaurant.id,
-            lang=lang,
-            customer=customer,
-        )
-        if lang == "ar":
-            return f"{prefix}هذا منيو {name}:\n{menu_text}", "phase1_select_and_menu"
-        return f"{prefix}Here is the menu for {name}:\n{menu_text}", "phase1_select_and_menu"
-
-    if lang == "ar":
-        return f"{prefix}تم اختيار {name}. ماذا تحب أن تأكل؟", "phase1_select"
-    return f"{prefix}Selected {name}. What would you like to eat?", "phase1_select"
+    reply, branch, _slots = result
+    return reply, branch  # type: ignore[return-value]
 
 
 def user_named_target_restaurant(

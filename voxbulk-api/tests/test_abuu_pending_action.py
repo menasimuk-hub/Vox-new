@@ -18,7 +18,7 @@ from app.abuu.agent.pending_action import (
     set_pending_add_items,
 )
 from app.abuu.agent.session import load_session, save_session
-from app.abuu.agent.transactional_gate import try_transactional_reply
+from app.abuu.agent.turn_router import try_turn_router_reply
 from app.abuu.agent.intent_gate import try_deterministic_reply
 from app.abuu.models.entities import Restaurant
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -223,11 +223,10 @@ def test_expired_pending_not_applied(abuu_seeded):
     session = load_session(db, phone)
     assert get_pending_action(session) is None
 
-    reply = try_transactional_reply(db, session, customer=customer, user_text="نعم")
-    assert reply is None
+    assert try_turn_router_reply(db, session, customer=customer, user_text="نعم") is None
 
 
-def test_binding_restored_from_pending_on_load(abuu_seeded):
+def test_binding_restored_from_pending_on_load(abuu_seeded, phase1_env):
     db, _veg = abuu_seeded
     phone = "+972509992007"
     customer = AbuuOrderDraftService.get_or_create_customer(db, phone, lang="ar")
@@ -255,9 +254,9 @@ def test_binding_restored_from_pending_on_load(abuu_seeded):
     assert session.restaurant_id == VEGETARIAN_ID
     assert session.context.get("restaurant_selected") is True
 
-    reply = try_transactional_reply(db, session, customer=customer, user_text="تمام")
-    assert reply is not None
-    text, branch = reply
+    routed = try_turn_router_reply(db, session, customer=customer, user_text="تمام")
+    assert routed is not None
+    text, branch, _slots = routed
     assert branch == "transactional_pending_confirmed"
     assert "أضفتهم" in text
 
@@ -279,6 +278,6 @@ def test_intent_gate_cart_summary_not_menu_clarify(abuu_seeded, phase1_env):
     )
     assert result is not None
     reply, branch = result
-    assert branch == "phase1_cart_summary"
+    assert branch in {"phase1_cart_summary", "transactional_cart_summary"}
     assert "من أي مطعm" not in reply
     assert "من أي مطعم" not in reply
