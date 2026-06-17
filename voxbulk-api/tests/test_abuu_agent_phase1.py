@@ -20,6 +20,7 @@ from app.services.providers.openai_service import OpenAIResponse
 
 FASTFOOD_ID = "abuu-rest-fastfood"
 FISH_ID = "abuu-rest-fish"
+VEGETARIAN_ID = "abuu-rest-vegetarian"
 
 
 @pytest.fixture
@@ -332,6 +333,7 @@ def test_phase1_vps_stt_fastfood_menu(mock_complete, abuu_seeded, deepseek_confi
     assert result["restaurant_id"] == FASTFOOD_ID
     assert session.restaurant_id == FASTFOOD_ID
     assert "منيو" in result["reply"] or "برجر" in result["reply"] or "وجبة" in result["reply"]
+    assert "[id=" not in result["reply"]
     stage5 = bundle["stages"]["5_parsed"]
     assert stage5["parse_status"] == "ok"
     assert stage5["action"]["branch"] == "phase1_select_and_menu"
@@ -440,6 +442,69 @@ def test_phase1_load_session_clears_stale_cancelled_order(mock_complete, abuu_se
     assert stage6["active_order_restaurant_id"] == FASTFOOD_ID
     assert stage6["restaurant_match"] is True
     assert stage6["active_order"]["status"] == "draft"
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_bound_vegetarian_cart_switches_to_fastfood(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    _db, _fastfood, _fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("deterministic switch should not call LLM")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+    from app.abuu.models.entities import RestaurantMenuItem
+
+    phone = "+972509991012"
+    text = "وجبات سريعة، إيش المنيو تبع الوجبات السريعة؟"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        vegetarian = abuu_db.get(Restaurant, VEGETARIAN_ID)
+        assert vegetarian is not None
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        order = AbuuOrderDraftService.start_draft(abuu_db, customer=customer, restaurant=vegetarian)
+        item = abuu_db.get(RestaurantMenuItem, "abuu-item-veg-s1")
+        if item is None:
+            item = abuu_db.execute(
+                __import__("sqlalchemy", fromlist=["select"]).select(RestaurantMenuItem).limit(1)
+            ).scalar_one()
+        AbuuOrderDraftService.add_item(abuu_db, order, item, quantity=1)
+        AbuuOrderDraftService.upsert_session(
+            abuu_db,
+            phone=phone,
+            step="browsing",
+            context={"restaurant_id": vegetarian.id, "restaurant_selected": True},
+            active_order_id=order.id,
+        )
+        abuu_db.commit()
+        request_id = VoiceOrderDebugService.begin(
+            abuu_db,
+            customer_phone=phone,
+            message_id="phase1-veg-switch",
+            pipeline="agent",
+        )
+        set_debug_request_id(request_id)
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=text,
+            input_source="voice",
+            message_id="phase1-veg-switch",
+        )
+        abuu_db.commit()
+        session = load_session(abuu_db, phone)
+        bundle = VoiceOrderDebugService.get_bundle(abuu_db, request_id)
+
+    assert result["restaurant_id"] == FASTFOOD_ID
+    assert session.restaurant_id == FASTFOOD_ID
+    assert session.cart == []
+    assert "منيو" in result["reply"] or "برجر" in result["reply"]
+    assert "[id=" not in result["reply"]
+    assert "تفريغ" in result["reply"] or "منيو" in result["reply"]
+    stage5 = bundle["stages"]["5_parsed"]
+    assert stage5["action"]["branch"] == "phase1_select_and_menu"
+    stage6 = bundle["stages"]["6_final_order"]
+    assert stage6["requested_restaurant_id"] == FASTFOOD_ID
+    assert stage6["restaurant_match"] is True
     mock_complete.assert_not_called()
 
 

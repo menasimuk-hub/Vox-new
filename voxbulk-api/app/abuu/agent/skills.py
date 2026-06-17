@@ -286,7 +286,7 @@ def _refresh_cart(db: Session, session: Session, order: CustomerOrder | None) ->
     session.cart = _cart_from_order(db, order)
 
 
-def _format_menu_results(items: list[dict[str, Any]], lang: str) -> str:
+def _format_menu_results(items: list[dict[str, Any]], lang: str, *, include_ids: bool = False) -> str:
     if not items:
         return "No matching items found."
     lines: list[str] = []
@@ -295,7 +295,10 @@ def _format_menu_results(items: list[dict[str, Any]], lang: str) -> str:
         if not name:
             name = row["name_en"] or row["name_ar"]
         price = format_shekel(int(row.get("price_agorot") or row.get("price", 0) * 100))
-        lines.append(f"- {name} ({price}) [id={row['id']}]")
+        line = f"- {name} ({price})"
+        if include_ids:
+            line = f"{line} [id={row['id']}]"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -337,7 +340,7 @@ class AgentSkills:
             self.lang,
             customer=self.customer,
         )
-        return _format_menu_results(items, self.lang)
+        return _format_menu_results(items, self.lang, include_ids=True)
 
     def _tool_add_to_cart(self, inp: dict[str, Any]) -> str:
         restaurant_id = _require_restaurant(self.session)

@@ -95,7 +95,7 @@ Wait for reply between each test.
 |--|--|
 | **Send** | `وجبات سريعة، ايش المنيو تاع الوجبات السريعة؟` |
 | **Reply PASS** | Arabic fast-food menu (e.g. برجر); not fish/chicken |
-| **Stage 5 PASS** | `parse_status=ok`, `branch=phase1_deterministic`, `restaurant_id=abuu-rest-fastfood`, `tool_calls=[]` |
+| **Stage 5 PASS** | `parse_status=ok`, `branch=phase1_select_and_menu`, `restaurant_id=abuu-rest-fastfood`, `tool_calls=[]` |
 | **Stage 6 PASS** | `requested/active=abuu-rest-fastfood`, `restaurant_match=true`, `status=draft` |
 
 **Record after each test:** `python3 scripts/abuu_voice_order_debug.py latest` → save `order_request_id` in run log (Tests 1–5 + baseline OFF).
@@ -146,7 +146,7 @@ Wait for reply between each test.
 - **FAIL:** Empty, 16-digit WA ID, or unrelated garbage
 
 ### Stage 5
-- **PASS:** `parse_status=ok`, `parse_error=null` on happy path; `branch=phase1_deterministic` on Tests 1–2; no `change_restaurant({})` in `tool_calls` on deterministic paths
+- **PASS:** `parse_status=ok`, `parse_error=null` on happy path; `branch=phase1_select_and_menu` on Tests 1–2; no `change_restaurant({})` in `tool_calls` on deterministic paths
 - **FAIL:** `max_turns_exceeded`, wrong `restaurant_id`, speculative tool chains
 
 ### Stage 6
@@ -242,7 +242,7 @@ cd /www/voxbulk
 ### Confirm rollback
 
 1. Voice: `وجبات سريعة، ايش المنيو تاع الوجبات السريعة؟`
-2. **PASS:** No `branch=phase1_deterministic` in stage 5; pre-Phase-1 behavior restored.
+2. **PASS:** No `branch=phase1_select_and_menu` in stage 5; pre-Phase-1 behavior restored.
 3. **FAIL:** Still deterministic → wrong `.env` or restart did not apply.
 
 No DB migration rollback (flag-only).

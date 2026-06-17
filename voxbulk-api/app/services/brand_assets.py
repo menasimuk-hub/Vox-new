@@ -32,6 +32,7 @@ PUBLIC_ASSET_KEYS: tuple[str, ...] = (
     "icon-dark",
     "icon-light",
     "favicon",
+    "ya",
 )
 
 # Backwards-compatible alias map (legacy filenames without extension in PUBLIC_ASSETS).
@@ -47,6 +48,7 @@ _ASSET_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "icon-white": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
     "icon-dark": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
     "icon-light": (".png", ".svg", ".webp", ".jpg", ".jpeg"),
+    "ya": (".jpg", ".jpeg", ".png", ".webp"),
 }
 
 _STRIP_EXTENSIONS = (".svg", ".png", ".ico", ".jpg", ".jpeg", ".webp")

@@ -12,6 +12,7 @@ Place logo files here. The API serves them at `/public/brand/{name}`.
 | `calendar/calendar-google.png` | `https://api.voxbulk.com/public/brand/calendar-google` |
 | `calendar/calendar-outlook.png` | `https://api.voxbulk.com/public/brand/calendar-outlook` |
 | `calendar/calendar-apple.png` | `https://api.voxbulk.com/public/brand/calendar-apple` |
+| `ya.jpg` | `https://api.voxbulk.com/public/brand/ya` |
 
 **PNG is preferred for email** (Outlook blocks SVG and many external icon CDNs). SVG is fine for web/PDF.
 
