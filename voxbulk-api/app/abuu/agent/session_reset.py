@@ -88,6 +88,39 @@ def cancel_empty_draft(db: Session, order: CustomerOrder | None) -> None:
     AbuuOrderDraftService.cancel_draft(db, order)
 
 
+def hard_reset_session(db: Session, session: AgentSession) -> None:
+    """Clear cart, draft, messages, and restaurant binding (yallasay fresh start)."""
+    order = None
+    if session.active_order_id:
+        order = db.get(CustomerOrder, session.active_order_id)
+    if order is not None and order.status == "draft":
+        AbuuOrderDraftService.clear_draft_items(db, order)
+        AbuuOrderDraftService.cancel_draft(db, order)
+    session.active_order_id = None
+    session.cart = []
+    session.stage = "browsing"
+    session.restaurant_id = None
+    session.messages = []
+    for key in (
+        "restaurant_id",
+        "restaurant_selected",
+        "ranked_restaurants",
+        "prefetched_restaurant_list",
+        "prefetched_offers",
+        "prefetched_menu",
+        "menu_item_index",
+        "matched_offer_id",
+        "matched_offer_hint",
+        "offer_restaurant_switch_hint",
+        "confirmed_cart_fingerprint",
+        "last_food_search",
+        "voice_interpretation",
+        "awaiting_dish_pick",
+    ):
+        session.context.pop(key, None)
+    clear_session(db, session.customer_wa_number)
+
+
 def clear_restaurant_binding(db: Session, session: AgentSession, *, full_reset: bool = False) -> None:
     order = None
     if session.active_order_id:

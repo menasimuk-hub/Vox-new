@@ -24,6 +24,11 @@ def restaurant_list_page_size() -> int:
     return 15 if ignore_delivery_distance() else 5
 
 
+def _fish_offer_query(query: str) -> bool:
+    q = str(query or "").lower()
+    return any(token in q for token in ("سمك", "بحر", "fish", "seafood", "sea"))
+
+
 def _pilot_ids(db: Session) -> tuple[str, ...] | None:
     if not get_settings().abuu_pilot_only:
         return None
@@ -107,6 +112,28 @@ def prefetch_offers(db: Session, session: AgentSession, *, query: str = "") -> s
             restaurant_id=session.restaurant_id,
             limit=15,
         )
+        if not ranked or _fish_offer_query(cleaned_query):
+            global_ranked = rank_offers_by_query(
+                db,
+                cleaned_query,
+                restaurant_id=None,
+                limit=15,
+            )
+            if global_ranked and (
+                not ranked or global_ranked[0].score > ranked[0].score
+            ):
+                ranked = global_ranked
+                best = ranked[0]
+                if session.restaurant_id and best.offer.restaurant_id != session.restaurant_id:
+                    from app.abuu.models.entities import Restaurant
+
+                    rest = db.get(Restaurant, best.offer.restaurant_id)
+                    rest_name = rest.name_ar if rest and lang == "ar" else (rest.name_en if rest else "")
+                    session.context["offer_restaurant_switch_hint"] = (
+                        f"Closest offer is at {rest_name}. Customer may need to pick that restaurant."
+                        if lang == "en"
+                        else f"أقرب عرض من {rest_name}. قد يحتاج الزبون يختار هالمطعم."
+                    )
         if ranked:
             offers = [row.offer for row in ranked]
             best = ranked[0]

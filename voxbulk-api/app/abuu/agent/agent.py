@@ -12,7 +12,8 @@ from app.abuu.agent.gaza_context import prefetch_gaza_agent_context
 from app.abuu.agent.prefetch import prefetch_offers, prefetch_restaurant_list
 from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
-from app.abuu.agent.session_reset import clear_restaurant_binding, is_offer_query, is_session_reset_message
+from app.abuu.agent.session_reset import clear_restaurant_binding, hard_reset_session, is_offer_query, is_session_reset_message
+from app.abuu.services.intent_service import is_abuu_start_message
 from app.abuu.agent.skills import enabled_openai_tools, execute_tool
 from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -107,8 +108,10 @@ class AbuuAgentLoop:
         session = load_session(abuu_db, phone)
         user_turn = _format_user_turn(text, input_source=input_source, lang=session.language or "ar")
 
-        if is_session_reset_message(text) and not session.cart:
-            clear_restaurant_binding(abuu_db, session)
+        if is_abuu_start_message(text):
+            hard_reset_session(abuu_db, session)
+        elif is_session_reset_message(text):
+            clear_restaurant_binding(abuu_db, session, full_reset=True)
 
         session.messages.append({"role": "user", "content": user_turn})
 

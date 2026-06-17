@@ -16,10 +16,26 @@ from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService
 from app.abuu.services.voice_order_replay_service import VoiceOrderReplayService
 from app.core.abuu_database import get_abuu_sessionmaker
 from app.core.database import get_sessionmaker
+from sqlalchemy import text
 
 
 def _print_json(data: dict) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_latest() -> int:
+    with get_abuu_sessionmaker()() as abuu_db:
+        row = abuu_db.execute(
+            text(
+                "SELECT order_request_id FROM abuu_voice_order_debug "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+        ).fetchone()
+        if row is None:
+            print("none")
+            return 1
+        print(row[0])
+    return 0
 
 
 def cmd_show(order_request_id: str) -> int:
@@ -64,6 +80,8 @@ def main() -> int:
     show_parser = sub.add_parser("show", help="Print all six pipeline stages for a request")
     show_parser.add_argument("order_request_id")
 
+    latest_parser = sub.add_parser("latest", help="Print the most recent order_request_id")
+
     replay_parser = sub.add_parser("replay", help="Re-run stages 2-5 without creating an order")
     replay_parser.add_argument("order_request_id", nargs="?", default=None)
     replay_parser.add_argument("--audio", dest="audio_path", default=None)
@@ -73,6 +91,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "show":
         return cmd_show(args.order_request_id)
+    if args.command == "latest":
+        return cmd_latest()
     if args.command == "replay":
         if not args.order_request_id and not args.audio_path:
             replay_parser.error("Provide order_request_id or --audio")

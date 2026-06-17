@@ -250,6 +250,15 @@ class YallasayMenuSeedService:
         for spec in specs:
             if spec["restaurant_id"] != restaurant_id:
                 continue
+            existing_title = db.execute(
+                select(RestaurantPromoOffer.id).where(
+                    RestaurantPromoOffer.restaurant_id == restaurant_id,
+                    RestaurantPromoOffer.is_deleted.is_(False),
+                    RestaurantPromoOffer.title_ar == spec["title_ar"],
+                )
+            ).scalar_one_or_none()
+            if existing_title and existing_title != spec["id"]:
+                continue
             offer_items: list[dict[str, Any]] = []
             original_total = 0
             for row in spec["items"]:

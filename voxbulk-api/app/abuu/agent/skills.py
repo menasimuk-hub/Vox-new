@@ -27,6 +27,7 @@ from app.abuu.services.reply_service import (
     order_status_message,
 )
 from app.abuu.agent.prefetch import restaurant_list_page_size
+from app.abuu.agent.cart_resolver import add_offer_lines_to_order, resolve_cart_add_target
 from app.abuu.agent.session_reset import clear_restaurant_binding
 from app.abuu.services.offer_service import AbuuOfferService, format_offers_list
 from app.abuu.services.restaurant_discovery_service import (
@@ -325,12 +326,21 @@ class AgentSkills:
 
     def _tool_add_to_cart(self, inp: dict[str, Any]) -> str:
         restaurant_id = _require_restaurant(self.session)
-        item_id = str(inp.get("item_id") or "").strip()
+        item_ref = str(inp.get("item_id") or "").strip()
         quantity = max(1, int(inp.get("quantity") or 1))
         notes = str(inp.get("notes") or "").strip()
-        item = self.db.get(RestaurantMenuItem, item_id)
-        if item is None:
-            raise ValueError("Item not found")
+
+        resolved = resolve_cart_add_target(
+            self.db,
+            restaurant_id=restaurant_id,
+            ref=item_ref,
+            session_context=self.session.context,
+            lang=self.lang,
+        )
+        if resolved is None:
+            raise ValueError(f"Item not found: {item_ref}")
+
+        kind, target = resolved
         restaurant = self.db.get(Restaurant, restaurant_id)
         if restaurant is None:
             raise ValueError("Restaurant not found")
@@ -344,24 +354,45 @@ class AgentSkills:
             )
             apply_saved_address_to_order(self.db, order, self.customer)
             self.session.active_order_id = order.id
-        AbuuOrderDraftService.add_item(self.db, order, item, quantity=quantity)
-        if notes:
-            existing = order.notes or ""
-            line_note = f"{localized_name(item, self.lang)}: {notes}"
-            order.notes = f"{existing}\n{line_note}".strip() if existing else line_note
-            self.db.add(order)
+
+        if kind == "offer":
+            offer = target
+            if offer.restaurant_id != restaurant_id:
+                rest = self.db.get(Restaurant, offer.restaurant_id)
+                rest_name = localized_name(rest, self.lang) if rest else offer.restaurant_id
+                raise ValueError(
+                    f"Offer belongs to {rest_name}. Switch restaurant first or say the restaurant name."
+                )
+            added = add_offer_lines_to_order(self.db, order, offer)
+            if not added:
+                raise ValueError("Offer items could not be added")
+            title = offer.title_ar if self.lang == "ar" else (offer.title_en or offer.title_ar)
+            summary_prefix = f"Added offer: {title}\n"
+        else:
+            item = target
+            AbuuOrderDraftService.add_item(self.db, order, item, quantity=quantity)
+            if notes:
+                existing = order.notes or ""
+                line_note = f"{localized_name(item, self.lang)}: {notes}"
+                order.notes = f"{existing}\n{line_note}".strip() if existing else line_note
+                self.db.add(order)
+            summary_prefix = ""
+
         fingerprint = AbuuOrderDraftService.cart_fingerprint(self.db, order)
         self.session.context = AbuuOrderDraftService.mark_cart_changed(self.session.context, fingerprint)
         _refresh_cart(self.db, self.session, order)
-        addon_hint, self.session.context = suggest_addons(
-            self.db,
-            restaurant_id=restaurant_id,
-            main_item=item,
-            active_categories=self.session.context.get("active_categories") or [],
-            context=self.session.context,
-            lang=self.lang,
-        )
-        summary = self._tool_get_cart({})
+        if kind == "menu_item":
+            addon_hint, self.session.context = suggest_addons(
+                self.db,
+                restaurant_id=restaurant_id,
+                main_item=target,
+                active_categories=self.session.context.get("active_categories") or [],
+                context=self.session.context,
+                lang=self.lang,
+            )
+        else:
+            addon_hint = None
+        summary = summary_prefix + self._tool_get_cart({})
         if addon_hint:
             summary += f"\n\nSuggestion: {addon_hint}"
         return summary

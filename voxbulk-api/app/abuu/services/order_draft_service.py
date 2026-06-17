@@ -411,3 +411,16 @@ class AbuuOrderDraftService:
             AbuuOrderService.append_event(db, order.id, "order_cancelled", {})
         elif order.status in {"sent_to_restaurant", "preparing"}:
             AbuuOrderService.cancel_paid_order(db, order, reason="customer_cancel")
+
+    @staticmethod
+    def clear_draft_items(db: Session, order: CustomerOrder) -> None:
+        if order.status != "draft":
+            return
+        lines = list(
+            db.execute(select(CustomerOrderItem).where(CustomerOrderItem.order_id == order.id)).scalars().all()
+        )
+        for line in lines:
+            db.delete(line)
+        order.total_agorot = 0
+        order.updated_at = datetime.utcnow()
+        db.add(order)

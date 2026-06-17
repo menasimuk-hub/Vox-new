@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 
 from sqlalchemy import func, select
 
-from app.abuu.models.entities import RestaurantMenuItem, RestaurantPromoOffer
+from app.abuu.models.entities import RestaurantPromoOffer
 from app.abuu.services.agent_settings_seed import refresh_pilot_allergen_disclaimers, seed_agent_settings
 from app.abuu.services.seed_service import AbuuSeedService
 from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
@@ -30,21 +30,43 @@ from app.core.abuu_database import get_abuu_sessionmaker, run_abuu_migrations
 
 
 def _tag_coverage(db) -> dict[str, int]:
-    rows = db.execute(
-        select(
-            func.count(RestaurantMenuItem.id),
-            func.sum(RestaurantMenuItem.recipe_tags_json.isnot(None)),
-            func.sum(RestaurantMenuItem.allergen_tags_json.isnot(None)),
-            func.sum(RestaurantMenuItem.classification_status == "classified"),
-        ).where(RestaurantMenuItem.is_deleted.is_(False))
+    from sqlalchemy import text
+
+    row = db.execute(
+        text(
+            """
+            SELECT COUNT(*) AS total,
+                   SUM(recipe_tags_json IS NOT NULL) AS recipe,
+                   SUM(allergen_tags_json IS NOT NULL) AS allergen,
+                   SUM(classification_status = 'classified') AS classified
+            FROM abuu_menu_items
+            WHERE is_deleted = 0
+            """
+        )
     ).one()
-    total, recipe, allergen, classified = rows
     return {
-        "menu_items": int(total or 0),
-        "with_recipe_tags": int(recipe or 0),
-        "with_allergen_tags": int(allergen or 0),
-        "classified": int(classified or 0),
+        "menu_items": int(row.total or 0),
+        "with_recipe_tags": int(row.recipe or 0),
+        "with_allergen_tags": int(row.allergen or 0),
+        "classified": int(row.classified or 0),
     }
+
+
+def _force_enrich_pilot_tags() -> int:
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "enrich_abuu_menu_tags.py"), "--pilot-five", "--apply", "--force"],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+    )
+    if proc.stdout.strip():
+        print(proc.stdout.strip())
+    if proc.returncode != 0:
+        print(proc.stderr.strip() or "enrich_abuu_menu_tags failed", file=sys.stderr)
+        return proc.returncode
+    return 0
 
 
 def _offer_counts(db) -> dict[str, int]:
@@ -88,8 +110,13 @@ def main() -> int:
         YallasayWaSnapshotService.rebuild_marketplace(db)
         db.commit()
 
-        coverage = _tag_coverage(db)
-        offers = _offer_counts(db)
+        enrich_rc = _force_enrich_pilot_tags()
+        if enrich_rc != 0:
+            return enrich_rc
+
+        with get_abuu_sessionmaker()() as db:
+            coverage = _tag_coverage(db)
+            offers = _offer_counts(db)
 
     print("Pilot refresh complete.")
     for row in results:
@@ -98,7 +125,8 @@ def main() -> int:
         else:
             print(
                 f"  {row['restaurant_id']}: categories={row['categories']} "
-                f"new_items={row['items']} offers_touched={row['offers']}"
+                f"new_items={row['items']} offers_touched={row['offers']} "
+                "(0 means already seeded — offers/tags still refreshed)"
             )
     print(f"Tag coverage: {json.dumps(coverage, ensure_ascii=False)}")
     print(f"Active offers per restaurant: {json.dumps(offers, ensure_ascii=False)}")

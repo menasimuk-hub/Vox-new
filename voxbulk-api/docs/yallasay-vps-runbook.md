@@ -25,11 +25,15 @@ VOX_UVICORN_WORKERS=2
 Voice pipeline debug (STT vs DeepSeek isolation): when `ABUU_VOICE_ORDER_DEBUG=true`, each voice turn gets an `order_request_id` with six logged stages in `abuu_voice_order_debug`. After migrate + restart:
 
 ```bash
+cd voxbulk-api
+python scripts/abuu_voice_order_debug.py latest
 python scripts/abuu_voice_order_debug.py show <order_request_id>
 python scripts/abuu_voice_order_debug.py replay <order_request_id> --from-step 2
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
   https://api.voxbulk.com/admin/abuu/voice-order-debug/<order_request_id>
 ```
+
+Primary key column is **`order_request_id`** (not `id`).
 
 Verify the **running process**:
 
