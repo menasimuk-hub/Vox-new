@@ -57,7 +57,10 @@ def seed_agent_settings(db: Session) -> dict:
     row.escalation_rules_en = row.escalation_rules_en or "For urgent issues, reply HELP and our team will contact you on WhatsApp."
     row.escalation_rules_ar = row.escalation_rules_ar or "للمشاكل العاجلة، أرسل «مساعدة» وسيتواصل فريقنا معك على واتساب."
     row.greeting_template_en = row.greeting_template_en or "Hey {name}! 😊 What are you craving today?"
-    row.greeting_template_ar = row.greeting_template_ar or "أهلاً {name}! 😊 شو جوعان اليوم؟"
+    row.greeting_template_ar = row.greeting_template_ar or (
+        "أهلاً {name}! 😊 شو جوعان اليوم؟\n\n"
+        "📝 للطلب بالأرقام: أطباق 1 2 3 • كمية 1*3 • من جديد yallasay • مساعدة: مساعدة"
+    )
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     row.holiday_closures_json = row.holiday_closures_json or json.dumps(
         [{"date": tomorrow, "reason_en": "Demo closure", "reason_ar": "إغلاق تجريبي"}]

@@ -249,9 +249,18 @@ def extract_intent(
     *,
     text: str,
     ranked: list[RankedRestaurant],
+    session: AgentSession | None = None,
 ) -> AgentIntent:
+    skip_restaurant_numeric = False
+    if session is not None and session.restaurant_id:
+        ctx = session.context or {}
+        if ctx.get("awaiting_dish_pick") or ctx.get("last_list_type") == "menu":
+            skip_restaurant_numeric = True
+        elif isinstance(ctx.get("menu_item_index"), list) and ctx["menu_item_index"]:
+            skip_restaurant_numeric = True
+
     numeric_ref = _normalize_numeric_ref(text)
-    if _is_numeric_restaurant_ref(numeric_ref):
+    if not skip_restaurant_numeric and _is_numeric_restaurant_ref(numeric_ref):
         picked = pick_restaurant_by_ref(ranked, numeric_ref)
         if picked is not None:
             return AgentIntent(

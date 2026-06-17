@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.models.entities import AbuuAgentSettings, AbuuRestaurantSettings, Restaurant
+from app.abuu.services.reply_service import usage_guide_short
 
 GLOBAL_SETTINGS_ID = "global"
 
@@ -173,6 +174,7 @@ def format_greeting(settings: ResolvedSettings, *, first_name: str | None, lang:
             msg += f"\n📍 Delivering to: {saved_address}"
         else:
             msg += f"\n📍 نوصلك على: {saved_address}"
+    msg += usage_guide_short(lang)
     return msg
 
 

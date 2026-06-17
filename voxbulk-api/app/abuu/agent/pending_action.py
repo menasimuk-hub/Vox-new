@@ -416,3 +416,62 @@ def format_proposal_message(
         lines.append(f"\nSubtotal: *{subtotal}*" + (f" + delivery {format_shekel(delivery_fee)}" if delivery_fee else ""))
         lines.append(f"\n{confirmation_prompt(lang)}")
     return "\n".join(lines)
+
+
+def propose_menu_picks_from_text(
+    db: Session,
+    session: AgentSession,
+    *,
+    user_text: str,
+    lang: str,
+) -> str:
+    from app.abuu.agent.menu_pick_parser import parse_menu_pick_tokens, resolve_menu_picks_to_items
+
+    picks = parse_menu_pick_tokens(user_text)
+    if not picks:
+        raise ValueError("Invalid menu pick")
+
+    menu_index = session.context.get("menu_item_index") or []
+    if not isinstance(menu_index, list) or not menu_index:
+        if lang == "ar":
+            return "شوف المنيو أولاً واختار رقم الطبق."
+        return "Please view the menu first, then send a dish number."
+
+    items, invalid = resolve_menu_picks_to_items(menu_index, picks)
+    if invalid:
+        nums = ", ".join(str(n) for n in invalid)
+        if lang == "ar":
+            return f"رقم {nums} مو موجود بالمنيو. أرسل رقم من القائمة."
+        return f"Number(s) {nums} are not on the menu. Pick from the list."
+
+    if not items:
+        if lang == "ar":
+            return "ما لقيت أطباق. أرسل رقم من المنيو."
+        return "No dishes found. Send a number from the menu."
+
+    restaurant_id = str(session.restaurant_id or "").strip()
+    if not restaurant_id:
+        if lang == "ar":
+            return "من أي مطعم بدك تطلب؟"
+        return "Which restaurant would you like to order from?"
+
+    stored, total, delivery = build_proposal_lines(
+        db,
+        restaurant_id=restaurant_id,
+        items=items,
+        lang=lang,
+    )
+    set_pending_add_items(
+        session,
+        restaurant_id=restaurant_id,
+        items=stored,
+        total_agorot=total,
+        delivery_fee_agorot=delivery,
+        confirmation_question=confirmation_prompt(lang),
+    )
+    return format_proposal_message(
+        db,
+        restaurant_id=restaurant_id,
+        items=items,
+        lang=lang,
+    )

@@ -15,6 +15,50 @@ def localized_name(row: RestaurantMenuItem | Restaurant, lang: str) -> str:
     return getattr(row, "name_ar", "") or getattr(row, "name_en", "")
 
 
+def usage_guide_ar() -> str:
+    return (
+        "📖 *كيف تستخدم يلا ساي*\n\n"
+        "🏪 *المطاعم:* اكتب «اعرض المطاعم» أو اختر رقم المطعم (مثلاً 7)\n\n"
+        "🍽️ *الأطباق:* أرسل أرقام الأطباق\n"
+        "   • أكثر من طبق: 1 2 3\n"
+        "   • كمية: 1*3 أو 3*2\n\n"
+        "✅ *تأكيد:* بعد ما أعرضلك الطلب، اكتب «ضيفهم» أو «تمام»\n\n"
+        "🛒 *السلة:* «شو عندي بالسلة؟»\n\n"
+        "🔄 *من جديد:* اكتب yallasay أو يلا ساي\n\n"
+        "❓ *مساعدة:* اكتب مساعدة أو help"
+    )
+
+
+def usage_guide_short(lang: str) -> str:
+    if lang == "en":
+        return (
+            "\n\n📝 Order by number:\n"
+            "• Dishes: 1 2 3\n"
+            "• Qty: 1*3 or 3*2\n"
+            "• Start over: yallasay\n"
+            "• Help: help"
+        )
+    return (
+        "\n\n📝 للطلب بالأرقام:\n"
+        "• أطباق: 1 2 3\n"
+        "• كمية: 1*3 أو 3*2\n"
+        "• من جديد: yallasay\n"
+        "• مساعدة: مساعدة أو help"
+    )
+
+
+def menu_keyboard_hint(lang: str) -> str:
+    if lang == "en":
+        return (
+            "\n\n📝 Reply with dish numbers (1 2 3), qty (1*3), "
+            "confirm with yes, or type help."
+        )
+    return (
+        "\n\n📝 أرسل أرقام الأطباق (1 2 3)، كمية (1*3)، "
+        "أكّد بـ ضيفهم، أو اكتب مساعدة."
+    )
+
+
 def welcome_message(restaurant: Restaurant, lang: str) -> str:
     name = localized_name(restaurant, lang)
     if lang == "en":

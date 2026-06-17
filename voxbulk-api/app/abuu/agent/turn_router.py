@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
+from app.abuu.agent.gaza_context import refresh_menu_item_index
 from app.abuu.agent.intent_gate import (
     AgentIntent,
     apply_restaurant_selection,
@@ -21,6 +22,7 @@ from app.abuu.agent.intent_gate import (
     ranked_from_snapshot,
     try_category_without_restaurant_reply,
 )
+from app.abuu.agent.menu_pick_parser import is_menu_pick_message
 from app.abuu.agent.pending_action import (
     apply_pending_add_items,
     clear_transactional_context,
@@ -32,14 +34,15 @@ from app.abuu.agent.pending_action import (
     is_explicit_flow_exit,
     is_negative_reply,
     is_transactional_flow,
+    propose_menu_picks_from_text,
 )
 from app.abuu.agent.prefetch import prefetch_restaurant_list
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.agent.session_reset import is_offer_query
+from app.abuu.agent.usage_help import is_usage_help_request
 from app.abuu.models.entities import CustomerProfile, Restaurant
 from app.abuu.services.intent_service import is_restaurant_list_message
-from app.abuu.services.reply_service import localized_name
-
+from app.abuu.services.reply_service import localized_name, menu_keyboard_hint, usage_guide_ar
 
 
 def _menu_browse_slot(text: str) -> bool:
@@ -63,6 +66,8 @@ TurnAction = Literal[
     "restaurant_list",
     "menu_clarify",
     "category_clarify",
+    "usage_help",
+    "propose_menu_items",
     "defer_llm",
 ]
 
@@ -78,6 +83,8 @@ class TurnSlots:
     numeric_only: bool = False
     confirm_pending: bool | None = None
     has_menu_item_index: bool = False
+    menu_pick: bool = False
+    usage_help: bool = False
     intent_action: str = "none"
     intent_confidence: str = "low"
 
@@ -121,7 +128,7 @@ def classify_turn(
     cart_status = is_cart_inquiry(user_text, menu_browse=menu_browse)
 
     named = find_named_restaurant_in_text(db, user_text, ranked)
-    intent = extract_intent(db, text=user_text, ranked=ranked)
+    intent = extract_intent(db, text=user_text, ranked=ranked, session=session)
 
     pending = get_pending_action(session)
     confirm_pending: bool | None = None
@@ -133,6 +140,7 @@ def classify_turn(
 
     menu_index = session.context.get("menu_item_index")
     has_menu_item_index = isinstance(menu_index, list) and len(menu_index) > 0
+    menu_pick = bool(session.restaurant_id and is_menu_pick_message(user_text))
 
     return (
         TurnSlots(
@@ -145,6 +153,8 @@ def classify_turn(
             numeric_only=_is_numeric_only_message(user_text),
             confirm_pending=confirm_pending,
             has_menu_item_index=has_menu_item_index,
+            menu_pick=menu_pick,
+            usage_help=is_usage_help_request(user_text),
             intent_action=intent.action,
             intent_confidence=intent.confidence,
         ),
@@ -181,6 +191,12 @@ def resolve_turn(
         else:
             return TurnDecision("pending_clarify", "transactional_pending_clarify", slots)
 
+    if slots.usage_help:
+        return TurnDecision("usage_help", "turn_usage_help", slots)
+
+    if slots.menu_pick and session.restaurant_id and slots.has_menu_item_index:
+        return TurnDecision("propose_menu_items", "turn_propose_menu_items", slots)
+
     if intent.confidence == "high" and intent.action == "select_restaurant_and_show_menu":
         return TurnDecision(
             "switch_and_menu",
@@ -189,8 +205,6 @@ def resolve_turn(
             restaurant_id=intent.restaurant_id,
         )
     if intent.confidence == "high" and intent.action == "select_restaurant":
-        if slots.has_menu_item_index and slots.numeric_only:
-            return TurnDecision("defer_llm", "turn_defer_menu_item_numeric", slots)
         return TurnDecision(
             "switch_restaurant",
             "phase1_select",
@@ -200,9 +214,6 @@ def resolve_turn(
 
     if not session.restaurant_id and slots.restaurant_list:
         return TurnDecision("restaurant_list", "phase1_restaurant_list", slots)
-
-    if slots.numeric_only and session.restaurant_id and slots.has_menu_item_index:
-        return TurnDecision("defer_llm", "turn_defer_menu_item_numeric", slots)
 
     if slots.cart_status and not slots.menu_browse:
         if transactional or has_explicit_cart_noun(user_text):
@@ -244,6 +255,12 @@ def execute_turn_decision(
     if action == "defer_llm":
         return None
 
+    if action == "usage_help":
+        return usage_guide_ar()
+
+    if action == "propose_menu_items":
+        return propose_menu_picks_from_text(db, session, user_text=user_text, lang=lang)
+
     if action == "pending_confirm":
         try:
             return apply_pending_add_items(db, session, customer=customer)
@@ -265,6 +282,9 @@ def execute_turn_decision(
         return format_cart_summary_for_session(db, session, lang)
 
     if action == "restaurant_list":
+        session.context["awaiting_restaurant_pick"] = True
+        session.context["awaiting_dish_pick"] = False
+        session.context["last_list_type"] = "restaurant"
         listing = session.context.get("prefetched_restaurant_list")
         if isinstance(listing, str) and listing.strip():
             return listing
@@ -298,15 +318,23 @@ def execute_turn_decision(
     prefix = cart_cleared_notice(lang) if switched else ""
 
     if action == "switch_and_menu":
-        menu_text = format_restaurant_menu(
+        menu_body, _items = refresh_menu_item_index(
             db,
+            session,
             restaurant_id=restaurant.id,
             lang=lang,
-            customer=customer,
         )
+        if not menu_body:
+            menu_body = format_restaurant_menu(
+                db,
+                restaurant_id=restaurant.id,
+                lang=lang,
+                customer=customer,
+            )
+        hint = menu_keyboard_hint(lang)
         if lang == "ar":
-            return f"{prefix}هذا منيو {name}:\n{menu_text}"
-        return f"{prefix}Here is the menu for {name}:\n{menu_text}"
+            return f"{prefix}هذا منيو {name}:\n{menu_body}{hint}"
+        return f"{prefix}Here is the menu for {name}:\n{menu_body}{hint}"
 
     if action == "switch_restaurant":
         if lang == "ar":

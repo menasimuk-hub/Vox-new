@@ -6,14 +6,16 @@ from unittest.mock import patch
 import pytest
 
 from app.abuu.agent.agent import AbuuAgentLoop
-from app.abuu.agent.pending_action import is_cart_inquiry
+from app.abuu.agent.gaza_context import refresh_menu_item_index
+from app.abuu.agent.pending_action import get_pending_action, is_cart_inquiry
 from app.abuu.agent.intent_gate import is_menu_browse_request
-from app.abuu.agent.session import load_session
+from app.abuu.agent.session import load_session, save_session
 from app.abuu.agent.turn_router import classify_turn, resolve_turn, try_turn_router_reply
 from app.abuu.agent.intent_gate import freeze_turn_restaurant_snapshot
 from app.abuu.models.entities import Restaurant
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.seed_service import AbuuSeedService
+from app.abuu.services.reply_service import usage_guide_ar
 
 
 CHICKEN_ID = "abuu-rest-chicken"
@@ -128,3 +130,87 @@ def test_resolve_turn_menu_beats_cart(abuu_seeded, phase1_env):
     decision = resolve_turn(db, session, customer=customer, user_text=text, ranked_rows=ranked)
     assert decision.action == "switch_and_menu"
     assert decision.restaurant_id == SWEETS_ID
+
+
+def _bind_sweets_with_menu(db, phone: str):
+    customer = AbuuOrderDraftService.get_or_create_customer(db, phone, lang="ar")
+    session = load_session(db, phone)
+    session.restaurant_id = SWEETS_ID
+    session.context["restaurant_selected"] = True
+    refresh_menu_item_index(db, session, restaurant_id=SWEETS_ID, lang="ar")
+    save_session(db, session)
+    db.commit()
+    return customer, session
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_menu_pick_single_proposes(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    mock_complete.side_effect = AssertionError("LLM should not run for dish pick")
+    db = abuu_seeded
+    phone = "+972509993010"
+    customer, _session = _bind_sweets_with_menu(db, phone)
+
+    routed = try_turn_router_reply(db, load_session(db, phone), customer=customer, user_text="1")
+    assert routed is not None
+    reply, branch, _slots = routed
+    assert branch == "turn_propose_menu_items"
+    assert "أضيفهم" in reply or "المجموع" in reply
+    assert get_pending_action(load_session(db, phone)) is not None
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_menu_pick_multi_proposes(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    mock_complete.side_effect = AssertionError("LLM should not run for multi dish pick")
+    db = abuu_seeded
+    phone = "+972509993011"
+    customer, _session = _bind_sweets_with_menu(db, phone)
+
+    routed = try_turn_router_reply(db, load_session(db, phone), customer=customer, user_text="1 2 9")
+    assert routed is not None
+    _reply, branch, _slots = routed
+    assert branch == "turn_propose_menu_items"
+    pending = get_pending_action(load_session(db, phone))
+    assert pending is not None
+    assert len(pending.get("items") or []) >= 2
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_usage_help_arabic(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    mock_complete.side_effect = AssertionError("LLM should not run for help")
+    db = abuu_seeded
+    phone = "+972509993012"
+    customer = AbuuOrderDraftService.get_or_create_customer(db, phone, lang="ar")
+
+    routed = try_turn_router_reply(db, load_session(db, phone), customer=customer, user_text="مساعده")
+    assert routed is not None
+    reply, branch, _slots = routed
+    assert branch == "turn_usage_help"
+    assert reply == usage_guide_ar()
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_usage_help_english_trigger(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    mock_complete.side_effect = AssertionError("LLM should not run for help")
+    db = abuu_seeded
+    phone = "+972509993013"
+    customer = AbuuOrderDraftService.get_or_create_customer(db, phone, lang="en")
+
+    routed = try_turn_router_reply(db, load_session(db, phone), customer=customer, user_text="help")
+    assert routed is not None
+    reply, branch, _slots = routed
+    assert branch == "turn_usage_help"
+    assert reply == usage_guide_ar()
+    mock_complete.assert_not_called()
+
+
+def test_dish_pick_not_restaurant_switch(abuu_seeded, phase1_env):
+    db = abuu_seeded
+    phone = "+972509993014"
+    customer, session = _bind_sweets_with_menu(db, phone)
+    ranked = freeze_turn_restaurant_snapshot(db, session, customer_id=customer.id)
+    decision = resolve_turn(db, session, customer=customer, user_text="1", ranked_rows=ranked)
+    assert decision.action == "propose_menu_items"
+    assert decision.restaurant_id is None

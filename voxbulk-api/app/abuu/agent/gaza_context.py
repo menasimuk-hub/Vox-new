@@ -10,7 +10,68 @@ from sqlalchemy.orm import Session
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.market.registry import get_market_agent, marketplace_scope, restaurant_scope
 from app.abuu.models.entities import CustomerProfile
+from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
+
+
+def _load_menu_index_from_snapshot(
+    db: Session,
+    *,
+    restaurant_id: str,
+    lang: str,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    row = YallasayWaSnapshotService.get(
+        db,
+        scope=restaurant_scope(restaurant_id),
+        kind="menu",
+        lang=lang,
+    )
+    items: list[dict[str, Any]] = []
+    body: str | None = None
+    if row is not None:
+        body = YallasayWaSnapshotService.get_body(
+            db,
+            scope=restaurant_scope(restaurant_id),
+            kind="menu",
+            lang=lang,
+        )
+        if row.payload_json:
+            try:
+                payload = json.loads(row.payload_json)
+                raw_items = payload.get("items") or []
+                if isinstance(raw_items, list):
+                    items = [row for row in raw_items if isinstance(row, dict)]
+            except json.JSONDecodeError:
+                pass
+    return body, items
+
+
+def refresh_menu_item_index(
+    db: Session,
+    session: AgentSession,
+    *,
+    restaurant_id: str,
+    lang: str,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Sync menu_item_index with snapshot or DB; set dish-pick session flags."""
+    body, items = _load_menu_index_from_snapshot(db, restaurant_id=restaurant_id, lang=lang)
+    if not items:
+        menu_rows = AbuuOrderDraftService.list_menu_items(db, restaurant_id, limit=80)
+        items = [
+            {
+                "index": idx,
+                "id": item.id,
+                "name_en": item.name_en,
+                "name_ar": item.name_ar,
+                "price_agorot": int(item.price_agorot or 0),
+            }
+            for idx, item in enumerate(menu_rows, start=1)
+        ]
+    session.context["menu_item_index"] = items
+    session.context["awaiting_dish_pick"] = True
+    session.context["awaiting_restaurant_pick"] = False
+    session.context["last_list_type"] = "menu"
+    return body, items
 
 
 def prefetch_gaza_agent_context(
@@ -55,16 +116,12 @@ def prefetch_gaza_agent_context(
             ctx["offers"] = offers
             session.context["prefetched_offers"] = offers
 
-    row = YallasayWaSnapshotService.get(
-        db,
-        scope=restaurant_scope(session.restaurant_id),
-        kind="menu",
-        lang=lang,
-    ) if session.restaurant_id else None
-    if row and row.payload_json:
-        try:
-            session.context["menu_item_index"] = json.loads(row.payload_json).get("items") or []
-        except json.JSONDecodeError:
-            pass
+    if session.restaurant_id:
+        refresh_menu_item_index(
+            db,
+            session,
+            restaurant_id=session.restaurant_id,
+            lang=lang,
+        )
 
     return ctx
