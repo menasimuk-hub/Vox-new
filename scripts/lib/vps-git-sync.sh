@@ -78,6 +78,11 @@ vox_git_sync() {
 
   if [[ "$head_sha" != "$remote_sha" ]]; then
     echo "[git] FAIL: local HEAD ($head_sha) != $remote_ref ($remote_sha)" >&2
+    if [[ "$branch" != "main" ]]; then
+      echo "[git] Hint: fix is on main — try: VOX_GIT_BRANCH=main VOX_HARD_RESET=1 ./deploy-vps.sh" >&2
+    else
+      echo "[git] Hint: VOX_HARD_RESET=1 VOX_GIT_BRANCH=$branch ./deploy-vps.sh" >&2
+    fi
     return 1
   fi
 

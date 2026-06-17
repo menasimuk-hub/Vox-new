@@ -49,7 +49,7 @@ If pull fails after an npm install on the VPS:
 ```bash
 cd /path/to/Vox
 git checkout -- abuu.voxbulk.com/abuu-web/package-lock.json driver.voxbulk.com/driver-web/package-lock.json
-git pull origin feat/dashboard-ai-assistant-v1   # or main when merged
+git pull origin main
 ./deploy-vps.sh
 ```
 

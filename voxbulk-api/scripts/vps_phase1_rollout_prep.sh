@@ -9,7 +9,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="$ROOT/voxbulk-api/.env"
-BRANCH="${VOX_GIT_BRANCH:-feat/dashboard-ai-assistant-v1}"
+BRANCH="${VOX_GIT_BRANCH:-main}"
 
 set_flag() {
   local key="$1" val="$2"

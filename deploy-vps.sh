@@ -8,7 +8,7 @@
 #
 # Optional env overrides:
 #   VOX_GIT_REMOTE=origin           git remote name (default: origin → menasimuk-hub/Vox-new)
-#   VOX_GIT_BRANCH=fix/admin-finance-hardening   branch to pull (billing + finance hardening)
+#   VOX_GIT_BRANCH=main               branch to pull (default: main — production)
 #   VOX_HARD_RESET=1               discard local edits and reset to remote branch
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only — UI will stay stale!)
@@ -35,7 +35,7 @@ PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_SH="$ROOT/vox.sh"
 
 GIT_REMOTE="${VOX_GIT_REMOTE:-origin}"
-GIT_BRANCH="${VOX_GIT_BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+GIT_BRANCH="${VOX_GIT_BRANCH:-main}"
 DEPLOY_LOG="${VOX_DEPLOY_LOG:-/tmp/voxbulk-deploy.log}"
 
 # shellcheck source=scripts/lib/vps-git-sync.sh
@@ -291,9 +291,39 @@ deploy_static() {
 restart_services() {
   nginx_test_if_present
   verify_api_import
+  ensure_auth_url_env
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
   bash "$VOX_SH" restart
   require_api_health 30
+}
+
+ensure_auth_url_env() {
+  local env_file="$API_DIR/.env"
+  [[ -f "$env_file" ]] || return 0
+
+  set_env_flag() {
+    local key="$1" val="$2"
+    if grep -q "^${key}=" "$env_file" 2>/dev/null; then
+      if grep "^${key}=" "$env_file" | grep -qE 'localhost|127\.0\.0\.1'; then
+        sed -i "s|^${key}=.*|${key}=${val}|" "$env_file"
+        warn "Updated $key in .env (was localhost)"
+      fi
+    else
+      echo "${key}=${val}" >> "$env_file"
+      info "Added $key to .env"
+    fi
+  }
+
+  # shellcheck disable=SC1090
+  source "$env_file" 2>/dev/null || true
+  if [[ "${ENV:-}" == "production" || "${ENV:-}" == "prod" ]]; then
+    set_env_flag PUBLIC_APP_ORIGIN "https://voxbulk.com"
+    set_env_flag DASHBOARD_APP_ORIGIN "https://dashboard.voxbulk.com"
+  fi
+
+  if [[ -x "$ROOT/scripts/vps-check-auth-env.sh" ]]; then
+    bash "$ROOT/scripts/vps-check-auth-env.sh" || warn "Auth URL env check failed — fix voxbulk-api/.env before OAuth/PWA login"
+  fi
 }
 
 post_checks() {
