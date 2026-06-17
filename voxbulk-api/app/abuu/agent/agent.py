@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.abuu.agent.gaza_context import prefetch_gaza_agent_context
 from app.abuu.agent.intent_gate import freeze_turn_restaurant_snapshot, phase1_enabled, try_deterministic_reply
+from app.abuu.agent.pending_action import get_pending_action
 from app.abuu.agent.prefetch import prefetch_offers, prefetch_restaurant_list
 from app.abuu.agent.prompts import build_system_prompt
 from app.abuu.agent.session import Session, load_session, save_session
@@ -18,6 +19,7 @@ from app.abuu.agent.session_reset import clear_restaurant_binding, hard_reset_se
 from app.abuu.services.intent_service import is_abuu_start_message
 from app.abuu.agent.skills import enabled_openai_tools, execute_tool
 from app.abuu.agent.tool_guard import execute_tool_guarded, is_tool_error_result
+from app.abuu.agent.transactional_gate import try_transactional_reply
 from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import unknown_message
@@ -243,6 +245,44 @@ class AbuuAgentLoop:
 
         if phase1_enabled():
             freeze_turn_restaurant_snapshot(abuu_db, session, customer_id=customer.id)
+            transactional = try_transactional_reply(
+                abuu_db,
+                session,
+                customer=customer,
+                user_text=user_text,
+            )
+            if transactional:
+                reply, branch = transactional
+                if debug_enabled() and input_source == "voice":
+                    VoiceOrderDebugService.record_llm_prompt(
+                        abuu_db,
+                        system_prompt="",
+                        messages=[{"role": "user", "content": user_text}],
+                        session_snapshot=_agent_session_snapshot(session),
+                    )
+                _record_phase1_parsed(
+                    abuu_db,
+                    session=session,
+                    reply=reply,
+                    input_source=input_source,
+                    branch=branch,
+                )
+                agent_trace.llm_reply(
+                    phone=phone,
+                    msg_id=message_id,
+                    correlation_id=correlation_id,
+                    turn=0,
+                    reply_preview=agent_trace.clip(reply),
+                    action=branch,
+                )
+                agent_trace.turn_end(
+                    phone=phone,
+                    msg_id=message_id,
+                    correlation_id=correlation_id,
+                    restaurant_id=session.restaurant_id or "",
+                )
+                return reply
+
             deterministic = try_deterministic_reply(
                 abuu_db,
                 session,
@@ -458,12 +498,30 @@ class AbuuAgentLoop:
                 return completion.assistant_text
 
         if phase1 and tool_failures > 0:
-            fallback = (
-                "ما قدرت أغيّر المطعم. قول اسم المطعم أو اعرض المطاعم."
-                if session.language == "ar"
-                else "I couldn't switch restaurants. Say a restaurant name or ask for the list."
-            )
-            parse_error = "phase1_tool_blocked"
+            last_tool = collected_tool_calls[-1]["name"] if collected_tool_calls else ""
+            pending = get_pending_action(session)
+            active_flow = str(session.context.get("active_flow") or "")
+            if pending or active_flow == "cart_confirmation":
+                fallback = (
+                    "ما فهمت تأكيدك. قول نعم أو لا."
+                    if session.language == "ar"
+                    else "I didn't catch that. Say yes or no."
+                )
+                parse_error = "transactional_confirm_clarify"
+            elif last_tool == "change_restaurant":
+                fallback = (
+                    "ما قدرت أغيّر المطعم. قول اسم المطعم أو اعرض المطاعم."
+                    if session.language == "ar"
+                    else "I couldn't switch restaurants. Say a restaurant name or ask for the list."
+                )
+                parse_error = "phase1_tool_blocked"
+            else:
+                fallback = (
+                    "كيف أقدر أساعدك في طلبك؟"
+                    if session.language == "ar"
+                    else "How can I help with your order?"
+                )
+                parse_error = "phase1_tool_blocked"
         else:
             fallback = "كيف أقدر أساعدك في طلبك؟" if session.language == "ar" else "How can I help with your order?"
             parse_error = "max_turns_exceeded"

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.agent.session import Session as AgentSession, clear_session
+from app.abuu.agent.pending_action import clear_transactional_context
 from app.abuu.models.entities import CustomerOrder, CustomerOrderItem
 from app.abuu.services.intent_service import is_abuu_start_message, is_restaurant_list_message
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
@@ -118,6 +119,7 @@ def hard_reset_session(db: Session, session: AgentSession) -> None:
         "awaiting_dish_pick",
     ):
         session.context.pop(key, None)
+    clear_transactional_context(session)
     clear_session(db, session.customer_wa_number)
 
 
@@ -139,3 +141,4 @@ def clear_restaurant_binding(db: Session, session: AgentSession, *, full_reset: 
         session.messages = []
         session.stage = "browsing"
         clear_session(db, session.customer_wa_number)
+    clear_transactional_context(session)

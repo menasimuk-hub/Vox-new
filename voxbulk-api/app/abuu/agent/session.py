@@ -149,8 +149,19 @@ def load_session(
         active_order_id = None
         order = None
     elif not context.get("restaurant_selected"):
-        resolved_restaurant = None
-        context.pop("restaurant_id", None)
+        from app.abuu.agent.pending_action import resolve_binding_restaurant_id
+
+        binding = resolve_binding_restaurant_id(
+            Session(customer_wa_number=phone),
+            context=context,
+        )
+        if binding:
+            resolved_restaurant = binding
+            context["restaurant_id"] = binding
+            context["restaurant_selected"] = True
+        else:
+            resolved_restaurant = None
+            context.pop("restaurant_id", None)
 
     messages = context.get("messages") or []
     if not isinstance(messages, list):

@@ -8,6 +8,12 @@ from typing import Any, Literal
 from sqlalchemy.orm import Session
 
 from app.abuu.agent import kb as menu_kb
+from app.abuu.agent.pending_action import (
+    format_cart_summary_for_session,
+    is_cart_inquiry,
+    is_explicit_flow_exit,
+    is_transactional_flow,
+)
 from app.abuu.agent.prefetch import prefetch_restaurant_list
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.agent.session_reset import order_binds_restaurant
@@ -36,6 +42,7 @@ Phase1Branch = Literal[
     "phase1_menu_clarify",
     "phase1_category_clarify",
     "phase1_restaurant_list",
+    "phase1_cart_summary",
 ]
 
 IntentAction = Literal[
@@ -397,12 +404,20 @@ def try_deterministic_reply(
     if not phase1_enabled():
         return None
 
+    lang = session.language or "ar"
+
+    if is_cart_inquiry(user_text):
+        summary = format_cart_summary_for_session(db, session, lang)
+        return summary, "phase1_cart_summary"
+
+    transactional = is_transactional_flow(session)
+    explicit_exit = is_explicit_flow_exit(user_text)
+
     if not session.context.get("prefetched_restaurant_list") and not session.restaurant_id:
         prefetch_restaurant_list(db, session, customer_id=customer.id)
 
     ranked_rows = freeze_turn_restaurant_snapshot(db, session, customer_id=customer.id)
     ranked = ranked_from_snapshot(db, ranked_rows)
-    lang = session.language or "ar"
 
     if not session.restaurant_id and is_restaurant_list_message(user_text):
         listing = session.context.get("prefetched_restaurant_list")
@@ -412,6 +427,8 @@ def try_deterministic_reply(
     intent = extract_intent(db, text=user_text, ranked=ranked)
 
     if intent.action == "show_menu" and intent.confidence == "low" and not session.restaurant_id:
+        if transactional and not explicit_exit:
+            return None
         if lang == "ar":
             return (
                 "من أي مطعم بدك تشوف المنيو؟ اكتب اسم المطعم أو قول اعرض المطاعم.",
@@ -427,6 +444,8 @@ def try_deterministic_reply(
             db, session, user_text=user_text, ranked_rows=ranked_rows
         )
         if category_reply is not None:
+            if transactional and not explicit_exit:
+                return None
             return category_reply, "phase1_category_clarify"
         return None
 

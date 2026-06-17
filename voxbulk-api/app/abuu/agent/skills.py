@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 TOOL_SKILL_MAP: dict[str, str] = {
     "search_menu": SKILL_MENU_RECOMMEND,
     "add_to_cart": SKILL_BUILD_CART,
+    "propose_add_to_cart": SKILL_BUILD_CART,
     "remove_from_cart": SKILL_BUILD_CART,
     "get_cart": SKILL_BUILD_CART,
     "confirm_order": SKILL_CONFIRM_ORDER,
@@ -106,6 +107,31 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "name": "get_cart",
         "description": "Show current cart and total price.",
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "propose_add_to_cart",
+        "description": (
+            "Propose specific menu items and wait for customer confirmation before adding to cart. "
+            "MUST be called before asking 'أضيفهم عالسلة?' or similar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "restaurant_id": {"type": "string", "description": "Restaurant id for these items"},
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "menu_item_id": {"type": "string"},
+                            "quantity": {"type": "integer", "minimum": 1},
+                        },
+                        "required": ["menu_item_id"],
+                    },
+                },
+            },
+            "required": ["restaurant_id", "items"],
+        },
     },
     {
         "name": "confirm_order",
@@ -689,6 +715,43 @@ class AgentSkills:
             lang=self.lang,
         )
         return hint or ("No add-on suggestions right now." if self.lang == "en" else "لا اقتراحات إضافية حالياً.")
+
+    def _tool_propose_add_to_cart(self, inp: dict[str, Any]) -> str:
+        from app.abuu.agent.pending_action import (
+            confirmation_prompt,
+            format_proposal_message,
+            set_pending_add_items,
+            build_proposal_lines,
+        )
+
+        restaurant_id = str(inp.get("restaurant_id") or self.session.restaurant_id or "").strip()
+        if not restaurant_id:
+            raise ValueError("No restaurant selected. Use list_restaurants and select_restaurant first.")
+        raw_items = inp.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("At least one item is required")
+
+        stored, total, delivery_fee = build_proposal_lines(
+            self.db,
+            restaurant_id=restaurant_id,
+            items=raw_items,
+            lang=self.lang,
+        )
+        set_pending_add_items(
+            self.session,
+            restaurant_id=restaurant_id,
+            items=stored,
+            total_agorot=total,
+            delivery_fee_agorot=delivery_fee,
+            confirmation_question=confirmation_prompt(self.lang),
+        )
+        self.session.restaurant_id = restaurant_id
+        return format_proposal_message(
+            self.db,
+            restaurant_id=restaurant_id,
+            items=raw_items,
+            lang=self.lang,
+        )
 
     def _tool_save_customer_name(self, inp: dict[str, Any]) -> str:
         name = str(inp.get("name") or "").strip()
