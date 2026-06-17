@@ -49,6 +49,8 @@ def is_stt_garbage(raw: str, *, language: str = "ar") -> bool:
         return True
     if len(text) < 2:
         return True
+    if re.fullmatch(r"\d{10,20}", text):
+        return True
     stt_lang = str(language or "ar").strip().lower()
     if stt_lang.startswith("en"):
         return False

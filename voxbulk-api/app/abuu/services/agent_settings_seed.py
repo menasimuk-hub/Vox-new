@@ -105,3 +105,52 @@ def seed_agent_settings(db: Session) -> dict:
 
     db.flush()
     return {"global": 1, "restaurant_overrides": created}
+
+
+def refresh_pilot_allergen_disclaimers(db: Session) -> int:
+    """Ensure fish/chicken pilot restaurants have kitchen allergen disclaimers."""
+    now = datetime.utcnow()
+    seed_agent_settings(db)
+    specs = [
+        {
+            "restaurant_id": "abuu-rest-fish",
+            "allergen_disclaimer_en": "Contains fish and shellfish. Not suitable for fish allergy.",
+            "allergen_disclaimer_ar": "يحتوي على أسماك ومأكولات بحرية. غير مناسب لمن لديه حساسية من السمك.",
+        },
+        {
+            "restaurant_id": "abuu-rest-chicken",
+            "allergen_disclaimer_en": "May contain dairy, gluten, and nuts. Tell us your allergies when ordering.",
+            "allergen_disclaimer_ar": "قد يحتوي على ألبان وجلوتين ومكسرات. أخبرنا عن حساسيتك عند الطلب.",
+        },
+        {
+            "restaurant_id": "abuu-rest-meat",
+            "allergen_disclaimer_en": "Grilled meat dishes. Tell us about allergies when ordering.",
+            "allergen_disclaimer_ar": "أطباق لحوم مشوية. أخبرنا عن الحساسية عند الطلب.",
+        },
+        {
+            "restaurant_id": "abuu-rest-vegetarian",
+            "allergen_disclaimer_en": "Plant-based menu. May contain nuts and sesame.",
+            "allergen_disclaimer_ar": "قائمة نباتية. قد تحتوي على مكسرات وسمسم.",
+        },
+    ]
+    updated = 0
+    for spec in specs:
+        row = db.execute(
+            __import__("sqlalchemy").select(AbuuRestaurantSettings).where(
+                AbuuRestaurantSettings.restaurant_id == spec["restaurant_id"]
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = AbuuRestaurantSettings(
+                restaurant_id=spec["restaurant_id"],
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+        row.allergen_disclaimer_en = spec["allergen_disclaimer_en"]
+        row.allergen_disclaimer_ar = spec["allergen_disclaimer_ar"]
+        row.updated_at = now
+        db.add(row)
+        updated += 1
+    db.flush()
+    return updated

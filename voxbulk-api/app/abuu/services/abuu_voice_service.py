@@ -21,6 +21,7 @@ from app.abuu.voice_interpretation.stt_dialect_correction import (
     rescore_after_correction,
 )
 from app.core.config import get_settings
+from app.services.providers.deepgram_service import DeepgramProviderService
 from app.services.providers.deepinfra_service import DeepInfraProviderService
 from app.services.survey_wa_voice_note_media_service import download_media_file, extract_media_items
 
@@ -164,6 +165,21 @@ def _storage_root() -> Path:
     return root
 
 
+def _audio_content_type(audio_path: Path) -> str:
+    suffix = audio_path.suffix.lower()
+    if suffix in {".ogg", ".oga"}:
+        return "audio/ogg"
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix in {".m4a", ".mp4"}:
+        return "audio/mp4"
+    if suffix == ".wav":
+        return "audio/wav"
+    if suffix == ".webm":
+        return "audio/webm"
+    return "application/octet-stream"
+
+
 class AbuuVoiceService:
     @staticmethod
     def transcribe_inbound(
@@ -285,6 +301,27 @@ class AbuuVoiceService:
             )
 
     @staticmethod
+    def _transcribe_deepgram(
+        main_db: Session,
+        audio_path: Path,
+        *,
+        language: str | None,
+        dialect_prompt: str | None = None,
+    ) -> str:
+        stt_lang = _stt_language(language)
+        payload = DeepgramProviderService.transcribe_audio_result(
+            main_db,
+            audio=audio_path.read_bytes(),
+            filename=audio_path.name,
+            content_type=_audio_content_type(audio_path),
+            language=stt_lang,
+        )
+        if not payload.get("ok", True) and not payload.get("text"):
+            err = payload.get("error") or payload.get("status_code")
+            raise RuntimeError(f"Deepgram STT failed: {err}")
+        return str(payload.get("text") or "").strip()
+
+    @staticmethod
     def _transcribe_deepinfra(
         main_db: Session,
         audio_path: Path,
@@ -361,11 +398,26 @@ class AbuuVoiceService:
         from app.abuu.voice_interpretation.stt_config import stt_provider_order
 
         providers = stt_provider_order()
+        deepgram_ready = DeepgramProviderService.is_configured(main_db)
         deepinfra_ready = DeepInfraProviderService.is_configured(main_db)
         failures: list[str] = []
         for provider in providers:
             try:
-                if provider == "deepinfra":
+                if provider == "deepgram":
+                    if not deepgram_ready:
+                        failures.append("deepgram:not_configured")
+                        continue
+                    text = AbuuVoiceService._transcribe_deepgram(
+                        main_db,
+                        audio_path,
+                        language=language,
+                        dialect_prompt=dialect_prompt,
+                    )
+                    if text:
+                        logger.info("abuu_stt_ok provider=deepgram chars=%s", len(text))
+                        return text
+                    failures.append("deepgram:empty")
+                elif provider == "deepinfra":
                     if not deepinfra_ready:
                         failures.append("deepinfra:not_configured")
                         continue
@@ -406,9 +458,10 @@ class AbuuVoiceService:
                 failures.append(f"{provider}:{type(exc).__name__}")
                 logger.warning("abuu_stt_provider_failed provider=%s", provider, exc_info=True)
         logger.warning(
-            "abuu_stt_all_providers_failed path=%s providers=%s deepinfra=%s failures=%s",
+            "abuu_stt_all_providers_failed path=%s providers=%s deepgram=%s deepinfra=%s failures=%s",
             audio_path,
             ",".join(providers),
+            deepgram_ready,
             deepinfra_ready,
             ",".join(failures) or "none",
         )

@@ -345,8 +345,11 @@ class AbuuInboundService:
                             "reason": "voice_unclear_transcript",
                             "transcript": voice.transcript,
                         }
-                if not text:
-                    text = voice.transcript
+                # WhatsApp voice webhooks often put a message id in body — prefer STT.
+                if str(voice.transcript or "").strip():
+                    text = str(voice.transcript).strip()
+                elif not text:
+                    text = voice.transcript or ""
                 voice_interpretation_payload: dict[str, Any] | None = None
                 if text and VoiceInterpretationService.enabled() and not use_waiter and not use_agent:
                     from app.abuu.agent.session import load_session, save_session

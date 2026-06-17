@@ -390,9 +390,13 @@ Apply structured allergen/recipe/dietary tags to pilot menus:
 
 ```bash
 cd voxbulk-api
-python scripts/enrich_abuu_menu_tags.py --pilot-five --apply
-python scripts/enrich_abuu_menu_tags.py --audit-unclassified   # read-only report
+python scripts/refresh_yallasay_pilot_data.py
+# or step-by-step:
+python scripts/seed_yallasay_full_menu.py --pilot-five
+python scripts/enrich_abuu_menu_tags.py --pilot-five --apply --force
 ```
+
+`refresh_yallasay_pilot_data.py` seeds menus + offers (including **عرض البحر العائلي**, **عرض عائلي دجاج الشام**), refreshes recipe/allergen tags, updates allergen KB disclaimers, and rebuilds WhatsApp snapshots.
 
 Config (`.env`):
 
@@ -439,7 +443,7 @@ Config (`.env`):
 - `ABUU_VOICE_INTENT_CLARIFY_THRESHOLD=0.45` — ask one short Arabic clarification below strong
 - `ABUU_VOICE_MENU_FUZZY_MIN_SCORE=45` — rapidfuzz threshold (same as agent kb)
 - `ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED=true` — cheap JSON recovery only when lexicon+fuzzy weak
-- `ABUU_VOICE_STT_PROVIDER_ORDER=deepinfra,whisper_cpp,groq` — STT chain order (future extension)
+- `ABUU_VOICE_STT_PROVIDER_ORDER=deepgram,deepinfra,whisper_cpp,groq` — STT chain order (Deepgram uses Admin → Integrations config; per-turn language follows customer `preferred_language`, usually `ar`)
 
 After deploy with orchestrator mode, inspect logs for `abuu_voice_interpretation` fields when testing voice notes.
 

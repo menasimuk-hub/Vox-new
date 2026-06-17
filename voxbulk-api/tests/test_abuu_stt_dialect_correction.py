@@ -21,6 +21,10 @@ def test_is_stt_garbage_detects_non_arabic_noise():
     assert is_stt_garbage("hello world xyz abc", language="ar") is True
 
 
+def test_is_stt_garbage_detects_whatsapp_numeric_id():
+    assert is_stt_garbage("1673013683951338", language="ar") is True
+
+
 def test_is_stt_garbage_allows_arabic_order():
     assert is_stt_garbage("بدي شاورما دجاج", language="ar") is False
 
@@ -98,10 +102,45 @@ def test_correct_stt_transcript_falls_back_on_exception(mock_complete):
 
 @patch("app.abuu.services.abuu_voice_service.correct_stt_transcript")
 @patch("app.abuu.services.abuu_voice_service.download_media_file")
+@patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.is_configured", return_value=False)
+@patch("app.abuu.services.abuu_voice_service.DeepgramProviderService.is_configured", return_value=True)
+@patch("app.abuu.services.abuu_voice_service.DeepgramProviderService.transcribe_audio_result")
+def test_transcribe_inbound_uses_deepgram(
+    mock_deepgram,
+    _mock_dg_configured,
+    _mock_di_configured,
+    mock_download,
+    mock_correct,
+    tmp_path,
+):
+    audio_path = tmp_path / "voice.ogg"
+    audio_path.write_bytes(b"fake-ogg")
+    mock_download.return_value = (audio_path, 1000, "audio/ogg")
+    mock_deepgram.return_value = {"ok": True, "text": "بدي عرض السمك الطازج"}
+    mock_correct.return_value = ("بدي عرض السمك الطازج", False)
+
+    result = AbuuVoiceService.transcribe_inbound(
+        MagicMock(),
+        record={"media": [{"url": "https://example.com/v.ogg", "content_type": "audio/ogg"}]},
+        customer_phone="+972501234567",
+        language="ar",
+    )
+
+    assert result.transcript == "بدي عرض السمك الطازج"
+    mock_deepgram.assert_called_once()
+    call_kwargs = mock_deepgram.call_args.kwargs
+    assert call_kwargs["language"] == "ar"
+    assert call_kwargs["content_type"] == "audio/ogg"
+
+
+@patch("app.abuu.services.abuu_voice_service.correct_stt_transcript")
+@patch("app.abuu.services.abuu_voice_service.download_media_file")
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.is_configured", return_value=True)
+@patch("app.abuu.services.abuu_voice_service.DeepgramProviderService.is_configured", return_value=False)
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.transcribe_audio_file")
 def test_transcribe_inbound_applies_correction(
     mock_transcribe,
+    _mock_dg_configured,
     _mock_configured,
     mock_download,
     mock_correct,
@@ -130,9 +169,11 @@ def test_transcribe_inbound_applies_correction(
 @patch("app.abuu.services.abuu_voice_service.correct_stt_transcript")
 @patch("app.abuu.services.abuu_voice_service.download_media_file")
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.is_configured", return_value=True)
+@patch("app.abuu.services.abuu_voice_service.DeepgramProviderService.is_configured", return_value=False)
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.transcribe_audio_file")
 def test_transcribe_inbound_skips_deepseek_on_garbage(
     mock_transcribe,
+    _mock_dg_configured,
     _mock_configured,
     mock_download,
     mock_correct,
@@ -156,9 +197,11 @@ def test_transcribe_inbound_skips_deepseek_on_garbage(
 @patch("app.abuu.services.abuu_voice_service.correct_stt_transcript")
 @patch("app.abuu.services.abuu_voice_service.download_media_file")
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.is_configured", return_value=True)
+@patch("app.abuu.services.abuu_voice_service.DeepgramProviderService.is_configured", return_value=False)
 @patch("app.abuu.services.abuu_voice_service.DeepInfraProviderService.transcribe_audio_file")
 def test_transcribe_inbound_unchanged_correct_text(
     mock_transcribe,
+    _mock_dg_configured,
     _mock_configured,
     mock_download,
     mock_correct,

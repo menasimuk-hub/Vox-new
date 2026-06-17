@@ -130,7 +130,7 @@ class YallasayMenuSeedService:
                     row.is_deleted = False
                     row.deleted_at = None
                     row.updated_at = now
-                    apply_inferred_tags(row, inferred, force=False)
+                    apply_inferred_tags(row, inferred, force=True)
                     db.add(row)
 
         offers_upserted = 0
@@ -140,6 +140,12 @@ class YallasayMenuSeedService:
                 restaurant_id=restaurant_id,
                 item_price_map=item_price_map,
                 offer_templates=offer_templates,
+                now=now,
+            )
+            offers_upserted += YallasayMenuSeedService.upsert_canonical_voice_offers(
+                db,
+                restaurant_id,
+                item_price_map=item_price_map,
                 now=now,
             )
 
@@ -199,6 +205,84 @@ class YallasayMenuSeedService:
             if offer is None:
                 offer = RestaurantPromoOffer(id=oid, created_at=now, **payload)
                 db.add(offer)
+                upserted += 1
+            else:
+                for key, value in payload.items():
+                    setattr(offer, key, value)
+                db.add(offer)
+        return upserted
+
+    @staticmethod
+    def upsert_canonical_voice_offers(db: Session, restaurant_id: str, *, item_price_map: dict[str, int], now: datetime) -> int:
+        """Stable offer ids used by voice ranking tests and legacy seeds."""
+        specs = [
+            {
+                "id": "abuu-offer-chicken-1",
+                "restaurant_id": "abuu-rest-chicken",
+                "title_en": "Sham Chicken Family Deal",
+                "title_ar": "عرض عائلي دجاج الشام",
+                "description_en": "Charcoal chicken half + 2 soft drinks",
+                "description_ar": "نصف دجاج على الفحم + 2 مشروبات غازية",
+                "discount_pct": 19,
+                "tags": ["chicken", "family", "food", "drinks"],
+                "items": [
+                    {"item_key": "charcoal-half", "quantity": 1},
+                    {"item_key": "coca-cola", "quantity": 2},
+                ],
+            },
+            {
+                "id": "abuu-offer-fish-1",
+                "restaurant_id": "abuu-rest-fish",
+                "title_en": "Fresh Fish Combo",
+                "title_ar": "عرض السمك الطازج",
+                "description_en": "Grilled sea bream — sea family deal",
+                "description_ar": "سمك طازج مشوي — عرض البحر العائلي",
+                "discount_pct": 14,
+                "tags": ["fish", "food", "drinks", "family"],
+                "items": [
+                    {"item_key": "grilled-fish", "quantity": 1},
+                    {"item_key": "fries-regular", "quantity": 1},
+                    {"item_key": "fanta-orange", "quantity": 1},
+                ],
+            },
+        ]
+        upserted = 0
+        for spec in specs:
+            if spec["restaurant_id"] != restaurant_id:
+                continue
+            offer_items: list[dict[str, Any]] = []
+            original_total = 0
+            for row in spec["items"]:
+                item_key = row["item_key"]
+                qty = int(row.get("quantity") or 1)
+                price = item_price_map.get(item_key)
+                if price is None:
+                    continue
+                menu_item_id = _item_id(restaurant_id, item_key)
+                original_total += price * qty
+                offer_items.append({"menu_item_id": menu_item_id, "quantity": qty})
+            if not offer_items or original_total <= 0:
+                continue
+            discount_pct = int(spec.get("discount_pct") or 10)
+            offer_price = max(100, int(original_total * (100 - discount_pct) / 100))
+            offer = db.get(RestaurantPromoOffer, spec["id"])
+            payload = dict(
+                restaurant_id=restaurant_id,
+                title_en=spec["title_en"],
+                title_ar=spec["title_ar"],
+                description_en=spec.get("description_en"),
+                description_ar=spec.get("description_ar"),
+                offer_price_agorot=offer_price,
+                original_price_agorot=original_total,
+                items_json=json.dumps(offer_items, ensure_ascii=False),
+                tags_json=json.dumps(spec.get("tags") or [], ensure_ascii=False),
+                is_active=True,
+                updated_at=now,
+                is_deleted=False,
+                deleted_at=None,
+            )
+            if offer is None:
+                db.add(RestaurantPromoOffer(id=spec["id"], created_at=now, **payload))
                 upserted += 1
             else:
                 for key, value in payload.items():

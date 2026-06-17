@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_STT_PROVIDER_ORDER = ("deepinfra", "whisper_cpp", "groq")
+DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
 
 
 def stt_provider_order() -> tuple[str, ...]:

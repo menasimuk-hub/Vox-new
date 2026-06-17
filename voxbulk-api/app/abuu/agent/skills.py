@@ -18,6 +18,7 @@ from app.abuu.services.agent_settings_service import is_skill_enabled
 from app.abuu.services.customer_memory_service import apply_saved_address_to_order, save_customer_name
 from app.abuu.services.kb_service import answer_kb_question, kb_fallback_message, resolve_settings
 from app.abuu.services.location_service import get_default_address
+from app.abuu.menu_intelligence.dietary_detector import DietaryDetector
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.reply_service import (
     confirm_pending_payment_message,
@@ -246,6 +247,23 @@ def _get_draft_order(db: Session, session: Session) -> CustomerOrder | None:
     return order
 
 
+def _resolve_kitchen_allergy_note(session: Session) -> str | None:
+    ctx = session.context or {}
+    existing = str(ctx.get("kitchen_allergy_note") or "").strip()
+    if existing:
+        return existing[:512]
+    allergens = ctx.get("allergen_avoid")
+    if isinstance(allergens, list) and allergens:
+        return ("Allergy: " + ", ".join(str(a) for a in allergens))[:512]
+    for msg in reversed(session.messages or []):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        dietary = DietaryDetector.detect(str(msg.get("content") or ""))
+        if dietary.kitchen_note:
+            return str(dietary.kitchen_note).strip()[:512]
+    return None
+
+
 def _refresh_cart(db: Session, session: Session, order: CustomerOrder | None) -> None:
     from app.abuu.agent.session import _cart_from_order
 
@@ -397,7 +415,11 @@ class AgentSkills:
             order.delivery_address_id = addr.id
             order.location_missing = False
             self.db.add(order)
-        AbuuOrderDraftService.confirm_draft(self.db, order)
+        AbuuOrderDraftService.confirm_draft(
+            self.db,
+            order,
+            allergy_note=_resolve_kitchen_allergy_note(self.session),
+        )
         self.session.context["confirmed_cart_fingerprint"] = fingerprint
         self.session.stage = "done"
         post_restaurant_webhook(order)

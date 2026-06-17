@@ -20,6 +20,14 @@ DEEPGRAM_DEFAULT_LANGUAGE = "en"
 
 class DeepgramProviderService:
     @staticmethod
+    def is_configured(db: Session) -> bool:
+        try:
+            DeepgramProviderService._config(db)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
     def _ssl_context() -> ssl.SSLContext | str:
         try:
             import truststore
@@ -66,12 +74,20 @@ class DeepgramProviderService:
         return f"{config['ws_url']}/v1/listen?{query}", {"Authorization": f"Token {config['api_key']}"}
 
     @staticmethod
-    def transcribe_audio_result(db: Session, *, audio: bytes, filename: str = "audio.webm", content_type: str = "audio/webm") -> dict[str, Any]:
+    def transcribe_audio_result(
+        db: Session,
+        *,
+        audio: bytes,
+        filename: str = "audio.webm",
+        content_type: str = "audio/webm",
+        language: str | None = None,
+    ) -> dict[str, Any]:
         start = time.perf_counter()
         config = DeepgramProviderService._config(db)
+        stt_language = str(language or config["language"] or DEEPGRAM_DEFAULT_LANGUAGE).strip()
         params = {
             "model": config["model"],
-            "language": config["language"],
+            "language": stt_language,
             "smart_format": "true",
             "punctuate": "true",
         }
@@ -90,7 +106,15 @@ class DeepgramProviderService:
             text = str((((body.get("results") or {}).get("channels") or [{}])[0].get("alternatives") or [{}])[0].get("transcript") or "").strip()
         except Exception:
             text = ""
-        return {"ok": True, "provider": "deepgram", "text": text, "language": config["language"], "model": config["model"], "raw": body, "timings": {"deepgram_stt_total_ms": elapsed}}
+        return {
+            "ok": True,
+            "provider": "deepgram",
+            "text": text,
+            "language": stt_language,
+            "model": config["model"],
+            "raw": body,
+            "timings": {"deepgram_stt_total_ms": elapsed},
+        }
 
     @staticmethod
     def diagnostics(db: Session) -> dict[str, Any]:

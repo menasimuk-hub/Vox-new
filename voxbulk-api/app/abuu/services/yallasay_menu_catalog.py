@@ -233,16 +233,44 @@ YALLASAY_OFFER_TEMPLATES: list[OfferSpec] = [
     },
     {
         "key": "seafood-combo",
-        "title_en": "Seafood Combo",
-        "title_ar": "عرض السمك",
-        "description_en": "Grilled fish + fries + Fanta",
-        "description_ar": "سمك مشوي + بطاطا + فanta",
+        "title_en": "Sea Family Deal",
+        "title_ar": "عرض البحر العائلي",
+        "description_en": "Fresh grilled sea bream + fries + soft drink",
+        "description_ar": "سمك طازج مشوي + بطاطا + مشروب غازي",
         "discount_pct": 14,
-        "tags": ["fish", "food", "drinks"],
+        "tags": ["fish", "food", "drinks", "family"],
         "items": [
             {"item_key": "grilled-fish", "quantity": 1},
             {"item_key": "fries-regular", "quantity": 1},
             {"item_key": "fanta-orange", "quantity": 1},
+        ],
+    },
+    {
+        "key": "fresh-fish-combo",
+        "title_en": "Fresh Fish Combo",
+        "title_ar": "عرض السمك الطازج",
+        "description_en": "Fish fillet plate + Arabic salad + mineral water",
+        "description_ar": "طبق فيليه سمك + سلطة عربية + ماء معدني",
+        "discount_pct": 12,
+        "tags": ["fish", "food", "drinks"],
+        "items": [
+            {"item_key": "fish-fillet", "quantity": 1},
+            {"item_key": "arabic-salad", "quantity": 1},
+            {"item_key": "mineral-water", "quantity": 1},
+        ],
+    },
+    {
+        "key": "chicken-family-sham",
+        "title_en": "Sham Chicken Family Deal",
+        "title_ar": "عرض عائلي دجاج الشام",
+        "description_en": "Charcoal chicken half + large fries + 2 soft drinks",
+        "description_ar": "نصف دجاج على الفحم + بطاطa كبيرة + 2 مشروبات غازية",
+        "discount_pct": 19,
+        "tags": ["chicken", "food", "drinks", "family"],
+        "items": [
+            {"item_key": "charcoal-half", "quantity": 1},
+            {"item_key": "fries-large", "quantity": 1},
+            {"item_key": "coca-cola", "quantity": 2},
         ],
     },
     {
@@ -354,9 +382,9 @@ YALLASAY_PILOT_RESTAURANTS: dict[str, str] = {
 YALLASAY_PILOT_RESTAURANT_IDS: tuple[str, ...] = tuple(YALLASAY_PILOT_RESTAURANTS.keys())
 
 YALLASAY_OFFERS_BY_PROFILE: dict[str, list[str]] = {
-    "chicken": ["shawarma-duo", "wings-feast", "lunch-combo", "drinks-six-pack"],
+    "chicken": ["chicken-family-sham", "shawarma-duo", "wings-feast", "lunch-combo", "drinks-six-pack"],
     "meat": ["mixed-grill-platter", "family-burger", "drinks-six-pack"],
-    "fish": ["seafood-combo", "drinks-six-pack"],
+    "fish": ["seafood-combo", "fresh-fish-combo", "drinks-six-pack"],
     "fastfood": ["family-burger", "lunch-combo", "drinks-six-pack"],
     "vegan": ["vegan-bowl-deal", "drinks-six-pack"],
 }
