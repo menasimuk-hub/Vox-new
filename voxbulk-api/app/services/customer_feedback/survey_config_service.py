@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -92,6 +93,7 @@ def build_survey_config(
     open_question_enabled: bool,
     marketing_opt_in_enabled: bool,
 ) -> dict[str, Any]:
+    """Build interactive survey steps (thank-you is sent on completion, not as a step)."""
     steps: list[dict[str, Any]] = []
     for type_id in selected_type_ids[:6]:
         row = db.get(FeedbackSurveyType, type_id)
@@ -102,21 +104,102 @@ def build_survey_config(
         steps.append({"kind": "open_question", "template_key": "open_question"})
     if marketing_opt_in_enabled:
         steps.append({"kind": "marketing_opt_in", "template_key": "marketing_opt_in"})
-    steps.append({"kind": "thank_you", "template_key": "thank_you"})
     return {"steps": steps}
 
 
-def load_survey_config(location: FeedbackLocation) -> dict[str, Any]:
+def parse_selected_type_ids_from_location(location: FeedbackLocation) -> list[str]:
+    raw = getattr(location, "selected_survey_type_ids_json", None)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                ids = [str(x).strip() for x in parsed if str(x).strip()]
+                if ids:
+                    return ids
+        except json.JSONDecodeError:
+            pass
+    single = str(getattr(location, "survey_type_id", None) or "").strip()
+    return [single] if single else []
+
+
+def _steps_have_kind(steps: list[dict[str, Any]], kind: str) -> bool:
+    return any(str(step.get("kind") or "") == kind for step in steps)
+
+
+def _strip_non_interactive_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [step for step in steps if str(step.get("kind") or "") != "thank_you"]
+
+
+def survey_config_needs_rebuild(location: FeedbackLocation, steps: list[dict[str, Any]] | None) -> bool:
+    if not steps:
+        return True
+    interactive = _strip_non_interactive_steps(steps)
+    if len(interactive) != len(steps):
+        return True
+    if bool(location.open_question_enabled) and not _steps_have_kind(interactive, "open_question"):
+        return True
+    if bool(location.marketing_opt_in_enabled) and not _steps_have_kind(interactive, "marketing_opt_in"):
+        return True
+    if not bool(location.open_question_enabled) and _steps_have_kind(interactive, "open_question"):
+        return True
+    if not bool(location.marketing_opt_in_enabled) and _steps_have_kind(interactive, "marketing_opt_in"):
+        return True
+    selected = parse_selected_type_ids_from_location(location)
+    topic_steps = [step for step in interactive if str(step.get("kind") or "") == "topic"]
+    expected = selected[:6]
+    if len(topic_steps) != len(expected):
+        return True
+    topic_ids = [str(step.get("survey_type_id") or "") for step in topic_steps]
+    return topic_ids != expected
+
+
+def rebuild_survey_config_for_location(db: Session, location: FeedbackLocation) -> dict[str, Any]:
+    return build_survey_config(
+        db,
+        industry_id=str(location.industry_id),
+        selected_type_ids=parse_selected_type_ids_from_location(location),
+        open_question_enabled=bool(location.open_question_enabled),
+        marketing_opt_in_enabled=bool(location.marketing_opt_in_enabled),
+    )
+
+
+def load_survey_config(
+    db: Session,
+    location: FeedbackLocation,
+    *,
+    persist_repair: bool = False,
+) -> dict[str, Any]:
+    steps: list[dict[str, Any]] | None = None
     raw = getattr(location, "survey_config_json", None)
-    if not raw:
-        return {"steps": [{"kind": "topic", "survey_type_id": location.survey_type_id, "template_key": "overall-experience"}]}
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict) and isinstance(parsed.get("steps"), list):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    return {"steps": []}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and isinstance(parsed.get("steps"), list):
+                steps = parsed["steps"]
+        except json.JSONDecodeError:
+            pass
+
+    if survey_config_needs_rebuild(location, steps):
+        config = rebuild_survey_config_for_location(db, location)
+        if persist_repair:
+            location.survey_config_json = json.dumps(config)
+        return config
+
+    interactive = _strip_non_interactive_steps(steps or [])
+    return {"steps": interactive}
+
+
+def repair_survey_config_if_needed(db: Session, location: FeedbackLocation) -> bool:
+    """Persist rebuilt survey_config_json when location flags/types are out of sync."""
+    before = str(getattr(location, "survey_config_json", None) or "")
+    load_survey_config(db, location, persist_repair=True)
+    after = str(getattr(location, "survey_config_json", None) or "")
+    if after != before:
+        location.updated_at = datetime.utcnow()
+        db.add(location)
+        db.commit()
+        return True
+    return False
 
 
 def template_for_step(

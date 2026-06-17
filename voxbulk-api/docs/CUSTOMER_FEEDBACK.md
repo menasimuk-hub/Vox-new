@@ -84,9 +84,11 @@ Survey questions and buttons are in the visitor’s language. **Dashboard result
 
 ```
 QR scan → visitor sends trigger → charge 1 unit (per inbound) → selected topics (1–6)
-→ optional open question → optional marketing opt-in → thank-you → English results in dashboard
+→ optional open question → optional marketing opt-in → thank-you (on completion) → English results in dashboard
 ```
 
+- **Edit survey after launch:** Dashboard → Saved QR surveys → **Edit survey** (topics + closing toggles). QR token unchanged — reprint not required unless you duplicate to a new location.
+- **Template wording:** Admin → Customer feedback → Survey types / WhatsApp templates. Topic and system template text must be approved on Meta/Telnyx before WhatsApp delivery.
 - QR codes use **Admin → Integrations → Telnyx → WhatsApp From** (same number as survey/interview WhatsApp).
 - On seed/API boot, that number is copied into `feedback_wa_senders` for QR generation.
 - Admin sync: `POST /admin/customer-feedback/wa-senders/sync-from-telnyx`
@@ -117,7 +119,27 @@ Promo sends (future) deduct from org **promo wallet** at `promo_message_cost_min
 
 1. Migration **`0119_customer_feedback_workflow`** (`alembic upgrade head`).
 2. Admin → Industries → **Import English templates** (140 topic templates + system templates).
-3. Optional: per-industry **Sync to Telnyx** (marks templates `submitted` until real Telnyx push is wired).
+3. **Push system closing templates to Telnyx/Meta** (required for open question, marketing opt-in, and thank-you):
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+for key in open_question marketing_opt_in thank_you tell_us_more; do
+  python scripts/push_feedback_template_to_telnyx.py --template-key "$key"
+done
+```
+
+Wait for Meta approval; confirm `telnyx_sync_status` is `approved` / `synced` / `live` in Admin.
+
+4. **Backfill legacy locations** (created before `survey_config_json` was stored):
+
+```bash
+python scripts/backfill_feedback_survey_config.py --dry-run
+python scripts/backfill_feedback_survey_config.py
+```
+
+New scans also auto-repair stale config on first trigger (lazy repair in the WhatsApp handler).
+
+5. Optional: per-industry **Sync to Telnyx** for topic templates.
 
 ## Troubleshooting WhatsApp testing
 

@@ -30,6 +30,7 @@ from app.services.customer_feedback.survey_config_service import (
     format_template_message,
     get_system_template,
     load_survey_config,
+    repair_survey_config_if_needed,
     template_for_step,
 )
 
@@ -183,7 +184,7 @@ class FeedbackWhatsappService:
 
     @staticmethod
     def _steps_for_location(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
-        config = load_survey_config(location)
+        config = load_survey_config(db, location)
         steps = config.get("steps") or []
         if steps:
             return steps
@@ -227,6 +228,7 @@ class FeedbackWhatsappService:
             return {"handled": True, "reason": "units_exhausted", "org_id": location.org_id}
 
         FeedbackLocationService.record_scan(db, location)
+        repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
         session = FeedbackSession(
             id=str(uuid.uuid4()),

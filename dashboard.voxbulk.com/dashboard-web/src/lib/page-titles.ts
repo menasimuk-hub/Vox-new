@@ -17,6 +17,7 @@ const map: Record<string, T> = {
   "/feedback/new": { title: "Create QR survey", subtitle: "WhatsApp feedback wizard" },
   "/feedback/results": { title: "Feedback results", subtitle: "Responses by location" },
   "/feedback/compare": { title: "Compare locations", subtitle: "Multi-location survey comparison" },
+  "/feedback/edit": { title: "Edit QR survey", subtitle: "Topics and closing questions" },
 
   "/recovery": { title: "Recovery queue", subtitle: "Missed-appointment outreach" },
   "/recovery/no-show": { title: "No-show follow-up", subtitle: "AI calling settings" },

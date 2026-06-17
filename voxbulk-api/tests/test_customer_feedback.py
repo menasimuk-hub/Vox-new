@@ -643,3 +643,195 @@ def test_fitness_meta_name_uses_template_row_not_location():
         assert meta_name.startswith("voxbulk_cf_thank_you_")
         assert "fitness" not in meta_name
         assert "overall" not in meta_name
+
+
+def test_load_survey_config_rebuilds_from_flags_when_json_missing():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
+    from app.services.customer_feedback.survey_config_service import (
+        build_survey_config,
+        load_survey_config,
+        survey_config_needs_rebuild,
+    )
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "restaurant")).scalar_one()
+        types = list(
+            db.execute(
+                select(FeedbackSurveyType)
+                .where(FeedbackSurveyType.industry_id == industry.id)
+                .order_by(FeedbackSurveyType.sort_order)
+                .limit(2)
+            ).scalars().all()
+        )
+        assert len(types) >= 2
+        now = datetime.utcnow()
+        org_id, _ = _seed_org()
+        loc = FeedbackLocation(
+            id=str(uuid.uuid4()),
+            org_id=org_id,
+            industry_id=industry.id,
+            survey_type_id=types[0].id,
+            selected_survey_type_ids_json=json.dumps([types[0].id, types[1].id]),
+            open_question_enabled=True,
+            marketing_opt_in_enabled=True,
+            survey_config_json=None,
+            name="Legacy",
+            qr_token=f"legacy-{uuid.uuid4().hex[:8]}",
+            wa_sender_country="gb",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(loc)
+        db.commit()
+
+        assert survey_config_needs_rebuild(loc, None) is True
+        config = load_survey_config(db, loc)
+        kinds = [step["kind"] for step in config["steps"]]
+        assert kinds == ["topic", "topic", "open_question", "marketing_opt_in"]
+        assert "thank_you" not in kinds
+
+
+def test_build_survey_config_excludes_thank_you_step():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType
+    from app.services.customer_feedback.survey_config_service import build_survey_config
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(FeedbackSurveyType.industry_id == industry.id).limit(1)
+        ).scalar_one()
+        config = build_survey_config(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=[survey_type.id],
+            open_question_enabled=True,
+            marketing_opt_in_enabled=False,
+        )
+        kinds = [step["kind"] for step in config["steps"]]
+        assert kinds == ["topic", "open_question"]
+        assert "thank_you" not in kinds
+
+
+def test_repair_survey_config_persists_rebuilt_json():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
+    from app.services.customer_feedback.survey_config_service import repair_survey_config_if_needed
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        org_id, _ = _seed_org()
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "salon")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(FeedbackSurveyType.industry_id == industry.id).limit(1)
+        ).scalar_one()
+        loc = FeedbackLocation(
+            id=str(uuid.uuid4()),
+            org_id=org_id,
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            selected_survey_type_ids_json=json.dumps([survey_type.id]),
+            open_question_enabled=True,
+            marketing_opt_in_enabled=True,
+            survey_config_json=None,
+            name="Repair me",
+            qr_token=f"repair-{uuid.uuid4().hex[:8]}",
+            wa_sender_country="gb",
+            status="active",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(loc)
+        db.commit()
+
+        assert repair_survey_config_if_needed(db, loc) is True
+        db.refresh(loc)
+        parsed = json.loads(loc.survey_config_json or "{}")
+        kinds = [step["kind"] for step in parsed.get("steps", [])]
+        assert "open_question" in kinds
+        assert "marketing_opt_in" in kinds
+        assert "thank_you" not in kinds
+
+
+def test_update_location_rebuilds_survey_config():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType, FeedbackWaSender
+    from app.services.customer_feedback.survey_config_service import build_survey_config
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        org_id, _ = _seed_org()
+        sender = db.execute(
+            select(FeedbackWaSender).where(FeedbackWaSender.country_code == "gb")
+        ).scalar_one_or_none()
+        if sender is None:
+            db.add(
+                FeedbackWaSender(
+                    id=str(uuid.uuid4()),
+                    country_code="gb",
+                    phone_e164="+447700900111",
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                )
+            )
+        else:
+            sender.phone_e164 = "+447700900111"
+            db.add(sender)
+        db.commit()
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "hotel")).scalar_one()
+        types = list(
+            db.execute(
+                select(FeedbackSurveyType)
+                .where(FeedbackSurveyType.industry_id == industry.id)
+                .order_by(FeedbackSurveyType.sort_order)
+                .limit(2)
+            ).scalars().all()
+        )
+        initial_config = build_survey_config(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=[types[0].id],
+            open_question_enabled=False,
+            marketing_opt_in_enabled=False,
+        )
+        qr_token = f"hotel-lobby-{uuid.uuid4().hex[:6]}"
+        row = FeedbackLocation(
+            id=str(uuid.uuid4()),
+            org_id=org_id,
+            industry_id=industry.id,
+            survey_type_id=types[0].id,
+            selected_survey_type_ids_json=json.dumps([types[0].id]),
+            open_question_enabled=False,
+            marketing_opt_in_enabled=False,
+            survey_config_json=json.dumps(initial_config),
+            name="Lobby",
+            qr_token=qr_token,
+            wa_sender_country="gb",
+            status="active",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+        db.commit()
+
+        updated = FeedbackLocationService.update_location(
+            db,
+            org_id,
+            row.id,
+            {
+                "selected_survey_type_ids": [types[0].id, types[1].id],
+                "open_question_enabled": True,
+                "marketing_opt_in_enabled": True,
+            },
+        )
+        assert updated["open_question_enabled"] is True
+        assert updated["marketing_opt_in_enabled"] is True
+        assert len(updated.get("selected_survey_type_ids") or []) == 2
+
+        db.refresh(row)
+        parsed = json.loads(row.survey_config_json or "{}")
+        kinds = [step["kind"] for step in parsed.get("steps", [])]
+        assert kinds.count("topic") == 2
+        assert "open_question" in kinds
+        assert "marketing_opt_in" in kinds
+        assert row.qr_token == qr_token

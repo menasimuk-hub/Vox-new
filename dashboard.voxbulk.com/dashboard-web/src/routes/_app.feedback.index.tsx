@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Copy, Download, Eye, Plus, QrCode } from "lucide-react";
+import { Copy, Download, Eye, Pencil, Plus, QrCode } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +94,11 @@ function SavedFeedback() {
                     <Button size="sm" variant="ghost" className="gap-1.5" asChild>
                       <Link to="/feedback/results" search={{ location_id: it.id }}>
                         <Eye className="size-3.5" /> Results
+                      </Link>
+                    </Button>
+                    <Button size="sm" variant="ghost" className="gap-1.5" asChild>
+                      <Link to="/feedback/$locationId/edit" params={{ locationId: it.id }}>
+                        <Pencil className="size-3.5" /> Edit survey
                       </Link>
                     </Button>
                     {canDuplicate ? (

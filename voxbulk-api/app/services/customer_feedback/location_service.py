@@ -20,6 +20,8 @@ from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa
 from app.services.customer_feedback.survey_config_service import (
     build_survey_config,
     parse_selected_type_ids,
+    parse_selected_type_ids_from_location,
+    rebuild_survey_config_for_location,
 )
 from app.services.market_zone import country_to_zone
 
@@ -233,6 +235,27 @@ class FeedbackLocationService:
             row.branch_code = str(payload["branch_code"]).strip() if payload["branch_code"] else None
         if payload.get("status"):
             row.status = str(payload["status"]).strip()
+
+        survey_fields_changed = False
+        if "selected_survey_type_ids" in payload or "survey_type_id" in payload:
+            selected_ids = parse_selected_type_ids(payload)
+            if not selected_ids:
+                selected_ids = parse_selected_type_ids_from_location(row)
+            if not selected_ids:
+                raise ValueError("At least one survey topic is required")
+            row.selected_survey_type_ids_json = json.dumps(selected_ids)
+            row.survey_type_id = selected_ids[0]
+            survey_fields_changed = True
+        if "open_question_enabled" in payload:
+            row.open_question_enabled = bool(payload.get("open_question_enabled"))
+            survey_fields_changed = True
+        if "marketing_opt_in_enabled" in payload:
+            row.marketing_opt_in_enabled = bool(payload.get("marketing_opt_in_enabled"))
+            survey_fields_changed = True
+
+        if survey_fields_changed:
+            row.survey_config_json = json.dumps(rebuild_survey_config_for_location(db, row))
+
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()

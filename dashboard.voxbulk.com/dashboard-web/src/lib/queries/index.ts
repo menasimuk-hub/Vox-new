@@ -121,6 +121,14 @@ export type CreateFeedbackLocationInput = {
   marketing_opt_in_enabled?: boolean;
 };
 
+export type UpdateFeedbackLocationInput = {
+  selected_survey_type_ids?: string[];
+  open_question_enabled?: boolean;
+  marketing_opt_in_enabled?: boolean;
+  name?: string;
+  status?: string;
+};
+
 export type FeedbackIndustry = {
   id: string;
   slug: string;
@@ -2070,6 +2078,21 @@ export function useCreateFeedbackLocation() {
     mutationFn: (body: CreateFeedbackLocationInput) =>
       apiFetch<{ ok?: boolean; item?: FeedbackLocation }>("/customer-feedback/locations", {
         method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations });
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackResults({}) });
+    },
+  });
+}
+
+export function useUpdateFeedbackLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ locationId, body }: { locationId: string; body: UpdateFeedbackLocationInput }) =>
+      apiFetch<{ ok?: boolean; item?: FeedbackLocation }>(`/customer-feedback/locations/${locationId}`, {
+        method: "PATCH",
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
