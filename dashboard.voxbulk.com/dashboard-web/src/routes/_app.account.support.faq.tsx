@@ -1,13 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronDown, Search } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useFaq } from "@/lib/queries";
 import { BUILT_IN_DOCS, type DocsArticle, type DocsCategory } from "@/lib/docs/built-in";
@@ -109,8 +108,8 @@ function FaqPage() {
       </div>
 
       {faqQ.isLoading ? (
-        <div className="grid gap-4 md:grid-cols-[260px,1fr]">
-          <Skeleton className="h-[420px] w-full" />
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-[120px] w-full" />
           <Skeleton className="h-[420px] w-full" />
         </div>
       ) : filteredCategories.length === 0 ? (
@@ -120,8 +119,8 @@ function FaqPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-[260px,1fr]">
-          <CategorySidebar
+        <div className="flex flex-col gap-4">
+          <CategoryGrid
             categories={filteredCategories}
             activeId={activeCategory?.id ?? ""}
             onSelect={(id) => {
@@ -189,7 +188,7 @@ function FaqPage() {
   );
 }
 
-function CategorySidebar({
+function CategoryGrid({
   categories,
   activeId,
   onSelect,
@@ -199,52 +198,46 @@ function CategorySidebar({
   onSelect: (id: string) => void;
 }) {
   return (
-    <Card className="h-fit md:sticky md:top-4">
-      <CardContent className="p-2">
-        <ScrollArea className="max-h-[70vh]">
-          <ul className="flex flex-col gap-1">
-            {categories.map((c) => {
-              const isActive = c.id === activeId;
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(c.id)}
-                    className={cn(
-                      "group flex w-full items-start gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-left text-sm transition-colors",
-                      isActive
-                        ? "border-border bg-accent text-foreground"
-                        : "text-foreground/80 hover:bg-accent/40 hover:text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border transition-colors",
-                        isActive
-                          ? "border-border bg-background text-foreground"
-                          : "border-border/60 bg-muted/40 text-foreground/70 group-hover:border-border group-hover:text-foreground",
-                      )}
-                    >
-                      <c.Icon className="size-4" strokeWidth={1.75} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{c.shortName || c.name}</span>
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                        {c.articles.length} {c.articles.length === 1 ? "article" : "articles"}
-                      </span>
-                    </span>
-                    <ChevronRight
-                      className={cn(
-                        "mt-1.5 size-3.5 shrink-0 transition-colors",
-                        isActive ? "text-foreground" : "text-muted-foreground/60",
-                      )}
-                    />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </ScrollArea>
+    <Card>
+      <CardContent className="p-2 sm:p-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {categories.map((c) => {
+            const isActive = c.id === activeId;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => onSelect(c.id)}
+                title={c.name}
+                className={cn(
+                  "group flex h-full flex-col items-start gap-2 rounded-md border p-2.5 text-left transition-colors",
+                  isActive
+                    ? "border-border bg-accent text-foreground shadow-sm"
+                    : "border-border/60 bg-card text-foreground/80 hover:border-border hover:bg-accent/40 hover:text-foreground",
+                )}
+              >
+                <span
+                  className={cn(
+                    "grid size-8 shrink-0 place-items-center rounded-md border transition-colors",
+                    isActive
+                      ? "border-border bg-background text-foreground"
+                      : "border-border/60 bg-muted/40 text-foreground/70 group-hover:border-border group-hover:text-foreground",
+                  )}
+                >
+                  <c.Icon className="size-4" strokeWidth={1.75} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium leading-tight">
+                    {c.shortName || c.name}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                    {c.articles.length} {c.articles.length === 1 ? "article" : "articles"}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );
