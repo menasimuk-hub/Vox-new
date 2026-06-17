@@ -20,7 +20,9 @@ Return ONLY valid JSON with these fields:
 - "expected_duration_minutes": integer estimate of total call length (typically 2-5 minutes for up to four questions)
 
 British English. Practical for clinics and businesses. No markdown fences.
-Never mention Voxbulk, VOXBULK, or any platform provider to the recipient — all messages are on behalf of the client's organisation."""
+Never mention Voxbulk, VOXBULK, or any platform provider to the recipient — all messages are on behalf of the client's organisation.
+For AI phone surveys: OPENING DISCLOSURE must mention the call is recorded. If anonymous_responses is true, note anonymity once after INTRO.
+After low rating answers, the live agent asks "Can I ask what led to that rating?" — rating questions should allow a brief follow-up."""
 
 _SURVEY_WA_META = """You are an expert WhatsApp survey designer for VOXBULK.
 Return ONLY valid JSON with these fields:

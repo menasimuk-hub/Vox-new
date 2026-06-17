@@ -12,9 +12,13 @@ from app.services.platform_catalog_service import PlatformCatalogService
 from app.services.survey_voice_agent_service import build_survey_runtime_instructions
 from app.services.voice_agent_runtime import (
     build_script_generation_agent_block,
+    build_service_opening_greeting,
+    build_service_runtime_instructions,
+    build_survey_call_negative_followup_rule,
     build_voice_runtime_layers,
     disclosure_mandatory,
     resolve_opening_disclosure_template,
+    survey_anonymous_enabled,
 )
 
 
@@ -197,3 +201,169 @@ def test_script_block_notes_mandatory_disclosure(db):
         service_key="survey",
     )
     assert "mandatory" in block.lower()
+
+
+def _survey_order_recipient(db):
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+
+    order = ServiceOrder(
+        org_id="org-1",
+        user_id="user-1",
+        service_code="survey",
+        title="Test",
+        config_json="{}",
+        status="running",
+        payment_status="approved",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(order)
+    db.commit()
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        name="Jane Doe",
+        phone="+441234567890",
+        status="pending",
+        result_json="{}",
+        created_at=datetime.utcnow(),
+    )
+    db.add(recipient)
+    db.commit()
+    return order, recipient
+
+
+def _ai_call_config(**extra) -> dict:
+    base = {
+        "organisation_name": "Acme Clinic",
+        "delivery": "ai_call",
+        "channels": ["ai_call"],
+        "goal": "Satisfaction",
+        "approved_script": "INTRO\nThanks.\n\nQUESTIONS\n1. Rate your visit 1 to 5.\n\nCLOSING\nThank you.",
+    }
+    base.update(extra)
+    return base
+
+
+def test_survey_anonymous_enabled_from_config():
+    assert survey_anonymous_enabled({"anonymous_responses": True}) is True
+    assert survey_anonymous_enabled({"anonymous_responses": False}) is False
+    assert survey_anonymous_enabled({"privacy_mode": "on"}) is True
+
+
+def test_runtime_instructions_anonymous_on(db):
+    agent = _agent(
+        opening_disclosure_template="Hello from {company_name}. Recorded line.",
+    )
+    db.add(agent)
+    db.commit()
+    order, recipient = _survey_order_recipient(db)
+    config = _ai_call_config(anonymous_responses=True)
+    text = build_service_runtime_instructions(db, order=order, config=config, recipient=recipient, agent=agent)
+    assert "anonymous" in text.lower()
+    assert "what led to that rating" in text.lower()
+
+
+def test_runtime_instructions_anonymous_off(db):
+    agent = _agent(
+        opening_disclosure_template="Hello from {company_name}. Recorded line.",
+    )
+    db.add(agent)
+    db.commit()
+    order, recipient = _survey_order_recipient(db)
+    config = _ai_call_config(anonymous_responses=False)
+    text = build_service_runtime_instructions(db, order=order, config=config, recipient=recipient, agent=agent)
+    assert "anonymous survey" not in text.lower()
+    assert "what led to that rating" in text.lower()
+
+
+def test_runtime_instructions_survey_interrupt_repeat_disclosure(db):
+    agent = _agent(
+        opening_disclosure_template="Hello from {company_name}. This call is recorded.",
+    )
+    db.add(agent)
+    db.commit()
+    order, recipient = _survey_order_recipient(db)
+    text = build_service_runtime_instructions(
+        db,
+        order=order,
+        config=_ai_call_config(),
+        recipient=recipient,
+        agent=agent,
+    )
+    assert "repeat the full opening disclosure" in text.lower()
+    assert "recording notice" in text.lower()
+
+
+def test_survey_disclosure_fallback_adds_recording(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_mandatory = True
+    db.add(platform)
+    db.commit()
+
+    agent = _agent(opening_disclosure_template="Hello from {company_name}. Quick survey.", disclosure_mandatory=True)
+    text = resolve_opening_disclosure_template(
+        db,
+        agent=agent,
+        config={"organisation_name": "Acme"},
+        service_key="survey",
+    )
+    assert "record" in text.lower()
+
+
+def test_survey_opening_greeting_fallback_anonymous_off(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_for_survey = False
+    db.add(platform)
+    db.commit()
+
+    greeting = build_service_opening_greeting(
+        db,
+        agent=None,
+        config=_ai_call_config(anonymous_responses=False),
+        recipient_name="Jane",
+        service_key="survey",
+    )
+    assert "recorded" in greeting.lower()
+    assert "anonymous" not in greeting.lower()
+
+
+def test_survey_opening_greeting_fallback_anonymous_on(db):
+    from app.services.survey_voice_agent_service import get_platform_voice_settings
+
+    platform = get_platform_voice_settings(db)
+    platform.disclosure_for_survey = False
+    db.add(platform)
+    db.commit()
+
+    greeting = build_service_opening_greeting(
+        db,
+        agent=None,
+        config=_ai_call_config(anonymous_responses=True),
+        recipient_name="Jane",
+        service_key="survey",
+    )
+    assert "anonymous" in greeting.lower()
+    assert "recorded" in greeting.lower()
+
+
+def test_negative_followup_rule_gated_to_ai_call():
+    assert build_survey_call_negative_followup_rule({"delivery": "ai_call", "channels": ["ai_call"]})
+    assert not build_survey_call_negative_followup_rule({"delivery": "whatsapp", "channels": ["whatsapp"]})
+
+
+def test_script_block_includes_low_rating_hint_for_ai_call(db):
+    agent = _agent()
+    db.add(agent)
+    db.commit()
+    block = build_script_generation_agent_block(
+        db,
+        agent=agent,
+        config=_ai_call_config(anonymous_responses=True),
+        service_key="survey",
+    )
+    assert "what led to that rating" in block.lower()
+    assert "anonymous" in block.lower()

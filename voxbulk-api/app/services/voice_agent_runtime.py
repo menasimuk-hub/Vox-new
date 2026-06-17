@@ -40,6 +40,64 @@ DEFAULT_INTERVIEW_OPENING_FALLBACK = (
     "Can you hear me clearly, and is now still a good time to continue?"
 )
 
+DEFAULT_SURVEY_LOW_RATING_THRESHOLD = 3
+
+
+def survey_anonymous_enabled(config: dict[str, Any]) -> bool:
+    from app.services.wa_template_privacy import PRIVACY_MODE_ON, normalize_privacy_mode
+
+    if config.get("anonymous_responses") in (True, "true", "1", 1):
+        return True
+    return normalize_privacy_mode(config.get("privacy_mode")) == PRIVACY_MODE_ON
+
+
+def is_ai_call_survey_config(config: dict[str, Any]) -> bool:
+    from app.services.platform_catalog_service import PlatformCatalogService
+
+    try:
+        return PlatformCatalogService.resolve_survey_channel(config) == "ai_call"
+    except Exception:
+        delivery = str(config.get("delivery") or config.get("survey_channel") or "").strip().lower()
+        channels = config.get("channels") if isinstance(config.get("channels"), list) else []
+        if any(str(c).lower() == "whatsapp" for c in channels):
+            return False
+        return delivery in {"ai_call", "call", "phone"} or any(str(c).lower() == "ai_call" for c in channels)
+
+
+def survey_low_rating_threshold(config: dict[str, Any]) -> int:
+    from app.services.survey_builder_runtime_service import load_builder_runtime, runtime_low_rating_threshold
+
+    if load_builder_runtime(config) is not None:
+        return runtime_low_rating_threshold(config)
+    return DEFAULT_SURVEY_LOW_RATING_THRESHOLD
+
+
+def build_survey_call_negative_followup_rule(config: dict[str, Any]) -> str:
+    if not is_ai_call_survey_config(config):
+        return ""
+    threshold = survey_low_rating_threshold(config)
+    return (
+        f"After any rating or satisfaction question, if the answer is low (score {threshold} or below on a "
+        "5-point scale, or clearly negative such as \"bad\", \"poor\", or \"not happy\"), politely ask one "
+        'brief follow-up: "Can I ask what led to that rating?" Listen to the reason, acknowledge briefly, '
+        "then continue with the remaining questions or closing. Do not argue or sell."
+    )
+
+
+def _survey_interrupt_behavior_rules(*, anonymous: bool) -> list[str]:
+    rules = [
+        "If the recipient interrupts during the opening disclosure, pause and repeat the full opening "
+        "disclosure verbatim, including that the call is recorded, before continuing.",
+        "If interrupted during the INTRO or a survey question, repeat that step clearly from the start.",
+        "Do not proceed to survey questions until the callee has heard the opening disclosure "
+        "(including the recording notice).",
+    ]
+    if anonymous:
+        rules.append(
+            "After the INTRO, mention once that responses are anonymous and will not be linked to the "
+            "individual in customer reports."
+        )
+    return rules
 
 def _platform_settings(db: Session) -> VoiceAgentPlatformSettings:
     from app.services.survey_voice_agent_service import get_platform_voice_settings
@@ -262,6 +320,8 @@ def resolve_opening_disclosure_template(
         ).strip()
     elif service_key == SERVICE_INTERVIEW and "good time" not in rendered.lower() and "hear me" not in rendered.lower():
         rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
+    elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
+        rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     return rendered
 
 
@@ -364,6 +424,16 @@ def build_script_generation_agent_block(
             "OPENING DISCLOSURE\n...\nINTRO\n...\nQUESTIONS\n1. ...\nCLOSING\n...\n"
             "INTRO must follow the call workflow (availability check) and must NOT repeat the disclosure."
         )
+        if is_ai_call_survey_config(config):
+            if survey_anonymous_enabled(config):
+                parts.append(
+                    "This survey uses anonymous responses — mention once after INTRO that answers are not "
+                    "linked to individuals in reports."
+                )
+            parts.append(
+                "For rating questions: if the respondent gives a low score or clearly negative answer, "
+                'include a polite follow-up such as "Can I ask what led to that rating?" before continuing.'
+            )
     elif service_key == SERVICE_INTERVIEW:
         parts.append(
             "Interview scripts must use sections in this order inside script_text:\n"
@@ -445,9 +515,11 @@ def build_service_runtime_instructions(
         parts.append(f"Contact first name: {first}")
         if goal:
             parts.append(f"Survey goal: {goal}")
-        parts.append(
-            "This is an anonymous survey. Answers are aggregated without identifying individuals in customer reports."
-        )
+        if survey_anonymous_enabled(config):
+            parts.append(
+                "This is an anonymous survey. After the INTRO, mention once that answers are aggregated "
+                "without identifying individuals in customer reports."
+            )
     else:
         parts.append(f"Calling on behalf of: {organiser}")
         parts.append(f"Candidate first name: {first}")
@@ -498,9 +570,15 @@ def build_service_runtime_instructions(
     behavior: list[str] = []
     if layers.interruption_notes:
         behavior.append(layers.interruption_notes)
-    behavior.append(
-        "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
-    )
+    if service_key == SERVICE_SURVEY and is_ai_call_survey_config(config):
+        behavior.extend(_survey_interrupt_behavior_rules(anonymous=survey_anonymous_enabled(config)))
+        followup = build_survey_call_negative_followup_rule(config)
+        if followup:
+            behavior.append(followup)
+    else:
+        behavior.append(
+            "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
+        )
     if service_key == SERVICE_INTERVIEW:
         behavior.append(
             "Do not continue to interview questions until the callee confirms they heard the introduction "
@@ -561,9 +639,15 @@ def build_service_opening_greeting(
         return greeting
 
     if service_key == SERVICE_SURVEY:
+        anonymous = survey_anonymous_enabled(config)
+        anon_clause = (
+            " This is an anonymous survey — your answers will not be linked to you in reports."
+            if anonymous
+            else ""
+        )
         return (
             f"Hi {first}, this is {agent_name}, an AI assistant calling from {company_name} "
-            f"for a short anonymous survey. Your answers are confidential. This call is recorded for quality."
+            f"for a short survey.{anon_clause} This call is recorded for quality."
         )
     return substitute_voice_placeholders(DEFAULT_INTERVIEW_OPENING_FALLBACK, **placeholder_kwargs)
 

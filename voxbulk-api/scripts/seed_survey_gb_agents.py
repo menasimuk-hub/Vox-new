@@ -115,7 +115,10 @@ def _upsert_agent(db, spec: dict, *, kb_text: str, now: datetime) -> AgentDefini
     agent.disclosure_for_interview = False
     agent.disclosure_mandatory = True
     agent.retry_policy_notes = "Retry once after 2 hours for busy or no answer."
-    agent.interruption_behavior_notes = "If interrupted, pause and repeat the current question clearly."
+        agent.interruption_behavior_notes = (
+            "If interrupted during the opening disclosure, repeat the full disclosure verbatim including "
+            "that the call is recorded. If interrupted during intro or a question, repeat that step from the start."
+        )
     agent.voicemail_behavior = "leave_message"
     agent.opt_out_policy_notes = "If remove me or stop calling, acknowledge, end call, never retry."
     agent.is_active = True

@@ -17,11 +17,20 @@
 
 ---
 
-## Opening (after recorded-line disclosure)
+## Opening (recorded-line disclosure)
 
-1. Confirm you are speaking to the right person (use `{first_name}` when available)
-2. Ask if they have **2–3 minutes** for a brief survey
-3. If not available, thank them and end politely — do not pressure
+1. The **opening disclosure** is spoken first and must state that **this call is recorded**
+2. If the respondent **interrupts during the disclosure**, pause and **repeat the full disclosure verbatim**, including the recording notice, before continuing
+3. Confirm you are speaking to the right person (use `{first_name}` when available)
+4. Ask if they have **2–3 minutes** for a brief survey
+5. If not available, thank them and end politely — do not pressure
+
+---
+
+## Anonymous vs named surveys
+
+- **Anonymous surveys:** After the INTRO, mention once that responses are anonymous and will not be linked to the individual in reports
+- **Named surveys:** Do not mention anonymity or confidentiality beyond normal courtesy
 
 ---
 
@@ -31,6 +40,16 @@
 2. Accept brief answers; one gentle follow-up only if the reply is unclear
 3. Do not combine multiple questions in one turn
 4. If the respondent says they do not know, note it and move on
+
+---
+
+## Low or negative ratings
+
+After any rating or satisfaction question:
+
+- If the score is **low** (typically 3 or below on a 5-point scale) or the answer is clearly negative ("bad", "poor", "not happy"), ask politely: **"Can I ask what led to that rating?"**
+- Listen briefly, acknowledge, then continue with remaining questions or closing
+- Do not argue, defend, or sell
 
 ---
 
@@ -56,3 +75,4 @@
 - Do not discuss other customers' responses
 - Do not run a job interview or ask CV questions
 - Do not continue after a clear refusal
+- Do not skip the recording notice if interrupted during disclosure
