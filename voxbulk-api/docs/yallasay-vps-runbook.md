@@ -253,15 +253,57 @@ redis-cli DEL "abuu:session:+447954823445"
 
 After deploy with session compaction fix, new sessions stay small automatically.
 
-## Seed five pilot restaurants + menus
+## Seed seven pilot restaurants + menus
+
+WhatsApp ordering lists **7** pilot restaurants (including Shawarma Express and Sweet Gaza). After pulling code that expands the pilot list, re-seed and rebuild snapshots:
 
 ```bash
 cd voxbulk-api
 source .venv/bin/activate
+
+# Demo accounts (res1–res7@yallasay.com, driver1–3@) + menus + WA snapshots
+python scripts/seed_yallasay_demo.py
+
+# Or pilot menus only (no portal demo accounts):
 python scripts/seed_yallasay_full_menu.py --pilot-five
+python scripts/refresh_yallasay_pilot_data.py
 ```
 
-Rebuild WhatsApp snapshots after seed or menu edits:
+Manual snapshot rebuild (if needed without full refresh script):
+
+```bash
+python3 -c "
+from app.core.abuu_database import get_abuu_sessionmaker
+from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
+from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
+with get_abuu_sessionmaker()() as db:
+    YallasayWaSnapshotService.ensure_gaza_market_agent(db)
+    for rid in YALLASAY_PILOT_RESTAURANT_IDS:
+        YallasayWaSnapshotService.rebuild_restaurant(db, rid)
+    YallasayWaSnapshotService.rebuild_marketplace(db)
+    db.commit()
+    print('pilot count:', len(YALLASAY_PILOT_RESTAURANT_IDS))
+"
+```
+
+Verify restaurant count in DB:
+
+```bash
+python3 -c "
+from sqlalchemy import text
+from app.core.abuu_database import get_abuu_sessionmaker
+with get_abuu_sessionmaker()() as db:
+    rows = db.execute(text(
+        'SELECT id, name_ar FROM abuu_restaurants WHERE is_deleted=0 ORDER BY name_ar'
+    )).fetchall()
+    for r in rows:
+        print(r[0], r[1])
+"
+```
+
+Expect **7** pilot rows including `abuu-rest-shawarma` and `abuu-rest-sweets`.
+
+Rebuild WhatsApp snapshots after seed or menu edits (alternative to script above):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/abuu/food/rebuild \
@@ -279,6 +321,7 @@ cd .. && ./vox.sh restart
 - Portal login: Sham Chicken (`abuu-rest-chicken`) at https://restaurant.yallasay.com
 - Food API (local): `GET /abuu/food/restaurants?lang=ar` — response must **not** contain `[id=`
 - WhatsApp: send `yallasay` → warm greet + “what are you craving?” (no restaurant dump, no internal IDs)
+- WhatsApp: send `اعرض مطاعm` → list of **7** restaurants; reply `5` selects the 5th in that list (not another list)
 - WhatsApp: send `سمك` or `fish` → dish suggestions across pilots (not a restaurant list)
 - Cross-restaurant: add item from restaurant A, then try restaurant B → blocked with 15 ₪ fee explanation
 

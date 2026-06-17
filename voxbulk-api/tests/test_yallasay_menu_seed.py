@@ -20,10 +20,12 @@ def test_yallasay_seed_ids_fit_mysql_varchar36():
     assert len(_item_id(long_rid, "chocolate-shake")) == 36
 
 
-def test_pilot_five_restaurants_defined():
-    assert len(YALLASAY_PILOT_RESTAURANT_IDS) == 5
+def test_pilot_restaurants_defined():
+    assert len(YALLASAY_PILOT_RESTAURANT_IDS) == 7
     assert "abuu-rest-chicken" in YALLASAY_PILOT_RESTAURANT_IDS
     assert "abuu-rest-meat" in YALLASAY_PILOT_RESTAURANT_IDS
+    assert "abuu-rest-shawarma" in YALLASAY_PILOT_RESTAURANT_IDS
+    assert "abuu-rest-sweets" in YALLASAY_PILOT_RESTAURANT_IDS
 
 
 def test_themed_menu_profiles_have_drinks():

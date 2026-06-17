@@ -533,3 +533,76 @@ def test_phase1_guard_blocks_change_restaurant_no_mutation(abuu_seeded, phase1_e
 
     assert "change_restaurant blocked" in result
     assert after["restaurant_id"] == before["restaurant_id"] == FISH_ID
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_numeric_five_selects_restaurant(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    _db, _fastfood, _fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("numeric pick should not call LLM")
+
+    from app.abuu.agent.intent_gate import build_ranked_restaurants, try_deterministic_reply
+    from app.abuu.agent.session import Session as AgentSession
+    from app.abuu.services.restaurant_discovery_service import format_restaurant_list
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509991020"
+    with get_abuu_sessionmaker()() as abuu_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        ranked = build_ranked_restaurants(abuu_db, customer_id=customer.id)
+        if len(ranked) < 5:
+            pytest.skip("Need at least 5 pilot restaurants")
+        listing = format_restaurant_list(ranked, lang="ar", page=0, page_size=15)
+        fifth = ranked[4].restaurant
+        session = AgentSession(
+            customer_wa_number=phone,
+            stage="browsing",
+            language="ar",
+            context={"prefetched_restaurant_list": listing},
+        )
+        reply = try_deterministic_reply(abuu_db, session, customer=customer, user_text="5")
+        abuu_db.commit()
+
+    assert reply is not None
+    text, branch = reply
+    assert branch == "phase1_select"
+    assert session.restaurant_id == fifth.id
+    assert fifth.name_ar in text or fifth.name_en in text
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_show_restaurants_returns_list_not_menu_clarify(
+    mock_complete, abuu_seeded, deepseek_configured, phase1_env
+):
+    _db, _fastfood, _fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("restaurant list should not call LLM")
+
+    from app.abuu.agent.intent_gate import try_deterministic_reply
+    from app.abuu.agent.session import Session as AgentSession
+    from app.abuu.services.restaurant_discovery_service import format_restaurant_list, rank_restaurants
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    phone = "+972509991021"
+    with get_abuu_sessionmaker()() as abuu_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        ranked = rank_restaurants(abuu_db, lat=None, lng=None, limit=15)
+        listing = format_restaurant_list(ranked, lang="ar", page=0, page_size=15)
+        session = AgentSession(
+            customer_wa_number=phone,
+            stage="browsing",
+            language="ar",
+            context={"prefetched_restaurant_list": listing},
+        )
+        reply = try_deterministic_reply(
+            abuu_db,
+            session,
+            customer=customer,
+            user_text="\u0645\u0637\u0627\u0639\u0645",
+        )
+
+    assert reply is not None
+    text, branch = reply
+    assert branch == "phase1_restaurant_list"
+    assert "المطاعm" in text or "🍽" in text or "1" in text
+    assert "من أي مطعm بدك تشوف المنيو" not in text
+    mock_complete.assert_not_called()

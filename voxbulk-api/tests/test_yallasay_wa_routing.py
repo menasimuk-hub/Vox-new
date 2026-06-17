@@ -201,3 +201,24 @@ def test_telnyx_source_has_no_shared_path_abuu():
     source = open(mod.__file__, encoding="utf-8").read()
     assert "handled_abuu" not in source
     assert "abuu_wa_inbound_handler_failed" not in source
+
+
+@patch("app.abuu.services.inbound_service.TelnyxMessagingService.send_whatsapp")
+def test_abuu_send_reply_without_inbound_context_uses_yallasay_line(mock_send, telnyx_numbers):
+    """Driver notify-customer and other outbound Abuu sends must not use survey line (+055)."""
+    from app.abuu.services.inbound_service import AbuuInboundService
+    from app.services.telnyx_messaging_service import TelnyxMessageResult
+
+    mock_send.return_value = TelnyxMessageResult(ok=True, status="sent", channel="whatsapp")
+
+    class _FakeDb:
+        pass
+
+    AbuuInboundService._send_reply(_FakeDb(), CUSTOMER, "Driver is outside", org_id=None)
+
+    mock_send.assert_called_once()
+    kwargs = mock_send.call_args.kwargs
+    assert kwargs["from_number"] == YALLASAY_WA
+    assert kwargs["from_number"] != SURVEY_WA
+    assert kwargs["messaging_profile_id"] == YALLASAY_PROFILE
+    assert kwargs["to_number"] == CUSTOMER

@@ -121,9 +121,14 @@ class AbuuSeedService:
     @staticmethod
     def ensure_pilot_restaurants(db: Session) -> int:
         """Insert missing pilot restaurant rows (e.g. abuu-rest-meat on existing VPS DBs)."""
+        from app.abuu.services.yallasay_demo_seed_service import DEMO_RESTAURANTS
         from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
 
         pilot_specs = [spec for spec in _RESTAURANT_SPECS if spec["id"] in YALLASAY_PILOT_RESTAURANT_IDS]
+        spec_ids = {spec["id"] for spec in pilot_specs}
+        for demo in DEMO_RESTAURANTS:
+            if demo["id"] in YALLASAY_PILOT_RESTAURANT_IDS and demo["id"] not in spec_ids:
+                pilot_specs.append(demo)
         now = datetime.utcnow()
         created = 0
         for spec in pilot_specs:

@@ -212,6 +212,14 @@ class YallasayDemoSeedService:
             db.flush()
 
         db.flush()
+        from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
+        from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
+
+        YallasayWaSnapshotService.ensure_gaza_market_agent(db)
+        for rid in YALLASAY_PILOT_RESTAURANT_IDS:
+            YallasayWaSnapshotService.rebuild_restaurant(db, rid)
+        YallasayWaSnapshotService.rebuild_marketplace(db)
+
         return {
             "restaurants_upserted": restaurants_upserted,
             "drivers_upserted": drivers_upserted,

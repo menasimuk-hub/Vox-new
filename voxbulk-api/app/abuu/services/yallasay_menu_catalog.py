@@ -469,8 +469,11 @@ YALLASAY_PILOT_RESTAURANTS: dict[str, str] = {
     "abuu-rest-fish": "fish",
     "abuu-rest-fastfood": "fastfood",
     "abuu-rest-vegetarian": "vegan",
+    "abuu-rest-shawarma": "shawarma",
+    "abuu-rest-sweets": "sweets",
 }
 
+# Back-compat alias — all demo restaurants are now in the pilot list.
 YALLASAY_DEMO_EXTRA_PROFILES: dict[str, str] = {
     "abuu-rest-shawarma": "shawarma",
     "abuu-rest-sweets": "sweets",
@@ -517,8 +520,4 @@ def offers_for_profile(profile: str) -> list[OfferSpec]:
 
 
 def profile_for_restaurant(restaurant_id: str) -> str:
-    return (
-        YALLASAY_PILOT_RESTAURANTS.get(restaurant_id)
-        or YALLASAY_DEMO_EXTRA_PROFILES.get(restaurant_id)
-        or "fastfood"
-    )
+    return YALLASAY_PILOT_RESTAURANTS.get(restaurant_id) or "fastfood"

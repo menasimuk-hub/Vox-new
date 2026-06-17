@@ -19,6 +19,7 @@ from app.abuu.services.location_service import get_default_address
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
 from app.abuu.services.preference_service import match_food_categories
 from app.abuu.services.reply_service import localized_name
+from app.abuu.services.intent_service import is_restaurant_list_message
 from app.abuu.services.restaurant_discovery_service import (
     RankedRestaurant,
     pick_restaurant_by_ref,
@@ -34,6 +35,7 @@ Phase1Branch = Literal[
     "phase1_select",
     "phase1_menu_clarify",
     "phase1_category_clarify",
+    "phase1_restaurant_list",
 ]
 
 IntentAction = Literal[
@@ -72,6 +74,8 @@ _FASTFOOD_ALIASES = (
     "wajabat",
     "fastfood",
 )
+
+_ARABIC_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
 @dataclass(frozen=True)
@@ -216,6 +220,18 @@ def resolve_fastfood_from_ranked(ranked: list[RankedRestaurant]) -> Restaurant |
     return None
 
 
+def _normalize_numeric_ref(text: str) -> str:
+    return str(text or "").strip().translate(_ARABIC_DIGIT_MAP)
+
+
+def _is_numeric_restaurant_ref(text: str) -> bool:
+    ref = _normalize_numeric_ref(text)
+    if not ref.isdigit():
+        return False
+    value = int(ref)
+    return 1 <= value <= 99
+
+
 def is_menu_browse_request(text: str) -> bool:
     normalized = _normalized_user_text(text)
     return any(marker in normalized for marker in _MENU_BROWSE_MARKERS)
@@ -227,6 +243,18 @@ def extract_intent(
     text: str,
     ranked: list[RankedRestaurant],
 ) -> AgentIntent:
+    numeric_ref = _normalize_numeric_ref(text)
+    if _is_numeric_restaurant_ref(numeric_ref):
+        picked = pick_restaurant_by_ref(ranked, numeric_ref)
+        if picked is not None:
+            return AgentIntent(
+                action="select_restaurant",
+                restaurant_ref=picked.id,
+                menu_query=None,
+                confidence="high",
+                restaurant_id=picked.id,
+            )
+
     restaurant = find_named_restaurant_in_text(db, text, ranked)
     menu_browse = is_menu_browse_request(text)
     if restaurant is not None and menu_browse:
@@ -374,8 +402,14 @@ def try_deterministic_reply(
 
     ranked_rows = freeze_turn_restaurant_snapshot(db, session, customer_id=customer.id)
     ranked = ranked_from_snapshot(db, ranked_rows)
-    intent = extract_intent(db, text=user_text, ranked=ranked)
     lang = session.language or "ar"
+
+    if not session.restaurant_id and is_restaurant_list_message(user_text):
+        listing = session.context.get("prefetched_restaurant_list")
+        if isinstance(listing, str) and listing.strip():
+            return listing, "phase1_restaurant_list"
+
+    intent = extract_intent(db, text=user_text, ranked=ranked)
 
     if intent.action == "show_menu" and intent.confidence == "low" and not session.restaurant_id:
         if lang == "ar":

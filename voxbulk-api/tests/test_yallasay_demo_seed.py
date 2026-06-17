@@ -98,3 +98,30 @@ def test_demo_showall_endpoints_when_enabled(app_client, demo_env):
     body2 = res2.json()
     assert body2["count"] == 3
     assert body2["drivers"][0]["queued_orders_count"] >= 0
+
+
+def test_yallasay_demo_seed_rebuilds_seven_restaurant_snapshot(app_client, demo_env):
+    import json
+
+    from app.abuu.market.registry import marketplace_scope, get_market_agent
+    from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS
+    from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    with get_abuu_sessionmaker()() as db:
+        YallasayDemoSeedService.seed_all(db)
+        db.commit()
+        market = get_market_agent(db)
+        row = YallasayWaSnapshotService.get(
+            db,
+            scope=marketplace_scope(market.id),
+            kind="restaurant_list",
+            lang="ar",
+        )
+
+    assert row is not None
+    payload = json.loads(row.payload_json or "{}")
+    restaurant_ids = {r["id"] for r in payload.get("restaurants") or []}
+    assert len(restaurant_ids) == 7
+    assert restaurant_ids == set(YALLASAY_PILOT_RESTAURANT_IDS)
+    assert "شاورما" in row.body_text or "shawarma" in row.body_text.lower()

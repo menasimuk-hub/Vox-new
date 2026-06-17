@@ -1426,30 +1426,33 @@ class AbuuInboundService:
     @staticmethod
     def _send_reply(main_db: Session, to_phone: str, body: str, *, org_id: str | None) -> None:
         reply_text = wa_customer_sanitize(body)
-        channel = _abuu_reply_channel.get()
-        from_number = _abuu_reply_from.get()
-        wa_profile = None
-        if from_number:
-            from app.services.yallasay_telnyx_line import get_yallasay_line_config, get_yallasay_whatsapp_e164
+        from app.services.yallasay_telnyx_line import get_yallasay_line_config, get_yallasay_whatsapp_e164
 
-            yallasay_wa = get_yallasay_whatsapp_e164(main_db)
-            if yallasay_wa:
-                channel = "whatsapp"
-                from_number = yallasay_wa
-                wa_profile = get_yallasay_line_config(main_db).get("whatsapp_messaging_profile_id")
-                if not wa_profile:
-                    logger.warning(
-                        "abuu_wa_reply_failed reason=yallasay_profile_missing to=%s from=%s",
-                        to_phone,
-                        from_number,
-                    )
-        if channel == "sms":
+        # Abuu always replies on the Yallasay WhatsApp line (+447822002099).
+        # Never fall back to whatsapp_from (+447822002055) — that number is surveys only.
+        if _abuu_reply_channel.get() == "sms":
             logger.info(
-                "abuu_wa_trace OUT skipped sms channel to=%s from=%r (yallasay is whatsapp-only)",
+                "abuu_wa_trace OUT skipped sms channel to=%s (yallasay is whatsapp-only)",
+                to_phone,
+            )
+            return
+
+        from_number = get_yallasay_whatsapp_e164(main_db)
+        if not from_number:
+            logger.warning(
+                "abuu_wa_reply_failed reason=yallasay_number_not_configured to=%s",
+                to_phone,
+            )
+            return
+
+        wa_profile = get_yallasay_line_config(main_db).get("whatsapp_messaging_profile_id")
+        if not wa_profile:
+            logger.warning(
+                "abuu_wa_reply_failed reason=yallasay_profile_missing to=%s from=%s",
                 to_phone,
                 from_number,
             )
-            return
+
         result = TelnyxMessagingService.send_whatsapp(
             main_db,
             to_number=to_phone,
@@ -1460,9 +1463,9 @@ class AbuuInboundService:
             messaging_profile_id=wa_profile,
         )
         logger.info(
-            "abuu_wa_trace OUT channel=%s to=%s ok=%s body=%r",
-            channel,
+            "abuu_wa_trace OUT channel=whatsapp to=%s from=%s ok=%s body=%r",
             to_phone,
+            from_number,
             result.ok,
             reply_text[:300],
         )
