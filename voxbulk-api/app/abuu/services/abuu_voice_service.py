@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -203,15 +204,41 @@ class AbuuVoiceService:
         job_id = str(uuid.uuid4())
         dest = _storage_root() / customer_phone.replace("+", "") / f"{job_id}.ogg"
         try:
-            path, file_size, resolved_type = download_media_file(
-                main_db,
-                media_url=media_url,
-                content_type=content_type,
-                original_filename=str(media.get("original_filename") or "voice.ogg"),
-                dest_path=dest,
-                max_bytes=16 * 1024 * 1024,
-                timeout_seconds=30,
-            )
+            path: Path | None = None
+            file_size = 0
+            resolved_type = content_type
+            last_dl_error: Exception | None = None
+            for dl_attempt in range(1, 5):
+                try:
+                    path, file_size, resolved_type = download_media_file(
+                        main_db,
+                        media_url=media_url,
+                        content_type=content_type,
+                        original_filename=str(media.get("original_filename") or "voice.ogg"),
+                        dest_path=dest,
+                        max_bytes=16 * 1024 * 1024,
+                        timeout_seconds=30,
+                    )
+                    if file_size < 128:
+                        raise ValueError("downloaded_audio_too_small")
+                    break
+                except Exception as exc:
+                    last_dl_error = exc
+                    logger.warning(
+                        "abuu_voice_download_retry phone=%s attempt=%s err=%s",
+                        customer_phone,
+                        dl_attempt,
+                        exc,
+                    )
+                    if dest.exists():
+                        try:
+                            dest.unlink()
+                        except OSError:
+                            pass
+                    if dl_attempt < 4:
+                        time.sleep(0.5 * (2 ** (dl_attempt - 1)))
+            if path is None:
+                raise ValueError(str(last_dl_error) if last_dl_error else "Media download failed")
             duration_seconds = _duration_from_record(record) or _duration_from_file(path)
             raw_transcript = AbuuVoiceService._transcribe_file(
                 main_db,

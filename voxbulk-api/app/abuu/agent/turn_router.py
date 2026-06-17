@@ -194,6 +194,10 @@ def resolve_turn(
     if slots.usage_help:
         return TurnDecision("usage_help", "turn_usage_help", slots)
 
+    if slots.cart_status and (session.restaurant_id or transactional):
+        branch = "transactional_cart_summary" if transactional else "phase1_cart_summary"
+        return TurnDecision("cart_summary", branch, slots)
+
     if slots.menu_pick and session.restaurant_id and slots.has_menu_item_index:
         return TurnDecision("propose_menu_items", "turn_propose_menu_items", slots)
 
@@ -215,11 +219,6 @@ def resolve_turn(
     if not session.restaurant_id and slots.restaurant_list:
         return TurnDecision("restaurant_list", "phase1_restaurant_list", slots)
 
-    if slots.cart_status and not slots.menu_browse:
-        if transactional or has_explicit_cart_noun(user_text):
-            branch = "transactional_cart_summary" if transactional else "phase1_cart_summary"
-            return TurnDecision("cart_summary", branch, slots)
-
     if slots.offer_browse and not slots.menu_browse and not slots.cart_status:
         return TurnDecision("defer_llm", "turn_defer_offer", slots)
 
@@ -227,6 +226,15 @@ def resolve_turn(
         if transactional and not slots.exit_flow:
             return TurnDecision("defer_llm", "turn_defer_transactional", slots)
         return TurnDecision("menu_clarify", "phase1_menu_clarify", slots)
+
+    if (
+        intent.action == "show_menu"
+        and intent.confidence == "low"
+        and session.restaurant_id
+        and slots.cart_status
+    ):
+        branch = "transactional_cart_summary" if transactional else "phase1_cart_summary"
+        return TurnDecision("cart_summary", branch, slots)
 
     if intent.confidence != "high" or intent.action == "none":
         category_reply = try_category_without_restaurant_reply(

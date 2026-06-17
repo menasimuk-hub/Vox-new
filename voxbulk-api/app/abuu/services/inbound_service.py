@@ -256,9 +256,9 @@ class AbuuInboundService:
                 voice_stt_needs_clarification = bool(voice.needs_clarification)
                 if not voice.ok:
                     partial = str(voice.transcript or "").strip()
-                    if (use_waiter or use_agent) and voice_stt_needs_clarification and partial:
+                    if use_waiter and voice_stt_needs_clarification and partial:
                         text = partial
-                    elif partial and not is_low_quality_transcript(partial):
+                    elif use_waiter and partial and not is_low_quality_transcript(partial):
                         text = partial
                     else:
                         context = {}
@@ -545,6 +545,27 @@ class AbuuInboundService:
                     abuu_db.commit()
                     return result
 
+            if message_type == "voice" and not str(text or "").strip():
+                from app.abuu.agent.voice_gate import voice_clarification_reply
+
+                AbuuInboundService._send_reply(
+                    main_db,
+                    phone,
+                    voice_clarification_reply(lang),
+                    org_id=org_id,
+                )
+                if session:
+                    session.last_message_id = message_id
+                    abuu_db.add(session)
+                agent_trace.stt_fail(
+                    phone=phone,
+                    msg_id=message_id,
+                    reason="voice_empty_transcript",
+                    confidence=transcript_confidence or 0.0,
+                )
+                abuu_db.commit()
+                return {"handled": True, "reason": "voice_empty_transcript"}
+
             location = parse_whatsapp_location(record)
             if session and location is not None:
                 result = AbuuInboundService._handle_delivery_location(
@@ -589,6 +610,16 @@ class AbuuInboundService:
         org_id: str | None,
         transcript_confidence: float | None = None,
     ) -> dict[str, Any]:
+        if transcript_confidence is not None and not str(text or "").strip():
+            from app.abuu.agent.voice_gate import voice_clarification_reply
+
+            reply = voice_clarification_reply(lang)
+            AbuuInboundService._send_reply(main_db, phone, reply, org_id=org_id)
+            if session:
+                session.last_message_id = message_id
+                abuu_db.add(session)
+            return {"handled": True, "reason": "voice_empty_transcript", "reply": reply}
+
         order = abuu_db.get(CustomerOrder, session.active_order_id) if session and session.active_order_id else None
         if session and session.step == "awaiting_substitution" and customer and order and (text or "").strip():
             result = AbuuOrderSubstitutionService.handle_customer_reply(

@@ -54,6 +54,7 @@ class ReplyComposer:
             return template
 
         try:
+            ctx = session.context or {}
             facts_block = json.dumps(
                 {
                     "intent": intent.name,
@@ -61,6 +62,8 @@ class ReplyComposer:
                     "user_message": user_text,
                     "cart_items": len(session.cart or []),
                     "restaurant_bound": bool(session.restaurant_id),
+                    "allergen_avoid": ctx.get("allergen_avoid") or [],
+                    "dietary_tags": ctx.get("dietary_tags") or [],
                 },
                 ensure_ascii=False,
             )
@@ -110,12 +113,21 @@ class ReplyComposer:
             if facts.customer_lines:
                 header = "هذي اقتراحات تناسب طلبك 🍽️" if lang == "ar" else "Here's what matches 🍽️"
                 body = "\n".join(facts.customer_lines)
+                ctx = session.context or {}
+                allergy_note = ""
+                if ctx.get("allergen_avoid"):
+                    tags = ", ".join(str(x) for x in ctx.get("allergen_avoid") or [])
+                    allergy_note = (
+                        f"\n(فلترت حسب حساسيتك: {tags})"
+                        if lang == "ar"
+                        else f"\n(Filtered for your allergies: {tags})"
+                    )
                 footer = (
-                    "قول اسم الطبق اللي بيعجبك وأنا بضيفه 😋"
+                    "أرسل أرقام الأطباق (1 2 3) أو الكمية (1*2) 😋"
                     if lang == "ar"
-                    else "Say the dish name you want and I'll add it 😋"
+                    else "Send dish numbers (1 2 3) or qty (1*2) 😋"
                 )
-                return f"{header}\n{body}\n{footer}"
+                return f"{header}{allergy_note}\n{body}\n{footer}"
             if lang == "ar":
                 return "ما لقيت أطباق لهذا الطلب حالياً — جرّب نوع تاني أو اسأل عن المطاعم 🙏"
             return "No matching dishes right now — try another type or ask for restaurants 🙏"

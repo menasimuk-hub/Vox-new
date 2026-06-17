@@ -22,7 +22,7 @@ from app.abuu.agent.tool_guard import execute_tool_guarded, is_tool_error_result
 from app.abuu.agent.turn_router import try_turn_router_reply
 from app.abuu import agent_trace
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
-from app.abuu.services.reply_service import unknown_message
+from app.abuu.services.reply_service import unknown_message, voice_unclear_transcript_message
 from app.abuu.services.voice_order_debug_service import VoiceOrderDebugService, debug_enabled, get_debug_request_id
 from app.core.config import get_settings
 from app.abuu.models.entities import CustomerOrder
@@ -162,6 +162,13 @@ class AbuuAgentLoop:
     ) -> dict[str, Any]:
         customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone)
         session = load_session(abuu_db, phone)
+
+        if input_source == "voice" and not str(text or "").strip():
+            reply = voice_unclear_transcript_message(session.language or "ar")
+            session.messages.append({"role": "assistant", "content": reply})
+            save_session(abuu_db, session, message_id=message_id)
+            return {"handled": True, "action": "voice_empty", "reply": reply}
+
         user_turn = _format_user_turn(text, input_source=input_source, lang=session.language or "ar")
 
         if is_abuu_start_message(text):

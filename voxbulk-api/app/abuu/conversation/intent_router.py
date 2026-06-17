@@ -201,6 +201,11 @@ def _regex_intent(text: str, session: AgentSession, pre_inferred: dict[str, Any]
     if _contains_any(normalized, _ADDRESS_PHRASES):
         return AbuuIntent("address", confidence=0.9)
 
+    from app.abuu.agent.pending_action import is_cart_inquiry
+
+    if is_cart_inquiry(normalized):
+        return AbuuIntent("cart_status", confidence=0.95)
+
     if _contains_any(normalized, _CONFIRM_PHRASES):
         return AbuuIntent("confirm", confidence=0.95)
 

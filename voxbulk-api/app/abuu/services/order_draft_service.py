@@ -202,7 +202,12 @@ class AbuuOrderDraftService:
 
     @staticmethod
     def build_suggestion_index(items: list[RestaurantMenuItem]) -> list[dict]:
-        return [{"idx": i + 1, "menu_item_id": item.id} for i, item in enumerate(items)]
+        from app.abuu.agent.menu_selection import build_menu_item_index
+
+        return [
+            {"idx": row["index"], "menu_item_id": row["id"]}
+            for row in build_menu_item_index(items)
+        ]
 
     @staticmethod
     def resolve_item_from_ref(
@@ -214,11 +219,15 @@ class AbuuOrderDraftService:
     ) -> RestaurantMenuItem | None:
         ref = str(item_ref or "").strip()
         suggestions = context.get("suggested_items") or []
+        menu_index = context.get("menu_item_index") or []
         if ref.isdigit():
             idx = int(ref)
             for entry in suggestions:
                 if int(entry.get("idx") or 0) == idx:
                     return db.get(RestaurantMenuItem, str(entry.get("menu_item_id")))
+            for entry in menu_index:
+                if isinstance(entry, dict) and int(entry.get("index") or 0) == idx:
+                    return db.get(RestaurantMenuItem, str(entry.get("id")))
         lowered = ref.lower()
         for item in AbuuOrderDraftService.list_menu_items(db, restaurant_id, limit=50):
             if lowered in localized_name(item, "ar").lower() or lowered in localized_name(item, "en").lower():

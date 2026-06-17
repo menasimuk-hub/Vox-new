@@ -168,19 +168,16 @@ def conversational_menu_message(
     from app.abuu.services.preference_service import category_label
 
     labels = ", ".join(category_label(cat, lang) for cat in categories)
-    lines: list[str] = []
     title = localized_name(restaurant, lang)
     if lang == "en":
-        lines.append(f"{labels} at {title}:")
+        header = f"{labels} at {title}:"
     else:
-        lines.append(f"{labels} — {title}:")
-    for _idx, item in items[:6]:
+        header = f"{labels} — {title}:"
+    lines: list[str] = [header]
+    for idx, item in items[:10]:
         label = localized_name(item, lang)
-        lines.append(f"• {label} — {format_shekel(item.price_agorot)}")
-    if lang == "en":
-        lines.append("Reply with the item name to add it.")
-    else:
-        lines.append("أرسل اسم الصنف لإضافته.")
+        lines.append(f"{idx}. {label} — {format_shekel(item.price_agorot)}")
+    lines.append(menu_keyboard_hint(lang).strip())
     return "\n".join(lines)
 
 

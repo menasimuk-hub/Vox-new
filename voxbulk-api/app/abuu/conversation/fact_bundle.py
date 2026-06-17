@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.abuu.agent.menu_selection import format_numbered_menu_lines, session_menu_filters, store_shown_menu
 from app.abuu.agent.session import Session as AgentSession
 from app.abuu.conversation.intent_router import AbuuIntent
 from app.abuu.market.registry import get_market_agent, marketplace_scope
@@ -106,12 +107,30 @@ class FactBundleLoader:
                 )
                 return bundle
             restaurant = db.get(Restaurant, rid)
-            items = AbuuOrderDraftService.list_menu_items(db, rid, limit=500, customer=customer)
+            allergen_avoid, dietary_required = session_menu_filters(session)
+            items = AbuuOrderDraftService.list_menu_items(
+                db,
+                rid,
+                limit=500,
+                customer=customer,
+                allergen_avoid=allergen_avoid or None,
+                dietary_required=dietary_required or None,
+            )
             if restaurant and items:
-                lines = [f"{'Menu' if lang == 'en' else 'منيو'} — {localized_name(restaurant, lang)}"]
-                for item in items:
-                    lines.append(f"• {localized_name(item, lang)} — {format_shekel(item.price_agorot)}")
-                bundle.menu_text = "\n".join(lines)
+                store_shown_menu(session, items, source="menu")
+                header = f"{'Menu' if lang == 'en' else 'منيو'} — {localized_name(restaurant, lang)}"
+                bundle.menu_text = format_numbered_menu_lines(
+                    items[:12],
+                    lang,
+                    header=header,
+                    include_hint=True,
+                )
+            elif allergen_avoid or dietary_required:
+                bundle.customer_lines.append(
+                    "ما لقيت أطباق تناسب قيودك. جرّب نوع طعام تاني أو تواصل مع المطعم."
+                    if lang == "ar"
+                    else "No dishes match your dietary restrictions. Try another category."
+                )
             return bundle
 
         if intent.name in {"select_item", "cart_modify"} and intent.item_query:
@@ -173,11 +192,11 @@ class FactBundleLoader:
             restaurant_ids = [r.restaurant.id for r in ranked]
 
         ctx = session.context or {}
-        allergen_avoid = ctx.get("allergen_avoid") or []
-        dietary_required = ctx.get("dietary_tags") or []
+        allergen_avoid, dietary_required = session_menu_filters(session)
 
         facts: list[FoodItemFact] = []
         menu_limit = 500
+        listed_items: list[RestaurantMenuItem] = []
         for rid in restaurant_ids:
             restaurant = db.get(Restaurant, rid)
             if restaurant is None or restaurant.is_deleted or not restaurant.is_available:
@@ -188,11 +207,12 @@ class FactBundleLoader:
                 categories=categories or None,
                 limit=menu_limit,
                 customer=customer,
-                allergen_avoid=allergen_avoid if isinstance(allergen_avoid, list) else None,
-                dietary_required=dietary_required if isinstance(dietary_required, list) else None,
+                allergen_avoid=allergen_avoid or None,
+                dietary_required=dietary_required or None,
                 query_text=search_query,
             )
             for item in items:
+                listed_items.append(item)
                 facts.append(
                     FoodItemFact(
                         menu_item_id=item.id,
@@ -205,10 +225,18 @@ class FactBundleLoader:
                 )
 
         bundle.food_items = facts
-        for i, f in enumerate(facts, start=1):
+        if session.restaurant_id and listed_items:
+            store_shown_menu(session, listed_items[:12], source="filtered")
+        for i, f in enumerate(facts[:12], start=1):
             key = f"k{i}"
             bundle.internal_index[key] = {"menu_item_id": f.menu_item_id, "restaurant_id": f.restaurant_id}
-            bundle.customer_lines.append(f"• {f.name} — {f.price_text} ({f.restaurant_name})")
+            bundle.customer_lines.append(f"{i}. {f.name} — {f.price_text} ({f.restaurant_name})")
+        if not facts and (allergen_avoid or dietary_required):
+            bundle.customer_lines = [
+                "ما لقيت أطباق تناسب قيودك الحساسية/النظام الغذائي. جرّب تغيير الطلب أو تواصل مع المطعم."
+                if lang == "ar"
+                else "No dishes match your allergy or diet filters. Try a different request."
+            ]
         session.context["last_food_search"] = [
             {"menu_item_id": f.menu_item_id, "restaurant_id": f.restaurant_id, "name": f.name}
             for f in facts
@@ -277,13 +305,24 @@ class FactBundleLoader:
         if not candidates:
             pilot = _pilot_ids(db)
             rids = list(pilot) if pilot else [r.restaurant.id for r in rank_restaurants(db, limit=15)]
+            allergen_avoid, dietary_required = session_menu_filters(session)
             menu_rows: list[dict] = []
             row_index: dict[str, tuple[RestaurantMenuItem, Restaurant]] = {}
-            for rid in rids:
+            search_rid = session.restaurant_id
+            target_rids = [search_rid] if search_rid else rids
+            for rid in target_rids:
                 restaurant = db.get(Restaurant, rid)
                 if not restaurant:
                     continue
-                for item in AbuuOrderDraftService.list_menu_items(db, rid, limit=40, customer=customer):
+                for item in AbuuOrderDraftService.list_menu_items(
+                    db,
+                    rid,
+                    limit=40,
+                    customer=customer,
+                    allergen_avoid=allergen_avoid or None,
+                    dietary_required=dietary_required or None,
+                    query_text=query,
+                ):
                     menu_rows.append(
                         {
                             "id": item.id,

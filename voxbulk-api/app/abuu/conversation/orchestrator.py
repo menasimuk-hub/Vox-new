@@ -22,6 +22,7 @@ from app.abuu.conversation.reply_composer import ReplyComposer
 from app.abuu.conversation.wa_sanitize import wa_customer_sanitize
 from app.abuu.models.entities import CustomerOrder
 from app.abuu.services.order_draft_service import AbuuOrderDraftService
+from app.abuu.services.reply_service import voice_unclear_transcript_message
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,42 @@ class AbuuConversationOrchestrator:
         )
         session = load_session(abuu_db, phone)
         session.language = customer.preferred_language or session.language or "ar"
+
+        if not str(text or "").strip():
+            reply = voice_unclear_transcript_message(session.language or "ar")
+            return {"handled": True, "action": "voice_empty", "reply": reply}
+
+        from app.abuu.agent.menu_pick_parser import is_menu_pick_message
+        from app.abuu.agent.pending_action import (
+            format_cart_summary_for_session,
+            is_cart_inquiry,
+            propose_menu_picks_from_text,
+        )
+
+        lang = session.language or "ar"
+        if is_cart_inquiry(text):
+            reply = format_cart_summary_for_session(abuu_db, session, lang)
+            session.messages.append({"role": "user", "content": text})
+            session.messages.append({"role": "assistant", "content": reply})
+            save_session(abuu_db, session, message_id=message_id)
+            return {
+                "handled": True,
+                "action": "cart_summary",
+                "reply": wa_customer_sanitize(reply),
+                "restaurant_id": session.restaurant_id,
+            }
+
+        if session.restaurant_id and is_menu_pick_message(text):
+            reply = propose_menu_picks_from_text(abuu_db, session, user_text=text, lang=lang)
+            session.messages.append({"role": "user", "content": text})
+            session.messages.append({"role": "assistant", "content": reply})
+            save_session(abuu_db, session, message_id=message_id)
+            return {
+                "handled": True,
+                "action": "propose_menu_items",
+                "reply": wa_customer_sanitize(reply),
+                "restaurant_id": session.restaurant_id,
+            }
 
         from app.abuu.menu_intelligence.dietary_detector import DietaryDetector
 

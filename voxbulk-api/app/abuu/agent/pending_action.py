@@ -48,13 +48,26 @@ _CART_INQUIRY_PATTERNS = (
     re.compile(r"السلة"),
     re.compile(r"\bسلة\b"),
     re.compile(r"cart", re.I),
+    re.compile(r"basket", re.I),
     re.compile(r"شو عندي"),
     re.compile(r"ايش عندي"),
     re.compile(r"إيش عندي"),
     re.compile(r"كم صار"),
     re.compile(r"كم المجموع"),
     re.compile(r"what.*cart", re.I),
+    re.compile(r"what.*basket", re.I),
+    re.compile(r"show.*cart", re.I),
+    re.compile(r"show.*basket", re.I),
+    re.compile(r"my basket", re.I),
+    re.compile(r"my order", re.I),
     re.compile(r"(ايش|شو|إيش)\s+في\s+(ال)?سلة"),
+    re.compile(r"عرض.*السلة"),
+    re.compile(r"شو.*السلة"),
+)
+
+_EXPLICIT_CART_NOUN = re.compile(
+    r"السلة|\bسلة\b|cart|basket|عندي|المجموع|الطلب|my order",
+    re.I,
 )
 
 _EXPLICIT_EXIT_PATTERNS = (
@@ -98,10 +111,12 @@ def has_explicit_cart_noun(text: str) -> bool:
 
 
 def is_cart_inquiry(text: str, *, menu_browse: bool = False) -> bool:
-    if menu_browse:
-        return False
     normalized = _normalized(text)
     if not normalized:
+        return False
+    if _EXPLICIT_CART_NOUN.search(normalized):
+        return True
+    if menu_browse:
         return False
     if re.search(r"منيو|قائمة|menu", normalized, re.I):
         return False
