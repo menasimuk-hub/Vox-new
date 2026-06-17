@@ -110,3 +110,13 @@ export async function loginDriver(email, password) {
   setToken(data.access_token)
   return data
 }
+
+export async function fetchDemoDrivers() {
+  const res = await fetch(apiUrl('/abuu/internal/demo/drivers'))
+  if (res.status === 404) {
+    throw new Error('Demo directory is disabled (set ABUU_DEMO_SHOWALL_ENABLED=true on API)')
+  }
+  const data = await res.json()
+  if (!res.ok) throw new Error(data?.detail || 'Could not load demo drivers')
+  return data
+}

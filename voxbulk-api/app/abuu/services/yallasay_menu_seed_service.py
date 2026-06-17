@@ -63,6 +63,7 @@ class YallasayMenuSeedService:
         profile = profile_for_restaurant(restaurant_id)
         menu_catalog = menu_for_profile(profile)
         offer_templates = offers_for_profile(profile)
+        seen_items: dict[str, RestaurantMenuItem] = {}
 
         for cat_idx, cat_spec in enumerate(menu_catalog, start=1):
             cat_id = _cat_id(restaurant_id, cat_spec["key"])
@@ -99,7 +100,7 @@ class YallasayMenuSeedService:
                     item_spec=item_spec,
                     profile=profile,
                 )
-                row = db.get(RestaurantMenuItem, iid)
+                row = seen_items.get(iid) or db.get(RestaurantMenuItem, iid)
                 if row is None:
                     row = RestaurantMenuItem(
                         id=iid,
@@ -117,6 +118,7 @@ class YallasayMenuSeedService:
                     )
                     apply_inferred_tags(row, inferred, force=True)
                     db.add(row)
+                    seen_items[iid] = row
                     items_upserted += 1
                 else:
                     row.category_id = cat_id
@@ -132,6 +134,7 @@ class YallasayMenuSeedService:
                     row.updated_at = now
                     apply_inferred_tags(row, inferred, force=True)
                     db.add(row)
+                    seen_items[iid] = row
 
         offers_upserted = 0
         if with_offers:
@@ -256,7 +259,7 @@ class YallasayMenuSeedService:
                     RestaurantPromoOffer.is_deleted.is_(False),
                     RestaurantPromoOffer.title_ar == spec["title_ar"],
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             if existing_title and existing_title != spec["id"]:
                 continue
             offer_items: list[dict[str, Any]] = []

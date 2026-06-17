@@ -305,7 +305,6 @@ YALLASAY_PROFILE_MAINS: dict[str, list[CategorySpec]] = {
             "name_ar": "مفضلات الدجاج",
             "items": [
                 _item("crispy-chicken-burger", "Crispy chicken burger", "برجر دجاج مقرمش", "food", 4500),
-                _item("nuggets-6", "Chicken nuggets (6)", "ناجتس دجاج (6)", "food", 3000),
             ],
         },
         YALLASAY_FULL_MENU[2],  # fast-snacks subset useful for chicken
@@ -367,7 +366,100 @@ YALLASAY_PROFILE_MAINS: dict[str, list[CategorySpec]] = {
                 _item("stuffed-vine", "Stuffed vine leaves", "ورق عنب", "food", 4000),
             ],
         },
-        YALLASAY_FULL_MENU[5],  # salads
+    ],
+    "shawarma": [
+        {
+            "key": "shawarma-wraps",
+            "name_en": "Shawarma Wraps",
+            "name_ar": "ساندويشات شاورما",
+            "items": [
+                _item("beef-shawarma-wrap", "Beef shawarma wrap", "ساندwich شاورما لحم", "food", 3600,
+                      description_en="Beef shawarma, tahini, pickles, pita", description_ar="شاورما لحم، طحينة، مخلل، خبز"),
+                _item("chicken-shawarma-wrap", "Chicken shawarma wrap", "ساندwich شاورما دجاج", "food", 3400),
+                _item("mixed-shawarma-wrap", "Mixed shawarma wrap", "ساندwich شاورما مشكل", "food", 3800),
+                _item("garlic-chicken-wrap", "Garlic chicken wrap", "ساندwich دجاج بالثوم", "food", 3500),
+            ],
+        },
+        {
+            "key": "shawarma-plates",
+            "name_en": "Shawarma Plates",
+            "name_ar": "أطباق شاورما",
+            "items": [
+                _item("chicken-plate", "Chicken shawarma plate", "طبق شاورما دجاج", "food", 4800),
+                _item("beef-plate", "Beef shawarma plate", "طبق شاورما لحم", "food", 5200),
+                _item("family-tray", "Family shawarma tray", "صينية شاورما عائلية", "food", 8900),
+                _item("kids-plate", "Kids shawarma plate", "طبق شاورما أطفال", "food", 2800),
+            ],
+        },
+        {
+            "key": "shawarma-sides",
+            "name_en": "Sides & Fries",
+            "name_ar": "جانبية وبطاطا",
+            "items": [
+                _item("shawarma-fries", "Shawarma fries box", "بطاطا شاورما", "sides", 2200),
+                _item("garlic-bread", "Garlic bread", "خبز بالثوم", "sides", 1800),
+                _item("pickles-plate", "Pickles plate", "طبق مخللات", "sides", 1200),
+                _item("hummus-side", "Hummus side", "حمص جانبي", "sides", 1600),
+            ],
+        },
+        {
+            "key": "shawarma-grills",
+            "name_en": "Grilled Extras",
+            "name_ar": "مشاوي إضافية",
+            "items": [
+                _item("kafta-skewer", "Kafta skewer", "سيخ كفتة", "food", 4200),
+                _item("shish-tawook", "Shish tawook", "شيش طاووق", "food", 4500),
+                _item("grilled-kebab", "Grilled kebab plate", "طبق كباب مشوي", "food", 5600),
+                _item("grilled-liver", "Grilled liver cubes", "كبدة مشوية", "food", 3800),
+            ],
+        },
+    ],
+    "sweets": [
+        {
+            "key": "bakery-cakes",
+            "name_en": "Cakes & Pastries",
+            "name_ar": "كيك ومعجنات",
+            "items": [
+                _item("chocolate-cake-slice", "Chocolate cake slice", "قطعة كيك شوكولاتة", "food", 2800),
+                _item("cheese-cake", "Cheesecake slice", "قطعة تشيز كيك", "food", 3200),
+                _item("croissant", "Butter croissant", "كرواسون زبدة", "food", 1800),
+                _item("apple-pie", "Apple pie slice", "قطعة فطيرة تفاح", "food", 2400),
+            ],
+        },
+        {
+            "key": "bakery-traditions",
+            "name_en": "Traditional Sweets",
+            "name_ar": "حلويات تراثية",
+            "items": [
+                _item("kunafa-portion", "Kunafa portion", "كنافة", "food", 3500,
+                      description_en="Sweet cheese kunafa with syrup", description_ar="كنافة بالجبن والقطر"),
+                _item("baklava-mix", "Baklava mix box", "علبة بقلاوة مشكلة", "food", 4200),
+                _item("basbousa", "Basbousa slice", "قطعة بسبوسة", "food", 2200),
+                _item("qatayef", "Qatayef (3 pcs)", "قطايف (3)", "food", 2600),
+            ],
+        },
+        {
+            "key": "bakery-icecream",
+            "name_en": "Ice Cream & Frozen",
+            "name_ar": "آيس كريم",
+            "items": [
+                _item("vanilla-scoop", "Vanilla scoop", "كرة فانيلا", "dessert", 1500),
+                _item("chocolate-scoop", "Chocolate scoop", "كرة شوكولاتة", "dessert", 1500),
+                _item("mango-sorbet", "Mango sorbet", "سوربت مانجو", "dessert", 1800),
+                _item("kunafa-icecream", "Kunafa ice cream cup", "كوب آيس كريم كنافة", "dessert", 3200),
+            ],
+        },
+        {
+            "key": "bakery-hot",
+            "name_en": "Hot Desserts",
+            "name_ar": "حلويات ساخنة",
+            "items": [
+                _item("um-ali", "Um Ali", "أم علي", "dessert", 3800),
+                _item("rice-pudding", "Rice pudding", "رز بالحليب", "dessert", 2200),
+                _item("warm-brownie", "Warm brownie", "براوني ساخن", "dessert", 2900),
+                _item("sahlab", "Sahlab cup", "كوب سحلب", "dessert", 2000),
+            ],
+        },
     ],
 }
 
@@ -379,6 +471,11 @@ YALLASAY_PILOT_RESTAURANTS: dict[str, str] = {
     "abuu-rest-vegetarian": "vegan",
 }
 
+YALLASAY_DEMO_EXTRA_PROFILES: dict[str, str] = {
+    "abuu-rest-shawarma": "shawarma",
+    "abuu-rest-sweets": "sweets",
+}
+
 YALLASAY_PILOT_RESTAURANT_IDS: tuple[str, ...] = tuple(YALLASAY_PILOT_RESTAURANTS.keys())
 
 YALLASAY_OFFERS_BY_PROFILE: dict[str, list[str]] = {
@@ -387,6 +484,8 @@ YALLASAY_OFFERS_BY_PROFILE: dict[str, list[str]] = {
     "fish": ["seafood-combo", "fresh-fish-combo", "drinks-six-pack"],
     "fastfood": ["family-burger", "lunch-combo", "drinks-six-pack"],
     "vegan": ["vegan-bowl-deal", "drinks-six-pack"],
+    "shawarma": ["shawarma-duo", "lunch-combo", "drinks-six-pack"],
+    "sweets": ["vegan-bowl-deal", "drinks-six-pack"],
 }
 
 _OFFER_BY_KEY = {spec["key"]: spec for spec in YALLASAY_OFFER_TEMPLATES}
@@ -395,6 +494,8 @@ _OFFER_BY_KEY = {spec["key"]: spec for spec in YALLASAY_OFFER_TEMPLATES}
 def menu_for_profile(profile: str) -> list[CategorySpec]:
     mains = YALLASAY_PROFILE_MAINS.get(profile) or YALLASAY_PROFILE_MAINS["fastfood"]
     shared = list(YALLASAY_SHARED_CATEGORIES)
+    if profile == "sweets":
+        shared = [cat for cat in shared if cat["key"] != "desserts"]
     if profile == "vegan":
         shared = [cat for cat in shared if cat["key"] != "addons"] + [
             {
@@ -416,4 +517,8 @@ def offers_for_profile(profile: str) -> list[OfferSpec]:
 
 
 def profile_for_restaurant(restaurant_id: str) -> str:
-    return YALLASAY_PILOT_RESTAURANTS.get(restaurant_id, "fastfood")
+    return (
+        YALLASAY_PILOT_RESTAURANTS.get(restaurant_id)
+        or YALLASAY_DEMO_EXTRA_PROFILES.get(restaurant_id)
+        or "fastfood"
+    )

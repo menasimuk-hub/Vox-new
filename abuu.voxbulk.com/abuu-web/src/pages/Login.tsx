@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,7 +9,8 @@ import { loginRestaurant } from '@/lib/api'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const [searchParams] = useSearchParams()
+  const [email, setEmail] = useState(() => searchParams.get('email') || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -52,6 +53,9 @@ export default function Login() {
             <Button type="submit" className="w-full gradient-energy text-white" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in'}
             </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              <Link to="/showall" className="underline underline-offset-2">Demo restaurant directory</Link>
+            </p>
           </form>
         </CardContent>
       </Card>
