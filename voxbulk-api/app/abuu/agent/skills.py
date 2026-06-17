@@ -35,6 +35,7 @@ from app.abuu.services.restaurant_discovery_service import (
     pick_restaurant_by_ref,
     rank_restaurants,
 )
+from app.core.config import get_settings
 from app.abuu.services.skill_definitions import (
     SKILL_ANSWER_KB,
     SKILL_BUILD_CART,
@@ -203,10 +204,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 
 def enabled_tool_schemas(db: Session) -> list[dict[str, Any]]:
     enabled: list[dict[str, Any]] = []
+    phase1 = bool(get_settings().abuu_agent_phase1_orchestration)
     for schema in TOOL_SCHEMAS:
         skill = TOOL_SKILL_MAP.get(schema["name"], schema["name"])
         if is_skill_enabled(db, skill):
-            enabled.append(schema)
+            item = dict(schema)
+            if phase1:
+                if schema["name"] == "change_restaurant":
+                    item["description"] = (
+                        "Clear the current restaurant and show all restaurants again. "
+                        "Only when customer explicitly asks to switch or list restaurants — "
+                        "never when they name a target restaurant."
+                    )
+                elif schema["name"] == "search_menu":
+                    item["description"] = (
+                        "Find menu items by name or keyword. Requires a restaurant already selected; "
+                        "if customer names a restaurant, call select_restaurant first."
+                    )
+            enabled.append(item)
     return enabled
 
 
@@ -511,6 +526,10 @@ class AgentSkills:
             {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
             for r in ranked
         ]
+        if not get_settings().abuu_agent_phase1_orchestration or not self.session.context.get(
+            "turn_ranked_restaurants"
+        ):
+            self.session.context["turn_ranked_restaurants"] = list(self.session.context["ranked_restaurants"])
         return format_restaurant_list(
             ranked,
             lang=self.lang,
@@ -529,6 +548,10 @@ class AgentSkills:
             {"id": r.restaurant.id, "name_en": r.restaurant.name_en, "name_ar": r.restaurant.name_ar}
             for r in ranked
         ]
+        if not get_settings().abuu_agent_phase1_orchestration or not self.session.context.get(
+            "turn_ranked_restaurants"
+        ):
+            self.session.context["turn_ranked_restaurants"] = list(self.session.context["ranked_restaurants"])
         listing = format_restaurant_list(
             ranked,
             lang=self.lang,
@@ -561,7 +584,9 @@ class AgentSkills:
         ref = str(inp.get("restaurant_id") or "").strip()
         restaurant = self.db.get(Restaurant, ref)
         if restaurant is None:
-            ranked_rows = self.session.context.get("ranked_restaurants") or []
+            ranked_rows = self.session.context.get("turn_ranked_restaurants") or self.session.context.get(
+                "ranked_restaurants"
+            ) or []
             ranked = []
             for row in ranked_rows:
                 if not isinstance(row, dict):
@@ -571,7 +596,7 @@ class AgentSkills:
                     from app.abuu.services.restaurant_discovery_service import RankedRestaurant
 
                     ranked.append(RankedRestaurant(restaurant=rest, distance_km=0.0, match_score=0, is_open=rest.is_available))
-            if not ranked:
+            if not ranked and not get_settings().abuu_agent_phase1_orchestration:
                 addr = get_default_address(self.db, self.customer.id)
                 lat = addr.latitude if addr else None
                 lng = addr.longitude if addr else None
@@ -579,6 +604,28 @@ class AgentSkills:
             restaurant = pick_restaurant_by_ref(ranked, ref)
         if restaurant is None:
             raise ValueError("Restaurant not found")
+
+        if get_settings().abuu_agent_phase1_orchestration:
+            from app.abuu.agent.intent_gate import apply_restaurant_selection, cart_cleared_notice
+
+            ranked_rows = self.session.context.get("turn_ranked_restaurants") or self.session.context.get(
+                "ranked_restaurants"
+            ) or []
+            if not isinstance(ranked_rows, list):
+                ranked_rows = []
+            switched = apply_restaurant_selection(
+                self.db,
+                self.session,
+                customer=self.customer,
+                restaurant=restaurant,
+                ranked_rows=ranked_rows,
+            )
+            name = localized_name(restaurant, self.lang)
+            prefix = cart_cleared_notice(self.lang) if switched else ""
+            if self.lang == "ar":
+                return f"{prefix}تم اختيار {name}. ماذا تحب أن تأكل؟"
+            return f"{prefix}Selected {name}. What would you like to eat?"
+
         order = _get_draft_order(self.db, self.session)
         order = AbuuOrderDraftService.ensure_order(
             self.db,

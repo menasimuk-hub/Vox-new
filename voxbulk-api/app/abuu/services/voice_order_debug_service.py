@@ -183,6 +183,7 @@ class VoiceOrderDebugService:
         *,
         order: CustomerOrder | None,
         order_request_id: str | None = None,
+        requested_restaurant_id: str | None = None,
     ) -> None:
         rid = _resolve_id(order_request_id)
         if not rid or order is None:
@@ -190,8 +191,20 @@ class VoiceOrderDebugService:
         row = _load_row(db, rid)
         if row is None:
             return
+        active_rid = str(order.restaurant_id or "")
+        requested = str(requested_restaurant_id or "").strip() or None
+        payload: dict[str, Any] = {
+            "active_order": order_to_dict(order),
+            "active_order_restaurant_id": active_rid or None,
+            "requested_restaurant_id": requested,
+            "restaurant_match": (
+                requested is not None and active_rid == requested
+            )
+            if requested
+            else None,
+        }
         row.order_id = order.id
-        row.final_order_json = json.dumps(order_to_dict(order), ensure_ascii=False)
+        row.final_order_json = json.dumps(payload, ensure_ascii=False)
         row.updated_at = datetime.utcnow()
         db.add(row)
 
@@ -208,6 +221,28 @@ class VoiceOrderDebugService:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 return raw
+
+        final_parsed = _parse_json(row.final_order_json)
+        if isinstance(final_parsed, dict) and "active_order" in final_parsed:
+            stage6 = {
+                "order_id": row.order_id,
+                "order": final_parsed,
+                "active_order": final_parsed.get("active_order"),
+                "requested_restaurant_id": final_parsed.get("requested_restaurant_id"),
+                "active_order_restaurant_id": final_parsed.get("active_order_restaurant_id"),
+                "restaurant_match": final_parsed.get("restaurant_match"),
+            }
+        else:
+            stage6 = {
+                "order_id": row.order_id,
+                "order": final_parsed,
+                "active_order": final_parsed,
+                "requested_restaurant_id": None,
+                "active_order_restaurant_id": (
+                    final_parsed.get("restaurant_id") if isinstance(final_parsed, dict) else None
+                ),
+                "restaurant_match": None,
+            }
 
         return {
             "order_request_id": row.order_request_id,
@@ -241,9 +276,6 @@ class VoiceOrderDebugService:
                     "parse_error": row.parse_error,
                     "parse_retry_count": row.parse_retry_count,
                 },
-                "6_final_order": {
-                    "order_id": row.order_id,
-                    "order": _parse_json(row.final_order_json),
-                },
+                "6_final_order": stage6,
             },
         }

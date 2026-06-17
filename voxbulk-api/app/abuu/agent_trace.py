@@ -75,3 +75,11 @@ def llm_reply(**fields: Any) -> None:
 
 def turn_end(**fields: Any) -> None:
     _emit("turn_end", **fields)
+
+
+def state_before(**fields: Any) -> None:
+    _emit("state_before", **fields)
+
+
+def state_after(**fields: Any) -> None:
+    _emit("state_after", **fields)

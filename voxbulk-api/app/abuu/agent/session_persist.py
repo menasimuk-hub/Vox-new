@@ -17,6 +17,8 @@ _CONTEXT_VOLATILE_KEYS = frozenset(
         "prefetched_menu",
         "prefetched_offers",
         "ranked_restaurants",
+        "turn_ranked_restaurants",
+        "phase1_requested_restaurant_id",
         "menu_item_index",
     }
 )
