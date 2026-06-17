@@ -41,6 +41,7 @@ type MenuItem = {
   nameEn: string; nameAr: string;
   price: number; icon: string;
   descEn: string; descAr: string;
+  recipeEn: string; recipeAr: string;
   allergy: string; diet: string;
   itemType: string;
   hidden: boolean;
@@ -82,7 +83,7 @@ const t = {
     historyDesc: "All past orders", filter: "Filter", search: "Search…", date: "Date",
     editMenu: "Edit Menu", addCategory: "Add Category", addItem: "Add Item",
     name: "Name", nameEn: "Name (English)", nameAr: "Name (Arabic)", price: "Price",
-    icon: "Icon (emoji)", description: "Description", allergy: "Allergy", diet: "Diet / Recipe",
+    icon: "Icon (emoji)", description: "Description", recipe: "Recipe / ingredients", allergy: "Allergens", diet: "Dietary tags",
     hide: "Hide from menu", save: "Save", cancel: "Cancel", edit: "Edit", delete: "Delete",
     restaurantName: "Restaurant Name", mobile: "Mobile Number", address: "Address", hours: "Working Time",
     saved: "Saved", open: "Open", closed: "Closed", from: "From", to: "To",
@@ -115,7 +116,7 @@ const t = {
     historyDesc: "جميع الطلبات السابقة", filter: "تصفية", search: "بحث…", date: "التاريخ",
     editMenu: "تعديل القائمة", addCategory: "إضافة قسم", addItem: "إضافة صنف",
     name: "الاسم", nameEn: "الاسم (إنجليزي)", nameAr: "الاسم (عربي)", price: "السعر",
-    icon: "أيقونة", description: "الوصف", allergy: "الحساسية", diet: "النظام / المكونات",
+    icon: "أيقونة", description: "الوصف", recipe: "الوصفة / المكونات", allergy: "مسببات الحساسية", diet: "النظام الغذائي",
     hide: "إخفاء من القائمة", save: "حفظ", cancel: "إلغاء", edit: "تعديل", delete: "حذف",
     restaurantName: "اسم المطعم", mobile: "رقم الجوال", address: "العنوان", hours: "ساعات العمل",
     saved: "تم الحفظ", open: "مفتوح", closed: "مغلق", from: "من", to: "إلى",
@@ -434,6 +435,12 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
       const dietary = tagsFromCsv(item.diet);
       if (allergens) payload.allergen_tags_json = allergens;
       if (dietary) payload.dietary_tags_json = dietary;
+      if (item.recipeEn || item.recipeAr) {
+        payload.ingredients_json = {
+          ingredients_en: item.recipeEn || item.recipeAr,
+          ingredients_ar: item.recipeAr || item.recipeEn,
+        };
+      }
       const exists = cats.some(c => c.items.some(i => i.id === item.id));
       if (exists) {
         await apiFetch(`/abuu/restaurant/menu/items/${item.id}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -513,6 +520,12 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
                           <span className="shrink-0 font-bold text-primary">${it.price.toFixed(2)}</span>
                         </div>
                         <p className="line-clamp-2 text-sm text-muted-foreground">{isAr ? it.descAr : it.descEn}</p>
+                        {(isAr ? it.recipeAr : it.recipeEn) ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            <span className="font-medium">{tx.recipe}: </span>
+                            {isAr ? it.recipeAr : it.recipeEn}
+                          </p>
+                        ) : null}
                         <div className="mt-2 flex flex-wrap gap-1">
                           {it.allergy && it.allergy !== "—" && <Badge variant="destructive" className="text-xs">⚠ {it.allergy}</Badge>}
                           {it.diet && it.diet !== "—" && <Badge variant="secondary" className="text-xs">🥗 {it.diet}</Badge>}
@@ -556,7 +569,7 @@ function MenuPanel({ cats, setCats, tx, isAr, onRefresh }: { cats: Category[]; s
 function ItemDialog({ tx, initial, onClose, onSave }: { tx: typeof t.en; catId: string; initial?: MenuItem; onClose: () => void; onSave: (i: MenuItem) => void }) {
   const [it, setIt] = useState<MenuItem>(initial ?? {
     id: uid(), nameEn: "", nameAr: "", price: 0, icon: "🍽️",
-    descEn: "", descAr: "", allergy: "", diet: "", itemType: "meal", hidden: false,
+    descEn: "", descAr: "", recipeEn: "", recipeAr: "", allergy: "", diet: "", itemType: "meal", hidden: false,
   });
   return (
     <Dialog open onOpenChange={onClose}>
@@ -569,8 +582,10 @@ function ItemDialog({ tx, initial, onClose, onSave }: { tx: typeof t.en; catId: 
           <div><Label>{tx.icon}</Label><Input value={it.icon} onChange={e => setIt({ ...it, icon: e.target.value })} /></div>
           <div className="col-span-2"><Label>{tx.description} (EN)</Label><Textarea rows={2} value={it.descEn} onChange={e => setIt({ ...it, descEn: e.target.value })} /></div>
           <div className="col-span-2"><Label>{tx.description} (AR)</Label><Textarea rows={2} dir="rtl" value={it.descAr} onChange={e => setIt({ ...it, descAr: e.target.value })} /></div>
-          <div><Label>{tx.allergy}</Label><Input placeholder="dairy, nuts" value={it.allergy} onChange={e => setIt({ ...it, allergy: e.target.value })} /></div>
-          <div><Label>{tx.diet}</Label><Input placeholder="halal, vegetarian" value={it.diet} onChange={e => setIt({ ...it, diet: e.target.value })} /></div>
+          <div className="col-span-2"><Label>{tx.recipe} (EN)</Label><Textarea rows={2} value={it.recipeEn} onChange={e => setIt({ ...it, recipeEn: e.target.value })} placeholder="Chicken, garlic, lemon, spices…" /></div>
+          <div className="col-span-2"><Label>{tx.recipe} (AR)</Label><Textarea rows={2} dir="rtl" value={it.recipeAr} onChange={e => setIt({ ...it, recipeAr: e.target.value })} /></div>
+          <div><Label>{tx.allergy}</Label><Input placeholder="dairy, nuts, gluten" value={it.allergy} onChange={e => setIt({ ...it, allergy: e.target.value })} /></div>
+          <div><Label>{tx.diet}</Label><Input placeholder="vegetarian, vegan, spicy" value={it.diet} onChange={e => setIt({ ...it, diet: e.target.value })} /></div>
           <div className="col-span-2"><Label>Item type</Label><Input placeholder="meal, drink, dessert" value={it.itemType} onChange={e => setIt({ ...it, itemType: e.target.value })} /></div>
           <label className="col-span-2 flex items-center gap-2"><Switch checked={it.hidden} onCheckedChange={v => setIt({ ...it, hidden: v })} />{tx.hide}</label>
         </div>

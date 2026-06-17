@@ -24,6 +24,33 @@ def demo_env():
     get_settings.cache_clear()
 
 
+def test_yallasay_demo_seed_menu_has_recipes_and_nuts(app_client, demo_env):
+    import json
+
+    from app.abuu.models.entities import RestaurantMenuItem
+    from app.abuu.services.yallasay_menu_seed_service import _item_id
+    from app.core.abuu_database import get_abuu_sessionmaker
+
+    with get_abuu_sessionmaker()() as db:
+        YallasayDemoSeedService.seed_all(db)
+        db.commit()
+        sweets_id = _item_id("abuu-rest-sweets", "baklava-mix")
+        burger_id = _item_id("abuu-rest-fastfood", "cheese-burger")
+        baklava = db.get(RestaurantMenuItem, sweets_id)
+        burger = db.get(RestaurantMenuItem, burger_id)
+
+    assert baklava is not None
+    assert burger is not None
+    allergens = json.loads(baklava.allergen_tags_json or "[]")
+    assert "nuts" in allergens
+    assert "halal" not in json.loads(baklava.dietary_tags_json or "[]")
+    recipe = json.loads(baklava.ingredients_json or "{}")
+    assert recipe.get("ingredients_en")
+    burger_allergens = json.loads(burger.allergen_tags_json or "[]")
+    assert "dairy" in burger_allergens
+    assert "gluten" in burger_allergens
+
+
 def test_yallasay_demo_seed_idempotent(app_client, demo_env):
     from app.core.abuu_database import get_abuu_sessionmaker
 

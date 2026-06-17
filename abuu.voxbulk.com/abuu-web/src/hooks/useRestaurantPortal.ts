@@ -39,6 +39,8 @@ export type UiMenuItem = {
   icon: string
   descEn: string
   descAr: string
+  recipeEn: string
+  recipeAr: string
   allergy: string
   diet: string
   itemType: string
@@ -89,18 +91,39 @@ function mapApiStatus(status: string): UiStatus {
   return 'new'
 }
 
-function parseTagJson(raw: unknown): string {
+function parseTagJson(raw: unknown, opts?: { hideHalal?: boolean }): string {
+  const hideHalal = opts?.hideHalal !== false
+  const format = (tags: string[]) => {
+    const cleaned = hideHalal ? tags.filter((t) => t !== 'halal') : tags
+    return cleaned.length ? cleaned.join(', ') : '—'
+  }
   if (!raw) return '—'
-  if (Array.isArray(raw)) return raw.length ? raw.join(', ') : '—'
+  if (Array.isArray(raw)) return format(raw.map(String))
   if (typeof raw === 'string') {
     try {
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length) return parsed.join(', ')
+      if (Array.isArray(parsed)) return format(parsed.map(String))
     } catch {
       return raw || '—'
     }
   }
   return '—'
+}
+
+function parseRecipeJson(raw: unknown, lang: 'en' | 'ar'): string {
+  if (!raw || typeof raw !== 'string') return ''
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') {
+      const key = lang === 'ar' ? 'ingredients_ar' : 'ingredients_en'
+      const legacy = parsed.ingredients
+      const value = parsed[key] || legacy
+      return typeof value === 'string' ? value : ''
+    }
+  } catch {
+    return raw
+  }
+  return ''
 }
 
 function mapMenuItem(item: any, categoryId: string): UiMenuItem {
@@ -112,6 +135,8 @@ function mapMenuItem(item: any, categoryId: string): UiMenuItem {
     icon: ITEM_ICONS[item.item_type] || '🍽️',
     descEn: item.description_en || '',
     descAr: item.description_ar || '',
+    recipeEn: parseRecipeJson(item.ingredients_json, 'en'),
+    recipeAr: parseRecipeJson(item.ingredients_json, 'ar'),
     allergy: parseTagJson(item.allergen_tags_json),
     diet: parseTagJson(item.dietary_tags_json),
     itemType: item.item_type || 'meal',

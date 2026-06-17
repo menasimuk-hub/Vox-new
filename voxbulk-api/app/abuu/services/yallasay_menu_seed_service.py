@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.abuu.menu_intelligence.enrich_rules import apply_inferred_tags, infer_tags_for_item
+from app.abuu.services.yallasay_item_enrichment import apply_yallasay_item_enrichment
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem, RestaurantPromoOffer
 from app.abuu.services.yallasay_menu_catalog import (
     YALLASAY_PILOT_RESTAURANT_IDS,
@@ -117,6 +118,13 @@ class YallasayMenuSeedService:
                         is_deleted=False,
                     )
                     apply_inferred_tags(row, inferred, force=True)
+                    apply_yallasay_item_enrichment(
+                        row,
+                        item_key=item_spec["key"],
+                        item_spec=item_spec,
+                        inferred=inferred,
+                        force=True,
+                    )
                     db.add(row)
                     seen_items[iid] = row
                     items_upserted += 1
@@ -133,6 +141,13 @@ class YallasayMenuSeedService:
                     row.deleted_at = None
                     row.updated_at = now
                     apply_inferred_tags(row, inferred, force=True)
+                    apply_yallasay_item_enrichment(
+                        row,
+                        item_key=item_spec["key"],
+                        item_spec=item_spec,
+                        inferred=inferred,
+                        force=True,
+                    )
                     db.add(row)
                     seen_items[iid] = row
 

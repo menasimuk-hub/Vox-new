@@ -56,9 +56,13 @@ def infer_tags_for_item(
     if any(w in hay for w in ("spicy", "hot", "حار", "har")):
         recipe_tags.append("spicy")
 
-    if any(w in hay for w in ("cheese", "mozzarella", "جبن", "موزار")):
+    if any(w in hay for w in ("cheese", "mozzarella", "جبن", "موزار", "cheesecake", "croissant", "sahlab", "kunafa", "كناف")):
         allergen_tags.append("dairy")
-    if any(w in hay for w in ("nut", "fistq", "فستق", "لوز", "almond")):
+    if any(w in hay for w in ("egg", "mayonnaise", "مايون", "nugget", "ناجت", "brownie", "براوني", "cake", "كيك")):
+        allergen_tags.append("eggs")
+    if any(w in hay for w in ("soy", "soya", "صويا")):
+        allergen_tags.append("soy")
+    if any(w in hay for w in ("nut", "fistq", "فستق", "لوز", "almond", "baklava", "بقلاو", "basbousa", "بسبوس", "pistachio", "فستق")):
         allergen_tags.append("nuts")
     if any(w in hay for w in ("sesame", "tahini", "سمسم", "طحين")):
         allergen_tags.append("sesame")
@@ -96,13 +100,8 @@ def infer_tags_for_item(
         if "zero" in hay:
             drink_tags.append("iced")
 
-    if profile == "vegetarian" or "vegetarian" in (profile or ""):
-        if "veggie" in hay or "vegetarian" in hay or "نباتي" in hay:
-            dietary_tags.append("vegetarian")
-
-    # Gaza pilot default: halal unless explicitly fish-only sides
-    if "halal" not in dietary_tags:
-        dietary_tags.append("halal")
+    if any(w in hay for w in ("spicy", "hot", "حار")) and "spicy" not in dietary_tags:
+        dietary_tags.append("spicy")
 
     category_kind = None
     if item_type == "drink":

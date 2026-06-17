@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 from sqlalchemy import select
 
 from app.abuu.menu_intelligence.enrich_rules import apply_inferred_tags, infer_tags_for_item
+from app.abuu.services.yallasay_item_enrichment import apply_yallasay_item_enrichment
 from app.abuu.models.entities import Restaurant, RestaurantMenuCategory, RestaurantMenuItem
 from app.abuu.services.yallasay_menu_catalog import YALLASAY_PILOT_RESTAURANT_IDS, menu_for_profile, profile_for_restaurant
 from app.abuu.services.yallasay_menu_seed_service import _item_id
@@ -98,6 +99,18 @@ def enrich_restaurant(db, restaurant_id: str, *, apply: bool, force: bool) -> di
             updated += 1
             if apply:
                 db.add(row)
+        item_key = spec.get("key")
+        if item_key:
+            if apply_yallasay_item_enrichment(
+                row,
+                item_key=item_key,
+                item_spec=spec,
+                inferred=inferred,
+                force=force,
+            ):
+                updated += 1
+                if apply:
+                    db.add(row)
 
     if apply and updated:
         db.commit()

@@ -123,18 +123,6 @@ DEMO_RESTAURANT_IDS: tuple[str, ...] = tuple(row["id"] for row in DEMO_RESTAURAN
 DEMO_DRIVER_IDS: tuple[str, ...] = tuple(row["id"] for row in DEMO_DRIVERS)
 
 
-def _recipe_text(item: RestaurantMenuItem) -> str:
-    parts = [item.description_en or item.description_ar or item.name_en or ""]
-    if item.recipe_tags_json:
-        try:
-            tags = json.loads(item.recipe_tags_json)
-            if isinstance(tags, list) and tags:
-                parts.append(f"Preparation: {', '.join(str(t) for t in tags)}")
-        except json.JSONDecodeError:
-            pass
-    return ". ".join(p for p in parts if p).strip()
-
-
 class YallasayDemoSeedService:
     @staticmethod
     def seed_all(db: Session, *, with_offers: bool = True) -> dict[str, Any]:
@@ -189,7 +177,7 @@ class YallasayDemoSeedService:
                 db, spec["id"], with_offers=with_offers
             )
 
-        ingredients_updated = YallasayDemoSeedService._ensure_recipe_fields(db)
+        ingredients_updated = YallasayDemoSeedService._refresh_item_enrichment(db)
 
         drivers_upserted = 0
         for spec in DEMO_DRIVERS:
@@ -238,9 +226,20 @@ class YallasayDemoSeedService:
         }
 
     @staticmethod
-    def _ensure_recipe_fields(db: Session) -> int:
+    def _refresh_item_enrichment(db: Session) -> int:
+        from app.abuu.menu_intelligence.enrich_rules import infer_tags_for_item
+        from app.abuu.services.yallasay_item_enrichment import apply_yallasay_item_enrichment
+        from app.abuu.services.yallasay_menu_catalog import menu_for_profile, profile_for_restaurant
+        from app.abuu.services.yallasay_menu_seed_service import _item_id
+
         updated = 0
         for restaurant_id in DEMO_RESTAURANT_IDS:
+            profile = profile_for_restaurant(restaurant_id)
+            spec_by_key: dict[str, tuple[str, dict]] = {}
+            for cat in menu_for_profile(profile):
+                for item_spec in cat.get("items") or []:
+                    spec_by_key[item_spec["key"]] = (cat["key"], item_spec)
+
             category_ids = db.execute(
                 select(RestaurantMenuCategory.id).where(
                     RestaurantMenuCategory.restaurant_id == restaurant_id,
@@ -255,13 +254,20 @@ class YallasayDemoSeedService:
                     RestaurantMenuItem.is_deleted.is_(False),
                 )
             ).scalars().all()
+            key_by_id = {_item_id(restaurant_id, key): key for key in spec_by_key}
             for item in items:
-                recipe = _recipe_text(item)
-                if not recipe:
+                item_key = key_by_id.get(item.id)
+                if not item_key:
                     continue
-                payload = json.dumps({"ingredients": recipe}, ensure_ascii=False)
-                if item.ingredients_json != payload:
-                    item.ingredients_json = payload
+                cat_key, item_spec = spec_by_key[item_key]
+                inferred = infer_tags_for_item(cat_key=cat_key, item_spec=item_spec, profile=profile)
+                if apply_yallasay_item_enrichment(
+                    item,
+                    item_key=item_key,
+                    item_spec=item_spec,
+                    inferred=inferred,
+                    force=True,
+                ):
                     item.updated_at = datetime.utcnow()
                     db.add(item)
                     updated += 1

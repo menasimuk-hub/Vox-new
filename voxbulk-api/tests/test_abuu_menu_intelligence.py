@@ -35,6 +35,15 @@ def abuu_seeded(app_client):
         yield db, restaurant.id, restaurant
 
 
+def test_infer_tags_no_default_halal():
+    inferred = infer_tags_for_item(
+        cat_key="grilled-chicken",
+        item_spec={"name_en": "Grilled chicken", "name_ar": "دجاج مشوي", "item_type": "food"},
+        profile="chicken",
+    )
+    assert "halal" not in inferred["dietary_tags"]
+
+
 def test_infer_tags_for_drink_item():
     inferred = infer_tags_for_item(
         cat_key="soft-drinks",
