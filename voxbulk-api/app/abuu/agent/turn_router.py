@@ -1,4 +1,4 @@
-﻿"""Single turn router — classify slots once, apply fixed priority, execute one action."""
+"""Single turn router — classify slots once, apply fixed priority, execute one action."""
 
 from __future__ import annotations
 
@@ -21,6 +21,11 @@ from app.abuu.agent.intent_gate import (
     phase1_enabled,
     ranked_from_snapshot,
     try_category_without_restaurant_reply,
+)
+from app.abuu.agent.conversation_turn import (
+    PendingTurnDecision,
+    execute_pending_turn,
+    resolve_pending_turn,
 )
 from app.abuu.agent.menu_pick_parser import is_menu_pick_message
 from app.abuu.agent.pending_action import (
@@ -60,6 +65,9 @@ TurnAction = Literal[
     "pending_confirm",
     "pending_cancel",
     "pending_clarify",
+    "pending_qty_edit",
+    "pending_add_items",
+    "pending_correction",
     "switch_and_menu",
     "switch_restaurant",
     "cart_summary",
@@ -98,6 +106,7 @@ class TurnDecision:
     branch: str
     slots: TurnSlots
     restaurant_id: str | None = None
+    pending_decision: PendingTurnDecision | None = None
 
 
 def _is_numeric_only_message(text: str) -> bool:
@@ -175,21 +184,35 @@ def resolve_turn(
     transactional = is_transactional_flow(session)
 
     if pending is not None:
-        switching = bool(
-            slots.restaurant_id
-            and slots.menu_browse
-            and (not session.restaurant_id or slots.restaurant_id != session.restaurant_id)
+        pending_result = resolve_pending_turn(
+            db,
+            session,
+            customer=customer,
+            user_text=user_text,
+            ranked_rows=ranked_rows,
         )
-        if switching or slots.exit_flow or slots.restaurant_list:
-            clear_transactional_context(session)
-        elif slots.confirm_pending is True:
-            return TurnDecision("pending_confirm", "transactional_pending_confirmed", slots)
-        elif slots.confirm_pending is False:
-            return TurnDecision("pending_cancel", "transactional_pending_cancelled", slots)
-        elif slots.cart_status:
-            return TurnDecision("cart_summary", "transactional_pending_cart_summary", slots)
-        else:
-            return TurnDecision("pending_clarify", "transactional_pending_clarify", slots)
+        if pending_result is not None:
+            if pending_result.action == "defer":
+                pass
+            else:
+                action_map: dict[str, TurnAction] = {
+                    "confirm_pending": "pending_confirm",
+                    "cancel_pending": "pending_cancel",
+                    "show_cart": "cart_summary",
+                    "update_pending_quantity": "pending_qty_edit",
+                    "add_more_items_to_pending": "pending_add_items",
+                    "replace_pending_items": "pending_add_items",
+                    "correction_food_search": "pending_correction",
+                    "usage_help": "usage_help",
+                    "pending_clarify": "pending_clarify",
+                }
+                turn_action = action_map.get(pending_result.action, "pending_clarify")
+                return TurnDecision(
+                    turn_action,
+                    pending_result.branch,
+                    slots,
+                    pending_decision=pending_result,
+                )
 
     if slots.usage_help:
         return TurnDecision("usage_help", "turn_usage_help", slots)
@@ -279,12 +302,19 @@ def execute_turn_decision(
         clear_transactional_context(session)
         return "تمام، ما أضفتهم. شو بدك تطلب؟" if lang == "ar" else "OK, I didn't add them. What would you like?"
 
-    if action == "pending_clarify":
-        return (
-            "ما فهمت تأكيدك. قول نعم أو لا، أو اسأل عن السلة."
-            if lang == "ar"
-            else "I didn't catch that. Say yes or no, or ask about your cart."
-        )
+    if action in {"pending_clarify", "pending_qty_edit", "pending_add_items", "pending_correction"}:
+        pending_decision = decision.pending_decision
+        if pending_decision is not None:
+            return execute_pending_turn(
+                db,
+                session,
+                customer=customer,
+                user_text=user_text,
+                decision=pending_decision,
+            )
+        from app.abuu.agent.pending_action import pending_edit_hint
+
+        return pending_edit_hint(lang)
 
     if action == "cart_summary":
         return format_cart_summary_for_session(db, session, lang)

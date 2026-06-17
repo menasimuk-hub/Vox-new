@@ -170,6 +170,26 @@ class ActionRunner:
     ) -> ActionResult:
         lang = session.language or "ar"
         ctx = dict(session.context or {})
+        from app.abuu.agent.menu_selection import session_menu_filters
+
+        allergen_avoid, _diet = session_menu_filters(session)
+        if allergen_avoid and item.allergens_json:
+            import json
+
+            try:
+                item_allergens = json.loads(item.allergens_json)
+                if isinstance(item_allergens, list):
+                    conflicts = [a for a in allergen_avoid if a in item_allergens]
+                    if conflicts:
+                        tags = ", ".join(str(c) for c in conflicts)
+                        msg = (
+                            f"هالطبق فيه {tags} — ما بننصح تضيفه حسب قيودك. اختار طبق ثاني."
+                            if lang == "ar"
+                            else f"This dish contains {tags}, which conflicts with your allergy settings."
+                        )
+                        return ActionResult(action="allergy_blocked", reply_hint=msg)
+            except (json.JSONDecodeError, TypeError):
+                pass
         restaurant_id = str(restaurant.id)
         extras = ActionRunner._addon_extras_for_item(db, restaurant_id, item, categories)
 

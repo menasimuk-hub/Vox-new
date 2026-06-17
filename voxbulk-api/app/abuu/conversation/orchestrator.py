@@ -53,14 +53,36 @@ class AbuuConversationOrchestrator:
             reply = voice_unclear_transcript_message(session.language or "ar")
             return {"handled": True, "action": "voice_empty", "reply": reply}
 
+        from app.abuu.agent.conversation_turn import resolve_and_execute_pending_turn
         from app.abuu.agent.menu_pick_parser import is_menu_pick_message
         from app.abuu.agent.pending_action import (
             format_cart_summary_for_session,
+            get_pending_action,
             is_cart_inquiry,
             propose_menu_picks_from_text,
         )
 
         lang = session.language or "ar"
+        if get_pending_action(session):
+            pending_result = resolve_and_execute_pending_turn(
+                abuu_db,
+                session,
+                customer=customer,
+                user_text=text,
+            )
+            if pending_result is not None:
+                reply, branch, pending_action = pending_result
+                session.messages.append({"role": "user", "content": text})
+                session.messages.append({"role": "assistant", "content": reply})
+                save_session(abuu_db, session, message_id=message_id)
+                return {
+                    "handled": True,
+                    "action": pending_action,
+                    "reply": wa_customer_sanitize(reply),
+                    "restaurant_id": session.restaurant_id,
+                    "branch": branch,
+                }
+
         if is_cart_inquiry(text):
             reply = format_cart_summary_for_session(abuu_db, session, lang)
             session.messages.append({"role": "user", "content": text})

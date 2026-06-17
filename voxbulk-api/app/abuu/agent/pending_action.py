@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -360,6 +361,250 @@ def confirmation_prompt(lang: str) -> str:
     if lang == "ar":
         return "أضيفهم عالسلة؟ 🙌"
     return "Shall I add them to your cart? 🙌"
+
+
+def pending_edit_hint(lang: str) -> str:
+    if lang == "ar":
+        return (
+            "عدّل الكمية (مثلاً: بدي 3)، أضف أرقام (1 2 3)، "
+            "أو قول ضيفهم / تمام، أو اسأل عن السلة."
+        )
+    return "Edit qty (e.g. want 3), add numbers (1 2 3), say yes to confirm, or ask about your cart."
+
+
+_ARABIC_QTY_WORDS: dict[str, int] = {
+    "واحد": 1,
+    "واحدة": 1,
+    "وحد": 1,
+    "اثنين": 2,
+    "اثنان": 2,
+    "ثنتين": 2,
+    "ثنين": 2,
+    "تلاتة": 3,
+    "ثلاثة": 3,
+    "ثلاث": 3,
+    "اربعة": 4,
+    "أربعة": 4,
+    "اربع": 4,
+    "خمسة": 5,
+    "خمس": 5,
+    "ستة": 6,
+    "ست": 6,
+    "سبعة": 7,
+    "سبع": 7,
+    "ثمانية": 8,
+    "ثمان": 8,
+    "تسعة": 9,
+    "تسع": 9,
+    "عشرة": 10,
+    "عشر": 10,
+}
+
+
+@dataclass(frozen=True)
+class PendingEdit:
+    kind: Literal["update_quantity", "add_items", "replace_items"]
+    items: list[dict[str, Any]]
+    target_line_index: int | None = None
+
+
+def parse_quantity_from_text(text: str) -> int | None:
+    from app.abuu.voice_interpretation.normalize import normalize_ordering_text
+
+    normalized = normalize_ordering_text(str(text or "").strip(), language="ar")
+    if not normalized:
+        return None
+    match = re.search(r"(\d+)", normalized)
+    if match:
+        return max(1, min(99, int(match.group(1))))
+    tokens = normalized.split()
+    for token in tokens:
+        if token in _ARABIC_QTY_WORDS:
+            return _ARABIC_QTY_WORDS[token]
+    for word, qty in sorted(_ARABIC_QTY_WORDS.items(), key=lambda kv: -len(kv[0])):
+        if word in normalized:
+            return qty
+    return None
+
+
+def match_pending_item_line_index(
+    pending_items: list[dict[str, Any]],
+    text: str,
+    lang: str,
+) -> int | None:
+    if not pending_items:
+        return None
+    if len(pending_items) == 1:
+        return 1
+    normalized = _normalized(text)
+    if not normalized:
+        return None
+    best_idx: int | None = None
+    best_len = 0
+    for idx, row in enumerate(pending_items, start=1):
+        if not isinstance(row, dict):
+            continue
+        for name in (row.get("name_ar"), row.get("name_en")):
+            name_str = str(name or "").strip()
+            if not name_str:
+                continue
+            name_norm = _normalized(name_str)
+            if len(name_norm) < 2:
+                continue
+            if name_norm in normalized or normalized in name_norm:
+                if len(name_norm) > best_len:
+                    best_idx = idx
+                    best_len = len(name_norm)
+            else:
+                tokens = [t for t in name_norm.split() if len(t) >= 3]
+                hits = sum(1 for t in tokens if t in normalized)
+                if hits >= 1 and len(name_norm) > best_len:
+                    best_idx = idx
+                    best_len = len(name_norm)
+    return best_idx
+
+
+def parse_pending_quantity_edit(
+    text: str,
+    pending: dict[str, Any],
+    *,
+    lang: str,
+) -> PendingEdit | None:
+    """Parse quantity update like 'بدي ثلاثة رز بالدجاج' against pending proposal."""
+    from app.abuu.voice_interpretation.normalize import normalize_ordering_text
+
+    normalized = normalize_ordering_text(str(text or "").strip(), language="ar")
+    if not normalized:
+        return None
+    if is_affirmative_reply(text) or is_negative_reply(text) or is_cart_inquiry(text):
+        return None
+    from app.abuu.agent.menu_pick_parser import parse_menu_pick_tokens
+
+    if parse_menu_pick_tokens(text):
+        return None
+
+    qty = parse_quantity_from_text(text)
+    if qty is None:
+        return None
+
+    pending_items = pending.get("items") or []
+    if not isinstance(pending_items, list) or not pending_items:
+        return None
+
+    line_idx = match_pending_item_line_index(pending_items, text, lang)
+    if line_idx is None and len(pending_items) == 1:
+        line_idx = 1
+    if line_idx is None:
+        return None
+
+    row = pending_items[line_idx - 1]
+    if not isinstance(row, dict):
+        return None
+    item_id = str(row.get("menu_item_id") or "").strip()
+    if not item_id:
+        return None
+    return PendingEdit(
+        kind="update_quantity",
+        items=[{"menu_item_id": item_id, "quantity": qty}],
+        target_line_index=line_idx,
+    )
+
+
+def _pending_items_as_proposal_rows(pending: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in pending.get("items") or []:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("menu_item_id") or "").strip()
+        if not item_id:
+            continue
+        rows.append(
+            {
+                "menu_item_id": item_id,
+                "quantity": max(1, int(row.get("quantity") or 1)),
+            }
+        )
+    return rows
+
+
+def apply_pending_edit(
+    db: Session,
+    session: AgentSession,
+    *,
+    edit: PendingEdit,
+    lang: str,
+) -> str:
+    pending = get_pending_action(session)
+    if pending is None:
+        raise ValueError("No pending cart action")
+
+    restaurant_id = str(pending.get("restaurant_id") or session.restaurant_id or "").strip()
+    if not restaurant_id:
+        raise ValueError("No restaurant for pending edit")
+
+    current = _pending_items_as_proposal_rows(pending)
+    merged: dict[str, int] = {row["menu_item_id"]: row["quantity"] for row in current}
+
+    if edit.kind == "update_quantity" and edit.target_line_index is not None:
+        for row in current:
+            merged[row["menu_item_id"]] = row["quantity"]
+        for raw in edit.items:
+            item_id = str(raw.get("menu_item_id") or "").strip()
+            qty = max(1, int(raw.get("quantity") or 1))
+            if item_id:
+                merged[item_id] = qty
+    elif edit.kind == "replace_items":
+        merged = {
+            str(raw.get("menu_item_id") or "").strip(): max(1, int(raw.get("quantity") or 1))
+            for raw in edit.items
+            if str(raw.get("menu_item_id") or "").strip()
+        }
+    else:
+        for raw in edit.items:
+            item_id = str(raw.get("menu_item_id") or "").strip()
+            qty = max(1, int(raw.get("quantity") or 1))
+            if not item_id:
+                continue
+            merged[item_id] = merged.get(item_id, 0) + qty
+
+    proposal_items = [{"menu_item_id": k, "quantity": v} for k, v in merged.items()]
+    stored, total, delivery = build_proposal_lines(
+        db,
+        restaurant_id=restaurant_id,
+        items=proposal_items,
+        lang=lang,
+    )
+    set_pending_add_items(
+        session,
+        restaurant_id=restaurant_id,
+        items=stored,
+        total_agorot=total,
+        delivery_fee_agorot=delivery,
+        confirmation_question=confirmation_prompt(lang),
+    )
+    return format_proposal_message(
+        db,
+        restaurant_id=restaurant_id,
+        items=proposal_items,
+        lang=lang,
+    )
+
+
+def merge_pending_items(
+    db: Session,
+    session: AgentSession,
+    *,
+    new_items: list[dict[str, Any]],
+    lang: str,
+    replace: bool = False,
+) -> str:
+    kind: Literal["add_items", "replace_items"] = "replace_items" if replace else "add_items"
+    return apply_pending_edit(
+        db,
+        session,
+        edit=PendingEdit(kind=kind, items=new_items),
+        lang=lang,
+    )
 
 
 def build_proposal_lines(

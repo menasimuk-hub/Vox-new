@@ -18,6 +18,9 @@ from app.abuu.agent.usage_help import is_usage_help_request
         ("1*3", [(1, 3)]),
         ("1×3 3*2", [(1, 3), (3, 2)]),
         ("٢ ٣", [(2, 1), (3, 1)]),
+        ("بدي 1 و 3", [(1, 1), (3, 1)]),
+        ("1 و 3", [(1, 1), (3, 1)]),
+        ("أضف 2 و 4", [(2, 1), (4, 1)]),
     ],
 )
 def test_parse_menu_pick_tokens(text, expected):

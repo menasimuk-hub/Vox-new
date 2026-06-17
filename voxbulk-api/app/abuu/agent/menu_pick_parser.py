@@ -1,4 +1,4 @@
-"""Parse keyboard dish picks: 1 2 3 and 1*3 3*2."""
+"""Parse keyboard dish picks: 1 2 3, 1*3, and بدي 1 و 3."""
 
 from __future__ import annotations
 
@@ -7,15 +7,31 @@ from typing import Any
 
 _ARABIC_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _PICK_TOKEN = re.compile(r"^(\d+)(?:[*×x](\d+))?$", re.I)
+_PICK_PREFIX = re.compile(
+    r"^(?:بدي|أضف|اضف|add|اختر|pick)\s+",
+    re.I,
+)
 
 
 def normalize_pick_text(text: str) -> str:
     return str(text or "").strip().translate(_ARABIC_DIGIT_MAP)
 
 
+def normalize_pick_message(text: str) -> str:
+    """Strip common ordering prefixes and normalize separators for multi-pick."""
+    normalized = normalize_pick_text(text)
+    if not normalized:
+        return normalized
+    normalized = _PICK_PREFIX.sub("", normalized).strip()
+    normalized = re.sub(r"\s+و\s+", " ", normalized)
+    normalized = re.sub(r"\s*,\s*", " ", normalized)
+    normalized = re.sub(r"\s+and\s+", " ", normalized, flags=re.I)
+    return normalized.strip()
+
+
 def parse_menu_pick_tokens(text: str) -> list[tuple[int, int]] | None:
     """Return list of (menu_index, quantity) or None if text is not a pure pick message."""
-    normalized = normalize_pick_text(text)
+    normalized = normalize_pick_message(text)
     if not normalized:
         return None
     parts = normalized.split()
