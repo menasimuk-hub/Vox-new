@@ -71,6 +71,7 @@ from app.services.survey_wa_final_feedback_service import (
     persist_final_feedback_text,
     persist_final_feedback_yes_no,
     runtime_final_feedback_enabled,
+    is_bare_yes_no_reply,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
     evaluate_vague_negative_followup,
@@ -2138,7 +2139,7 @@ def _complete_linear_survey_thank_you(
 
     maybe_sync_survey_result_to_hubspot(db, order, recipient)
 
-    from app.services.survey_wa_recommendations_tasks import enqueue_survey_recommendations
+    from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
     enqueue_survey_recommendations(order.id)
 
@@ -2176,6 +2177,134 @@ def _complete_linear_survey_thank_you(
         "completed": True,
         "log_id": log_id,
     }
+
+
+def _open_text_closing_step(question: dict[str, Any] | None, *, conv: dict[str, Any]) -> bool:
+    if conv.get("tell_us_more_pending"):
+        return True
+    role = normalize_step_role(str((question or {}).get("step_role") or ""))
+    return role in {"reason", "tell_us_more", "final_feedback_text"}
+
+
+def _send_final_feedback_open_text_prompt(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    conv: dict[str, Any],
+    payload: dict[str, Any],
+    total: int,
+    log_id: int | None,
+    inbound_message_id: str | None,
+) -> dict[str, Any]:
+    settings = final_feedback_settings(config)
+    begin_final_feedback_open_text(conv)
+    conv.pop("tell_us_more_pending", None)
+    payload["wa_conversation"] = conv
+    payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+    _save_recipient_result(db, recipient, payload)
+    open_text_q = build_final_feedback_open_text_question(settings, db=db, config=config)
+    open_text_body = format_question_message(
+        open_text_q,
+        index=total,
+        total=total,
+        variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+    )
+    sent = _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=open_text_body,
+        config=config,
+        question=open_text_q,
+        pacing=PACING_BRANCH,
+    )
+    log_final_feedback(
+        "bare_yes_open_text_prompt_sent",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_whatsapp_conversation_service._send_final_feedback_open_text_prompt",
+        extra={"sent": sent},
+    )
+    return {
+        "handled": True,
+        "order_id": order.id,
+        "recipient_id": recipient.id,
+        "final_feedback": "awaiting_open_text",
+        "sent": sent,
+        "log_id": log_id,
+    }
+
+
+def _try_bare_yes_no_open_question_gate(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    flow: dict[str, Any],
+    questions: list[dict[str, Any]],
+    conv: dict[str, Any],
+    payload: dict[str, Any],
+    session: SurveySession | None,
+    step: int,
+    total: int,
+    org_name: str,
+    organiser: str,
+    question: dict[str, Any],
+    effective_body: str,
+    log_id: int | None,
+    inbound_message_id: str | None,
+) -> dict[str, Any] | None:
+    if not _open_text_closing_step(question, conv=conv):
+        return None
+    choice = is_bare_yes_no_reply(effective_body)
+    if not choice:
+        return None
+    if choice == "Yes":
+        return _send_final_feedback_open_text_prompt(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            conv=conv,
+            payload=payload,
+            total=total,
+            log_id=log_id,
+            inbound_message_id=inbound_message_id,
+        )
+    settings = final_feedback_settings(config)
+    mark_final_feedback_skipped(payload, reason="user_declined")
+    conv = payload["wa_conversation"]
+    conv["final_feedback_done"] = True
+    conv.pop("tell_us_more_pending", None)
+    payload["wa_conversation"] = conv
+    payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+    _save_recipient_result(db, recipient, payload)
+    log_final_feedback(
+        "bare_no_skip_to_thank_you",
+        order_id=order.id,
+        recipient_id=recipient.id,
+        handler="survey_whatsapp_conversation_service._try_bare_yes_no_open_question_gate",
+    )
+    return _complete_linear_survey_thank_you(
+        db,
+        order=order,
+        recipient=recipient,
+        config=config,
+        flow=flow,
+        questions=questions,
+        conv=conv,
+        payload=payload,
+        session=session,
+        step=step,
+        total=total,
+        org_name=org_name,
+        organiser=organiser,
+        log_id=log_id,
+        inbound_message_id=inbound_message_id,
+    )
 
 
 def _handle_final_feedback_inbound(
@@ -2345,6 +2474,7 @@ def _handle_final_feedback_inbound(
             conv = payload["wa_conversation"]
             conv["final_feedback_done"] = True
             conv.pop("awaiting_final_feedback_text", None)
+            conv.pop("final_feedback_text_deadline", None)
             payload["wa_conversation"] = conv
             payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
             _save_recipient_result(db, recipient, payload)
@@ -2369,10 +2499,37 @@ def _handle_final_feedback_inbound(
         text = effective_body.strip()
         if not text:
             return {"handled": False, "reason": "final_feedback_text_empty"}
+        if is_bare_yes_no_reply(text):
+            open_text_q = build_final_feedback_open_text_question(settings, db=db, config=config)
+            open_text_body = format_question_message(
+                open_text_q,
+                index=total,
+                total=total,
+                variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+            )
+            begin_final_feedback_open_text(conv)
+            payload["wa_conversation"] = conv
+            _send_message(
+                db,
+                order=order,
+                recipient=recipient,
+                body=open_text_body,
+                config=config,
+                question=open_text_q,
+                pacing=PACING_BRANCH,
+            )
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "final_feedback": "open_text_reprompt",
+                "log_id": log_id,
+            }
         persist_final_feedback_text(payload, text=text, settings=settings)
         conv = payload["wa_conversation"]
         conv["final_feedback_done"] = True
         conv.pop("awaiting_final_feedback_text", None)
+        conv.pop("final_feedback_text_deadline", None)
         payload["wa_conversation"] = conv
         log_final_feedback(
             "open_text_saved",
@@ -2817,6 +2974,31 @@ def handle_inbound_reply(
         else:
             answer = match_answer(effective_body, question)
             answer_entry = None
+
+        if answer_entry is None:
+            session_for_gate = SurveySessionService.get_active_by_recipient(db, recipient.id)
+            gated = _try_bare_yes_no_open_question_gate(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                flow=flow,
+                questions=questions,
+                conv=conv,
+                payload=payload,
+                session=session_for_gate,
+                step=step,
+                total=total,
+                org_name=org_name,
+                organiser=organiser,
+                question=question,
+                effective_body=effective_body,
+                log_id=log_id,
+                inbound_message_id=inbound_message_id,
+            )
+            if gated is not None:
+                return gated
+
         q_display = survey_question_display(
             db,
             config=config,
@@ -3396,7 +3578,7 @@ def _handle_inbound_reply_graph(
         from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
 
         maybe_sync_survey_result_to_hubspot(db, order, recipient)
-        from app.services.survey_wa_recommendations_tasks import enqueue_survey_recommendations
+        from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
         enqueue_survey_recommendations(order.id)
         _maybe_complete_order(db, order)

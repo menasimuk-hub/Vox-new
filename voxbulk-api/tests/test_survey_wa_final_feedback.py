@@ -17,11 +17,14 @@ from app.services.survey_builder_runtime_service import attach_builder_runtime_t
 from app.services.survey_wa_final_feedback_service import (
     DEFAULT_OPEN_TEXT_PROMPT,
     DEFAULT_YES_NO_QUESTION,
+    FINAL_FEEDBACK_TEXT_TIMEOUT_SEC,
     begin_final_feedback_open_text,
     build_final_feedback_branch,
     final_feedback_settings,
     is_awaiting_final_feedback,
+    is_bare_yes_no_reply,
     persist_final_feedback_text,
+    process_final_feedback_timeouts,
     runtime_final_feedback_enabled,
 )
 from app.services.survey_wa_inbound_parse_service import NormalizedWaInboundReply
@@ -99,7 +102,15 @@ def test_begin_final_feedback_open_text_state():
     begin_final_feedback_open_text(conv)
     assert conv.get("awaiting_final_feedback_text") is True
     assert "awaiting_final_feedback_yes_no" not in conv
+    assert conv.get("final_feedback_text_deadline")
     assert is_awaiting_final_feedback(conv) is True
+
+
+def test_is_bare_yes_no_reply():
+    assert is_bare_yes_no_reply("Yes") == "Yes"
+    assert is_bare_yes_no_reply("No") == "No"
+    assert is_bare_yes_no_reply("Parking was difficult") is None
+    assert is_bare_yes_no_reply("Yes, the queue was long") is None
 
 
 def test_persist_final_feedback_text_fields():
@@ -501,3 +512,206 @@ def test_try_voice_note_reply_duplicate_keeps_accepted(_voice_enabled):
     assert result is not None
     assert result.get("accepted") is True
     assert result.get("duplicate") is True
+
+
+def _seed_tell_us_more_open_question(db, org_id: str):
+    welcome = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="welcome",
+        display_name="Welcome",
+        language="en_US",
+        category="MARKETING",
+        body_preview="Hi {{1}}",
+        step_role="start",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps([{"type": "BODY", "text": "Hi {{1}}"}]),
+    )
+    rating = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="rating",
+        display_name="Rating",
+        language="en_US",
+        category="MARKETING",
+        body_preview="Rate {{1}}",
+        step_role="rating",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps([{"type": "BODY", "text": "Rate {{1}}"}]),
+    )
+    tell = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="tell_us_more",
+        display_name="Tell us more",
+        language="en_US",
+        category="MARKETING",
+        body_preview=DEFAULT_OPEN_TEXT_PROMPT,
+        step_role="reason",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps([{"type": "BODY", "text": DEFAULT_OPEN_TEXT_PROMPT}]),
+    )
+    thank = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="thank_you",
+        display_name="Thank you",
+        language="en_US",
+        category="MARKETING",
+        body_preview="Thanks {{1}}",
+        step_role="completion",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps([{"type": "BODY", "text": "Thanks {{1}}"}]),
+    )
+    db.add_all([welcome, rating, tell, thank])
+    db.commit()
+
+    runtime = build_builder_runtime(
+        db,
+        industry_id=None,
+        survey_type_id="svc-quality",
+        survey_type_name="Service quality",
+        privacy_mode="off",
+        welcome_template_id=welcome.id,
+        middle_template_ids=[rating.id],
+        tell_us_more_template_id=tell.id,
+        thank_you_template_id=thank.id,
+        allow_final_additional_feedback=True,
+    )
+    config = attach_builder_runtime_to_config(
+        {
+            "delivery": "whatsapp",
+            "survey_channel": "whatsapp",
+            "channels": ["whatsapp"],
+            "wa_template_id": welcome.id,
+        },
+        runtime,
+    )
+    order = ServiceOrder(
+        id=str(uuid.uuid4()),
+        org_id=org_id,
+        user_id="user-1",
+        service_code="survey",
+        title="Tell us more Yes gate",
+        status="running",
+        payment_status="approved",
+        recipient_count=1,
+        config_json=json.dumps(config),
+    )
+    db.add(order)
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        row_number=1,
+        name="Alex",
+        phone="+447700900456",
+        status="in_progress",
+        result_json=json.dumps(
+            {
+                "wa_conversation": {
+                    "step": 2,
+                    "total": 3,
+                    "intro_sent_at": "2026-01-01T00:00:00",
+                    "tell_us_more_pending": True,
+                    "answers": [
+                        {
+                            "step_role": "rating",
+                            "question": "Rate us",
+                            "answer": "2",
+                            "reply_type": "choice",
+                        }
+                    ],
+                }
+            }
+        ),
+    )
+    db.add(recipient)
+    db.commit()
+    return order, recipient, org_id
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+def test_tell_us_more_open_question_yes_awaits_voice_text(mock_send, db):
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Tell Us More Org")
+    db.add(org)
+    db.commit()
+    _order, recipient, org_id = _seed_tell_us_more_open_question(db, org.id)
+
+    result = handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
+
+    assert result.get("final_feedback") == "awaiting_open_text"
+    assert result.get("completed") is not True
+    db.refresh(recipient)
+    payload = json.loads(recipient.result_json or "{}")
+    conv = payload.get("wa_conversation") or {}
+    assert conv.get("awaiting_final_feedback_text") is True
+    assert conv.get("final_feedback_text_deadline")
+    assert not conv.get("tell_us_more_pending")
+    sent_bodies = [str(c.kwargs.get("body") or "") for c in mock_send.call_args_list]
+    assert any(DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+def test_awaiting_open_text_bare_yes_reprompts(mock_send, db):
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Final Feedback Org")
+    db.add(org)
+    db.commit()
+    _order, recipient, org_id = _seed_final_feedback_order(db, org.id)
+    payload = json.loads(recipient.result_json or "{}")
+    begin_final_feedback_open_text(payload["wa_conversation"])
+    recipient.result_json = json.dumps(payload)
+    db.add(recipient)
+    db.commit()
+
+    result = handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
+
+    assert result.get("final_feedback") == "open_text_reprompt"
+    assert result.get("completed") is not True
+    db.refresh(recipient)
+    saved = json.loads(recipient.result_json or "{}")
+    assert saved["wa_conversation"].get("awaiting_final_feedback_text") is True
+    assert saved.get("final_additional_feedback") in (None, "")
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+def test_final_feedback_text_timeout_sends_thank_you(mock_send, db):
+    from datetime import datetime, timedelta, timezone
+
+    mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    org = Organisation(name="Final Feedback Org")
+    db.add(org)
+    db.commit()
+    _order, recipient, org_id = _seed_final_feedback_order(db, org.id)
+    payload = json.loads(recipient.result_json or "{}")
+    conv = payload["wa_conversation"]
+    conv["awaiting_final_feedback_text"] = True
+    conv["final_feedback_yes_no"] = "Yes"
+    conv["final_feedback_text_deadline"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=5)
+    ).isoformat()
+    recipient.result_json = json.dumps(payload)
+    db.add(recipient)
+    db.commit()
+
+    count = process_final_feedback_timeouts(db)
+
+    assert count == 1
+    db.refresh(recipient)
+    saved = json.loads(recipient.result_json or "{}")
+    assert str(recipient.status).lower() == "completed"
+    assert saved.get("final_additional_feedback") in (None, "")
+    assert "final_feedback_text_deadline" not in (saved.get("wa_conversation") or {})
+    assert mock_send.call_count >= 1
+
+
+def test_final_feedback_text_timeout_sec_constant():
+    assert FINAL_FEEDBACK_TEXT_TIMEOUT_SEC == 60

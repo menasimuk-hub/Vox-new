@@ -975,6 +975,11 @@ async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                 if count:
                     logger.info("survey_call_campaigns_started", extra={"count": count})
                 SurveyAnalysisService.process_pending_analysis(db)
+                from app.services.survey_wa_final_feedback_service import process_final_feedback_timeouts
+
+                timed_out = process_final_feedback_timeouts(db)
+                if timed_out:
+                    logger.info("survey_final_feedback_timeouts", extra={"count": timed_out})
         except Exception:
             logger.exception("survey_call_scheduler_tick_failed")
         try:

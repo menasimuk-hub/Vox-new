@@ -565,7 +565,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Adds a final open question at the end of the survey: &ldquo;Is there anything else you&rsquo;d like to tell us about your experience?&rdquo;
+                  Adds a closing yes/no question, then waits for a voice note or typed reply (60 seconds).
+                  Example: &ldquo;Is there anything else you&rsquo;d like to tell us about your experience?&rdquo;
                   Responses appear in survey results under More details.
                 </p>
               </div>

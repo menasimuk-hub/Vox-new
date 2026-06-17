@@ -203,6 +203,23 @@ def _log_provider_key_status(logger) -> None:
     logger.info("provider_key_status", extra={"providers": status})
 
 
+def _warn_production_app_origins(settings, logger) -> None:
+    env = str(getattr(settings, "env", "") or "").lower()
+    if env not in {"production", "prod"}:
+        return
+    for name, value in (
+        ("PUBLIC_APP_ORIGIN", getattr(settings, "public_app_origin", "")),
+        ("DASHBOARD_APP_ORIGIN", getattr(settings, "dashboard_app_origin", "")),
+    ):
+        raw = str(value or "").strip().lower()
+        if not raw or "localhost" in raw or "127.0.0.1" in raw:
+            logger.error(
+                "production_app_origin_misconfigured var=%s value=%s — OAuth/PWA redirects will fail",
+                name,
+                value,
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -226,6 +243,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("local demo bootstrap failed — create users manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
+    _warn_production_app_origins(settings, logger)
     # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — boot instrumentation (see runtime_build_info)
     try:
         from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_startup_build_info

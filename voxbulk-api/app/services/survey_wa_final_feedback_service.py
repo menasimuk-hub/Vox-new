@@ -18,6 +18,7 @@ LOG_PREFIX = "[wa-final-feedback]"
 
 DEFAULT_YES_NO_QUESTION = "Would you like to add anything else before we finish?"
 DEFAULT_OPEN_TEXT_PROMPT = "Please share anything else you'd like us to know."
+FINAL_FEEDBACK_TEXT_TIMEOUT_SEC = 60
 
 FINAL_FEEDBACK_YES_NO_TEMPLATE_NAMES = (
     "voxbulk_survey_final_feedback_global_final_feedback_voice_note",
@@ -131,8 +132,29 @@ def begin_final_feedback_yes_no(conv: dict[str, Any]) -> None:
 
 def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
     """Enter the open-text final feedback stage after user chooses Yes."""
+    from datetime import datetime, timedelta, timezone
+
     conv["awaiting_final_feedback_text"] = True
     conv.pop("awaiting_final_feedback_yes_no", None)
+    conv["final_feedback_text_deadline"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=FINAL_FEEDBACK_TEXT_TIMEOUT_SEC)
+    ).isoformat()
+
+
+def is_bare_yes_no_reply(raw: str) -> str | None:
+    """Return Yes/No when the message is only an affirmation, not substantive feedback."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    choice = parse_final_feedback_yes_no(text)
+    if not choice:
+        return None
+    normalized = text.lower().strip().rstrip(".!")
+    if choice == "Yes" and normalized in {"yes", "y", "yeah", "yep", "sure", "ok", "okay", "1"}:
+        return choice
+    if choice == "No" and normalized in {"no", "n", "nope", "nah", "not really", "2"}:
+        return choice
+    return None
 
 
 def _approved_template_row(db: Session, template_id: int) -> TelnyxWhatsappTemplate | None:
@@ -362,6 +384,7 @@ def mark_final_feedback_skipped(payload: dict[str, Any], *, reason: str) -> None
     conv["final_feedback_done"] = True
     conv.pop("awaiting_final_feedback_yes_no", None)
     conv.pop("awaiting_final_feedback_text", None)
+    conv.pop("final_feedback_text_deadline", None)
     payload["wa_conversation"] = conv
     payload.setdefault("final_additional_feedback", None)
     payload.setdefault("final_feedback_skip_reason", reason)
@@ -393,7 +416,6 @@ def try_complete_survey_after_final_feedback_voice(db, job) -> None:
     if conv.get("final_feedback_done") or not conv.get("awaiting_final_feedback_text"):
         return
 
-    from app.services.survey_flow_engine_service import SurveyFlowEngineService
     from app.services.survey_whatsapp_conversation_service import _complete_linear_survey_thank_you
 
     from app.services.survey_session_service import SurveySessionService
@@ -410,8 +432,7 @@ def try_complete_survey_after_final_feedback_voice(db, job) -> None:
     db.commit()
 
     config = _order_config_from_service_order(order)
-    flow = SurveyFlowEngineService.build_flow(config)
-    questions = list(flow.get("questions") or [])
+    flow, questions = _survey_completion_context(config)
     session = SurveySessionService.get_active_by_recipient(db, recipient.id)
     from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
 
@@ -452,3 +473,104 @@ def _order_config_from_service_order(order: ServiceOrder) -> dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _survey_completion_context(config: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    from app.services.survey_builder_flow_service import survey_questions_from_config
+
+    flow = config.get("whatsapp_flow")
+    flow = flow if isinstance(flow, dict) else {}
+    questions = survey_questions_from_config(config) or list(flow.get("questions") or [])
+    return flow, questions
+
+
+def process_final_feedback_timeouts(db: Session, *, limit: int = 50) -> int:
+    """Complete surveys when open-text final feedback was not received within the deadline."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+
+    now = datetime.now(timezone.utc)
+    rows = db.execute(
+        select(ServiceOrderRecipient)
+        .where(ServiceOrderRecipient.status == "in_progress")
+        .order_by(ServiceOrderRecipient.created_at.asc())
+        .limit(max(limit * 10, 50))
+    ).scalars().all()
+
+    completed = 0
+    for recipient in rows:
+        if completed >= limit:
+            break
+        try:
+            payload = json.loads(recipient.result_json or "{}")
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        conv = payload.get("wa_conversation") or {}
+        if not isinstance(conv, dict) or not conv.get("awaiting_final_feedback_text"):
+            continue
+        raw_deadline = conv.get("final_feedback_text_deadline")
+        if not raw_deadline:
+            continue
+        try:
+            deadline = datetime.fromisoformat(str(raw_deadline).replace("Z", "+00:00"))
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if deadline > now:
+            continue
+
+        order = db.get(ServiceOrder, recipient.order_id)
+        if order is None:
+            continue
+        config = _order_config_from_service_order(order)
+        from app.services.survey_session_service import SurveySessionService
+        from app.services.survey_whatsapp_conversation_service import _complete_linear_survey_thank_you
+        from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+        flow, questions = _survey_completion_context(config)
+        session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
+        organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
+        step = int(conv.get("step") or 0)
+        total = int(conv.get("total") or len(questions))
+
+        mark_final_feedback_skipped(payload, reason="timeout")
+        conv = payload["wa_conversation"]
+        conv.pop("final_feedback_text_deadline", None)
+        payload["wa_conversation"] = conv
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
+        db.add(recipient)
+        db.commit()
+
+        log_final_feedback(
+            "open_text_timeout_thank_you",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            handler="survey_wa_final_feedback_service.process_final_feedback_timeouts",
+        )
+        _complete_linear_survey_thank_you(
+            db,
+            order=order,
+            recipient=recipient,
+            config=config,
+            flow=flow,
+            questions=questions,
+            conv=conv,
+            payload=payload,
+            session=session,
+            step=step,
+            total=total,
+            org_name=org_name,
+            organiser=organiser,
+            log_id=None,
+            inbound_message_id=None,
+        )
+        completed += 1
+
+    return completed
