@@ -102,3 +102,47 @@ def test_phone_survey_setup_ok_with_agent(db):
     db.commit()
     error = SurveyLaunchEligibilityService._phone_survey_setup_error(db, order, cfg)
     assert error is None
+
+
+def test_cancelled_subscription_wallet_phone_survey_can_launch(db):
+    from app.models.plan import Plan
+    from app.models.subscription import Subscription
+    from app.services.subscription_cancellation_service import CANCELLATION_CANCELLED
+    from sqlalchemy import select
+
+    org, order = _phone_order(db, config={"estimated_duration_min": 3})
+    org.wallet_balance_pence = 15_000
+    db.add(org)
+    agent = AgentDefinition(
+        name="survey_GB-Amelia",
+        slug=f"survey-wallet-{uuid.uuid4().hex[:6]}",
+        system_prompt="Survey caller",
+        telnyx_assistant_id="assistant-test-456",
+        supports_survey=True,
+        is_active=True,
+    )
+    db.add(agent)
+    db.flush()
+    cfg = json.loads(order.config_json)
+    cfg["agent_id"] = agent.id
+    order.config_json = json.dumps(cfg)
+
+    plan = db.execute(select(Plan).where(Plan.code == "pro")).scalar_one_or_none()
+    if plan is None:
+        plan = db.execute(select(Plan).limit(1)).scalar_one()
+    db.add(
+        Subscription(
+            org_id=org.id,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            cancellation_status=CANCELLATION_CANCELLED,
+        )
+    )
+    db.commit()
+
+    result = SurveyLaunchEligibilityService.compute(db, order, org)
+    assert result.get("block_reason_code") != "billing_access_blocked"
+    assert result["can_launch"] is True
+    assert result["mode"] == "wallet"
+    assert result["launch_action"] == "launch"

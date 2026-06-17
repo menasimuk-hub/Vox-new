@@ -142,10 +142,26 @@ class SurveyLaunchEligibilityService:
 
         from app.services.billing_access_service import BillingAccessService
 
+        payg_wallet_launch = not bool(billing.get("can_launch_and_invoice"))
+        if not payg_wallet_launch:
+            sub = BillingAccessService.get_subscription(db, org.id)
+            if sub is not None:
+                from app.services.subscription_cancellation_service import (
+                    CANCELLATION_CANCELLED,
+                    SubscriptionCancellationService,
+                )
+
+                cancel_status = str(sub.cancellation_status or "none").strip().lower()
+                if (
+                    cancel_status == CANCELLATION_CANCELLED
+                    or SubscriptionCancellationService.effective_status(sub) == "cancelled"
+                ):
+                    payg_wallet_launch = True
+
         access_block = BillingAccessService.launch_block_reason(
             db,
             org,
-            payg_wallet_launch=bool(billing.get("is_payg_plan")),
+            payg_wallet_launch=payg_wallet_launch,
         )
         if access_block:
             return SurveyLaunchEligibilityService._set_block(

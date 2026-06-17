@@ -408,3 +408,15 @@ export async function fetchAuthenticatedBlob(path: string) {
   }
   return res.blob();
 }
+
+export function oauthStartUrl(provider: string, opts?: { inviteToken?: string; orgId?: string; returnTo?: string }) {
+  const base = getApiBaseUrl();
+  const path = `/auth/oauth/${encodeURIComponent(provider)}/start`;
+  const params = new URLSearchParams();
+  if (opts?.inviteToken) params.set("invite_token", opts.inviteToken);
+  if (opts?.orgId) params.set("org_id", opts.orgId);
+  if (opts?.returnTo) params.set("return_to", opts.returnTo);
+  const qs = params.toString();
+  const url = base ? `${base}${path}` : path;
+  return qs ? `${url}?${qs}` : url;
+}

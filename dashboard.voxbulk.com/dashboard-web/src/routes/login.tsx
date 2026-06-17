@@ -3,11 +3,12 @@ import * as React from "react";
 import { Loader2, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 
+import { SocialAuthButtons } from "@/components/SocialAuthButtons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { brandAssets } from "@/lib/brand";
-import { getAccessToken } from "@/lib/api";
+import { getAccessToken, oauthStartUrl } from "@/lib/api";
 import { writeSessionToStorage } from "@/lib/session-storage";
 
 export const Route = createFileRoute("/login")({
@@ -21,6 +22,7 @@ function DashboardLoginPage() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [oauthLoading, setOauthLoading] = React.useState<string | null>(null);
   const [orgChoices, setOrgChoices] = React.useState<OrgLoginOption[] | null>(null);
   const [selectedOrgId, setSelectedOrgId] = React.useState("");
   const loggedOut = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("logout") === "1";
@@ -30,6 +32,18 @@ function DashboardLoginPage() {
       void navigate({ to: "/" });
     }
   }, [navigate]);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get("oauth_error");
+    if (oauthError) {
+      toast.error(oauthError);
+      params.delete("oauth_error");
+      params.delete("provider");
+      const qs = params.toString();
+      window.history.replaceState(window.history.state, "", qs ? `/login?${qs}` : "/login");
+    }
+  }, []);
 
   const completeLogin = async (body: URLSearchParams) => {
     const tokenRes = await fetch("/auth/token", {
@@ -70,6 +84,11 @@ function DashboardLoginPage() {
     }
   };
 
+  const onOAuth = (provider: string) => {
+    setOauthLoading(provider);
+    window.location.href = oauthStartUrl(provider, { returnTo: "dashboard" });
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
@@ -80,6 +99,17 @@ function DashboardLoginPage() {
           {loggedOut ? (
             <p className="mt-2 text-sm text-muted-foreground">You have been signed out.</p>
           ) : null}
+        </div>
+
+        <SocialAuthButtons onOAuth={onOAuth} oauthLoading={oauthLoading} compact />
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">or continue with email</span>
+          </div>
         </div>
 
         <form onSubmit={(e) => void onSubmit(e)} className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">

@@ -106,7 +106,14 @@ def _apple_client_secret(conf: dict[str, str]) -> str:
     return jwt.encode(payload, key, algorithm="ES256", headers=headers)
 
 
-def _build_state(*, provider: str, nonce: str, invite_token: str | None, org_id: str | None) -> str:
+def _build_state(
+    *,
+    provider: str,
+    nonce: str,
+    invite_token: str | None,
+    org_id: str | None,
+    return_to: str | None = None,
+) -> str:
     # Signed, short-lived state token (JWT) to prevent CSRF and preserve context.
     settings = get_settings()
     now = datetime.now(timezone.utc)
@@ -115,6 +122,7 @@ def _build_state(*, provider: str, nonce: str, invite_token: str | None, org_id:
         "nonce": nonce,
         "invite_token": invite_token,
         "org_id": org_id,
+        "return_to": str(return_to or "").strip().lower() or None,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=10)).timestamp()),
         "typ": "oauth_state",
@@ -137,13 +145,27 @@ class SocialOAuthService:
     PROVIDERS = {"google", "apple", "linkedin"}
 
     @staticmethod
-    def build_authorize_url(db: Session, *, provider: str, nonce: str, invite_token: str | None, org_id: str | None) -> str:
+    def build_authorize_url(
+        db: Session,
+        *,
+        provider: str,
+        nonce: str,
+        invite_token: str | None,
+        org_id: str | None,
+        return_to: str | None = None,
+    ) -> str:
         provider = provider.lower().strip()
         if provider not in SocialOAuthService.PROVIDERS:
             raise OAuthFlowError("Unknown provider")
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider=provider)
         conf = _require_config(provider, cfg, enabled)
-        state = _build_state(provider=provider, nonce=nonce, invite_token=invite_token, org_id=org_id)
+        state = _build_state(
+            provider=provider,
+            nonce=nonce,
+            invite_token=invite_token,
+            org_id=org_id,
+            return_to=return_to,
+        )
 
         if provider == "google":
             params = {

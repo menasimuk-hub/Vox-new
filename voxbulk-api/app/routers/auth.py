@@ -586,29 +586,81 @@ def public_social_login_providers(db: Session = Depends(get_db)):
     return ProviderSettingsService.social_login_public_availability(db)
 
 
+def _oauth_landing_path(settings, *, return_to: str | None) -> str:
+    if str(return_to or "").strip().lower() == "dashboard":
+        return f"{settings.dashboard_app_origin.rstrip('/')}/login"
+    return f"{settings.public_app_origin.rstrip('/')}/signin"
+
+
+def _resolve_oauth_return_to(request: Request, state: str | None) -> str | None:
+    return_to = None
+    if state:
+        try:
+            from app.services.social_oauth import _decode_state
+
+            return_to = _decode_state(state).get("return_to")
+        except Exception:
+            return_to = None
+    if not return_to:
+        try:
+            return_to = request.cookies.get("voxbulk_oauth_return_to")
+        except Exception:
+            return_to = None
+    clean = str(return_to or "").strip().lower()
+    return clean or None
+
+
+def _clear_oauth_cookies(res: RedirectResponse) -> None:
+    res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
+    res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
+    res.delete_cookie("voxbulk_oauth_return_to", path="/auth/oauth")
+    res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
+    res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
+
+
 @router.get("/oauth/{provider}/start")
 def oauth_start(
     provider: str,
     request: Request,
     invite_token: str | None = None,
     org_id: str | None = None,
+    return_to: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
     Start OAuth flow for a provider.
 
     - invite_token/org_id are optional context hints to preserve invite/tenant flows.
+    - return_to=dashboard sends the user back to the dashboard login page after OAuth.
     """
     try:
         # Bind state to this browser using a nonce cookie (prevents login CSRF/replay).
         nonce = secrets.token_urlsafe(20)
-        url = SocialOAuthService.build_authorize_url(db, provider=provider, nonce=nonce, invite_token=invite_token, org_id=org_id)
+        url = SocialOAuthService.build_authorize_url(
+            db,
+            provider=provider,
+            nonce=nonce,
+            invite_token=invite_token,
+            org_id=org_id,
+            return_to=return_to,
+        )
         res = RedirectResponse(url=url, status_code=302)
         secure = False
         try:
             secure = request.url.scheme == "https" if request else False
         except Exception:
             secure = False
+        return_to_clean = str(return_to or "").strip().lower()
+        if return_to_clean:
+            res.set_cookie(
+                key="voxbulk_oauth_return_to",
+                value=return_to_clean,
+                httponly=True,
+                secure=secure,
+                samesite="lax",
+                max_age=10 * 60,
+                path="/auth/oauth",
+            )
         res.set_cookie(
             key="voxbulk_oauth_nonce",
             value=nonce,
@@ -645,19 +697,23 @@ async def oauth_callback(
     """
     OAuth callback endpoint.
 
-    Redirects back to the public sign-in page with the normal FastAPI bearer token handed off in the URL hash.
+    Redirects back to the sign-in page with the normal FastAPI bearer token handed off in the URL hash.
     """
     settings = get_settings()
-    base = settings.public_app_origin.rstrip("/")
+    landing = _oauth_landing_path(settings, return_to=_resolve_oauth_return_to(request, state))
 
     if error:
         msg = error_description or error
         q = httpx.QueryParams({"oauth_error": msg, "provider": provider})
-        return RedirectResponse(url=f"{base}/signin?{q}", status_code=302)
+        res = RedirectResponse(url=f"{landing}?{q}", status_code=302)
+        _clear_oauth_cookies(res)
+        return res
 
     if not code or not state:
         q = httpx.QueryParams({"oauth_error": "Missing code/state", "provider": provider})
-        return RedirectResponse(url=f"{base}/signin?{q}", status_code=302)
+        res = RedirectResponse(url=f"{landing}?{q}", status_code=302)
+        _clear_oauth_cookies(res)
+        return res
 
     try:
         # Validate nonce cookie matches state nonce (prevents login CSRF).
@@ -688,15 +744,14 @@ async def oauth_callback(
         if st.get("nonce") != nonce_cookie:
             raise OAuthFlowError("Invalid OAuth session")
 
+        landing = _oauth_landing_path(settings, return_to=st.get("return_to"))
+
         outcome = await SocialOAuthService.handle_callback(db, provider=provider, code=code, state=state)
 
         if outcome.org_selection_token:
             frag = httpx.QueryParams({"oauth_org_select": outcome.org_selection_token, "oauth": "1"})
-            res = RedirectResponse(url=f"{base}/signin#{frag}", status_code=302)
-            res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
-            res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
-            res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
-            res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
+            res = RedirectResponse(url=f"{landing}#{frag}", status_code=302)
+            _clear_oauth_cookies(res)
             return res
 
         token = str(outcome.access_token or "")
@@ -716,12 +771,8 @@ async def oauth_callback(
                     )
     except Exception as e:
         q = httpx.QueryParams({"oauth_error": str(e) or "OAuth failed", "provider": provider})
-        res = RedirectResponse(url=f"{base}/signin?{q}", status_code=302)
-        # Clear cookies on failure too.
-        res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
-        res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
-        res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
-        res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
+        res = RedirectResponse(url=f"{landing}?{q}", status_code=302)
+        _clear_oauth_cookies(res)
         return res
 
     # Handoff via fragment so it is not sent to the server.
@@ -734,11 +785,8 @@ async def oauth_callback(
             "new_user": "1" if is_new else "0",
         }
     )
-    res = RedirectResponse(url=f"{base}/signin#{frag}", status_code=302)
-    res.delete_cookie("voxbulk_oauth_nonce", path="/auth/oauth")
-    res.delete_cookie("voxbulk_oauth_provider", path="/auth/oauth")
-    res.delete_cookie("retover_oauth_nonce", path="/auth/oauth")
-    res.delete_cookie("retover_oauth_provider", path="/auth/oauth")
+    res = RedirectResponse(url=f"{landing}#{frag}", status_code=302)
+    _clear_oauth_cookies(res)
     return res
 
 

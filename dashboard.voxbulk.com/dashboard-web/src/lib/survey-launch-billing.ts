@@ -154,6 +154,9 @@ const BLOCK_REASON_MESSAGES: Record<string, string> = {
 
   wallet_insufficient: "Wallet balance is too low — top up to launch.",
 
+  billing_access_blocked:
+    "Your subscription has ended, but you can launch with wallet balance. Top-up if the 125% hold exceeds your balance.",
+
 };
 
 
@@ -366,7 +369,10 @@ export function buildLaunchPricingBreakdown(
 
 export function mapBillingBlockReason(
 
-  eligibility: Pick<SurveyLaunchEligibility, "block_reason" | "block_reason_code" | "summary"> | null | undefined,
+  eligibility: Pick<
+    SurveyLaunchEligibility,
+    "block_reason" | "block_reason_code" | "summary" | "wallet_balance_minor"
+  > | null | undefined,
 
 ): string | null {
 
@@ -374,9 +380,18 @@ export function mapBillingBlockReason(
 
   const code = String(eligibility.block_reason_code || "").trim();
 
-  if (code && BLOCK_REASON_MESSAGES[code]) return BLOCK_REASON_MESSAGES[code];
-
   const reason = String(eligibility.block_reason || eligibility.summary || "").trim();
+
+  const walletMinor = Number(eligibility.wallet_balance_minor || 0);
+
+  if (
+    walletMinor > 0 &&
+    (code === "billing_access_blocked" || /subscription has ended/i.test(reason))
+  ) {
+    return BLOCK_REASON_MESSAGES.billing_access_blocked;
+  }
+
+  if (code && BLOCK_REASON_MESSAGES[code]) return BLOCK_REASON_MESSAGES[code];
 
   return reason || null;
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timedelta
 
 from app.core.database import get_sessionmaker
@@ -9,6 +10,7 @@ from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
 from app.models.org_usage_period import OrgUsagePeriod
 from app.models.organisation import Organisation
+from app.models.service_order import ServiceOrder
 from app.models.user import User
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_launch_eligibility_service import SurveyLaunchEligibilityService
@@ -225,3 +227,97 @@ def test_start_order_rejects_unpaid(app_client):
 
     start = app_client.post(f"/service-orders/{order_id}/start", headers=headers)
     assert start.status_code == 400
+
+
+def _create_phone_order(app_client, headers, *, contact_count: int = 1, duration_min: int = 3):
+    created = app_client.post(
+        "/service-orders",
+        json={
+            "service_code": "survey",
+            "config": {
+                "survey_channel": "ai_call",
+                "delivery": "ai_call",
+                "channels": ["ai_call"],
+                "script_approved": True,
+                "approved_script": "INTRO\nHi\n\nQUESTIONS\n1. How was your visit?\n\nCLOSING\nThanks",
+                "estimated_duration_min": duration_min,
+            },
+            "scheduled_start_at": datetime.utcnow().isoformat(),
+            "scheduled_end_at": (datetime.utcnow() + timedelta(hours=4)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["id"]
+    lines = ["name,phone,email"]
+    for i in range(contact_count):
+        lines.append(f"Person {i},+44770090012{i},p{i}@example.com")
+    upload = app_client.post(
+        f"/service-orders/{order_id}/recipients/upload",
+        headers=headers,
+        files={"file": ("contacts.csv", io.BytesIO("\n".join(lines).encode()), "text/csv")},
+    )
+    assert upload.status_code == 200, upload.text
+    return order_id
+
+
+def test_cancelled_subscription_wallet_phone_survey_can_launch(app_client):
+    headers, org_id = _seed_user(app_client, email="survey_cancelled_wallet@example.com")
+    with get_sessionmaker()() as db:
+        from app.models.agent import AgentDefinition
+        from app.models.plan import Plan
+        from app.models.subscription import Subscription
+        from app.services.gocardless_service import BillingService
+        from app.services.platform_catalog_service import PlatformCatalogService
+        from app.services.subscription_cancellation_service import CANCELLATION_CANCELLED
+        from sqlalchemy import select
+
+        PlatformCatalogService.ensure_defaults(db)
+        BillingService.ensure_default_plans(db)
+        org = db.get(Organisation, org_id)
+        org.wallet_balance_pence = 15_000
+        db.add(org)
+        agent = AgentDefinition(
+            name="survey_GB-Amelia",
+            slug=f"survey-wallet-{org_id[:8]}",
+            system_prompt="Survey caller",
+            telnyx_assistant_id="assistant-test-789",
+            supports_survey=True,
+            is_active=True,
+        )
+        db.add(agent)
+        db.flush()
+        plan = db.execute(select(Plan).where(Plan.code == "pro")).scalar_one_or_none()
+        if plan is None:
+            plan = db.execute(select(Plan).limit(1)).scalar_one()
+        db.add(
+            Subscription(
+                org_id=org_id,
+                plan_id=plan.id,
+                status="active",
+                payment_provider="gocardless",
+                cancellation_status=CANCELLATION_CANCELLED,
+            )
+        )
+        db.commit()
+        agent_id = agent.id
+
+    order_id = _create_phone_order(app_client, headers)
+    with get_sessionmaker()() as db:
+        order = db.get(ServiceOrder, order_id)
+        cfg = json.loads(order.config_json or "{}")
+        cfg["agent_id"] = agent_id
+        order.config_json = json.dumps(cfg)
+        start = datetime.utcnow()
+        order.scheduled_start_at = start
+        order.scheduled_end_at = start + timedelta(hours=4)
+        db.add(order)
+        db.commit()
+
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body.get("block_reason_code") != "billing_access_blocked", body
+    assert body["can_launch"] is True, body
+    assert body["mode"] == "wallet", body
+    assert body["launch_action"] == "launch", body
