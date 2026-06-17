@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ArrowLeft, BookOpen, ChevronDown, Search } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronDown, Search, type LucideIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,20 +19,21 @@ export const Route = createFileRoute("/_app/account/support/faq")({
 type ApiFaqItem = { id: number | string; question: string; answer: string };
 type ApiFaqCategory = { id: number | string | null; name: string; items: ApiFaqItem[] };
 
+/** Fold every API-published FAQ item into the built-in Support tile, grouped by its API category name. */
 function mergeWithApi(apiCategories: ApiFaqCategory[]): DocsCategory[] {
   if (apiCategories.length === 0) return BUILT_IN_DOCS;
-  const extra: DocsCategory[] = apiCategories.map((cat, idx) => ({
-    id: `api-${cat.id ?? idx}`,
-    name: cat.name || "Articles",
-    description: "Articles published by the VoxBulk team.",
-    Icon: BookOpen,
-    articles: cat.items.map((item) => ({
-      id: `api-${item.id}`,
+  const supportExtras: DocsArticle[] = apiCategories.flatMap((cat) =>
+    cat.items.map((item) => ({
+      id: `api-${cat.id ?? "x"}-${item.id}`,
+      group: cat.name || "Articles",
       title: item.question,
       body: item.answer,
     })),
-  }));
-  return [...BUILT_IN_DOCS, ...extra];
+  );
+  if (supportExtras.length === 0) return BUILT_IN_DOCS;
+  return BUILT_IN_DOCS.map((c) =>
+    c.id === "support" ? { ...c, articles: [...c.articles, ...supportExtras] } : c,
+  );
 }
 
 function groupArticles(articles: DocsArticle[]): { group: string; items: DocsArticle[] }[] {
@@ -167,6 +168,13 @@ function FaqPage() {
                                   <span className="font-medium">{a.title}</span>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent>
+                                  {a.routes && a.routes.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1.5 border-t border-border bg-muted/20 px-3 py-2">
+                                      {a.routes.map((r) => (
+                                        <RouteChip key={r} icon={activeCategory.Icon} route={r} />
+                                      ))}
+                                    </div>
+                                  ) : null}
                                   <p className="border-t border-border bg-muted/30 px-3 py-3 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                                     {a.body}
                                   </p>
@@ -186,6 +194,32 @@ function FaqPage() {
       )}
     </div>
   );
+}
+
+function RouteChip({ icon: Icon, route }: { icon: LucideIcon; route: string }) {
+  const isConcrete = !route.includes("{") && !route.includes(":");
+  const inner = (
+    <>
+      <Icon className="size-3.5 shrink-0 text-foreground/70" strokeWidth={1.75} />
+      <span className="font-mono text-[11px] tracking-tight text-foreground/80">{route}</span>
+      {isConcrete ? (
+        <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+      ) : null}
+    </>
+  );
+  const baseClasses =
+    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 transition-colors";
+  if (isConcrete) {
+    return (
+      <Link
+        to={route as never}
+        className={cn(baseClasses, "hover:border-foreground/30 hover:bg-accent/40")}
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return <span className={baseClasses}>{inner}</span>;
 }
 
 function CategoryGrid({

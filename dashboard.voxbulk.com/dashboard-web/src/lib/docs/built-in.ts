@@ -6,9 +6,6 @@ import {
   QrCode,
   Wallet,
   LifeBuoy,
-  HeartPulse,
-  CalendarClock,
-  GitCompare,
   Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -18,6 +15,8 @@ export type DocsArticle = {
   title: string;
   /** Optional sub-section label shown above the article (e.g. "How to use", "Troubleshooting") */
   group?: string;
+  /** Optional dashboard route(s) this article is about — rendered as a chip under the title */
+  routes?: string[];
   /** Plain text or simple markdown-ish lines; rendered with whitespace preserved */
   body: string;
 };
@@ -43,7 +42,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "overview-purpose",
         group: "What is it for",
         title: "Why the Overview page exists",
-        body: "Route: /\n\nThe Dashboard Overview is your central command centre. It gives you an instant, high-level snapshot of:\n\n• Running AI interview slots\n• Active survey voice-calls and completed response counts\n• Live QR code scan activity\n• A summary of recently processed campaign statistics\n\nUse it to monitor everything at a glance instead of opening each module.",
+        routes: ["/"],
+        body: "The Dashboard Overview is your central command centre. It gives you an instant, high-level snapshot of:\n\n• Running AI interview slots\n• Active survey voice-calls and completed response counts\n• Live QR code scan activity\n• A summary of recently processed campaign statistics\n\nUse it to monitor everything at a glance instead of opening each module.",
       },
       {
         id: "overview-tips",
@@ -64,7 +64,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "interviews-purpose",
         group: "What is it for",
         title: "What AI Interview campaigns do",
-        body: "Route: /interviews\n\nHigh-volume candidate pre-screening using interactive, professional voice AI (\"Leo\").\n\nRecruiting manually takes hours of calling and coordination. The AI Interview service automates CV screening and phone interviews. Candidates book their preferred slots, the Voice AI conducts a structured phone call, and the dashboard aggregates traits and scores to deliver structured hire recommendations.",
+        routes: ["/interviews"],
+        body: "High-volume candidate pre-screening using interactive, professional voice AI (\"Leo\").\n\nRecruiting manually takes hours of calling and coordination. The AI Interview service automates CV screening and phone interviews. Candidates book their preferred slots, the Voice AI conducts a structured phone call, and the dashboard aggregates traits and scores to deliver structured hire recommendations.",
       },
       {
         id: "interviews-how-to",
@@ -100,7 +101,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "interviews-script-not-approved",
         group: "Troubleshooting",
         title: "Problem: why is my script not approved?",
-        body: "When you click Approve script, the text is scanned by VoxBulk's content review before going live. Here are the exact reasons it can stay un-approved, in order:\n\n1) Script text is empty\n  • There must be a generated or pasted draft. Click Generate, or paste your own questions, then try Approve again.\n  • You'll also see the wizard hint: \"Generate or paste a script, then approve it\".\n\n2) You edited the script after it was approved\n  • Any edit resets the review status to not_scanned and unticks Approved. This is by design — every change has to be re-reviewed.\n  • Fix: click Approve script again to re-submit the edited version.\n\n3) The content review flagged the text\n  Status becomes pending_admin_review and a red banner appears: \"Script blocked: <reason>\". The review flags these categories:\n  • racism — racist, discriminatory or hateful content targeting protected groups\n  • offensive — harassment, slurs, threats, extreme insults, or gratuitously abusive language\n  • sexual — sexual, explicit or adult content\n  • political — partisan campaigning, inflammatory political messaging, or election advocacy\n  Fix: edit the questions to remove the flagged content, then click Approve again. If you believe it was a false positive, leave it and wait for VoxBulk admin to review — they can manually approve.\n\n4) Admin rejected the script\n  Status becomes rejected with a reason. You must edit the text and click Approve again.\n\n5) Content review is temporarily unavailable\n  If the AI safety check itself errors out, the script stays un-approved and the banner says: \"Content review is temporarily unavailable\". Try again in a few minutes.\n\nWhat NOT to do:\n• Don't try to bypass the banner by launching — Launch stays disabled until script_approved=true on the campaign.\n• Don't paste binary or emoji-heavy text into questions — the AI reads them aloud and they break the voice flow.\n• Don't keep editing the script after launch for already-called candidates — edits only apply to candidates not yet called.",
+        body: "When you click Approve script, the text is scanned by VoxBulk's content review before going live. Here are the exact reasons it can stay un-approved, in order:\n\n1) Script text is empty\n  • There must be a generated or pasted draft. Click Generate, or paste your own questions, then try Approve again.\n  • You'll also see the wizard hint: \"Generate or paste a script, then approve it\".\n\n2) You edited the script after it was approved\n  • Any edit resets the review status to not_scanned and unticks Approved. This is by design — every change has to be re-reviewed.\n  • Fix: click Approve script again to re-submit the edited version.\n\n3) The content review flagged the text\n  Status becomes pending_admin_review and a red banner appears: \"Script blocked: <reason>\". The review flags these categories:\n  • racism — racist, discriminatory or hateful content targeting protected groups\n  • offensive — harassment, slurs, threats, extreme insults, or gratuitously abusive language\n  • sexual — sexual, explicit or adult content\n  • political — partisan campaigning, inflammatory political messaging, or election advocacy\n  Fix: edit the questions to remove the flagged content, then click Approve again. If you believe it was a false positive, leave it and wait for the VoxBulk team to review — they can manually approve.\n\n4) Your script was rejected after review\n  Status becomes rejected with a reason. Edit the text and click Approve again.\n\n5) Content review is temporarily unavailable\n  If the AI safety check itself errors out, the script stays un-approved and the banner says: \"Content review is temporarily unavailable\". Try again in a few minutes.\n\nWhat NOT to do:\n• Don't try to bypass the banner by launching — Launch stays disabled until your script status shows Approved.\n• Don't paste binary or emoji-heavy text into questions — the AI reads them aloud and they break the voice flow.\n• Don't keep editing the script after launch for already-called candidates — edits only apply to candidates not yet called.",
       },
       {
         id: "interviews-script-roles",
@@ -127,7 +128,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "wa-survey-purpose",
         group: "What is it for",
         title: "Why use WhatsApp Surveys",
-        body: "Route: /surveys (channel: WhatsApp)\n\nConduct conversational patient or customer surveys directly inside WhatsApp chat.\n\nTraditional email surveys get low response rates. WhatsApp surveys reach people where they already chat and ask approved questions step-by-step, in either a fixed linear order or a branching graph based on their answers.",
+        routes: ["/surveys"],
+        body: "Channel: WhatsApp.\n\nConduct conversational patient or customer surveys directly inside WhatsApp chat.\n\nTraditional email surveys get low response rates. WhatsApp surveys reach people where they already chat and ask approved questions step-by-step, in either a fixed linear order or a branching graph based on their answers.",
       },
       {
         id: "wa-survey-how-to",
@@ -157,7 +159,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "wa-survey-script-moderation",
         group: "Troubleshooting",
         title: "Problem: why is my WhatsApp survey script not approved?",
-        body: "WhatsApp survey scripts go through the same content review as interviews. They can stay un-approved for these reasons:\n\n1) Empty script — generate or paste questions first.\n2) Edited after approval — any change resets the status; click Approve again.\n3) Content review flagged the text as racism / offensive / sexual / political. Edit and re-approve, or wait for VoxBulk admin to review.\n4) Admin rejected — edit and re-approve.\n5) Content review temporarily unavailable — try again in a few minutes.\n\nAdditionally for WhatsApp surveys:\n• The selected message template must already be Meta-approved (see \"My WhatsApp template isn't approved yet\").\n• Custom templates submitted to Meta can take minutes to hours to approve.",
+        body: "WhatsApp survey scripts go through the same content review as interviews. They can stay un-approved for these reasons:\n\n1) Empty script — generate or paste questions first.\n2) Edited after approval — any change resets the status; click Approve again.\n3) Content review flagged the text as racism / offensive / sexual / political. Edit and re-approve, or wait for the VoxBulk team to review.\n4) Your script was rejected after review — edit and re-approve.\n5) Content review temporarily unavailable — try again in a few minutes.\n\nAdditionally for WhatsApp surveys:\n• The selected message template must already be Meta-approved (see \"My WhatsApp template isn't approved yet\").\n• Custom templates submitted to Meta can take minutes to hours to approve.",
       },
     ],
   },
@@ -172,7 +174,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "wa-calling-purpose",
         group: "What is it for",
         title: "Why use AI Calling Surveys",
-        body: "Route: /surveys (channel: AI phone call)\n\nReach customer or patient lists quickly via automated voice AI surveys.\n\nIdeal for senior cohorts or urgent outreach (recall, reminders). The AI dials the list, reads questions aloud, interprets spoken answers and compiles results instantly in your dashboard.",
+        routes: ["/surveys"],
+        body: "Channel: AI phone call.\n\nReach customer or patient lists quickly via automated voice AI surveys.\n\nIdeal for senior cohorts or urgent outreach (recall, reminders). The AI dials the list, reads questions aloud, interprets spoken answers and compiles results instantly in your dashboard.",
       },
       {
         id: "wa-calling-how-to",
@@ -198,14 +201,15 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     id: "feedback",
     name: "Customer Feedback (QR)",
     shortName: "Feedback",
-    description: "QR-code surveys at physical branches.",
+    description: "QR-code surveys at physical branches + multi-location comparison.",
     Icon: QrCode,
     articles: [
       {
         id: "feedback-purpose",
         group: "What is it for",
         title: "Why use Customer Feedback QR",
-        body: "Route: /feedback\n\nCapture instant, location-specific reviews via physical QR codes placed inside your venues.\n\nFeedback at the point of experience is the most accurate. Guests scan a QR code, WhatsApp opens with a pre-filled message, and they complete a short topic-based review in their own language (English / Arabic supported).",
+        routes: ["/feedback"],
+        body: "Capture instant, location-specific reviews via physical QR codes placed inside your venues.\n\nFeedback at the point of experience is the most accurate. Guests scan a QR code, WhatsApp opens with a pre-filled message, and they complete a short topic-based review in their own language (English / Arabic supported).",
       },
       {
         id: "feedback-how-to",
@@ -225,68 +229,18 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         title: "Question: do I need to reprint QRs to change topics?",
         body: "Do:\n• No — go to /feedback, open the branch, click Edit survey. Topic and closing changes sync instantly. The printed QR and its reference suffix stay valid.\n\nDon't:\n• Don't delete a branch to reset its config. That permanently breaks any QRs already printed for it.",
       },
-    ],
-  },
-  {
-    id: "feedback-compare",
-    name: "Compare locations (Customer Feedback)",
-    shortName: "Compare locations",
-    description: "Side-by-side branch comparisons for multi-location plans.",
-    Icon: GitCompare,
-    articles: [
       {
         id: "feedback-compare-purpose",
-        group: "What is it for",
+        group: "Compare locations",
         title: "What Compare locations is for",
-        body: "Route: /feedback/compare\n\nSide-by-side comparison of satisfaction, NPS, response rates and per-topic scores across multiple branches.\n\nOnly available on multi-location Customer Feedback plans (Pro / Business). On Starter (single location), you won't see this menu item — upgrade on /account/feedback/packages to unlock it.",
+        routes: ["/feedback/compare"],
+        body: "Side-by-side comparison of satisfaction, NPS, response rates and per-topic scores across multiple branches.\n\nOnly available on multi-location Customer Feedback plans (Pro / Business). On Starter (single location), you won't see this menu item — upgrade on /account/feedback/packages to unlock it.",
       },
       {
         id: "feedback-compare-how-to",
-        group: "How to use",
+        group: "Compare locations",
         title: "Step-by-step: compare branches",
         body: "1. Open /feedback/compare.\n2. Tick the branches you want to include (up to 8 colour-coded series).\n3. Compare:\n  • Satisfaction trends over time\n  • Response and recommend rates\n  • Sentiment split (happy / neutral / unhappy)\n  • Per-question average scores\n4. Spot outliers and drill into a branch by clicking through to its results.",
-      },
-    ],
-  },
-  {
-    id: "recovery",
-    name: "Recovery (missed-appointment outreach)",
-    shortName: "Recovery",
-    description: "Re-engage no-shows, recalls, emergency reschedules.",
-    Icon: HeartPulse,
-    articles: [
-      {
-        id: "recovery-purpose",
-        group: "What is it for",
-        title: "What Recovery is for",
-        body: "Routes: /recovery · /recovery/no-show · /recovery/emergency · /recovery/recall · /recovery/offers\n\nAutomated re-engagement for patients/customers who missed an appointment, are due for a recall, or need an offer:\n• Recovery queue — patients flagged for missed-appointment outreach.\n• No-show follow-up — AI calling behaviour after a missed appointment.\n• Emergency reschedule — bulk reschedule patients when you have to close a session.\n• Recall campaigns — reach overdue patients automatically (e.g. 6-month check-up).\n• Offer campaigns — broadcast time-limited offers with a callback option.\n\nThis module only appears in your sidebar if Recovery is enabled on your account.",
-      },
-      {
-        id: "recovery-how-to",
-        group: "How to use",
-        title: "How the Recovery queue works",
-        body: "1. Patients show up in the queue when their appointment is flagged as missed (by integration or manually).\n2. Filter by status: calling, rebooked, no-answer, wa-sent, completed.\n3. Click Run AI calling now to start the outreach — the AI dials, offers reschedule, and logs the outcome.\n4. Patients that don't pick up get a WhatsApp fallback.\n5. Outcomes feed into the dashboard KPIs (rebooked / no-answer / WA sent).",
-      },
-    ],
-  },
-  {
-    id: "followup",
-    name: "Follow up (reminder sequences)",
-    shortName: "Follow up",
-    description: "Multi-step WhatsApp appointment reminders.",
-    Icon: CalendarClock,
-    articles: [
-      {
-        id: "followup-purpose",
-        group: "What is it for",
-        title: "What Follow-up sequences do",
-        body: "Route: /follow-up\n\nMulti-step WhatsApp appointment reminders, fully editable.\n\nDefault sequence: 72h before, 48h before, 24h before, 2h before, and one After no-show step. Each step can be toggled on/off and the message body is editable per step (supports {first_name} and reschedule/cancel reply keywords).",
-      },
-      {
-        id: "followup-how-to",
-        group: "How to use",
-        title: "Step-by-step: tune your reminder sequence",
-        body: "1. Open /follow-up.\n2. For each step, choose when it fires (72h / 48h / 24h / 12h / 2h before, or After no-show).\n3. Edit the message body — keep the {first_name} placeholder and reply prompts (\"Y to confirm, R to reschedule\").\n4. Toggle each step on/off with the switch.\n5. Click Save sequence — changes apply to all future reminders.",
       },
     ],
   },
@@ -301,37 +255,43 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "settings-profile",
         group: "What is it for",
         title: "Profile settings — organisation details and logo",
-        body: "Route: /settings/profile\n\nEdit your organisation's display name, country, contact details, brand logo (shown in the sidebar) and request account deletion.\n\nWho can edit: Owner and Manager. Member and Accountant can view only.",
+        routes: ["/settings/profile"],
+        body: "Edit your organisation's display name, country, contact details, brand logo (shown in the sidebar) and request account deletion.\n\nWho can edit: Owner and Manager. Member and Accountant can view only.",
       },
       {
         id: "settings-services",
         group: "What is it for",
         title: "Services — show or hide modules in your sidebar",
-        body: "Route: /settings/services\n\nToggle which services appear in your sidebar and Dashboard Overview (Interviews, Surveys, Customer Feedback, Recovery, Follow up).\n\n• Off = hidden from sidebar; turn back on here anytime.\n• To remove a module from your plan entirely, contact your VoxBulk account manager — these toggles are visibility only.\n\nOnly modules your plan includes show up here.",
+        routes: ["/settings/services"],
+        body: "Toggle which services appear in your sidebar and Dashboard Overview (Interviews, Surveys, Customer Feedback).\n\n• Off = hidden from sidebar; turn back on here anytime.\n• To remove a module from your plan entirely, contact your VoxBulk account manager — these toggles are visibility only.\n\nOnly modules your plan includes show up here.",
       },
       {
         id: "settings-integrations",
         group: "What is it for",
         title: "Integrations — connect CRMs and external tools",
-        body: "Route: /settings/integrations\n\nConnect your CRM (e.g. HubSpot for survey response sync), scheduling tools and other external systems. Connections complete via OAuth and the status (connected / disconnected / error) is shown per integration.\n\nThe in-app assistant can view integrations but cannot edit them — connection changes always need a human click here.",
+        routes: ["/settings/integrations"],
+        body: "Connect your CRM (e.g. HubSpot for survey response sync), scheduling tools and other external systems. Connections complete via OAuth and the status (connected / disconnected / error) is shown per integration.\n\nThe in-app assistant can view integrations but cannot edit them — connection changes always need a human click here.",
       },
       {
         id: "settings-team",
         group: "What is it for",
         title: "Team members — invite teammates and assign roles",
-        body: "Route: /settings/team\n\nInvite teammates by email. Choose a role:\n• Manager — full dashboard access (campaigns, billing, team).\n• Member — campaigns only; no billing or team management.\n• Accountant — billing only; cannot launch campaigns.\n• Owner — your role; only Owner can transfer the seat to someone else.\n\nThe invitee receives an email with a sign-in link. You can also copy the invite link to share manually. Revoke pending invites or remove an active member from this page.\n\nWho can manage the team: Owner and Manager only.",
+        routes: ["/settings/team"],
+        body: "Invite teammates by email. Choose a role:\n• Manager — full dashboard access (campaigns, billing, team).\n• Member — campaigns only; no billing or team management.\n• Accountant — billing only; cannot launch campaigns.\n• Owner — your role; only Owner can transfer the seat to someone else.\n\nThe invitee receives an email with a sign-in link. You can also copy the invite link to share manually. Revoke pending invites or remove an active member from this page.\n\nWho can manage the team: Owner and Manager only.",
       },
       {
         id: "settings-opt-out",
         group: "What is it for",
         title: "Opt-out list — numbers we'll never message or call",
-        body: "Route: /settings/opt-out\n\nA central Do-Not-Contact list. Any phone here is permanently excluded from every campaign, survey, recovery call or follow-up reminder.\n\nNumbers are added in two ways:\n• Manually here (add by E.164, e.g. +447700900123).\n• Automatically when a recipient opts out on a call or replies STOP on WhatsApp.\n\nRemove a number by clicking Remove on its row.",
+        routes: ["/settings/opt-out"],
+        body: "A central Do-Not-Contact list. Any phone here is permanently excluded from every campaign, survey or reminder.\n\nNumbers are added in two ways:\n• Manually here (add by E.164, e.g. +447700900123).\n• Automatically when a recipient opts out on a call or replies STOP on WhatsApp.\n\nRemove a number by clicking Remove on its row.",
       },
       {
         id: "settings-audit",
         group: "What is it for",
         title: "Audit log — who did what, when",
-        body: "Route: /settings/audit\n\nCompliance-grade activity log. Records every team invite, opt-out change, logo update, settings change and account-deletion event with who, when, and details.\n\nWho can view: Owner and Manager.",
+        routes: ["/settings/audit"],
+        body: "Compliance-grade activity log. Records every team invite, opt-out change, logo update, settings change and account-deletion event with who, when, and details.\n\nWho can view: Owner and Manager.",
       },
     ],
   },
@@ -346,7 +306,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "billing-purpose",
         group: "Overview",
         title: "How VoxBulk billing works at a glance",
-        body: "Routes: /account/billing · /account/usage · /account/packages\n\n• Monthly packages — Starter, Practice, Group plans, billed monthly via GoCardless Direct Debit. Each plan includes a monthly quota of calls, WhatsApp sends and SMS.\n• Prepaid wallet — covers campaign setup costs and overage. Top up with Stripe or Airwallex (min £5 / equivalent).\n• Overage — once a monthly allowance is consumed, extra usage is billed per-minute / per-message from your wallet.\n• Reconciliation — if a campaign of 100 only sends 80, the unused balance is refunded to your wallet automatically.",
+        routes: ["/account/billing", "/account/usage", "/account/packages"],
+        body: "• Monthly packages — Starter, Practice, Group plans, billed monthly via GoCardless Direct Debit. Each plan includes a monthly quota of calls, WhatsApp sends and SMS.\n• Prepaid wallet — covers campaign setup costs and overage. Top up with Stripe or Airwallex (min £5 / equivalent).\n• Overage — once a monthly allowance is consumed, extra usage is billed per-minute / per-message from your wallet.\n• Reconciliation — if a campaign of 100 only sends 80, the unused balance is refunded to your wallet automatically.",
       },
       {
         id: "billing-rails",
@@ -358,30 +319,35 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "account-plan-tabs",
         group: "Packages & plans",
         title: "Packages & pricing — Core and Customer Feedback",
-        body: "Route: /account/packages\n\nTwo separate product tabs because they bill differently:\n• Core platform — AI interviews + WA / AI-call surveys. Subscription + top-up.\n• Customer Feedback — QR-driven inbound WhatsApp. Subscription only (Starter / Pro / Business by location count).\n\nSubscribing to Customer Feedback does not include Core, and vice versa — they're separate products.",
+        routes: ["/account/packages"],
+        body: "Two separate product tabs because they bill differently:\n• Core platform — AI interviews + WA / AI-call surveys. Subscription + top-up.\n• Customer Feedback — QR-driven inbound WhatsApp. Subscription only (Starter / Pro / Business by location count).\n\nSubscribing to Customer Feedback does not include Core, and vice versa — they're separate products.",
       },
       {
         id: "account-plan-change",
         group: "Packages & plans",
         title: "Changing plans mid-cycle",
+        routes: ["/account/packages"],
         body: "On /account/packages click the new plan's Subscribe / Change button:\n• Upgrade — takes effect immediately. You're charged a pro-rated amount for the remainder of the current cycle via Direct Debit, and the bigger allowance starts now.\n• Downgrade — schedules at the next billing anchor (no refund for unused allowance on the current cycle). The pending plan is shown on the Billing page until it takes effect.\n• Cancellation — schedules at the end of the current cycle. Re-subscribe any time before then to undo it.",
       },
       {
         id: "account-wallet-topup",
         group: "Wallet & top-up",
         title: "How to top up your wallet",
-        body: "Routes: /account/billing · /account/packages\n\n1. Click Top up on the Billing page or open the Wallet card on Packages.\n2. Choose an amount (minimum £5 / $5 equivalent).\n3. Pay with card via Stripe or Airwallex (whichever is enabled on your account).\n4. The amount appears in your wallet instantly on a successful charge.\n\nUse cases for the wallet:\n• PAYG accounts — every launch is paid from the wallet.\n• Subscribers — covers overage when monthly allowances run out, and one-off pay-per-use items (CV scans, ad-hoc calls).",
+        routes: ["/account/billing", "/account/packages"],
+        body: "1. Click Top up on the Billing page or open the Wallet card on Packages.\n2. Choose an amount (minimum £5 / $5 equivalent).\n3. Pay with card via Stripe or Airwallex (whichever is enabled on your account).\n4. The amount appears in your wallet instantly on a successful charge.\n\nUse cases for the wallet:\n• PAYG accounts — every launch is paid from the wallet.\n• Subscribers — covers overage when monthly allowances run out, and one-off pay-per-use items (CV scans, ad-hoc calls).",
       },
       {
         id: "account-usage-breakdown",
         group: "Wallet & top-up",
         title: "Usage page — where every charge comes from",
-        body: "Route: /account/usage\n\nLine-by-line breakdown of usage across every campaign in the current billing period:\n• Service (interview / survey / feedback)\n• Channel (call / WhatsApp / SMS)\n• Status of the campaign\n• Usage units + cost\n• Billing source — allowance, wallet, or DD\n\nClick a row to jump to the campaign that produced the charge. Filter by service or status to investigate spikes.",
+        routes: ["/account/usage"],
+        body: "Line-by-line breakdown of usage across every campaign in the current billing period:\n• Service (interview / survey / feedback)\n• Channel (call / WhatsApp / SMS)\n• Status of the campaign\n• Usage units + cost\n• Billing source — allowance, wallet, or DD\n\nClick a row to jump to the campaign that produced the charge. Filter by service or status to investigate spikes.",
       },
       {
         id: "billing-usage-warnings",
         group: "Wallet & top-up",
         title: "Usage warnings at 80% and 100%",
+        routes: ["/account/usage"],
         body: "We send automatic emails when your plan reaches 80% and 100% of its monthly allowance, so you can top up or upgrade before overage kicks in.\n\nSee live counters on /account/usage.",
       },
       {
@@ -418,7 +384,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "stripe-failed",
         group: "Stripe — troubleshooting",
         title: "Problem: my Stripe payment failed",
-        body: "When Stripe returns an error, the dashboard shows the exact reason from your bank — for example:\n• \"Your card was declined.\" — your bank rejected the charge. Common causes: insufficient funds, card limits, fraud rules. Try a different card or call your bank.\n• \"Your card's security code is incorrect.\" — re-check the CVC.\n• \"Authentication required\" — 3D Secure was needed but cancelled or failed. Try the payment again and complete the bank's challenge.\n• \"This card has expired.\" — use a different card or have a new one issued.\n\nWhat to do:\n• Try the same card again — temporary declines (e.g. a one-off fraud check) often clear on retry.\n• If it keeps failing, switch to a different card.\n• If Stripe itself isn't configured, you'll see \"Stripe is not configured. Ask support to enable Stripe in admin integrations.\" Contact support — this is a platform setting, not something you can fix yourself.\n\nWhat NOT to do:\n• Don't keep retrying the same card more than 3–4 times. Repeated declines can trigger your bank's fraud lock.",
+        body: "When Stripe returns an error, the dashboard shows the exact reason from your bank — for example:\n• \"Your card was declined.\" — your bank rejected the charge. Common causes: insufficient funds, card limits, fraud rules. Try a different card or call your bank.\n• \"Your card's security code is incorrect.\" — re-check the CVC.\n• \"Authentication required\" — 3D Secure was needed but cancelled or failed. Try the payment again and complete the bank's challenge.\n• \"This card has expired.\" — use a different card or have a new one issued.\n\nWhat to do:\n• Try the same card again — temporary declines (e.g. a one-off fraud check) often clear on retry.\n• If it keeps failing, switch to a different card.\n• If you see \"Stripe is not configured\", contact support to enable card payments — this is a configuration we manage for you.\n\nWhat NOT to do:\n• Don't keep retrying the same card more than 3–4 times. Repeated declines can trigger your bank's fraud lock.",
       },
       {
         id: "stripe-still-processing",
@@ -436,19 +402,13 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "stripe-no-card-option",
         group: "Stripe — troubleshooting",
         title: "Problem: I don't see a Pay-by-card / Stripe option",
-        body: "If the top-up dialog or invoice payment dialog doesn't list Stripe:\n• \"Card payments are not configured yet\" — neither Stripe nor Airwallex is enabled for your account. Contact support to switch them on.\n• Only Airwallex is shown — your account is set to use Airwallex; the flow is essentially the same (enter card details inline, click pay).\n• The Pay button on an invoice is greyed out — the invoice may already be paid, voided, or in dispute. Refresh the page; check the status badge on the row.",
+        body: "If the top-up dialog or invoice payment dialog doesn't list Stripe:\n• \"Card payments are not configured yet\" — contact support to switch them on.\n• Only Airwallex is shown — your account is set to use Airwallex; the flow is essentially the same (enter card details inline, click pay).\n• The Pay button on an invoice is greyed out — the invoice may already be paid, voided, or in dispute. Refresh the page; check the status badge on the row.",
       },
       {
         id: "stripe-refunds",
         group: "Stripe — troubleshooting",
         title: "Question: can I get a refund of a Stripe top-up?",
         body: "Wallet top-ups are non-refundable by default — the credit sits in your wallet until you use it, so there's no \"expiry\" risk.\n\nWhen we do refund:\n• Duplicate charge (see \"charged me twice\" above) — refunded automatically once you raise a ticket.\n• You stop using VoxBulk and want unused wallet credit back — contact support; refunds are returned to the original Stripe card and may take 5–10 business days to land.\n• You were billed for a service you genuinely didn't use because of a platform fault — support refunds the wallet credit, you then withdraw to card.\n\nFor invoice payments, refunds depend on the invoice — disputed invoices that are resolved in your favour are refunded to the original card.",
-      },
-      {
-        id: "stripe-test-live",
-        group: "Stripe — troubleshooting",
-        title: "Test mode vs live mode",
-        body: "If your account is on a Stripe test environment (e.g. internal sandbox), the dialog accepts Stripe's test cards (e.g. 4242 4242 4242 4242 with any future expiry and any CVC). No real money moves and the wallet credit is \"test credit\".\n\nLive accounts only accept real cards. You'll know you're on live mode because the publishable key starts with pk_live_…; test keys start with pk_test_…. This is a platform-level setting — your VoxBulk account manager controls which mode you're on.",
       },
       {
         id: "aw-purpose",
@@ -475,12 +435,6 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         body: "1. /account/billing → click Pay on an open invoice.\n2. In the payment method picker, choose Pay by card (Airwallex).\n3. Enter card details in the drop-in form.\n4. On success the invoice is marked paid; the receipt PDF appears on the same row.",
       },
       {
-        id: "aw-environments",
-        group: "Airwallex — card payments",
-        title: "Demo vs production environment (Airwallex)",
-        body: "Airwallex runs on two environments — demo (sandbox) and prod (live). Your VoxBulk account manager configures which one your dashboard uses.\n\n• Demo — test cards work, no real money moves. Useful for trial / staging accounts.\n• Prod — real payments only.\n\nYou can tell which one you're on from the dialog footer or by looking at the URL the SDK loads from (checkout.airwallex.com is live; api-demo.airwallex.com is demo).",
-      },
-      {
         id: "aw-failed",
         group: "Airwallex — troubleshooting",
         title: "Problem: my Airwallex payment failed",
@@ -490,7 +444,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "aw-no-option",
         group: "Airwallex — troubleshooting",
         title: "Problem: I don't see an Airwallex option",
-        body: "If the top-up or invoice payment dialog only shows Stripe (or no card options at all):\n• Airwallex isn't enabled on your account. Your VoxBulk account manager configures provider availability — contact support to switch it on.\n• You may already have Stripe and don't need Airwallex; they're interchangeable for card payments.\n\nFunctionally, every wallet top-up / invoice flow works the same with either provider — choose whichever your business prefers.",
+        body: "If the top-up or invoice payment dialog only shows Stripe (or no card options at all):\n• Airwallex isn't enabled on your account — contact support to switch it on.\n• You may already have Stripe and don't need Airwallex; they're interchangeable for card payments.\n\nFunctionally, every wallet top-up / invoice flow works the same with either provider — choose whichever your business prefers.",
       },
       {
         id: "gc-purpose",
@@ -508,13 +462,13 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "gc-subscribe-flow",
         group: "GoCardless — Direct Debit",
         title: "Step-by-step: subscribe to a plan with GoCardless",
-        body: "1. Open /account/packages and pick a plan (Core platform or Customer Feedback).\n2. Click Subscribe. You're redirected to the GoCardless hosted checkout page (this leaves the VoxBulk dashboard for a moment — that's expected).\n3. On the GC page, enter your bank account details and confirm the mandate.\n4. GC redirects you back to the dashboard. You'll see ?billing=success and your subscription becomes active.\n5. If your scheme requires first-payment verification (Bacs / ACH / PAD / BECS), the dashboard shows status pending_first_payment for 3–7 business days. During this window you can still use the wallet to launch campaigns; DD-backed launches wait until first payment clears.",
+        body: "1. Open /account/packages and pick a plan (Core platform or Customer Feedback).\n2. Click Subscribe. You're redirected to the GoCardless hosted checkout page (this leaves the VoxBulk dashboard for a moment — that's expected).\n3. On the GC page, enter your bank account details and confirm the mandate.\n4. GC redirects you back to the dashboard and your subscription becomes active.\n5. If your scheme requires first-payment verification (Bacs / ACH / PAD / BECS), the dashboard shows status pending_first_payment for 3–7 business days. During this window you can still use the wallet to launch campaigns; DD-backed launches wait until first payment clears.",
       },
       {
         id: "gc-mandate-update",
         group: "GoCardless — Direct Debit",
         title: "Step-by-step: update or replace your DD mandate",
-        body: "1. Open /account/billing. If your mandate needs attention (cancelled, expired, or you want to switch banks), the next-invoice card shows an Update mandate button.\n2. Click it — you're redirected to GoCardless to authorise the new mandate.\n3. After confirming, you return to the dashboard with ?billing=mandate_success.\n4. Future DD collections use the new mandate automatically.\n\nIf you cancelled accidentally, ?billing=mandate_cancelled is shown and the old mandate stays untouched.",
+        body: "1. Open /account/billing. If your mandate needs attention (cancelled, expired, or you want to switch banks), the next-invoice card shows an Update mandate button.\n2. Click it — you're redirected to GoCardless to authorise the new mandate.\n3. After confirming, you return to the dashboard with the new mandate active.\n4. Future DD collections use the new mandate automatically.\n\nIf you cancelled accidentally, the old mandate stays untouched and the dashboard will tell you the update was cancelled.",
       },
       {
         id: "gc-vs-card",
@@ -544,7 +498,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "gc-pop-up-blocked",
         group: "GoCardless — troubleshooting",
         title: "Problem: the GoCardless checkout never opens / returns an error",
-        body: "Do:\n• Allow redirects to the gocardless.com domain in your browser. Some corporate firewalls block it — try a personal network or another browser.\n• If you see \"GoCardless did not return a checkout URL\", the integration isn't set up for your country / currency. Contact support — your account manager needs to enable the right scheme.\n• If you returned to the dashboard without a redirect_flow_id, your session may have expired during the GC step. Click Subscribe again to start fresh.\n\nDon't:\n• Don't refresh the GC page mid-checkout — restart the flow from /account/packages instead.",
+        body: "Do:\n• Allow redirects to the gocardless.com domain in your browser. Some corporate firewalls block it — try a personal network or another browser.\n• If you see \"GoCardless did not return a checkout URL\", the integration isn't set up for your country / currency. Contact support — your account manager needs to enable the right scheme.\n• If your session expired during the GC step, click Subscribe again to start fresh.\n\nDon't:\n• Don't refresh the GC page mid-checkout — restart the flow from /account/packages instead.",
       },
       {
         id: "billing-launch-blocked",
@@ -571,7 +525,8 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "support-purpose",
         group: "What is it for",
         title: "How to get help inside the dashboard",
-        body: "Route: /account/support/tickets\n\nThe support hub gives you three ways to get help:\n• Documentation & FAQ (this page)\n• Live chat — VoxBulk AI assistant in the bottom-right bubble\n• Email / ticket support — track replies and status in /account/support/tickets",
+        routes: ["/account/support/tickets"],
+        body: "The support hub gives you three ways to get help:\n• Documentation & FAQ (this page)\n• Live chat — VoxBulk AI assistant in the bottom-right bubble\n• Email / ticket support — track replies and status in /account/support/tickets",
       },
       {
         id: "support-how-to",
