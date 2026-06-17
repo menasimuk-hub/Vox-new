@@ -296,7 +296,98 @@ def test_phase1_stage6_dual_restaurant_fields(mock_complete, abuu_seeded, deepse
     assert stage6["restaurant_match"] is True
     stage5 = bundle["stages"]["5_parsed"]
     assert stage5["parse_status"] == "ok"
-    assert stage5["action"]["branch"] == "phase1_deterministic"
+    assert stage5["action"]["branch"] == "phase1_select_and_menu"
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_vps_stt_fastfood_menu(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    _db, _fastfood, _fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("LLM should not be called for VPS STT fast-food menu")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    phone = "+972509991009"
+    text = "الوجبات السريعة أنت كاتب فوق الوجبات السريعة مدلي أشوف المنيو تبعها"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        request_id = VoiceOrderDebugService.begin(
+            abuu_db,
+            customer_phone=phone,
+            message_id="phase1-vps-stt",
+            pipeline="agent",
+        )
+        set_debug_request_id(request_id)
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text=text,
+            input_source="voice",
+            message_id="phase1-vps-stt",
+        )
+        abuu_db.commit()
+        session = load_session(abuu_db, phone)
+        bundle = VoiceOrderDebugService.get_bundle(abuu_db, request_id)
+
+    assert result["restaurant_id"] == FASTFOOD_ID
+    assert session.restaurant_id == FASTFOOD_ID
+    assert "منيو" in result["reply"] or "برجر" in result["reply"] or "وجبة" in result["reply"]
+    stage5 = bundle["stages"]["5_parsed"]
+    assert stage5["parse_status"] == "ok"
+    assert stage5["action"]["branch"] == "phase1_select_and_menu"
+    mock_complete.assert_not_called()
+
+
+@patch("app.services.providers.openai_service.OpenAIProviderService.complete_chat_raw")
+def test_phase1_stage6_skips_stale_cancelled_on_clarify(mock_complete, abuu_seeded, deepseek_configured, phase1_env):
+    _db, _fastfood, fish = abuu_seeded
+    mock_complete.side_effect = AssertionError("clarify path should not call LLM")
+
+    from app.core.abuu_database import get_abuu_sessionmaker
+    from app.core.database import get_sessionmaker
+
+    phone = "+972509991010"
+    with get_abuu_sessionmaker()() as abuu_db, get_sessionmaker()() as main_db:
+        customer = AbuuOrderDraftService.get_or_create_customer(abuu_db, phone, lang="ar")
+        order = AbuuOrderDraftService.start_draft(abuu_db, customer=customer, restaurant=fish)
+        order.status = "cancelled"
+        abuu_db.add(order)
+        AbuuOrderDraftService.upsert_session(
+            abuu_db,
+            phone=phone,
+            step="browsing",
+            context={"restaurant_id": None, "restaurant_selected": False},
+            active_order_id=order.id,
+        )
+        abuu_db.commit()
+        request_id = VoiceOrderDebugService.begin(
+            abuu_db,
+            customer_phone=phone,
+            message_id="phase1-clarify-stale",
+            pipeline="agent",
+        )
+        set_debug_request_id(request_id)
+        result = AbuuAgentLoop.run(
+            abuu_db,
+            main_db,
+            phone=phone,
+            text="بدي اشوف المنيو",
+            input_source="voice",
+            message_id="phase1-clarify-stale",
+        )
+        abuu_db.commit()
+        session = load_session(abuu_db, phone)
+        bundle = VoiceOrderDebugService.get_bundle(abuu_db, request_id)
+
+    assert session.restaurant_id is None
+    assert "مطعم" in result["reply"]
+    stage5 = bundle["stages"]["5_parsed"]
+    assert stage5["action"]["branch"] == "phase1_menu_clarify"
+    stage6 = bundle["stages"]["6_final_order"]
+    assert stage6["order_id"] is None
+    assert stage6["requested_restaurant_id"] is None
+    assert stage6["active_order_restaurant_id"] is None
+    mock_complete.assert_not_called()
 
 
 def test_phase1_guard_blocks_change_restaurant_no_mutation(abuu_seeded, phase1_env):

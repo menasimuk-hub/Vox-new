@@ -90,12 +90,16 @@ def _record_agent_final_order(
     if not debug_enabled() or not session.active_order_id:
         return
     order = abuu_db.get(CustomerOrder, session.active_order_id)
-    if order is not None:
-        VoiceOrderDebugService.record_final_order(
-            abuu_db,
-            order=order,
-            requested_restaurant_id=requested_restaurant_id or session.context.get("phase1_requested_restaurant_id"),
-        )
+    if order is None:
+        return
+    requested = requested_restaurant_id or session.context.get("phase1_requested_restaurant_id")
+    if not requested and not session.restaurant_id and order.status == "cancelled":
+        return
+    VoiceOrderDebugService.record_final_order(
+        abuu_db,
+        order=order,
+        requested_restaurant_id=requested,
+    )
 
 
 def _record_phase1_parsed(
@@ -242,20 +246,28 @@ class AbuuAgentLoop:
                 user_text=user_text,
             )
             if deterministic:
+                reply, branch = deterministic
+                if debug_enabled() and input_source == "voice":
+                    VoiceOrderDebugService.record_llm_prompt(
+                        abuu_db,
+                        system_prompt="",
+                        messages=[{"role": "user", "content": user_text}],
+                        session_snapshot=_agent_session_snapshot(session),
+                    )
                 _record_phase1_parsed(
                     abuu_db,
                     session=session,
-                    reply=deterministic,
+                    reply=reply,
                     input_source=input_source,
-                    branch="phase1_deterministic",
+                    branch=branch,
                 )
                 agent_trace.llm_reply(
                     phone=phone,
                     msg_id=message_id,
                     correlation_id=correlation_id,
                     turn=0,
-                    reply_preview=agent_trace.clip(deterministic),
-                    action="phase1_deterministic",
+                    reply_preview=agent_trace.clip(reply),
+                    action=branch,
                 )
                 agent_trace.turn_end(
                     phone=phone,
@@ -263,7 +275,7 @@ class AbuuAgentLoop:
                     correlation_id=correlation_id,
                     restaurant_id=session.restaurant_id or "",
                 )
-                return deterministic
+                return reply
 
         agent_trace.prefetch(
             phone=phone,

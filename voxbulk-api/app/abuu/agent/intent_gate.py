@@ -24,7 +24,17 @@ from app.abuu.services.restaurant_discovery_service import (
     pick_restaurant_by_ref,
     rank_restaurants,
 )
+from app.abuu.voice_interpretation.normalize import normalize_query
 from app.core.config import get_settings
+
+FASTFOOD_ID = "abuu-rest-fastfood"
+
+Phase1Branch = Literal[
+    "phase1_select_and_menu",
+    "phase1_select",
+    "phase1_menu_clarify",
+    "phase1_category_clarify",
+]
 
 IntentAction = Literal[
     "select_restaurant_and_show_menu",
@@ -43,9 +53,24 @@ _MENU_BROWSE_MARKERS = (
     "شو",
     "what",
     "show",
+    "list",
     "عندك",
     "عندكم",
     "تاع",
+    "تبع",
+    "تبعها",
+    "مدلي",
+    "اشوف",
+    "أشوف",
+    "شوف",
+)
+
+_FASTFOOD_ALIASES = (
+    "وجبات سريعه",
+    "الوجبات السريعه",
+    "fast food",
+    "wajabat",
+    "fastfood",
 )
 
 
@@ -122,24 +147,54 @@ def ranked_from_snapshot(db: Session, rows: list[dict[str, Any]]) -> list[Ranked
     return ranked
 
 
+def _strip_leading_al(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("ال") and len(cleaned) > 3:
+        return cleaned[2:]
+    return cleaned
+
+
+def _name_match_candidates(name: str) -> list[str]:
+    lang = "ar" if any("\u0600" <= ch <= "\u06FF" for ch in str(name or "")) else "en"
+    normalized = normalize_query(str(name or ""), lang)
+    if not normalized:
+        return []
+    candidates = [normalized]
+    stripped = _strip_leading_al(normalized)
+    if stripped and stripped not in candidates:
+        candidates.append(stripped)
+    return candidates
+
+
+def _normalized_user_text(text: str) -> str:
+    return normalize_query(str(text or ""), "ar")
+
+
+def _text_contains_candidate(normalized_text: str, candidate: str) -> bool:
+    if len(candidate) < 3:
+        return False
+    if candidate in normalized_text:
+        return True
+    tokens = set(normalized_text.split())
+    return candidate in tokens
+
+
 def find_named_restaurant_in_text(
     db: Session,
     text: str,
     ranked: list[RankedRestaurant],
 ) -> Restaurant | None:
-    normalized = str(text or "").strip().lower()
+    normalized = _normalized_user_text(text)
     if not normalized:
         return None
     best: Restaurant | None = None
     best_len = 0
     for row in ranked:
         for name in (row.restaurant.name_ar, row.restaurant.name_en):
-            candidate = str(name or "").strip().lower()
-            if len(candidate) < 3:
-                continue
-            if candidate in normalized and len(candidate) > best_len:
-                best = row.restaurant
-                best_len = len(candidate)
+            for candidate in _name_match_candidates(name):
+                if _text_contains_candidate(normalized, candidate) and len(candidate) > best_len:
+                    best = row.restaurant
+                    best_len = len(candidate)
     if best is not None:
         return best
     for row in ranked:
@@ -149,8 +204,20 @@ def find_named_restaurant_in_text(
     return None
 
 
+def text_mentions_fastfood(text: str) -> bool:
+    normalized = _normalized_user_text(text)
+    return any(alias in normalized for alias in _FASTFOOD_ALIASES)
+
+
+def resolve_fastfood_from_ranked(ranked: list[RankedRestaurant]) -> Restaurant | None:
+    for row in ranked:
+        if row.restaurant.id == FASTFOOD_ID:
+            return row.restaurant
+    return None
+
+
 def is_menu_browse_request(text: str) -> bool:
-    normalized = str(text or "").strip().lower()
+    normalized = _normalized_user_text(text)
     return any(marker in normalized for marker in _MENU_BROWSE_MARKERS)
 
 
@@ -179,6 +246,16 @@ def extract_intent(
             restaurant_id=restaurant.id,
         )
     if menu_browse and restaurant is None:
+        if text_mentions_fastfood(text):
+            fastfood = resolve_fastfood_from_ranked(ranked)
+            if fastfood is not None:
+                return AgentIntent(
+                    action="select_restaurant_and_show_menu",
+                    restaurant_ref=fastfood.id,
+                    menu_query=None,
+                    confidence="high",
+                    restaurant_id=fastfood.id,
+                )
         return AgentIntent(
             action="show_menu",
             restaurant_ref=None,
@@ -288,7 +365,7 @@ def try_deterministic_reply(
     *,
     customer: CustomerProfile,
     user_text: str,
-) -> str | None:
+) -> tuple[str, Phase1Branch] | None:
     if not phase1_enabled():
         return None
 
@@ -302,13 +379,22 @@ def try_deterministic_reply(
 
     if intent.action == "show_menu" and intent.confidence == "low" and not session.restaurant_id:
         if lang == "ar":
-            return "من أي مطعم بدك تشوف المنيو؟ اكتب اسم المطعم أو قول اعرض المطاعم."
-        return "Which restaurant menu should I show? Say the restaurant name or ask for the list."
+            return (
+                "من أي مطعم بدك تشوف المنيو؟ اكتب اسم المطعم أو قول اعرض المطاعم.",
+                "phase1_menu_clarify",
+            )
+        return (
+            "Which restaurant menu should I show? Say the restaurant name or ask for the list.",
+            "phase1_menu_clarify",
+        )
 
     if intent.confidence != "high" or intent.action == "none":
-        return try_category_without_restaurant_reply(
+        category_reply = try_category_without_restaurant_reply(
             db, session, user_text=user_text, ranked_rows=ranked_rows
         )
+        if category_reply is not None:
+            return category_reply, "phase1_category_clarify"
+        return None
 
     restaurant = db.get(Restaurant, intent.restaurant_id) if intent.restaurant_id else None
     if restaurant is None:
@@ -331,12 +417,12 @@ def try_deterministic_reply(
             customer=customer,
         )
         if lang == "ar":
-            return f"{prefix}هذا منيو {name}:\n{menu_text}"
-        return f"{prefix}Here is the menu for {name}:\n{menu_text}"
+            return f"{prefix}هذا منيو {name}:\n{menu_text}", "phase1_select_and_menu"
+        return f"{prefix}Here is the menu for {name}:\n{menu_text}", "phase1_select_and_menu"
 
     if lang == "ar":
-        return f"{prefix}تم اختيار {name}. ماذا تحب أن تأكل؟"
-    return f"{prefix}Selected {name}. What would you like to eat?"
+        return f"{prefix}تم اختيار {name}. ماذا تحب أن تأكل؟", "phase1_select"
+    return f"{prefix}Selected {name}. What would you like to eat?", "phase1_select"
 
 
 def user_named_target_restaurant(
