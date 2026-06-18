@@ -108,7 +108,7 @@ class GroqProviderService:
         elapsed = int((time.perf_counter() - start) * 1000)
         if not response.is_success and prompt:
             logger.warning(
-                "abuu_stt_prompt_unsupported provider=groq status=%s retrying_without_prompt",
+                "voice_stt_prompt_unsupported provider=groq status=%s retrying_without_prompt",
                 response.status_code,
             )
             retry_data = {k: v for k, v in data.items() if k != "prompt"}

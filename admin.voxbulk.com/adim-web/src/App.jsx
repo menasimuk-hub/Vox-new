@@ -77,14 +77,6 @@ import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
 import ScriptModeration from './pages/ScriptModeration'
 import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
-import AbuuShell from './pages/abuu/AbuuShell'
-import AbuuEventLog from './pages/abuu/AbuuEventLog'
-import AbuuMenu from './pages/abuu/AbuuMenu'
-import AbuuOrders from './pages/abuu/AbuuOrders'
-import AbuuRestaurants from './pages/abuu/AbuuRestaurants'
-import AbuuDrivers from './pages/abuu/AbuuDrivers'
-import AbuuCustomers from './pages/abuu/AbuuCustomers'
-import AbuuAgentSettings from './pages/abuu/AbuuAgentSettings'
 import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustriesList'
 import FeedbackIndustryEdit from './pages/customer-feedback/FeedbackIndustryEdit'
 import FeedbackPackagesPricing from './pages/customer-feedback/FeedbackPackagesPricing'
@@ -260,19 +252,6 @@ export default function App() {
 
         <Route path='/compliance/audit' element={<ComplianceAudit />} />
         <Route path='/compliance/account-deletions' element={<AccountDeletionsAdmin />} />
-
-        <Route path='/abuu' element={<Navigate to='/abuu/orders' replace />} />
-        <Route path='/abuu/*' element={<AbuuShell />}>
-          <Route index element={<Navigate to='orders' replace />} />
-          <Route path='orders' element={<AbuuOrders />} />
-          <Route path='menus' element={<AbuuMenu />} />
-          <Route path='events' element={<AbuuEventLog />} />
-          <Route path='restaurants' element={<AbuuRestaurants />} />
-          <Route path='drivers' element={<AbuuDrivers />} />
-          <Route path='customers' element={<AbuuCustomers />} />
-          <Route path='agent' element={<AbuuAgentSettings />} />
-        </Route>
-
         <Route path='/compliance/consent' element={<ComplianceSettings />} />
         <Route path='/compliance/recording' element={G('Recording disclosure')} />
         <Route path='/compliance/ofcom' element={G('OFCOM rules')} />

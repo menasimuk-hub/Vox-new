@@ -625,6 +625,15 @@ class ProviderSettingsService:
         from app.services.telnyx_api_key import normalize_telnyx_api_key, normalize_telnyx_e164
 
         cfg = {**config}
+        _line2 = "_2"
+        for _base in (
+            "sms_from",
+            "whatsapp_from",
+            "sms_messaging_profile_id",
+            "whatsapp_messaging_profile_id",
+            "messaging_profile_id",
+        ):
+            cfg.pop(f"{_base}{_line2}", None)
         connection_id = str(cfg.get("connection_id") or cfg.get("voice_api_application_id") or "").strip()
         from_number = str(cfg.get("default_outbound_number") or cfg.get("from_phone_number") or "").strip()
         raw_base = str(cfg.get("webhook_base_url") or cfg.get("voice_webhook_url") or "").strip()
@@ -674,31 +683,6 @@ class ProviderSettingsService:
             except ValueError:
                 pass
             cfg["sms_from"] = sms_from
-        sms_from_2 = str(cfg.get("sms_from_2") or "").strip()
-        if sms_from_2:
-            try:
-                sms_from_2 = normalize_telnyx_e164(sms_from_2)
-            except ValueError:
-                pass
-            cfg["sms_from_2"] = sms_from_2
-        cfg["sms_messaging_profile_id_2"] = ProviderSettingsService.sanitize_messaging_profile_id(
-            str(cfg.get("sms_messaging_profile_id_2") or cfg.get("messaging_profile_id_2") or "").strip(),
-            field="sms_messaging_profile_id_2",
-        )
-        whatsapp_from_2 = str(cfg.get("whatsapp_from_2") or "").strip()
-        if not whatsapp_from_2 and sms_from_2:
-            whatsapp_from_2 = sms_from_2
-        if whatsapp_from_2:
-            try:
-                whatsapp_from_2 = normalize_telnyx_e164(whatsapp_from_2)
-            except ValueError:
-                pass
-            cfg["whatsapp_from_2"] = whatsapp_from_2
-        cfg["whatsapp_messaging_profile_id_2"] = ProviderSettingsService.sanitize_messaging_profile_id(
-            str(cfg.get("whatsapp_messaging_profile_id_2") or "").strip()
-            or cfg["sms_messaging_profile_id_2"],
-            field="whatsapp_messaging_profile_id_2",
-        )
         wa_from = str(cfg.get("whatsapp_from") or "").strip()
         if wa_from:
             try:

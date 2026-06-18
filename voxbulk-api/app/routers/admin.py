@@ -883,20 +883,6 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
 
     from_number = str(payload.get("from_number") or "").strip() or None
     messaging_profile_id = str(payload.get("messaging_profile_id") or "").strip() or None
-    slot = str(payload.get("slot") or "").strip()
-    if slot == "2":
-        from_number = from_number or str(config.get("sms_from_2") or "").strip() or None
-        messaging_profile_id = (
-            messaging_profile_id
-            or str(config.get("sms_messaging_profile_id_2") or "").strip()
-            or str(config.get("messaging_profile_id") or "").strip()
-            or None
-        )
-        if not from_number:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SMS number 2 is not configured (set sms_from_2 in Admin → Telnyx, then Save).",
-            )
 
     result = TelnyxMessagingService.send_sms(
         db,
@@ -914,23 +900,6 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
         "status": result.status,
         "from_number": from_number,
     }
-
-
-@router.get("/integrations/telnyx/yallasay-line")
-def get_yallasay_telnyx_line(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.yallasay_telnyx_line import get_yallasay_line_config
-
-    return {"ok": True, **get_yallasay_line_config(db)}
-
-
-@router.post("/integrations/telnyx/yallasay-line/apply-telnyx")
-def apply_yallasay_telnyx_line(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.telnyx_yallasay_setup_service import apply_yallasay_line_telnyx_setup
-
-    result = apply_yallasay_line_telnyx_setup(db)
-    if not result.get("ok"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or "Setup failed")
-    return result
 
 
 @router.get("/integrations/telnyx/whatsapp-templates")
@@ -1024,20 +993,8 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
 
     cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
     config = ProviderSettingsService._validate_telnyx_config(cfg or {})
-    wa_from_override: str | None = None
-    wa_profile_override: str | None = None
-    slot = str(payload.get("slot") or "").strip()
-    if slot == "2":
-        from app.services.yallasay_telnyx_line import get_yallasay_line_config, get_yallasay_whatsapp_e164
-
-        wa_from_override = get_yallasay_whatsapp_e164(db)
-        line_cfg = get_yallasay_line_config(db)
-        wa_profile_override = str(line_cfg.get("whatsapp_messaging_profile_id") or "").strip() or None
-        if not wa_from_override:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Yallasay line is not configured (set sms_from_2 in Admin → Telnyx, then Save).",
-            )
+    wa_from_override: str | None = str(payload.get("from_number") or "").strip() or None
+    wa_profile_override: str | None = str(payload.get("messaging_profile_id") or "").strip() or None
 
     template_error = TelnyxMessagingService.validate_whatsapp_template_ref(template_name, template_id)
     if template_error:

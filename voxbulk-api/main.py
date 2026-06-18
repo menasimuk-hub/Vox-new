@@ -61,7 +61,6 @@ from app.routers.assistant import router as assistant_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
 from app.routers.customer_feedback import router as customer_feedback_router
-from app.abuu.routers import router as abuu_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
 from app.routers.admin_ai_team import router as admin_ai_team_router
@@ -250,20 +249,6 @@ async def lifespan(app: FastAPI):
 
         log_startup_build_info(logger)
         logger.info("%s main_lifespan_startup_complete", WEBHOOK_BUILD_MARKER)
-        try:
-            from app.abuu.live_trace import boot as abuu_live_boot
-            from app.core.runtime_build_info import get_runtime_build_info
-
-            build = get_runtime_build_info()
-            abuu_live_boot(
-                git_sha=build.get("git_sha"),
-                conversation_mode=settings.abuu_conversation_mode,
-                smart_pipeline=settings.abuu_smart_pipeline_enabled,
-                abuu_agent_enabled=settings.abuu_agent_enabled,
-                abuu_enabled=settings.abuu_enabled,
-            )
-        except Exception:
-            logger.exception("abuu_live_trace_boot_failed")
     except Exception:
         logger.exception("runtime_build_info_failed")
     try:
@@ -272,12 +257,6 @@ async def lifespan(app: FastAPI):
         run_database_migrations()
     except Exception:
         logger.exception("database migrations failed — check alembic upgrade head")
-    try:
-        from app.core.abuu_database import run_abuu_migrations
-
-        run_abuu_migrations()
-    except Exception:
-        logger.exception("abuu migrations failed — check alembic -c alembic_abuu.ini upgrade head")
     try:
         from app.core.database import get_sessionmaker
         from app.services.email_template_service import EmailTemplateService
@@ -467,29 +446,6 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/health/abuu-runtime", tags=["health"])
-def health_abuu_runtime():
-    """Effective Abuu / SmartPipeline flags for the running process (no secrets)."""
-    from app.core.runtime_build_info import get_runtime_build_info
-
-    settings = get_settings()
-    build = get_runtime_build_info()
-    allowlist = str(settings.abuu_waiter_v2_allowlist or "").strip()
-    agent_mode = str(settings.abuu_conversation_mode or "").lower() in {"agent", "deepseek", "gaza_agent"}
-    return {
-        "status": "ok",
-        "git_sha": build.get("git_sha"),
-        "abuu_enabled": settings.abuu_enabled,
-        "abuu_agent_enabled": settings.abuu_agent_enabled,
-        "conversation_mode": settings.abuu_conversation_mode,
-        "agent_mode": bool(settings.abuu_agent_enabled and agent_mode),
-        "smart_pipeline_enabled": settings.abuu_smart_pipeline_enabled,
-        "waiter_trace_enabled": settings.abuu_waiter_trace_enabled,
-        "waiter_v2_enabled_for_all": not bool(allowlist),
-        "waiter_v2_allowlist_count": len([p for p in allowlist.split(",") if p.strip()]) if allowlist else 0,
-    }
-
-
 @app.get("/health/build", tags=["health"])
 def health_build():
     """Deploy verification — explicit marker flags on disk and in the running process."""
@@ -603,4 +559,3 @@ app.include_router(admin_assistant_router)
 app.include_router(dashboard_scripts_router)
 app.include_router(admin_customer_feedback_router)
 app.include_router(customer_feedback_router)
-app.include_router(abuu_router)

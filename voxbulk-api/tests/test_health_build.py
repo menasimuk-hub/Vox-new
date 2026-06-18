@@ -27,15 +27,3 @@ def test_health_build_returns_explicit_marker_flags(app_client):
     )
     assert data.get("deploy_ok") is True
     assert "wa_survey_debug_markers" not in data
-
-
-def test_health_abuu_runtime_returns_effective_flags(app_client):
-    r = app_client.get("/health/abuu-runtime")
-    assert r.status_code == 200
-    data = r.json()
-    assert data.get("status") == "ok"
-    assert "git_sha" in data
-    assert "conversation_mode" in data
-    assert "smart_pipeline_enabled" in data
-    assert "agent_mode" in data
-    assert "abuu_enabled" in data

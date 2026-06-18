@@ -21,16 +21,12 @@ set -euo pipefail
 
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
-VOX_ABUU_DIST="${VOX_ABUU_DIST:-/www/wwwroot/restaurant.yallasay.com}"
-VOX_DRIVER_DIST="${VOX_DRIVER_DIST:-/www/wwwroot/driver.yallasay.com}"
 VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
-ABUU_DIR="$ROOT/abuu.voxbulk.com/abuu-web"
-DRIVER_DIR="$ROOT/driver.voxbulk.com/driver-web"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_SH="$ROOT/vox.sh"
 
@@ -138,26 +134,7 @@ api_deps_and_migrate() {
   info "Running database migrations …"
   python -m alembic upgrade head
   python -m alembic current
-  if [[ "${ABUU_ENABLED:-true}" != "0" && "${ABUU_ENABLED:-true}" != "false" ]]; then
-    info "Running Abuu database migrations …"
-    python -m alembic -c alembic_abuu.ini upgrade head
-    python -m alembic -c alembic_abuu.ini current
-  fi
   info "Migration OK"
-
-  if [[ "${ABUU_ENABLED:-true}" != "0" && "${ABUU_ENABLED:-true}" != "false" ]]; then
-    info "Rebuilding Abuu WhatsApp snapshots …"
-    python - <<'PY' || warn "Abuu snapshot rebuild failed (non-fatal)"
-from app.core.abuu_database import get_abuu_sessionmaker
-from app.abuu.services.yallasay_wa_snapshot_service import YallasayWaSnapshotService
-
-with get_abuu_sessionmaker()() as db:
-    YallasayWaSnapshotService.ensure_gaza_market_agent(db)
-    YallasayWaSnapshotService.rebuild_marketplace(db)
-    db.commit()
-print("Abuu snapshots rebuilt")
-PY
-  fi
 }
 
 build_frontend() {
@@ -179,19 +156,9 @@ build_all_frontends() {
     return
   fi
   sync_brand_assets
-  info "Building all web apps: admin + dashboard + abuu + driver + public (when present) …"
+  info "Building all web apps: admin + dashboard + public (when present) …"
   build_frontend "$ADMIN_DIR" "admin (adim-web)"
   build_frontend "$DASH_DIR" "dashboard"
-  if [[ -d "$ABUU_DIR" ]]; then
-    build_frontend "$ABUU_DIR" "abuu restaurant portal"
-  else
-    warn "Abuu frontend not found at $ABUU_DIR — skip"
-  fi
-  if [[ -d "$DRIVER_DIR" ]]; then
-    build_frontend "$DRIVER_DIR" "driver portal"
-  else
-    warn "Driver frontend not found at $DRIVER_DIR — skip"
-  fi
   if [[ -d "$PUBLIC_DIR" ]]; then
     build_frontend "$PUBLIC_DIR" "public site"
   else
@@ -279,12 +246,6 @@ nginx_test_if_present() {
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
-  if [[ -d "$ABUU_DIR/dist" ]]; then
-    copy_dist "$ABUU_DIR/dist" "${VOX_ABUU_DIST:-}" "abuu"
-  fi
-  if [[ -d "$DRIVER_DIR/dist" ]]; then
-    copy_dist "$DRIVER_DIR/dist" "${VOX_DRIVER_DIST:-}" "driver"
-  fi
   # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
 
@@ -471,6 +432,11 @@ Known problems to watch:
 - Canonical GitHub repo: menasimuk-hub/Vox-new only (not menasimuk-hub/Vox)
 - Port 8000 already in use → ./vox.sh stop before deploy
 - SQLite vs MySQL: set DATABASE_URL in voxbulk-api/.env before migrate
+
+Legacy product removal (one-time on upgraded VPS):
+- Remove obsolete isolated-product env vars from voxbulk-api/.env
+- Re-save Telnyx in Admin → Integrations (clears legacy second-line keys from stored config)
+- Optional: disable unused restaurant/driver nginx vhosts; drop isolated MySQL DB when ready
 NOTES
 }
 

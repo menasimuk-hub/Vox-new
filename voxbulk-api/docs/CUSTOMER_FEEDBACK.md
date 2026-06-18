@@ -169,11 +169,7 @@ python scripts/clear_feedback_wa_state.py --phone +447954823445 --dry-run
 python scripts/clear_feedback_wa_state.py --phone +447954823445
 ```
 
-Also clear Abuu if you were testing YallaSay on the same number:
-
-```bash
-redis-cli DEL "abuu:session:+447954823445"
-```
+If you previously tested another product on the same number, flush any stale Redis session keys for that phone before retesting feedback.
 
 ### Telnyx opt-out (`block rule`)
 

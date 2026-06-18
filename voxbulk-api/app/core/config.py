@@ -39,45 +39,6 @@ class Settings(BaseSettings):
     db_echo: bool = Field(default=False, alias="DB_ECHO")
     db_pool_pre_ping: bool = Field(default=True, alias="DB_POOL_PRE_PING")
 
-    # Abuu (isolated food-delivery service — separate sql_abuu database)
-    abuu_enabled: bool = Field(default=True, alias="ABUU_ENABLED")
-    abuu_database_url: str = Field(default="sqlite:///./abuu.local.db", alias="ABUU_DATABASE_URL")
-    abuu_db_echo: bool = Field(default=False, alias="ABUU_DB_ECHO")
-    abuu_menu_photo_dir: str = Field(default="", alias="ABUU_MENU_PHOTO_DIR")
-    abuu_public_api_base_url: str = Field(default="", alias="ABUU_PUBLIC_API_BASE_URL")
-    abuu_voice_note_dir: str = Field(default="data/abuu_voice_notes", alias="ABUU_VOICE_NOTE_DIR")
-    abuu_ignore_distance: bool = Field(default=True, alias="ABUU_IGNORE_DISTANCE")
-    abuu_agent_enabled: bool = Field(default=False, alias="ABUU_AGENT_ENABLED")
-    abuu_agent_model: str = Field(default="deepseek-chat", alias="ABUU_AGENT_MODEL")
-    abuu_agent_max_turns: int = Field(default=5, alias="ABUU_AGENT_MAX_TURNS")
-    abuu_agent_max_history: int = Field(default=16, alias="ABUU_AGENT_MAX_HISTORY")
-    abuu_agent_waiter_mode: bool = Field(default=True, alias="ABUU_AGENT_WAITER_MODE")
-    abuu_agent_phase1_orchestration: bool = Field(default=False, alias="ABUU_AGENT_PHASE1_ORCHESTRATION")
-    abuu_conversation_mode: str = Field(default="legacy", alias="ABUU_CONVERSATION_MODE")  # agent | legacy | orchestrator | waiter_v2
-    abuu_agent_max_concurrent_llm: int = Field(default=30, alias="ABUU_AGENT_MAX_CONCURRENT_LLM")
-    abuu_market_agent: str = Field(default="ps-gaza", alias="ABUU_MARKET_AGENT")
-    abuu_agent_country: str = Field(default="ps", alias="ABUU_AGENT_COUNTRY")
-    abuu_agent_city: str = Field(default="gaza", alias="ABUU_AGENT_CITY")
-    abuu_pilot_only: bool = Field(default=True, alias="ABUU_PILOT_ONLY")
-    abuu_webhook_secret: str = Field(default="", alias="ABUU_WEBHOOK_SECRET")
-    abuu_restaurant_webhook_url: str = Field(default="", alias="ABUU_RESTAURANT_WEBHOOK_URL")
-    abuu_agent_internal_key: str = Field(default="", alias="ABUU_AGENT_INTERNAL_KEY")
-    yallasay_auto_send_on_confirm: bool = Field(default=True, alias="YALLASAY_AUTO_SEND_ON_CONFIRM")
-    abuu_menu_intelligence_enabled: bool = Field(default=True, alias="ABUU_MENU_INTELLIGENCE_ENABLED")
-    abuu_allergen_strict_mode: bool = Field(default=True, alias="ABUU_ALLERGEN_STRICT_MODE")
-    abuu_portal_token_expire_days: int = Field(default=30, alias="ABUU_PORTAL_TOKEN_EXPIRE_DAYS")
-    abuu_voice_interpretation_enabled: bool = Field(default=True, alias="ABUU_VOICE_INTERPRETATION_ENABLED")
-    abuu_voice_intent_strong_threshold: float = Field(default=0.55, alias="ABUU_VOICE_INTENT_STRONG_THRESHOLD")
-    abuu_voice_intent_clarify_threshold: float = Field(default=0.30, alias="ABUU_VOICE_INTENT_CLARIFY_THRESHOLD")
-    abuu_voice_menu_fuzzy_min_score: int = Field(default=45, alias="ABUU_VOICE_MENU_FUZZY_MIN_SCORE")
-    abuu_voice_deepseek_recovery_enabled: bool = Field(default=True, alias="ABUU_VOICE_DEEPSEEK_RECOVERY_ENABLED")
-    abuu_voice_order_debug: bool = Field(default=False, alias="ABUU_VOICE_ORDER_DEBUG")
-    abuu_waiter_v2_allowlist: str = Field(default="", alias="ABUU_WAITER_V2_ALLOWLIST")
-    abuu_waiter_deepseek_timeout_seconds: float = Field(default=8.0, alias="ABUU_WAITER_DEEPSEEK_TIMEOUT_SECONDS")
-    abuu_waiter_trace_enabled: bool = Field(default=True, alias="ABUU_WAITER_TRACE_ENABLED")
-    abuu_smart_pipeline_enabled: bool = Field(default=False, alias="SMART_PIPELINE_ENABLED")
-    abuu_demo_showall_enabled: bool = Field(default=False, alias="ABUU_DEMO_SHOWALL_ENABLED")
-
     # CORS / hosts
     cors_allow_origins_raw: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
     cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
@@ -211,10 +172,6 @@ class Settings(BaseSettings):
                 "https://www.voxbulk.com",
                 "https://admin.voxbulk.com",
                 "https://dashboard.voxbulk.com",
-                "https://abuu.voxbulk.com",
-                "https://driver.voxbulk.com",
-                "https://restaurant.yallasay.com",
-                "https://driver.yallasay.com",
             ]
         return []
 

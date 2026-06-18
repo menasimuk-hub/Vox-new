@@ -456,7 +456,7 @@ def test_gocardless_service_code_from_plan_kind():
 def test_is_feedback_intent_message():
     assert FeedbackLocationService.is_feedback_intent_message("Hi! I'd like to share feedback for Acme") is True
     assert FeedbackLocationService.is_feedback_intent_message("Can I share feedback please?") is True
-    assert FeedbackLocationService.is_feedback_intent_message("abuu") is False
+    assert FeedbackLocationService.is_feedback_intent_message("random product name") is False
     assert FeedbackLocationService.is_feedback_intent_message(
         "Hi! I'd like to share feedback for Acme at Branch. acme-branch-a3f2b1"
     ) is False

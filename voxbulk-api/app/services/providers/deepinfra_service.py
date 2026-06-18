@@ -97,7 +97,7 @@ class DeepInfraProviderService:
         response = _post(data)
         if not response.is_success and prompt:
             logger.warning(
-                "abuu_stt_prompt_unsupported provider=deepinfra status=%s retrying_without_prompt",
+                "voice_stt_prompt_unsupported provider=deepinfra status=%s retrying_without_prompt",
                 response.status_code,
             )
             retry_data = {k: v for k, v in data.items() if k != "prompt"}

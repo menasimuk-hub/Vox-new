@@ -19,7 +19,6 @@ CAP_ORG_OPS = "org_ops"  # organisations, categories, onboarding approvals, oper
 CAP_EMAIL = "email"  # SMTP + templates under /admin/email
 CAP_AI_TEAM = "ai_team"  # AI Team outbound sales agent
 CAP_SUPPORT = "support"  # support tickets
-CAP_ABUU = "abuu"  # Abuu food-delivery platform ops (superadmin only)
 
 _ROLE_CAPS: dict[str, frozenset[str]] = {
     "accountant": frozenset({CAP_BILLING, CAP_ORG_OPS}),

@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.abuu.services.abuu_voice_service import AbuuVoiceService, is_low_quality_transcript
+from app.services.voice_transcription_service import VoiceTranscriptionService, is_low_quality_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def transcribe_inbound(
     language: str | None = None,
 ) -> tuple[str, bool]:
     """Return (transcript, ok)."""
-    result = AbuuVoiceService.transcribe_inbound(
+    result = VoiceTranscriptionService.transcribe_inbound(
         db,
         record=record,
         customer_phone=customer_phone,

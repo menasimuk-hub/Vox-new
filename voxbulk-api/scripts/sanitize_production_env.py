@@ -36,7 +36,6 @@ PLACEHOLDER_MARKERS = (
 
 PREFERRED_PREFIXES: dict[str, tuple[str, ...]] = {
     "DATABASE_URL": ("mysql+pymysql://sql_voxbulk:",),
-    "ABUU_DATABASE_URL": ("mysql+pymysql://sql_abuu:",),
 }
 
 
@@ -99,9 +98,6 @@ def validate_keyed(keyed: dict[str, str]) -> list[str]:
         errors.append("DATABASE_URL missing")
     elif _is_placeholder(db) or ":USER:" in db.upper():
         errors.append("DATABASE_URL still contains placeholder USER/PASS — set real sql_voxbulk credentials")
-    abuu = keyed.get("ABUU_DATABASE_URL", "")
-    if abuu and (_is_placeholder(abuu) or ":PASS@" in abuu.upper()):
-        errors.append("ABUU_DATABASE_URL still contains placeholder PASS")
     enc = keyed.get("ENCRYPTION_KEY", "")
     if enc and "CHANGE_ME" in enc:
         errors.append("ENCRYPTION_KEY still CHANGE_ME — restore production Fernet key")

@@ -1,8 +1,9 @@
-"""Voice note download and transcription for Abuu WhatsApp."""
+"""Neutral voice note download and transcription for inline WhatsApp STT (e.g. Customer Feedback)."""
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -15,12 +16,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.abuu.voice_interpretation.stt_dialect_correction import (
-    STT_DIALECT_PROMPT,
-    correct_stt_transcript,
-    is_stt_garbage,
-    rescore_after_correction,
-)
 from app.core.config import get_settings
 from app.services.providers.deepgram_service import DeepgramProviderService
 from app.services.providers.deepinfra_service import DeepInfraProviderService
@@ -28,9 +23,9 @@ from app.services.survey_wa_voice_note_media_service import download_media_file,
 
 logger = logging.getLogger(__name__)
 
-MIN_CONFIDENCE = 0.45
 MIN_TRANSCRIPT_CHARS = 2
 DEFAULT_STT_LANGUAGE = "ar"
+DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
 
 _LAUGHTER_PATTERN = re.compile(
     r"^(?:ha+|he+|hi+|ho+|hu+|ah+|eh+|oh+|uh+|lol+|haha+|hehe+|hihi+|"
@@ -40,6 +35,14 @@ _LAUGHTER_PATTERN = re.compile(
 _REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{4,}")
 
 
+def stt_provider_order() -> tuple[str, ...]:
+    raw = str(os.getenv("VOICE_STT_PROVIDER_ORDER", "") or "").strip()
+    if not raw:
+        return DEFAULT_STT_PROVIDER_ORDER
+    parts = tuple(p.strip().lower() for p in raw.split(",") if p.strip())
+    return parts or DEFAULT_STT_PROVIDER_ORDER
+
+
 def _stt_language(language: str | None) -> str:
     raw = str(language or DEFAULT_STT_LANGUAGE).strip().lower()
     if raw.startswith("ar"):
@@ -47,12 +50,6 @@ def _stt_language(language: str | None) -> str:
     if raw.startswith("en"):
         return "en"
     return DEFAULT_STT_LANGUAGE
-
-
-def _dialect_prompt_for_language(language: str | None) -> str | None:
-    if _stt_language(language) == "ar":
-        return STT_DIALECT_PROMPT
-    return None
 
 
 def is_low_quality_transcript(text: str) -> bool:
@@ -72,7 +69,7 @@ def is_low_quality_transcript(text: str) -> bool:
 
 
 @dataclass(frozen=True)
-class AbuuVoiceTranscription:
+class VoiceTranscriptionResult:
     ok: bool
     transcript: str
     confidence: float
@@ -80,12 +77,6 @@ class AbuuVoiceTranscription:
     content_type: str | None = None
     storage_path: str | None = None
     error: str | None = None
-    raw_transcript: str = ""
-    corrected_transcript: str = ""
-    needs_clarification: bool = False
-    clarification_reason: str | None = None
-    correction_applied: bool = False
-    garbage_detected: bool = False
     file_size_bytes: int | None = None
     duration_seconds: float | None = None
 
@@ -159,8 +150,8 @@ def _estimate_confidence(text: str) -> float:
 
 def _storage_root() -> Path:
     settings = get_settings()
-    raw = str(getattr(settings, "abuu_voice_note_dir", "") or "data/abuu_voice_notes").strip()
-    root = Path(raw)
+    raw = str(settings.voice_note_storage_dir or "data/survey_voice_notes").strip()
+    root = Path(raw) / "feedback"
     if not root.is_absolute():
         root = Path.cwd() / root
     return root
@@ -181,7 +172,7 @@ def _audio_content_type(audio_path: Path) -> str:
     return "application/octet-stream"
 
 
-class AbuuVoiceService:
+class VoiceTranscriptionService:
     @staticmethod
     def transcribe_inbound(
         main_db: Session,
@@ -189,20 +180,25 @@ class AbuuVoiceService:
         record: dict[str, Any],
         customer_phone: str,
         language: str | None = None,
-    ) -> AbuuVoiceTranscription:
+    ) -> VoiceTranscriptionResult:
         media_items = extract_media_items(record)
         if not media_items:
-            return AbuuVoiceTranscription(ok=False, transcript="", confidence=0.0, error="no_media")
+            return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error="no_media")
 
         media = media_items[0]
         media_url = str(media.get("url") or "").strip()
         content_type = str(media.get("content_type") or "audio/ogg").strip()
         if not media_url:
-            return AbuuVoiceTranscription(ok=False, transcript="", confidence=0.0, error="missing_media_url")
+            return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error="missing_media_url")
 
         stt_lang = _stt_language(language)
+        settings = get_settings()
+        max_bytes = max(1, int(settings.voice_note_max_file_size_mb)) * 1024 * 1024
+        timeout_seconds = max(5, int(settings.voice_note_download_timeout_seconds))
+
         job_id = str(uuid.uuid4())
         dest = _storage_root() / customer_phone.replace("+", "") / f"{job_id}.ogg"
+        dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             path: Path | None = None
             file_size = 0
@@ -216,8 +212,8 @@ class AbuuVoiceService:
                         content_type=content_type,
                         original_filename=str(media.get("original_filename") or "voice.ogg"),
                         dest_path=dest,
-                        max_bytes=16 * 1024 * 1024,
-                        timeout_seconds=30,
+                        max_bytes=max_bytes,
+                        timeout_seconds=timeout_seconds,
                     )
                     if file_size < 128:
                         raise ValueError("downloaded_audio_too_small")
@@ -225,7 +221,7 @@ class AbuuVoiceService:
                 except Exception as exc:
                     last_dl_error = exc
                     logger.warning(
-                        "abuu_voice_download_retry phone=%s attempt=%s err=%s",
+                        "voice_transcription_download_retry phone=%s attempt=%s err=%s",
                         customer_phone,
                         dl_attempt,
                         exc,
@@ -239,86 +235,43 @@ class AbuuVoiceService:
                         time.sleep(0.5 * (2 ** (dl_attempt - 1)))
             if path is None:
                 raise ValueError(str(last_dl_error) if last_dl_error else "Media download failed")
+
             duration_seconds = _duration_from_record(record) or _duration_from_file(path)
-            raw_transcript = AbuuVoiceService._transcribe_file(
+            transcript = VoiceTranscriptionService._transcribe_file(
                 main_db,
                 path,
                 language=stt_lang,
-                dialect_prompt=_dialect_prompt_for_language(language),
             ).strip()
-            raw_confidence = _estimate_confidence(raw_transcript)
+            confidence = _estimate_confidence(transcript)
+            ok = bool(transcript) and not is_low_quality_transcript(transcript)
 
             logger.info(
-                "abuu_stt_raw | phone=%s transcript=%r confidence=%.2f",
+                "voice_transcription_ok phone=%s chars=%s confidence=%.2f ok=%s",
                 customer_phone,
-                raw_transcript,
-                raw_confidence,
-            )
-
-            is_garbage = is_stt_garbage(raw_transcript, language=stt_lang)
-            needs_clarification = False
-            clarification_reason: str | None = None
-            correction_failed = False
-
-            if is_garbage:
-                corrected_transcript = raw_transcript
-                confidence = 0.2
-                needs_clarification = True
-                clarification_reason = "low_quality_audio"
-                logger.warning(
-                    "abuu_stt_garbage | phone=%s raw=%r reason='garbage_check_failed'",
-                    customer_phone,
-                    raw_transcript,
-                )
-            else:
-                corrected_transcript, correction_failed = correct_stt_transcript(
-                    main_db,
-                    raw=raw_transcript,
-                    phone=customer_phone,
-                    language=stt_lang,
-                )
-                confidence = rescore_after_correction(
-                    raw=raw_transcript,
-                    corrected=corrected_transcript,
-                    raw_confidence=raw_confidence,
-                    correction_failed=correction_failed,
-                )
-                if correction_failed or is_low_quality_transcript(corrected_transcript):
-                    needs_clarification = True
-                    clarification_reason = "low_quality_audio"
-
-            logger.info(
-                "abuu_stt_correction | phone=%s raw=%r corrected=%r confidence=%.2f",
-                customer_phone,
-                raw_transcript,
-                corrected_transcript,
+                len(transcript),
                 confidence,
+                ok,
             )
 
-            ok = bool(corrected_transcript) and not is_low_quality_transcript(corrected_transcript)
-            if needs_clarification and confidence <= 0.2:
-                ok = False
-
-            return AbuuVoiceTranscription(
+            return VoiceTranscriptionResult(
                 ok=ok,
-                transcript=corrected_transcript,
+                transcript=transcript,
                 confidence=confidence,
                 media_url=media_url,
                 content_type=resolved_type or content_type,
                 storage_path=str(path),
                 error=None if ok else "low_confidence_or_empty",
-                raw_transcript=raw_transcript,
-                corrected_transcript=corrected_transcript,
-                needs_clarification=needs_clarification,
-                clarification_reason=clarification_reason,
-                correction_applied=(corrected_transcript != raw_transcript),
-                garbage_detected=is_garbage,
                 file_size_bytes=file_size,
                 duration_seconds=duration_seconds,
             )
         except Exception as exc:
-            logger.warning("abuu_voice_transcription_failed phone=%s err=%s", customer_phone, exc, exc_info=True)
-            return AbuuVoiceTranscription(
+            logger.warning(
+                "voice_transcription_failed phone=%s err=%s",
+                customer_phone,
+                exc,
+                exc_info=True,
+            )
+            return VoiceTranscriptionResult(
                 ok=False,
                 transcript="",
                 confidence=0.0,
@@ -328,13 +281,7 @@ class AbuuVoiceService:
             )
 
     @staticmethod
-    def _transcribe_deepgram(
-        main_db: Session,
-        audio_path: Path,
-        *,
-        language: str | None,
-        dialect_prompt: str | None = None,
-    ) -> str:
+    def _transcribe_deepgram(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         stt_lang = _stt_language(language)
         payload = DeepgramProviderService.transcribe_audio_result(
             main_db,
@@ -349,47 +296,25 @@ class AbuuVoiceService:
         return str(payload.get("text") or "").strip()
 
     @staticmethod
-    def _transcribe_deepinfra(
-        main_db: Session,
-        audio_path: Path,
-        *,
-        language: str | None,
-        dialect_prompt: str | None = None,
-    ) -> str:
+    def _transcribe_deepinfra(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         stt_lang = _stt_language(language)
         result = DeepInfraProviderService.transcribe_audio_file(
             main_db,
             audio_path=audio_path,
             language=stt_lang,
-            prompt=dialect_prompt,
         )
         return str(result.get("text") or "").strip()
 
     @staticmethod
-    def _transcribe_whisper_cpp(
-        audio_path: Path,
-        *,
-        language: str | None,
-        dialect_prompt: str | None = None,
-    ) -> str:
+    def _transcribe_whisper_cpp(audio_path: Path, *, language: str | None) -> str:
         from app.services.survey_wa_whisper_service import transcribe_with_whisper_cpp
 
         whisper_lang = _stt_language(language) if _stt_language(language) in {"ar", "en"} else "auto"
-        result = transcribe_with_whisper_cpp(
-            audio_path,
-            language=whisper_lang,
-            initial_prompt=dialect_prompt,
-        )
+        result = transcribe_with_whisper_cpp(audio_path, language=whisper_lang)
         return str(result.get("text") or "").strip()
 
     @staticmethod
-    def _transcribe_groq(
-        main_db: Session,
-        audio_path: Path,
-        *,
-        language: str | None,
-        dialect_prompt: str | None = None,
-    ) -> str:
+    def _transcribe_groq(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         stt_lang = _stt_language(language)
         with tempfile.NamedTemporaryFile(suffix=audio_path.suffix, delete=False) as tmp:
             tmp.write(audio_path.read_bytes())
@@ -403,7 +328,6 @@ class AbuuVoiceService:
                 filename=tmp_path.name,
                 content_type="audio/ogg",
                 language=stt_lang,
-                prompt=dialect_prompt,
             )
             if not payload.get("ok", True) and not payload.get("text"):
                 return ""
@@ -415,15 +339,7 @@ class AbuuVoiceService:
                 pass
 
     @staticmethod
-    def _transcribe_file(
-        main_db: Session,
-        audio_path: Path,
-        *,
-        language: str | None,
-        dialect_prompt: str | None = None,
-    ) -> str:
-        from app.abuu.voice_interpretation.stt_config import stt_provider_order
-
+    def _transcribe_file(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         providers = stt_provider_order()
         deepgram_ready = DeepgramProviderService.is_configured(main_db)
         deepinfra_ready = DeepInfraProviderService.is_configured(main_db)
@@ -434,58 +350,39 @@ class AbuuVoiceService:
                     if not deepgram_ready:
                         failures.append("deepgram:not_configured")
                         continue
-                    text = AbuuVoiceService._transcribe_deepgram(
-                        main_db,
-                        audio_path,
-                        language=language,
-                        dialect_prompt=dialect_prompt,
-                    )
+                    text = VoiceTranscriptionService._transcribe_deepgram(main_db, audio_path, language=language)
                     if text:
-                        logger.info("abuu_stt_ok provider=deepgram chars=%s", len(text))
+                        logger.info("voice_stt_ok provider=deepgram chars=%s", len(text))
                         return text
                     failures.append("deepgram:empty")
                 elif provider == "deepinfra":
                     if not deepinfra_ready:
                         failures.append("deepinfra:not_configured")
                         continue
-                    text = AbuuVoiceService._transcribe_deepinfra(
-                        main_db,
-                        audio_path,
-                        language=language,
-                        dialect_prompt=dialect_prompt,
-                    )
+                    text = VoiceTranscriptionService._transcribe_deepinfra(main_db, audio_path, language=language)
                     if text:
-                        logger.info("abuu_stt_ok provider=deepinfra chars=%s", len(text))
+                        logger.info("voice_stt_ok provider=deepinfra chars=%s", len(text))
                         return text
                     failures.append("deepinfra:empty")
                 elif provider == "whisper_cpp":
-                    text = AbuuVoiceService._transcribe_whisper_cpp(
-                        audio_path,
-                        language=language,
-                        dialect_prompt=dialect_prompt,
-                    )
+                    text = VoiceTranscriptionService._transcribe_whisper_cpp(audio_path, language=language)
                     if text:
-                        logger.info("abuu_stt_ok provider=whisper_cpp chars=%s", len(text))
+                        logger.info("voice_stt_ok provider=whisper_cpp chars=%s", len(text))
                         return text
                     failures.append("whisper_cpp:empty")
                 elif provider == "groq":
-                    text = AbuuVoiceService._transcribe_groq(
-                        main_db,
-                        audio_path,
-                        language=language,
-                        dialect_prompt=dialect_prompt,
-                    )
+                    text = VoiceTranscriptionService._transcribe_groq(main_db, audio_path, language=language)
                     if text:
-                        logger.info("abuu_stt_ok provider=groq chars=%s", len(text))
+                        logger.info("voice_stt_ok provider=groq chars=%s", len(text))
                         return text
                     failures.append("groq:empty")
                 else:
                     failures.append(f"{provider}:unknown")
             except Exception as exc:
                 failures.append(f"{provider}:{type(exc).__name__}")
-                logger.warning("abuu_stt_provider_failed provider=%s", provider, exc_info=True)
+                logger.warning("voice_stt_provider_failed provider=%s", provider, exc_info=True)
         logger.warning(
-            "abuu_stt_all_providers_failed path=%s providers=%s deepgram=%s deepinfra=%s failures=%s",
+            "voice_stt_all_providers_failed path=%s providers=%s deepgram=%s deepinfra=%s failures=%s",
             audio_path,
             ",".join(providers),
             deepgram_ready,

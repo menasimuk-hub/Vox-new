@@ -430,31 +430,7 @@ class TelnyxMessagingService:
         }
         wa_profile = str(messaging_profile_id or "").strip()
         if not wa_profile:
-            from app.services.yallasay_telnyx_line import (
-                get_yallasay_line_config,
-                get_yallasay_whatsapp_e164,
-                resolve_yallasay_whatsapp_messaging_profile_id,
-            )
-
-            yallasay_wa = get_yallasay_whatsapp_e164(db)
-            yallasay_norm = normalize_telnyx_e164(yallasay_wa) if yallasay_wa else None
-            if yallasay_norm and sender == yallasay_norm:
-                wa_profile = str(get_yallasay_line_config(db).get("whatsapp_messaging_profile_id") or "").strip()
-                if not wa_profile:
-                    wa_profile = str(resolve_yallasay_whatsapp_messaging_profile_id(db, persist=True) or "").strip()
-                if not wa_profile:
-                    return TelnyxMessageResult(
-                        ok=False,
-                        status="not_configured",
-                        detail=(
-                            "Yallasay WhatsApp messaging profile missing — click Apply Telnyx setup "
-                            "in Admin → Telnyx (Yallasay line), or set whatsapp_messaging_profile_id_2 "
-                            "to the voxbulk-yallasay profile UUID."
-                        ),
-                        channel="whatsapp",
-                    )
-            else:
-                wa_profile = str(TelnyxMessagingService._messaging_profile_for_channel(config, "whatsapp") or "").strip()
+            wa_profile = str(TelnyxMessagingService._messaging_profile_for_channel(config, "whatsapp") or "").strip()
         if wa_profile:
             payload["messaging_profile_id"] = wa_profile
         webhook_url = TelnyxMessagingService._messaging_webhook_url(config)

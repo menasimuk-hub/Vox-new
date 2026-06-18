@@ -31,37 +31,22 @@ chmod +x deploy-vps.sh vox.sh
 |-----|--------------|---------|
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
-| Yallasay restaurant | `abuu.voxbulk.com/abuu-web/dist/` | `/www/wwwroot/restaurant.yallasay.com` |
-| Yallasay driver | `driver.voxbulk.com/driver-web/dist/` | `/www/wwwroot/driver.yallasay.com` |
 | Public site | vite preview :5173 (not static wwwroot by default) | — |
 
-Override restaurant/driver wwwroots with env vars (defaults in `deploy-vps.sh`):
+## Post–legacy product removal rollout (VPS)
 
-```bash
-VOX_ABUU_DIST=/www/wwwroot/restaurant.yallasay.com
-VOX_DRIVER_DIST=/www/wwwroot/driver.yallasay.com
-```
+After `git pull origin main` on a server that previously ran the removed isolated food-delivery product:
 
-## Git pull blocked by local `package-lock.json` (Yallasay portals)
+1. Edit `voxbulk-api/.env` — delete any obsolete isolated-product env keys (no longer read by API)
+2. Redeploy: `./deploy-vps.sh`
+3. Admin → Integrations → Telnyx → **Save** once (clears legacy second-line Telnyx keys from stored JSON if present)
+4. Optional ops (not in repo):
+   - Disable nginx vhosts for retired restaurant/driver portal domains
+   - Delete old runtime voice-note dirs under `data/`
+   - Drop the isolated MySQL database when the new product workspace is live
+   - Flush stale Redis session keys if reusing WhatsApp numbers for feedback testing
 
-If pull fails after an npm install on the VPS:
-
-```bash
-cd /path/to/Vox
-git checkout -- abuu.voxbulk.com/abuu-web/package-lock.json driver.voxbulk.com/driver-web/package-lock.json
-git pull origin main
-./deploy-vps.sh
-```
-
-## Yallasay API env (production)
-
-In `voxbulk-api/.env`:
-
-```bash
-ABUU_ENABLED=true
-YALLASAY_AUTO_SEND_ON_CONFIRM=true
-ABUU_AGENT_ENABLED=false   # use true only when DeepSeek is configured in Admin → Integrations
-```
+Survey Celery/whisper, interview voice, and platform Telnyx region routing are unchanged.
 
 ## API
 

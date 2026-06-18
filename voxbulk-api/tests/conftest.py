@@ -5,12 +5,6 @@ from fastapi.testclient import TestClient
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./.pytest.db")
-os.environ.setdefault("ABUU_DATABASE_URL", "sqlite+pysqlite:///./.pytest_abuu.db")
-os.environ.setdefault("ABUU_ENABLED", "true")
-os.environ.setdefault("ABUU_DEEPSEEK_ENABLED", "false")
-os.environ.setdefault("ABUU_IGNORE_DISTANCE", "true")
-os.environ.setdefault("ABUU_AGENT_ENABLED", "false")
-os.environ.setdefault("ABUU_CONVERSATION_MODE", "legacy")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 # Valid Fernet key (32 url-safe base64-encoded bytes)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
@@ -51,40 +45,6 @@ def _cleanup_db():
     except PermissionError:
         # On Windows, the SQLite file may still be locked by the driver at teardown.
         pass
-    try:
-        os.remove(".pytest_abuu.db")
-    except FileNotFoundError:
-        pass
-    except PermissionError:
-        pass
-
-
-def reset_abuu_test_db() -> None:
-    import os
-    import time
-
-    from app.core.abuu_database import get_abuu_engine, get_abuu_sessionmaker, run_abuu_migrations
-
-    try:
-        get_abuu_engine().dispose()
-    except Exception:
-        pass
-    get_abuu_sessionmaker.cache_clear()
-    get_abuu_engine.cache_clear()
-
-    db_path = ".pytest_abuu.db"
-    for _ in range(3):
-        try:
-            os.remove(db_path)
-            break
-        except FileNotFoundError:
-            break
-        except PermissionError:
-            time.sleep(0.05)
-
-    get_abuu_sessionmaker.cache_clear()
-    get_abuu_engine.cache_clear()
-    run_abuu_migrations()
 
 
 @pytest.fixture()
@@ -95,7 +55,6 @@ def app_client():
     engine = get_engine()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    reset_abuu_test_db()
 
     # Force Celery to run tasks synchronously in tests.
     from app.workers.celery_app import celery_app
@@ -107,4 +66,3 @@ def app_client():
     from main import app
 
     return TestClient(app)
-
