@@ -693,3 +693,69 @@ body.dark .admin-search input::placeholder {
   padding: 5px 11px;
   font-size: 12px;
 }
+
+/* Telnyx route cards + number health */
+.telnyxRouteList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.telnyxRouteCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--b2);
+  border-radius: 10px;
+  background: var(--s2);
+}
+
+.telnyxRouteCardTop {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.telnyxRouteCardTop .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.telnyxRouteLabelInput {
+  font-size: 13px;
+}
+
+.telnyxRouteEmpty {
+  padding: var(--space-2) 0;
+  font-size: 13px;
+}
+
+.telnyxDraftNote {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.08);
+}
+
+.telnyxNumberHealthList,
+.telnyxTestAllResults {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.telnyxNumberHealthRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--b2);
+  border-radius: 8px;
+  background: var(--s1);
+}
+
+.telnyxNumberHealthMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

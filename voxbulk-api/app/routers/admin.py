@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 from datetime import datetime, timedelta
@@ -52,6 +54,7 @@ from app.services.providers.groq_service import GroqProviderService
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.telnyx_api_key import (
     normalize_telnyx_api_key,
+    normalize_telnyx_e164,
     require_telnyx_api_key,
     resolve_telnyx_api_key,
     telnyx_auth_hint,
@@ -763,15 +766,33 @@ def test_telnyx_connection(db: Session = Depends(get_db), _admin=Depends(require
     message = "Telnyx API key OK. Voice and messaging webhook URLs are set."
     if warnings:
         message = f"{message} Warnings: {' | '.join(warnings)}"
+
+    from app.services.telnyx_number_inventory_service import build_number_inventory
+
+    inventory = build_number_inventory(api_key=api_key, config=config)
+    telnyx_numbers = inventory.get("telnyx_phone_numbers") or telnyx_numbers
+    inv_warnings = list(inventory.get("inventory_warnings") or [])
+    configured_checks = inventory.get("configured_checks") or []
+    for check in configured_checks:
+        if check.get("status") != "ok" and check.get("issues"):
+            inv_warnings.append(f"{check.get('number')} ({check.get('role')}): {', '.join(check.get('issues') or [])}")
+    if inv_warnings:
+        warnings = warnings + inv_warnings
+        if inventory.get("ok") is False:
+            message = f"{message} Number issues: {' | '.join(inv_warnings[:5])}"
+
     return {
-        "ok": True,
+        "ok": bool(inventory.get("ok", True)) and not any(w for w in warnings if "not on Telnyx account" in w),
         "message": message,
         "voice_webhook_url": voice_url,
         "messaging_webhook_url": messaging_url,
         "media_stream_url": str(config.get("media_stream_url") or ""),
         "warnings": warnings,
         "key_source": key_source,
-        "telnyx_phone_numbers": telnyx_numbers[:20],
+        "telnyx_phone_numbers": telnyx_numbers,
+        "account_inventory": inventory.get("account_inventory") or [],
+        "configured_checks": configured_checks,
+        "inventory_warnings": inv_warnings,
         **telnyx_key_fingerprint(api_key),
     }
 
@@ -799,12 +820,28 @@ def test_telnyx_call(payload: dict | None = None, db: Session = Depends(get_db),
             detail=f"Telnyx settings incomplete: missing {', '.join(missing)}",
         )
 
-    from_number = telnyx_outbound_caller_id(config)
+    from_number = str(payload.get("from_number") or "").strip() or telnyx_outbound_caller_id(config)
     account_numbers: list[str] = []
     try:
         account_numbers = TelnyxVoiceAdapter.list_account_phone_numbers(api_key=api_key)
     except Exception:
         pass
+    if account_numbers and from_number:
+        try:
+            from_norm = normalize_telnyx_e164(from_number)
+            if from_norm not in account_numbers:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "message": f"From number {from_norm} is not on your Telnyx account.",
+                        "hint": telnyx_caller_hint(from_norm, account_numbers),
+                        "from_number": from_norm,
+                        "telnyx_phone_numbers": account_numbers,
+                    },
+                )
+            from_number = from_norm
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     result = TelnyxVoiceAdapter.start_outbound_call(
         to_number=to_number,
         from_number=from_number,
@@ -824,7 +861,7 @@ def test_telnyx_call(payload: dict | None = None, db: Session = Depends(get_db),
                 "message": message,
                 "hint": hint,
                 "from_number": from_number,
-                "telnyx_phone_numbers": account_numbers[:20],
+                "telnyx_phone_numbers": account_numbers,
                 "key_source": key_source,
                 **telnyx_key_fingerprint(api_key),
             },
@@ -834,6 +871,145 @@ def test_telnyx_call(payload: dict | None = None, db: Session = Depends(get_db),
         "message": f"Test call queued ({result.status})",
         "external_id": result.external_id,
         "call_control_id": result.external_id,
+        "from_number": from_number,
+    }
+
+
+@router.post("/integrations/telnyx/test-all-senders")
+def test_telnyx_all_senders(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    import time
+
+    from app.services.telnyx_number_inventory_service import _collect_configured_senders
+
+    payload = payload or {}
+    to_number = str(payload.get("to_number") or "").strip()
+    if not to_number:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+    channels_raw = payload.get("channels")
+    channels = [str(c).strip().lower() for c in channels_raw] if isinstance(channels_raw, list) else ["voice", "sms", "whatsapp"]
+    channels = [c for c in channels if c in ("voice", "sms", "whatsapp")]
+
+    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    if not enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx integration is disabled")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    try:
+        api_key, _key_source = require_telnyx_api_key(db, config)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    config["api_key"] = api_key
+
+    senders = _collect_configured_senders(config)
+    by_role: dict[str, list[dict[str, Any]]] = {"voice": [], "sms": [], "whatsapp": []}
+    seen_role: dict[str, set[str]] = {"voice": set(), "sms": set(), "whatsapp": set()}
+    for s in senders:
+        role = s["role"]
+        if role not in by_role or s["number"] in seen_role[role]:
+            continue
+        seen_role[role].add(s["number"])
+        by_role[role].append(s)
+
+    results: list[dict[str, Any]] = []
+
+    if "voice" in channels:
+        for sender in by_role["voice"]:
+            from_num = sender["number"]
+            result = TelnyxVoiceAdapter.start_outbound_call(
+                to_number=to_number,
+                from_number=from_num,
+                config=config,
+                client_state={"source": "admin_test_all_senders", "from": from_num},
+            )
+            results.append(
+                {
+                    "number": from_num,
+                    "role": "voice",
+                    "label": sender.get("label") or "",
+                    "ok": result.ok,
+                    "message": result.detail or result.status or ("queued" if result.ok else "failed"),
+                    "external_id": result.external_id,
+                    "call_control_id": result.external_id,
+                }
+            )
+            time.sleep(1.0)
+
+    if "sms" in channels:
+        for sender in by_role["sms"]:
+            from_num = sender["number"]
+            result = TelnyxMessagingService.send_sms(
+                db,
+                to_number=to_number,
+                body="VOXBULK Telnyx SMS test (all senders)",
+                from_number=from_num,
+            )
+            results.append(
+                {
+                    "number": from_num,
+                    "role": "sms",
+                    "label": sender.get("label") or "",
+                    "ok": result.ok,
+                    "message": result.detail or result.status or ("queued" if result.ok else "failed"),
+                    "external_id": result.external_id,
+                }
+            )
+            time.sleep(0.5)
+
+    if "whatsapp" in channels:
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService, send_template_id_for_row
+
+        approved = TelnyxWhatsappTemplateSyncService.list_stored(db, approved_only=True)
+        template_id = None
+        template_name = None
+        template_language = None
+        if approved:
+            first = approved[0]
+            template_id = str(first.get("template_id") or "").strip() or None
+            template_name = str(first.get("name") or "").strip() or None
+            template_language = str(first.get("language") or "").strip() or None
+
+        for sender in by_role["whatsapp"]:
+            from_num = sender["number"]
+            if not template_id and not template_name:
+                results.append(
+                    {
+                        "number": from_num,
+                        "role": "whatsapp",
+                        "label": sender.get("label") or "",
+                        "ok": False,
+                        "message": "No approved WhatsApp template — sync templates first",
+                        "external_id": None,
+                    }
+                )
+                continue
+            kwargs: dict[str, Any] = {
+                "to_number": to_number,
+                "body": "VOXBULK Telnyx WhatsApp test (all senders)",
+                "from_number": from_num,
+            }
+            if template_id:
+                kwargs["template_id"] = template_id
+            if template_name:
+                kwargs["template_name"] = template_name
+            if template_language:
+                kwargs["template_language"] = template_language
+            result = TelnyxMessagingService.send_whatsapp(db, **kwargs)
+            results.append(
+                {
+                    "number": from_num,
+                    "role": "whatsapp",
+                    "label": sender.get("label") or "",
+                    "ok": result.ok,
+                    "message": result.detail or result.status or ("queued" if result.ok else "failed"),
+                    "external_id": result.external_id,
+                }
+            )
+            time.sleep(0.5)
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    return {
+        "ok": ok_count == len(results) if results else True,
+        "message": f"Tested {len(results)} sender(s): {ok_count} OK, {len(results) - ok_count} failed",
+        "results": results,
     }
 
 

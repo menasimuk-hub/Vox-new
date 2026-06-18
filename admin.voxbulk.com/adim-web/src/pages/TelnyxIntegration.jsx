@@ -60,18 +60,20 @@ function looksLikePhoneNotProfile(value) {
 
 const ROUTE_REGION_PRESETS = ['global', 'gb', 'us', 'ca', 'au', 'eu']
 
-function normalizeRouteRows(raw) {
+export function normalizeRouteRows(raw) {
   if (!Array.isArray(raw)) return []
-  return raw
-    .map((row) => ({
-      number: String(row?.number || '').trim(),
-      label: String(row?.label || '').trim(),
-      regions: Array.isArray(row?.regions) ? row.regions.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean) : ['global'],
-    }))
-    .filter((row) => row.number)
+  return raw.map((row) => ({
+    number: String(row?.number || '').trim(),
+    label: String(row?.label || '').trim(),
+    regions: Array.isArray(row?.regions) ? row.regions.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean) : ['global'],
+  }))
 }
 
-function TelnyxRouteTable({ title, hint, routes, onChange }) {
+export function compactRouteRows(raw) {
+  return normalizeRouteRows(raw).filter((row) => row.number)
+}
+
+function TelnyxRouteTable({ title, hint, routes, onChange, numberPlaceholder = '+44…', labelPlaceholder = 'Label / tag' }) {
   const rows = normalizeRouteRows(routes)
   const updateRow = (index, patch) => {
     const next = rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
@@ -88,64 +90,55 @@ function TelnyxRouteTable({ title, hint, routes, onChange }) {
   const addRow = () => onChange([...rows, { number: '', label: '', regions: ['global'] }])
   const removeRow = (index) => onChange(rows.filter((_, i) => i !== index))
   return (
-    <div className='stack' style={{ gap: 8 }}>
+    <div className='stack telnyxRouteSection' style={{ gap: 8 }}>
       <div>
         <strong>{title}</strong>
         {hint ? <div className='muted telnyxFieldHint'>{hint}</div> : null}
       </div>
-      <div className='tableWrap'>
-        <table className='table telnyxRouteTable'>
-          <thead>
-            <tr>
-              <th>Number</th>
-              <th>Regions</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={3} className='muted'>
-                  No routes — add a number or save legacy fields below.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row, index) => (
-                <tr key={`${row.number}-${index}`}>
-                  <td>
-                    <input
-                      className='input'
-                      value={row.number}
-                      onChange={(e) => updateRow(index, { number: e.target.value })}
-                      placeholder='+44…'
-                    />
-                  </td>
-                  <td>
-                    <div className='telnyxRegionChips'>
-                      {ROUTE_REGION_PRESETS.map((region) => (
-                        <button
-                          key={region}
-                          type='button'
-                          className={`btn soft ${(row.regions || []).includes(region) ? 'primary' : ''}`}
-                          style={{ padding: '2px 8px', fontSize: 12 }}
-                          onClick={() => toggleRegion(index, region)}
-                        >
-                          {region.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <button type='button' className='btn soft' onClick={() => removeRow(index)}>
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {rows.length === 0 ? (
+        <div className='muted telnyxRouteEmpty'>
+          No numbers yet — click Add number or pick from your Telnyx account below.
+        </div>
+      ) : (
+        <div className='telnyxRouteList'>
+          {rows.map((row, index) => (
+            <div key={`route-${index}`} className='telnyxRouteCard'>
+              <div className='telnyxRouteCardTop'>
+                <input
+                  className='input'
+                  value={row.number}
+                  onChange={(e) => updateRow(index, { number: e.target.value })}
+                  placeholder={numberPlaceholder}
+                  aria-label='Phone number'
+                />
+                <button type='button' className='btn soft' onClick={() => removeRow(index)}>
+                  Remove
+                </button>
+              </div>
+              <input
+                className='input telnyxRouteLabelInput'
+                value={row.label}
+                onChange={(e) => updateRow(index, { label: e.target.value })}
+                placeholder={labelPlaceholder}
+                aria-label='Label or tag'
+              />
+              <div className='telnyxRegionChips'>
+                {ROUTE_REGION_PRESETS.map((region) => (
+                  <button
+                    key={region}
+                    type='button'
+                    className={`btn soft ${(row.regions || []).includes(region) ? 'primary' : ''}`}
+                    style={{ padding: '2px 8px', fontSize: 12 }}
+                    onClick={() => toggleRegion(index, region)}
+                  >
+                    {region.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <button type='button' className='btn soft' onClick={addRow}>
         Add number
       </button>
@@ -234,6 +227,17 @@ export default function TelnyxIntegration({
   telnyxActiveCallId,
   telnyxCallBusy,
   telnyxAccountNumbers,
+  telnyxNumberHealth,
+  telnyxHasUnsavedDraft,
+  telnyxTestFromVoice,
+  setTelnyxTestFromVoice,
+  telnyxTestFromSms,
+  setTelnyxTestFromSms,
+  telnyxTestFromWa,
+  setTelnyxTestFromWa,
+  telnyxTestAllResults,
+  telnyxTestAllBusy,
+  testTelnyxAllSenders,
   providerError,
   providerSaving,
   defaultWebhookBase,
@@ -384,7 +388,42 @@ export default function TelnyxIntegration({
       </div>
 
       {providerError ? <div className='note telnyxErrorNote'>{providerError}</div> : null}
+      {telnyxHasUnsavedDraft ? (
+        <div className='note telnyxDraftNote'>You have unsaved changes — save settings before testing new numbers.</div>
+      ) : null}
       {telnyxTestResult ? <div className='note'>{telnyxTestResult}</div> : null}
+      {telnyxNumberHealth?.configured_checks?.length ? (
+        <div className='card telnyxNumberHealth'>
+          <div className='cardHead'>
+            <h3>Number health</h3>
+            <span className='pill p-cyan'>Telnyx API</span>
+          </div>
+          <div className='cardBody stack'>
+            <div className='telnyxNumberHealthList'>
+              {telnyxNumberHealth.configured_checks.map((row) => (
+                <div key={`${row.role}-${row.number}`} className='telnyxNumberHealthRow'>
+                  <div className='telnyxNumberHealthMain'>
+                    <span className={`pill ${row.status === 'ok' ? 'p-green' : row.status === 'warn' ? 'p-amber' : 'p-red'}`}>
+                      {row.status === 'ok' ? 'OK' : row.status === 'warn' ? 'Warn' : 'Error'}
+                    </span>
+                    <strong>{row.number}</strong>
+                    <span className='pill p-cyan'>{String(row.role || '').toUpperCase()}</span>
+                    {row.label ? <span className='muted'>{row.label}</span> : null}
+                  </div>
+                  {row.issues?.length ? <div className='muted telnyxFieldHint'>{row.issues.join(' · ')}</div> : null}
+                </div>
+              ))}
+            </div>
+            {telnyxNumberHealth.inventory_warnings?.length ? (
+              <div className='note'>
+                {telnyxNumberHealth.inventory_warnings.map((w) => (
+                  <div key={w}>{w}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className='telnyxTabBar'>
         {TELNYX_TABS.map((tab) => (
@@ -467,14 +506,18 @@ export default function TelnyxIntegration({
               Outbound AI calls and WhatsApp surveys use these routes (legacy single fields below sync on save).
             </div>
             <TelnyxRouteTable
-              title='Voice — AI outbound calls'
-              hint='Landline or mobile used as caller ID by destination country.'
+              title='Voice — AI outbound calls (landline)'
+              hint='Landline or voice-capable number for AI outbound, e.g. +442046203055. Not for WhatsApp.'
+              numberPlaceholder='+442046203055 landline'
+              labelPlaceholder='UK landline — AI voice'
               routes={activeConfig.voice_routes}
               onChange={(next) => setProviderField('telnyx', 'voice_routes', next)}
             />
             <TelnyxRouteTable
-              title='WhatsApp — surveys & feedback'
-              hint='Platform WhatsApp sender for surveys and customer feedback.'
+              title='WhatsApp — surveys & feedback (mobile)'
+              hint='Mobile WhatsApp-enabled number only — not a landline.'
+              numberPlaceholder='+447… mobile'
+              labelPlaceholder='Mobile — WhatsApp'
               routes={activeConfig.whatsapp_routes}
               onChange={(next) => setProviderField('telnyx', 'whatsapp_routes', next)}
             />
@@ -483,14 +526,17 @@ export default function TelnyxIntegration({
 
         <div className='card'>
           <div className='cardHead'>
-            <h3>Phone numbers</h3>
-            <span className='pill p-cyan'>Voice + SMS + WA</span>
+            <h3>Default senders</h3>
+            <span className='pill p-cyan'>Synced from routes on save</span>
           </div>
           <div className='cardBody stack'>
+            <div className='note'>
+              Routes above are the source of truth. These fields mirror the first entry in each route list after save.
+            </div>
             <Field
               label='Voice / outbound calls (landline)'
               error={telnyxStatus.errors.default_outbound_number}
-              hint='Telnyx → Call Control only. Used for test call and AI voice outbound.'
+              hint='Telnyx Call Control — AI voice outbound and test calls. Use your landline (+4420…).'
             >
               <input
                 className='input'
@@ -503,7 +549,7 @@ export default function TelnyxIntegration({
                 placeholder='+4420… landline'
               />
             </Field>
-            <Field label='SMS number (primary)' hint='Platform line for surveys and general SMS.'>
+            <Field label='SMS number (primary)' hint='Platform mobile for surveys and general SMS (single line — no route table).'>
               <input
                 className='input'
                 value={String(activeConfig.sms_from || '')}
@@ -511,7 +557,7 @@ export default function TelnyxIntegration({
                 placeholder='+447… mobile'
               />
             </Field>
-            <Field label='WhatsApp (surveys & feedback)' hint='Platform WhatsApp sender for surveys and customer feedback.'>
+            <Field label='WhatsApp (surveys & feedback)' hint='Mobile WhatsApp sender — synced from WhatsApp routes on save.'>
               <input
                 className='input'
                 value={String(activeConfig.whatsapp_from || '')}
@@ -620,9 +666,27 @@ export default function TelnyxIntegration({
             <Field label='Destination number (E.164)' hint='Your personal mobile, e.g. +447700900123'>
               <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
             </Field>
+            <Field label='From number (landline)' hint='Caller ID for the test call — pick your AI voice landline.'>
+              <select className='input' value={telnyxTestFromVoice} onChange={(e) => setTelnyxTestFromVoice(e.target.value)}>
+                <option value=''>Default (first voice route)</option>
+                {compactRouteRows(activeConfig.voice_routes)
+                  .map((r) => r.number)
+                  .concat(
+                    String(activeConfig.default_outbound_number || activeConfig.from_phone_number || '').trim()
+                      ? [String(activeConfig.default_outbound_number || activeConfig.from_phone_number || '').trim()]
+                      : []
+                  )
+                  .filter((n, i, a) => n && a.indexOf(n) === i)
+                  .map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+              </select>
+            </Field>
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>Voice</div>
-              <div className='muted telnyxFieldHint'>Uses landline → your mobile</div>
+              <div className='muted telnyxFieldHint'>Calls from landline → your mobile</div>
               <div className='actions telnyxTestActions'>
                 <button
                   type='button'
@@ -640,9 +704,29 @@ export default function TelnyxIntegration({
                 >
                   Hang up
                 </button>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={testTelnyxAllSenders}
+                  disabled={providerSaving || telnyxTestAllBusy || !activeSummary?.exists || !telnyxTestNumber.trim()}
+                >
+                  {telnyxTestAllBusy ? 'Testing all…' : 'Test all configured numbers'}
+                </button>
               </div>
               {telnyxActiveCallId ? <div className='muted telnyxFieldHint'>Active call: {telnyxActiveCallId}</div> : null}
             </div>
+            {telnyxTestAllResults?.length ? (
+              <div className='telnyxTestAllResults'>
+                {telnyxTestAllResults.map((row) => (
+                  <div key={`${row.role}-${row.number}`} className='telnyxNumberHealthRow'>
+                    <span className={`pill ${row.ok ? 'p-green' : 'p-red'}`}>{row.ok ? 'OK' : 'Fail'}</span>
+                    <strong>{row.number}</strong>
+                    <span className='pill p-cyan'>{String(row.role || '').toUpperCase()}</span>
+                    <span className='muted'>{row.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -958,6 +1042,19 @@ export default function TelnyxIntegration({
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>Platform SMS</div>
               <div className='muted telnyxFieldHint'>Uses the primary SMS number from the Telnyx API tab.</div>
+              <Field label='From number (SMS)'>
+                <select className='input' value={telnyxTestFromSms} onChange={(e) => setTelnyxTestFromSms(e.target.value)}>
+                  <option value=''>Default (sms_from)</option>
+                  {String(activeConfig.sms_from || '')
+                    .trim()
+                    ? [String(activeConfig.sms_from).trim()].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))
+                    : null}
+                </select>
+              </Field>
               <div className='actions telnyxTestActions'>
                 <button type='button' className='btn soft' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
                   Test SMS
@@ -968,6 +1065,22 @@ export default function TelnyxIntegration({
             <div className='telnyxTestBlock'>
               <div className='telnyxTestBlockTitle'>Platform WhatsApp (surveys & feedback)</div>
               <div className='muted telnyxFieldHint'>Uses the platform WhatsApp number — survey templates and customer feedback.</div>
+              <Field label='From number (WhatsApp)'>
+                <select className='input' value={telnyxTestFromWa} onChange={(e) => setTelnyxTestFromWa(e.target.value)}>
+                  <option value=''>Default (first WhatsApp route)</option>
+                  {compactRouteRows(activeConfig.whatsapp_routes)
+                    .map((r) => r.number)
+                    .concat(
+                      String(activeConfig.whatsapp_from || '').trim() ? [String(activeConfig.whatsapp_from).trim()] : []
+                    )
+                    .filter((n, i, a) => n && a.indexOf(n) === i)
+                    .map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                </select>
+              </Field>
               <Field
                 label='WhatsApp template (approved only)'
                 hint='Pick from the list on the left, or choose here.'

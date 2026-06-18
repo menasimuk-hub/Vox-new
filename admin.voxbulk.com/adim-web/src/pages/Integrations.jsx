@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api'
 import { providerLabel } from '../lib/integrationsCatalog'
 import IntegrationKpiHub from './IntegrationKpiHub'
 import IntegrationProviderShell from './IntegrationProviderShell'
-import TelnyxIntegration from './TelnyxIntegration'
+import TelnyxIntegration, { compactRouteRows } from './TelnyxIntegration'
 
 const SOCIAL_PROVIDERS = [
   { key: 'google', label: 'Google' },
@@ -229,6 +229,15 @@ function httpBaseToWs(base) {
   return `wss://${clean}`
 }
 
+function firstVoiceRouteNumber(config) {
+  const routes = Array.isArray(config?.voice_routes) ? config.voice_routes : []
+  for (const row of routes) {
+    const n = String(row?.number || '').trim()
+    if (n) return n
+  }
+  return ''
+}
+
 function telnyxValidation(config, draft, summary) {
   const errors = {}
   const hasDraftKey = Boolean(String(draft?.api_key_draft || '').trim())
@@ -239,7 +248,8 @@ function telnyxValidation(config, draft, summary) {
     errors.api_key = 'Stored credential is not a Telnyx KEY… API key. Paste the secret key from API Keys and Save.'
   }
   if (!String(config?.connection_id || config?.voice_api_application_id || '').trim()) errors.connection_id = 'Voice API application / connection ID is required.'
-  if (!String(config?.default_outbound_number || config?.from_phone_number || '').trim()) errors.default_outbound_number = 'From phone number is required.'
+  const voiceNumber = String(config?.default_outbound_number || config?.from_phone_number || firstVoiceRouteNumber(config) || '').trim()
+  if (!voiceNumber) errors.default_outbound_number = 'Add a voice/landline number in Voice routes or the default field below.'
   const webhookBase = String(config?.webhook_base_url || '').trim()
   if (webhookBase && /^https?:\/\/localhost/i.test(webhookBase)) {
     errors.webhook_base_url = 'For local testing use your ngrok HTTPS URL (not localhost).'
@@ -654,6 +664,12 @@ export default function Integrations() {
   const [telnyxActiveCallId, setTelnyxActiveCallId] = useState('')
   const [telnyxCallBusy, setTelnyxCallBusy] = useState(false)
   const [telnyxAccountNumbers, setTelnyxAccountNumbers] = useState([])
+  const [telnyxNumberHealth, setTelnyxNumberHealth] = useState(null)
+  const [telnyxTestFromVoice, setTelnyxTestFromVoice] = useState('')
+  const [telnyxTestFromSms, setTelnyxTestFromSms] = useState('')
+  const [telnyxTestFromWa, setTelnyxTestFromWa] = useState('')
+  const [telnyxTestAllResults, setTelnyxTestAllResults] = useState([])
+  const [telnyxTestAllBusy, setTelnyxTestAllBusy] = useState(false)
   const [summariesRefreshing, setSummariesRefreshing] = useState(false)
 
   const reloadSummaries = useCallback(async () => {
@@ -687,18 +703,41 @@ export default function Integrations() {
     return e?.message || 'Telnyx request failed'
   }
 
+  function upsertTelnyxRoute(routes, number, label) {
+    const list = Array.isArray(routes) ? routes.map((r) => ({ ...r })) : []
+    const idx = list.findIndex((r) => String(r?.number || '').trim() === number)
+    const row = { number, label, regions: ['global'] }
+    if (idx >= 0) list[idx] = { ...list[idx], ...row }
+    else {
+      const emptyIdx = list.findIndex((r) => !String(r?.number || '').trim())
+      if (emptyIdx >= 0) list[emptyIdx] = row
+      else list.push(row)
+    }
+    return list
+  }
+
   function applyTelnyxFromNumber(number, target = 'voice') {
-    if (target === 'sms') {
-      setProviderField('telnyx', 'sms_from', number)
-      return
-    }
-    if (target === 'whatsapp') {
-      setProviderField('telnyx', 'whatsapp_from', number)
-      return
-    }
-    setProviderField('telnyx', 'default_outbound_number', number)
-    setProviderField('telnyx', 'from_phone_number', number)
-    setProviderField('telnyx', 'fallback_caller_id', number)
+    setProviderDrafts((s) => {
+      const saved = summaries.telnyx?.config || {}
+      const draft = s.telnyx || {}
+      const merged = { ...saved, ...(draft.config || {}) }
+      const nextConfig = { ...(draft.config || {}) }
+      if (target === 'sms') {
+        nextConfig.sms_from = number
+      } else if (target === 'whatsapp') {
+        nextConfig.whatsapp_from = number
+        nextConfig.whatsapp_routes = upsertTelnyxRoute(merged.whatsapp_routes, number, 'WhatsApp')
+      } else {
+        nextConfig.default_outbound_number = number
+        nextConfig.from_phone_number = number
+        nextConfig.fallback_caller_id = number
+        nextConfig.voice_routes = upsertTelnyxRoute(merged.voice_routes, number, 'Voice')
+      }
+      return {
+        ...s,
+        telnyx: { ...draft, config: nextConfig },
+      }
+    })
   }
 
   useEffect(() => {
@@ -797,11 +836,23 @@ export default function Integrations() {
         config.status_callback_url = `${webhookBase}/telnyx/webhooks/status`
         config.verified_number_webhook_url = `${webhookBase}/telnyx/webhooks/verified-numbers`
         config.media_stream_url = `${httpBaseToWs(webhookBase)}/telnyx/media-stream`
-        const outbound = String(config.default_outbound_number || config.from_phone_number || '').trim()
-        if (outbound) {
-          config.default_outbound_number = outbound
-          config.from_phone_number = outbound
-          config.fallback_caller_id = outbound
+        config.voice_routes = compactRouteRows(config.voice_routes)
+        config.whatsapp_routes = compactRouteRows(config.whatsapp_routes)
+        if (config.voice_routes.length) {
+          const firstVoice = config.voice_routes[0].number
+          config.default_outbound_number = firstVoice
+          config.from_phone_number = firstVoice
+          config.fallback_caller_id = firstVoice
+        } else {
+          const outbound = String(config.default_outbound_number || config.from_phone_number || '').trim()
+          if (outbound) {
+            config.default_outbound_number = outbound
+            config.from_phone_number = outbound
+            config.fallback_caller_id = outbound
+          }
+        }
+        if (config.whatsapp_routes.length) {
+          config.whatsapp_from = config.whatsapp_routes[0].number
         }
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
@@ -1209,15 +1260,28 @@ export default function Integrations() {
     }
   }
 
+  const telnyxHasUnsavedDraft =
+    activeProvider === 'telnyx' &&
+    Boolean(
+      providerDrafts.telnyx &&
+        (Object.keys(providerDrafts.telnyx.config || {}).length > 0 || providerDrafts.telnyx.is_enabled !== undefined)
+    )
+
   const testTelnyx = async () => {
     setProviderError('')
     setTelnyxTestResult('Testing Telnyx connection…')
     try {
       const result = await apiFetch('/admin/integrations/telnyx/test', { method: 'POST' })
       if (Array.isArray(result.telnyx_phone_numbers)) setTelnyxAccountNumbers(result.telnyx_phone_numbers)
+      setTelnyxNumberHealth({
+        configured_checks: result.configured_checks || [],
+        inventory_warnings: result.inventory_warnings || [],
+        account_inventory: result.account_inventory || [],
+      })
       setTelnyxTestResult(result.message || 'Telnyx settings look complete.')
     } catch (e) {
       setTelnyxTestResult('')
+      setTelnyxNumberHealth(null)
       setProviderError(formatTelnyxApiError(e))
     }
   }
@@ -1232,14 +1296,17 @@ export default function Integrations() {
     setTelnyxCallBusy(true)
     setTelnyxTestResult('Starting Telnyx test call…')
     try {
+      const payload = { to_number: toNumber }
+      if (telnyxTestFromVoice.trim()) payload.from_number = telnyxTestFromVoice.trim()
       const result = await apiFetch('/admin/integrations/telnyx/test-call', {
         method: 'POST',
-        body: JSON.stringify({ to_number: toNumber }),
+        body: JSON.stringify(payload),
       })
       const callId = String(result.call_control_id || result.external_id || '').trim()
       if (callId) setTelnyxActiveCallId(callId)
+      const fromLine = result.from_number ? ` from ${result.from_number}` : ''
       setTelnyxTestResult(
-        `${result.message || 'Test call accepted'}${callId ? ` — use Hang up to end (${callId})` : ''}`
+        `${result.message || 'Test call accepted'}${fromLine}${callId ? ` — use Hang up to end (${callId})` : ''}`
       )
     } catch (e) {
       setTelnyxTestResult('')
@@ -1285,9 +1352,11 @@ export default function Integrations() {
     setProviderError('')
     setTelnyxSmsTestResult('Sending test SMS…')
     try {
+      const payload = { to_number: toNumber, body: 'VOXBULK Telnyx SMS test — reply if you received this.' }
+      if (telnyxTestFromSms.trim()) payload.from_number = telnyxTestFromSms.trim()
       const result = await apiFetch('/admin/integrations/telnyx/test-sms', {
         method: 'POST',
-        body: JSON.stringify({ to_number: toNumber, body: 'VOXBULK Telnyx SMS test — reply if you received this.' }),
+        body: JSON.stringify(payload),
       })
       setTelnyxSmsTestResult(`${result.message || 'SMS queued'}${result.external_id ? ` (${result.external_id})` : ''}`)
     } catch (e) {
@@ -1397,6 +1466,7 @@ export default function Integrations() {
       if (templateName) payload.template_name = templateName
       if (templateId) payload.template_id = templateId
       if (templateName || templateId) payload.template_language = lang
+      if (telnyxTestFromWa.trim()) payload.from_number = telnyxTestFromWa.trim()
       const result = await apiFetch('/admin/integrations/telnyx/test-whatsapp', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -1431,6 +1501,45 @@ export default function Integrations() {
     } catch (e) {
       setTelnyxSmsTestResult('')
       setProviderError(e?.message || 'Telnyx WhatsApp test failed')
+    }
+  }
+
+  const testTelnyxAllSenders = async () => {
+    const toNumber = telnyxTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter a destination number for live tests.')
+      return
+    }
+    const voiceNums = compactRouteRows(activeConfig.voice_routes).map((r) => r.number)
+    const waNums = compactRouteRows(activeConfig.whatsapp_routes).map((r) => r.number)
+    const smsNum = String(activeConfig.sms_from || '').trim()
+    const total = voiceNums.length + waNums.length + (smsNum ? 1 : 0)
+    if (!total) {
+      window.alert('No configured senders — add numbers to voice/WhatsApp routes or SMS field, then Save.')
+      return
+    }
+    const proceed = window.confirm(
+      `This will run ${total} live test(s) to ${toNumber} (${voiceNums.length} voice call(s), ${smsNum ? 1 : 0} SMS, ${waNums.length} WhatsApp). Continue?`
+    )
+    if (!proceed) return
+    setProviderError('')
+    setTelnyxTestAllBusy(true)
+    setTelnyxTestAllResults([])
+    setTelnyxTestResult('Testing all configured numbers…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/test-all-senders', {
+        method: 'POST',
+        body: JSON.stringify({ to_number: toNumber, channels: ['voice', 'sms', 'whatsapp'] }),
+      })
+      setTelnyxTestAllResults(Array.isArray(result.results) ? result.results : [])
+      setTelnyxTestResult(result.message || 'Test all senders complete.')
+      const lastCall = (result.results || []).find((r) => r.role === 'voice' && r.ok && r.call_control_id)
+      if (lastCall?.call_control_id) setTelnyxActiveCallId(String(lastCall.call_control_id))
+    } catch (e) {
+      setTelnyxTestResult('')
+      setProviderError(formatTelnyxApiError(e))
+    } finally {
+      setTelnyxTestAllBusy(false)
     }
   }
 
@@ -1627,6 +1736,17 @@ export default function Integrations() {
           telnyxActiveCallId={telnyxActiveCallId}
           telnyxCallBusy={telnyxCallBusy}
           telnyxAccountNumbers={telnyxAccountNumbers}
+          telnyxNumberHealth={telnyxNumberHealth}
+          telnyxHasUnsavedDraft={telnyxHasUnsavedDraft}
+          telnyxTestFromVoice={telnyxTestFromVoice}
+          setTelnyxTestFromVoice={setTelnyxTestFromVoice}
+          telnyxTestFromSms={telnyxTestFromSms}
+          setTelnyxTestFromSms={setTelnyxTestFromSms}
+          telnyxTestFromWa={telnyxTestFromWa}
+          setTelnyxTestFromWa={setTelnyxTestFromWa}
+          telnyxTestAllResults={telnyxTestAllResults}
+          telnyxTestAllBusy={telnyxTestAllBusy}
+          testTelnyxAllSenders={testTelnyxAllSenders}
           providerError={providerError}
           providerSaving={providerSaving}
           defaultWebhookBase={DEFAULT_WEBHOOK_BASE}
