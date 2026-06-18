@@ -715,10 +715,14 @@ class ProviderSettingsService:
         cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+        from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
 
-        allowlist, enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
         cfg["phone_allowlist"] = allowlist
         cfg["phone_allowlist_enabled"] = enabled
+        cfg["phone_allowlist_extra"] = extras
+        cfg["phone_allowlist_extra_enabled"] = extra_enabled
+        cfg = TelnyxMessagingDestinationsService.sanitize_config(cfg)
         return cfg
 
     @staticmethod

@@ -102,7 +102,7 @@ function csvToIntList(raw) {
 
 const TELNYX_TABS = [
   { id: 'api', label: 'Telnyx API' },
-  { id: 'whitelist', label: 'Whitelist numbers' },
+  { id: 'whitelist', label: 'Allowlists' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'messages', label: 'Messages' },
   { id: 'zoom', label: 'Zoom' },
@@ -134,6 +134,7 @@ export default function TelnyxIntegration({
   telnyxSms2TestResult,
   telnyxWa2TestResult,
   telnyxYallasayApplyResult,
+  telnyxMessagingSyncResult,
   telnyxZoomTestResult,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
@@ -156,6 +157,7 @@ export default function TelnyxIntegration({
   testTelnyxSms2,
   testTelnyxWhatsApp2,
   applyYallasayTelnyxSetup,
+  syncTelnyxMessagingDestinations,
   testTelnyxWhatsApp,
   testTelnyxZoom,
   loadTelnyxInboundMessages,
@@ -166,14 +168,97 @@ export default function TelnyxIntegration({
   const [activeTab, setActiveTab] = React.useState('api')
   const allowlist = activeConfig.phone_allowlist || {}
   const allowlistEnabled = activeConfig.phone_allowlist_enabled || { GB: true, AU: true, CA: true, USA: true }
+  const allowlistExtra = {
+    PS: { code: '970', name: 'Palestine', allow_any_prefix: true },
+    ...(activeConfig.phone_allowlist_extra || {}),
+  }
+  const allowlistExtraEnabled = activeConfig.phone_allowlist_extra_enabled || {}
+  const messagingDestinations = {
+    GB: true,
+    US: true,
+    AU: true,
+    CA: true,
+    PS: true,
+    ...(activeConfig.messaging_whitelisted_destinations || {}),
+  }
+  const messagingAllowAll = Boolean(activeConfig.messaging_allow_all_destinations)
+  const [newCallIso, setNewCallIso] = React.useState('')
+  const [newCallDial, setNewCallDial] = React.useState('')
+  const [newMsgIso, setNewMsgIso] = React.useState('')
 
   const setAllowlistEnabled = (country, checked) => {
     setProviderField('telnyx', 'phone_allowlist_enabled', { ...allowlistEnabled, [country]: checked })
   }
 
+  const setExtraAllowlistEnabled = (country, checked) => {
+    setProviderField('telnyx', 'phone_allowlist_extra_enabled', { ...allowlistExtraEnabled, [country]: checked })
+  }
+
+  const setMessagingDestinationEnabled = (iso, checked) => {
+    setProviderField('telnyx', 'messaging_whitelisted_destinations', { ...messagingDestinations, [iso]: checked })
+  }
+
   const patchAllowlistCountry = (country, patch) => {
     const current = allowlist[country] || {}
     setProviderField('telnyx', 'phone_allowlist', { ...allowlist, [country]: { ...current, ...patch } })
+  }
+
+  const patchAllowlistExtra = (country, patch) => {
+    const current = allowlistExtra[country] || {}
+    setProviderField('telnyx', 'phone_allowlist_extra', { ...allowlistExtra, [country]: { ...current, ...patch } })
+  }
+
+  const addCallCountry = () => {
+    const iso = String(newCallIso || '').trim().toUpperCase()
+    const dial = String(newCallDial || '').trim().replace(/\D/g, '')
+    if (!iso || iso.length !== 2) {
+      window.alert('Enter a 2-letter ISO code (e.g. PS, AE).')
+      return
+    }
+    if (!dial) {
+      window.alert('Enter the dial code without + (e.g. 970 for Palestine).')
+      return
+    }
+    patchAllowlistExtra(iso, { code: dial, name: iso, allow_any_prefix: true })
+    setExtraAllowlistEnabled(iso, true)
+    setNewCallIso('')
+    setNewCallDial('')
+  }
+
+  const addMessagingCountry = () => {
+    const iso = String(newMsgIso || '').trim().toUpperCase()
+    if (!iso || iso.length !== 2) {
+      window.alert('Enter a 2-letter ISO code (e.g. PS, AE).')
+      return
+    }
+    setMessagingDestinationEnabled(iso, true)
+    setNewMsgIso('')
+  }
+
+  const removeCallCountry = (iso) => {
+    const nextExtra = { ...allowlistExtra }
+    const nextEnabled = { ...allowlistExtraEnabled }
+    delete nextExtra[iso]
+    delete nextEnabled[iso]
+    setProviderField('telnyx', 'phone_allowlist_extra', nextExtra)
+    setProviderField('telnyx', 'phone_allowlist_extra_enabled', nextEnabled)
+  }
+
+  const removeMessagingCountry = (iso) => {
+    const next = { ...messagingDestinations }
+    delete next[iso]
+    setProviderField('telnyx', 'messaging_whitelisted_destinations', next)
+  }
+
+  const callExtraRows = Object.keys(allowlistExtra).sort()
+  const messagingRows = Object.keys(messagingDestinations).sort()
+  const coreCallCountries = ['GB', 'AU', 'CA', 'USA']
+  const dialHint = (country, cfg) => {
+    if (cfg?.code) return `+${cfg.code}`
+    if (country === 'USA' || country === 'CA') return '+1'
+    if (country === 'GB') return '+44'
+    if (country === 'AU') return '+61'
+    return '—'
   }
 
   const patchAllowlistPrefixes = (country, field, raw) => {
@@ -531,27 +616,93 @@ export default function TelnyxIntegration({
       ) : null}
 
       {activeTab === 'whitelist' ? (
-        <div className='stack' style={{ gap: 16 }}>
-          <div className='note'>
-            Control which countries and number prefixes Telnyx AI voice can dial for interview campaigns.
-            Save settings after editing. Numbers outside the allow list show as blocked in the user dashboard.
+        <div className='stack' style={{ gap: 20 }}>
+          <div className='card'>
+            <div className='cardHead'>
+              <h3>Call allowlist — AI voice only</h3>
+              <span className='pill p-cyan'>Interviews / surveys</span>
+            </div>
+            <div className='cardBody stack'>
+              <div className='note'>
+                Controls which numbers Telnyx <strong>AI voice calls</strong> can dial. Does <strong>not</strong> affect WhatsApp or SMS.
+                Save settings after editing. Blocked numbers show in the dashboard upload table.
+              </div>
+              <div className='tableWrap'>
+                <table className='table'>
+                  <thead>
+                    <tr>
+                      <th>Region</th>
+                      <th>Dial code</th>
+                      <th>Enabled</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coreCallCountries.map((country) => {
+                      const cfg = allowlist[country] || {}
+                      const enabled = allowlistEnabled[country] !== false
+                      return (
+                        <tr key={country}>
+                          <td><strong>{country}</strong></td>
+                          <td>{dialHint(country, cfg)}</td>
+                          <td>
+                            <input type='checkbox' checked={enabled} onChange={(e) => setAllowlistEnabled(country, e.target.checked)} />
+                          </td>
+                          <td className='muted'>
+                            {country === 'USA' ? 'NANP +1 (non-Canada)' : country === 'CA' ? 'Canada area codes' : 'Prefix rules below'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {callExtraRows.map((iso) => {
+                      const cfg = allowlistExtra[iso] || {}
+                      const enabled = allowlistExtraEnabled[iso] === true
+                      return (
+                        <tr key={`extra-${iso}`}>
+                          <td>
+                            <strong>{iso}</strong>
+                            <div className='muted'>{String(cfg.name || iso)}</div>
+                          </td>
+                          <td>
+                            <input
+                              className='input'
+                              style={{ maxWidth: 100 }}
+                              value={String(cfg.code || '')}
+                              onChange={(e) => patchAllowlistExtra(iso, { code: e.target.value.trim().replace(/\D/g, '') })}
+                              placeholder='970'
+                            />
+                          </td>
+                          <td>
+                            <input type='checkbox' checked={enabled} onChange={(e) => setExtraAllowlistEnabled(iso, e.target.checked)} />
+                          </td>
+                          <td>
+                            <button type='button' className='btn soft' onClick={() => removeCallCountry(iso)}>Remove</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className='telnyxGrid2'>
+                <Field label='Add call region — ISO'>
+                  <input className='input' value={newCallIso} onChange={(e) => setNewCallIso(e.target.value)} placeholder='PS' />
+                </Field>
+                <Field label='Dial code (no +)'>
+                  <input className='input' value={newCallDial} onChange={(e) => setNewCallDial(e.target.value)} placeholder='970' />
+                </Field>
+              </div>
+              <button type='button' className='btn soft' onClick={addCallCountry}>Add call region</button>
+            </div>
           </div>
-          {['GB', 'AU', 'CA', 'USA'].map((country) => {
+
+          {coreCallCountries.map((country) => {
             const cfg = allowlist[country] || {}
-            const enabled = allowlistEnabled[country] !== false
+            if (country !== 'GB' && country !== 'AU' && country !== 'CA' && country !== 'USA') return null
             return (
-              <div key={country} className='card'>
-                <div className='cardHead'>
-                  <h3>{country}</h3>
-                  <label className='telnyxEnableRow'>
-                    <input type='checkbox' checked={enabled} onChange={(e) => setAllowlistEnabled(country, e.target.checked)} />
-                    <span>{enabled ? 'Enabled' : 'Disabled'}</span>
-                  </label>
-                </div>
+              <div key={`cfg-${country}`} className='card'>
+                <div className='cardHead'><h3>{country} prefix rules</h3></div>
                 <div className='cardBody stack'>
-                  <Field label='Country code' hint={`Dial prefix +${cfg.code || (country === 'USA' || country === 'CA' ? '1' : country === 'GB' ? '44' : '61')}`}>
-                    <input className='input' value={String(cfg.code || '')} onChange={(e) => patchAllowlistCountry(country, { code: e.target.value.trim() })} />
-                  </Field>
                   {country === 'GB' || country === 'AU' ? (
                     <>
                       <Field label='Landline prefixes (comma-separated)'>
@@ -560,45 +711,91 @@ export default function TelnyxIntegration({
                       <Field label='Mobile prefixes (comma-separated)'>
                         <input className='input' value={listToCsv(cfg.mobile_prefixes)} onChange={(e) => patchAllowlistPrefixes(country, 'mobile_prefixes', e.target.value)} />
                       </Field>
-                      <div className='telnyxGrid2'>
-                        <Field label='Landline price (USD/min)'>
-                          <input className='input' type='number' step='0.0001' value={cfg.landline_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { landline_price: parseFloat(e.target.value) || 0 })} />
-                        </Field>
-                        <Field label='Mobile price (USD/min)'>
-                          <input className='input' type='number' step='0.0001' value={cfg.mobile_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { mobile_price: parseFloat(e.target.value) || 0 })} />
-                        </Field>
-                      </div>
                     </>
                   ) : null}
                   {country === 'CA' ? (
-                    <>
-                      <Field label='Canada area codes (comma-separated)' hint='NANP +1 numbers matching these area codes are treated as Canada.'>
-                        <textarea className='input' rows={4} value={listToCsv(cfg.area_codes)} onChange={(e) => patchCanadaAreaCodes(e.target.value)} />
-                      </Field>
-                      <div className='telnyxGrid2'>
-                        <Field label='Landline price (USD/min)'>
-                          <input className='input' type='number' step='0.0001' value={cfg.landline_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { landline_price: parseFloat(e.target.value) || 0 })} />
-                        </Field>
-                        <Field label='Mobile price (USD/min)'>
-                          <input className='input' type='number' step='0.0001' value={cfg.mobile_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { mobile_price: parseFloat(e.target.value) || 0 })} />
-                        </Field>
-                      </div>
-                    </>
+                    <Field label='Canada area codes (comma-separated)'>
+                      <textarea className='input' rows={3} value={listToCsv(cfg.area_codes)} onChange={(e) => patchCanadaAreaCodes(e.target.value)} />
+                    </Field>
                   ) : null}
                   {country === 'USA' ? (
-                    <>
-                      <Field label='Default price (USD/min)'>
-                        <input className='input' type='number' step='0.0001' value={cfg.default_price ?? ''} onChange={(e) => patchAllowlistCountry(country, { default_price: parseFloat(e.target.value) || 0 })} />
-                      </Field>
-                      <Field label='Note'>
-                        <input className='input' value={String(cfg.note || '')} onChange={(e) => patchAllowlistCountry(country, { note: e.target.value })} />
-                      </Field>
-                    </>
+                    <Field label='Note'>
+                      <input className='input' value={String(cfg.note || '')} onChange={(e) => patchAllowlistCountry(country, { note: e.target.value })} />
+                    </Field>
                   ) : null}
                 </div>
               </div>
             )
           })}
+
+          <div className='card'>
+            <div className='cardHead'>
+              <h3>Messaging destinations — WhatsApp &amp; SMS</h3>
+              <span className='pill p-cyan'>Telnyx profiles</span>
+            </div>
+            <div className='cardBody stack'>
+              <div className='note'>
+                Synced to Telnyx <strong>messaging profile whitelisted destinations</strong>. Required for outbound WhatsApp/SMS
+                (e.g. error: region <code>PS</code> not whitelisted for <code>+970…</code>). This list does <strong>not</strong> control AI voice calls.
+              </div>
+              <label className='telnyxEnableRow'>
+                <input
+                  type='checkbox'
+                  checked={messagingAllowAll}
+                  onChange={(e) => setProviderField('telnyx', 'messaging_allow_all_destinations', e.target.checked)}
+                />
+                <span>Allow all countries (<code>*</code>)</span>
+              </label>
+              <div className='tableWrap'>
+                <table className='table'>
+                  <thead>
+                    <tr>
+                      <th>ISO</th>
+                      <th>Enabled</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {messagingRows.length ? messagingRows.map((iso) => (
+                      <tr key={`msg-${iso}`}>
+                        <td><strong>{iso}</strong>{iso === 'PS' ? <span className='muted'> — Palestine (+970)</span> : null}</td>
+                        <td>
+                          <input
+                            type='checkbox'
+                            checked={messagingDestinations[iso] !== false}
+                            disabled={messagingAllowAll}
+                            onChange={(e) => setMessagingDestinationEnabled(iso, e.target.checked)}
+                          />
+                        </td>
+                        <td>
+                          {!['GB', 'US', 'AU', 'CA', 'PS'].includes(iso) ? (
+                            <button type='button' className='btn soft' onClick={() => removeMessagingCountry(iso)}>Remove</button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={3} className='muted'>No destinations — add PS or enable Allow all countries.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className='telnyxGrid2'>
+                <Field label='Add messaging country — ISO (2 letters)' hint='e.g. PS for +970 Palestine'>
+                  <input className='input' value={newMsgIso} onChange={(e) => setNewMsgIso(e.target.value)} placeholder='PS' />
+                </Field>
+                <div className='actions' style={{ alignItems: 'flex-end' }}>
+                  <button type='button' className='btn soft' onClick={addMessagingCountry} disabled={messagingAllowAll}>Add country</button>
+                </div>
+              </div>
+              <div className='actions telnyxTestActions'>
+                <button type='button' className='btn soft' onClick={syncTelnyxMessagingDestinations} disabled={providerSaving}>
+                  Sync to Telnyx messaging profiles
+                </button>
+              </div>
+              {telnyxMessagingSyncResult ? <div className='note' style={{ whiteSpace: 'pre-wrap' }}>{telnyxMessagingSyncResult}</div> : null}
+              <div className='muted'>Save settings first, then sync. Updates primary, WhatsApp, and Yallasay messaging profiles.</div>
+            </div>
+          </div>
         </div>
       ) : null}
 

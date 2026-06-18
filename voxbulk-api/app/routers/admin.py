@@ -1249,6 +1249,23 @@ def telnyx_phone_allowlist_defaults(_admin=Depends(require_cap(CAP_INTEGRATION))
     return {"ok": True, **TelnyxPhoneAllowlistService.admin_view({})}
 
 
+@router.get("/integrations/telnyx/messaging-destinations/defaults")
+def telnyx_messaging_destinations_defaults(_admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
+
+    return {"ok": True, **TelnyxMessagingDestinationsService.admin_view({})}
+
+
+@router.post("/integrations/telnyx/messaging-destinations/sync-to-telnyx")
+def sync_telnyx_messaging_destinations(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
+
+    result = TelnyxMessagingDestinationsService.sync_to_telnyx_profiles(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or result.get("message") or "Sync failed")
+    return result
+
+
 @router.get("/integrations/telnyx/messages/{message_id}")
 def get_telnyx_message_detail(message_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     """Fetch live delivery status + Meta/Telnyx errors from GET /v2/messages/{id}."""

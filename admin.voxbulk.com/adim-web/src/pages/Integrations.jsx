@@ -637,6 +637,7 @@ export default function Integrations() {
   const [telnyxSms2TestResult, setTelnyxSms2TestResult] = useState('')
   const [telnyxWa2TestResult, setTelnyxWa2TestResult] = useState('')
   const [telnyxYallasayApplyResult, setTelnyxYallasayApplyResult] = useState('')
+  const [telnyxMessagingSyncResult, setTelnyxMessagingSyncResult] = useState('')
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
@@ -1401,6 +1402,24 @@ export default function Integrations() {
     }
   }
 
+  const syncTelnyxMessagingDestinations = async () => {
+    setProviderError('')
+    setTelnyxMessagingSyncResult('Saving and syncing messaging destinations to Telnyx…')
+    try {
+      await saveIntegrationProvider('telnyx')
+      const result = await apiFetch('/admin/integrations/telnyx/messaging-destinations/sync-to-telnyx', { method: 'POST' })
+      const updated = Array.isArray(result.profiles_updated) ? result.profiles_updated.length : 0
+      const dest = Array.isArray(result.whitelisted_destinations) ? result.whitelisted_destinations.join(', ') : '—'
+      setTelnyxMessagingSyncResult(`${result.message || 'Synced'}\nProfiles updated: ${updated}\nDestinations: ${dest}`)
+      if (Array.isArray(result.errors) && result.errors.length) {
+        setTelnyxMessagingSyncResult((prev) => `${prev}\n${result.errors.join('\n')}`)
+      }
+    } catch (e) {
+      setTelnyxMessagingSyncResult('')
+      setProviderError(e?.message || 'Could not sync messaging destinations to Telnyx')
+    }
+  }
+
   const loadTelnyxWaTemplates = async (silent = false) => {
     try {
       const result = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
@@ -1709,6 +1728,7 @@ export default function Integrations() {
           telnyxSms2TestResult={telnyxSms2TestResult}
           telnyxWa2TestResult={telnyxWa2TestResult}
           telnyxYallasayApplyResult={telnyxYallasayApplyResult}
+          telnyxMessagingSyncResult={telnyxMessagingSyncResult}
           telnyxZoomTestResult={telnyxZoomTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
@@ -1732,6 +1752,7 @@ export default function Integrations() {
           testTelnyxSms2={testTelnyxSms2}
           testTelnyxWhatsApp2={testTelnyxWhatsApp2}
           applyYallasayTelnyxSetup={applyYallasayTelnyxSetup}
+          syncTelnyxMessagingDestinations={syncTelnyxMessagingDestinations}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
           telnyxMessageFilters={telnyxMessageFilters}

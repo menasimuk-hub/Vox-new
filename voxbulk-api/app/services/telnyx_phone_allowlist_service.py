@@ -51,6 +51,15 @@ DEFAULT_PHONE_ALLOWLIST_ENABLED: dict[str, bool] = {
     "USA": True,
 }
 
+# Extra dial regions for AI voice calls (not used for WhatsApp/SMS).
+DEFAULT_PHONE_ALLOWLIST_EXTRA: dict[str, Any] = {
+    "PS": {
+        "code": "970",
+        "name": "Palestine",
+        "allow_any_prefix": True,
+    },
+}
+
 
 def _digits(raw: str) -> str:
     return re.sub(r"\D", "", str(raw or ""))
@@ -82,14 +91,47 @@ def _merge_enabled(raw: dict[str, Any] | None) -> dict[str, bool]:
     return out
 
 
+def _merge_extra(raw: dict[str, Any] | None) -> dict[str, Any]:
+    base = deepcopy(DEFAULT_PHONE_ALLOWLIST_EXTRA)
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            iso = str(key or "").strip().upper()
+            if not iso or not isinstance(value, dict):
+                continue
+            merged = {**base.get(iso, {}), **value}
+            if "code" in value:
+                merged["code"] = str(value.get("code") or "").strip()
+            if "name" in value:
+                merged["name"] = str(value.get("name") or iso).strip()
+            base[iso] = merged
+    return base
+
+
+def _merge_extra_enabled(raw: dict[str, Any] | None, extras: dict[str, Any]) -> dict[str, bool]:
+    out: dict[str, bool] = {}
+    enabled_raw = raw if isinstance(raw, dict) else {}
+    for iso in extras:
+        if iso in enabled_raw:
+            out[iso] = bool(enabled_raw[iso])
+        else:
+            out[iso] = False
+    return out
+
+
 class TelnyxPhoneAllowlistService:
     @staticmethod
-    def load_from_telnyx_config(cfg: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, bool]]:
+    def load_from_telnyx_config(cfg: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool]]:
         cfg = cfg or {}
-        return _merge_allowlist(cfg.get("phone_allowlist")), _merge_enabled(cfg.get("phone_allowlist_enabled"))
+        extras = _merge_extra(cfg.get("phone_allowlist_extra"))
+        return (
+            _merge_allowlist(cfg.get("phone_allowlist")),
+            _merge_enabled(cfg.get("phone_allowlist_enabled")),
+            extras,
+            _merge_extra_enabled(cfg.get("phone_allowlist_extra_enabled"), extras),
+        )
 
     @staticmethod
-    def load(db: Session) -> tuple[dict[str, Any], dict[str, bool]]:
+    def load(db: Session) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool]]:
         from app.services.provider_settings import ProviderSettingsService
 
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
@@ -117,7 +159,45 @@ class TelnyxPhoneAllowlistService:
         return "CA" if area in ca_set else "USA"
 
     @staticmethod
-    def _detect_country(e164: str, allowlist: dict[str, Any]) -> tuple[str | None, str]:
+    def _detect_extra_country(
+        e164: str,
+        extras: dict[str, Any],
+        extra_enabled: dict[str, bool],
+    ) -> tuple[str | None, str]:
+        digits = _digits(e164)
+        if not digits:
+            return None, ""
+        ordered = sorted(
+            extras.items(),
+            key=lambda item: len(str((item[1] or {}).get("code") or "")),
+            reverse=True,
+        )
+        for iso, cfg in ordered:
+            if not extra_enabled.get(iso, False):
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            code = str(cfg.get("code") or "").strip()
+            if code and digits.startswith(code):
+                return iso, digits[len(code) :]
+        return None, ""
+
+    @staticmethod
+    def _detect_country(
+        e164: str,
+        allowlist: dict[str, Any],
+        *,
+        extras: dict[str, Any] | None = None,
+        extra_enabled: dict[str, bool] | None = None,
+    ) -> tuple[str | None, str]:
+        iso, national = TelnyxPhoneAllowlistService._detect_extra_country(
+            e164,
+            extras or {},
+            extra_enabled or {},
+        )
+        if iso:
+            return iso, national
+
         digits = _digits(e164)
         if not digits:
             return None, ""
@@ -137,6 +217,8 @@ class TelnyxPhoneAllowlistService:
         *,
         allowlist: dict[str, Any] | None = None,
         enabled: dict[str, bool] | None = None,
+        extras: dict[str, Any] | None = None,
+        extra_enabled: dict[str, bool] | None = None,
     ) -> dict[str, Any]:
         raw = str(phone or "").strip()
         if not raw:
@@ -155,22 +237,73 @@ class TelnyxPhoneAllowlistService:
 
         merged = _merge_allowlist(allowlist)
         flags = _merge_enabled(enabled)
+        merged_extras = _merge_extra(extras)
+        merged_extra_flags = _merge_extra_enabled(extra_enabled, merged_extras)
 
-        if not any(flags.values()):
+        if not any(flags.values()) and not any(merged_extra_flags.values()):
             return {
                 "allowed": False,
-                "reason": "No calling regions are enabled — configure Admin → Integrations → Telnyx → Whitelist",
+                "reason": "No calling regions are enabled — configure Admin → Integrations → Telnyx → Call allowlist",
                 "country": None,
                 "line_type": None,
                 "normalized": normalized,
             }
 
-        country, national = TelnyxPhoneAllowlistService._detect_country(normalized, merged)
+        country, national = TelnyxPhoneAllowlistService._detect_country(
+            normalized,
+            merged,
+            extras=merged_extras,
+            extra_enabled=merged_extra_flags,
+        )
         if not country:
             return {
                 "allowed": False,
-                "reason": "Only GB, AU, CA, and US numbers can be called",
+                "reason": "Number country is not on the call allowlist — add the region in Admin → Telnyx → Call allowlist",
                 "country": None,
+                "line_type": None,
+                "normalized": normalized,
+            }
+
+        if country in merged_extras:
+            if not merged_extra_flags.get(country, False):
+                return {
+                    "allowed": False,
+                    "reason": f"{country} calling is disabled",
+                    "country": country,
+                    "line_type": None,
+                    "normalized": normalized,
+                }
+            extra_cfg = merged_extras.get(country) if isinstance(merged_extras.get(country), dict) else {}
+            if extra_cfg.get("allow_any_prefix"):
+                return {
+                    "allowed": True,
+                    "reason": None,
+                    "country": country,
+                    "line_type": "custom",
+                    "normalized": normalized,
+                }
+            mobile_prefixes = extra_cfg.get("mobile_prefixes") if isinstance(extra_cfg.get("mobile_prefixes"), list) else []
+            landline_prefixes = extra_cfg.get("landline_prefixes") if isinstance(extra_cfg.get("landline_prefixes"), list) else []
+            if _prefix_match(national, mobile_prefixes):
+                return {
+                    "allowed": True,
+                    "reason": None,
+                    "country": country,
+                    "line_type": "mobile",
+                    "normalized": normalized,
+                }
+            if _prefix_match(national, landline_prefixes):
+                return {
+                    "allowed": True,
+                    "reason": None,
+                    "country": country,
+                    "line_type": "landline",
+                    "normalized": normalized,
+                }
+            return {
+                "allowed": False,
+                "reason": f"Can't call this number — not on the {country} call allow list",
+                "country": country,
                 "line_type": None,
                 "normalized": normalized,
             }
@@ -245,16 +378,25 @@ class TelnyxPhoneAllowlistService:
 
     @staticmethod
     def validate_phone_db(db: Session, phone: str) -> dict[str, Any]:
-        allowlist, enabled = TelnyxPhoneAllowlistService.load(db)
-        return TelnyxPhoneAllowlistService.validate_phone(phone, allowlist=allowlist, enabled=enabled)
+        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load(db)
+        return TelnyxPhoneAllowlistService.validate_phone(
+            phone,
+            allowlist=allowlist,
+            enabled=enabled,
+            extras=extras,
+            extra_enabled=extra_enabled,
+        )
 
     @staticmethod
     def admin_view(cfg: dict[str, Any] | None) -> dict[str, Any]:
-        allowlist, enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg or {})
+        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg or {})
         return {
             "phone_allowlist": allowlist,
             "phone_allowlist_enabled": enabled,
+            "phone_allowlist_extra": extras,
+            "phone_allowlist_extra_enabled": extra_enabled,
             "defaults": DEFAULT_PHONE_ALLOWLIST,
+            "defaults_extra": DEFAULT_PHONE_ALLOWLIST_EXTRA,
         }
 
     @staticmethod

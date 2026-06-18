@@ -13,6 +13,7 @@ from app.services.messaging_log_service import normalize_e164
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_api_key import require_telnyx_api_key
 from app.services.yallasay_telnyx_line import get_yallasay_line_config, persist_yallasay_profile_ids
+from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -44,6 +45,14 @@ def apply_yallasay_line_telnyx_setup(db: Session) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
     warnings: list[str] = []
+    destinations, allow_all = TelnyxMessagingDestinationsService.load_from_telnyx_config(config)
+    whitelisted = TelnyxMessagingDestinationsService.to_telnyx_api_list(destinations, allow_all=allow_all)
+    profile_patch: dict[str, Any] = {
+        "webhook_url": webhook_url,
+        "webhook_api_version": "2",
+        "whitelisted_destinations": whitelisted,
+    }
+
     with httpx.Client(timeout=30.0, verify=httpx_ssl_verify(), headers=_headers(api_key)) as client:
         if not profile_id:
             profiles_resp = client.get("https://api.telnyx.com/v2/messaging_profiles", params={"page[size]": 100})
@@ -61,6 +70,7 @@ def apply_yallasay_line_telnyx_setup(db: Session) -> dict[str, Any]:
                         "webhook_url": webhook_url,
                         "webhook_api_version": "2",
                         "enabled": True,
+                        "whitelisted_destinations": whitelisted,
                     },
                 )
                 created.raise_for_status()
@@ -69,7 +79,7 @@ def apply_yallasay_line_telnyx_setup(db: Session) -> dict[str, Any]:
         else:
             client.patch(
                 f"https://api.telnyx.com/v2/messaging_profiles/{profile_id}",
-                json={"webhook_url": webhook_url, "webhook_api_version": "2"},
+                json=profile_patch,
             ).raise_for_status()
 
         try:
@@ -99,6 +109,7 @@ def apply_yallasay_line_telnyx_setup(db: Session) -> dict[str, Any]:
         "messaging_webhook_url": webhook_url,
         "webhook_probe_status": probe.status_code,
         "webhook_probe_ok": webhook_ok,
+        "whitelisted_destinations": whitelisted,
         "warnings": warnings,
         "next_steps": [
             "Reply SMS to the Yallasay number — appears in Admin → Messages (Abuu does not reply by SMS).",
