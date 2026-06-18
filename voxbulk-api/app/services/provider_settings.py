@@ -723,6 +723,18 @@ class ProviderSettingsService:
         cfg["phone_allowlist_extra"] = extras
         cfg["phone_allowlist_extra_enabled"] = extra_enabled
         cfg = TelnyxMessagingDestinationsService.sanitize_config(cfg)
+        from app.services.telnyx_number_routing_service import normalize_route_list, seed_routes_from_legacy
+
+        cfg = seed_routes_from_legacy(cfg)
+        cfg["voice_routes"] = normalize_route_list(cfg.get("voice_routes"))
+        cfg["whatsapp_routes"] = normalize_route_list(cfg.get("whatsapp_routes"))
+        if cfg["voice_routes"]:
+            first_voice = cfg["voice_routes"][0]["number"]
+            cfg["default_outbound_number"] = first_voice
+            cfg["from_phone_number"] = first_voice
+            cfg["fallback_caller_id"] = first_voice
+        if cfg["whatsapp_routes"]:
+            cfg["whatsapp_from"] = cfg["whatsapp_routes"][0]["number"]
         return cfg
 
     @staticmethod

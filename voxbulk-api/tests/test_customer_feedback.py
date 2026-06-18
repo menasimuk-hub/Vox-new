@@ -84,6 +84,20 @@ def test_resolve_session_language():
     assert resolve_session_language(phone="+447700900000", trigger_hint="ar") == "ar"
     assert resolve_session_language(phone="+966501234567", trigger_hint=None) == "ar"
     assert resolve_session_language(phone="+447700900000", trigger_hint=None) == "en_GB"
+    assert resolve_session_language(phone="+970597567750", trigger_hint=None) == "ar"
+    assert resolve_session_language(phone="970597567750", trigger_hint=None) == "ar"
+    assert resolve_session_language(phone="+33612345678", trigger_hint=None) == "fr"
+    assert resolve_session_language(phone="+9991234567890", trigger_hint=None, location_country="ae") == "ar"
+    assert resolve_session_language(phone="+9991234567890", trigger_hint=None, location_country="gb") == "en_GB"
+
+
+def test_resolve_template_language_preserves_locale():
+    from app.services.customer_feedback.survey_config_service import resolve_template_language
+
+    assert resolve_template_language("fr") == "fr"
+    assert resolve_template_language("de") == "de"
+    assert resolve_template_language("en_US") == "en_US"
+    assert resolve_template_language("ar") == "ar"
 
 
 def test_template_for_step_prefers_arabic():

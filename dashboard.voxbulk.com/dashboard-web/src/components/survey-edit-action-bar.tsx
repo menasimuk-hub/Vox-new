@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { orderHasPayableQuote, orderPayButton } from "@/lib/billing/order-pay-labels";
+import { orderPayButton } from "@/lib/billing/order-pay-labels";
 import { useBillingUsage, useDeleteOrder, useDuplicateSurveyOrder, useLaunchSurveyCampaign, useStopSurveyOrder } from "@/lib/queries";
 import type { ServiceOrder } from "@/lib/types/api";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
@@ -58,8 +58,7 @@ export function SurveyEditActionBar({
   const status = String(order.status || "").toLowerCase();
   const paymentStatus = String(order.payment_status || "").toLowerCase();
   const pay = orderPayButton(order);
-  const payableQuote = orderHasPayableQuote(order);
-  const needsPayAction = pay.action === "launch" && paymentStatus !== "approved" && payableQuote;
+  const needsPayAction = pay.action === "launch" && paymentStatus !== "approved" && !canRun;
   const needsTopUp =
     String(usageQ.data?.next_action || "") === "top_up_wallet" &&
     paymentStatus !== "approved" &&
@@ -128,18 +127,7 @@ export function SurveyEditActionBar({
           <Button size="sm" variant="outline" disabled title={pay.hint}>
             {pay.label}
           </Button>
-        ) : needsPayAction ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            title={pay.hint}
-            disabled={launchPending}
-            onClick={() => void onOpenLaunch?.()}
-          >
-            <Coins className="size-4" /> {pay.label}
-          </Button>
-        ) : pay.action === "launch" && paymentStatus !== "approved" && !payableQuote ? (
+        ) : needsPayAction || (pay.action === "launch" && paymentStatus !== "approved" && !canRun) ? (
           <Button
             size="sm"
             variant="outline"

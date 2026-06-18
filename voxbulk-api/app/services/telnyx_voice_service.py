@@ -541,7 +541,12 @@ class TelnyxExecutionService:
         to_e164 = normalize_e164(to_number)
         config = _telnyx_config(db)
         verified_caller_id = TelnyxCallerIdService.verified_caller_id_for_user(db, user_id=user_id)
-        caller_id = verified_caller_id or telnyx_outbound_caller_id(config)
+        from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
+
+        caller_id = verified_caller_id or TelnyxNumberRoutingService.resolve_voice_from(
+            destination_e164=to_e164,
+            config=config,
+        )
         if not caller_id:
             raise ValueError("Telnyx fallback caller ID/default outbound number is not configured")
         result = TelnyxVoiceAdapter.start_outbound_call(

@@ -760,7 +760,7 @@ function CreateSurvey() {
 
   const onWalletToppedUp = () => {
     refreshLaunchEligibility();
-    toast.success("Wallet updated — you can launch when ready.");
+    toast.success("Wallet topped up — you can launch now.");
   };
 
   const userTestPhone = React.useMemo(() => {

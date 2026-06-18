@@ -60,7 +60,11 @@ class InvoicePaymentService:
         wallet = WalletService.balance_minor(org)
         sub = BillingAccessService.get_subscription(db, org.id)
         mandate_active = sub is not None and str(sub.mandate_status or "").strip().lower() == "active"
-        card_available = StripeSvc.is_available(db)
+        from app.services.airwallex_payment_service import AirwallexPaymentService
+
+        stripe_available = StripeSvc.is_available(db)
+        airwallex_available = AirwallexPaymentService.is_available(db)
+        card_available = stripe_available or airwallex_available
         payable = InvoicePaymentService.is_payable(invoice)
         st = str(invoice.status or "").strip().lower()
         lifecycle = InvoiceLifecycleService.policy(invoice)
@@ -113,13 +117,26 @@ class InvoicePaymentService:
                         }
                     )
 
-                if card_available:
+                if stripe_available:
                     methods.append(
                         {
                             "method": "card",
                             "label": "Pay by card (Stripe)",
                             "available": True,
                             "provider": "stripe",
+                            "amount_minor": amount,
+                            "amount_display": money_display(amount, currency),
+                            "outcome": "instant",
+                            "outcome_label": "Card payment settles this invoice immediately after confirmation.",
+                        }
+                    )
+                if airwallex_available:
+                    methods.append(
+                        {
+                            "method": "card",
+                            "label": "Pay by card (Airwallex)",
+                            "available": True,
+                            "provider": "airwallex",
                             "amount_minor": amount,
                             "amount_display": money_display(amount, currency),
                             "outcome": "instant",
@@ -162,6 +179,8 @@ class InvoicePaymentService:
             "wallet_shortfall_minor": shortfall if wallet < amount else 0,
             "wallet_shortfall_display": money_display(shortfall, currency) if wallet < amount else None,
             "card_available": card_available,
+            "stripe_available": stripe_available,
+            "airwallex_available": airwallex_available,
             "mandate_active": mandate_active,
             "next_steps": next_steps,
             "lifecycle": lifecycle,
@@ -350,24 +369,44 @@ class InvoicePaymentService:
         raise InvoicePaymentError(f"Unsupported payment method: {method}")
 
     @staticmethod
-    def create_card_payment_intent(db: Session, org: Organisation, invoice: BillingInvoice) -> dict[str, Any]:
+    def create_card_payment_intent(
+        db: Session,
+        org: Organisation,
+        invoice: BillingInvoice,
+        *,
+        provider: str = "stripe",
+    ) -> dict[str, Any]:
+        from app.services.airwallex_payment_service import AirwallexPaymentService
+
         if not InvoicePaymentService.is_payable(invoice):
             raise InvoicePaymentError("This invoice is not payable by card.")
-        if not StripePaymentService.is_available(db):
-            raise InvoicePaymentError("Card payments are not configured.")
         amount = InvoicePaymentService.amount_due_minor(invoice)
         if amount <= 0:
             raise InvoicePaymentError("Nothing due on this invoice.")
-        return {
-            "ok": True,
-            **StripePaymentService.create_invoice_payment_intent(
+        prov = str(provider or "stripe").strip().lower()
+        if prov == "stripe":
+            if not StripePaymentService.is_available(db):
+                raise InvoicePaymentError("Stripe card payments are not configured.")
+            payload = StripePaymentService.create_invoice_payment_intent(
                 db,
                 org,
                 invoice_id=invoice.id,
                 amount_minor=amount,
                 invoice_number=invoice.invoice_number,
-            ),
-        }
+            )
+        elif prov == "airwallex":
+            if not AirwallexPaymentService.is_available(db):
+                raise InvoicePaymentError("Airwallex card payments are not configured.")
+            payload = AirwallexPaymentService.create_invoice_payment_intent(
+                db,
+                org,
+                invoice_id=invoice.id,
+                amount_minor=amount,
+                invoice_number=invoice.invoice_number,
+            )
+        else:
+            raise InvoicePaymentError("provider must be stripe or airwallex")
+        return {"ok": True, **payload}
 
     @staticmethod
     def confirm_card_payment(
@@ -376,19 +415,32 @@ class InvoicePaymentService:
         invoice: BillingInvoice,
         *,
         payment_intent_id: str,
+        provider: str = "stripe",
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.airwallex_payment_service import AirwallexPaymentService, AirwallexProviderError
         from app.services.stripe_payment_service import StripeProviderError
 
+        prov = str(provider or "stripe").strip().lower()
         try:
-            return StripePaymentService.confirm_invoice_payment(
-                db,
-                org,
-                invoice_id=invoice.id,
-                payment_intent_id=payment_intent_id,
-                user_id=user_id,
-            )
-        except StripeProviderError as exc:
+            if prov == "stripe":
+                return StripePaymentService.confirm_invoice_payment(
+                    db,
+                    org,
+                    invoice_id=invoice.id,
+                    payment_intent_id=payment_intent_id,
+                    user_id=user_id,
+                )
+            if prov == "airwallex":
+                return AirwallexPaymentService.confirm_invoice_payment(
+                    db,
+                    org,
+                    invoice_id=invoice.id,
+                    payment_intent_id=payment_intent_id,
+                    user_id=user_id,
+                )
+            raise InvoicePaymentError("provider must be stripe or airwallex")
+        except (StripeProviderError, AirwallexProviderError) as exc:
             raise InvoicePaymentError(str(exc)) from exc
 
     @staticmethod

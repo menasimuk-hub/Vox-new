@@ -1121,7 +1121,7 @@ export function SurveyLaunchQuoteModal({
   const paymentRequired = Boolean(eligibility?.payment_required);
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const needsWalletTopup = launchAction === "topup_required";
-  const canPayLaunch = paymentRequired && launchAction === "pay_and_launch";
+  const canPayLaunch = paymentRequired && launchAction === "pay_and_launch" && !walletMode;
   const walletMode = String(eligibility?.mode || "") === "wallet";
   const amountDue = eligibility?.amount_due_display || null;
   const allowanceNotice = buildSurveyAllowanceNotice(eligibility);
@@ -1494,7 +1494,11 @@ export function SurveyLaunchQuoteModal({
               {canLaunchNow ? (
                 <Button type="button" className="gap-1.5" disabled={!canLaunch} onClick={() => void handleLaunch()}>
                   <Rocket className="size-4" />
-                  {actionBusy ? "Launching…" : walletMode ? `Launch · ${amountDue || "wallet"}` : "Launch now"}
+                  {actionBusy
+                    ? "Launching…"
+                    : walletMode && amountDue
+                      ? `Launch · ${amountDue} from wallet`
+                      : "Launch campaign"}
                 </Button>
               ) : needsWalletTopup && onTopUpWallet ? (
                 <Button type="button" className="gap-1.5" disabled={actionBusy} onClick={onTopUpWallet}>

@@ -558,12 +558,12 @@ function CreateInterview() {
       setWaPreviewConfirmationTemplateName(tpl?.confirmation_template_name);
       const synced = tpl?.sync?.synced;
       if (tpl?.sync_error) {
-        setWaPreviewSyncLabel("Using preview template — sync Telnyx templates in Admin → Integrations");
+        setWaPreviewSyncLabel("Using preview template — sync WhatsApp templates in Admin → Integrations");
       } else if (tpl?.is_fallback) {
-        setWaPreviewSyncLabel("Preview template — sync Telnyx to load your approved booking template");
+        setWaPreviewSyncLabel("Preview template — sync WhatsApp templates to load your approved booking template");
       } else {
         setWaPreviewSyncLabel(
-          synced != null ? `Templates synced from Telnyx (${synced} total)` : tpl?.name ? "Using cached Telnyx template" : undefined,
+          synced != null ? `Templates synced (${synced} total)` : tpl?.name ? "Using cached WhatsApp template" : undefined,
         );
       }
     } catch {
@@ -2468,7 +2468,7 @@ function CreateInterview() {
               done={bookingInvitesSent}
               detail={
                 inviteDispatchFailed
-                  ? `Failed — ${String(lastInviteDispatch?.errors?.[0] || "check Telnyx template & allowlist")}`
+                  ? `Failed — ${String(lastInviteDispatch?.errors?.[0] || "check WhatsApp template & calling regions")}`
                   : bookingInvitesSent
                     ? `Sent (${lastInviteDispatch?.whatsapp_sent ?? "—"} WA, ${lastInviteDispatch?.email_sent ?? "—"} email)`
                     : paymentApproved

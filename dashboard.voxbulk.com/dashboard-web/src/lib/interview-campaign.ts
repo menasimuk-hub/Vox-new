@@ -75,6 +75,17 @@ export function campaignAllowsResendBookingInvites(opts: {
   return isInterviewCampaignLaunched(opts.orderStatus);
 }
 
+const RESEND_BOOKING_INVITE_DENY = new Set([
+  "interview_completed",
+  "report_ready",
+  "calling",
+  "booked",
+  "booked_waiting",
+  "scheduling_sent",
+  "call_failed",
+  "auto_excluded",
+]);
+
 const RESEND_BOOKING_INVITE_STATUSES = new Set([
   "pending",
   "awaiting_booking",
@@ -86,9 +97,15 @@ const RESEND_BOOKING_INVITE_STATUSES = new Set([
 export function candidateAllowsResendBookingInvite(opts: {
   orderStatus?: string | null;
   activityStatus?: string | null;
+  recipientStatus?: string | null;
+  interviewCompleted?: boolean;
 }): boolean {
   if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
+  if (opts.interviewCompleted) return false;
+  const recipient = String(opts.recipientStatus || "").toLowerCase();
+  if (recipient === "completed" || recipient === "done") return false;
   const activity = String(opts.activityStatus || "pending").toLowerCase();
+  if (RESEND_BOOKING_INVITE_DENY.has(activity)) return false;
   return RESEND_BOOKING_INVITE_STATUSES.has(activity);
 }
 

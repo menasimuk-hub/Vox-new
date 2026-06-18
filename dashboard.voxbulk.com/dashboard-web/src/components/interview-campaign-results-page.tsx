@@ -282,6 +282,10 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const resendBookingInviteForOpen = candidateAllowsResendBookingInvite({
     orderStatus: rawOrder?.status,
     activityStatus: candidateOpen?.activity_status,
+    recipientStatus: candidateOpen?.status,
+    interviewCompleted: ["interview_completed", "report_ready"].includes(
+      String(candidateOpen?.activity_status || "").toLowerCase(),
+    ),
   });
 
   return (

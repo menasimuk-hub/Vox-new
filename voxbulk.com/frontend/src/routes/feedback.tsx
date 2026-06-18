@@ -135,12 +135,12 @@ function FeedbackPage() {
                   <div className="max-w-[78%] rounded-2xl rounded-tl-sm bg-beige px-3 py-2 text-[13px] text-heading">¡Gracias por tus comentarios!</div>
                 </div>
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-[11px] text-muted-text">
-                  <span className="inline-flex items-center gap-1.5"><Languages size={11} /> Auto-detected by phone country</span>
+                  <span className="inline-flex items-center gap-1.5"><Languages size={11} /> English / Arabic from mobile country code</span>
                   <span className="font-semibold text-success">Delivered</span>
                 </div>
               </div>
               <span className="absolute -top-3 -left-3 inline-flex items-center gap-1.5 px-3 h-7 rounded-full bg-navy text-white text-[11px] font-bold uppercase tracking-[0.14em]">
-                <Languages size={12} className="text-gold" /> 50+ languages
+                <Languages size={12} className="text-gold" /> English &amp; Arabic
               </span>
             </div>
             <div className="order-1 md:order-2">
@@ -149,16 +149,16 @@ function FeedbackPage() {
                 Speaks your customer's <span className="serif-italic text-primary">language</span>.
               </h2>
               <p className="mt-5 text-[16px] text-body max-w-[520px]">
-                Scan the QR code and the system sends a WhatsApp message to VoxBulk. The survey runs in the customer's own language — auto-detected from their mobile number's country code.
+                Scan the QR code and the system sends a WhatsApp message to VoxBulk. The survey language is auto-detected from the customer&apos;s mobile country code — English or Arabic today, with more locales as templates are added.
               </p>
               <ul className="mt-6 space-y-2.5 text-[14.5px] text-body">
-                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> 50+ languages including English, Arabic, Chinese, Spanish, French, Hindi</li>
-                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> Right-to-left scripts (Arabic, Hebrew) handled natively</li>
+                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> Arabic for Gulf, Levant, and North Africa numbers (e.g. +966, +971, +970)</li>
+                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> English for UK, US, EU, and other regions by default</li>
+                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> Right-to-left Arabic handled natively in WhatsApp</li>
                 <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> No app, no signup — runs entirely inside WhatsApp</li>
-                <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> Responses translated back so your team reads them in English</li>
               </ul>
               <div className="mt-6 flex flex-wrap gap-2">
-                {["English","العربية","中文","Español","Français","हिन्दी","Português","Türkçe","Deutsch","Italiano","+40 more"].map((l) => (
+                {["English","العربية","+970 PS","+966 SA","+971 AE","+44 UK"].map((l) => (
                   <span key={l} className="inline-flex items-center gap-1.5 px-3 h-7 rounded-full bg-white border border-border text-[12px] font-semibold text-heading">
                     <MessageCircle size={11} className="text-teal" /> {l}
                   </span>

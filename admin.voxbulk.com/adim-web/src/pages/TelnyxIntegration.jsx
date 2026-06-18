@@ -58,6 +58,101 @@ function looksLikePhoneNotProfile(value) {
   return digits.length >= 10 && !uuidRe.test(raw)
 }
 
+const ROUTE_REGION_PRESETS = ['global', 'gb', 'us', 'ca', 'au', 'eu']
+
+function normalizeRouteRows(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((row) => ({
+      number: String(row?.number || '').trim(),
+      label: String(row?.label || '').trim(),
+      regions: Array.isArray(row?.regions) ? row.regions.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean) : ['global'],
+    }))
+    .filter((row) => row.number)
+}
+
+function TelnyxRouteTable({ title, hint, routes, onChange }) {
+  const rows = normalizeRouteRows(routes)
+  const updateRow = (index, patch) => {
+    const next = rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    onChange(next)
+  }
+  const toggleRegion = (index, region) => {
+    const row = rows[index]
+    if (!row) return
+    const set = new Set(row.regions || [])
+    if (set.has(region)) set.delete(region)
+    else set.add(region)
+    updateRow(index, { regions: set.size ? [...set] : ['global'] })
+  }
+  const addRow = () => onChange([...rows, { number: '', label: '', regions: ['global'] }])
+  const removeRow = (index) => onChange(rows.filter((_, i) => i !== index))
+  return (
+    <div className='stack' style={{ gap: 8 }}>
+      <div>
+        <strong>{title}</strong>
+        {hint ? <div className='muted telnyxFieldHint'>{hint}</div> : null}
+      </div>
+      <div className='tableWrap'>
+        <table className='table telnyxRouteTable'>
+          <thead>
+            <tr>
+              <th>Number</th>
+              <th>Regions</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={3} className='muted'>
+                  No routes — add a number or save legacy fields below.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, index) => (
+                <tr key={`${row.number}-${index}`}>
+                  <td>
+                    <input
+                      className='input'
+                      value={row.number}
+                      onChange={(e) => updateRow(index, { number: e.target.value })}
+                      placeholder='+44…'
+                    />
+                  </td>
+                  <td>
+                    <div className='telnyxRegionChips'>
+                      {ROUTE_REGION_PRESETS.map((region) => (
+                        <button
+                          key={region}
+                          type='button'
+                          className={`btn soft ${(row.regions || []).includes(region) ? 'primary' : ''}`}
+                          style={{ padding: '2px 8px', fontSize: 12 }}
+                          onClick={() => toggleRegion(index, region)}
+                        >
+                          {region.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <button type='button' className='btn soft' onClick={() => removeRow(index)}>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <button type='button' className='btn soft' onClick={addRow}>
+        Add number
+      </button>
+    </div>
+  )
+}
+
 function Field({ label, hint, error, children }) {
   return (
     <div className='telnyxField'>
@@ -364,6 +459,31 @@ export default function TelnyxIntegration({
                 onChange={(e) => setProviderField('telnyx', 'messaging_org_id', e.target.value)}
               />
             </Field>
+          </div>
+        </div>
+
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Outbound number routing</h3>
+            <span className='pill p-cyan'>Per region</span>
+          </div>
+          <div className='cardBody stack'>
+            <div className='note'>
+              Assign multiple numbers by destination region. <strong>Global</strong> is the fallback when no regional match.
+              Outbound AI calls and WhatsApp surveys use these routes (legacy single fields below sync on save).
+            </div>
+            <TelnyxRouteTable
+              title='Voice — AI outbound calls'
+              hint='Landline or mobile used as caller ID by destination country.'
+              routes={activeConfig.voice_routes}
+              onChange={(next) => setProviderField('telnyx', 'voice_routes', next)}
+            />
+            <TelnyxRouteTable
+              title='WhatsApp — surveys & feedback'
+              hint='Platform WhatsApp sender (Number 1). Does not affect Yallasay Number 2.'
+              routes={activeConfig.whatsapp_routes}
+              onChange={(next) => setProviderField('telnyx', 'whatsapp_routes', next)}
+            />
           </div>
         </div>
 

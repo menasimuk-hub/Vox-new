@@ -20,7 +20,7 @@ _APPROVED_TEMPLATE_STATUSES = frozenset({"approved", "synced", "live"})
 def _language_variants(language: str | None) -> list[str]:
     primary = resolve_template_language(language)
     variants: list[str] = []
-    for code in (primary, "en_GB", "en_US", "en", "ar"):
+    for code in (primary, "en_GB", "en_US", "en_AU", "en", "ar"):
         clean = str(code or "").strip()
         if clean and clean not in variants:
             variants.append(clean)
@@ -53,10 +53,9 @@ def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> 
 
 
 def resolve_template_language(raw: str | None) -> str:
-    lang = str(raw or "en_GB").strip().lower().replace("-", "_")
-    if lang in {"ar", "arabic"}:
-        return "ar"
-    return "en_GB"
+    from app.services.customer_feedback.locale_service import normalize_session_language
+
+    return normalize_session_language(raw)
 
 
 def get_system_template(db: Session, template_key: str, *, language: str | None = None) -> FeedbackWaTemplate | None:

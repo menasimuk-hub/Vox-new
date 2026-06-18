@@ -337,8 +337,12 @@ class TelnyxMessagingService:
         messaging_profile_id: str | None = None,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
-        sms_from, _ = TelnyxMessagingService._from_numbers(config)
-        sender = normalize_telnyx_e164(from_number or sms_from)
+        sms_from, wa_from = TelnyxMessagingService._from_numbers(config)
+        from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
+
+        sender = normalize_telnyx_e164(
+            from_number or TelnyxNumberRoutingService.resolve_sms_from(destination_e164=to_number, config=config) or sms_from
+        )
         recipient = normalize_telnyx_e164(to_number)
         if not sender:
             return TelnyxMessageResult(
@@ -374,7 +378,12 @@ class TelnyxMessagingService:
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         _, wa_from = TelnyxMessagingService._from_numbers(config)
-        sender_raw = from_number or wa_from
+        from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
+
+        sender_raw = from_number or TelnyxNumberRoutingService.resolve_whatsapp_from(
+            destination_e164=to_number,
+            config=config,
+        ) or wa_from
         if not sender_raw:
             return TelnyxMessageResult(
                 ok=False,

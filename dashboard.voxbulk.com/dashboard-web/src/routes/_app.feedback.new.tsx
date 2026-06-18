@@ -606,7 +606,7 @@ function CreateFeedback() {
                 </div>
               ) : previewM.isError && !previewQr ? (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                  Could not load live QR preview. Check Telnyx WhatsApp is configured in admin, then go back and try again.
+                  Could not load live QR preview. WhatsApp may not be configured yet — go back and try again.
                 </div>
               ) : (
               <div className="grid gap-6 lg:grid-cols-[auto_1fr_auto]">

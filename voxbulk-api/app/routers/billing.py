@@ -1041,6 +1041,7 @@ def pay_my_invoice(
 @router.post("/invoices/{invoice_id}/pay/card/intent")
 def invoice_card_payment_intent(
     invoice_id: str,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     principal=Depends(require_billing_access),
 ):
@@ -1054,8 +1055,10 @@ def invoice_card_payment_intent(
     row = InvoiceService.get_for_org(db, invoice_id=invoice_id, org_id=principal.org_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    body = payload or {}
+    provider = str(body.get("provider") or "stripe").strip().lower()
     try:
-        return InvoicePaymentService.create_card_payment_intent(db, org, row)
+        return InvoicePaymentService.create_card_payment_intent(db, org, row, provider=provider)
     except InvoicePaymentError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -1078,9 +1081,10 @@ def invoice_card_payment_confirm(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     intent_id = str(payload.get("payment_intent_id") or "").strip()
+    provider = str(payload.get("provider") or "stripe").strip().lower()
     try:
         return InvoicePaymentService.confirm_card_payment(
-            db, org, row, payment_intent_id=intent_id, user_id=getattr(principal, "user_id", None)
+            db, org, row, payment_intent_id=intent_id, provider=provider, user_id=getattr(principal, "user_id", None)
         )
     except InvoicePaymentError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

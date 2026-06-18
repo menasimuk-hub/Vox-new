@@ -135,7 +135,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         id: "wa-survey-how-to",
         group: "How to use",
         title: "Step-by-step: launch a WhatsApp survey",
-        body: "1. Upload contact list — go to /surveys/new, pick the WhatsApp channel, upload your CSV.\n2. Build your question flow — pick a preset template, or define a structured flow (Linear = fixed order, Graph = branches based on answers).\n3. Review approved templates — questions must match templates approved on Meta/Telnyx. Custom edits need re-approval.\n4. Launch and monitor — the system sends the first message and handles replies automatically.\n5. View results — /surveys/results shows reply transcripts, NPS indicators and extracted answers.",
+        body: "1. Upload contact list — go to /surveys/new, pick the WhatsApp channel, upload your CSV.\n2. Build your question flow — pick a preset template, or define a structured flow (Linear = fixed order, Graph = branches based on answers).\n3. Review approved templates — questions must match Meta-approved templates. Custom edits need re-approval.\n4. Launch and monitor — the system sends the first message and handles replies automatically.\n5. View results — /surveys/results shows reply transcripts, NPS indicators and extracted answers.",
       },
       {
         id: "wa-survey-undelivered",

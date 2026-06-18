@@ -774,11 +774,6 @@ function RespondentSheet({
               <p className="mt-0.5 text-muted-foreground">This customer answered "no" to recommending you and rated multiple questions poor.</p>
             </div>
           )}
-
-          <div className="flex gap-2">
-            <Button size="sm" className="flex-1 gap-1.5"><Phone className="size-3.5" /> Call now</Button>
-            <Button size="sm" variant="outline" className="flex-1 gap-1.5"><MessageSquareText className="size-3.5" /> WhatsApp</Button>
-          </div>
         </SheetHeader>
 
         <div className="mt-6 space-y-3">

@@ -93,7 +93,7 @@ export function UploadedContactsTable({
       </div>
       {blockedCount > 0 ? (
         <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 p-2">
-          {blockedCount} number{blockedCount === 1 ? "" : "s"} cannot be called — not on the Telnyx allowlist. Fix or
+          {blockedCount} number{blockedCount === 1 ? "" : "s"} cannot be called — not in an approved calling region. Fix or
           remove them; only allowed numbers will be dialled.
         </p>
       ) : null}

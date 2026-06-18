@@ -237,7 +237,11 @@ class FeedbackWhatsappService:
             visitor_phone=from_phone,
             status="active",
             current_step=0,
-            detected_language=resolve_session_language(phone=from_phone, trigger_hint=language_hint),
+            detected_language=resolve_session_language(
+                phone=from_phone,
+                trigger_hint=language_hint,
+                location_country=getattr(location, "wa_sender_country", None),
+            ),
             trigger_dedupe_key=dedupe_key,
             started_at=now,
             created_at=now,

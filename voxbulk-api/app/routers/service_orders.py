@@ -1759,7 +1759,7 @@ def get_interview_recipient_recording(
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail="Recording not available yet. Telnyx may still be processing — try again in a minute.",
+        detail="Recording not available yet — still processing. Try again in a minute.",
     )
 
 

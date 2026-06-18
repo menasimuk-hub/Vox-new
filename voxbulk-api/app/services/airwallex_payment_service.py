@@ -1,4 +1,4 @@
-"""Airwallex card payments for wallet top-ups (PaymentIntents via REST, no SDK dependency)."""
+"""Airwallex card payments for wallet top-ups and invoice settlement (PaymentIntents via REST)."""
 
 from __future__ import annotations
 
@@ -119,6 +119,92 @@ class AirwallexPaymentService:
         }
 
     @staticmethod
+    def create_invoice_payment_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        invoice_id: str,
+        amount_minor: int,
+        invoice_number: str | None = None,
+    ) -> dict[str, Any]:
+        currency = resolve_org_currency(db, org, persist=True)
+        label = invoice_number or invoice_id[:8]
+        request_id = str(uuid.uuid4())
+        intent = AirwallexPaymentService._request(
+            db,
+            "POST",
+            "/api/v1/pa/payment_intents/create",
+            payload={
+                "request_id": request_id,
+                "amount": round(int(amount_minor) / 100.0, 2),
+                "currency": currency,
+                "merchant_order_id": f"voxbulk-invoice-{invoice_id[:8]}-{int(time.time())}",
+                "metadata": {
+                    "voxbulk_org_id": org.id,
+                    "voxbulk_kind": "invoice_payment",
+                    "voxbulk_invoice_id": invoice_id,
+                },
+                "descriptor": f"Invoice {label}"[:22],
+            },
+        )
+        return {
+            "provider": "airwallex",
+            "payment_intent_id": str(intent.get("id") or ""),
+            "client_secret": str(intent.get("client_secret") or ""),
+            "amount_minor": int(amount_minor),
+            "currency": currency,
+            "status": str(intent.get("status") or ""),
+            "environment": str(AirwallexPaymentService.get_config(db).get("environment") or "demo"),
+        }
+
+    @staticmethod
+    def confirm_invoice_payment(
+        db: Session,
+        org: Organisation,
+        *,
+        invoice_id: str,
+        payment_intent_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        from app.models.billing_invoice import BillingInvoice
+        from app.services.invoice_payment_service import InvoicePaymentService
+
+        pid = str(payment_intent_id or "").strip()
+        if not pid:
+            raise AirwallexProviderError("payment_intent_id required")
+        intent = AirwallexPaymentService.retrieve_intent(db, pid)
+        meta = intent.get("metadata") or {}
+        if str(meta.get("voxbulk_org_id") or "") != org.id:
+            raise AirwallexProviderError("Payment does not belong to this organisation")
+        if str(meta.get("voxbulk_kind") or "") != "invoice_payment":
+            raise AirwallexProviderError("Payment is not for invoice settlement")
+        if str(meta.get("voxbulk_invoice_id") or "") != str(invoice_id):
+            raise AirwallexProviderError("Payment does not match this invoice")
+        status = str(intent.get("status") or "").upper()
+        if status != "SUCCEEDED":
+            return {"ok": False, "status": status, "paid": False}
+        invoice = db.get(BillingInvoice, invoice_id)
+        if invoice is None or invoice.org_id != org.id:
+            raise AirwallexProviderError("Invoice not found")
+        if not InvoicePaymentService.is_payable(invoice):
+            raise AirwallexProviderError("This invoice is no longer payable")
+        amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+        due = InvoicePaymentService.amount_due_minor(invoice)
+        if amount < due:
+            raise AirwallexProviderError("Card payment amount is less than invoice due")
+        if str(invoice.payment_reference or "") == pid and str(invoice.status or "").lower() == "paid":
+            return {"ok": True, "status": status, "paid": True, "duplicate": True, "invoice_id": invoice.id}
+        return InvoicePaymentService.mark_paid_from_card(
+            db,
+            org,
+            invoice,
+            provider="airwallex",
+            provider_reference=pid,
+            amount_minor=amount,
+            user_id=user_id,
+        )
+
+    @staticmethod
     def create_topup_intent(db: Session, org: Organisation, *, amount_minor: int) -> dict[str, Any]:
         currency = resolve_org_currency(db, org, persist=True)
         request_id = str(uuid.uuid4())
@@ -230,11 +316,37 @@ class AirwallexPaymentService:
         pid = str(intent.get("id") or "")
         meta = intent.get("metadata") or {}
         org_id = str(meta.get("voxbulk_org_id") or "")
-        if not org_id or str(meta.get("voxbulk_kind") or "") != "wallet_topup":
-            return {"ok": True, "ignored": True, "reason": "not_a_wallet_topup"}
+        payment_kind = str(meta.get("voxbulk_kind") or "")
+        if not org_id:
+            return {"ok": True, "ignored": True, "reason": "missing_org"}
         org = db.get(Organisation, org_id)
         if org is None:
             return {"ok": True, "ignored": True, "reason": "org_not_found"}
+
+        if payment_kind == "invoice_payment":
+            from app.models.billing_invoice import BillingInvoice
+            from app.services.invoice_payment_service import InvoicePaymentService
+
+            invoice_id = str(meta.get("voxbulk_invoice_id") or "")
+            invoice = db.get(BillingInvoice, invoice_id)
+            if invoice is None or invoice.org_id != org.id:
+                return {"ok": True, "ignored": True, "reason": "invoice_not_found"}
+            if str(invoice.status or "").lower() == "paid":
+                return {"ok": True, "paid": True, "duplicate": True}
+            amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+            InvoicePaymentService.mark_paid_from_card(
+                db,
+                org,
+                invoice,
+                provider="airwallex",
+                provider_reference=pid,
+                amount_minor=amount,
+                user_id=None,
+            )
+            return {"ok": True, "paid": True, "invoice_id": invoice_id}
+
+        if payment_kind != "wallet_topup":
+            return {"ok": True, "ignored": True, "reason": "not_a_wallet_topup"}
         if WalletService.has_transaction_for_reference(db, provider="airwallex", provider_reference=pid):
             return {"ok": True, "credited": False, "duplicate": True}
         amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
