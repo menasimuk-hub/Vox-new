@@ -1,0 +1,695 @@
+/**
+ * VoxBulk Admin — canonical layout, components, forms, spacing.
+ * Loaded after styles.css; overrides duplicate primitives there.
+ */
+
+:root {
+  --surface: var(--s1);
+  --surface-2: var(--s2);
+  --line: var(--b1);
+  --text: var(--t1);
+  --radius: 12px;
+
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+}
+
+/* ── Page frame ── */
+
+.content {
+  margin: 0 auto;
+  width: 100%;
+  max-width: var(--content-max);
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.pageShell {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pageTop {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.pageTop h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--t1);
+  letter-spacing: -0.02em;
+}
+
+.pageTop p {
+  margin: 6px 0 0;
+  max-width: 60ch;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* ── Grids ── */
+
+.grid-4,
+.kg4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.grid-4 + .grid-4 {
+  margin-top: 0;
+}
+
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.grid-12 > [class*='span-'] {
+  min-width: 0;
+}
+
+.span-8 { grid-column: span 8; }
+.span-7 { grid-column: span 7; }
+.span-6 { grid-column: span 6; }
+.span-5 { grid-column: span 5; }
+.span-4 { grid-column: span 4; }
+.span-3 { grid-column: span 3; }
+.span-12 { grid-column: span 12; }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.grid-12 .input,
+.grid-12 .select,
+.grid-12 textarea.input,
+.grid-12 select.input {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .grid-4,
+  .kg4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid-12 > .span-8,
+  .grid-12 > .span-7,
+  .grid-12 > .span-6,
+  .grid-12 > .span-5,
+  .grid-12 > .span-4,
+  .grid-12 > .span-3 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-4,
+  .kg4 {
+    grid-template-columns: 1fr;
+  }
+
+  .cardHead {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Cards ── */
+
+.card {
+  background: var(--s1);
+  border: 1px solid var(--b1);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 0;
+  box-shadow: 0 1px 2px rgba(42, 38, 32, 0.04);
+  transition: var(--transition);
+}
+
+.card:last-child {
+  margin-bottom: 0;
+}
+
+.card.stat {
+  padding: 16px 18px;
+  border-left: 4px solid var(--accent, var(--grn));
+}
+
+.card.stat::before {
+  display: none;
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: 0;
+  border-bottom: none;
+}
+
+.cardHead h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--t1);
+}
+
+.cardBody {
+  width: 100%;
+  padding: 0;
+}
+
+.cardBody > p.muted:only-child,
+.cardBody > .muted:first-child:last-child {
+  margin: 0;
+  padding: var(--space-3);
+  text-align: center;
+  font-size: 13px;
+  color: var(--t2);
+  background: var(--s2);
+  border: 1px dashed var(--b2);
+  border-radius: 9px;
+}
+
+/* ── Stats ── */
+
+.statLabel {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.statValue {
+  margin: 6px 0 4px;
+  font-family: var(--font-heading);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--t1);
+  letter-spacing: -0.02em;
+}
+
+.statMeta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── Tables ── */
+
+.tableWrap {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--t1);
+  border-bottom: 1px solid var(--line);
+}
+
+.table tbody tr {
+  cursor: default;
+}
+
+.table tbody tr[style*='cursor: pointer'],
+.table tbody tr:hover {
+  background: var(--s2);
+}
+
+.table .input,
+.table .select,
+.table select.input {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ── Buttons ── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1.5px solid var(--b2);
+  background: transparent;
+  color: var(--t1);
+  font-family: inherit;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  line-height: 1.25;
+}
+
+.btn:hover {
+  background: var(--s2);
+}
+
+.btn.primary,
+.btn.btng {
+  background: var(--grn);
+  color: #fff;
+  border-color: var(--grn);
+  font-weight: 600;
+}
+
+.btn.primary:hover,
+.btn.btng:hover {
+  background: var(--grn2);
+  border-color: var(--grn2);
+}
+
+.btn.soft {
+  background: var(--gd);
+  color: var(--grn);
+  border-color: transparent;
+}
+
+.btn.soft:hover {
+  background: var(--gd2);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--grn);
+  outline-offset: 2px;
+}
+
+/* ── Pills / badges ── */
+
+.bdg,
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  min-height: 24px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.bdg.bg,
+.p-green {
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--green);
+}
+
+.p-red,
+.bdg.br {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--red);
+}
+
+.p-amber,
+.bdg.ba {
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--amb);
+}
+
+.p-cyan,
+.bdg.bb {
+  background: rgba(8, 145, 178, 0.12);
+  color: var(--blu);
+}
+
+.p-violet,
+.bdg.bp {
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--pur);
+}
+
+/* ── Lists ── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.listRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.listRow:last-child {
+  border-bottom: none;
+}
+
+.listRow strong {
+  color: var(--t1);
+  font-weight: 600;
+}
+
+/* ── Timeline ── */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.timelineItem {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.timelineItem:hover {
+  background: var(--s2);
+}
+
+.timelineIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--s2);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--grn);
+}
+
+/* ── Form controls ── */
+
+.input,
+.select,
+textarea.input,
+select.input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--t1);
+  background: var(--input-bg);
+  border: 1.5px solid var(--b2);
+  border-radius: 9px;
+  transition: border-color 0.15s ease, outline 0.15s ease, background 0.15s ease;
+}
+
+textarea.input {
+  min-height: 90px;
+  height: auto;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.input::placeholder,
+textarea.input::placeholder {
+  color: var(--t3);
+}
+
+.input:focus,
+.select:focus,
+textarea.input:focus,
+select.input:focus,
+.input:focus-visible,
+.select:focus-visible,
+textarea.input:focus-visible,
+select.input:focus-visible {
+  outline: 2px solid var(--grn);
+  outline-offset: 1px;
+  border-color: var(--grn);
+  background: var(--s1);
+}
+
+.input:disabled,
+.select:disabled,
+textarea.input:disabled,
+select.input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+select.input,
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6458' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.formField .input,
+.formField .select,
+.formField textarea.input,
+.formField select.input {
+  width: 100%;
+  min-width: 0;
+}
+
+.formField .label {
+  margin: 0;
+}
+
+.fieldHint,
+.formField .fieldHint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--t3);
+  margin: 0;
+}
+
+.formError,
+.fieldError {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--red);
+  margin: 0;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--grn);
+}
+
+body.dark .input::placeholder,
+body.dark textarea.input::placeholder,
+body.dark .admin-search input::placeholder {
+  color: var(--t3);
+}
+
+.filters .input,
+.filters .select,
+.filters select.input {
+  flex: 1 1 140px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters .input,
+  .filters .select,
+  .filters select.input {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}
+
+/* ── Dashboard page (Phase 2 layout) ── */
+
+.dashboardPage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dashboardSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.dashboardSectionHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.dashboardSectionHead h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+
+.dashboardSectionHead p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--t3);
+  line-height: 1.45;
+}
+
+.dashboardErrorNote {
+  margin: 0;
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.statCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.statCardIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--s2);
+}
+
+.btnIconLeading {
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.tableRowClickable {
+  cursor: pointer;
+}
+
+.rowActionsCompact {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dashboardInlineBadge {
+  margin-bottom: var(--space-2);
+}
+
+.dashboardChartBody {
+  height: 260px;
+}
+
+.dashboardHint {
+  margin: 0 0 var(--space-2);
+}
+
+.dashboardMetaStrong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.timelineTitle {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.dashboardCardActions {
+  margin-top: var(--space-2);
+}
+
+.btn.sm,
+.btn.bsm {
+  padding: 5px 11px;
+  font-size: 12px;
+}

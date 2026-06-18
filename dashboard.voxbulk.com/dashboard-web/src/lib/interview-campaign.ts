@@ -68,10 +68,11 @@ export function bookingInvitesWereSent(config: Record<string, unknown>): boolean
   return dispatch?.ok === true;
 }
 
-/** Resend booking invites: hidden before launch; per-candidate after launch. */
+/** Resend booking invites: hidden before launch and when campaign is read-only. */
 export function campaignAllowsResendBookingInvites(opts: {
   orderStatus?: string | null;
 }): boolean {
+  if (isInterviewCampaignReadOnly(opts.orderStatus)) return false;
   return isInterviewCampaignLaunched(opts.orderStatus);
 }
 
@@ -100,6 +101,7 @@ export function candidateAllowsResendBookingInvite(opts: {
   recipientStatus?: string | null;
   interviewCompleted?: boolean;
 }): boolean {
+  if (isInterviewCampaignReadOnly(opts.orderStatus)) return false;
   if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
   if (opts.interviewCompleted) return false;
   const recipient = String(opts.recipientStatus || "").toLowerCase();

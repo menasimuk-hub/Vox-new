@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 import { apiFetch } from "@/lib/api";
 import { usePayInvoice } from "@/lib/queries";
 import type { Invoice, InvoicePaymentContext } from "@/lib/types/api";
@@ -19,7 +20,6 @@ import type { Invoice, InvoicePaymentContext } from "@/lib/types/api";
 declare global {
   interface Window {
     Stripe?: (key: string) => StripeJs;
-    Airwallex?: AirwallexJs;
   }
 }
 
@@ -48,14 +48,6 @@ type StripePaymentElement = {
 };
 type StripeElements = {
   create: (kind: string, opts?: Record<string, unknown>) => StripePaymentElement;
-};
-
-type AirwallexJs = {
-  init: (opts: { env: string; origin: string }) => void;
-  createElement: (
-    kind: "dropIn",
-    opts: { intent_id: string; client_secret: string; currency: string },
-  ) => { mount: (el: HTMLElement) => void; destroy?: () => void } | null;
 };
 
 const loadedScripts: Record<string, Promise<void>> = {};
@@ -91,14 +83,12 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
   const [pendingIntent, setPendingIntent] = React.useState<CardIntent | null>(null);
   const mountRef = React.useRef<HTMLDivElement | null>(null);
   const stripeRef = React.useRef<{ stripe: StripeJs; elements: StripeElements; intentId: string } | null>(null);
-  const airwallexIntentIdRef = React.useRef<string>("");
   const cleanupRef = React.useRef<(() => void) | null>(null);
 
   const resetCardState = React.useCallback(() => {
     cleanupRef.current?.();
     cleanupRef.current = null;
     stripeRef.current = null;
-    airwallexIntentIdRef.current = "";
     setPendingIntent(null);
     setCardReady(false);
   }, []);
@@ -137,39 +127,8 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
           stripeRef.current = { stripe, elements, intentId: pendingIntent.payment_intent_id };
           cleanupRef.current = () => paymentElement.destroy();
         } else {
-          await loadScript("https://checkout.airwallex.com/assets/elements.bundle.min.js");
-          if (!window.Airwallex) throw new Error("Airwallex SDK failed to load");
-          const env = String(pendingIntent.environment || "demo");
-          window.Airwallex.init({ env, origin: window.location.origin });
-          const dropIn = window.Airwallex.createElement("dropIn", {
-            intent_id: pendingIntent.payment_intent_id,
-            client_secret: pendingIntent.client_secret,
-            currency: String(pendingIntent.currency || "GBP"),
-          });
-          if (cancelled || !mountRef.current) return;
-          mountRef.current.innerHTML = "";
-          if (dropIn) {
-            dropIn.mount(mountRef.current);
-            cleanupRef.current = () => dropIn.destroy?.();
-          }
-          airwallexIntentIdRef.current = pendingIntent.payment_intent_id;
-          const onSuccess = () => {
-            if (!cancelled) void confirmCard("airwallex", pendingIntent.payment_intent_id);
-          };
-          const onError = (event: Event) => {
-            const detail = (event as CustomEvent).detail as { error?: { message?: string } } | undefined;
-            toast.error(detail?.error?.message || "Payment failed");
-            setBusy(false);
-          };
-          window.addEventListener("onSuccess", onSuccess);
-          window.addEventListener("onError", onError);
-          const prevCleanup = cleanupRef.current;
-          cleanupRef.current = () => {
-            window.removeEventListener("onSuccess", onSuccess);
-            window.removeEventListener("onError", onError);
-            prevCleanup?.();
-          };
-          if (!cancelled) setCardReady(true);
+          // Airwallex uses hosted redirect checkout — not inline drop-in.
+          return;
         }
       } catch (e) {
         if (!cancelled) {
@@ -236,6 +195,22 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
       });
       if (!intent.client_secret || !intent.payment_intent_id) {
         throw new Error("Card payments are not configured.");
+      }
+      if (provider === "airwallex") {
+        onOpenChange(false);
+        await redirectToAirwallexHostedCheckout({
+          intent_id: intent.payment_intent_id,
+          client_secret: intent.client_secret,
+          currency: String(intent.currency || "GBP"),
+          environment: String(intent.environment || "demo"),
+          pending: {
+            flow: "invoice",
+            payment_intent_id: intent.payment_intent_id,
+            invoice_id: invoice.id,
+          },
+          returnPath: `${window.location.pathname}?pay=${encodeURIComponent(invoice.id)}`,
+        });
+        return;
       }
       setPendingIntent({
         provider,

@@ -118,7 +118,7 @@ export function CandidateContactDialog({
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Mail className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 break-all font-medium">{deliverTo || "—"}</span>
-                  {deliverTo && allowResendBookingInvite ? (
+                  {deliverTo && allowResendBookingInvite && !readOnly ? (
                     <Button
                       type="button"
                       size="sm"

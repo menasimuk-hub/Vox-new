@@ -19,6 +19,10 @@ import {
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
 import {
+  clearAirwallexPending,
+  readAirwallexPending,
+} from "@/lib/billing/airwallex-hpp";
+import {
 
   clearBillingQuery,
 
@@ -131,6 +135,58 @@ function GoCardlessReturnHandler({
     if (!params?.billing && !params?.orderBilling) return;
 
     ran.current = true;
+
+    if (params?.billing === "airwallex_cancelled") {
+      clearAirwallexPending();
+      clearBillingQuery();
+      toast.message("Card payment cancelled");
+      return;
+    }
+
+    if (params?.billing === "airwallex_success") {
+      const pending = readAirwallexPending();
+      clearAirwallexPending();
+      clearBillingQuery();
+      if (!pending?.payment_intent_id) {
+        toast.error("Payment completed but checkout session was not found.");
+        return;
+      }
+      void (async () => {
+        try {
+          if (pending.flow === "wallet") {
+            const res = await apiFetch<Record<string, unknown>>("/billing/wallet/topup/confirm", {
+              method: "POST",
+              body: JSON.stringify({ provider: "airwallex", payment_intent_id: pending.payment_intent_id }),
+            });
+            if (res.credited || res.duplicate) {
+              toast.success(
+                `Wallet topped up — ${String(res.wallet_balance_display || res.wallet_balance_gbp || "")}`,
+              );
+            } else {
+              toast.message("Payment is still processing", {
+                description: "Your wallet will be credited as soon as the payment settles.",
+              });
+            }
+          } else if (pending.flow === "invoice" && pending.invoice_id) {
+            await apiFetch(`/billing/invoices/${encodeURIComponent(pending.invoice_id)}/pay/card/confirm`, {
+              method: "POST",
+              body: JSON.stringify({
+                payment_intent_id: pending.payment_intent_id,
+                provider: "airwallex",
+              }),
+            });
+            toast.success("Invoice paid by card");
+          } else {
+            toast.error("Payment completed but checkout session was not found.");
+            return;
+          }
+          onComplete();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not confirm card payment");
+        }
+      })();
+      return;
+    }
 
 
 

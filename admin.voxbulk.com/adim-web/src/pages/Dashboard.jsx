@@ -57,8 +57,8 @@ const HEALTH_PROVIDERS = [
 function StatCard({ label, value, delta, accent, icon: Icon, cls }) {
   return (
     <div className='card stat' style={{ '--accent': accent }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ width: 44, height: 44, borderRadius: 14, display: 'grid', placeItems: 'center', background: 'var(--surface-2)' }}>
+      <div className='statCardTop'>
+        <div className='statCardIcon'>
           <Icon size={18} />
         </div>
         <span className={`pill ${cls}`}>{delta}</span>
@@ -66,6 +66,21 @@ function StatCard({ label, value, delta, accent, icon: Icon, cls }) {
       <div className='statValue'>{value}</div>
       <div className='muted'>{label}</div>
     </div>
+  )
+}
+
+function DashboardSection({ title, description, action, children }) {
+  return (
+    <section className='dashboardSection'>
+      <div className='dashboardSectionHead'>
+        <div>
+          <h2>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
+        {action || null}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -97,6 +112,7 @@ export default function Dashboard() {
   const [surveys, setSurveys] = useState(null)
   const [interviews, setInterviews] = useState(null)
   const [error, setError] = useState('')
+  const [showMoreStats, setShowMoreStats] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -201,8 +217,96 @@ export default function Dashboard() {
     navigate('/organisations/profile?tab=users')
   }
 
-  return (
+  const primaryStats = (
     <>
+      <StatCard
+        label='Organisations'
+        value={n(orgs.length)}
+        delta={`${n(activeOrgs)} active`}
+        accent='#0891b2'
+        icon={Building2}
+        cls='p-cyan'
+      />
+      <StatCard
+        label='Active subscriptions'
+        value={n(billing?.subscriptions_active)}
+        delta={`${n(billing?.subscriptions_trial)} trial · ${n(billing?.subscriptions_past_due)} past due`}
+        accent='#0f766e'
+        icon={DollarSign}
+        cls='p-green'
+      />
+      <StatCard
+        label='Open support tickets'
+        value={n(support?.total_open ?? support?.open ?? 0)}
+        delta={`${n(support?.total_pending ?? support?.pending ?? 0)} pending · ${n(support?.unassigned ?? 0)} unassigned`}
+        accent='#7c3aed'
+        icon={BadgeCheck}
+        cls='p-violet'
+      />
+      <StatCard
+        label='Failed operations'
+        value={n((recovery.failed || 0) + (webhooks.failed || 0))}
+        delta={`${n(recovery.failed || 0)} jobs · ${n(webhooks.failed || 0)} webhooks`}
+        accent='#d97706'
+        icon={BrainCircuit}
+        cls='p-amber'
+      />
+    </>
+  )
+
+  const secondaryStats = (
+    <>
+      <StatCard
+        label='Live surveys'
+        value={n(surveys?.live ?? surveys?.running ?? 0)}
+        delta={`${n(surveys?.running ?? 0)} running · ${n(surveys?.drafts ?? 0)} drafts`}
+        accent='#2563eb'
+        icon={PlayCircle}
+        cls='p-cyan'
+      />
+      <StatCard
+        label='Live interviews'
+        value={n(interviews?.live ?? interviews?.running ?? 0)}
+        delta={`${n(interviews?.running ?? 0)} running · ${n(interviews?.drafts ?? 0)} drafts`}
+        accent='#9333ea'
+        icon={Users}
+        cls='p-violet'
+      />
+      <StatCard
+        label='Telnyx balance'
+        value={
+          telnyxBalance?.ok
+            ? money(telnyxBalance.amount, telnyxBalance.currency)
+            : telnyxBalance?.configured === false
+              ? 'Not configured'
+              : '—'
+        }
+        delta={
+          telnyxBalance?.ok && telnyxBalance.pending > 0
+            ? `${money(telnyxBalance.pending, telnyxBalance.currency)} pending`
+            : 'Voice / SMS credit'
+        }
+        accent='#14b8a6'
+        icon={Wallet}
+        cls='p-green'
+      />
+      <StatCard
+        label='ElevenLabs characters'
+        value={elevenBalance?.ok ? n(elevenBalance.characters_remaining) : elevenBalance?.configured === false ? 'Not set' : '—'}
+        delta={
+          elevenBalance?.ok
+            ? `${n(elevenBalance.character_count)} used · ${elevenBalance.tier || 'tier'}`
+            : 'TTS quota'
+        }
+        accent='#6366f1'
+        icon={Mic2}
+        cls='p-violet'
+      />
+    </>
+  )
+
+  return (
+    <div className='pageShell dashboardPage'>
       <div className='pageTop'>
         <div>
           <h1>Dashboard</h1>
@@ -210,7 +314,7 @@ export default function Dashboard() {
         </div>
         <div className='actions'>
           <button type='button' className='btn soft' onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
-            <RefreshCw size={16} style={{ marginRight: 6, verticalAlign: -3 }} />
+            <RefreshCw size={16} className='btnIconLeading' />
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
           <Link to='/onboarding/add-customer' className='btn primary'>
@@ -219,96 +323,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {error ? (
-        <div className='note' style={{ marginBottom: 16, borderColor: 'rgba(220,38,38,0.35)' }}>
-          {error}
-        </div>
-      ) : null}
+      {error ? <div className='note dashboardErrorNote'>{error}</div> : null}
 
-      <div className='grid-4' style={{ marginBottom: 16 }}>
-        <StatCard
-          label='Organisations'
-          value={n(orgs.length)}
-          delta={`${n(activeOrgs)} active`}
-          accent='#0891b2'
-          icon={Building2}
-          cls='p-cyan'
-        />
-        <StatCard
-          label='Active subscriptions'
-          value={n(billing?.subscriptions_active)}
-          delta={`${n(billing?.subscriptions_trial)} trial · ${n(billing?.subscriptions_past_due)} past due`}
-          accent='#0f766e'
-          icon={DollarSign}
-          cls='p-green'
-        />
-        <StatCard
-          label='Open support tickets'
-          value={n(support?.total_open ?? support?.open ?? 0)}
-          delta={`${n(support?.total_pending ?? support?.pending ?? 0)} pending · ${n(support?.unassigned ?? 0)} unassigned`}
-          accent='#7c3aed'
-          icon={BadgeCheck}
-          cls='p-violet'
-        />
-        <StatCard
-          label='Failed operations'
-          value={n((recovery.failed || 0) + (webhooks.failed || 0))}
-          delta={`${n(recovery.failed || 0)} jobs · ${n(webhooks.failed || 0)} webhooks`}
-          accent='#d97706'
-          icon={BrainCircuit}
-          cls='p-amber'
-        />
-      </div>
+      <DashboardSection
+        title='Platform overview'
+        description='Customers, billing, support load, and operational failures.'
+        action={
+          <button type='button' className='btn soft' onClick={() => setShowMoreStats((v) => !v)}>
+            {showMoreStats ? 'Hide extra metrics' : 'Show 4 more metrics'}
+          </button>
+        }
+      >
+        <div className='grid-4'>{primaryStats}</div>
+        {showMoreStats ? <div className='grid-4'>{secondaryStats}</div> : null}
+      </DashboardSection>
 
-      <div className='grid-4' style={{ marginBottom: 16 }}>
-        <StatCard
-          label='Live surveys'
-          value={n(surveys?.live ?? surveys?.running ?? 0)}
-          delta={`${n(surveys?.running ?? 0)} running · ${n(surveys?.drafts ?? 0)} drafts`}
-          accent='#2563eb'
-          icon={PlayCircle}
-          cls='p-cyan'
-        />
-        <StatCard
-          label='Live interviews'
-          value={n(interviews?.live ?? interviews?.running ?? 0)}
-          delta={`${n(interviews?.running ?? 0)} running · ${n(interviews?.drafts ?? 0)} drafts`}
-          accent='#9333ea'
-          icon={Users}
-          cls='p-violet'
-        />
-        <StatCard
-          label='Telnyx balance'
-          value={
-            telnyxBalance?.ok
-              ? money(telnyxBalance.amount, telnyxBalance.currency)
-              : telnyxBalance?.configured === false
-                ? 'Not configured'
-                : '—'
-          }
-          delta={
-            telnyxBalance?.ok && telnyxBalance.pending > 0
-              ? `${money(telnyxBalance.pending, telnyxBalance.currency)} pending`
-              : 'Voice / SMS credit'
-          }
-          accent='#14b8a6'
-          icon={Wallet}
-          cls='p-green'
-        />
-        <StatCard
-          label='ElevenLabs characters'
-          value={elevenBalance?.ok ? n(elevenBalance.characters_remaining) : elevenBalance?.configured === false ? 'Not set' : '—'}
-          delta={
-            elevenBalance?.ok
-              ? `${n(elevenBalance.character_count)} used · ${elevenBalance.tier || 'tier'}`
-              : 'TTS quota'
-          }
-          accent='#6366f1'
-          icon={Mic2}
-          cls='p-violet'
-        />
-      </div>
-
+      <DashboardSection title='Queues & operations' description='Support, compliance, onboarding, and recovery activity.'>
       <div className='grid-12'>
         <div className='span-8 stack'>
           <div className='card'>
@@ -334,7 +364,7 @@ export default function Dashboard() {
                       {tickets.map((t) => (
                         <tr
                           key={t.id}
-                          style={{ cursor: 'pointer' }}
+                          className='tableRowClickable'
                           onClick={() => navigate(`/support/tickets/${t.id}`)}
                         >
                           <td>{t.subject}</td>
@@ -362,9 +392,9 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className='cardBody'>
-              <p className='muted' style={{ marginBottom: 12 }}>
+              <div className='dashboardInlineBadge'>
                 <span className='pill p-amber'>{n(accountDeletions.pending_count || accountDeletions.items.length)} awaiting</span>
-              </p>
+              </div>
               {accountDeletions.items.length ? (
                 <div className='tableWrap'>
                   <table className='table'>
@@ -379,7 +409,7 @@ export default function Dashboard() {
                       {accountDeletions.items.slice(0, 8).map((row) => (
                         <tr
                           key={row.id}
-                          style={{ cursor: 'pointer' }}
+                          className='tableRowClickable'
                           onClick={() => navigate('/compliance/account-deletions')}
                         >
                           <td>{row.requested_by_email || '—'}</td>
@@ -420,15 +450,15 @@ export default function Dashboard() {
                           <td>{row.organisation_name || row.org_name || '—'}</td>
                           <td className='muted'>{fmt(row.created_at)}</td>
                           <td>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              <button type='button' className='btn soft' style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => decideSignup(row.id, 'approve')}>
+                            <div className='rowActionsCompact'>
+                              <button type='button' className='btn soft sm' onClick={() => decideSignup(row.id, 'approve')}>
                                 Approve
                               </button>
-                              <button type='button' className='btn soft' style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => decideSignup(row.id, 'reject')}>
+                              <button type='button' className='btn soft sm' onClick={() => decideSignup(row.id, 'reject')}>
                                 Reject
                               </button>
                               {row.organisation_id ? (
-                                <button type='button' className='btn soft' style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => openOrgUsers(row.organisation_id)}>
+                                <button type='button' className='btn soft sm' onClick={() => openOrgUsers(row.organisation_id)}>
                                   Users
                                 </button>
                               ) : null}
@@ -452,7 +482,7 @@ export default function Dashboard() {
                 Recovery events
               </Link>
             </div>
-            <div className='cardBody' style={{ height: 260 }}>
+            <div className='cardBody dashboardChartBody'>
               <ResponsiveContainer width='100%' height='100%'>
                 <BarChart data={workflowRows}>
                   <CartesianGrid stroke='var(--line)' strokeDasharray='3 3' />
@@ -466,7 +496,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className='span-4 stack'>
+        <div className='span-4'>
+          <DashboardSection title='Status & health' description='Integrations, alerts, and recent platform activity.'>
+          <div className='stack'>
           <div className='card'>
             <div className='cardHead'>
               <h3>System health</h3>
@@ -487,9 +519,7 @@ export default function Dashboard() {
                     )
                   })
                 ) : (
-                  <div className='muted' style={{ fontSize: 13 }}>
-                    Integration health is visible to superadmin only.
-                  </div>
+                  <p className='muted dashboardHint'>Integration health is visible to superadmin only.</p>
                 )}
                 <div className='listRow'>
                   <span>Webhooks (recent failed)</span>
@@ -497,7 +527,7 @@ export default function Dashboard() {
                 </div>
                 <div className='listRow'>
                   <span>Latest webhook</span>
-                  <strong style={{ fontSize: 12 }}>{fmt(webhooks.latest_received_at)}</strong>
+                  <strong className='dashboardMetaStrong'>{fmt(webhooks.latest_received_at)}</strong>
                 </div>
               </div>
             </div>
@@ -515,16 +545,14 @@ export default function Dashboard() {
                   ['Failed webhooks', `${n(webhooks.failed)} recent`, '/operations/recovery-events', AlertTriangle],
                   ['Past-due subscriptions', `${n(billing?.subscriptions_past_due)} subs`, '/billing/subscriptions', Activity],
                   ['Pending signups', `${n(pending.length)} to review`, '/dashboard', MessageSquare],
-                ].map(([title, detail, href, Icon], i) => (
-                  <div className='timelineItem' key={title} style={{ cursor: 'pointer' }} onClick={() => navigate(href)}>
+                ].map(([title, detail, href, Icon]) => (
+                  <div className='timelineItem' key={title} onClick={() => navigate(href)} role='button' tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') navigate(href) }}>
                     <div className='timelineIcon'>
                       <Icon size={16} />
                     </div>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
-                      <div className='muted' style={{ fontSize: 13 }}>
-                        {detail}
-                      </div>
+                      <div className='timelineTitle'>{title}</div>
+                      <div className='muted'>{detail}</div>
                     </div>
                   </div>
                 ))}
@@ -540,11 +568,11 @@ export default function Dashboard() {
               <div className='list'>
                 <div className='listRow'>
                   <span>Latest subscription</span>
-                  <strong style={{ fontSize: 12 }}>{fmt(billing?.latest_subscription_created_at)}</strong>
+                  <strong className='dashboardMetaStrong'>{fmt(billing?.latest_subscription_created_at)}</strong>
                 </div>
                 <div className='listRow'>
                   <span>Latest recovery job</span>
-                  <strong style={{ fontSize: 12 }}>{fmt(recovery.latest_created_at)}</strong>
+                  <strong className='dashboardMetaStrong'>{fmt(recovery.latest_created_at)}</strong>
                 </div>
                 <div className='listRow'>
                   <span>Survey campaigns live</span>
@@ -555,7 +583,7 @@ export default function Dashboard() {
                   <strong>{n(interviews?.live ?? 0)}</strong>
                 </div>
               </div>
-              <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
+              <div className='actions dashboardCardActions'>
                 <Link to='/operations/running-surveys' className='btn soft'>
                   Surveys
                 </Link>
@@ -568,8 +596,11 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+          </div>
+          </DashboardSection>
         </div>
       </div>
-    </>
+      </DashboardSection>
+    </div>
   )
 }

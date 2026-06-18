@@ -598,7 +598,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         }}
         orderId={orderId}
         readOnly={campaignReadOnly}
-        allowResendBookingInvite={resendBookingInviteForOpen}
+        allowResendBookingInvite={!campaignReadOnly && resendBookingInviteForOpen}
         candidate={contactCandidate}
       />
       <CandidateActivityDialog

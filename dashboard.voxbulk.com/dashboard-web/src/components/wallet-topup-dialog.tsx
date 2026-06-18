@@ -11,16 +11,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  useWalletTopupConfirm,
-  useWalletTopupIntent,
-  useWalletTopupOptions,
-} from "@/lib/queries";
+import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 
 declare global {
   interface Window {
     Stripe?: (key: string) => StripeJs;
-    Airwallex?: AirwallexJs;
   }
 }
 
@@ -32,14 +27,7 @@ type StripeJs = {
     confirmParams?: Record<string, unknown>;
   }) => Promise<{ error?: { message?: string }; paymentIntent?: { id: string; status: string } }>;
 };
-type StripeElements = { create: (kind: string) => { mount: (el: HTMLElement) => void; destroy: () => void } };
-type AirwallexJs = {
-  init: (opts: { env: string; origin: string }) => void;
-  createElement: (
-    kind: "dropIn",
-    opts: { intent_id: string; client_secret: string; currency: string },
-  ) => { mount: (el: HTMLElement) => void; destroy?: () => void } | null;
-};
+type StripeElements = { create: (kind: string, opts?: Record<string, unknown>) => { mount: (el: HTMLElement) => void; destroy: () => void } };
 
 const loadedScripts: Record<string, Promise<void>> = {};
 
@@ -127,37 +115,19 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
         cleanupRef.current = () => paymentElement.destroy();
         setPaymentReady(true);
       } else if (providerId === "airwallex") {
-        await loadScript("https://checkout.airwallex.com/assets/elements.bundle.min.js");
-        if (!window.Airwallex) throw new Error("Airwallex SDK failed to load");
-        const env = String((intent as Record<string, unknown>).environment || "demo");
-        window.Airwallex.init({ env, origin: window.location.origin });
-        const dropIn = window.Airwallex.createElement("dropIn", {
+        if (!intent.payment_intent_id || !intent.client_secret) {
+          throw new Error("Airwallex is not configured.");
+        }
+        onOpenChange(false);
+        await redirectToAirwallexHostedCheckout({
           intent_id: intent.payment_intent_id,
           client_secret: intent.client_secret,
           currency: intent.currency,
+          environment: String((intent as Record<string, unknown>).environment || "demo"),
+          pending: { flow: "wallet", payment_intent_id: intent.payment_intent_id },
+          returnPath: `${window.location.pathname}${window.location.search}`,
         });
-        if (dropIn && mountRef.current) {
-          mountRef.current.innerHTML = "";
-          dropIn.mount(mountRef.current);
-          cleanupRef.current = () => dropIn.destroy?.();
-        }
-        const onSuccess = () => {
-          void finishPayment("airwallex", intent.payment_intent_id);
-        };
-        const onError = (event: Event) => {
-          const detail = (event as CustomEvent).detail as { error?: { message?: string } } | undefined;
-          toast.error(detail?.error?.message || "Payment failed");
-          setPaying(false);
-        };
-        window.addEventListener("onSuccess", onSuccess);
-        window.addEventListener("onError", onError);
-        const prevCleanup = cleanupRef.current;
-        cleanupRef.current = () => {
-          window.removeEventListener("onSuccess", onSuccess);
-          window.removeEventListener("onError", onError);
-          prevCleanup?.();
-        };
-        setPaymentReady(true);
+        return;
       }
     } catch (e) {
       setProvider(null);

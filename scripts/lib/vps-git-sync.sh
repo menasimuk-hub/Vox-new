@@ -57,6 +57,18 @@ vox_git_sync() {
     git checkout -- deploy-vps.sh vox.sh scripts/vps-sync-dashboard.sh scripts/vps-update-ui.sh scripts/vps-sync-all-ui.sh 2>/dev/null || true
   fi
 
+  # Removed legacy portal trees — discard local npm lockfile edits so ff-only pull can delete them.
+  for legacy_path in \
+    abuu.voxbulk.com/abuu-web/package-lock.json \
+    driver.voxbulk.com/driver-web/package-lock.json; do
+    if [[ -f "$legacy_path" ]] && git ls-files --error-unmatch "$legacy_path" >/dev/null 2>&1; then
+      if ! git diff --quiet -- "$legacy_path" 2>/dev/null; then
+        echo "[git] Discarding local edits to $legacy_path (legacy portal removed from repo)"
+        git checkout -- "$legacy_path" 2>/dev/null || git restore "$legacy_path" 2>/dev/null || true
+      fi
+    fi
+  done
+
   echo "[git] pull --ff-only $remote $branch"
   if ! git pull --ff-only "$remote" "$branch"; then
     if [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
