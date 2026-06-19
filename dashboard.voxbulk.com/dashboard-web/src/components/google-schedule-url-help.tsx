@@ -52,17 +52,17 @@ export function GoogleScheduleUrlHelp() {
           </a>
         </p>
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-          <p className="font-medium text-foreground">About email when sending booking links</p>
+          <p className="font-medium text-foreground">Sending booking links to candidates</p>
           <ul className="mt-2 list-disc space-y-1.5 pl-4 text-muted-foreground">
             <li>
-              Interview invites are sent by <strong className="text-foreground">VoxBulk email (SMTP)</strong>, not from your Gmail account. Google Calendar only provides the booking page URL.
+              After you save this URL, open <strong className="text-foreground">Results</strong> on an interview campaign and use{" "}
+              <strong className="text-foreground">Send booking</strong>. Each selected candidate receives an email with your Google booking link.
             </li>
+            <li>Each candidate needs an email address on their row in the campaign.</li>
             <li>
-              If email fails, ask your admin to check <strong className="text-foreground">Admin → Email / notification settings</strong> and that the{" "}
-              <code className="text-xs">interview_scheduling_invite</code> template exists.
+              Google Calendar only hosts the booking page — it does not send the invite email from your Gmail inbox. VoxBulk sends that email for you.
             </li>
-            <li>Each candidate needs an email address on the campaign recipient row.</li>
-            <li>Google&apos;s booking page may not pre-fill the guest email from the link — the candidate opens the URL from the VoxBulk email we send.</li>
+            <li>If a candidate did not receive it, ask them to check spam or promotions. You can resend from Results if needed.</li>
           </ul>
         </div>
       </DialogContent>

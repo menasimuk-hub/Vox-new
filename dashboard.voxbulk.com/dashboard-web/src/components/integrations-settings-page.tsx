@@ -351,7 +351,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Required to finish setup. Booking invites are emailed via VoxBulk SMTP (not Gmail) — your admin must configure email in Admin → Email settings.
+                    Paste your public booking page link to finish setup. When you send interview links from Results, each candidate gets an email with this URL — Google Calendar does not send those emails for you.
                   </p>
                 </div>
               ) : null}

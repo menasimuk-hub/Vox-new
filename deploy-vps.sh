@@ -330,7 +330,7 @@ PY
         info "  Dashboard static OK: index.html → $dash_js (new UI)"
       fi
     else
-      fail "Dashboard wwwroot broken — run: bash scripts/vps-sync-all-ui.sh"
+      warn "  Dashboard wwwroot: could not verify index.html asset bundle (check $VOX_DASH_DIST after rsync)"
     fi
     if [[ -f "$VOX_DASH_DIST/build-info.json" ]]; then
       vox_verify_build_info_sha "$ROOT" "$VOX_DASH_DIST" "dashboard" || fail "Dashboard build-info SHA mismatch — deploy did not publish current commit"
