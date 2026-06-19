@@ -2,8 +2,9 @@
 /**
  * TanStack Start preview expects dist/server/server.js but Cloudflare build emits index.js.
  * Copy index.js → server.js so `npm run preview` works after build.
+ * Also copy public/.well-known into dist/client for Microsoft Entra domain verification.
  */
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,3 +20,11 @@ if (!existsSync(index)) {
 
 copyFileSync(index, server);
 console.info("[fix-preview] Created dist/server/server.js for vite preview");
+
+const publicWellKnown = join(root, "public", ".well-known");
+const distClientWellKnown = join(root, "dist", "client", ".well-known");
+if (existsSync(publicWellKnown)) {
+  mkdirSync(distClientWellKnown, { recursive: true });
+  cpSync(publicWellKnown, distClientWellKnown, { recursive: true });
+  console.info("[fix-preview] Copied public/.well-known → dist/client/.well-known");
+}

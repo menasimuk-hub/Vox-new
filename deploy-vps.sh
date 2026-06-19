@@ -243,9 +243,21 @@ nginx_test_if_present() {
   fi
 }
 
+sync_well_known() {
+  local src="$PUBLIC_DIR/public/.well-known"
+  local dest="${VOX_PUBLIC_DIST}/.well-known"
+  if [[ ! -d "$src" ]]; then
+    return 0
+  fi
+  info "Syncing .well-known verification files → $dest"
+  sudo mkdir -p "$dest"
+  sudo rsync -a "$src/" "$dest/"
+}
+
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
+  sync_well_known
   # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
 
@@ -341,6 +353,22 @@ PY
     fi
   fi
 
+  local ms_well_known="${VOX_PUBLIC_DIST}/.well-known/microsoft-identity-association.json"
+  if [[ -f "$ms_well_known" ]]; then
+    info "  Microsoft publisher domain file on disk: $ms_well_known"
+    local ms_code
+    ms_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: voxbulk.com" \
+      "http://127.0.0.1/.well-known/microsoft-identity-association.json" 2>/dev/null || echo "000")
+    if [[ "$ms_code" == "200" ]]; then
+      info "  https://voxbulk.com/.well-known/microsoft-identity-association.json → HTTP 200"
+    else
+      warn "  Microsoft identity file HTTP $ms_code via nginx (want 200)."
+      warn "  Update nginx: replace 'location ~ \\.well-known' with alias block in docs/nginx-voxbulk.com.conf, then: sudo nginx -t && sudo nginx -s reload"
+    fi
+  else
+    warn "  Missing $ms_well_known — run deploy after pulling microsoft-identity-association.json"
+  fi
+
   if [[ -d "${VOX_ADMIN_DIST:-}" ]]; then
     local js
     js=$(grep -oE '/assets/[^"]+\.js' "$VOX_ADMIN_DIST/index.html" 2>/dev/null | head -1 || true)
@@ -424,7 +452,14 @@ After deploy — manual checks
 
 5. Brand logos: replace files in voxbulk-api/logos/ — deploy runs sync-brand-assets.mjs before every frontend build.
 
-6. Invoice PDF styling requires WeasyPrint system libraries on Linux:
+6. Microsoft Entra publisher domain (voxbulk.com):
+   - File: /.well-known/microsoft-identity-association.json
+   - Deploy syncs it to /www/wwwroot/voxbulk.com/.well-known/
+   - nginx must serve that path (NOT the old "location ~ \.well-known { allow all; }" block — it 404s).
+   - One-time: bash scripts/vps-install-microsoft-well-known-nginx.sh
+   - Or replace vhost using docs/nginx-voxbulk.com.conf, then: sudo nginx -t && sudo nginx -s reload
+
+7. Invoice PDF styling requires WeasyPrint system libraries on Linux:
    sudo apt-get install -y libpango-1.0-0 libharfbuzz0b libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info libcairo2
    Then: pip install -r voxbulk-api/requirements.txt && ./vox.sh restart
 
