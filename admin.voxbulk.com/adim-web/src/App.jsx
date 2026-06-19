@@ -191,6 +191,7 @@ export default function App() {
         <Route path='/integrations/calendly' element={<Integrations />} />
         <Route path='/integrations/cal_com' element={<Integrations />} />
         <Route path='/integrations/google_calendar' element={<Integrations />} />
+        <Route path='/integrations/microsoft_calendar' element={<Integrations />} />
         <Route path='/integrations/hubspot' element={<Integrations />} />
         <Route path='/integrations/webhooks' element={<Integrations />} />
         <Route path='/integrations/social-login' element={<Integrations />} />
