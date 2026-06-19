@@ -130,6 +130,27 @@ function pctUsed(used, included) {
   return Math.min(100, Math.round((Number(used || 0) / inc) * 100))
 }
 
+function OccInfoBlock({ title, action, children }) {
+  return (
+    <div className="occ-info-block">
+      <div className="occ-info-block-head">
+        <div className="occ-info-block-title">{title}</div>
+        {action || null}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function OccInfoRow({ label, value }) {
+  return (
+    <div className="occ-info-row">
+      <span className="occ-info-row-label">{label}</span>
+      <span className="occ-info-row-value">{value}</span>
+    </div>
+  )
+}
+
 function ToastStack({ toasts }) {
   if (!toasts.length) return null
   return (
@@ -1184,10 +1205,12 @@ export default function OrgControlCenter() {
         </div>
       </div>
 
-      <div className="occ-kpi-section">
-        <div className="occ-section-eyebrow">Selected organisation — KPI overview</div>
-        <KpiCards org={org || items.find((x) => x.id === selectedId)} />
-      </div>
+      {!selectedId ? (
+        <div className="occ-kpi-section">
+          <div className="occ-section-eyebrow">KPI overview</div>
+          <KpiCards org={null} />
+        </div>
+      ) : null}
 
       <div className="occ-table-section">
         <div className="occ-section-header">
@@ -1373,202 +1396,195 @@ export default function OrgControlCenter() {
           ) : null}
 
           <div className={`occ-tab-content ${activeTab === 'overview' ? 'active' : ''}`}>
-            <div className="occ-two-col">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Account details</div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Org ID</span>
-                    <span className="occ-info-row-value">{selectedId}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Contact</span>
-                    <span className="occ-info-row-value">{org?.contact_name || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Email</span>
-                    <span className="occ-info-row-value">{org?.contact_email || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Phone</span>
-                    <span className="occ-info-row-value">{org?.contact_phone || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Status</span>
-                    <span className="occ-info-row-value">{statusBadge(org?.status)}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Active campaigns</span>
-                    <span className="occ-info-row-value">{org?.running_campaigns ?? 0}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Billing period</span>
-                    <span className="occ-info-row-value">
-                      {org?.billing_start || '—'} – {org?.billing_end || '—'}
-                    </span>
-                  </div>
-                </div>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Support notes</div>
-                  <textarea className="occ-notes-area" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add internal support notes here…" />
-                  <div style={{ marginTop: 10 }}>
+            {org ? (
+              <div className="occ-kpi-section occ-kpi-section-in-tab">
+                <div className="occ-section-eyebrow">Usage & wallet KPIs</div>
+                <KpiCards org={org} />
+              </div>
+            ) : null}
+            <div className="occ-overview-layout">
+              <div className="occ-overview-grid occ-overview-grid-3">
+                <OccInfoBlock
+                  title="Account details"
+                  action={
+                    <Link className="occ-btn-xs" to={`/organisations/${encodeURIComponent(selectedId)}`}>
+                      Profile
+                    </Link>
+                  }
+                >
+                  <OccInfoRow label="Org ID" value={<span className="occ-mono">{selectedId}</span>} />
+                  <OccInfoRow label="Company" value={org?.name || '—'} />
+                  <OccInfoRow label="Contact" value={org?.contact_name || '—'} />
+                  <OccInfoRow label="Email" value={org?.contact_email || '—'} />
+                  <OccInfoRow label="Phone" value={org?.contact_phone || '—'} />
+                  <OccInfoRow label="Market" value={org?.market_label || org?.country || '—'} />
+                  <OccInfoRow label="Status" value={statusBadge(org?.status)} />
+                  <OccInfoRow label="Deletion" value={statusBadge(org?.deletion_status || 'active')} />
+                  <OccInfoRow label="Active campaigns" value={fmtN(org?.running_campaigns)} />
+                  <OccInfoRow
+                    label="Overage"
+                    value={org?.allow_overage === false ? 'Blocked' : org?.overage_risk ? 'At risk' : 'Allowed'}
+                  />
+                </OccInfoBlock>
+
+                <OccInfoBlock
+                  title="Billing summary"
+                  action={
+                    <button type="button" className="occ-btn-xs" onClick={() => setActiveTab('billing')}>
+                      Billing tab
+                    </button>
+                  }
+                >
+                  <OccInfoRow label="Wallet" value={org?.wallet_display || fmtMoneyPence(org?.wallet_pence, org)} />
+                  <OccInfoRow label="Paid (all time)" value={invoiceSummary.paid_display || '—'} />
+                  <OccInfoRow label="Outstanding" value={invoiceSummary.outstanding_display || '—'} />
+                  <OccInfoRow label="Overdue" value={invoiceSummary.overdue_display || '—'} />
+                  <OccInfoRow label="Open invoices" value={fmtN(org?.open_invoices)} />
+                  <OccInfoRow label="Payment status" value={statusBadge(org?.payment_status)} />
+                  <OccInfoRow label="Last payment" value={org?.last_payment || '—'} />
+                  <OccInfoRow label="Last invoice" value={org?.last_invoice || '—'} />
+                  <OccInfoRow label="Survey credits" value={fmtN(org?.survey_credits)} />
+                  <OccInfoRow label="Interview credits" value={fmtN(org?.interview_credits)} />
+                </OccInfoBlock>
+
+                <OccInfoBlock
+                  title="Plan & usage"
+                  action={
+                    <button type="button" className="occ-btn-xs" onClick={() => openModal('package')}>
+                      Change plan
+                    </button>
+                  }
+                >
+                  <OccInfoRow label="Plan" value={org?.plan_name || org?.plan || '—'} />
+                  <OccInfoRow label="Subscription" value={statusBadge(org?.subscription_status)} />
+                  <OccInfoRow label="Payment method" value={org?.payment_method || '—'} />
+                  <OccInfoRow label="Billing period" value={`${org?.billing_start || '—'} → ${org?.billing_end || '—'}`} />
+                  <OccInfoRow label="Overall usage" value={`${org?.usage_pct ?? 0}%`} />
+                  <OccInfoRow label="AI calls left" value={fmtN(org?.calls_remaining)} />
+                  <OccInfoRow label="WhatsApp left" value={fmtN(org?.wa_remaining)} />
+                  <OccInfoRow label="SMS left" value={fmtN(org?.sms_remaining)} />
+                  <OccInfoRow
+                    label="Next charge"
+                    value={org?.amount_next_payment_display || (org?.next_billing_date ? fmtWhen(org.next_billing_date) : '—')}
+                  />
+                  <OccInfoRow label="Mandate" value={org?.mandate_status || subscriptionFinance?.mandate_status || '—'} />
+                </OccInfoBlock>
+              </div>
+
+              <div className="occ-overview-grid occ-overview-grid-2">
+                <OccInfoBlock title="Support notes">
+                  <textarea
+                    className="occ-notes-area"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Internal support notes — billing context, escalations, customer requests…"
+                  />
+                  <div className="occ-info-block-actions">
                     <button type="button" className="occ-btn primary" disabled={notesBusy} onClick={saveNotes}>
                       {notesBusy ? 'Saving…' : 'Save notes'}
                     </button>
                   </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Billing summary</div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Wallet</span>
-                    <span className="occ-info-row-value">{org?.wallet_display || fmtMoneyPence(org?.wallet_pence)}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Survey credits</span>
-                    <span className="occ-info-row-value">{fmtN(org?.survey_credits)}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Interview credits</span>
-                    <span className="occ-info-row-value">{fmtN(org?.interview_credits)}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Payment status</span>
-                    <span className="occ-info-row-value">{statusBadge(org?.payment_status)}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Last payment</span>
-                    <span className="occ-info-row-value">{org?.last_payment || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Open invoices</span>
-                    <span className="occ-info-row-value">{org?.open_invoices ?? 0}</span>
-                  </div>
-                </div>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Subscription cancellation</div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Status</span>
-                    <span className="occ-info-row-value">{statusBadge(subscriptionCancellation?.status || 'none')}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Effective date</span>
-                    <span className="occ-info-row-value">{fmtWhen(subscriptionCancellation?.effective_at) || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Unused value (est.)</span>
-                    <span className="occ-info-row-value">{subscriptionCancellation?.calculated_unused_value_display || '—'}</span>
-                  </div>
-                  <div className="occ-info-row">
-                    <span className="occ-info-row-label">Refund preference</span>
-                    <span className="occ-info-row-value">{subscriptionCancellation?.requested_refund_type || '—'}</span>
-                  </div>
-                  <p className="occ-muted" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.45 }}>
-                    Bank refunds: Stripe auto when possible; GoCardless manual. Amount = remaining period value only.
-                    Customer email: processed within 2 working days, bank credit within 3 working days.
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                    {['scheduled', 'requested'].includes(String(subscriptionCancellation?.status || '').toLowerCase()) ? (
-                      <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-reverse'} onClick={reverseCancellation}>
-                        Reverse scheduled cancellation
-                      </button>
-                    ) : null}
-                    {String(subscriptionCancellation?.status || 'none').toLowerCase() !== 'cancelled' ? (
-                      <>
-                        <button type="button" className="occ-btn danger" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(false)}>
-                          Cancel immediately (admin)
-                        </button>
-                        <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(true)}>
-                          Cancel now + wallet credit
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Refund reviews</div>
-                  {!refundReviews.length ? (
-                    <div className="occ-empty-state" style={{ padding: '12px 0' }}>No refund review cases.</div>
-                  ) : (
-                    refundReviews.map((review) => (
-                      <div key={review.id} style={{ borderTop: '1px solid var(--occ-border)', paddingTop: 10, marginTop: 10 }}>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">Status</span>
-                          <span className="occ-info-row-value">{statusBadge(review.review_status)}</span>
-                        </div>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">Requested</span>
-                          <span className="occ-info-row-value">{review.requested_refund_type}</span>
-                        </div>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">Provider</span>
-                          <span className="occ-info-row-value">{review.source_payment_provider || '—'}</span>
-                        </div>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">Payment ref</span>
-                          <span className="occ-info-row-value occ-mono">{review.source_payment_reference || '—'}</span>
-                        </div>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">Wallet credit</span>
-                          <span className="occ-info-row-value">{fmtMoneyPence(review.approved_wallet_credit_pence)}</span>
-                        </div>
-                        <div className="occ-info-row">
-                          <span className="occ-info-row-label">External refund</span>
-                          <span className="occ-info-row-value">{fmtMoneyPence(review.approved_external_refund_pence)}</span>
-                        </div>
-                        {['pending', 'approved'].includes(String(review.review_status || '').toLowerCase()) ? (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                            <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'approved', { issue_wallet_credit: true })}>
-                              Approve wallet credit
-                            </button>
-                            <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'completed', { approved_external_refund_pence: review.calculated_unused_value_pence, defaultNote: 'Mark refunded externally' })}>
-                              Mark refunded externally
-                            </button>
-                            <button type="button" className="occ-btn-xs danger" onClick={() => resolveRefundReview(review.id, 'rejected')}>
-                              Reject
-                            </button>
-                            {review.wallet_transaction_id ? (
-                              <button type="button" className="occ-btn-xs" onClick={() => reverseCancellationWalletCredit(review.id)}>
-                                Reverse wallet credit
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Quick actions</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                </OccInfoBlock>
+
+                <OccInfoBlock title="Quick tools">
+                  <div className="occ-quick-tools">
                     <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('credit'); openModal('funds') }}>
                       Add wallet funds
                     </button>
                     <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('debit'); openModal('funds') }}>
                       Remove wallet funds
                     </button>
-                    <button type="button" className="occ-btn" onClick={() => { setWalletModalMode('refund'); openModal('funds') }}>
-                      Refund wallet
-                    </button>
-                    <button type="button" className="occ-btn" onClick={() => openModal('package')}>
-                      Change plan
-                    </button>
                     <button type="button" className="occ-btn" onClick={() => openModal('invoice')}>
                       Create invoice
+                    </button>
+                    <button type="button" className="occ-btn" onClick={() => setActiveTab('invoices')}>
+                      View invoices
+                    </button>
+                    <button type="button" className="occ-btn" onClick={() => setActiveTab('campaigns')}>
+                      Campaign controls
+                    </button>
+                    <button type="button" className="occ-btn" onClick={() => setActiveTab('activity')}>
+                      Activity log
                     </button>
                     <button type="button" className="occ-btn danger" onClick={() => openModal('stopAll')}>
                       Stop all campaigns
                     </button>
-                    <button type="button" className="occ-btn danger" onClick={() => openModal('purge')}>
-                      Purge queued campaigns
-                    </button>
                     <button type="button" className="occ-btn success" disabled={actionBusy === 'resume-all'} onClick={resumeAllCampaigns}>
-                      Resume paused campaigns
+                      Resume paused
                     </button>
+                    <Link className="occ-btn" to={`/organisations/${encodeURIComponent(selectedId)}`}>
+                      Full org profile
+                    </Link>
+                    <Link className="occ-btn" to="/billing/refunds">
+                      Refunds queue
+                    </Link>
                   </div>
-                </div>
+                </OccInfoBlock>
               </div>
+
+              {(subscriptionCancellation?.status && subscriptionCancellation.status !== 'none') || refundReviews.length > 0 ? (
+                <div className="occ-overview-grid occ-overview-grid-2">
+                  {subscriptionCancellation?.status && subscriptionCancellation.status !== 'none' ? (
+                    <OccInfoBlock title="Subscription cancellation">
+                      <OccInfoRow label="Status" value={statusBadge(subscriptionCancellation?.status || 'none')} />
+                      <OccInfoRow label="Effective" value={fmtWhen(subscriptionCancellation?.effective_at) || '—'} />
+                      <OccInfoRow label="Unused value" value={subscriptionCancellation?.calculated_unused_value_display || '—'} />
+                      <OccInfoRow label="Refund type" value={subscriptionCancellation?.requested_refund_type || '—'} />
+                      <p className="occ-muted occ-info-block-note">
+                        Bank refunds: Stripe auto when possible; GoCardless manual. Wallet credit available from admin actions.
+                      </p>
+                      <div className="occ-info-block-actions occ-info-block-actions-wrap">
+                        {['scheduled', 'requested'].includes(String(subscriptionCancellation?.status || '').toLowerCase()) ? (
+                          <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-reverse'} onClick={reverseCancellation}>
+                            Reverse cancellation
+                          </button>
+                        ) : null}
+                        {String(subscriptionCancellation?.status || 'none').toLowerCase() !== 'cancelled' ? (
+                          <>
+                            <button type="button" className="occ-btn danger" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(false)}>
+                              Cancel immediately
+                            </button>
+                            <button type="button" className="occ-btn" disabled={actionBusy === 'cancel-immediate'} onClick={() => immediateCancellation(true)}>
+                              Cancel + wallet credit
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </OccInfoBlock>
+                  ) : null}
+
+                  {refundReviews.length > 0 ? (
+                    <OccInfoBlock title="Refund reviews">
+                      {refundReviews.map((review) => (
+                        <div key={review.id} className="occ-refund-review-item">
+                          <OccInfoRow label="Status" value={statusBadge(review.review_status)} />
+                          <OccInfoRow label="Requested" value={review.requested_refund_type} />
+                          <OccInfoRow label="Provider" value={review.source_payment_provider || '—'} />
+                          <OccInfoRow label="Wallet credit" value={fmtMoneyPence(review.approved_wallet_credit_pence, org)} />
+                          {['pending', 'approved'].includes(String(review.review_status || '').toLowerCase()) ? (
+                            <div className="occ-info-block-actions occ-info-block-actions-wrap">
+                              <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'approved', { issue_wallet_credit: true })}>
+                                Approve wallet
+                              </button>
+                              <button type="button" className="occ-btn-xs" onClick={() => resolveRefundReview(review.id, 'completed', { approved_external_refund_pence: review.calculated_unused_value_pence, defaultNote: 'Mark refunded externally' })}>
+                                Mark refunded
+                              </button>
+                              <button type="button" className="occ-btn-xs danger" onClick={() => resolveRefundReview(review.id, 'rejected')}>
+                                Reject
+                              </button>
+                              {review.wallet_transaction_id ? (
+                                <button type="button" className="occ-btn-xs" onClick={() => reverseCancellationWalletCredit(review.id)}>
+                                  Reverse wallet credit
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </OccInfoBlock>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 

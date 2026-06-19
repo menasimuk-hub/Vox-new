@@ -6355,6 +6355,76 @@ body.dark .matrix th {
   gap: 2px;
 }
 
+.integrationKpiSectionSub {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.integrationKpiSectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.integrationKpiGridEnabled {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.integrationKpiCardRich {
+  min-height: 220px;
+}
+
+.integrationKpiMetrics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.integrationKpiMetrics li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.integrationKpiMetrics li span {
+  color: var(--t3);
+  flex-shrink: 0;
+}
+
+.integrationKpiMetrics li strong {
+  color: var(--t1);
+  font-weight: 600;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-align: right;
+  word-break: break-word;
+}
+
+.integrationKpiEmpty {
+  padding: 28px 20px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.integrationKpiEmpty p {
+  margin: 0;
+  color: var(--t3);
+  max-width: 420px;
+}
+
 .integrationWebhookRow {
   display: grid;
   gap: 6px;

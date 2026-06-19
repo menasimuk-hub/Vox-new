@@ -139,6 +139,12 @@
   border-bottom: 1px solid var(--occ-border);
 }
 
+.occ-kpi-section-in-tab {
+  padding-top: 0;
+  border-bottom: none;
+  margin-bottom: 4px;
+}
+
 .occ-kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
@@ -497,6 +503,71 @@
   gap: 20px;
 }
 
+.occ-overview-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.occ-overview-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.occ-overview-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.occ-overview-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.occ-info-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 13px;
+}
+
+.occ-info-block-head .occ-info-block-title {
+  margin-bottom: 0;
+}
+
+.occ-info-block-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.occ-info-block-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.occ-info-block-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.occ-quick-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.occ-refund-review-item {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--occ-border);
+}
+
+.occ-refund-review-item:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
 .occ-info-block {
   background: var(--occ-surface2);
   border-radius: var(--occ-radius);
@@ -775,7 +846,13 @@
 
 @media (max-width: 900px) {
   .occ-two-col,
-  .occ-invoice-summary {
+  .occ-invoice-summary,
+  .occ-overview-grid-3,
+  .occ-overview-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .occ-quick-tools {
     grid-template-columns: 1fr;
   }
 }
