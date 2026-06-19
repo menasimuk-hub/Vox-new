@@ -54,7 +54,8 @@ const PROVIDERS = [
   { key: 'airwallex', label: 'Airwallex' },
   { key: 'zoom', label: 'Zoom' },
   { key: 'calendly', label: 'Calendly' },
-  { key: 'cronofy', label: 'Cronofy' },
+  { key: 'cal_com', label: 'Cal.com' },
+  { key: 'google_calendar', label: 'Google Calendar' },
   { key: 'hubspot', label: 'HubSpot' },
 ]
 
@@ -622,7 +623,8 @@ export default function Integrations() {
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
   const [zoomTestResult, setZoomTestResult] = useState('')
   const [calendlyTestResult, setCalendlyTestResult] = useState('')
-  const [cronofyTestResult, setCronofyTestResult] = useState('')
+  const [calComTestResult, setCalComTestResult] = useState('')
+  const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState('')
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
@@ -935,7 +937,7 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
-      if (providerKey === 'calendly' || providerKey === 'cronofy' || providerKey === 'hubspot') {
+      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'hubspot') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
@@ -978,7 +980,8 @@ export default function Integrations() {
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const cronofyStatus = activeProvider === 'cronofy' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const calComStatus = activeProvider === 'cal_com' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepinfraStatus = activeProvider === 'deepinfra' ? deepinfraValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1066,15 +1069,27 @@ export default function Integrations() {
     }
   }
 
-  const testCronofy = async () => {
+  const testCalCom = async () => {
     setProviderError('')
-    setCronofyTestResult('Testing Cronofy…')
+    setCalComTestResult('Testing Cal.com…')
     try {
-      const result = await apiFetch('/admin/integrations/cronofy/test', { method: 'POST' })
-      setCronofyTestResult(result.ok ? (result.detail || 'Cronofy OK') : (result.detail || 'Cronofy check failed'))
+      const result = await apiFetch('/admin/integrations/cal-com/test', { method: 'POST' })
+      setCalComTestResult(result.ok ? (result.detail || 'Cal.com OK') : (result.detail || 'Cal.com check failed'))
     } catch (e) {
-      setCronofyTestResult('')
-      setProviderError(e?.message || 'Cronofy test failed')
+      setCalComTestResult('')
+      setProviderError(e?.message || 'Cal.com test failed')
+    }
+  }
+
+  const testGoogleCalendar = async () => {
+    setProviderError('')
+    setGoogleCalendarTestResult('Testing Google Calendar…')
+    try {
+      const result = await apiFetch('/admin/integrations/google-calendar/test', { method: 'POST' })
+      setGoogleCalendarTestResult(result.ok ? (result.detail || 'Google Calendar OK') : (result.detail || 'Google Calendar check failed'))
+    } catch (e) {
+      setGoogleCalendarTestResult('')
+      setProviderError(e?.message || 'Google Calendar test failed')
     }
   }
 
@@ -2337,59 +2352,70 @@ export default function Integrations() {
                   </div>
                 </div>
               </div>
-            ) : activeProvider === 'cronofy' ? (
+            ) : activeProvider === 'cal_com' ? (
               <div className='card'>
                 <div className='cardHead'>
-                  <h3>Cronofy OAuth (interview scheduling)</h3>
+                  <h3>Cal.com OAuth (interview scheduling)</h3>
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
                   {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
                   <div className='stack' style={{ gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('cronofy', e.target.checked)} />
-                      <span>Enable Cronofy for interview shortlist booking links</span>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('cal_com', e.target.checked)} />
+                      <span>Enable Cal.com for interview shortlist booking links</span>
                     </label>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client ID</label>
-                      <input className='input' style={cronofyStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('cronofy', 'client_id', e.target.value)} />
+                      <input className='input' style={calComStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('cal_com', 'client_id', e.target.value)} />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client secret</label>
-                      <input className='input' style={cronofyStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, cronofy: { ...(s.cronofy || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Cronofy client secret'} />
+                      <input className='input' style={calComStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, cal_com: { ...(s.cal_com || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Cal.com client secret'} />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Redirect URI</label>
-                      <input className='input' style={cronofyStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('cronofy', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback' />
+                      <input className='input' style={calComStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('cal_com', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/cal-com/callback' />
+                    </div>
+                    {calComTestResult ? <div className='note'>{calComTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('cal_com')} disabled={providerSaving || !calComStatus.valid}>Save Cal.com</button>
+                      <button className='btn soft' onClick={testCalCom} disabled={providerSaving || !activeSummary.configured}>Test Cal.com</button>
+                    </div>
+                    <div className='note'>Each organisation connects Cal.com from Dashboard → Integrations (one booking provider at a time).</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'google_calendar' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Google Calendar OAuth (interview scheduling)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('google_calendar', e.target.checked)} />
+                      <span>Enable Google Calendar appointment schedules for interview booking</span>
+                    </label>
+                    <div className='note'>Use a separate Google Cloud OAuth client from Social login. Enable Google Calendar API and add Calendar scopes.</div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={googleCalendarStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('google_calendar', 'client_id', e.target.value)} />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Data center</label>
-                      <select className='input' value={String(activeConfig.data_center || 'uk')} onChange={(e) => setProviderField('cronofy', 'data_center', e.target.value)}>
-                        <option value='uk'>United Kingdom (app-uk.cronofy.com)</option>
-                        <option value='us'>United States (app.cronofy.com)</option>
-                        <option value='de'>Germany (app-de.cronofy.com)</option>
-                        <option value='au'>Australia (app-au.cronofy.com)</option>
-                        <option value='ca'>Canada (app-ca.cronofy.com)</option>
-                        <option value='sg'>Singapore (app-sg.cronofy.com)</option>
-                      </select>
-                      <div className='muted' style={{ fontSize: 12 }}>Must match where your Cronofy developer app was created. UK accounts usually need <strong>United Kingdom</strong>.</div>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={googleCalendarStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, google_calendar: { ...(s.google_calendar || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Google client secret'} />
                     </div>
-                    {cronofyTestResult ? <div className='note'>{cronofyTestResult}</div> : null}
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={googleCalendarStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('google_calendar', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/google-calendar/callback' />
+                    </div>
+                    {googleCalendarTestResult ? <div className='note'>{googleCalendarTestResult}</div> : null}
                     <div className='actions'>
-                      <button className='btn primary' onClick={() => saveIntegrationProvider('cronofy')} disabled={providerSaving || !cronofyStatus.valid}>Save Cronofy</button>
-                      <button className='btn soft' onClick={testCronofy} disabled={providerSaving || !activeSummary.configured}>Test Cronofy</button>
-                    </div>
-                    <div className='note'>Each organisation connects Cronofy from Dashboard → Integrations. Register the redirect URI in your Cronofy developer app.</div>
-                    <div className='note' style={{ marginTop: 8 }}>
-                      <strong>Setup (VoxBulk admin, one time)</strong>
-                      <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
-                        <li>Open <a href='https://app-uk.cronofy.com/oauth/applications' target='_blank' rel='noreferrer'>Cronofy UK developer applications</a> (or your region&apos;s Cronofy developer portal) → create an app for VoxBulk.</li>
-                        <li>Set <strong>Data center</strong> below to match that portal (UK for most VoxBulk customers).</li>
-                        <li>Add redirect URI: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/cronofy/callback</code> (use your API host if different).</li>
-                        <li>Scopes: <code>read_account</code>, <code>read_events</code>, <code>create_event</code>.</li>
-                        <li>Paste Client ID and Client secret below → Enable → Save → Test.</li>
-                        <li>Each customer org clicks <strong>Connect Cronofy</strong> in Dashboard → Integrations.</li>
-                      </ol>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving || !googleCalendarStatus.valid}>Save Google Calendar</button>
+                      <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeSummary.configured}>Test Google Calendar</button>
                     </div>
                   </div>
                 </div>

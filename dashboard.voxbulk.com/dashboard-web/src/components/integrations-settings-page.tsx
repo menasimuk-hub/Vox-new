@@ -21,21 +21,35 @@ export type IntegrationsSearch = {
   hubspot?: string;
 };
 
+type BookingProviderKey = "calendly" | "cal_com" | "google_calendar" | "hubspot_meetings";
+
+const BOOKING_OPTIONS: { key: BookingProviderKey; label: string }[] = [
+  { key: "calendly", label: "Calendly" },
+  { key: "hubspot_meetings", label: "HubSpot Meetings" },
+  { key: "google_calendar", label: "Google Calendar" },
+  { key: "cal_com", label: "Cal.com" },
+];
+
+const PROVIDER_LABEL: Record<string, string> = {
+  calendly: "Calendly",
+  cal_com: "Cal.com",
+  google_calendar: "Google Calendar",
+  hubspot_meetings: "HubSpot Meetings",
+  cronofy: "Cronofy",
+};
+
 export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearch }) {
   const schedulingQ = useSchedulingStatus();
   const hubspotQ = useHubSpotStatus();
 
   React.useEffect(() => {
     if (search.scheduling === "connected") {
-      toast.success(`Connected ${search.provider || "scheduling"} successfully`);
+      const label = PROVIDER_LABEL[search.provider || ""] || search.provider || "scheduling";
+      toast.success(`Connected ${label} successfully`);
       void schedulingQ.refetch();
     }
     if (search.scheduling === "error") {
-      const msg = search.message || "Calendar connection failed";
-      toast.error(msg);
-      if (search.provider === "cronofy" && /invalid_client|data center/i.test(msg)) {
-        toast.message("Ask your admin to set Cronofy data center to United Kingdom in Admin → Integrations → Cronofy, then Save.");
-      }
+      toast.error(search.message || "Calendar connection failed");
     }
     if (search.hubspot === "connected") {
       toast.success("Connected HubSpot successfully");
@@ -49,33 +63,47 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const humanReady = scheduling.human_scheduling_ready === true;
-  const eventTypeReady = scheduling.event_type_configured === true;
-  const calPlatformReady = scheduling.calendly_platform_configured === true;
-  const cronPlatformReady = scheduling.cronofy_platform_configured === true;
+  const connectedProvider = String(scheduling.provider || "").trim() as BookingProviderKey | "";
+  const providerLabel = String(scheduling.provider_label || PROVIDER_LABEL[connectedProvider] || "").trim();
+  const connectedAccount = String(scheduling.connected_account || scheduling.owner_name || "").trim();
+  const legacyUnsupported = Boolean(scheduling.legacy_unsupported_provider);
   const hubspotConnected = hubspot.connected === true;
   const hubspotPlatformReady = hubspot.platform_configured === true;
   const hubspotSyncSettingsEnabled = hubspot.sync_settings_enabled === true;
   const hubspotUsesOAuth = hubspot.uses_oauth_connect === true;
   const hubspotUsesToken = hubspot.uses_access_token === true;
+
   const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
   const [hubspotTokenBusy, setHubspotTokenBusy] = React.useState(false);
+  const [meetingLinks, setMeetingLinks] = React.useState<Array<{ id: string; name: string; url: string }>>([]);
+  const [meetingLinksBusy, setMeetingLinksBusy] = React.useState(false);
+  const [scheduleUrlDraft, setScheduleUrlDraft] = React.useState("");
+  const [switchConfirm, setSwitchConfirm] = React.useState<BookingProviderKey | null>(null);
 
-  const disconnectScheduling = async (provider: "calendly" | "cronofy") => {
+  const platformReady = (key: BookingProviderKey) => {
+    if (key === "hubspot_meetings") return Boolean(scheduling.hubspot_platform_configured);
+    return Boolean(scheduling[`${key}_platform_configured`]);
+  };
+
+  const disconnectScheduling = async () => {
     try {
-      await apiFetch("/service-orders/scheduling/disconnect", {
-        method: "POST",
-        body: JSON.stringify({ provider }),
-      });
-      toast.success(`${provider === "calendly" ? "Calendly" : "Cronofy"} disconnected`);
+      await apiFetch("/service-orders/scheduling/disconnect", { method: "POST", body: JSON.stringify({}) });
+      toast.success("Booking provider disconnected");
       void schedulingQ.refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Disconnect failed");
     }
   };
 
-  const startOAuth = async (provider: "calendly" | "cronofy") => {
+  const startOAuth = async (provider: "calendly" | "cal_com" | "google_calendar", replace = false) => {
     try {
-      const data = await apiFetch<{ authorize_url?: string }>(`/service-orders/scheduling/oauth/${provider}/start`);
+      const path = provider === "cal_com"
+        ? "cal-com"
+        : provider === "google_calendar"
+          ? "google-calendar"
+          : provider;
+      const qs = replace ? "?replace=true" : "";
+      const data = await apiFetch<{ authorize_url?: string }>(`/service-orders/scheduling/oauth/${path}/start${qs}`);
       if (data?.authorize_url) {
         window.location.href = data.authorize_url;
         return;
@@ -83,6 +111,89 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       toast.error("No authorization URL returned");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "OAuth start failed");
+    }
+  };
+
+  const connectProvider = async (provider: BookingProviderKey) => {
+    if (connectedProvider && connectedProvider !== provider) {
+      setSwitchConfirm(provider);
+      return;
+    }
+    if (provider === "hubspot_meetings") {
+      if (!hubspotConnected) {
+        toast.error("Connect HubSpot CRM first");
+        return;
+      }
+      if (hubspotUsesToken) {
+        toast.error("HubSpot Meetings requires OAuth HubSpot CRM (not Service key mode)");
+        return;
+      }
+      setMeetingLinksBusy(true);
+      try {
+        const data = await apiFetch<{ meeting_links?: Array<{ id: string; name: string; url: string }> }>(
+          "/service-orders/scheduling/hubspot/meeting-links",
+        );
+        const links = data?.meeting_links || [];
+        setMeetingLinks(links);
+        if (links.length === 0) {
+          toast.error("No HubSpot meeting links found — check Scheduler scopes and reconnect CRM");
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not load meeting links");
+      } finally {
+        setMeetingLinksBusy(false);
+      }
+      return;
+    }
+    await startOAuth(provider);
+  };
+
+  const confirmSwitch = async () => {
+    const next = switchConfirm;
+    setSwitchConfirm(null);
+    if (!next) return;
+    await disconnectScheduling();
+    if (next === "hubspot_meetings") {
+      await connectProvider(next);
+    } else {
+      await startOAuth(next, true);
+    }
+  };
+
+  const selectMeetingLink = async (link: { id: string; name: string; url: string }) => {
+    try {
+      await apiFetch("/service-orders/scheduling/hubspot/select-meeting-link", {
+        method: "POST",
+        body: JSON.stringify({
+          meeting_link_id: link.id,
+          meeting_link_url: link.url,
+          meeting_link_name: link.name,
+        }),
+      });
+      toast.success("HubSpot Meetings connected");
+      setMeetingLinks([]);
+      void schedulingQ.refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not connect meeting link");
+    }
+  };
+
+  const saveGoogleScheduleUrl = async () => {
+    const url = scheduleUrlDraft.trim();
+    if (!url.startsWith("http")) {
+      toast.error("Enter a valid appointment schedule URL");
+      return;
+    }
+    try {
+      await apiFetch("/service-orders/scheduling/google-calendar/select-schedule", {
+        method: "POST",
+        body: JSON.stringify({ schedule_url: url, schedule_name: "Appointment schedule" }),
+      });
+      toast.success("Google Calendar schedule saved");
+      setScheduleUrlDraft("");
+      void schedulingQ.refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save schedule URL");
     }
   };
 
@@ -114,6 +225,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       toast.success("HubSpot disconnected");
       setHubspotTokenDraft("");
       void hubspotQ.refetch();
+      void schedulingQ.refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Disconnect failed");
     }
@@ -146,75 +258,95 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       <PageHeader
         eyebrow="Settings"
         title="Integrations"
-        description="Connect Calendly or Cronofy for human interview booking, and HubSpot to sync shortlisted candidates to your CRM."
+        description="Connect one booking provider for human interview scheduling after AI screening, and HubSpot CRM to sync shortlisted candidates."
         actions={<Button variant="outline" className="gap-1.5"><ListChecks className="size-4" /> Show setup checklist</Button>}
       />
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CalendarCheck className="size-5 text-success" /> Human interview scheduling</CardTitle>
+          <CardTitle className="flex items-center gap-2"><CalendarCheck className="size-5 text-success" /> Booking provider</CardTitle>
           <CardDescription>
-            After AI screening, send candidates a link to book with <strong className="text-foreground">your company&apos;s</strong> Calendly or Cronofy account — not VoxBulk&apos;s calendar.
+            Choose <strong className="text-foreground">one</strong> calendar provider. Used when you send booking links from campaign Results.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {schedulingQ.isLoading ? (
             <Skeleton className="h-10 w-full" />
           ) : (
-            <div className="flex items-center gap-2 text-sm">
-              <span className={"size-2 rounded-full " + (humanReady ? "bg-success" : "bg-warning")} />
-              {humanReady
-                ? `Ready — ${String(scheduling.human_scheduling_mode || scheduling.provider || "calendar")} connected for Results → Send`
-                : scheduling.calendly_connected && !eventTypeReady
-                  ? "Calendly connected — pick an active event type in Calendly (or reconnect) before sending links"
-                  : "Connect Calendly or Cronofy below before sending human interview links from Results"}
-            </div>
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <span className={"size-2 rounded-full " + (humanReady ? "bg-success" : legacyUnsupported ? "bg-destructive" : "bg-warning")} />
+                {legacyUnsupported
+                  ? "Previous provider (Cronofy) is no longer supported — connect a provider below"
+                  : humanReady
+                    ? `Connected — ${providerLabel}${connectedAccount ? ` (${connectedAccount})` : ""}`
+                    : connectedProvider
+                      ? `${providerLabel} connected — finish setup (event type or meeting link)`
+                      : "No booking provider connected"}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {BOOKING_OPTIONS.map(({ key, label }) => {
+                  const isConnected = connectedProvider === key && humanReady;
+                  const isActive = connectedProvider === key;
+                  const disabled = !platformReady(key) || (Boolean(connectedProvider) && connectedProvider !== key && humanReady);
+                  return (
+                    <Button
+                      key={key}
+                      variant={isActive ? "default" : "outline"}
+                      className="gap-1.5"
+                      disabled={disabled || isConnected || meetingLinksBusy}
+                      onClick={() => void connectProvider(key)}
+                    >
+                      <Plug className="size-4" /> {isConnected ? `${label} connected` : `Connect ${label}`}
+                    </Button>
+                  );
+                })}
+                {connectedProvider ? (
+                  <Button variant="outline" onClick={() => void disconnectScheduling()}>Disconnect</Button>
+                ) : null}
+              </div>
+              {meetingLinks.length > 0 ? (
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">Pick a HubSpot meeting link</p>
+                  {meetingLinks.map((link) => (
+                    <Button key={link.id || link.url} variant="outline" className="w-full justify-start" onClick={() => void selectMeetingLink(link)}>
+                      {link.name || link.url}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+              {connectedProvider === "google_calendar" && !humanReady ? (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="grid flex-1 gap-1.5">
+                    <Label htmlFor="google-schedule-url" className="text-sm">Google appointment schedule URL</Label>
+                    <Input
+                      id="google-schedule-url"
+                      placeholder="https://calendar.google.com/calendar/appointments/..."
+                      value={scheduleUrlDraft}
+                      onChange={(e) => setScheduleUrlDraft(e.target.value)}
+                    />
+                  </div>
+                  <Button variant="outline" onClick={() => void saveGoogleScheduleUrl()}>Save schedule</Button>
+                </div>
+              ) : null}
+            </>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Calendly & Cronofy</CardTitle>
-          <CardDescription>
-            Required to send real booking links when you shortlist candidates after AI phone screening.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!calPlatformReady && !cronPlatformReady ? (
-            <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-              Calendly and Cronofy must be enabled first in the <strong className="text-foreground">VoxBulk admin → Integrations</strong> panel
-              (client ID, secret, redirect URI). Until then, Connect buttons will not work.
+      {switchConfirm ? (
+        <Card className="border-warning/50">
+          <CardContent className="space-y-3 p-4">
+            <p className="text-sm">
+              Switch from {providerLabel || connectedProvider} to {PROVIDER_LABEL[switchConfirm]}? This disconnects your current booking provider.
             </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-1.5" disabled={!calPlatformReady || Boolean(scheduling.calendly_connected)} onClick={() => void startOAuth("calendly")}>
-              <Plug className="size-4" /> Connect Calendly
-            </Button>
-            <Button variant="outline" className="gap-1.5" disabled={!cronPlatformReady || Boolean(scheduling.cronofy_connected)} onClick={() => void startOAuth("cronofy")}>
-              <Plug className="size-4" /> Connect Cronofy
-            </Button>
-            {scheduling.calendly_connected ? (
-              <Button variant="outline" onClick={() => void disconnectScheduling("calendly")}>Disconnect Calendly</Button>
-            ) : null}
-            {scheduling.cronofy_connected ? (
-              <Button variant="outline" onClick={() => void disconnectScheduling("cronofy")}>Disconnect Cronofy</Button>
-            ) : null}
-          </div>
-          <div className="space-y-2 text-sm">
-            <Health
-              name="Calendly"
-              ok={Boolean(scheduling.calendly_connected)}
-              note={calPlatformReady ? (scheduling.calendly_connected ? "Connected" : "Not connected") : "Admin setup required"}
-            />
-            <Health
-              name="Cronofy"
-              ok={Boolean(scheduling.cronofy_connected)}
-              note={cronPlatformReady ? (scheduling.cronofy_connected ? "Connected" : "Not connected") : "Admin setup required"}
-            />
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSwitchConfirm(null)}>Cancel</Button>
+              <Button onClick={() => void confirmSwitch()}>Switch provider</Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -275,8 +407,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
               </div>
               {hubspotUsesToken && !hubspotConnected ? (
                 <p className="text-xs text-muted-foreground">
-                  In HubSpot: Settings → Integrations → <strong>Service Keys</strong> → create key → scopes{" "}
-                  <code className="text-[11px]">crm.objects.contacts.read/write</code> → copy key. Do not use Developer API Key or Personal Access Key.
+                  Service key mode supports CRM sync only. HubSpot Meetings booking requires OAuth CRM.
                 </p>
               ) : null}
               {hubspotConnected ? (
@@ -309,18 +440,6 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       <p className="text-xs text-muted-foreground">
         Need help? Open <Link to="/account/support" className="text-primary underline-offset-2 hover:underline">Support</Link> or ask your VoxBulk account manager to enable integrations in admin.
       </p>
-    </div>
-  );
-}
-
-function Health({ name, ok, note }: { name: string; ok: boolean; note?: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border p-2.5">
-      <div className="flex items-center gap-2">
-        <span className={"size-2 rounded-full " + (ok ? "bg-success" : "bg-muted-foreground/40")} />
-        {name}
-      </div>
-      <span className="text-[11px] text-muted-foreground">{note || (ok ? "OK" : "Off")}</span>
     </div>
   );
 }

@@ -1049,11 +1049,15 @@ def disconnect_scheduling_account(
 
 
 @router.get("/scheduling/oauth/calendly/start")
-def start_calendly_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def start_calendly_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     from app.services.scheduling_connection_service import calendly_oauth_start
 
     try:
-        return {"authorize_url": calendly_oauth_start(org_id=principal.org_id, db=db)}
+        return {"authorize_url": calendly_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -1074,44 +1078,183 @@ def calendly_oauth_callback(
     return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=calendly")
 
 
-@router.get("/scheduling/oauth/cronofy/start")
-def start_cronofy_oauth(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    from app.services.scheduling_connection_service import cronofy_oauth_start
+@router.get("/scheduling/oauth/cal-com/start")
+def start_cal_com_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.cal_com_connection_service import cal_com_oauth_start
 
     try:
-        return {"authorize_url": cronofy_oauth_start(org_id=principal.org_id, db=db)}
+        return {"authorize_url": cal_com_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.get("/scheduling/oauth/cronofy/callback")
-def cronofy_oauth_callback(
+@router.get("/scheduling/oauth/cal-com/callback")
+def cal_com_oauth_callback(
     code: str = "",
     state: str = "",
-    error: str = "",
-    error_description: str = "",
+    db: Session = Depends(get_db),
+):
+    from app.core.config import get_settings
+    from app.services.cal_com_connection_service import cal_com_oauth_complete
+    from fastapi.responses import RedirectResponse
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    try:
+        cal_com_oauth_complete(db, code=code, state=state)
+    except ValueError as exc:
+        from urllib.parse import quote
+
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?scheduling=error&provider=cal_com&message={quote(str(exc)[:200])}"
+        )
+    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=cal_com")
+
+
+@router.get("/scheduling/oauth/google-calendar/start")
+def start_google_calendar_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.google_calendar_booking_service import google_calendar_oauth_start
+
+    try:
+        return {"authorize_url": google_calendar_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/scheduling/oauth/google-calendar/callback")
+def google_calendar_oauth_callback(
+    code: str = "",
+    state: str = "",
     db: Session = Depends(get_db),
 ):
     from urllib.parse import quote
 
     from app.core.config import get_settings
-    from app.services.scheduling_connection_service import cronofy_oauth_complete
-
-    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    from app.services.google_calendar_booking_service import google_calendar_oauth_complete
     from fastapi.responses import RedirectResponse
 
-    if error:
-        msg = str(error_description or error).strip() or "Cronofy authorization was denied"
-        return RedirectResponse(
-            url=f"{origin}/settings/integrations?scheduling=error&provider=cronofy&message={quote(msg[:200])}"
-        )
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     try:
-        cronofy_oauth_complete(db, code=code, state=state)
+        google_calendar_oauth_complete(db, code=code, state=state)
     except ValueError as exc:
         return RedirectResponse(
-            url=f"{origin}/settings/integrations?scheduling=error&provider=cronofy&message={quote(str(exc)[:200])}"
+            url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(str(exc)[:200])}"
         )
-    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=cronofy")
+    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=google_calendar")
+
+
+@router.get("/scheduling/cal-com/event-types")
+def list_cal_com_event_types_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.cal_com_connection_service import list_cal_com_event_types
+
+    try:
+        return {"event_types": list_cal_com_event_types(db, principal.org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/scheduling/cal-com/select-event-type")
+def select_cal_com_event_type_route(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.cal_com_connection_service import select_cal_com_event_type
+
+    event_type_id = str((body or {}).get("event_type_id") or "").strip()
+    try:
+        return select_cal_com_event_type(db, principal.org_id, event_type_id=event_type_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/scheduling/google-calendar/schedules")
+def list_google_calendar_schedules_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.google_calendar_booking_service import list_google_calendar_schedules
+
+    try:
+        return {"schedules": list_google_calendar_schedules(db, principal.org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/scheduling/google-calendar/select-schedule")
+def select_google_calendar_schedule_route(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.google_calendar_booking_service import select_google_calendar_schedule
+
+    payload = body if isinstance(body, dict) else {}
+    try:
+        return select_google_calendar_schedule(
+            db,
+            principal.org_id,
+            schedule_url=str(payload.get("schedule_url") or ""),
+            schedule_name=str(payload.get("schedule_name") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/scheduling/hubspot/meeting-links")
+def list_hubspot_meeting_links_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.hubspot_meetings_service import list_hubspot_meeting_links
+
+    try:
+        return {"meeting_links": list_hubspot_meeting_links(db, principal.org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/scheduling/hubspot/select-meeting-link")
+def select_hubspot_meeting_link_route(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_meetings_service import connect_hubspot_meetings
+
+    payload = body if isinstance(body, dict) else {}
+    try:
+        return connect_hubspot_meetings(
+            db,
+            principal.org_id,
+            meeting_link_id=str(payload.get("meeting_link_id") or ""),
+            meeting_link_url=str(payload.get("meeting_link_url") or ""),
+            meeting_link_name=str(payload.get("meeting_link_name") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/scheduling/oauth/cronofy/start")
+def start_cronofy_oauth_deprecated(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Cronofy is no longer supported. Connect Calendly, Cal.com, Google Calendar, or HubSpot Meetings instead.",
+    )
+
+
+@router.get("/scheduling/oauth/cronofy/callback")
+def cronofy_oauth_callback_deprecated(
+    db: Session = Depends(get_db),
+):
+    from app.core.config import get_settings
+    from fastapi.responses import RedirectResponse
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    return RedirectResponse(
+        url=f"{origin}/settings/integrations?scheduling=error&provider=cronofy&message=Cronofy+is+no+longer+supported"
+    )
 
 
 @router.get("/hubspot/status")

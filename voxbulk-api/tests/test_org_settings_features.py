@@ -113,6 +113,7 @@ def test_scheduling_status_includes_interview_ready(app_client):
     data = st.json()
     assert data.get("interview_booking_ready") is True
     assert "calendly_connected" in data
-    assert "cronofy_connected" in data
-    assert "calendly_platform_configured" in data
-    assert "cronofy_platform_configured" in data
+    assert "provider_label" in data
+    assert "connected_account" in data
+    assert "providers_available" in data
+    assert data.get("cronofy_connected") is False

@@ -1,24 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts'
 import {
-  Building2,
-  DollarSign,
   BadgeCheck,
-  BrainCircuit,
-  PhoneCall,
   AlertTriangle,
   Activity,
-  Wallet,
-  Mic2,
   RefreshCw,
   MessageSquare,
-  Users,
-  PlayCircle,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { normalizeAdminRole } from '../lib/adminPaths'
 import { useAdminProfile } from '../context/AdminProfileContext'
+import {
+  INTEGRATION_PROVIDERS,
+  integrationCardStatus,
+} from '../lib/integrationsCatalog'
 
 const n = (value) => Number(value || 0).toLocaleString()
 const money = (amount, currency = 'USD') => {
@@ -39,34 +35,9 @@ const fmt = (value) => {
   }
 }
 
-const HEALTH_PROVIDERS = [
-  ['Dentally', 'dentally'],
-  ['Telnyx', 'telnyx'],
-  ['Azure Speech', 'azure_speech'],
-  ['OpenAI', 'openai'],
-  ['DeepSeek', 'deepseek'],
-  ['Groq', 'groq'],
-  ['Deepgram', 'deepgram'],
-  ['Cartesia', 'cartesia'],
-  ['ElevenLabs', 'elevenlabs'],
-  ['Vapi', 'vapi'],
-  ['GoCardless', 'gocardless'],
-  ['Zoom', 'zoom'],
-]
-
-function StatCard({ label, value, delta, accent, icon: Icon, cls }) {
-  return (
-    <div className='card stat' style={{ '--accent': accent }}>
-      <div className='statCardTop'>
-        <div className='statCardIcon'>
-          <Icon size={18} />
-        </div>
-        <span className={`pill ${cls}`}>{delta}</span>
-      </div>
-      <div className='statValue'>{value}</div>
-      <div className='muted'>{label}</div>
-    </div>
-  )
+const HEALTH_BALANCE_KEYS = {
+  telnyx: 'telnyx',
+  elevenlabs: 'elevenlabs',
 }
 
 function DashboardSection({ title, description, action, children }) {
@@ -84,13 +55,96 @@ function DashboardSection({ title, description, action, children }) {
   )
 }
 
-function healthLabel(summary) {
-  if (!summary) return { text: 'Loading', cls: 'p-amber' }
-  if (summary.error) return { text: 'Error', cls: 'p-red' }
-  if (!summary.exists) return { text: 'Not set', cls: 'p-amber' }
-  if (!summary.is_enabled) return { text: 'Disabled', cls: 'p-amber' }
-  if (summary.configured) return { text: 'OK', cls: 'p-green' }
-  return { text: 'Incomplete', cls: 'p-amber' }
+
+function balanceDetail(key, balances) {
+  if (key === 'telnyx') {
+    const row = balances?.telnyx
+    if (!row?.ok) return row?.message || 'Not configured'
+    return `${money(row.amount, row.currency)} credit${row.pending > 0 ? ` · ${money(row.pending, row.currency)} pending` : ''}`
+  }
+  if (key === 'elevenlabs') {
+    const row = balances?.elevenlabs
+    if (!row?.ok) return row?.message || 'Not configured'
+    return `${n(row.characters_remaining)} chars left · ${row.tier || 'tier'}`
+  }
+  return 'Configured'
+}
+
+function integrationMetaLine(key, summary, balances) {
+  if (HEALTH_BALANCE_KEYS[key]) return balanceDetail(key, balances)
+  if (summary?.updated_at) return `Updated ${fmt(summary.updated_at)}`
+  return 'Running · credentials configured'
+}
+
+function DashboardApiCard({ provider, summary, balances, onOpen }) {
+  const status = integrationCardStatus(summary)
+  const detail = integrationMetaLine(provider.key, summary, balances)
+  return (
+    <button
+      type='button'
+      className={`dashApiCard integrationKpiCard ${status.cardClass}`}
+      onClick={onOpen}
+      title={`Open ${provider.label} settings`}
+    >
+      <div className='integrationKpiCardTop'>
+        <span className='integrationKpiIcon'>
+          <i className={`ti ${provider.icon}`} />
+        </span>
+        <span className={`integrationKpiDot ${status.connected ? 'isOn' : 'isOff'}`} title={status.label} />
+      </div>
+      <strong className='integrationKpiTitle'>{provider.label}</strong>
+      <p className='integrationKpiBlurb'>{provider.blurb}</p>
+      <p className='dashApiCardDetail'>{detail}</p>
+      <div className='integrationKpiFoot'>
+        <span className={`pill ${status.pillClass}`}>{status.label}</span>
+        <span className='integrationKpiOpen'>
+          Settings <i className='ti ti-chevron-right' />
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function ProductMiniChart({ title, href, total, live, rows, accent }) {
+  return (
+    <Link to={href} className='dashProductCard dashProductCardLink'>
+      <div className='dashProductCardHead'>
+        <strong>{title}</strong>
+        <span className='pill p-cyan'>{n(live)} live</span>
+      </div>
+      <span className='dashProductCardSub'>{n(total)} total campaigns</span>
+      <div className='dashProductChart' style={{ '--dash-accent': accent }}>
+        <ResponsiveContainer width='100%' height='100%'>
+          <BarChart data={rows} margin={{ top: 4, right: 0, left: -22, bottom: 0 }}>
+            <XAxis dataKey='n' tick={{ fill: 'var(--t3)', fontSize: 9 }} axisLine={false} tickLine={false} />
+            <YAxis hide allowDecimals={false} />
+            <Tooltip contentStyle={{ fontSize: 11 }} />
+            <Bar dataKey='v' radius={[4, 4, 0, 0]}>
+              {rows.map((entry) => (
+                <Cell key={entry.n} fill={entry.fill} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </Link>
+  )
+}
+
+function ProductHubCard({ title, description, href, icon, stat }) {
+  return (
+    <Link to={href} className='dashProductCard dashProductCardLink dashProductHubCard'>
+      <div className='dashProductHubIcon'>
+        <i className={`ti ${icon}`} />
+      </div>
+      <strong>{title}</strong>
+      <p className='dashProductCardSub'>{description}</p>
+      {stat ? <span className='dashProductHubStat'>{stat}</span> : null}
+      <span className='dashProductHubOpen'>
+        Open <i className='ti ti-chevron-right' />
+      </span>
+    </Link>
+  )
 }
 
 export default function Dashboard() {
@@ -112,7 +166,6 @@ export default function Dashboard() {
   const [surveys, setSurveys] = useState(null)
   const [interviews, setInterviews] = useState(null)
   const [error, setError] = useState('')
-  const [showMoreStats, setShowMoreStats] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -163,11 +216,11 @@ export default function Dashboard() {
       if (isSuper) {
         const next = {}
         await Promise.all(
-          HEALTH_PROVIDERS.map(async ([, key]) => {
+          INTEGRATION_PROVIDERS.map(async (p) => {
             try {
-              next[key] = await apiFetch(`/admin/integrations/${key}`)
+              next[p.key] = await apiFetch(`/admin/integrations/${p.key}`)
             } catch {
-              next[key] = { error: true }
+              next[p.key] = { error: true }
             }
           }),
         )
@@ -186,22 +239,52 @@ export default function Dashboard() {
     loadAll()
   }, [loadAll, refreshKey])
 
-  const recovery = operations?.recovery_jobs || {}
   const webhooks = operations?.webhooks || {}
   const activeOrgs = orgs.filter((o) => !o.is_suspended).length
   const telnyxBalance = providerBalances?.telnyx
   const elevenBalance = providerBalances?.elevenlabs
 
-  const workflowRows = useMemo(
-    () => [
-      { n: 'Queued', v: recovery.queued || 0 },
-      { n: 'Calling', v: recovery.calling || 0 },
-      { n: 'Messaged', v: recovery.messaged || 0 },
-      { n: 'Recovered', v: recovery.recovered || 0 },
-      { n: 'Failed', v: recovery.failed || 0 },
-    ],
-    [recovery],
+  const enabledIntegrations = useMemo(
+    () =>
+      INTEGRATION_PROVIDERS.filter((p) => {
+        const s = health[p.key]
+        return s && s.is_enabled && s.configured && !s.error
+      }),
+    [health],
   )
+
+  const surveyChartRows = useMemo(
+    () => [
+      { n: 'Live', v: surveys?.live ?? 0, fill: '#0891b2' },
+      { n: 'Running', v: surveys?.running ?? 0, fill: '#06b6d4' },
+      { n: 'Scheduled', v: surveys?.scheduled ?? 0, fill: '#22d3ee' },
+      { n: 'Completed', v: surveys?.completed ?? 0, fill: '#0e7490' },
+      { n: 'Paused', v: surveys?.paused ?? 0, fill: '#94a3b8' },
+    ],
+    [surveys],
+  )
+
+  const interviewChartRows = useMemo(
+    () => [
+      { n: 'Live', v: interviews?.live ?? 0, fill: '#7c3aed' },
+      { n: 'Running', v: interviews?.running ?? 0, fill: '#a855f7' },
+      { n: 'Scheduled', v: interviews?.scheduled ?? 0, fill: '#c084fc' },
+      { n: 'Completed', v: interviews?.completed ?? 0, fill: '#6d28d9' },
+      { n: 'Drafts', v: interviews?.drafts ?? 0, fill: '#a78bfa' },
+    ],
+    [interviews],
+  )
+
+  const overviewKpis = [
+    { label: 'Organisations', value: n(orgs.length), sub: `${n(activeOrgs)} active`, href: '/organisations', spark: [{ v: orgs.length }] },
+    { label: 'Active subscriptions', value: n(billing?.subscriptions_active), sub: `${n(billing?.subscriptions_trial)} trial`, href: '/billing/subscriptions' },
+    { label: 'Past due', value: n(billing?.subscriptions_past_due), sub: `${n(billing?.subscriptions_pending_payment)} pending pay`, href: '/billing/subscriptions' },
+    { label: 'Open tickets', value: n(support?.total_open ?? support?.open ?? 0), sub: `${n(support?.unassigned ?? 0)} unassigned`, href: '/support/inbox' },
+    { label: 'WA surveys live', value: n(surveys?.live ?? 0), sub: `${n(surveys?.total ?? 0)} total`, href: '/operations/running-surveys', spark: surveyChartRows.slice(0, 3) },
+    { label: 'AI interviews live', value: n(interviews?.live ?? 0), sub: `${n(interviews?.total ?? 0)} total`, href: '/operations/running-interviews', spark: interviewChartRows.slice(0, 3) },
+    { label: 'Failed webhooks', value: n(webhooks.failed || 0), sub: 'recent delivery errors', href: '/integrations/webhooks' },
+    { label: 'Telnyx credit', value: telnyxBalance?.ok ? money(telnyxBalance.amount, telnyxBalance.currency) : '—', sub: 'voice / SMS balance', href: '/integrations/telnyx' },
+  ]
 
   const decideSignup = async (id, action) => {
     try {
@@ -217,106 +300,21 @@ export default function Dashboard() {
     navigate('/organisations/profile?tab=users')
   }
 
-  const primaryStats = (
-    <>
-      <StatCard
-        label='Organisations'
-        value={n(orgs.length)}
-        delta={`${n(activeOrgs)} active`}
-        accent='#0891b2'
-        icon={Building2}
-        cls='p-cyan'
-      />
-      <StatCard
-        label='Active subscriptions'
-        value={n(billing?.subscriptions_active)}
-        delta={`${n(billing?.subscriptions_trial)} trial · ${n(billing?.subscriptions_past_due)} past due`}
-        accent='#0f766e'
-        icon={DollarSign}
-        cls='p-green'
-      />
-      <StatCard
-        label='Open support tickets'
-        value={n(support?.total_open ?? support?.open ?? 0)}
-        delta={`${n(support?.total_pending ?? support?.pending ?? 0)} pending · ${n(support?.unassigned ?? 0)} unassigned`}
-        accent='#7c3aed'
-        icon={BadgeCheck}
-        cls='p-violet'
-      />
-      <StatCard
-        label='Failed operations'
-        value={n((recovery.failed || 0) + (webhooks.failed || 0))}
-        delta={`${n(recovery.failed || 0)} jobs · ${n(webhooks.failed || 0)} webhooks`}
-        accent='#d97706'
-        icon={BrainCircuit}
-        cls='p-amber'
-      />
-    </>
-  )
-
-  const secondaryStats = (
-    <>
-      <StatCard
-        label='Live surveys'
-        value={n(surveys?.live ?? surveys?.running ?? 0)}
-        delta={`${n(surveys?.running ?? 0)} running · ${n(surveys?.drafts ?? 0)} drafts`}
-        accent='#2563eb'
-        icon={PlayCircle}
-        cls='p-cyan'
-      />
-      <StatCard
-        label='Live interviews'
-        value={n(interviews?.live ?? interviews?.running ?? 0)}
-        delta={`${n(interviews?.running ?? 0)} running · ${n(interviews?.drafts ?? 0)} drafts`}
-        accent='#9333ea'
-        icon={Users}
-        cls='p-violet'
-      />
-      <StatCard
-        label='Telnyx balance'
-        value={
-          telnyxBalance?.ok
-            ? money(telnyxBalance.amount, telnyxBalance.currency)
-            : telnyxBalance?.configured === false
-              ? 'Not configured'
-              : '—'
-        }
-        delta={
-          telnyxBalance?.ok && telnyxBalance.pending > 0
-            ? `${money(telnyxBalance.pending, telnyxBalance.currency)} pending`
-            : 'Voice / SMS credit'
-        }
-        accent='#14b8a6'
-        icon={Wallet}
-        cls='p-green'
-      />
-      <StatCard
-        label='ElevenLabs characters'
-        value={elevenBalance?.ok ? n(elevenBalance.characters_remaining) : elevenBalance?.configured === false ? 'Not set' : '—'}
-        delta={
-          elevenBalance?.ok
-            ? `${n(elevenBalance.character_count)} used · ${elevenBalance.tier || 'tier'}`
-            : 'TTS quota'
-        }
-        accent='#6366f1'
-        icon={Mic2}
-        cls='p-violet'
-      />
-    </>
-  )
-
   return (
     <div className='pageShell dashboardPage'>
       <div className='pageTop'>
         <div>
           <h1>Dashboard</h1>
-          <p>Live platform overview — organisations, billing, support, operations, and integrations.</p>
+          <p>Live platform overview — products, enabled APIs, billing, and operations queues.</p>
         </div>
         <div className='actions'>
           <button type='button' className='btn soft' onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
             <RefreshCw size={16} className='btnIconLeading' />
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
+          <Link to='/analytics/kpis' className='btn soft'>
+            Analytics
+          </Link>
           <Link to='/onboarding/add-customer' className='btn primary'>
             Add customer
           </Link>
@@ -325,20 +323,104 @@ export default function Dashboard() {
 
       {error ? <div className='note dashboardErrorNote'>{error}</div> : null}
 
-      <DashboardSection
-        title='Platform overview'
-        description='Customers, billing, support load, and operational failures.'
-        action={
-          <button type='button' className='btn soft' onClick={() => setShowMoreStats((v) => !v)}>
-            {showMoreStats ? 'Hide extra metrics' : 'Show 4 more metrics'}
-          </button>
-        }
-      >
-        <div className='grid-4'>{primaryStats}</div>
-        {showMoreStats ? <div className='grid-4'>{secondaryStats}</div> : null}
+      <DashboardSection title='Platform overview' description='Compact KPIs with mini charts — click a card for detail.'>
+        <div className='dashKpiGrid'>
+          {overviewKpis.map((kpi) => (
+            <Link key={kpi.label} to={kpi.href} className='dashKpiCard dashKpiCardLink'>
+              <span className='dashKpiLabel'>{kpi.label}</span>
+              <strong className='dashKpiValue'>{loading ? '…' : kpi.value}</strong>
+              <span className='dashKpiSub'>{kpi.sub}</span>
+              {kpi.spark?.length ? (
+                <div className='dashKpiSpark'>
+                  <ResponsiveContainer width='100%' height={32}>
+                    <BarChart data={kpi.spark}>
+                      <Bar dataKey='v' fill='var(--accent, #0891b2)' radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : null}
+            </Link>
+          ))}
+        </div>
       </DashboardSection>
 
-      <DashboardSection title='Queues & operations' description='Support, compliance, onboarding, and recovery activity.'>
+      <DashboardSection title='Products' description='WA Survey, AI Interview, campaigns, and customer feedback — compact volume charts.'>
+        <div className='dashProductGrid'>
+          <ProductMiniChart
+            title='WA Survey'
+            href='/operations/running-surveys'
+            total={surveys?.total ?? 0}
+            live={surveys?.live ?? 0}
+            rows={surveyChartRows}
+            accent='#0891b2'
+          />
+          <ProductMiniChart
+            title='AI Interview'
+            href='/operations/running-interviews'
+            total={interviews?.total ?? 0}
+            live={interviews?.live ?? 0}
+            rows={interviewChartRows}
+            accent='#7c3aed'
+          />
+          <ProductHubCard
+            title='Campaigns'
+            description='Broadcast templates and outbound campaign hub.'
+            href='/campaigns'
+            icon='ti-ad-2'
+            stat='Template library'
+          />
+          <ProductHubCard
+            title='Customer feedback'
+            description='Industries, packages, locations, and WhatsApp survey results.'
+            href='/customer-feedback/industries'
+            icon='ti-message-circle'
+            stat='Feedback catalog'
+          />
+        </div>
+      </DashboardSection>
+
+      <DashboardSection
+        title='Platform APIs'
+        description='Enabled integrations only — click a card to open API settings.'
+        action={
+          isSuper ? (
+            <Link to='/integrations/kpi' className='btn soft'>
+              All integrations
+            </Link>
+          ) : null
+        }
+      >
+        {!isSuper ? (
+          <p className='muted dashboardHint'>Enabled API status is visible to superadmin only.</p>
+        ) : enabledIntegrations.length === 0 ? (
+          <p className='muted dashboardHint'>No enabled integrations — turn providers on in Integrations.</p>
+        ) : (
+          <>
+            <div className='dashApiGrid'>
+              {enabledIntegrations.map((p) => (
+                <DashboardApiCard
+                  key={p.key}
+                  provider={p}
+                  summary={health[p.key]}
+                  balances={providerBalances}
+                  onOpen={() => navigate(`/integrations/${p.key}`)}
+                />
+              ))}
+            </div>
+            <div className='dashApiWebhookRow'>
+              <span>
+                Webhooks failed: <strong>{n(webhooks.failed || 0)}</strong>
+              </span>
+              <span className='muted'>Latest: {fmt(webhooks.latest_received_at)}</span>
+              <Link to='/integrations/webhooks' className='btn soft sm'>
+                Webhook settings
+              </Link>
+            </div>
+          </>
+        )}
+      </DashboardSection>
+
+      <DashboardSection title='Queues & operations' description='Support, compliance, and onboarding.'>
       <div className='grid-12'>
         <div className='span-8 stack'>
           <div className='card'>
@@ -474,130 +556,78 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Recovery workflow volume</h3>
-              <Link to='/operations/recovery-events' className='btn soft'>
-                Recovery events
-              </Link>
-            </div>
-            <div className='cardBody dashboardChartBody'>
-              <ResponsiveContainer width='100%' height='100%'>
-                <BarChart data={workflowRows}>
-                  <CartesianGrid stroke='var(--line)' strokeDasharray='3 3' />
-                  <XAxis dataKey='n' tick={{ fill: 'var(--muted)', fontSize: 12 }} />
-                  <YAxis tick={{ fill: 'var(--muted)', fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey='v' fill='#0f766e' radius={[10, 10, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
         </div>
 
         <div className='span-4'>
-          <DashboardSection title='Status & health' description='Integrations, alerts, and recent platform activity.'>
           <div className='stack'>
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>System health</h3>
-              <Link to='/integrations/kpi' className='btn soft'>
-                Integrations
-              </Link>
-            </div>
-            <div className='cardBody'>
-              <div className='list'>
-                {isSuper ? (
-                  HEALTH_PROVIDERS.map(([label, key]) => {
-                    const pill = healthLabel(health[key])
-                    return (
-                      <div className='listRow' key={key}>
-                        <span>{label}</span>
-                        <span className={`pill ${pill.cls}`}>{pill.text}</span>
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>Needs attention</h3>
+                <span className='pill p-red'>Live</span>
+              </div>
+              <div className='cardBody'>
+                <div className='timeline'>
+                  {[
+                    ['Failed webhooks', `${n(webhooks.failed)} recent`, '/integrations/webhooks', AlertTriangle],
+                    ['Past-due subscriptions', `${n(billing?.subscriptions_past_due)} subs`, '/billing/subscriptions', Activity],
+                    ['Pending signups', `${n(pending.length)} to review`, '/onboarding/add-customer', MessageSquare],
+                    ['Open tickets', `${n(support?.total_open ?? 0)} open`, '/support/inbox', BadgeCheck],
+                  ].map(([title, detail, href, Icon]) => (
+                    <div
+                      className='timelineItem'
+                      key={title}
+                      onClick={() => navigate(href)}
+                      role='button'
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') navigate(href)
+                      }}
+                    >
+                      <div className='timelineIcon'>
+                        <Icon size={16} />
                       </div>
-                    )
-                  })
-                ) : (
-                  <p className='muted dashboardHint'>Integration health is visible to superadmin only.</p>
-                )}
-                <div className='listRow'>
-                  <span>Webhooks (recent failed)</span>
-                  <strong>{n(webhooks.failed || 0)}</strong>
-                </div>
-                <div className='listRow'>
-                  <span>Latest webhook</span>
-                  <strong className='dashboardMetaStrong'>{fmt(webhooks.latest_received_at)}</strong>
+                      <div>
+                        <div className='timelineTitle'>{title}</div>
+                        <div className='muted'>{detail}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Needs attention</h3>
-              <span className='pill p-red'>Live</span>
-            </div>
-            <div className='cardBody'>
-              <div className='timeline'>
-                {[
-                  ['Failed recovery jobs', `${n(recovery.failed)} recent`, '/operations/failed-jobs', PhoneCall],
-                  ['Failed webhooks', `${n(webhooks.failed)} recent`, '/operations/recovery-events', AlertTriangle],
-                  ['Past-due subscriptions', `${n(billing?.subscriptions_past_due)} subs`, '/billing/subscriptions', Activity],
-                  ['Pending signups', `${n(pending.length)} to review`, '/dashboard', MessageSquare],
-                ].map(([title, detail, href, Icon]) => (
-                  <div className='timelineItem' key={title} onClick={() => navigate(href)} role='button' tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') navigate(href) }}>
-                    <div className='timelineIcon'>
-                      <Icon size={16} />
-                    </div>
-                    <div>
-                      <div className='timelineTitle'>{title}</div>
-                      <div className='muted'>{detail}</div>
-                    </div>
+            <div className='card'>
+              <div className='cardHead'>
+                <h3>Latest activity</h3>
+              </div>
+              <div className='cardBody'>
+                <div className='list'>
+                  <div className='listRow'>
+                    <span>Latest subscription</span>
+                    <strong className='dashboardMetaStrong'>{fmt(billing?.latest_subscription_created_at)}</strong>
                   </div>
-                ))}
+                  <div className='listRow'>
+                    <span>WA surveys live</span>
+                    <strong>{n(surveys?.live ?? 0)}</strong>
+                  </div>
+                  <div className='listRow'>
+                    <span>AI interviews live</span>
+                    <strong>{n(interviews?.live ?? 0)}</strong>
+                  </div>
+                  <div className='listRow'>
+                    <span>ElevenLabs chars</span>
+                    <strong>{elevenBalance?.ok ? n(elevenBalance.characters_remaining) : '—'}</strong>
+                  </div>
+                </div>
+                <div className='actions dashboardCardActions'>
+                  <Link to='/operations/running-surveys' className='btn soft'>WA Survey</Link>
+                  <Link to='/operations/running-interviews' className='btn soft'>AI Interview</Link>
+                  <Link to='/campaigns' className='btn soft'>Campaigns</Link>
+                  <Link to='/customer-feedback/industries' className='btn soft'>Feedback</Link>
+                </div>
               </div>
             </div>
           </div>
-
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Latest activity</h3>
-            </div>
-            <div className='cardBody'>
-              <div className='list'>
-                <div className='listRow'>
-                  <span>Latest subscription</span>
-                  <strong className='dashboardMetaStrong'>{fmt(billing?.latest_subscription_created_at)}</strong>
-                </div>
-                <div className='listRow'>
-                  <span>Latest recovery job</span>
-                  <strong className='dashboardMetaStrong'>{fmt(recovery.latest_created_at)}</strong>
-                </div>
-                <div className='listRow'>
-                  <span>Survey campaigns live</span>
-                  <strong>{n(surveys?.live ?? 0)}</strong>
-                </div>
-                <div className='listRow'>
-                  <span>Interview campaigns live</span>
-                  <strong>{n(interviews?.live ?? 0)}</strong>
-                </div>
-              </div>
-              <div className='actions dashboardCardActions'>
-                <Link to='/operations/running-surveys' className='btn soft'>
-                  Surveys
-                </Link>
-                <Link to='/operations/running-interviews' className='btn soft'>
-                  Interviews
-                </Link>
-                <Link to='/organisations' className='btn soft'>
-                  Organisations
-                </Link>
-              </div>
-            </div>
-          </div>
-          </div>
-          </DashboardSection>
         </div>
       </div>
       </DashboardSection>

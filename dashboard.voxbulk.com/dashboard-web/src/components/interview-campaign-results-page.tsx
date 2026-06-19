@@ -132,7 +132,18 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const resultsQ = useInterviewResults(orderId);
   const schedulingQ = useSchedulingStatus();
-  const calendarReady = (schedulingQ.data as Record<string, unknown> | undefined)?.human_scheduling_ready === true;
+  const scheduling = (schedulingQ.data || {}) as Record<string, unknown>;
+  const calendarReady = scheduling.human_scheduling_ready === true;
+  const providerLabel = String(scheduling.provider_label || scheduling.provider || "").trim();
+  const connectedAccount = String(scheduling.connected_account || scheduling.owner_name || "").trim();
+  const bookingDisplay =
+    calendarReady && providerLabel
+      ? connectedAccount
+        ? `${providerLabel} · ${connectedAccount}`
+        : providerLabel
+      : scheduling.legacy_unsupported_provider
+        ? "Reconnect required (unsupported provider)"
+        : "Not connected";
   const stopM = useStopInterviewCampaign();
   const [stopOpen, setStopOpen] = React.useState(false);
   const [stopConfirmText, setStopConfirmText] = React.useState("");
@@ -343,10 +354,29 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
-          <label className="flex items-center gap-2 pl-2 text-xs text-muted-foreground">
-            <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
-            Select all
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 pl-2 text-xs text-muted-foreground">
+              <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
+              Select all
+            </label>
+            <span
+              className={
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] " +
+                (calendarReady
+                  ? "border-success/40 bg-success/10 text-foreground"
+                  : "border-warning/40 bg-warning/10 text-muted-foreground")
+              }
+              title={calendarReady ? `Booking via ${bookingDisplay}` : "Connect a booking provider in Settings → Integrations"}
+            >
+              <CalendarClock className="size-3.5 shrink-0" />
+              Booking: {bookingDisplay}
+              {!calendarReady ? (
+                <Link to="/settings/integrations" className="ml-1 font-medium text-primary underline-offset-2 hover:underline">
+                  Integrations
+                </Link>
+              ) : null}
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
             <div className="relative w-full min-w-0 sm:w-44"><Search className="absolute left-2 top-2 size-4 text-muted-foreground" /><Input placeholder="Search candidate" className="h-8 w-full pl-8 text-xs" /></div>
             <Button size="sm" variant="outline" className="gap-1.5"><Filter className="size-3.5" /> Filter</Button>
@@ -359,12 +389,22 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                   selectedCount === 0
                     ? "Select candidates first"
                     : !calendarReady
-                      ? "Connect Calendly or Cronofy and choose an event type in Settings → Integrations"
-                      : undefined
+                      ? scheduling.legacy_unsupported_provider
+                        ? "Your previous calendar provider is no longer supported — reconnect in Settings → Integrations"
+                        : "Connect a booking provider in Settings → Integrations"
+                      : providerLabel
+                        ? `Via ${providerLabel}${connectedAccount ? ` (${connectedAccount})` : ""}`
+                        : undefined
                 }
                 onClick={() => setSendOpen(true)}
               >
-                <Send className="size-3.5" /> Send booking link {selectedCount > 0 && `(${selectedCount})`}
+                <Send className="size-3.5" />
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Send booking link {selectedCount > 0 && `(${selectedCount})`}</span>
+                  {calendarReady && providerLabel ? (
+                    <span className="text-[10px] font-normal opacity-80">Via {providerLabel}</span>
+                  ) : null}
+                </span>
               </Button>
             )}
           </div>
@@ -672,6 +712,9 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const calendarReady = scheduling.human_scheduling_ready === true;
   const hubspotReady = hubspot.connected === true;
+  const providerLabel = String(scheduling.provider_label || scheduling.provider || "booking provider").trim();
+  const connectedAccount = String(scheduling.connected_account || scheduling.owner_name || "").trim();
+  const legacyUnsupported = Boolean(scheduling.legacy_unsupported_provider);
 
   const onSend = async () => {
     if (recipientIds.length === 0) return;
@@ -681,9 +724,12 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
       const res = await sendM.mutateAsync({ recipient_ids: recipientIds, channels: ["email"] });
       const em = Number((res as Record<string, unknown>).email_sent || 0);
       const hs = Number((res as Record<string, unknown>).hubspot_synced || 0);
+      const sentProvider = String((res as Record<string, unknown>).provider_label || providerLabel || "").trim();
       const errs = (res as Record<string, unknown>).errors;
       if (em > 0) {
-        toast.success(`Sent ${em} email invite(s)${hs > 0 ? ` · ${hs} synced to HubSpot` : ""}`);
+        toast.success(
+          `Sent ${em} email${em === 1 ? "" : "s"} via ${sentProvider || "your booking provider"}${hs > 0 ? ` · ${hs} synced to HubSpot` : ""}`,
+        );
       } else if (Array.isArray(errs) && errs.length) {
         toast.error(String(errs[0]));
       } else {
@@ -703,19 +749,32 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
         <DialogHeader>
           <DialogTitle>Send human interview links</DialogTitle>
           <DialogDescription>
-            Each shortlisted candidate receives an email with a unique Calendly or Cronofy link to book their next-stage interview.
+            Each shortlisted candidate receives an email with a booking link from your connected calendar provider.
             {hubspotReady ? " Connected HubSpot contacts will be updated automatically." : ""}
           </DialogDescription>
         </DialogHeader>
-        {!calendarReady ? (
+        {calendarReady ? (
+          <p className="rounded-md border border-success/40 bg-success/10 p-3 text-sm">
+            <strong>Sending via {providerLabel}</strong>
+            {connectedAccount ? ` (${connectedAccount})` : ""}
+          </p>
+        ) : legacyUnsupported ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
+            Your previous calendar provider is no longer supported. Reconnect in{" "}
+            <Link to="/settings/integrations" className="font-medium text-foreground underline-offset-2 hover:underline">
+              Settings → Integrations
+            </Link>
+            .
+          </p>
+        ) : (
           <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-muted-foreground">
-            Connect Calendly or Cronofy in{" "}
+            Connect a booking provider in{" "}
             <Link to="/settings/integrations" className="font-medium text-foreground underline-offset-2 hover:underline">
               Settings → Integrations
             </Link>{" "}
             before sending.
           </p>
-        ) : null}
+        )}
         {!hubspotReady ? (
           <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             Optional: connect HubSpot in{" "}
@@ -726,7 +785,7 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
           </p>
         ) : null}
         <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-          Human interview links are sent by <strong>email only</strong> from your connected calendar provider.
+          Human interview links are sent by <strong>email only</strong> from {providerLabel}.
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>

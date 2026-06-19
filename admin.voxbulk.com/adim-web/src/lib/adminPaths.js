@@ -47,6 +47,10 @@ export function canAccessAdminPath(role, pathname) {
   if (r === 'technical') {
     return (
       isUnder('/support') ||
+      isUnder('/operations') ||
+      isUnder('/settings/wa-survey') ||
+      isUnder('/settings/wa-interview') ||
+      isUnder('/analytics') ||
       isUnder('/ai/agents') ||
       p === '/ai/agent-demo' ||
       isUnder('/marketing/frontpage-call-leads') ||
@@ -75,11 +79,13 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/onboarding') ||
       isUnder('/customer-feedback') ||
       isUnder('/operations') ||
-      isUnder('/support') ||
+      isUnder('/settings/wa-survey') ||
+      isUnder('/settings/wa-interview') ||
       isUnder('/ai') ||
       isUnder('/compliance') ||
       isUnder('/analytics') ||
       isUnder('/team') ||
+      isUnder('/support') ||
       isUnder('/marketing') ||
       isUnder('/settings/global') ||
       isUnder('/settings/flags') ||

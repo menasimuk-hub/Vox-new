@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Security / JWT
     jwt_secret_key: str = Field(default="change-me", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
-    access_token_expire_minutes: int = Field(default=60, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    access_token_expire_minutes: int = Field(default=10080, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     # Encryption
     encryption_key: str = Field(default="change-me", alias="ENCRYPTION_KEY")
@@ -91,6 +91,14 @@ class Settings(BaseSettings):
     calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
     calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")
     calendly_redirect_uri: str = Field(default="", alias="CALENDLY_REDIRECT_URI")
+
+    cal_com_client_id: str = Field(default="", alias="CAL_COM_CLIENT_ID")
+    cal_com_client_secret: str = Field(default="", alias="CAL_COM_CLIENT_SECRET")
+    cal_com_redirect_uri: str = Field(default="", alias="CAL_COM_REDIRECT_URI")
+
+    google_calendar_client_id: str = Field(default="", alias="GOOGLE_CALENDAR_CLIENT_ID")
+    google_calendar_client_secret: str = Field(default="", alias="GOOGLE_CALENDAR_CLIENT_SECRET")
+    google_calendar_redirect_uri: str = Field(default="", alias="GOOGLE_CALENDAR_REDIRECT_URI")
 
     cronofy_client_id: str = Field(default="", alias="CRONOFY_CLIENT_ID")
     cronofy_client_secret: str = Field(default="", alias="CRONOFY_CLIENT_SECRET")

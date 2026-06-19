@@ -15,8 +15,9 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'airwallex', label: 'Airwallex', icon: 'ti-world-dollar', blurb: 'Card payments for wallet top-ups.' },
   { key: 'zoom', label: 'Zoom', icon: 'ti-brand-zoom', blurb: 'Interview campaigns via Zoom.' },
   { key: 'calendly', label: 'Calendly', icon: 'ti-calendar', blurb: 'OAuth + scheduling links for interview shortlist.' },
-  { key: 'cronofy', label: 'Cronofy', icon: 'ti-calendar-time', blurb: 'OAuth + scheduling requests for interview shortlist.' },
-  { key: 'hubspot', label: 'HubSpot', icon: 'ti-brand-hubspot', blurb: 'OAuth + CRM sync for shortlisted interview candidates.' },
+  { key: 'cal_com', label: 'Cal.com', icon: 'ti-calendar-event', blurb: 'OAuth + Cal.com booking links for interview shortlist.' },
+  { key: 'google_calendar', label: 'Google Calendar', icon: 'ti-calendar-stats', blurb: 'OAuth + appointment schedule URLs for interview shortlist.' },
+  { key: 'hubspot', label: 'HubSpot', icon: 'ti-brand-hubspot', blurb: 'OAuth + CRM sync and HubSpot Meetings for shortlisted candidates.' },
 ]
 
 export const INTEGRATION_EXTRAS = [

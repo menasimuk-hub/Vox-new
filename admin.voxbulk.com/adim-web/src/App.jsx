@@ -83,6 +83,8 @@ import FeedbackPackagesPricing from './pages/customer-feedback/FeedbackPackagesP
 import FeedbackSurveyTypeEdit from './pages/customer-feedback/FeedbackSurveyTypeEdit'
 import CampaignsHub from './pages/campaigns/CampaignsHub'
 import CampaignTemplates from './pages/campaigns/CampaignTemplates'
+import PlatformKpis from './pages/analytics/PlatformKpis'
+import CostRevenue from './pages/analytics/CostRevenue'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
@@ -162,12 +164,12 @@ export default function App() {
         <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/lead-sources' replace />} />
         <Route path='/ai-marketing/lead-sales' element={<Navigate to='/marketing/lead-sales' replace />} />
         <Route path='/marketing/apollo' element={<Navigate to='/marketing/ai-team' replace />} />
-        <Route path='/marketing/clay' element={G('Clay enrichment')} />
-        <Route path='/marketing/instantly' element={G('Instantly campaigns')} />
-        <Route path='/marketing/vapi' element={G('Vapi sales calls')} />
-        <Route path='/marketing/calendly' element={G('Calendly bookings')} />
-        <Route path='/marketing/funnel' element={G('Ad funnel tracking')} />
-        <Route path='/marketing/attribution' element={G('Conversion attribution')} />
+        <Route path='/marketing/clay' element={<Navigate to='/marketing/ai-team' replace />} />
+        <Route path='/marketing/instantly' element={<Navigate to='/marketing/ai-team' replace />} />
+        <Route path='/marketing/vapi' element={<Navigate to='/marketing/ai-team' replace />} />
+        <Route path='/marketing/calendly' element={<Navigate to='/marketing/ai-team' replace />} />
+        <Route path='/marketing/funnel' element={<Navigate to='/marketing/ai-team' replace />} />
+        <Route path='/marketing/attribution' element={<Navigate to='/marketing/ai-team' replace />} />
 
         <Route path='/integrations' element={<Integrations />} />
         <Route path='/integrations/kpi' element={<Integrations />} />
@@ -187,18 +189,13 @@ export default function App() {
         <Route path='/integrations/airwallex' element={<Integrations />} />
         <Route path='/integrations/zoom' element={<Integrations />} />
         <Route path='/integrations/calendly' element={<Integrations />} />
-        <Route path='/integrations/cronofy' element={<Integrations />} />
+        <Route path='/integrations/cal_com' element={<Integrations />} />
+        <Route path='/integrations/google_calendar' element={<Integrations />} />
         <Route path='/integrations/hubspot' element={<Integrations />} />
         <Route path='/integrations/webhooks' element={<Integrations />} />
         <Route path='/integrations/social-login' element={<Integrations />} />
-        <Route path='/services-api' element={<ServicesAPI />} />
-        <Route path='/services-api/dentally' element={<ServicesAPI />} />
-        <Route path='/services-api/carestack' element={<ServicesAPI />} />
-        <Route path='/services-api/pabau' element={<ServicesAPI />} />
-        <Route path='/services-api/cliniko' element={<ServicesAPI />} />
-        <Route path='/services-api/optix' element={<ServicesAPI />} />
-        <Route path='/services-api/ocuco' element={<ServicesAPI />} />
-        <Route path='/services-api/telnyx' element={<ServicesAPI />} />
+        <Route path='/services-api' element={<Navigate to='/integrations/kpi' replace />} />
+        <Route path='/services-api/*' element={<Navigate to='/integrations/kpi' replace />} />
 
         <Route path='/billing/mandates' element={<Billing />} />
         <Route path='/billing/subscriptions' element={<Billing />} />
@@ -257,10 +254,10 @@ export default function App() {
         <Route path='/compliance/ofcom' element={G('OFCOM rules')} />
         <Route path='/compliance/gdpr' element={G('GDPR logs')} />
 
-        <Route path='/analytics/kpis' element={G('Platform KPIs')} />
-        <Route path='/analytics/benchmarks' element={G('Org benchmarks')} />
-        <Route path='/analytics/recovery' element={G('Recovery performance')} />
-        <Route path='/analytics/cost-revenue' element={G('Cost vs revenue')} />
+        <Route path='/analytics/kpis' element={<PlatformKpis />} />
+        <Route path='/analytics/benchmarks' element={<Navigate to='/analytics/kpis' replace />} />
+        <Route path='/analytics/recovery' element={<Navigate to='/analytics/kpis' replace />} />
+        <Route path='/analytics/cost-revenue' element={<CostRevenue />} />
 
         <Route path='/team/users' element={<Navigate to='/platform/users' replace />} />
         <Route path='/admin/users' element={<Navigate to='/platform/users' replace />} />

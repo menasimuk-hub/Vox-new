@@ -161,9 +161,14 @@ class InterviewSchedulingService:
             raise ValueError("Scheduling send is only for interview orders")
 
         org_status = scheduling_status(db, order.org_id)
-        if not org_status.get("connected"):
+        if not org_status.get("human_scheduling_ready"):
+            legacy = org_status.get("legacy_unsupported_provider")
+            if legacy:
+                raise ValueError(
+                    "Cronofy is no longer supported — reconnect with Calendly, Cal.com, Google Calendar, or HubSpot Meetings in Settings → Integrations"
+                )
             raise ValueError(
-                "Connect Calendly or Cronofy in Settings → System before sending human interview links"
+                "Connect a booking provider in Settings → Integrations before sending human interview links"
             )
 
         config = _order_config(order)
@@ -331,4 +336,6 @@ class InterviewSchedulingService:
             "hubspot_synced": hubspot_synced,
             "errors": errors,
             "provider": org_status.get("provider"),
+            "provider_label": org_status.get("provider_label"),
+            "connected_account": org_status.get("connected_account"),
         }

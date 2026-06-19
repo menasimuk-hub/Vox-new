@@ -294,11 +294,23 @@ def test_calendly_integration(db: Session = Depends(get_db), _admin=Depends(requ
     return test_calendly_platform_config(db)
 
 
-@router.post("/integrations/cronofy/test")
-def test_cronofy_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.scheduling_connection_service import test_cronofy_platform_config
+@router.post("/integrations/cal-com/test")
+def test_cal_com_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.cal_com_connection_service import test_cal_com_platform_config
 
-    return test_cronofy_platform_config(db)
+    return test_cal_com_platform_config(db)
+
+
+@router.post("/integrations/google-calendar/test")
+def test_google_calendar_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.google_calendar_booking_service import test_google_calendar_platform_config
+
+    return test_google_calendar_platform_config(db)
+
+
+@router.post("/integrations/cronofy/test")
+def test_cronofy_integration_deprecated(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    return {"ok": False, "detail": "Cronofy is no longer supported for new connections."}
 
 
 @router.post("/integrations/hubspot/test")

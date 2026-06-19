@@ -1,4 +1,4 @@
-"""Org-level Calendly / Cronofy connection and scheduling link generation."""
+"""Org-level booking provider connection and scheduling link generation."""
 
 from __future__ import annotations
 
@@ -14,6 +14,12 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.encryption import get_encryptor
 from app.models.organisation import Organisation
+from app.services.booking_providers import (
+    BOOKING_PROVIDERS,
+    LEGACY_UNSUPPORTED_PROVIDERS,
+    connected_account_display,
+    provider_label,
+)
 
 CRONOFY_DATA_CENTERS: dict[str, tuple[str, str]] = {
     "us": ("app.cronofy.com", "api.cronofy.com"),
@@ -52,6 +58,11 @@ def save_scheduling_config(db: Session, org_id: str, payload: dict[str, Any]) ->
     if org is None:
         raise ValueError("Organisation not found")
     cfg = dict(payload)
+    provider = str(cfg.get("provider") or "").strip().lower()
+    if provider in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise ValueError(f"{provider_label(provider)} is no longer supported — connect Calendly, Cal.com, Google Calendar, or HubSpot Meetings")
+    if provider and provider not in BOOKING_PROVIDERS:
+        raise ValueError(f"Unsupported booking provider: {provider}")
     token = str(cfg.get("access_token") or "").strip()
     if token and not token.startswith("enc:"):
         cfg["access_token"] = "enc:" + get_encryptor().encrypt_str(token)
@@ -61,6 +72,27 @@ def save_scheduling_config(db: Session, org_id: str, payload: dict[str, Any]) ->
     db.commit()
     db.refresh(org)
     return scheduling_status(db, org_id)
+
+
+def ensure_can_connect_scheduling(db: Session | None, org_id: str, provider: str, *, replace: bool = False) -> None:
+    if db is None:
+        return
+    wanted = str(provider or "").strip().lower()
+    if wanted not in BOOKING_PROVIDERS:
+        raise ValueError(f"Unsupported booking provider: {provider}")
+    cfg = get_scheduling_config(db, org_id)
+    current = str(cfg.get("provider") or "").strip().lower()
+    if not current or current == wanted:
+        return
+    if replace:
+        org = db.get(Organisation, org_id)
+        if org is not None:
+            org.scheduling_config_json = None
+            db.add(org)
+            db.commit()
+        return
+    current_label = provider_label(current) or current
+    raise ValueError(f"Disconnect {current_label} first or switch provider from Settings → Integrations")
 
 
 def disconnect_scheduling(db: Session, org_id: str, *, provider: str | None = None) -> dict[str, Any]:
@@ -84,31 +116,72 @@ def disconnect_scheduling(db: Session, org_id: str, *, provider: str | None = No
 def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     cfg = get_scheduling_config(db, org_id)
     provider = str(cfg.get("provider") or "").strip().lower()
-    connected = bool(provider and str(cfg.get("access_token") or "").strip())
+    legacy_unsupported = provider in LEGACY_UNSUPPORTED_PROVIDERS
+    connected = bool(provider) and not legacy_unsupported
+    if provider == "calendly":
+        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+    elif provider == "hubspot_meetings":
+        from app.services.hubspot_connection_service import hubspot_status
+
+        connected = connected and bool(str(cfg.get("meeting_link_url") or "").strip())
+        hs = hubspot_status(db, org_id)
+        if not hs.get("connected"):
+            connected = False
+    elif provider in ("cal_com", "google_calendar"):
+        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+    elif legacy_unsupported:
+        connected = False
+
     expires_at = cfg.get("expires_at")
     cal_connected = connected and provider == "calendly"
-    cron_connected = connected and provider == "cronofy"
+    cal_com_connected = connected and provider == "cal_com"
+    google_connected = connected and provider == "google_calendar"
+    hubspot_meetings_connected = connected and provider == "hubspot_meetings"
     cal_platform = platform_oauth_configured(db, "calendly")
-    cron_platform = platform_oauth_configured(db, "cronofy")
+    cal_com_platform = platform_oauth_configured(db, "cal_com")
+    google_platform = platform_oauth_configured(db, "google_calendar")
+    hubspot_platform = platform_oauth_configured(db, "hubspot")
     event_type_uri = str(cfg.get("event_type_uri") or "").strip()
-    event_type_configured = bool(event_type_uri) if cal_connected else bool(cron_connected)
+    event_type_configured = False
+    if cal_connected:
+        event_type_configured = bool(event_type_uri)
+    elif cal_com_connected:
+        event_type_configured = bool(str(cfg.get("event_type_url") or cfg.get("event_type_id") or "").strip())
+    elif google_connected:
+        event_type_configured = bool(str(cfg.get("schedule_url") or "").strip())
+    elif hubspot_meetings_connected:
+        event_type_configured = bool(str(cfg.get("meeting_link_url") or "").strip())
     human_ready = connected and event_type_configured
+    account = connected_account_display(cfg)
     return {
         "connected": connected,
         "provider": provider or None,
+        "provider_label": provider_label(provider) if provider else None,
+        "connected_account": account,
+        "connected_provider_display": (
+            f"{provider_label(provider)} · {account}" if provider and account else provider_label(provider)
+        ),
         "calendly_connected": cal_connected,
-        "cronofy_connected": cron_connected,
+        "cal_com_connected": cal_com_connected,
+        "google_calendar_connected": google_connected,
+        "hubspot_meetings_connected": hubspot_meetings_connected,
+        "cronofy_connected": False,
+        "legacy_unsupported_provider": provider if legacy_unsupported else None,
         "calendly_platform_configured": cal_platform,
-        "cronofy_platform_configured": cron_platform,
+        "cal_com_platform_configured": cal_com_platform,
+        "google_calendar_platform_configured": google_platform,
+        "hubspot_platform_configured": hubspot_platform,
+        "cronofy_platform_configured": False,
         "interview_booking_ready": True,
         "interview_booking_mode": "voxbulk_native",
         "event_type_configured": event_type_configured,
         "human_scheduling_ready": human_ready,
         "human_scheduling_mode": provider if human_ready else None,
-        "providers_available": ["calendly", "cronofy"],
+        "providers_available": list(BOOKING_PROVIDERS),
         "event_type_uri": cfg.get("event_type_uri"),
+        "event_type_url": cfg.get("event_type_url") or cfg.get("schedule_url") or cfg.get("meeting_link_url"),
         "owner_name": cfg.get("owner_name"),
-        "cronofy_sub": cfg.get("cronofy_sub"),
+        "cronofy_sub": None,
         "expires_at": expires_at,
         "connected_at": cfg.get("connected_at"),
     }
@@ -123,24 +196,49 @@ def create_scheduling_link(
 ) -> str:
     cfg = get_scheduling_config(db, org_id)
     provider = str(cfg.get("provider") or "").strip().lower()
+    if provider in LEGACY_UNSUPPORTED_PROVIDERS:
+        raise ValueError("Cronofy is no longer supported — reconnect with Calendly, Cal.com, Google Calendar, or HubSpot Meetings")
     if provider == "calendly":
         return create_calendly_scheduling_link(db, org_id, candidate_name=candidate_name)
-    if provider == "cronofy":
-        return create_cronofy_scheduling_link(
-            db,
-            org_id,
-            candidate_name=candidate_name,
-            candidate_email=candidate_email,
+    if provider == "cal_com":
+        from app.services.cal_com_connection_service import create_cal_com_scheduling_link
+
+        return create_cal_com_scheduling_link(
+            db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
         )
-    raise ValueError("Connect Calendly or Cronofy in System settings before sending scheduling links")
+    if provider == "google_calendar":
+        from app.services.google_calendar_booking_service import create_google_calendar_scheduling_link
+
+        return create_google_calendar_scheduling_link(
+            db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
+        )
+    if provider == "hubspot_meetings":
+        from app.services.hubspot_meetings_service import create_hubspot_meetings_scheduling_link
+
+        return create_hubspot_meetings_scheduling_link(
+            db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
+        )
+    raise ValueError("Connect a booking provider in Settings → Integrations before sending scheduling links")
 
 
 def platform_oauth_configured(db: Session | None, provider: str) -> bool:
     provider = str(provider or "").strip().lower()
     if provider == "calendly":
         client_id, client_secret, redirect = _calendly_platform_credentials(db)
+    elif provider == "cal_com":
+        from app.services.cal_com_connection_service import _cal_com_platform_credentials
+
+        client_id, client_secret, redirect = _cal_com_platform_credentials(db)
+    elif provider == "google_calendar":
+        from app.services.google_calendar_booking_service import _google_calendar_platform_credentials
+
+        client_id, client_secret, redirect = _google_calendar_platform_credentials(db)
+    elif provider == "hubspot":
+        from app.services.hubspot_connection_service import platform_oauth_configured as hubspot_platform_ready
+
+        return hubspot_platform_ready(db)
     elif provider == "cronofy":
-        client_id, client_secret, redirect = _cronofy_platform_credentials(db)
+        return False
     else:
         return False
     return bool(client_id and client_secret and redirect and redirect.startswith("http"))
@@ -239,7 +337,8 @@ def test_cronofy_platform_config(db: Session) -> dict[str, Any]:
     }
 
 
-def calendly_oauth_start(*, org_id: str, db: Session | None = None) -> str:
+def calendly_oauth_start(*, org_id: str, db: Session | None = None, replace: bool = False) -> str:
+    ensure_can_connect_scheduling(db, org_id, "calendly", replace=replace)
     client_id, _, redirect = _calendly_platform_credentials(db)
     if not client_id or not redirect:
         raise ValueError("Calendly OAuth is not configured (Admin → Integrations → Calendly or CALENDLY_* env)")
