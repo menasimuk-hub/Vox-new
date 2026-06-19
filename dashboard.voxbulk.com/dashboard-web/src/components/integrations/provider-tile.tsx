@@ -76,29 +76,29 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       onClick={() => onOpen(view)}
       title={view.label}
       className={cn(
-        "group flex h-full w-full flex-col items-start gap-2.5 rounded-md border p-3.5 text-left transition-colors",
+        "group flex min-h-[8.5rem] w-full flex-col items-start gap-3 rounded-lg border p-5 text-left transition-colors",
         isActive
           ? "border-foreground/15 bg-accent/40 shadow-sm"
           : "border-border bg-card hover:border-border hover:bg-accent/30",
       )}
     >
-      <div className="flex w-full items-start gap-3">
+      <div className="flex w-full items-start gap-4">
         <span
           className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-md border transition-colors",
+            "grid size-12 shrink-0 place-items-center rounded-lg border transition-colors",
             isActive
               ? "border-border bg-background text-foreground"
               : "border-border/60 bg-muted/40 text-foreground/80 group-hover:border-border group-hover:text-foreground",
           )}
         >
-          <Icon className="size-4" strokeWidth={1.75} />
+          <Icon className="size-5" strokeWidth={1.75} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-sm font-medium leading-tight">{view.label}</span>
+          <div className="flex items-start justify-between gap-3">
+            <span className="text-base font-semibold leading-snug">{view.label}</span>
             <IntegrationStatusPill status={status} />
           </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{subline}</p>
+          <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{subline}</p>
         </div>
       </div>
     </button>

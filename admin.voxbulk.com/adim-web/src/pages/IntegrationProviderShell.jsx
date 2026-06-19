@@ -48,7 +48,7 @@ export default function IntegrationProviderShell({
                   checked={Boolean(resolvedVisible)}
                   onChange={(e) => onVisibleToOrgsChange?.(e.target.checked)}
                 />
-                <span>Visible to organisations</span>
+                <span>Visible to organisations (required for customer dashboard)</span>
               </label>
             ) : null}
             {summary ? <span className={`pill ${status.pillClass}`}>{status.label}</span> : null}

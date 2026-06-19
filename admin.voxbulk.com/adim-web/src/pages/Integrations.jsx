@@ -60,6 +60,8 @@ const PROVIDERS = [
   { key: 'hubspot', label: 'HubSpot' },
 ]
 
+const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot']
+
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
 
 function joinMissingFields(x) {
@@ -777,10 +779,14 @@ export default function Integrations() {
   }
 
   const setProviderEnabled = (providerKey, value) => {
-    setProviderDrafts((s) => ({
-      ...s,
-      [providerKey]: { ...(s[providerKey] || {}), is_enabled: Boolean(value) },
-    }))
+    setProviderDrafts((s) => {
+      const next = { ...(s[providerKey] || {}), is_enabled: Boolean(value) }
+      // Booking/CRM providers: enabling should show on customer dashboards unless admin hides explicitly.
+      if (VISIBLE_TO_ORGS_PROVIDERS.includes(providerKey) && Boolean(value)) {
+        next.visible_to_orgs = true
+      }
+      return { ...s, [providerKey]: next }
+    })
   }
 
   const setProviderVisible = (providerKey, value) => {
@@ -956,11 +962,22 @@ export default function Integrations() {
       if (providerKey === 'hubspot' && !config.auth_mode) {
         config.auth_mode = 'private_app'
       }
+      const isEnabled = draft.is_enabled == null ? Boolean(existing.is_enabled) : Boolean(draft.is_enabled)
+      let visibleToOrgs =
+        draft.visible_to_orgs == null ? Boolean(existing.visible_to_orgs) : Boolean(draft.visible_to_orgs)
+      if (
+        VISIBLE_TO_ORGS_PROVIDERS.includes(providerKey) &&
+        isEnabled &&
+        draft.visible_to_orgs == null &&
+        !existing.visible_to_orgs
+      ) {
+        visibleToOrgs = true
+      }
       const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
         method: 'PUT',
         body: JSON.stringify({
-          is_enabled: draft.is_enabled == null ? Boolean(existing.is_enabled) : Boolean(draft.is_enabled),
-          visible_to_orgs: draft.visible_to_orgs == null ? Boolean(existing.visible_to_orgs) : Boolean(draft.visible_to_orgs),
+          is_enabled: isEnabled,
+          visible_to_orgs: visibleToOrgs,
           config,
         }),
       })
@@ -989,7 +1006,6 @@ export default function Integrations() {
   const activeConfig = { ...(activeSummary.config || {}), ...(activeDraft.config || {}) }
   const activeEnabled = activeDraft.is_enabled == null ? Boolean(activeSummary.is_enabled) : Boolean(activeDraft.is_enabled)
   const activeVisible = activeDraft.visible_to_orgs == null ? Boolean(activeSummary.visible_to_orgs) : Boolean(activeDraft.visible_to_orgs)
-  const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot']
   const showActiveVisibilityToggle = VISIBLE_TO_ORGS_PROVIDERS.includes(activeProvider || '')
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }

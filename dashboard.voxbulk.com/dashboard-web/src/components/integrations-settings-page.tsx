@@ -195,23 +195,23 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const renderGrid = (rows: IntegrationView[]) => {
     if (catalogueQ.isLoading) {
       return (
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-md" />
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-36 w-full rounded-lg" />
           ))}
         </div>
       );
     }
     if (rows.length === 0) {
       return (
-        <p className="rounded-md border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-          No providers in this group are available yet. Your VoxBulk admin can enable more in
-          Admin → Integrations.
+        <p className="rounded-lg border border-dashed bg-muted/30 p-6 text-sm leading-relaxed text-muted-foreground">
+          No providers in this group are available yet. In Admin → Integrations, open the provider, turn on{" "}
+          <strong>Enable</strong> and <strong>Visible to organisations</strong>, then save.
         </p>
       );
     }
     return (
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         {rows.map((row) => (
           <ProviderTile key={row.key} view={row} active={row.key === activeBookingProvider} onOpen={openTile} />
         ))}
@@ -231,6 +231,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
           </Button>
         }
       />
+
+      {catalogueQ.isError ? (
+        <p className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          Could not load integrations. <Button variant="link" className="h-auto p-0" onClick={refresh}>Retry</Button>
+        </p>
+      ) : null}
 
       {activeBookingView && activeBookingView.connected ? (
         <Card>
@@ -256,19 +262,19 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         </Card>
       ) : null}
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v === "crm" ? "crm" : "booking")}>
-        <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-          <TabsTrigger value="booking" className="gap-1.5">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v === "crm" ? "crm" : "booking")} className="w-full">
+        <TabsList className="grid h-14 w-full grid-cols-2 gap-1 p-1.5 md:max-w-xl">
+          <TabsTrigger value="booking" className="h-11 gap-2 px-4 text-sm font-medium">
             <CalendarCheck className="size-4" /> Booking providers
           </TabsTrigger>
-          <TabsTrigger value="crm" className="gap-1.5">
+          <TabsTrigger value="crm" className="h-11 gap-2 px-4 text-sm font-medium">
             <Users className="size-4" /> CRM
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="booking" className="mt-4 space-y-3">
+        <TabsContent value="booking" className="mt-6 space-y-4">
           {renderGrid(booking)}
         </TabsContent>
-        <TabsContent value="crm" className="mt-4 space-y-3">
+        <TabsContent value="crm" className="mt-6 space-y-4">
           {renderGrid(crm)}
         </TabsContent>
       </Tabs>
@@ -291,12 +297,6 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         Need help? Open <Link to="/account/support" className="text-primary underline-offset-2 hover:underline">Support</Link>
         {" "}or ask your VoxBulk account manager to enable additional integrations in admin.
       </p>
-
-      {catalogueQ.isError ? (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          Could not load integrations. <Button variant="link" className="h-auto p-0" onClick={refresh}>Retry</Button>
-        </p>
-      ) : null}
     </div>
   );
 }
