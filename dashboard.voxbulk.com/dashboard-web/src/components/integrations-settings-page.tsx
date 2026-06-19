@@ -3,6 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { CalendarCheck, ListChecks, Plug, Users } from "lucide-react";
 import { toast } from "sonner";
 
+import { GoogleScheduleUrlHelp } from "@/components/google-schedule-url-help";
+
 import { PageHeader } from "@/components/page-header";
 import { HubspotSyncSettingsCard } from "@/components/hubspot-sync-settings-card";
 import { Button } from "@/components/ui/button";
@@ -66,6 +68,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const connectedProvider = String(scheduling.provider || "").trim() as BookingProviderKey | "";
   const providerLabel = String(scheduling.provider_label || PROVIDER_LABEL[connectedProvider] || "").trim();
   const connectedAccount = String(scheduling.connected_account || scheduling.owner_name || "").trim();
+  const savedScheduleUrl = String(scheduling.event_type_url || "").trim();
   const legacyUnsupported = Boolean(scheduling.legacy_unsupported_provider);
   const hubspotConnected = hubspot.connected === true;
   const hubspotPlatformReady = hubspot.platform_configured === true;
@@ -79,6 +82,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const [meetingLinksBusy, setMeetingLinksBusy] = React.useState(false);
   const [scheduleUrlDraft, setScheduleUrlDraft] = React.useState("");
   const [switchConfirm, setSwitchConfirm] = React.useState<BookingProviderKey | null>(null);
+
+  React.useEffect(() => {
+    if (connectedProvider === "google_calendar" && savedScheduleUrl && !scheduleUrlDraft) {
+      setScheduleUrlDraft(savedScheduleUrl);
+    }
+  }, [connectedProvider, savedScheduleUrl, scheduleUrlDraft]);
 
   const platformReady = (key: BookingProviderKey) => {
     if (key === "hubspot_meetings") return Boolean(scheduling.hubspot_platform_configured);
@@ -180,8 +189,13 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
 
   const saveGoogleScheduleUrl = async () => {
     const url = scheduleUrlDraft.trim();
-    if (!url.startsWith("http")) {
-      toast.error("Enter a valid appointment schedule URL");
+    const looksValid =
+      url.startsWith("http") &&
+      (url.includes("calendar.google.com/calendar/appointments") ||
+        url.includes("calendar.app.google") ||
+        url.includes("google.com/calendar/appointments"));
+    if (!looksValid) {
+      toast.error("Paste your Google appointment schedule booking link (calendar.google.com/calendar/appointments/… or calendar.app.google/…)");
       return;
     }
     try {
@@ -316,18 +330,38 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
                 </div>
               ) : null}
               {connectedProvider === "google_calendar" && !humanReady ? (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <div className="grid flex-1 gap-1.5">
-                    <Label htmlFor="google-schedule-url" className="text-sm">Google appointment schedule URL</Label>
-                    <Input
-                      id="google-schedule-url"
-                      placeholder="https://calendar.google.com/calendar/appointments/..."
-                      value={scheduleUrlDraft}
-                      onChange={(e) => setScheduleUrlDraft(e.target.value)}
-                    />
+                <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div className="grid flex-1 gap-1.5">
+                      <div className="flex items-center gap-1">
+                        <Label htmlFor="google-schedule-url" className="text-sm">
+                          Google appointment schedule URL
+                        </Label>
+                        <GoogleScheduleUrlHelp />
+                      </div>
+                      <Input
+                        id="google-schedule-url"
+                        placeholder="https://calendar.google.com/calendar/appointments/schedules/…"
+                        value={scheduleUrlDraft}
+                        onChange={(e) => setScheduleUrlDraft(e.target.value)}
+                      />
+                    </div>
+                    <Button variant="outline" onClick={() => void saveGoogleScheduleUrl()}>
+                      Save schedule
+                    </Button>
                   </div>
-                  <Button variant="outline" onClick={() => void saveGoogleScheduleUrl()}>Save schedule</Button>
+                  <p className="text-xs text-muted-foreground">
+                    Required to finish setup. Booking invites are emailed via VoxBulk SMTP (not Gmail) — your admin must configure email in Admin → Email settings.
+                  </p>
                 </div>
+              ) : null}
+              {connectedProvider === "google_calendar" && humanReady && savedScheduleUrl ? (
+                <p className="text-xs text-muted-foreground">
+                  Active schedule:{" "}
+                  <a href={savedScheduleUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+                    Open booking page
+                  </a>
+                </p>
               ) : null}
             </>
           )}
