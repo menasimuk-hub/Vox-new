@@ -149,3 +149,31 @@ def test_save_accepts_microsoft_calendar(app_client):
     st = scheduling_status(get_sessionmaker()(), org.id)
     assert st.get("provider") == "microsoft_calendar"
     assert st.get("microsoft_calendar_connected") is True
+
+
+def test_integrations_catalogue_route_not_order_lookup(app_client):
+    """GET /service-orders/integrations must not be swallowed by /{order_id}."""
+    from app.core.database import get_sessionmaker
+    from app.services.provider_settings import ProviderSettingsService
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org(db)
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="calendly",
+            is_enabled=True,
+            visible_to_orgs=True,
+            config={
+                "client_id": "x",
+                "client_secret": "y",
+                "redirect_uri": "https://example.com/cb",
+            },
+        )
+
+    headers = {"Authorization": f"Bearer {_token(app_client, user, org.id)}"}
+    res = app_client.get("/service-orders/integrations", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "booking" in body
+    assert "crm" in body
+    assert any(row.get("key") == "calendly" for row in body.get("booking") or [])

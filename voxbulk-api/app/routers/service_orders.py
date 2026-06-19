@@ -461,6 +461,60 @@ def sync_whatsapp_templates(db: Session = Depends(get_db), principal=Depends(get
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
 
 
+@router.get("/integrations")
+def list_org_integrations(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Unified catalogue of integrations visible to the current org."""
+    from app.services.integration_catalogue_service import list_integrations_for_org
+
+    return list_integrations_for_org(db, principal.org_id)
+
+
+@router.post("/integrations/{provider}/test")
+def test_org_integration(
+    provider: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.integration_test_service import IntegrationTestError, deep_health_check
+
+    try:
+        return deep_health_check(db, principal.org_id, provider)
+    except IntegrationTestError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/integrations/{provider}/disconnect")
+def disconnect_org_integration(
+    provider: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_connection_service import disconnect_hubspot
+    from app.services.integration_catalogue_service import (
+        BOOKING_GROUP,
+        CRM_GROUP,
+        resolve_provider_spec,
+    )
+    from app.services.scheduling_connection_service import disconnect_scheduling
+
+    spec = resolve_provider_spec(provider)
+    if spec is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown integration: {provider}")
+    try:
+        if spec.group == BOOKING_GROUP:
+            return disconnect_scheduling(db, principal.org_id, provider=spec.key)
+        if spec.group == CRM_GROUP:
+            return disconnect_hubspot(db, principal.org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
+
+
 @router.get("/{order_id}/recipients")
 def list_order_recipients(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import intake_summary, list_intake_recipients
@@ -1022,60 +1076,6 @@ def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
         return ServiceOrderService.order_to_dict(order)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
-
-@router.get("/integrations")
-def list_org_integrations(
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    """Unified catalogue of integrations visible to the current org."""
-    from app.services.integration_catalogue_service import list_integrations_for_org
-
-    return list_integrations_for_org(db, principal.org_id)
-
-
-@router.post("/integrations/{provider}/test")
-def test_org_integration(
-    provider: str,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    from app.services.integration_test_service import IntegrationTestError, deep_health_check
-
-    try:
-        return deep_health_check(db, principal.org_id, provider)
-    except IntegrationTestError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-
-@router.post("/integrations/{provider}/disconnect")
-def disconnect_org_integration(
-    provider: str,
-    db: Session = Depends(get_db),
-    principal=Depends(get_current_principal),
-):
-    from app.services.hubspot_connection_service import disconnect_hubspot
-    from app.services.integration_catalogue_service import (
-        BOOKING_GROUP,
-        CRM_GROUP,
-        resolve_provider_spec,
-    )
-    from app.services.scheduling_connection_service import disconnect_scheduling
-
-    spec = resolve_provider_spec(provider)
-    if spec is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown integration: {provider}")
-    try:
-        if spec.group == BOOKING_GROUP:
-            return disconnect_scheduling(db, principal.org_id, provider=spec.key)
-        if spec.group == CRM_GROUP:
-            return disconnect_hubspot(db, principal.org_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
 
 
 @router.get("/scheduling/status")
