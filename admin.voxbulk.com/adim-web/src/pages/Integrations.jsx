@@ -56,6 +56,7 @@ const PROVIDERS = [
   { key: 'calendly', label: 'Calendly' },
   { key: 'cal_com', label: 'Cal.com' },
   { key: 'google_calendar', label: 'Google Calendar' },
+  { key: 'microsoft_calendar', label: 'Microsoft 365 Calendar' },
   { key: 'hubspot', label: 'HubSpot' },
 ]
 
@@ -625,6 +626,7 @@ export default function Integrations() {
   const [calendlyTestResult, setCalendlyTestResult] = useState('')
   const [calComTestResult, setCalComTestResult] = useState('')
   const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState('')
+  const [microsoftCalendarTestResult, setMicrosoftCalendarTestResult] = useState('')
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
@@ -778,6 +780,13 @@ export default function Integrations() {
     setProviderDrafts((s) => ({
       ...s,
       [providerKey]: { ...(s[providerKey] || {}), is_enabled: Boolean(value) },
+    }))
+  }
+
+  const setProviderVisible = (providerKey, value) => {
+    setProviderDrafts((s) => ({
+      ...s,
+      [providerKey]: { ...(s[providerKey] || {}), visible_to_orgs: Boolean(value) },
     }))
   }
 
@@ -937,9 +946,12 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
-      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'hubspot') {
+      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
+      }
+      if (providerKey === 'microsoft_calendar' && !config.tenant) {
+        config.tenant = 'common'
       }
       if (providerKey === 'hubspot' && !config.auth_mode) {
         config.auth_mode = 'private_app'
@@ -948,6 +960,7 @@ export default function Integrations() {
         method: 'PUT',
         body: JSON.stringify({
           is_enabled: draft.is_enabled == null ? Boolean(existing.is_enabled) : Boolean(draft.is_enabled),
+          visible_to_orgs: draft.visible_to_orgs == null ? Boolean(existing.visible_to_orgs) : Boolean(draft.visible_to_orgs),
           config,
         }),
       })
@@ -975,6 +988,9 @@ export default function Integrations() {
   const activeDraft = activeProvider ? providerDrafts[activeProvider] || {} : {}
   const activeConfig = { ...(activeSummary.config || {}), ...(activeDraft.config || {}) }
   const activeEnabled = activeDraft.is_enabled == null ? Boolean(activeSummary.is_enabled) : Boolean(activeDraft.is_enabled)
+  const activeVisible = activeDraft.visible_to_orgs == null ? Boolean(activeSummary.visible_to_orgs) : Boolean(activeDraft.visible_to_orgs)
+  const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot']
+  const showActiveVisibilityToggle = VISIBLE_TO_ORGS_PROVIDERS.includes(activeProvider || '')
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -982,6 +998,7 @@ export default function Integrations() {
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calComStatus = activeProvider === 'cal_com' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const microsoftCalendarStatus = activeProvider === 'microsoft_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepinfraStatus = activeProvider === 'deepinfra' ? deepinfraValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1090,6 +1107,18 @@ export default function Integrations() {
     } catch (e) {
       setGoogleCalendarTestResult('')
       setProviderError(e?.message || 'Google Calendar test failed')
+    }
+  }
+
+  const testMicrosoftCalendar = async () => {
+    setProviderError('')
+    setMicrosoftCalendarTestResult('Testing Microsoft Calendar…')
+    try {
+      const result = await apiFetch('/admin/integrations/microsoft-calendar/test', { method: 'POST' })
+      setMicrosoftCalendarTestResult(result.ok ? (result.detail || 'Microsoft Calendar OK') : (result.detail || 'Microsoft Calendar check failed'))
+    } catch (e) {
+      setMicrosoftCalendarTestResult('')
+      setProviderError(e?.message || 'Microsoft Calendar test failed')
     }
   }
 
@@ -1792,7 +1821,13 @@ export default function Integrations() {
         </div>
       ) : activeProvider ? (
         <div className='pageShell integrationPageShell'>
-          <IntegrationProviderShell summary={activeSummary} providerError={providerError}>
+          <IntegrationProviderShell
+            summary={activeSummary}
+            providerError={providerError}
+            showVisibilityToggle={showActiveVisibilityToggle}
+            visibleToOrgs={activeVisible}
+            onVisibleToOrgsChange={showActiveVisibilityToggle ? ((value) => setProviderVisible(activeProvider, value)) : undefined}
+          >
             <div className='stack'>
             {activeProvider === 'azure_speech' ? (
               <div className='card'>
@@ -2416,6 +2451,57 @@ export default function Integrations() {
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving || !googleCalendarStatus.valid}>Save Google Calendar</button>
                       <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeSummary.configured}>Test Google Calendar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'microsoft_calendar' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Microsoft 365 Calendar OAuth (interview scheduling)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('microsoft_calendar', e.target.checked)} />
+                      <span>Enable Microsoft 365 Calendar / Outlook Bookings for interview booking</span>
+                    </label>
+                    <div className='note'>
+                      Register a <strong>multi-tenant</strong> app in <a href='https://entra.microsoft.com/' target='_blank' rel='noreferrer'>Microsoft Entra ID</a>. Add the delegated scopes <code>openid</code>, <code>profile</code>, <code>email</code>, <code>offline_access</code>, <code>User.Read</code>, <code>Calendars.ReadWrite</code> and the redirect URI below.
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Application (client) ID</label>
+                      <input className='input' style={microsoftCalendarStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('microsoft_calendar', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={microsoftCalendarStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, microsoft_calendar: { ...(s.microsoft_calendar || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Microsoft client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={microsoftCalendarStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('microsoft_calendar', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/microsoft-calendar/callback' />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Authority (tenant)</label>
+                      <input
+                        className='input'
+                        value={String(activeConfig.tenant || 'common')}
+                        onChange={(e) => setProviderField('microsoft_calendar', 'tenant', e.target.value)}
+                        placeholder='common'
+                      />
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Use <code>common</code> for multi-tenant (recommended), or <code>organizations</code> to allow only work/school accounts.
+                      </div>
+                    </div>
+                    {microsoftCalendarTestResult ? <div className='note'>{microsoftCalendarTestResult}</div> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('microsoft_calendar')} disabled={providerSaving || !microsoftCalendarStatus.valid}>Save Microsoft Calendar</button>
+                      <button className='btn soft' onClick={testMicrosoftCalendar} disabled={providerSaving || !activeSummary.configured}>Test Microsoft Calendar</button>
+                    </div>
+                    <div className='note'>
+                      After saving and verifying, flip <strong>Visible to organisations</strong> on (top toolbar) so customers see Microsoft Calendar in Dashboard → Integrations. Keep it off during soft-launch testing.
                     </div>
                   </div>
                 </div>

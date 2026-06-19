@@ -1024,6 +1024,60 @@ def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/integrations")
+def list_org_integrations(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Unified catalogue of integrations visible to the current org."""
+    from app.services.integration_catalogue_service import list_integrations_for_org
+
+    return list_integrations_for_org(db, principal.org_id)
+
+
+@router.post("/integrations/{provider}/test")
+def test_org_integration(
+    provider: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.integration_test_service import IntegrationTestError, deep_health_check
+
+    try:
+        return deep_health_check(db, principal.org_id, provider)
+    except IntegrationTestError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/integrations/{provider}/disconnect")
+def disconnect_org_integration(
+    provider: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.hubspot_connection_service import disconnect_hubspot
+    from app.services.integration_catalogue_service import (
+        BOOKING_GROUP,
+        CRM_GROUP,
+        resolve_provider_spec,
+    )
+    from app.services.scheduling_connection_service import disconnect_scheduling
+
+    spec = resolve_provider_spec(provider)
+    if spec is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown integration: {provider}")
+    try:
+        if spec.group == BOOKING_GROUP:
+            return disconnect_scheduling(db, principal.org_id, provider=spec.key)
+        if spec.group == CRM_GROUP:
+            return disconnect_hubspot(db, principal.org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
+
+
 @router.get("/scheduling/status")
 def get_scheduling_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.scheduling_connection_service import scheduling_status
@@ -1148,6 +1202,80 @@ def google_calendar_oauth_callback(
             url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(str(exc)[:200])}"
         )
     return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=google_calendar")
+
+
+@router.get("/scheduling/oauth/microsoft-calendar/start")
+def start_microsoft_calendar_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.microsoft_calendar_service import microsoft_calendar_oauth_start
+
+    try:
+        return {
+            "authorize_url": microsoft_calendar_oauth_start(
+                org_id=principal.org_id, db=db, replace=replace
+            )
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/scheduling/oauth/microsoft-calendar/callback")
+def microsoft_calendar_oauth_callback(
+    code: str = "",
+    state: str = "",
+    db: Session = Depends(get_db),
+):
+    from urllib.parse import quote
+
+    from app.core.config import get_settings
+    from app.services.microsoft_calendar_service import microsoft_calendar_oauth_complete
+    from fastapi.responses import RedirectResponse
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    try:
+        microsoft_calendar_oauth_complete(db, code=code, state=state)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?scheduling=error&provider=microsoft_calendar&message={quote(str(exc)[:200])}"
+        )
+    return RedirectResponse(
+        url=f"{origin}/settings/integrations?scheduling=connected&provider=microsoft_calendar"
+    )
+
+
+@router.get("/scheduling/microsoft-calendar/calendars")
+def list_microsoft_calendar_calendars_route(
+    db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    from app.services.microsoft_calendar_service import list_microsoft_calendar_calendars
+
+    try:
+        return {"calendars": list_microsoft_calendar_calendars(db, principal.org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/scheduling/microsoft-calendar/select-schedule")
+def select_microsoft_calendar_schedule_route(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.microsoft_calendar_service import select_microsoft_calendar_schedule
+
+    payload = body if isinstance(body, dict) else {}
+    try:
+        return select_microsoft_calendar_schedule(
+            db,
+            principal.org_id,
+            schedule_url=str(payload.get("schedule_url") or ""),
+            schedule_name=str(payload.get("schedule_name") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/scheduling/cal-com/event-types")

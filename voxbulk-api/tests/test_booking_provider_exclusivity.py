@@ -46,8 +46,11 @@ def test_scheduling_status_includes_provider_labels(app_client):
     data = st.json()
     assert data.get("provider_label") is None
     assert data.get("connected_account") is None
-    assert "calendly" in (data.get("providers_available") or [])
+    available = data.get("providers_available") or []
+    assert "calendly" in available
+    assert "microsoft_calendar" in available
     assert data.get("cronofy_connected") is False
+    assert data.get("microsoft_calendar_connected") is False
     assert data.get("legacy_unsupported_provider") is None
 
 
@@ -116,8 +119,33 @@ def test_booking_provider_exclusivity_blocks_second_provider(app_client):
     assert start.status_code == 400
     assert "disconnect" in start.json().get("detail", "").lower()
 
+    ms_start = app_client.get("/service-orders/scheduling/oauth/microsoft-calendar/start", headers=headers)
+    assert ms_start.status_code == 400
+    assert "disconnect" in ms_start.json().get("detail", "").lower()
+
     st = scheduling_status(get_sessionmaker()(), org.id)
     assert st.get("provider") == "calendly"
     assert st.get("provider_label") == "Calendly"
     assert st.get("connected_account") == "Jane"
     assert st.get("human_scheduling_ready") is True
+
+
+def test_save_accepts_microsoft_calendar(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org(db)
+        save_scheduling_config(
+            db,
+            org.id,
+            {
+                "provider": "microsoft_calendar",
+                "access_token": "tok",
+                "owner_name": "Jane",
+                "schedule_url": "https://outlook.office365.com/owa/calendar/foo/bookings/",
+            },
+        )
+
+    st = scheduling_status(get_sessionmaker()(), org.id)
+    assert st.get("provider") == "microsoft_calendar"
+    assert st.get("microsoft_calendar_connected") is True

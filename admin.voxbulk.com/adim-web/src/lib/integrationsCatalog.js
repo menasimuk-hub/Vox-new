@@ -17,6 +17,7 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'calendly', label: 'Calendly', icon: 'ti-calendar', blurb: 'OAuth + scheduling links for interview shortlist.' },
   { key: 'cal_com', label: 'Cal.com', icon: 'ti-calendar-event', blurb: 'OAuth + Cal.com booking links for interview shortlist.' },
   { key: 'google_calendar', label: 'Google Calendar', icon: 'ti-calendar-stats', blurb: 'OAuth + appointment schedule URLs for interview shortlist.' },
+  { key: 'microsoft_calendar', label: 'Microsoft 365 Calendar', icon: 'ti-calendar-time', blurb: 'Multi-tenant Outlook 365 / Microsoft Bookings for interview shortlist.' },
   { key: 'hubspot', label: 'HubSpot', icon: 'ti-brand-hubspot', blurb: 'OAuth + CRM sync and HubSpot Meetings for shortlisted candidates.' },
 ]
 

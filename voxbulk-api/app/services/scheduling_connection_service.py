@@ -127,7 +127,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         hs = hubspot_status(db, org_id)
         if not hs.get("connected"):
             connected = False
-    elif provider in ("cal_com", "google_calendar"):
+    elif provider in ("cal_com", "google_calendar", "microsoft_calendar"):
         connected = connected and bool(str(cfg.get("access_token") or "").strip())
     elif legacy_unsupported:
         connected = False
@@ -136,10 +136,12 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     cal_connected = connected and provider == "calendly"
     cal_com_connected = connected and provider == "cal_com"
     google_connected = connected and provider == "google_calendar"
+    microsoft_connected = connected and provider == "microsoft_calendar"
     hubspot_meetings_connected = connected and provider == "hubspot_meetings"
     cal_platform = platform_oauth_configured(db, "calendly")
     cal_com_platform = platform_oauth_configured(db, "cal_com")
     google_platform = platform_oauth_configured(db, "google_calendar")
+    microsoft_platform = platform_oauth_configured(db, "microsoft_calendar")
     hubspot_platform = platform_oauth_configured(db, "hubspot")
     event_type_uri = str(cfg.get("event_type_uri") or "").strip()
     event_type_configured = False
@@ -148,6 +150,8 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     elif cal_com_connected:
         event_type_configured = bool(str(cfg.get("event_type_url") or cfg.get("event_type_id") or "").strip())
     elif google_connected:
+        event_type_configured = bool(str(cfg.get("schedule_url") or "").strip())
+    elif microsoft_connected:
         event_type_configured = bool(str(cfg.get("schedule_url") or "").strip())
     elif hubspot_meetings_connected:
         event_type_configured = bool(str(cfg.get("meeting_link_url") or "").strip())
@@ -164,12 +168,14 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         "calendly_connected": cal_connected,
         "cal_com_connected": cal_com_connected,
         "google_calendar_connected": google_connected,
+        "microsoft_calendar_connected": microsoft_connected,
         "hubspot_meetings_connected": hubspot_meetings_connected,
         "cronofy_connected": False,
         "legacy_unsupported_provider": provider if legacy_unsupported else None,
         "calendly_platform_configured": cal_platform,
         "cal_com_platform_configured": cal_com_platform,
         "google_calendar_platform_configured": google_platform,
+        "microsoft_calendar_platform_configured": microsoft_platform,
         "hubspot_platform_configured": hubspot_platform,
         "cronofy_platform_configured": False,
         "interview_booking_ready": True,
@@ -212,6 +218,12 @@ def create_scheduling_link(
         return create_google_calendar_scheduling_link(
             db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
         )
+    if provider == "microsoft_calendar":
+        from app.services.microsoft_calendar_service import create_microsoft_calendar_scheduling_link
+
+        return create_microsoft_calendar_scheduling_link(
+            db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
+        )
     if provider == "hubspot_meetings":
         from app.services.hubspot_meetings_service import create_hubspot_meetings_scheduling_link
 
@@ -233,6 +245,10 @@ def platform_oauth_configured(db: Session | None, provider: str) -> bool:
         from app.services.google_calendar_booking_service import _google_calendar_platform_credentials
 
         client_id, client_secret, redirect = _google_calendar_platform_credentials(db)
+    elif provider == "microsoft_calendar":
+        from app.services.microsoft_calendar_service import _ms_platform_credentials
+
+        client_id, client_secret, redirect, _tenant = _ms_platform_credentials(db)
     elif provider == "hubspot":
         from app.services.hubspot_connection_service import platform_oauth_configured as hubspot_platform_ready
 

@@ -268,9 +268,30 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
       {
         id: "settings-integrations",
         group: "What is it for",
-        title: "Integrations — connect CRMs and external tools",
+        title: "Integrations — booking providers and CRM",
         routes: ["/settings/integrations"],
-        body: "Connect your CRM (e.g. HubSpot for survey response sync), scheduling tools and other external systems. Connections complete via OAuth and the status (connected / disconnected / error) is shown per integration.\n\nThe in-app assistant can view integrations but cannot edit them — connection changes always need a human click here.",
+        body: "Connect the external tools VoxBulk uses to schedule human interviews and to sync candidates to your CRM. The page is split into two tabs:\n\n• Booking providers — Calendly, Cal.com, Google Calendar, Microsoft 365 Calendar, HubSpot Meetings. Only one booking provider can be active per organisation at any time.\n• CRM — HubSpot (Pipedrive and Zoho are coming in a future release).\n\nEvery tile shows live status: Connected, Not connected, Error or Unavailable. Click a tile to open the side sheet with Connect, Test connection and Disconnect buttons.\n\nOnly providers that your VoxBulk admin has both configured and marked as visible to organisations appear in the list — if you can't see a provider, ask admin to enable it for you.",
+      },
+      {
+        id: "settings-integrations-test",
+        group: "Booking providers",
+        title: "Test connection — what the deep health check actually does",
+        routes: ["/settings/integrations"],
+        body: "The Test connection button in the provider sheet runs three checks before reporting OK:\n\n1. Token check — confirms your stored access token is still valid (we call the provider's `/me` or `/account-info` endpoint).\n2. Scope check — confirms the right permissions are present (for example `Calendars.ReadWrite` for Microsoft 365, `crm.objects.contacts.read` for HubSpot).\n3. Sample resource — actually loads one real resource (your first event type, calendar, meeting link, or contact). This catches the case where the token is valid but the selected event type was deleted.\n\nIf any check fails you see a red banner with which check failed and why. Common fixes: disconnect and reconnect (re-grants scopes), or re-select the event type / Bookings page in the provider sheet.",
+      },
+      {
+        id: "settings-integrations-microsoft",
+        group: "Booking providers",
+        title: "Microsoft 365 Calendar — connect Outlook Bookings",
+        routes: ["/settings/integrations"],
+        body: "Microsoft 365 Calendar uses a multi-tenant Microsoft Entra app, so any work or school account can authorise VoxBulk:\n\n1. Open Settings → Integrations → Booking providers, click the Microsoft 365 Calendar tile.\n2. Click Connect Microsoft 365 Calendar and sign in with the Microsoft account that owns the Bookings page.\n3. Back in the sheet, paste your Microsoft Bookings public page URL (something like outlook.office365.com/owa/calendar/.../bookings/ or book.ms/your-page).\n4. Click Save Bookings page.\n\nFrom that point, when you send interview booking links from campaign Results, each candidate gets an email with your Bookings URL. Microsoft does not send those emails for you — VoxBulk handles delivery.\n\nNot seeing the tile? Microsoft 365 Calendar may still be in soft-launch — your admin needs to flip 'Visible to organisations' on in Admin → Integrations → Microsoft 365 Calendar.",
+      },
+      {
+        id: "settings-integrations-soft-launch",
+        group: "Booking providers",
+        title: "Why a provider may be hidden from your list",
+        routes: ["/settings/integrations"],
+        body: "Every integration has two admin-side flags:\n\n• Platform credentials configured — VoxBulk's OAuth app is wired up.\n• Visible to organisations — actually show this provider in customer dashboards.\n\nA provider only appears in your Integrations page when BOTH flags are on. This lets VoxBulk admins finish setting up a new provider privately, test it themselves, and only flip it on once it is ready. If you expect a provider to be there and it isn't, ask your admin to confirm both flags are on.",
       },
       {
         id: "settings-team",

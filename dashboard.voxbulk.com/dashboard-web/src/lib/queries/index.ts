@@ -60,6 +60,7 @@ export const queryKeys = {
   faq: ["faq"] as const,
   schedulingStatus: ["service-orders", "scheduling", "status"] as const,
   hubspotStatus: ["service-orders", "hubspot", "status"] as const,
+  integrationsCatalogue: ["service-orders", "integrations", "catalogue"] as const,
   hubspotContacts: (limit?: number) => ["service-orders", "hubspot", "contacts", limit ?? 50] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
   teamMembers: ["organisations", "team", "members"] as const,
@@ -1085,6 +1086,94 @@ export function useHubSpotStatus() {
   return useQuery({
     queryKey: queryKeys.hubspotStatus,
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/hubspot/status"),
+  });
+}
+
+export type IntegrationCatalogueView = {
+  key: string;
+  group: "booking" | "crm";
+  label: string;
+  short_description: string;
+  icon_slug: string;
+  platform_ready: boolean;
+  visible_to_orgs: boolean;
+  connected: boolean;
+  connected_account: string | null;
+  connected_at: string | null;
+  last_check_ok: boolean | null;
+  last_check_at: string | null;
+  blocked_reason: string | null;
+  actions: {
+    connect_url?: string;
+    disconnect_url: string;
+    test_url: string;
+    connect_token_url?: string;
+  };
+  extra: Record<string, unknown>;
+};
+
+export type IntegrationCatalogue = {
+  booking: IntegrationCatalogueView[];
+  crm: IntegrationCatalogueView[];
+  active_booking_provider: string | null;
+};
+
+export function useIntegrationsCatalogue() {
+  return useQuery({
+    queryKey: queryKeys.integrationsCatalogue,
+    queryFn: () => apiFetch<IntegrationCatalogue>("/service-orders/integrations"),
+  });
+}
+
+export type IntegrationTestResult = {
+  ok: boolean;
+  checked_at?: string;
+  latency_ms?: number;
+  summary?: string;
+  checks?: Array<{ name: string; status: "ok" | "fail"; message: string }>;
+};
+
+export function useTestIntegration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerKey: string) =>
+      apiFetch<IntegrationTestResult>(
+        `/service-orders/integrations/${encodeURIComponent(providerKey)}/test`,
+        { method: "POST" },
+      ),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
+    },
+  });
+}
+
+export function useDisconnectIntegration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerKey: string) =>
+      apiFetch<Record<string, unknown>>(
+        `/service-orders/integrations/${encodeURIComponent(providerKey)}/disconnect`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
+      void qc.invalidateQueries({ queryKey: queryKeys.schedulingStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
+    },
+  });
+}
+
+export function useConnectMicrosoftCalendar() {
+  return useMutation({
+    mutationFn: async (replace = false) => {
+      const data = await apiFetch<{ authorize_url?: string }>(
+        `/service-orders/scheduling/oauth/microsoft-calendar/start${replace ? "?replace=true" : ""}`,
+      );
+      if (data?.authorize_url) {
+        window.location.href = data.authorize_url;
+      }
+      return data;
+    },
   });
 }
 

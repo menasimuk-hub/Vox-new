@@ -177,11 +177,20 @@ def upsert_provider_settings(
     - Returns safe summary only.
     """
     is_enabled = bool(payload.get("is_enabled", True))
+    visible_to_orgs = payload.get("visible_to_orgs")
+    if visible_to_orgs is not None:
+        visible_to_orgs = bool(visible_to_orgs)
     config = payload.get("config") or {}
     if not isinstance(config, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="config must be an object")
     try:
-        ProviderSettingsService.upsert_platform_config(db, provider=provider.lower(), is_enabled=is_enabled, config=config)
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider=provider.lower(),
+            is_enabled=is_enabled,
+            config=config,
+            visible_to_orgs=visible_to_orgs,
+        )
         return ProviderSettingsService.get_platform_config_admin_view(db, provider=provider.lower())
     except ProviderUnknown:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider")
@@ -306,6 +315,13 @@ def test_google_calendar_integration(db: Session = Depends(get_db), _admin=Depen
     from app.services.google_calendar_booking_service import test_google_calendar_platform_config
 
     return test_google_calendar_platform_config(db)
+
+
+@router.post("/integrations/microsoft-calendar/test")
+def test_microsoft_calendar_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.microsoft_calendar_service import test_microsoft_calendar_platform_config
+
+    return test_microsoft_calendar_platform_config(db)
 
 
 @router.post("/integrations/cronofy/test")

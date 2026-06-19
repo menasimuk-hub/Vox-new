@@ -46,6 +46,7 @@ class ProviderSettingsService:
         "calendly",
         "cal_com",
         "google_calendar",
+        "microsoft_calendar",
         "cronofy",
         "hubspot",
         "apollo",
@@ -76,6 +77,7 @@ class ProviderSettingsService:
         "calendly": {"client_id", "client_secret", "redirect_uri"},
         "cal_com": {"client_id", "client_secret", "redirect_uri"},
         "google_calendar": {"client_id", "client_secret", "redirect_uri"},
+        "microsoft_calendar": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
         "hubspot": set(),
         "apollo": {"api_key"},
@@ -104,6 +106,7 @@ class ProviderSettingsService:
         "calendly": {"client_secret"},
         "cal_com": {"client_secret"},
         "google_calendar": {"client_secret"},
+        "microsoft_calendar": {"client_secret"},
         "cronofy": {"client_secret"},
         "hubspot": {"client_secret"},
         "apollo": {"api_key"},
@@ -117,7 +120,14 @@ class ProviderSettingsService:
             raise ProviderUnknown("Unknown provider")
 
     @staticmethod
-    def upsert_platform_config(db: Session, *, provider: str, is_enabled: bool, config: dict[str, Any]) -> ProviderConfig:
+    def upsert_platform_config(
+        db: Session,
+        *,
+        provider: str,
+        is_enabled: bool,
+        config: dict[str, Any],
+        visible_to_orgs: bool | None = None,
+    ) -> ProviderConfig:
         provider = provider.lower()
         ProviderSettingsService._assert_provider(provider)
         enc = get_encryptor()
@@ -183,6 +193,8 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_cal_com_config(config)
         if provider == "google_calendar":
             config = ProviderSettingsService._validate_google_calendar_config(config)
+        if provider == "microsoft_calendar":
+            config = ProviderSettingsService._validate_microsoft_calendar_config(config)
         if provider == "cronofy":
             config = ProviderSettingsService._validate_cronofy_config(config)
         if provider == "hubspot":
@@ -196,10 +208,20 @@ class ProviderSettingsService:
         obj = existing
 
         if obj is None:
-            obj = ProviderConfig(scope="platform", org_id=None, provider=provider, is_enabled=is_enabled, encrypted_json=cipher)
+            resolved_visible = bool(visible_to_orgs) if visible_to_orgs is not None else False
+            obj = ProviderConfig(
+                scope="platform",
+                org_id=None,
+                provider=provider,
+                is_enabled=is_enabled,
+                visible_to_orgs=resolved_visible,
+                encrypted_json=cipher,
+            )
         else:
             obj.is_enabled = is_enabled
             obj.encrypted_json = cipher
+            if visible_to_orgs is not None:
+                obj.visible_to_orgs = bool(visible_to_orgs)
             obj.updated_at = datetime.utcnow()
 
         db.add(obj)
@@ -874,6 +896,29 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
+    def _validate_microsoft_calendar_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Microsoft Calendar settings validation failed: {details}")
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
+        tenant = str(cfg.get("tenant") or "common").strip()
+        cfg["tenant"] = tenant if tenant in {"common", "organizations", "consumers"} or len(tenant) >= 4 else "common"
+        return cfg
+
+    @staticmethod
     def _validate_cronofy_config(config: dict[str, Any]) -> dict[str, Any]:
         cfg = {**config}
         errors: dict[str, str] = {}
@@ -985,6 +1030,7 @@ class ProviderSettingsService:
                 "provider": provider,
                 "exists": False,
                 "is_enabled": False,
+                "visible_to_orgs": False,
                 "updated_at": None,
                 "configured": False,
                 "missing_fields": sorted(list(ProviderSettingsService._required_fields(provider))),
@@ -1005,6 +1051,7 @@ class ProviderSettingsService:
             "provider": provider,
             "exists": True,
             "is_enabled": bool(obj.is_enabled),
+            "visible_to_orgs": bool(getattr(obj, "visible_to_orgs", False)),
             "updated_at": obj.updated_at,
             "configured": configured,
             "missing_fields": missing,
