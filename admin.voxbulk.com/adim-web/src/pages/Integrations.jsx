@@ -2485,7 +2485,7 @@ export default function Integrations() {
                       <span>Enable Microsoft 365 Calendar / Outlook Bookings for interview booking</span>
                     </label>
                     <div className='note'>
-                      Register a <strong>multi-tenant</strong> app in <a href='https://entra.microsoft.com/' target='_blank' rel='noreferrer'>Microsoft Entra ID</a>. Add the delegated scopes <code>openid</code>, <code>profile</code>, <code>email</code>, <code>offline_access</code>, <code>User.Read</code>, <code>Calendars.ReadWrite</code> and the redirect URI below.
+                      Register a <strong>multi-tenant</strong> app in <a href='https://entra.microsoft.com/' target='_blank' rel='noreferrer'>Microsoft Entra ID</a>. Add the delegated scopes <code>openid</code>, <code>profile</code>, <code>email</code>, <code>offline_access</code>, <code>User.Read</code>, <code>Calendars.ReadWrite</code> and the redirect URI below. For publisher verification, host <code>/.well-known/microsoft-identity-association.json</code> on <strong>voxbulk.com</strong> (included in the public site deploy).
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Application (client) ID</label>
@@ -2493,7 +2493,10 @@ export default function Integrations() {
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client secret</label>
-                      <input className='input' style={microsoftCalendarStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, microsoft_calendar: { ...(s.microsoft_calendar || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Microsoft client secret'} />
+                      <input className='input' style={microsoftCalendarStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, microsoft_calendar: { ...(s.microsoft_calendar || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Microsoft client secret VALUE (not Secret ID)'} />
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        In Entra → Certificates &amp; secrets → New client secret: copy the <strong>Value</strong> column immediately (not the Secret ID). Secrets expire — create a new one if AADSTS7000215 appears.
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Redirect URI</label>
