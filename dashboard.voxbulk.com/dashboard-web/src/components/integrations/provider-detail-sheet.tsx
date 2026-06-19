@@ -21,6 +21,7 @@ import {
   IntegrationStatusPill,
   type IntegrationStatus,
 } from "@/components/integrations/integration-status-pill";
+import { ProviderLogo } from "@/components/integrations/provider-logo";
 import {
   TestResultCard,
   type TestResult,
@@ -152,12 +153,23 @@ export function ProviderDetailSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
-        <SheetHeader className="space-y-2">
-          <div className="flex items-center justify-between">
-            <SheetTitle>{view.label}</SheetTitle>
-            <IntegrationStatusPill status={status} />
+        <SheetHeader className="space-y-3">
+          <div className="flex items-start gap-3">
+            <ProviderLogo
+              iconSlug={view.icon_slug}
+              providerKey={view.key}
+              label={view.label}
+              className="size-14"
+              imgClassName="max-h-10 max-w-10"
+            />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <SheetTitle>{view.label}</SheetTitle>
+                <IntegrationStatusPill status={status} />
+              </div>
+              <SheetDescription>{view.short_description}</SheetDescription>
+            </div>
           </div>
-          <SheetDescription>{view.short_description}</SheetDescription>
         </SheetHeader>
 
         <div className="mt-5 space-y-4">

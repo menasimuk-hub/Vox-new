@@ -1,12 +1,4 @@
 import * as React from "react";
-import {
-  Building2,
-  Calendar,
-  CalendarCheck,
-  CalendarClock,
-  CalendarRange,
-  PlugZap,
-} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -14,6 +6,7 @@ import {
   IntegrationStatusPill,
   type IntegrationStatus,
 } from "@/components/integrations/integration-status-pill";
+import { ProviderLogo } from "@/components/integrations/provider-logo";
 
 export type IntegrationView = {
   key: string;
@@ -38,14 +31,6 @@ export type IntegrationView = {
   extra: Record<string, unknown>;
 };
 
-const ICON_BY_SLUG: Record<string, React.ComponentType<{ className?: string; strokeWidth?: number }>> = {
-  calendly: CalendarCheck,
-  cal_com: CalendarRange,
-  google_calendar: Calendar,
-  microsoft_calendar: CalendarClock,
-  hubspot: Building2,
-};
-
 function statusFor(view: IntegrationView): IntegrationStatus {
   if (!view.platform_ready) return "disabled";
   if (view.last_check_ok === false) return "error";
@@ -60,7 +45,6 @@ type Props = {
 };
 
 export function ProviderTile({ view, active, onOpen }: Props) {
-  const Icon = ICON_BY_SLUG[view.icon_slug] || PlugZap;
   const status = statusFor(view);
   const isActive = Boolean(active) || view.connected;
   const subline =
@@ -83,16 +67,16 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       )}
     >
       <div className="flex w-full items-start gap-4">
-        <span
+        <ProviderLogo
+          iconSlug={view.icon_slug}
+          providerKey={view.key}
+          label={view.label}
           className={cn(
-            "grid size-12 shrink-0 place-items-center rounded-lg border transition-colors",
-            isActive
-              ? "border-border bg-background text-foreground"
-              : "border-border/60 bg-muted/40 text-foreground/80 group-hover:border-border group-hover:text-foreground",
+            "size-12 transition-colors",
+            isActive ? "border-border" : "border-border/60 group-hover:border-border",
           )}
-        >
-          <Icon className="size-5" strokeWidth={1.75} />
-        </span>
+          imgClassName="max-h-9 max-w-9"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <span className="text-base font-semibold leading-snug">{view.label}</span>

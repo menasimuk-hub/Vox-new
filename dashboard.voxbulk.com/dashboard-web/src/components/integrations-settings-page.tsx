@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { ProviderTile, type IntegrationView } from "@/components/integrations/provider-tile";
+import { ProviderLogo } from "@/components/integrations/provider-logo";
 import { ProviderDetailSheet } from "@/components/integrations/provider-detail-sheet";
 import type { TestResult } from "@/components/integrations/test-result-card";
 import { apiFetch } from "@/lib/api";
@@ -242,9 +243,13 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         <Card>
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md border bg-muted/40">
-                <CalendarCheck className="size-4 text-success" strokeWidth={1.75} />
-              </span>
+              <ProviderLogo
+                iconSlug={activeBookingView.icon_slug}
+                providerKey={activeBookingView.key}
+                label={activeBookingView.label}
+                className="size-11"
+                imgClassName="max-h-8 max-w-8"
+              />
               <div className="min-w-0">
                 <p className="text-sm font-medium leading-tight">Active booking provider: {activeBookingView.label}</p>
                 <p className="truncate text-xs text-muted-foreground">
