@@ -74,28 +74,91 @@ def _authority_urls(tenant: str) -> tuple[str, str]:
 
 
 def test_microsoft_calendar_platform_config(db: Session) -> dict[str, Any]:
-    client_id, client_secret, redirect, _tenant = _ms_platform_credentials(db)
-    if not client_id or not client_secret or not redirect:
-        return {
-            "ok": False,
-            "detail": (
-                "Microsoft Calendar client ID, secret, and redirect URI are required "
-                "(Admin → Integrations → Microsoft 365 Calendar)"
+    from app.services.oauth_platform_test_service import (
+        finalize_platform_test,
+        mask_client_id,
+        platform_credential_source,
+        probe_confidential_oauth_token,
+        validate_oauth_platform_fields,
+    )
+
+    client_id, client_secret, redirect, tenant = _ms_platform_credentials(db)
+    source = platform_credential_source(db, provider="microsoft_calendar")
+    checks, fields_ok = validate_oauth_platform_fields(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect=redirect,
+        provider_label="Microsoft Calendar",
+    )
+    if not fields_ok:
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+            scopes=MICROSOFT_SCOPES,
+        )
+
+    checks.append(
+        {
+            "name": "credential_source",
+            "status": "ok" if source == "admin_db" else "fail",
+            "message": (
+                "Using Admin-saved credentials"
+                if source == "admin_db"
+                else "Using MICROSOFT_CALENDAR_* env fallback — enable and save in Admin, or update .env"
             ),
         }
-    if not redirect.startswith("http"):
-        return {
-            "ok": False,
-            "detail": (
-                "Redirect URI must be a full URL "
-                "(https://api…/scheduling/oauth/microsoft-calendar/callback)"
-            ),
-        }
-    return {
-        "ok": True,
-        "detail": "Microsoft Calendar OAuth credentials saved. Connect from Dashboard → Integrations.",
-        "redirect_uri": redirect,
-    }
+    )
+
+    _auth_url, token_url = _authority_urls(tenant)
+    probe = probe_confidential_oauth_token(
+        token_url=token_url,
+        payload={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": "voxbulk-platform-test-invalid-code",
+            "redirect_uri": redirect,
+        },
+        use_json=False,
+    )
+    if probe["reason"] == "client_not_found":
+        checks.append({"name": "microsoft_api", "status": "fail", "message": "Microsoft Entra rejected the application (client) ID"})
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            redirect_uri=redirect,
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+            scopes=MICROSOFT_SCOPES,
+        )
+    if probe["reason"] == "invalid_secret":
+        checks.append(
+            {"name": "microsoft_api", "status": "fail", "message": "Microsoft recognized client ID but rejected the client secret"}
+        )
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            redirect_uri=redirect,
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+            scopes=MICROSOFT_SCOPES,
+        )
+
+    checks.append({"name": "microsoft_api", "status": "ok", "message": probe["detail"]})
+    return finalize_platform_test(
+        checks,
+        ok=True,
+        detail="Microsoft Calendar OAuth app verified. Connect from Dashboard → Integrations.",
+        redirect_uri=redirect,
+        credential_source=source,
+        client_id_masked=mask_client_id(client_id),
+        scopes=MICROSOFT_SCOPES,
+    )
 
 
 def microsoft_calendar_oauth_start(*, org_id: str, db: Session | None = None, replace: bool = False) -> str:

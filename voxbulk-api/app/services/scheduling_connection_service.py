@@ -325,16 +325,86 @@ def _cronofy_platform_credentials(db: Session | None = None) -> tuple[str, str, 
 
 
 def test_calendly_platform_config(db: Session) -> dict[str, Any]:
+    from app.services.oauth_platform_test_service import (
+        finalize_platform_test,
+        mask_client_id,
+        platform_credential_source,
+        probe_confidential_oauth_token,
+        validate_oauth_platform_fields,
+    )
+
     client_id, client_secret, redirect = _calendly_platform_credentials(db)
-    if not client_id or not client_secret or not redirect:
-        return {"ok": False, "detail": "Calendly client ID, secret, and redirect URI are required (Admin → Integrations → Calendly)"}
-    if not redirect.startswith("http"):
-        return {"ok": False, "detail": "Redirect URI must be a full URL (https://api…/scheduling/oauth/calendly/callback)"}
-    return {
-        "ok": True,
-        "detail": "Calendly OAuth credentials saved. Connect from Dashboard → System to complete OAuth.",
-        "redirect_uri": redirect,
-    }
+    source = platform_credential_source(db, provider="calendly")
+    checks, fields_ok = validate_oauth_platform_fields(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect=redirect,
+        provider_label="Calendly",
+    )
+    if not fields_ok:
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+        )
+
+    checks.append(
+        {
+            "name": "credential_source",
+            "status": "ok" if source == "admin_db" else "fail",
+            "message": (
+                "Using Admin-saved credentials"
+                if source == "admin_db"
+                else "Using CALENDLY_* env fallback — enable and save in Admin, or update .env"
+            ),
+        }
+    )
+
+    probe = probe_confidential_oauth_token(
+        token_url="https://auth.calendly.com/oauth/token",
+        payload={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": "voxbulk-platform-test-invalid-code",
+            "redirect_uri": redirect,
+        },
+        use_json=False,
+    )
+    if probe["reason"] == "client_not_found":
+        checks.append({"name": "calendly_api", "status": "fail", "message": "Calendly rejected the client ID"})
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            redirect_uri=redirect,
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+        )
+    if probe["reason"] == "invalid_secret":
+        checks.append(
+            {"name": "calendly_api", "status": "fail", "message": "Calendly recognized client ID but rejected the secret"}
+        )
+        return finalize_platform_test(
+            checks,
+            ok=False,
+            detail=checks[-1]["message"],
+            redirect_uri=redirect,
+            credential_source=source,
+            client_id_masked=mask_client_id(client_id),
+        )
+
+    checks.append({"name": "calendly_api", "status": "ok", "message": probe["detail"]})
+    return finalize_platform_test(
+        checks,
+        ok=True,
+        detail="Calendly OAuth app verified. Connect from Dashboard → Integrations.",
+        redirect_uri=redirect,
+        credential_source=source,
+        client_id_masked=mask_client_id(client_id),
+    )
 
 
 def test_cronofy_platform_config(db: Session) -> dict[str, Any]:

@@ -79,6 +79,35 @@ function statusPill(summary) {
   return { cls: 'p-amber', text: 'Incomplete' }
 }
 
+function OAuthPlatformTestPanel({ result }) {
+  if (!result) return null
+  if (typeof result === 'string') {
+    return <div className='note'>{result}</div>
+  }
+  const border = result.ok ? undefined : { borderColor: 'rgba(255,0,0,0.35)' }
+  return (
+    <div className='note' style={border}>
+      <div style={{ fontWeight: 600 }}>{result.detail || (result.ok ? 'OK' : 'Check failed')}</div>
+      {result.client_id_masked ? (
+        <div className='muted' style={{ fontSize: 12, marginTop: 6 }}>
+          Client ID: <code>{result.client_id_masked}</code>
+          {result.credential_source ? <> · source: <code>{result.credential_source}</code></> : null}
+          {result.scopes ? <> · scopes: <code>{result.scopes}</code></> : null}
+        </div>
+      ) : null}
+      {Array.isArray(result.checks) && result.checks.length ? (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
+          {result.checks.map((row) => (
+            <li key={row.name}>
+              {row.status === 'ok' ? '✓' : '✗'} <strong>{row.name}</strong>: {row.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 function openAIValidation(config, draft, summary) {
   const errors = {}
   const hasApiKey = Boolean(summary?.secret_set?.api_key) || Boolean(String(draft?.api_key_draft || '').trim())
@@ -625,10 +654,10 @@ export default function Integrations() {
   const [openAITestResult, setOpenAITestResult] = useState('')
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
   const [zoomTestResult, setZoomTestResult] = useState('')
-  const [calendlyTestResult, setCalendlyTestResult] = useState('')
-  const [calComTestResult, setCalComTestResult] = useState('')
-  const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState('')
-  const [microsoftCalendarTestResult, setMicrosoftCalendarTestResult] = useState('')
+  const [calendlyTestResult, setCalendlyTestResult] = useState(null)
+  const [calComTestResult, setCalComTestResult] = useState(null)
+  const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState(null)
+  const [microsoftCalendarTestResult, setMicrosoftCalendarTestResult] = useState(null)
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
@@ -1092,48 +1121,48 @@ export default function Integrations() {
 
   const testCalendly = async () => {
     setProviderError('')
-    setCalendlyTestResult('Testing Calendly…')
+    setCalendlyTestResult({ detail: 'Testing Calendly…', ok: false, checks: [] })
     try {
       const result = await apiFetch('/admin/integrations/calendly/test', { method: 'POST' })
-      setCalendlyTestResult(result.ok ? (result.detail || 'Calendly OK') : (result.detail || 'Calendly check failed'))
+      setCalendlyTestResult(result)
     } catch (e) {
-      setCalendlyTestResult('')
+      setCalendlyTestResult(null)
       setProviderError(e?.message || 'Calendly test failed')
     }
   }
 
   const testCalCom = async () => {
     setProviderError('')
-    setCalComTestResult('Testing Cal.com…')
+    setCalComTestResult({ detail: 'Testing Cal.com…', ok: false, checks: [] })
     try {
       const result = await apiFetch('/admin/integrations/cal-com/test', { method: 'POST' })
-      setCalComTestResult(result.ok ? (result.detail || 'Cal.com OK') : (result.detail || 'Cal.com check failed'))
+      setCalComTestResult(result)
     } catch (e) {
-      setCalComTestResult('')
+      setCalComTestResult(null)
       setProviderError(e?.message || 'Cal.com test failed')
     }
   }
 
   const testGoogleCalendar = async () => {
     setProviderError('')
-    setGoogleCalendarTestResult('Testing Google Calendar…')
+    setGoogleCalendarTestResult({ detail: 'Testing Google Calendar…', ok: false, checks: [] })
     try {
       const result = await apiFetch('/admin/integrations/google-calendar/test', { method: 'POST' })
-      setGoogleCalendarTestResult(result.ok ? (result.detail || 'Google Calendar OK') : (result.detail || 'Google Calendar check failed'))
+      setGoogleCalendarTestResult(result)
     } catch (e) {
-      setGoogleCalendarTestResult('')
+      setGoogleCalendarTestResult(null)
       setProviderError(e?.message || 'Google Calendar test failed')
     }
   }
 
   const testMicrosoftCalendar = async () => {
     setProviderError('')
-    setMicrosoftCalendarTestResult('Testing Microsoft Calendar…')
+    setMicrosoftCalendarTestResult({ detail: 'Testing Microsoft Calendar…', ok: false, checks: [] })
     try {
       const result = await apiFetch('/admin/integrations/microsoft-calendar/test', { method: 'POST' })
-      setMicrosoftCalendarTestResult(result.ok ? (result.detail || 'Microsoft Calendar OK') : (result.detail || 'Microsoft Calendar check failed'))
+      setMicrosoftCalendarTestResult(result)
     } catch (e) {
-      setMicrosoftCalendarTestResult('')
+      setMicrosoftCalendarTestResult(null)
       setProviderError(e?.message || 'Microsoft Calendar test failed')
     }
   }
@@ -2385,7 +2414,7 @@ export default function Integrations() {
                       <label className='label'>Redirect URI</label>
                       <input className='input' style={calendlyStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('calendly', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/calendly/callback' />
                     </div>
-                    {calendlyTestResult ? <div className='note'>{calendlyTestResult}</div> : null}
+                    {calendlyTestResult ? <OAuthPlatformTestPanel result={calendlyTestResult} /> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('calendly')} disabled={providerSaving || !calendlyStatus.valid}>Save Calendly</button>
                       <button className='btn soft' onClick={testCalendly} disabled={providerSaving || !activeSummary.configured}>Test Calendly</button>
@@ -2428,12 +2457,22 @@ export default function Integrations() {
                       <label className='label'>Redirect URI</label>
                       <input className='input' style={calComStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('cal_com', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/cal-com/callback' />
                     </div>
-                    {calComTestResult ? <div className='note'>{calComTestResult}</div> : null}
+                    {calComTestResult ? <OAuthPlatformTestPanel result={calComTestResult} /> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('cal_com')} disabled={providerSaving || !calComStatus.valid}>Save Cal.com</button>
                       <button className='btn soft' onClick={testCalCom} disabled={providerSaving || !activeSummary.configured}>Test Cal.com</button>
                     </div>
                     <div className='note'>Each organisation connects Cal.com from Dashboard → Integrations (one booking provider at a time).</div>
+                    <div className='note' style={{ marginTop: 8 }}>
+                      <strong>Setup (VoxBulk admin, one time)</strong>
+                      <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
+                        <li>Create an OAuth client at <a href='https://app.cal.com/settings/developer/oauth' target='_blank' rel='noreferrer'>app.cal.com/settings/developer/oauth</a> (Developer OAuth — not Platform dashboard).</li>
+                        <li>Enable scopes at least: <code>EVENT_TYPE_READ</code>, <code>PROFILE_READ</code>, <code>BOOKING_READ</code>.</li>
+                        <li>Add redirect URI exactly: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/cal-com/callback</code> (use your API host if different).</li>
+                        <li>Wait for Cal.com admin approval email before connecting from Dashboard.</li>
+                        <li>Paste Client ID and Client secret below → Enable → Save → <strong>Test</strong> (calls Cal.com API).</li>
+                      </ol>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2463,7 +2502,7 @@ export default function Integrations() {
                       <label className='label'>Redirect URI</label>
                       <input className='input' style={googleCalendarStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('google_calendar', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/google-calendar/callback' />
                     </div>
-                    {googleCalendarTestResult ? <div className='note'>{googleCalendarTestResult}</div> : null}
+                    {googleCalendarTestResult ? <OAuthPlatformTestPanel result={googleCalendarTestResult} /> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving || !googleCalendarStatus.valid}>Save Google Calendar</button>
                       <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeSummary.configured}>Test Google Calendar</button>
@@ -2514,7 +2553,7 @@ export default function Integrations() {
                         Use <code>common</code> for multi-tenant (recommended), or <code>organizations</code> to allow only work/school accounts.
                       </div>
                     </div>
-                    {microsoftCalendarTestResult ? <div className='note'>{microsoftCalendarTestResult}</div> : null}
+                    {microsoftCalendarTestResult ? <OAuthPlatformTestPanel result={microsoftCalendarTestResult} /> : null}
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('microsoft_calendar')} disabled={providerSaving || !microsoftCalendarStatus.valid}>Save Microsoft Calendar</button>
                       <button className='btn soft' onClick={testMicrosoftCalendar} disabled={providerSaving || !activeSummary.configured}>Test Microsoft Calendar</button>
