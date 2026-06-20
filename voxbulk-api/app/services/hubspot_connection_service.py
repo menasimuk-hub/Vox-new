@@ -21,6 +21,7 @@ HUBSPOT_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token"
 HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
 HUBSPOT_SCOPES = (
     "crm.objects.contacts.read crm.objects.contacts.write "
+    "crm.objects.deals.read crm.schemas.deals.read "
     "scheduler.meetings.meeting-link.read oauth"
 )
 

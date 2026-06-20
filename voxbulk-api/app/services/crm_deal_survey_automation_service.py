@@ -17,11 +17,21 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.crm_connection_service import active_crm_provider
 from app.services.messaging_log_service import normalize_e164
+from app.services.hubspot_connection_service import (
+    _ensure_access_token as _ensure_hubspot_access_token,
+    hubspot_status,
+)
 from app.services.pipedrive_connection_service import (
     PIPEDRIVE_API_BASE,
-    _ensure_access_token,
+    _ensure_access_token as _ensure_pipedrive_access_token,
     pipedrive_status,
 )
+from app.services.zoho_crm_connection_service import (
+    _ensure_access_token as _ensure_zoho_access_token,
+    zoho_crm_status,
+)
+
+HUBSPOT_API_BASE = "https://api.hubapi.com"
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_billing_context import org_survey_billing_context
 
@@ -36,6 +46,24 @@ def _delay_hours_from_block(block: dict[str, Any]) -> int:
     if raw is None:
         return DEFAULT_DELAY_HOURS
     return max(0, min(int(raw), 168))
+
+
+def _parse_stage_change_time(raw: Any) -> datetime:
+    text = str(raw or "").strip()
+    if not text:
+        return datetime.utcnow()
+    if text.isdigit():
+        try:
+            ts = int(text)
+            if ts > 1_000_000_000_000:
+                ts = ts // 1000
+            return datetime.utcfromtimestamp(ts)
+        except Exception:
+            return datetime.utcnow()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return datetime.utcnow()
 
 
 class CrmDealSurveyAutomationError(Exception):
@@ -195,7 +223,7 @@ def automation_status(db: Session, org_id: str, order: ServiceOrder) -> dict[str
 def list_pipedrive_deal_stages(db: Session, org_id: str) -> list[dict[str, Any]]:
     if not pipedrive_status(db, org_id).get("connected"):
         raise CrmDealSurveyAutomationError("Connect Pipedrive in Settings → Integrations")
-    token = _ensure_access_token(db, org_id)
+    token = _ensure_pipedrive_access_token(db, org_id)
     headers = {"Authorization": f"Bearer {token}"}
     with httpx.Client(timeout=45.0) as client:
         res = client.get(f"{PIPEDRIVE_API_BASE}/stages", headers=headers)
@@ -219,11 +247,89 @@ def list_pipedrive_deal_stages(db: Session, org_id: str) -> list[dict[str, Any]]
     return out
 
 
+def _crm_connected(db: Session, org_id: str, provider: str) -> bool:
+    if provider == "pipedrive":
+        return bool(pipedrive_status(db, org_id).get("connected"))
+    if provider == "hubspot":
+        return bool(hubspot_status(db, org_id).get("connected"))
+    if provider == "zoho_crm":
+        return bool(zoho_crm_status(db, org_id).get("connected"))
+    return False
+
+
 def list_crm_deal_stages(db: Session, org_id: str) -> list[dict[str, Any]]:
     provider = active_crm_provider(db, org_id)
     if provider == "pipedrive":
         return list_pipedrive_deal_stages(db, org_id)
+    if provider == "hubspot":
+        return list_hubspot_deal_stages(db, org_id)
+    if provider == "zoho_crm":
+        return list_zoho_deal_stages(db, org_id)
     raise CrmDealSurveyAutomationError(f"Deal-stage automation is not yet supported for {provider or 'your CRM'}")
+
+
+def list_hubspot_deal_stages(db: Session, org_id: str) -> list[dict[str, Any]]:
+    if not hubspot_status(db, org_id).get("connected"):
+        raise CrmDealSurveyAutomationError("Connect HubSpot in Settings → Integrations")
+    token = _ensure_hubspot_access_token(db, org_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(timeout=45.0) as client:
+        res = client.get(f"{HUBSPOT_API_BASE}/crm/v3/pipelines/deals", headers=headers)
+    if res.status_code >= 400:
+        raise CrmDealSurveyAutomationError(f"HubSpot pipeline fetch failed: {res.text[:300]}")
+    pipelines = (res.json() or {}).get("results") or []
+    out: list[dict[str, Any]] = []
+    for pipeline in pipelines:
+        if not isinstance(pipeline, dict):
+            continue
+        pipeline_id = str(pipeline.get("id") or "")
+        pipeline_name = str(pipeline.get("label") or "").strip()
+        for stage in pipeline.get("stages") or []:
+            if not isinstance(stage, dict):
+                continue
+            out.append(
+                {
+                    "id": str(stage.get("id") or ""),
+                    "name": str(stage.get("label") or "").strip(),
+                    "pipeline_id": pipeline_id,
+                    "pipeline_name": pipeline_name,
+                    "order_nr": stage.get("displayOrder"),
+                }
+            )
+    out.sort(key=lambda r: (str(r.get("pipeline_name") or ""), int(r.get("order_nr") or 0)))
+    return out
+
+
+def list_zoho_deal_stages(db: Session, org_id: str) -> list[dict[str, Any]]:
+    if not zoho_crm_status(db, org_id).get("connected"):
+        raise CrmDealSurveyAutomationError("Connect Zoho CRM in Settings → Integrations")
+    token, api_domain = _ensure_zoho_access_token(db, org_id)
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    with httpx.Client(timeout=45.0) as client:
+        res = client.get(f"https://{api_domain}/crm/v2/settings/pipeline", headers=headers, params={"module": "Deals"})
+    if res.status_code >= 400:
+        raise CrmDealSurveyAutomationError(f"Zoho pipeline fetch failed: {res.text[:300]}")
+    rows = (res.json() or {}).get("pipeline") or []
+    out: list[dict[str, Any]] = []
+    for pipeline in rows:
+        if not isinstance(pipeline, dict):
+            continue
+        pipeline_id = str(pipeline.get("id") or pipeline.get("default") or "")
+        pipeline_name = str(pipeline.get("display_value") or pipeline.get("name") or "").strip()
+        for stage in pipeline.get("maps") or []:
+            if not isinstance(stage, dict):
+                continue
+            out.append(
+                {
+                    "id": str(stage.get("id") or ""),
+                    "name": str(stage.get("display_value") or "").strip(),
+                    "pipeline_id": pipeline_id,
+                    "pipeline_name": pipeline_name,
+                    "order_nr": stage.get("sequence_number"),
+                }
+            )
+    out.sort(key=lambda r: (str(r.get("pipeline_name") or ""), int(r.get("order_nr") or 0)))
+    return out
 
 
 def _pipedrive_primary_phone(person: dict[str, Any]) -> str | None:
@@ -292,11 +398,237 @@ def _fetch_pipedrive_deals_for_stages(
     return deals
 
 
-def _stage_name_map(db: Session, org_id: str, provider: str) -> dict[str, str]:
-    if provider != "pipedrive":
+def _fetch_hubspot_contact(token: str, contact_id: str) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"properties": "firstname,lastname,email,phone,mobilephone"}
+    with httpx.Client(timeout=30.0) as client:
+        res = client.get(
+            f"{HUBSPOT_API_BASE}/crm/v3/objects/contacts/{contact_id}",
+            headers=headers,
+            params=params,
+        )
+    if res.status_code >= 400:
         return {}
+    data = res.json() or {}
+    props = data.get("properties") if isinstance(data, dict) else {}
+    if not isinstance(props, dict):
+        props = {}
+    first = str(props.get("firstname") or "").strip()
+    last = str(props.get("lastname") or "").strip()
+    name = f"{first} {last}".strip()
+    return {
+        "name": name,
+        "phone": str(props.get("mobilephone") or props.get("phone") or "").strip(),
+        "email": str(props.get("email") or "").strip(),
+    }
+
+
+def _hubspot_deal_contact_id(token: str, deal_id: str) -> str | None:
+    headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(timeout=30.0) as client:
+        res = client.get(
+            f"{HUBSPOT_API_BASE}/crm/v4/objects/deals/{deal_id}/associations/contacts",
+            headers=headers,
+            params={"limit": 1},
+        )
+    if res.status_code >= 400:
+        return None
+    rows = (res.json() or {}).get("results") or []
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    return str(rows[0].get("toObjectId") or rows[0].get("id") or "").strip() or None
+
+
+def _fetch_hubspot_deals_for_stages(
+    token: str,
+    *,
+    stage_ids: list[str],
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    deals: list[dict[str, Any]] = []
+    with httpx.Client(timeout=45.0) as client:
+        for stage_id in stage_ids:
+            stage_prop = f"hs_v2_date_entered_{stage_id}"
+            payload = {
+                "filterGroups": [
+                    {
+                        "filters": [
+                            {
+                                "propertyName": "dealstage",
+                                "operator": "EQ",
+                                "value": stage_id,
+                            }
+                        ]
+                    }
+                ],
+                "properties": ["dealname", "dealstage", "pipeline", "hs_lastmodifieddate", stage_prop],
+                "limit": min(limit, 100),
+            }
+            res = client.post(
+                f"{HUBSPOT_API_BASE}/crm/v3/objects/deals/search",
+                headers=headers,
+                json=payload,
+            )
+            if res.status_code >= 400:
+                logger.warning("hubspot_deals_fetch_failed stage=%s body=%s", stage_id, res.text[:200])
+                continue
+            rows = (res.json() or {}).get("results") or []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+                deal_id = str(row.get("id") or "").strip()
+                contact_id = _hubspot_deal_contact_id(token, deal_id) if deal_id else None
+                stage_change = str(props.get(stage_prop) or props.get("hs_lastmodifieddate") or "").strip()
+                deals.append(
+                    {
+                        "id": deal_id,
+                        "title": str(props.get("dealname") or "").strip(),
+                        "stage_id": str(props.get("dealstage") or stage_id).strip(),
+                        "person_id": contact_id or "",
+                        "stage_change_time": stage_change,
+                    }
+                )
+    return deals
+
+
+def _fetch_zoho_contact(token: str, api_domain: str, contact_id: str) -> dict[str, Any]:
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    with httpx.Client(timeout=30.0) as client:
+        res = client.get(f"https://{api_domain}/crm/v2/Contacts/{contact_id}", headers=headers)
+    if res.status_code >= 400:
+        return {}
+    rows = (res.json() or {}).get("data") or []
+    if not rows or not isinstance(rows[0], dict):
+        return {}
+    row = rows[0]
+    first = str(row.get("First_Name") or "").strip()
+    last = str(row.get("Last_Name") or "").strip()
+    name = f"{first} {last}".strip() or str(row.get("Full_Name") or "").strip()
+    return {
+        "name": name,
+        "phone": str(row.get("Mobile") or row.get("Phone") or "").strip(),
+        "email": str(row.get("Email") or "").strip(),
+    }
+
+
+def _fetch_zoho_deals_for_stages(
+    token: str,
+    api_domain: str,
+    *,
+    stage_ids: list[str],
+    stage_labels: dict[str, str] | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    labels = stage_labels or {}
+    deals: list[dict[str, Any]] = []
+    with httpx.Client(timeout=45.0) as client:
+        for stage_id in stage_ids:
+            stage_value = labels.get(stage_id) or stage_id
+            criteria = f"(Stage:equals:{stage_value})"
+            res = client.get(
+                f"https://{api_domain}/crm/v2/Deals/search",
+                headers=headers,
+                params={"criteria": criteria, "per_page": min(limit, 200)},
+            )
+            if res.status_code >= 400:
+                logger.warning("zoho_deals_fetch_failed stage=%s body=%s", stage_id, res.text[:200])
+                continue
+            rows = (res.json() or {}).get("data") or []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                contact = row.get("Contact_Name")
+                contact_id = ""
+                if isinstance(contact, dict):
+                    contact_id = str(contact.get("id") or "").strip()
+                deals.append(
+                    {
+                        "id": str(row.get("id") or "").strip(),
+                        "title": str(row.get("Deal_Name") or "").strip(),
+                        "stage_id": str(row.get("Stage") or stage_id).strip(),
+                        "person_id": contact_id,
+                        "stage_change_time": str(row.get("Modified_Time") or row.get("Created_Time") or "").strip(),
+                    }
+                )
+    return deals
+
+
+def _fetch_deals_for_stages(
+    db: Session,
+    org_id: str,
+    provider: str,
+    *,
+    stage_ids: list[str],
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if provider == "pipedrive":
+        token = _ensure_pipedrive_access_token(db, org_id)
+        return _fetch_pipedrive_deals_for_stages(token, stage_ids=stage_ids, limit=limit)
+    if provider == "hubspot":
+        token = _ensure_hubspot_access_token(db, org_id)
+        return _fetch_hubspot_deals_for_stages(token, stage_ids=stage_ids, limit=limit)
+    if provider == "zoho_crm":
+        token, api_domain = _ensure_zoho_access_token(db, org_id)
+        stage_names = _stage_name_map(db, org_id, provider)
+        return _fetch_zoho_deals_for_stages(
+            token,
+            api_domain,
+            stage_ids=stage_ids,
+            stage_labels=stage_names,
+            limit=limit,
+        )
+    return []
+
+
+def _normalize_phone(raw: str | None) -> str | None:
+    val = str(raw or "").strip()
+    if not val:
+        return None
     try:
-        stages = list_pipedrive_deal_stages(db, org_id)
+        return normalize_e164(val)
+    except Exception:
+        return val
+
+
+def _contact_from_provider(
+    db: Session,
+    org_id: str,
+    provider: str,
+    person_id: str,
+    *,
+    deal_title: str = "",
+) -> tuple[str, str | None, str | None]:
+    if provider == "pipedrive":
+        token = _ensure_pipedrive_access_token(db, org_id)
+        person = _fetch_pipedrive_person(token, person_id)
+        name = str(person.get("name") or deal_title or "Contact").strip()
+        return name, _pipedrive_primary_phone(person), _pipedrive_primary_email(person)
+    if provider == "hubspot":
+        token = _ensure_hubspot_access_token(db, org_id)
+        person = _fetch_hubspot_contact(token, person_id)
+        name = str(person.get("name") or deal_title or "Contact").strip()
+        return name, _normalize_phone(person.get("phone")), str(person.get("email") or "").strip() or None
+    if provider == "zoho_crm":
+        token, api_domain = _ensure_zoho_access_token(db, org_id)
+        person = _fetch_zoho_contact(token, api_domain, person_id)
+        name = str(person.get("name") or deal_title or "Contact").strip()
+        return name, _normalize_phone(person.get("phone")), str(person.get("email") or "").strip() or None
+    return deal_title or "Contact", None, None
+
+
+def _stage_name_map(db: Session, org_id: str, provider: str) -> dict[str, str]:
+    try:
+        if provider == "pipedrive":
+            stages = list_pipedrive_deal_stages(db, org_id)
+        elif provider == "hubspot":
+            stages = list_hubspot_deal_stages(db, org_id)
+        elif provider == "zoho_crm":
+            stages = list_zoho_deal_stages(db, org_id)
+        else:
+            return {}
     except Exception:
         return {}
     return {str(s.get("id") or ""): str(s.get("name") or "") for s in stages}
@@ -337,15 +669,7 @@ def _evaluate_deal_candidate(
     if not person_id:
         return {"deal_id": deal_id, "deal_title": title, "action": "skip", "reason": "no_linked_person"}
 
-    if provider == "pipedrive":
-        token = _ensure_access_token(db, org_id)
-        person = _fetch_pipedrive_person(token, person_id)
-    else:
-        person = {}
-
-    name = str(person.get("name") or title or "Contact").strip()
-    phone = _pipedrive_primary_phone(person) if provider == "pipedrive" else None
-    email = _pipedrive_primary_email(person) if provider == "pipedrive" else None
+    name, phone, email = _contact_from_provider(db, org_id, provider, person_id, deal_title=title)
     if not phone:
         return {
             "deal_id": deal_id,
@@ -357,11 +681,7 @@ def _evaluate_deal_candidate(
 
     block = read_crm_automation_config(order)
     delay_hours = _delay_hours_from_block(block)
-    stage_change_raw = str(deal.get("stage_change_time") or deal.get("update_time") or "").strip()
-    try:
-        stage_change_at = datetime.fromisoformat(stage_change_raw.replace("Z", "+00:00")).replace(tzinfo=None)
-    except Exception:
-        stage_change_at = datetime.utcnow()
+    stage_change_at = _parse_stage_change_time(deal.get("stage_change_time") or deal.get("update_time"))
     scheduled_send_at = stage_change_at + timedelta(hours=delay_hours)
 
     row = {
@@ -406,11 +726,12 @@ def dry_run_crm_automation(db: Session, org_id: str, order: ServiceOrder) -> dic
     stage_ids = _normalize_stage_ids(block.get("stage_ids"))
     if not stage_ids:
         raise CrmDealSurveyAutomationError("Select at least one deal stage first")
-    if provider != "pipedrive":
-        raise CrmDealSurveyAutomationError("Dry-run is only implemented for Pipedrive")
+    if provider not in {"pipedrive", "hubspot", "zoho_crm"}:
+        raise CrmDealSurveyAutomationError(f"Dry-run is not supported for {provider or 'your CRM'}")
+    if not _crm_connected(db, org_id, provider):
+        raise CrmDealSurveyAutomationError("CRM is not connected")
 
-    token = _ensure_access_token(db, org_id)
-    deals = _fetch_pipedrive_deals_for_stages(token, stage_ids=stage_ids, limit=50)
+    deals = _fetch_deals_for_stages(db, org_id, provider, stage_ids=stage_ids, limit=50)
     stage_names = _stage_name_map(db, org_id, provider)
     rows = [
         _evaluate_deal_candidate(
@@ -457,11 +778,10 @@ def poll_crm_automation_for_order(db: Session, org_id: str, order: ServiceOrder)
         _save_automation_config(db, order, block)
         return {"skipped": True, "reason": reason}
 
-    if provider != "pipedrive" or not pipedrive_status(db, org_id).get("connected"):
+    if not _crm_connected(db, org_id, provider):
         return {"skipped": True, "reason": "crm_not_connected"}
 
-    token = _ensure_access_token(db, org_id)
-    deals = _fetch_pipedrive_deals_for_stages(token, stage_ids=stage_ids, limit=100)
+    deals = _fetch_deals_for_stages(db, org_id, provider, stage_ids=stage_ids, limit=100)
     stage_names = _stage_name_map(db, org_id, provider)
     scheduled = 0
     for deal in deals:
