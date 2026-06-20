@@ -1,5 +1,9 @@
 import { Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
 
+import {
+  IntegrationBrandMark,
+  hasIntegrationBrandMark,
+} from "@/components/integrations/integration-brand-mark";
 import { integrationLogoSrc, integrationLogoTileBg } from "@/lib/integration-logos";
 import { cn } from "@/lib/utils";
 
@@ -33,26 +37,45 @@ export function ProviderLogo({
   imgClassName,
   variant = "inline",
 }: Props) {
-  const src =
-    integrationLogoSrc(iconSlug) ||
-    (providerKey ? integrationLogoSrc(providerKey) : null);
+  const slug = String(iconSlug || "").trim().toLowerCase();
+  const key = String(providerKey || iconSlug || "").trim().toLowerCase();
+
+  if (variant === "tile" && hasIntegrationBrandMark(providerKey, iconSlug)) {
+    return (
+      <span className={cn("block h-full w-full overflow-hidden", className)}>
+        <IntegrationBrandMark providerKey={providerKey} iconSlug={iconSlug} className={imgClassName} />
+      </span>
+    );
+  }
+
+  if (variant === "inline" && hasIntegrationBrandMark(providerKey, iconSlug)) {
+    return (
+      <span
+        className={cn(
+          "grid shrink-0 place-items-center overflow-hidden rounded-lg border bg-background",
+          className,
+        )}
+      >
+        <IntegrationBrandMark
+          providerKey={providerKey}
+          iconSlug={iconSlug}
+          className={cn("size-8", imgClassName)}
+        />
+      </span>
+    );
+  }
+
+  const src = integrationLogoSrc(slug) || (providerKey ? integrationLogoSrc(key) : null);
 
   if (src) {
     if (variant === "tile") {
-      const tileBg = integrationLogoTileBg(providerKey || iconSlug);
       return (
-        <span
-          className={cn(
-            "relative block h-full w-full overflow-hidden",
-            tileBg,
-            className,
-          )}
-        >
+        <span className={cn("block h-full w-full overflow-hidden", className)}>
           <img
             src={src}
             alt=""
             aria-hidden
-            className={cn("absolute inset-0 h-full w-full object-cover", imgClassName)}
+            className={cn("block h-full w-full object-cover", imgClassName)}
           />
         </span>
       );
@@ -75,9 +98,9 @@ export function ProviderLogo({
     );
   }
 
-  const Fallback = FALLBACK_ICONS[iconSlug] || FALLBACK_ICONS[providerKey || ""] || PlugZap;
+  const Fallback = FALLBACK_ICONS[slug] || FALLBACK_ICONS[key] || PlugZap;
   if (variant === "tile") {
-    const tileBg = integrationLogoTileBg(providerKey || iconSlug);
+    const tileBg = integrationLogoTileBg(key || slug);
     return (
       <span
         className={cn(
