@@ -98,6 +98,7 @@ def hubspot_status(db: Session, org_id: str) -> dict[str, Any]:
         "account_name": cfg.get("account_name"),
         "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
         "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
+        "create_task_on_unhappy_score": cfg.get("create_task_on_unhappy_score") is True,
         "expires_at": cfg.get("expires_at"),
         "connected_at": cfg.get("connected_at"),
     }
@@ -125,6 +126,7 @@ def update_hubspot_settings(
     *,
     auto_sync_shortlist: bool | None = None,
     auto_sync_scheduling_send: bool | None = None,
+    create_task_on_unhappy_score: bool | None = None,
 ) -> dict[str, Any]:
     org = db.get(Organisation, org_id)
     if org is None:
@@ -134,6 +136,8 @@ def update_hubspot_settings(
         cfg["auto_sync_shortlist"] = bool(auto_sync_shortlist)
     if auto_sync_scheduling_send is not None:
         cfg["auto_sync_scheduling_send"] = bool(auto_sync_scheduling_send)
+    if create_task_on_unhappy_score is not None:
+        cfg["create_task_on_unhappy_score"] = bool(create_task_on_unhappy_score)
     org.hubspot_config_json = json.dumps(cfg, ensure_ascii=False)
     db.add(org)
     db.commit()

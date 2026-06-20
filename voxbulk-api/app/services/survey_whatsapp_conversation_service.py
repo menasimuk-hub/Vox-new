@@ -2135,9 +2135,9 @@ def _complete_linear_survey_thank_you(
     db.add(order)
     db.commit()
 
-    from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
+    from app.services.crm_unhappy_task_service import maybe_post_survey_crm_actions
 
-    maybe_sync_survey_result_to_hubspot(db, order, recipient)
+    maybe_post_survey_crm_actions(db, order, recipient)
 
     from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
@@ -3575,9 +3575,9 @@ def _handle_inbound_reply_graph(
         order.updated_at = datetime.utcnow()
         db.add(order)
         db.commit()
-        from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
+        from app.services.crm_unhappy_task_service import maybe_post_survey_crm_actions
 
-        maybe_sync_survey_result_to_hubspot(db, order, recipient)
+        maybe_post_survey_crm_actions(db, order, recipient)
         from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
         enqueue_survey_recommendations(order.id)

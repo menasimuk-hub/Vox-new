@@ -215,6 +215,7 @@ def _crm_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> 
         "auth_mode": cfg.get("auth_mode"),
         "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
         "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
+        "create_task_on_unhappy_score": cfg.get("create_task_on_unhappy_score") is True,
     }
     if spec.key == "hubspot":
         extra.update({"hub_domain": hub_domain, "hub_id": cfg.get("hub_id")})

@@ -449,6 +449,9 @@ def run_survey_analysis_if_needed(
         if existing.get("analysis_saved_at") and str(existing.get("analysis_version") or "") == ANALYSIS_VERSION:
             analysis = existing.get("analysis")
             if isinstance(analysis, dict) and analysis.get("short_summary"):
+                from app.services.crm_unhappy_task_service import maybe_create_unhappy_crm_task
+
+                maybe_create_unhappy_crm_task(db, order, recipient)
                 return existing
 
     transcript = str(existing.get("transcript") or "").strip()
@@ -489,6 +492,10 @@ def run_survey_analysis_if_needed(
         "tags": analysis.get("tags") or [],
     }
     _set_recipient_result(db, recipient, payload)
+    db.refresh(recipient)
+    from app.services.crm_unhappy_task_service import maybe_post_survey_crm_actions
+
+    maybe_post_survey_crm_actions(db, order, recipient)
     return _recipient_result(recipient)
 
 

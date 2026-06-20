@@ -60,30 +60,30 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       onClick={() => onOpen(view)}
       title={view.label}
       className={cn(
-        "group flex min-h-[8.5rem] w-full flex-col items-start gap-3 rounded-lg border p-5 text-left transition-colors",
+        "group flex min-h-[9.5rem] w-full rounded-lg border text-left transition-colors",
         isActive
           ? "border-foreground/15 bg-accent/40 shadow-sm"
           : "border-border bg-card hover:border-border hover:bg-accent/30",
       )}
     >
-      <div className="flex w-full items-start gap-4">
+      <div className="flex w-1/3 min-w-[7rem] shrink-0 items-center justify-center border-r border-border/60 p-4">
         <ProviderLogo
           iconSlug={view.icon_slug}
           providerKey={view.key}
           label={view.label}
           className={cn(
-            "size-12 transition-colors",
-            isActive ? "border-border" : "border-border/60 group-hover:border-border",
+            "size-full min-h-[4.5rem] w-full rounded-lg border-0 bg-transparent p-1",
+            isActive ? "bg-transparent" : "bg-transparent",
           )}
-          imgClassName="max-h-9 max-w-9"
+          imgClassName="max-h-14 max-w-full object-contain"
         />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <span className="text-base font-semibold leading-snug">{view.label}</span>
-            <IntegrationStatusPill status={status} />
-          </div>
-          <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{subline}</p>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 p-4 pl-5">
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-base font-semibold leading-snug">{view.label}</span>
+          <IntegrationStatusPill status={status} />
         </div>
+        <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{subline}</p>
       </div>
     </button>
   );

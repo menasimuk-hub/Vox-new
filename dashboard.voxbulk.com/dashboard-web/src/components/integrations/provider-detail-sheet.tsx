@@ -352,6 +352,31 @@ export function ProviderDetailSheet({
                   }}
                 />
               </div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="hubspot-unhappy-task" className="text-sm">
+                    Create CRM task on unhappy survey
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Adds a follow-up task (due in 24h) when a WA or AI call survey response is flagged unhappy.
+                  </p>
+                </div>
+                <Switch
+                  id="hubspot-unhappy-task"
+                  checked={view.extra?.create_task_on_unhappy_score === true}
+                  onCheckedChange={async (checked) => {
+                    try {
+                      await apiFetch("/service-orders/hubspot/settings", {
+                        method: "PATCH",
+                        body: JSON.stringify({ create_task_on_unhappy_score: checked }),
+                      });
+                      onRefresh();
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Update failed");
+                    }
+                  }}
+                />
+              </div>
             </div>
           ) : null}
 
@@ -386,6 +411,31 @@ export function ProviderDetailSheet({
                       await apiFetch(crmSettingsUrl, {
                         method: "PATCH",
                         body: JSON.stringify({ auto_sync_scheduling_send: checked }),
+                      });
+                      onRefresh();
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Update failed");
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="crm-unhappy-task" className="text-sm">
+                    Create CRM task on unhappy survey
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Adds a follow-up task (due in 24h) when a WA or AI call survey response is flagged unhappy.
+                  </p>
+                </div>
+                <Switch
+                  id="crm-unhappy-task"
+                  checked={view.extra?.create_task_on_unhappy_score === true}
+                  onCheckedChange={async (checked) => {
+                    try {
+                      await apiFetch(crmSettingsUrl, {
+                        method: "PATCH",
+                        body: JSON.stringify({ create_task_on_unhappy_score: checked }),
                       });
                       onRefresh();
                     } catch (e) {

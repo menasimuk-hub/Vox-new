@@ -1437,6 +1437,7 @@ def patch_hubspot_settings(
             principal.org_id,
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+            create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -1526,6 +1527,7 @@ def patch_pipedrive_settings(
             principal.org_id,
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+            create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -1598,6 +1600,7 @@ def patch_zoho_crm_settings(
             principal.org_id,
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+            create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
