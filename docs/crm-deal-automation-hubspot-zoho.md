@@ -2,6 +2,7 @@
 
 **Date:** 2026-06-20  
 **Branch:** `main`  
+**Commit:** `3dca55b` — `feat(crm): HubSpot and Zoho deal-stage survey automation`  
 **Scope:** Extend Pipedrive deal-stage automation to HubSpot CRM and Zoho CRM.
 
 ---
