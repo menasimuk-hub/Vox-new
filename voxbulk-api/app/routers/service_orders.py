@@ -1663,6 +1663,82 @@ def push_survey_result_to_crm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.get("/crm/deal-stages")
+def list_crm_deal_stages_route(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_deal_survey_automation_service import CrmDealSurveyAutomationError, list_crm_deal_stages
+
+    try:
+        return {"stages": list_crm_deal_stages(db, principal.org_id)}
+    except CrmDealSurveyAutomationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/{order_id}/crm-automation")
+def get_crm_survey_automation(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_deal_survey_automation_service import automation_status
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "survey":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CRM automation is only supported for surveys")
+    return automation_status(db, principal.org_id, order)
+
+
+@router.patch("/{order_id}/crm-automation")
+def patch_crm_survey_automation(
+    order_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_deal_survey_automation_service import (
+        CrmDealSurveyAutomationError,
+        update_crm_automation_settings,
+    )
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        stage_ids = body.get("stage_ids")
+        return update_crm_automation_settings(
+            db,
+            principal.org_id,
+            order=order,
+            enabled=body.get("enabled"),
+            stage_ids=list(stage_ids) if isinstance(stage_ids, list) else None,
+            delay_hours=body.get("delay_hours"),
+            consent_acknowledged=body.get("consent_acknowledged"),
+        )
+    except CrmDealSurveyAutomationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{order_id}/crm-automation/test")
+def test_crm_survey_automation(
+    order_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_deal_survey_automation_service import CrmDealSurveyAutomationError, dry_run_crm_automation
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    try:
+        return dry_run_crm_automation(db, principal.org_id, order)
+    except CrmDealSurveyAutomationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.get("/pipedrive/oauth/start")
 def start_pipedrive_oauth(
     replace: bool = False,

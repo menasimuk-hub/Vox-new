@@ -13,6 +13,7 @@ import {
 } from "@/components/create-wizard/survey-upload-consent";
 import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { CrmImportContactsPanel } from "@/components/integrations/crm-import-contacts-panel";
+import { CrmSurveyAutomationCard } from "@/components/integrations/crm-survey-automation-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -407,6 +408,8 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                   </ul>
                 </div>
               ) : null}
+
+              {props.orderId ? <CrmSurveyAutomationCard orderId={props.orderId} /> : null}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Calling start (date & time)" error={!props.startAt ? "Required" : undefined}>

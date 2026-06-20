@@ -40,6 +40,10 @@ celery_app.conf.update(
             "task": "survey.purge_voice_note_audio",
             "schedule": 86400.0,
         },
+        "crm-deal-survey-automation-15m": {
+            "task": "crm.poll_deal_survey_automation",
+            "schedule": 900.0,
+        },
     },
 )
 
@@ -51,6 +55,7 @@ from app.workers import sales_tasks  # noqa: E402, F401
 from app.workers import survey_wa_voice_note_tasks  # noqa: E402, F401
 from app.workers import survey_wa_recommendations_tasks  # noqa: E402, F401
 from app.workers import survey_wa_translation_tasks  # noqa: E402, F401
+from app.workers import crm_automation_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

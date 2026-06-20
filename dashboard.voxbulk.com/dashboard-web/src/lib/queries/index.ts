@@ -64,6 +64,8 @@ export const queryKeys = {
   hubspotContacts: (limit?: number) => ["service-orders", "hubspot", "contacts", limit ?? 50] as const,
   crmSyncStatus: ["service-orders", "crm", "sync-status"] as const,
   crmContacts: (limit?: number) => ["service-orders", "crm", "contacts", limit ?? 50] as const,
+  crmDealStages: ["service-orders", "crm", "deal-stages"] as const,
+  crmSurveyAutomation: (orderId: string) => ["service-orders", orderId, "crm-automation"] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
   teamMembers: ["organisations", "team", "members"] as const,
   teamInvites: ["organisations", "team", "invites"] as const,
@@ -1315,6 +1317,66 @@ export function usePatchCrmSyncSettings() {
       void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
       void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
     },
+  });
+}
+
+export type CrmDealStage = {
+  id: string;
+  name: string;
+  pipeline_id?: string;
+  pipeline_name?: string;
+  order_nr?: number;
+};
+
+export function useCrmDealStages(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.crmDealStages,
+    queryFn: () => apiFetch<{ stages: CrmDealStage[] }>("/service-orders/crm/deal-stages"),
+    enabled,
+  });
+}
+
+export function useCrmSurveyAutomation(orderId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.crmSurveyAutomation(orderId),
+    queryFn: () => apiFetch<Record<string, unknown>>(`/service-orders/${orderId}/crm-automation`),
+    enabled: enabled && Boolean(orderId),
+  });
+}
+
+export function usePatchCrmSurveyAutomation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      orderId: string;
+      body: {
+        enabled?: boolean;
+        stage_ids?: string[];
+        delay_hours?: number;
+        consent_acknowledged?: boolean;
+      };
+    }) =>
+      apiFetch<Record<string, unknown>>(`/service-orders/${input.orderId}/crm-automation`, {
+        method: "PATCH",
+        body: JSON.stringify(input.body),
+      }),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.crmSurveyAutomation(variables.orderId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrder(variables.orderId) });
+    },
+  });
+}
+
+export function useTestCrmSurveyAutomation() {
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      apiFetch<{
+        ok: boolean;
+        examined?: number;
+        would_schedule?: number;
+        would_skip?: number;
+        rows?: Array<Record<string, unknown>>;
+      }>(`/service-orders/${orderId}/crm-automation/test`, { method: "POST" }),
   });
 }
 

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { CrmImportContactsPanel } from "@/components/integrations/crm-import-contacts-panel";
+import { CrmSurveyAutomationCard } from "@/components/integrations/crm-survey-automation-card";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
@@ -678,6 +679,8 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         )}
 
         {step === 6 && (
+          <div className="space-y-4">
+            {props.orderId ? <CrmSurveyAutomationCard orderId={props.orderId} /> : null}
           <SurveyWaLaunchStep
             launchMode={launchMode}
             setLaunchMode={setLaunchMode}
@@ -698,6 +701,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
             onLaunch={() => void props.onOpenLaunch(launchMode)}
             launchPending={props.launchPending}
           />
+          </div>
         )}
       </div>
 

@@ -1985,6 +1985,10 @@ def _maybe_complete_order(db: Session, order: ServiceOrder) -> None:
         return
     terminal = {"completed", "failed", "skipped", "opted_out", "cancelled"}
     if all(str(r.status or "").lower() in terminal for r in recipients):
+        from app.services.crm_deal_survey_automation_service import survey_crm_automation_blocks_auto_complete
+
+        if survey_crm_automation_blocks_auto_complete(order):
+            return
         order.status = "completed"
         order.completed_at = datetime.utcnow()
         order.updated_at = datetime.utcnow()

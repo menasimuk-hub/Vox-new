@@ -183,6 +183,10 @@ def _finalize_order_if_done(db: Session, order: ServiceOrder) -> ServiceOrder:
     recipients = ServiceOrderService.get_recipients(db, order.id)
     _refresh_order_report(db, order)
     if _all_recipients_terminal(recipients):
+        from app.services.crm_deal_survey_automation_service import survey_crm_automation_blocks_auto_complete
+
+        if survey_crm_automation_blocks_auto_complete(order):
+            return order
         was_completed = str(order.status or "").lower() == "completed"
         order.status = "completed"
         order.completed_at = datetime.utcnow()

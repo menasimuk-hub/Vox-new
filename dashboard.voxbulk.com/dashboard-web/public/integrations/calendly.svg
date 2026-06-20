@@ -1,3 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Calendly">
-  <path fill="#006BFF" d="M10.651 5.646h4.697v6.616a4.793 4.793 0 1 1-4.697-6.616Zm4.697-2.677A7.454 7.454 0 1 0 21.95 10.67V0h-6.602Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Calendly">
+  <rect width="64" height="64" fill="#006BFF"/>
+  <g transform="translate(10 10) scale(2.25)">
+    <path fill="#fff" d="M10.651 5.646h4.697v6.616a4.793 4.793 0 1 1-4.697-6.616Zm4.697-2.677A7.454 7.454 0 1 0 21.95 10.67V0h-6.602Z"/>
+  </g>
 </svg>
