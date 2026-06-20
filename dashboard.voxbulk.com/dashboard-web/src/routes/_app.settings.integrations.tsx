@@ -20,6 +20,7 @@ const integrationsSearch = (s: Record<string, unknown>) => {
     provider,
     message: typeof s.message === "string" ? s.message : undefined,
     hubspot: typeof s.hubspot === "string" ? s.hubspot : undefined,
+    crm: typeof s.crm === "string" ? s.crm : undefined,
     tab: tab === "crm" || tab === "booking" ? tab : undefined,
   };
 };

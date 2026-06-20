@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
+import { useWalletTopupConfirm, useWalletTopupIntent, useWalletTopupOptions } from "@/lib/queries";
 
 declare global {
   interface Window {

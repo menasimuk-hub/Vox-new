@@ -54,6 +54,13 @@ export function TestResultCard({ loading, result, className }: Props) {
   }
   if (!result) return null;
 
+  const checks = Array.isArray(result.checks) ? result.checks : [];
+  const allChecksOk = result.ok && checks.length > 0 && checks.every((c) => c.status === "ok");
+  const compactDetail =
+    (allChecksOk ? checks.map((c) => c.message).filter(Boolean).join(" · ") : "") ||
+    result.summary ||
+    "";
+
   const headerIcon = result.ok ? (
     <CheckCircle2 className="size-4 text-success" />
   ) : (
@@ -77,12 +84,12 @@ export function TestResultCard({ loading, result, className }: Props) {
           <span className="text-xs text-muted-foreground">{result.latency_ms} ms</span>
         ) : null}
       </div>
-      {result.summary ? (
-        <p className="mt-1 text-xs text-muted-foreground">{result.summary}</p>
+      {compactDetail ? (
+        <p className="mt-1 text-xs text-muted-foreground">{compactDetail}</p>
       ) : null}
-      {Array.isArray(result.checks) && result.checks.length > 0 ? (
+      {!allChecksOk && checks.length > 0 ? (
         <ul className="mt-2 space-y-1.5">
-          {result.checks.map((c, i) => (
+          {checks.map((c, i) => (
             <li key={`${c.name}-${i}`} className="flex items-start gap-2 text-xs">
               {c.status === "ok" ? (
                 <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" />

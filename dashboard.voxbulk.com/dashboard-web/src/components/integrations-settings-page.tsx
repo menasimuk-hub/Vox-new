@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { CalendarCheck, Plug, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,10 +48,12 @@ function tabFromSearch(tab?: string): "booking" | "crm" {
 }
 
 export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearch }) {
+  const navigate = useNavigate();
   const catalogueQ = useIntegrationsCatalogue();
   const hubspotQ = useHubSpotStatus();
   const testMutation = useTestIntegration();
   const disconnectMutation = useDisconnectIntegration();
+  const oauthNoticeShown = React.useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = React.useState<"booking" | "crm">(() => tabFromSearch(search.tab));
   const [sheetView, setSheetView] = React.useState<IntegrationView | null>(null);
@@ -63,32 +65,67 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   }, [search.tab]);
 
   React.useEffect(() => {
+    const noticeKey = [
+      search.scheduling,
+      search.hubspot,
+      search.crm,
+      search.provider,
+      search.message,
+    ]
+      .filter(Boolean)
+      .join("|");
+    if (!noticeKey || oauthNoticeShown.current === noticeKey) return;
+
+    let message: string | null = null;
+    let isError = false;
+
     if (search.scheduling === "connected") {
       const label = PROVIDER_LABEL[search.provider || ""] || search.provider || "scheduling";
-      toast.success(`Connected ${label} successfully`);
-      void catalogueQ.refetch();
-    }
-    if (search.scheduling === "error") {
-      toast.error(search.message || "Calendar connection failed");
-    }
-    if (search.hubspot === "connected") {
-      toast.success("Connected HubSpot successfully");
-      void catalogueQ.refetch();
-      void hubspotQ.refetch();
-    }
-    if (search.hubspot === "error") {
-      toast.error(search.message || "HubSpot connection failed");
-    }
-    if (search.crm === "connected") {
+      message = `Connected ${label} successfully`;
+    } else if (search.scheduling === "error") {
+      message = search.message || "Calendar connection failed";
+      isError = true;
+    } else if (search.hubspot === "connected") {
+      message = "Connected HubSpot successfully";
+    } else if (search.hubspot === "error") {
+      message = search.message || "HubSpot connection failed";
+      isError = true;
+    } else if (search.crm === "connected") {
       const label = PROVIDER_LABEL[search.provider || ""] || search.provider || "CRM";
-      toast.success(`Connected ${label} successfully`);
-      void catalogueQ.refetch();
+      message = `Connected ${label} successfully`;
+    } else if (search.crm === "error") {
+      message = search.message || "CRM connection failed";
+      isError = true;
+    }
+
+    if (!message) return;
+
+    oauthNoticeShown.current = noticeKey;
+    if (isError) {
+      toast.error(message);
+    } else {
+      toast.success(message);
+    }
+    void catalogueQ.refetch();
+    if (search.hubspot === "connected" || search.crm === "connected") {
       void hubspotQ.refetch();
     }
-    if (search.crm === "error") {
-      toast.error(search.message || "CRM connection failed");
-    }
-  }, [search.scheduling, search.provider, search.message, search.hubspot, search.crm, catalogueQ, hubspotQ]);
+    void navigate({
+      to: "/settings/integrations",
+      search: { tab: tabFromSearch(search.tab) },
+      replace: true,
+    });
+  }, [
+    search.scheduling,
+    search.provider,
+    search.message,
+    search.hubspot,
+    search.crm,
+    search.tab,
+    catalogueQ,
+    hubspotQ,
+    navigate,
+  ]);
 
   const data = catalogueQ.data;
   const booking = (data?.booking ?? []) as IntegrationView[];
