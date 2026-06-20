@@ -336,6 +336,32 @@ def test_hubspot_integration(db: Session = Depends(get_db), _admin=Depends(requi
     return verify_hubspot_platform_config(db)
 
 
+@router.post("/integrations/pipedrive/test")
+def test_pipedrive_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.pipedrive_connection_service import test_pipedrive_platform_config
+
+    return test_pipedrive_platform_config(db)
+
+
+@router.post("/integrations/zoho_crm/test")
+def test_zoho_crm_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.zoho_crm_connection_service import test_zoho_crm_platform_config
+
+    return test_zoho_crm_platform_config(db)
+
+
+@router.post("/integrations/zoho_bookings/test")
+def test_zoho_bookings_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.zoho_crm_connection_service import test_zoho_crm_platform_config
+
+    result = test_zoho_crm_platform_config(db)
+    result["detail"] = (
+        "Zoho Bookings uses the same Zoho OAuth app as Zoho CRM. "
+        + str(result.get("detail") or "")
+    )
+    return result
+
+
 @router.post("/integrations/groq/test")
 def test_groq_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

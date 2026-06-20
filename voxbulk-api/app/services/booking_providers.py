@@ -8,6 +8,7 @@ BOOKING_PROVIDERS: tuple[str, ...] = (
     "google_calendar",
     "cal_com",
     "microsoft_calendar",
+    "zoho_bookings",
 )
 
 PROVIDER_LABELS: dict[str, str] = {
@@ -16,6 +17,7 @@ PROVIDER_LABELS: dict[str, str] = {
     "google_calendar": "Google Calendar",
     "cal_com": "Cal.com",
     "microsoft_calendar": "Microsoft 365 Calendar",
+    "zoho_bookings": "Zoho Bookings",
     "cronofy": "Cronofy",
 }
 

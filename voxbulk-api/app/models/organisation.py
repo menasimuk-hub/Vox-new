@@ -58,6 +58,8 @@ class Organisation(Base):
     credit_limit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scheduling_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     hubspot_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pipedrive_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    zoho_crm_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     allowed_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     logo_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)

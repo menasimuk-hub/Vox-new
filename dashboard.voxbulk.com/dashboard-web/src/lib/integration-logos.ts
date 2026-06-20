@@ -6,6 +6,10 @@ export const INTEGRATION_LOGOS: Record<string, string> = {
   microsoft_calendar: "/integrations/microsoft.svg",
   hubspot: "/integrations/hubspot.svg",
   hubspot_meetings: "/integrations/hubspot.svg",
+  pipedrive: "/integrations/pipedrive.svg",
+  zoho: "/integrations/zoho.svg",
+  zoho_crm: "/integrations/zoho.svg",
+  zoho_bookings: "/integrations/zoho.svg",
 };
 
 export function integrationLogoSrc(keyOrSlug: string): string | null {

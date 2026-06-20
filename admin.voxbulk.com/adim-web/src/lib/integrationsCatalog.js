@@ -19,6 +19,9 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'google_calendar', label: 'Google Calendar', icon: 'ti-calendar-stats', blurb: 'OAuth + appointment schedule URLs for interview shortlist.' },
   { key: 'microsoft_calendar', label: 'Microsoft 365 Calendar', icon: 'ti-calendar-time', blurb: 'Multi-tenant Outlook 365 / Microsoft Bookings for interview shortlist.' },
   { key: 'hubspot', label: 'HubSpot', icon: 'ti-brand-hubspot', blurb: 'OAuth + CRM sync and HubSpot Meetings for shortlisted candidates.' },
+  { key: 'pipedrive', label: 'Pipedrive', icon: 'ti-chart-arrows', blurb: 'OAuth + CRM sync for interview shortlist and scheduling send.' },
+  { key: 'zoho_crm', label: 'Zoho CRM', icon: 'ti-building', blurb: 'OAuth + CRM sync; required before Zoho Bookings on the dashboard.' },
+  { key: 'zoho_bookings', label: 'Zoho Bookings', icon: 'ti-calendar-event', blurb: 'Booking tab tile — uses Zoho CRM OAuth (enable after Zoho CRM is configured).' },
 ]
 
 export const INTEGRATION_EXTRAS = [

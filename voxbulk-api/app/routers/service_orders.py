@@ -494,7 +494,7 @@ def disconnect_org_integration(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from app.services.hubspot_connection_service import disconnect_hubspot
+    from app.services.crm_connection_service import disconnect_crm
     from app.services.integration_catalogue_service import (
         BOOKING_GROUP,
         CRM_GROUP,
@@ -509,7 +509,7 @@ def disconnect_org_integration(
         if spec.group == BOOKING_GROUP:
             return disconnect_scheduling(db, principal.org_id, provider=spec.key)
         if spec.group == CRM_GROUP:
-            return disconnect_hubspot(db, principal.org_id)
+            return disconnect_crm(db, principal.org_id, provider=spec.key)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
@@ -1364,6 +1364,37 @@ def select_hubspot_meeting_link_route(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/scheduling/zoho/booking-services")
+def list_zoho_booking_services_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.zoho_bookings_service import list_zoho_booking_services
+
+    try:
+        return {"booking_services": list_zoho_booking_services(db, principal.org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/scheduling/zoho/select-booking-service")
+def select_zoho_booking_service_route(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_bookings_service import connect_zoho_bookings
+
+    payload = body if isinstance(body, dict) else {}
+    try:
+        return connect_zoho_bookings(
+            db,
+            principal.org_id,
+            service_id=str(payload.get("service_id") or ""),
+            service_url=str(payload.get("service_url") or ""),
+            service_name=str(payload.get("service_name") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/scheduling/oauth/cronofy/start")
 def start_cronofy_oauth_deprecated(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     raise HTTPException(
@@ -1472,6 +1503,150 @@ def hubspot_oauth_callback(
     except ValueError as exc:
         return RedirectResponse(url=f"{origin}/settings/integrations?hubspot=error&message={quote(str(exc)[:200])}")
     return RedirectResponse(url=f"{origin}/settings/integrations?hubspot=connected")
+
+
+@router.get("/pipedrive/status")
+def get_pipedrive_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.pipedrive_connection_service import pipedrive_status
+
+    return pipedrive_status(db, principal.org_id)
+
+
+@router.patch("/pipedrive/settings")
+def patch_pipedrive_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.pipedrive_connection_service import update_pipedrive_settings
+
+    try:
+        return update_pipedrive_settings(
+            db,
+            principal.org_id,
+            auto_sync_shortlist=body.get("auto_sync_shortlist"),
+            auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/pipedrive/oauth/start")
+def start_pipedrive_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.pipedrive_connection_service import pipedrive_oauth_start
+
+    try:
+        return {"authorize_url": pipedrive_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/pipedrive/oauth/callback")
+def pipedrive_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    replace: bool = False,
+    db: Session = Depends(get_db),
+):
+    from urllib.parse import quote
+
+    from app.core.config import get_settings
+    from app.services.pipedrive_connection_service import pipedrive_oauth_complete
+    from fastapi.responses import RedirectResponse
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    if error:
+        msg = str(error_description or error).strip() or "Pipedrive authorization was denied"
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?crm=error&provider=pipedrive&message={quote(msg[:200])}"
+        )
+    try:
+        pipedrive_oauth_complete(db, code=code, state=state, replace=replace)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?crm=error&provider=pipedrive&message={quote(str(exc)[:200])}"
+        )
+    return RedirectResponse(
+        url=f"{origin}/settings/integrations?crm=connected&provider=pipedrive&tab=crm"
+    )
+
+
+@router.get("/zoho-crm/status")
+def get_zoho_crm_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.zoho_crm_connection_service import zoho_crm_status
+
+    return zoho_crm_status(db, principal.org_id)
+
+
+@router.patch("/zoho-crm/settings")
+def patch_zoho_crm_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_crm_connection_service import update_zoho_crm_settings
+
+    try:
+        return update_zoho_crm_settings(
+            db,
+            principal.org_id,
+            auto_sync_shortlist=body.get("auto_sync_shortlist"),
+            auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/zoho-crm/oauth/start")
+def start_zoho_crm_oauth(
+    replace: bool = False,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_crm_connection_service import zoho_crm_oauth_start
+
+    try:
+        return {"authorize_url": zoho_crm_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/zoho-crm/oauth/callback")
+def zoho_crm_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    replace: bool = False,
+    db: Session = Depends(get_db),
+):
+    from urllib.parse import quote
+
+    from app.core.config import get_settings
+    from app.services.zoho_crm_connection_service import zoho_crm_oauth_complete
+    from fastapi.responses import RedirectResponse
+
+    origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    if error:
+        msg = str(error_description or error).strip() or "Zoho authorization was denied"
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?crm=error&provider=zoho_crm&message={quote(msg[:200])}"
+        )
+    try:
+        zoho_crm_oauth_complete(db, code=code, state=state, replace=replace)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"{origin}/settings/integrations?crm=error&provider=zoho_crm&message={quote(str(exc)[:200])}"
+        )
+    return RedirectResponse(
+        url=f"{origin}/settings/integrations?crm=connected&provider=zoho_crm&tab=crm"
+    )
 
 
 @router.get("/{order_id}/interview/ats/quote")

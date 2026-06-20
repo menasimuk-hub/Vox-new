@@ -58,9 +58,12 @@ const PROVIDERS = [
   { key: 'google_calendar', label: 'Google Calendar' },
   { key: 'microsoft_calendar', label: 'Microsoft 365 Calendar' },
   { key: 'hubspot', label: 'HubSpot' },
+  { key: 'pipedrive', label: 'Pipedrive' },
+  { key: 'zoho_crm', label: 'Zoho CRM' },
+  { key: 'zoho_bookings', label: 'Zoho Bookings' },
 ]
 
-const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot']
+const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot', 'pipedrive', 'zoho_crm', 'zoho_bookings']
 
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
 
@@ -659,6 +662,9 @@ export default function Integrations() {
   const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState(null)
   const [microsoftCalendarTestResult, setMicrosoftCalendarTestResult] = useState(null)
   const [hubspotTestResult, setHubspotTestResult] = useState('')
+  const [pipedriveTestResult, setPipedriveTestResult] = useState(null)
+  const [zohoCrmTestResult, setZohoCrmTestResult] = useState(null)
+  const [zohoBookingsTestResult, setZohoBookingsTestResult] = useState(null)
   const [groqTestResult, setGroqTestResult] = useState('')
   const [deepinfraTestResult, setDeepinfraTestResult] = useState('')
   const [deepinfraModerationTestResult, setDeepinfraModerationTestResult] = useState('')
@@ -981,7 +987,7 @@ export default function Integrations() {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
-      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot') {
+      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
@@ -1045,6 +1051,8 @@ export default function Integrations() {
   const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const microsoftCalendarStatus = activeProvider === 'microsoft_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const pipedriveStatus = activeProvider === 'pipedrive' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const zohoCrmStatus = activeProvider === 'zoho_crm' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const groqStatus = activeProvider === 'groq' ? groqValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepinfraStatus = activeProvider === 'deepinfra' ? deepinfraValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepgramStatus = activeProvider === 'deepgram' ? deepgramValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1172,10 +1180,46 @@ export default function Integrations() {
     setHubspotTestResult('Testing HubSpot…')
     try {
       const result = await apiFetch('/admin/integrations/hubspot/test', { method: 'POST' })
-      setHubspotTestResult(result.ok ? (result.detail || 'HubSpot OK') : (result.detail || 'HubSpot check failed'))
+      setHubspotTestResult(typeof result?.detail === 'string' ? result.detail : JSON.stringify(result))
     } catch (e) {
       setHubspotTestResult('')
       setProviderError(e?.message || 'HubSpot test failed')
+    }
+  }
+
+  const testPipedrive = async () => {
+    setProviderError('')
+    setPipedriveTestResult({ detail: 'Testing Pipedrive…', ok: false, checks: [] })
+    try {
+      const result = await apiFetch('/admin/integrations/pipedrive/test', { method: 'POST' })
+      setPipedriveTestResult(result)
+    } catch (e) {
+      setPipedriveTestResult(null)
+      setProviderError(e?.message || 'Pipedrive test failed')
+    }
+  }
+
+  const testZohoCrm = async () => {
+    setProviderError('')
+    setZohoCrmTestResult({ detail: 'Testing Zoho CRM…', ok: false, checks: [] })
+    try {
+      const result = await apiFetch('/admin/integrations/zoho_crm/test', { method: 'POST' })
+      setZohoCrmTestResult(result)
+    } catch (e) {
+      setZohoCrmTestResult(null)
+      setProviderError(e?.message || 'Zoho CRM test failed')
+    }
+  }
+
+  const testZohoBookings = async () => {
+    setProviderError('')
+    setZohoBookingsTestResult({ detail: 'Testing Zoho Bookings (via Zoho CRM OAuth)…', ok: false, checks: [] })
+    try {
+      const result = await apiFetch('/admin/integrations/zoho_bookings/test', { method: 'POST' })
+      setZohoBookingsTestResult(result)
+    } catch (e) {
+      setZohoBookingsTestResult(null)
+      setProviderError(e?.message || 'Zoho Bookings test failed')
     }
   }
 
@@ -2642,6 +2686,107 @@ export default function Integrations() {
                           <li>Paste Client ID and secret below → Save. Companies use <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
                         </ol>
                       )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'pipedrive' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Pipedrive OAuth (CRM)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('pipedrive', e.target.checked)} />
+                      <span>Enable Pipedrive CRM sync for interview shortlist</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={pipedriveStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('pipedrive', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={pipedriveStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, pipedrive: { ...(s.pipedrive || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Pipedrive client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={pipedriveStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('pipedrive', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/pipedrive/oauth/callback' />
+                    </div>
+                    {pipedriveTestResult ? <OAuthPlatformTestPanel result={pipedriveTestResult} /> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('pipedrive')} disabled={providerSaving || !pipedriveStatus.valid}>Save Pipedrive</button>
+                      <button className='btn soft' onClick={testPipedrive} disabled={providerSaving || !activeSummary.configured}>Test Pipedrive</button>
+                    </div>
+                    <div className='note'>One CRM per organisation. Customers connect from Dashboard → Integrations → CRM tab.</div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'zoho_crm' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Zoho CRM OAuth</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('zoho_crm', e.target.checked)} />
+                      <span>Enable Zoho CRM sync (required before Zoho Bookings)</span>
+                    </label>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Data center</label>
+                      <select className='input' value={String(activeConfig.data_center || 'com')} onChange={(e) => setProviderField('zoho_crm', 'data_center', e.target.value)}>
+                        <option value='com'>Global (zoho.com)</option>
+                        <option value='eu'>EU (zoho.eu)</option>
+                        <option value='in'>India (zoho.in)</option>
+                        <option value='au'>Australia</option>
+                        <option value='jp'>Japan</option>
+                        <option value='ca'>Canada</option>
+                        <option value='cn'>China</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={zohoCrmStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('zoho_crm', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={zohoCrmStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, zoho_crm: { ...(s.zoho_crm || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Zoho client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={zohoCrmStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('zoho_crm', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/zoho-crm/oauth/callback' />
+                    </div>
+                    {zohoCrmTestResult ? <OAuthPlatformTestPanel result={zohoCrmTestResult} /> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('zoho_crm')} disabled={providerSaving || !zohoCrmStatus.valid}>Save Zoho CRM</button>
+                      <button className='btn soft' onClick={testZohoCrm} disabled={providerSaving || !activeSummary.configured}>Test Zoho CRM</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'zoho_bookings' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Zoho Bookings (booking tab)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('zoho_bookings', e.target.checked)} />
+                      <span>Show Zoho Bookings on the dashboard Booking tab</span>
+                    </label>
+                    <div className='note'>Uses the same Zoho OAuth app as Zoho CRM. Configure credentials on the Zoho CRM page first.</div>
+                    {zohoBookingsTestResult ? <OAuthPlatformTestPanel result={zohoBookingsTestResult} /> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('zoho_bookings')} disabled={providerSaving}>Save Zoho Bookings</button>
+                      <button className='btn soft' onClick={testZohoBookings} disabled={providerSaving}>Test (via Zoho CRM OAuth)</button>
                     </div>
                   </div>
                 </div>

@@ -144,10 +144,10 @@ class InterviewSchedulingService:
         db.add(order)
         db.commit()
         db.refresh(order)
-        from app.services.hubspot_connection_service import sync_shortlist_to_hubspot
+        from app.services.crm_sync_service import sync_shortlist_to_active_crm
 
-        hubspot_result = sync_shortlist_to_hubspot(db, order.org_id, order=order, recipient_ids=ids)
-        return {"ok": True, "recipient_ids": ids, "count": len(ids), "hubspot": hubspot_result}
+        crm_result = sync_shortlist_to_active_crm(db, order.org_id, order=order, recipient_ids=ids)
+        return {"ok": True, "recipient_ids": ids, "count": len(ids), "hubspot": crm_result, "crm": crm_result}
 
     @staticmethod
     def send_scheduling_links(
@@ -187,10 +187,9 @@ class InterviewSchedulingService:
         company_name = _org_name(db, order)
         template_row = _resolve_scheduling_wa_template(db, order)
 
-        from app.services.hubspot_connection_service import hubspot_status, sync_recipient_to_hubspot
+        from app.services.crm_sync_service import active_crm_auto_sync_scheduling_enabled, sync_recipient_to_active_crm
 
-        hubspot = hubspot_status(db, order.org_id)
-        hubspot_sync_enabled = bool(hubspot.get("connected") and hubspot.get("auto_sync_scheduling_send"))
+        crm_sync_enabled = active_crm_auto_sync_scheduling_enabled(db, order.org_id)
 
         recipients = ServiceOrderService.get_recipients(db, order.id)
         id_filter = {str(x).strip() for x in ids if str(x).strip()}
@@ -198,7 +197,7 @@ class InterviewSchedulingService:
 
         wa_sent = 0
         email_sent = 0
-        hubspot_synced = 0
+        crm_synced = 0
         errors: list[str] = []
 
         for recipient in recipients:
@@ -304,18 +303,18 @@ class InterviewSchedulingService:
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
 
-            if hubspot_sync_enabled:
+            if crm_sync_enabled:
                 try:
-                    sync_recipient_to_hubspot(
+                    sync_recipient_to_active_crm(
                         db,
                         order.org_id,
                         order=order,
                         recipient=recipient,
                         scheduling_url=sched_url,
                     )
-                    hubspot_synced += 1
+                    crm_synced += 1
                 except ValueError as exc:
-                    errors.append(f"HubSpot {recipient.name or recipient.id}: {exc}")
+                    errors.append(f"CRM {recipient.name or recipient.id}: {exc}")
 
         config = _order_config(order)
         config["scheduling_sent_at"] = _now().isoformat()
@@ -333,7 +332,8 @@ class InterviewSchedulingService:
             "sent": wa_sent + email_sent,
             "whatsapp_sent": wa_sent,
             "email_sent": email_sent,
-            "hubspot_synced": hubspot_synced,
+            "hubspot_synced": crm_synced,
+            "crm_synced": crm_synced,
             "errors": errors,
             "provider": org_status.get("provider"),
             "provider_label": org_status.get("provider_label"),

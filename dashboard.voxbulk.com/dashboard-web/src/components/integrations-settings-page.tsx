@@ -26,6 +26,7 @@ export type IntegrationsSearch = {
   provider?: string;
   message?: string;
   hubspot?: string;
+  crm?: string;
   tab?: string;
 };
 
@@ -35,7 +36,10 @@ const PROVIDER_LABEL: Record<string, string> = {
   google_calendar: "Google Calendar",
   microsoft_calendar: "Microsoft 365 Calendar",
   hubspot_meetings: "HubSpot Meetings",
+  zoho_bookings: "Zoho Bookings",
   hubspot: "HubSpot CRM",
+  pipedrive: "Pipedrive",
+  zoho_crm: "Zoho CRM",
   cronofy: "Cronofy",
 };
 
@@ -75,13 +79,24 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     if (search.hubspot === "error") {
       toast.error(search.message || "HubSpot connection failed");
     }
-  }, [search.scheduling, search.provider, search.message, search.hubspot, catalogueQ, hubspotQ]);
+    if (search.crm === "connected") {
+      const label = PROVIDER_LABEL[search.provider || ""] || search.provider || "CRM";
+      toast.success(`Connected ${label} successfully`);
+      void catalogueQ.refetch();
+      void hubspotQ.refetch();
+    }
+    if (search.crm === "error") {
+      toast.error(search.message || "CRM connection failed");
+    }
+  }, [search.scheduling, search.provider, search.message, search.hubspot, search.crm, catalogueQ, hubspotQ]);
 
   const data = catalogueQ.data;
   const booking = (data?.booking ?? []) as IntegrationView[];
   const crm = (data?.crm ?? []) as IntegrationView[];
   const activeBookingProvider = data?.active_booking_provider ?? null;
   const activeBookingView = booking.find((b) => b.connected) || null;
+  const activeCrmProvider = (data as { active_crm_provider?: string | null })?.active_crm_provider ?? null;
+  const activeCrmView = crm.find((c) => c.connected) || null;
 
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const hubspotMeta = {
@@ -111,10 +126,6 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       return;
     }
     if (view.key === "hubspot_meetings") {
-      if (!view.platform_ready) {
-        toast.error("Connect HubSpot CRM first");
-        return;
-      }
       try {
         const meetings = await apiFetch<{ meeting_links?: Array<{ id: string; name: string; url: string }> }>(
           "/service-orders/scheduling/hubspot/meeting-links",
@@ -137,6 +148,32 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not connect HubSpot Meetings");
+      }
+      return;
+    }
+    if (view.key === "zoho_bookings") {
+      try {
+        const services = await apiFetch<{ booking_services?: Array<{ id: string; name: string; url: string }> }>(
+          "/service-orders/scheduling/zoho/booking-services",
+        );
+        const rows = services?.booking_services || [];
+        if (rows.length === 0) {
+          toast.error("No Zoho Bookings services found — check Zoho Bookings scopes and reconnect Zoho CRM");
+          return;
+        }
+        const first = rows[0];
+        await apiFetch("/service-orders/scheduling/zoho/select-booking-service", {
+          method: "POST",
+          body: JSON.stringify({
+            service_id: first.id,
+            service_url: first.url,
+            service_name: first.name,
+          }),
+        });
+        toast.success("Zoho Bookings connected");
+        refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not connect Zoho Bookings");
       }
       return;
     }
@@ -214,7 +251,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     return (
       <div className="grid gap-4 md:grid-cols-2">
         {rows.map((row) => (
-          <ProviderTile key={row.key} view={row} active={row.key === activeBookingProvider} onOpen={openTile} />
+          <ProviderTile
+            key={row.key}
+            view={row}
+            active={row.key === activeBookingProvider || row.key === activeCrmProvider}
+            onOpen={openTile}
+          />
         ))}
       </div>
     );
@@ -260,6 +302,33 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openTile(activeBookingView)}>
+                <Plug className="size-4" /> Manage
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCrmView && activeCrmView.connected ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <ProviderLogo
+                iconSlug={activeCrmView.icon_slug}
+                providerKey={activeCrmView.key}
+                label={activeCrmView.label}
+                className="size-11"
+                imgClassName="max-h-8 max-w-8"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium leading-tight">Active CRM: {activeCrmView.label}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {activeCrmView.connected_account || "Connected"} · shortlist push and scheduling sync use this CRM only.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openTile(activeCrmView)}>
                 <Plug className="size-4" /> Manage
               </Button>
             </div>

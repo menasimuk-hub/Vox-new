@@ -149,6 +149,13 @@ export function ProviderDetailSheet({
     !isBookingPage && view.key === "hubspot" && hubspot?.usesAccessToken && !view.connected;
   const showHubspotSyncToggles =
     !isBookingPage && view.key === "hubspot" && view.connected;
+  const crmSettingsUrl =
+    view.key === "pipedrive"
+      ? "/service-orders/pipedrive/settings"
+      : view.key === "zoho_crm"
+        ? "/service-orders/zoho-crm/settings"
+        : null;
+  const showGenericCrmSyncToggles = !isBookingPage && Boolean(crmSettingsUrl) && view.connected;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -335,6 +342,48 @@ export function ProviderDetailSheet({
                   onCheckedChange={async (checked) => {
                     try {
                       await apiFetch("/service-orders/hubspot/settings", {
+                        method: "PATCH",
+                        body: JSON.stringify({ auto_sync_scheduling_send: checked }),
+                      });
+                      onRefresh();
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Update failed");
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {showGenericCrmSyncToggles && crmSettingsUrl ? (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Auto-sync</p>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="crm-shortlist" className="text-sm">Sync when saving shortlist</Label>
+                <Switch
+                  id="crm-shortlist"
+                  checked={(view.extra?.auto_sync_shortlist ?? true) !== false}
+                  onCheckedChange={async (checked) => {
+                    try {
+                      await apiFetch(crmSettingsUrl, {
+                        method: "PATCH",
+                        body: JSON.stringify({ auto_sync_shortlist: checked }),
+                      });
+                      onRefresh();
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Update failed");
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="crm-send" className="text-sm">Sync when sending interview links</Label>
+                <Switch
+                  id="crm-send"
+                  checked={(view.extra?.auto_sync_scheduling_send ?? true) !== false}
+                  onCheckedChange={async (checked) => {
+                    try {
+                      await apiFetch(crmSettingsUrl, {
                         method: "PATCH",
                         body: JSON.stringify({ auto_sync_scheduling_send: checked }),
                       });

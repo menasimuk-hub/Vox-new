@@ -10,6 +10,10 @@ const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
   microsoft_calendar: CalendarClock,
   hubspot: Building2,
   hubspot_meetings: Building2,
+  pipedrive: Building2,
+  zoho: Building2,
+  zoho_crm: Building2,
+  zoho_bookings: Building2,
 };
 
 type Props = {

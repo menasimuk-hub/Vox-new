@@ -49,6 +49,9 @@ class ProviderSettingsService:
         "microsoft_calendar",
         "cronofy",
         "hubspot",
+        "pipedrive",
+        "zoho_crm",
+        "zoho_bookings",
         "apollo",
         "resend",
     }
@@ -80,6 +83,9 @@ class ProviderSettingsService:
         "microsoft_calendar": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
         "hubspot": set(),
+        "pipedrive": {"client_id", "client_secret", "redirect_uri"},
+        "zoho_crm": {"client_id", "client_secret", "redirect_uri", "data_center"},
+        "zoho_bookings": set(),
         "apollo": {"api_key"},
         "resend": {"api_key"},
     }
@@ -109,6 +115,9 @@ class ProviderSettingsService:
         "microsoft_calendar": {"client_secret"},
         "cronofy": {"client_secret"},
         "hubspot": {"client_secret"},
+        "pipedrive": {"client_secret"},
+        "zoho_crm": {"client_secret"},
+        "zoho_bookings": set(),
         "apollo": {"api_key"},
         "resend": {"api_key"},
     }
@@ -199,6 +208,12 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_cronofy_config(config)
         if provider == "hubspot":
             config = ProviderSettingsService._validate_hubspot_config(config)
+        if provider == "pipedrive":
+            config = ProviderSettingsService._validate_pipedrive_config(config)
+        if provider == "zoho_crm":
+            config = ProviderSettingsService._validate_zoho_crm_config(config)
+        if provider == "zoho_bookings":
+            config = ProviderSettingsService._validate_zoho_bookings_config(config)
         if provider == "deepinfra":
             config = ProviderSettingsService._validate_deepinfra_config(config)
 
@@ -967,6 +982,54 @@ class ProviderSettingsService:
         cfg["client_secret"] = client_secret
         cfg["redirect_uri"] = redirect_uri
         return cfg
+
+    @staticmethod
+    def _validate_pipedrive_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Pipedrive settings validation failed: {details}")
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
+        return cfg
+
+    @staticmethod
+    def _validate_zoho_crm_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Zoho CRM settings validation failed: {details}")
+        dc = str(cfg.get("data_center") or "com").strip().lower()
+        cfg["data_center"] = dc if dc in {"com", "eu", "in", "au", "jp", "ca", "cn"} else "com"
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
+        return cfg
+
+    @staticmethod
+    def _validate_zoho_bookings_config(config: dict[str, Any]) -> dict[str, Any]:
+        return {**config}
 
     @staticmethod
     def _missing_fields(provider: str, config: dict[str, Any] | None) -> list[str]:

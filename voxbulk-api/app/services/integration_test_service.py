@@ -430,8 +430,92 @@ def _check_hubspot_crm(db: Session, org_id: str) -> list[dict[str, Any]]:
     return checks
 
 
+def _check_pipedrive_crm(db: Session, org_id: str) -> list[dict[str, Any]]:
+    from app.services.pipedrive_connection_service import get_pipedrive_config, pipedrive_status
+
+    status = pipedrive_status(db, org_id)
+    if not status.get("connected"):
+        return [_check("connection", False, "Pipedrive is not connected for this organisation")]
+    token = str(get_pipedrive_config(db, org_id).get("access_token") or "").strip()
+    if not token:
+        return [_check("token", False, "Pipedrive access token missing — reconnect Pipedrive")]
+    headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        res = client.get("https://api.pipedrive.com/v1/users/me", headers=headers)
+    if res.status_code >= 400:
+        return [_check("token", False, f"Pipedrive token rejected ({res.status_code})")]
+    data = (res.json() or {}).get("data") or {}
+    name = str(data.get("name") or data.get("company_name") or "Pipedrive").strip()
+    return [_check("token", True, f"Token valid — {name}")]
+
+
+def _check_zoho_crm(db: Session, org_id: str) -> list[dict[str, Any]]:
+    from app.services.zoho_crm_connection_service import get_zoho_crm_config, zoho_crm_status
+
+    status = zoho_crm_status(db, org_id)
+    if not status.get("connected"):
+        return [_check("connection", False, "Zoho CRM is not connected for this organisation")]
+    cfg = get_zoho_crm_config(db, org_id)
+    token = str(cfg.get("access_token") or "").strip()
+    api_domain = str(cfg.get("api_domain") or "www.zohoapis.com").strip()
+    if not token:
+        return [_check("token", False, "Zoho access token missing — reconnect Zoho CRM")]
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        res = client.get(f"https://{api_domain}/crm/v2/users", headers=headers, params={"type": "CurrentUser"})
+    if res.status_code >= 400:
+        return [_check("token", False, f"Zoho token rejected ({res.status_code})")]
+    users = (res.json() or {}).get("users") or []
+    label = "Zoho CRM"
+    if users and isinstance(users[0], dict):
+        label = str(users[0].get("full_name") or users[0].get("email") or label)
+    return [_check("token", True, f"Token valid — {label}")]
+
+
+def _check_zoho_bookings(db: Session, org_id: str) -> list[dict[str, Any]]:
+    from app.services.scheduling_connection_service import get_scheduling_config
+    from app.services.zoho_crm_connection_service import get_zoho_crm_config, zoho_crm_status
+
+    sched = get_scheduling_config(db, org_id)
+    if str(sched.get("provider") or "").lower() != "zoho_bookings":
+        return [_check("connection", False, "Zoho Bookings is not the active booking provider")]
+    zs = zoho_crm_status(db, org_id)
+    if not zs.get("connected"):
+        return [_check("zoho_crm", False, "Connect Zoho CRM before testing Zoho Bookings")]
+    cfg = get_zoho_crm_config(db, org_id)
+    token = str(cfg.get("access_token") or "").strip()
+    api_domain = str(cfg.get("api_domain") or "www.zohoapis.com").strip()
+    if not token:
+        return [_check("token", False, "Zoho CRM token missing — reconnect Zoho CRM")]
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    checks: list[dict[str, Any]] = []
+    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
+        res = client.get(f"https://{api_domain}/bookings/v1/json/services", headers=headers)
+    if res.status_code >= 400:
+        checks.append(_check("booking_services", False, f"Zoho Bookings API failed ({res.status_code})"))
+        return checks
+    payload = res.json() or {}
+    items = payload.get("services") or payload.get("data") or []
+    checks.append(_check("booking_services", True, f"{len(items)} Zoho Bookings services accessible"))
+    selected_id = str(sched.get("service_id") or "").strip()
+    if selected_id:
+        found = any(str(it.get("id") or it.get("service_id") or "") == selected_id for it in items if isinstance(it, dict))
+        checks.append(
+            _check(
+                "selected_service",
+                found,
+                "Selected booking service is still active" if found else "Selected booking service was deleted",
+            )
+        )
+    return checks
+
+
 _BOOKING_FIELD = "scheduling_config_json"
-_CRM_FIELD = "hubspot_config_json"
+_CRM_FIELDS: dict[str, str] = {
+    "hubspot": "hubspot_config_json",
+    "pipedrive": "pipedrive_config_json",
+    "zoho_crm": "zoho_crm_config_json",
+}
 
 _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, Any]]]]] = {
     "calendly": (_BOOKING_FIELD, _check_calendly),
@@ -439,7 +523,10 @@ _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, 
     "google_calendar": (_BOOKING_FIELD, _check_google_calendar),
     "microsoft_calendar": (_BOOKING_FIELD, _check_microsoft_calendar),
     "hubspot_meetings": (_BOOKING_FIELD, _check_hubspot_meetings),
-    "hubspot": (_CRM_FIELD, _check_hubspot_crm),
+    "zoho_bookings": (_BOOKING_FIELD, _check_zoho_bookings),
+    "hubspot": (_CRM_FIELDS["hubspot"], _check_hubspot_crm),
+    "pipedrive": (_CRM_FIELDS["pipedrive"], _check_pipedrive_crm),
+    "zoho_crm": (_CRM_FIELDS["zoho_crm"], _check_zoho_crm),
 }
 
 

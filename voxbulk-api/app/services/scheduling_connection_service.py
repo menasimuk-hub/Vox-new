@@ -127,6 +127,13 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         hs = hubspot_status(db, org_id)
         if not hs.get("connected"):
             connected = False
+    elif provider == "zoho_bookings":
+        from app.services.zoho_crm_connection_service import zoho_crm_status
+
+        connected = connected and bool(str(cfg.get("service_url") or "").strip())
+        zs = zoho_crm_status(db, org_id)
+        if not zs.get("connected"):
+            connected = False
     elif provider in ("cal_com", "google_calendar", "microsoft_calendar"):
         connected = connected and bool(str(cfg.get("access_token") or "").strip())
     elif legacy_unsupported:
@@ -138,6 +145,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     google_connected = connected and provider == "google_calendar"
     microsoft_connected = connected and provider == "microsoft_calendar"
     hubspot_meetings_connected = connected and provider == "hubspot_meetings"
+    zoho_bookings_connected = connected and provider == "zoho_bookings"
     cal_platform = platform_oauth_configured(db, "calendly")
     cal_com_platform = platform_oauth_configured(db, "cal_com")
     google_platform = platform_oauth_configured(db, "google_calendar")
@@ -155,6 +163,8 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         event_type_configured = bool(str(cfg.get("schedule_url") or "").strip())
     elif hubspot_meetings_connected:
         event_type_configured = bool(str(cfg.get("meeting_link_url") or "").strip())
+    elif zoho_bookings_connected:
+        event_type_configured = bool(str(cfg.get("service_url") or "").strip())
     human_ready = connected and event_type_configured
     account = connected_account_display(cfg)
     return {
@@ -170,6 +180,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         "google_calendar_connected": google_connected,
         "microsoft_calendar_connected": microsoft_connected,
         "hubspot_meetings_connected": hubspot_meetings_connected,
+        "zoho_bookings_connected": zoho_bookings_connected,
         "cronofy_connected": False,
         "legacy_unsupported_provider": provider if legacy_unsupported else None,
         "calendly_platform_configured": cal_platform,
@@ -228,6 +239,12 @@ def create_scheduling_link(
         from app.services.hubspot_meetings_service import create_hubspot_meetings_scheduling_link
 
         return create_hubspot_meetings_scheduling_link(
+            db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
+        )
+    if provider == "zoho_bookings":
+        from app.services.zoho_bookings_service import create_zoho_bookings_scheduling_link
+
+        return create_zoho_bookings_scheduling_link(
             db, org_id, candidate_name=candidate_name, candidate_email=candidate_email
         )
     raise ValueError("Connect a booking provider in Settings → Integrations before sending scheduling links")

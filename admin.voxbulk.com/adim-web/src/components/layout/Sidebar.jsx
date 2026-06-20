@@ -312,6 +312,12 @@ const NAV = [
 
       ['HubSpot', '/integrations/hubspot'],
 
+      ['Pipedrive', '/integrations/pipedrive'],
+
+      ['Zoho CRM', '/integrations/zoho_crm'],
+
+      ['Zoho Bookings', '/integrations/zoho_bookings'],
+
       ['Webhooks', '/integrations/webhooks'],
 
       ['Social login', '/integrations/social-login'],

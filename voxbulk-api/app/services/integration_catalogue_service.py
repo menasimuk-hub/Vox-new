@@ -88,12 +88,36 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         icon_slug="hubspot",
     ),
     ProviderSpec(
+        key="zoho_bookings",
+        group=BOOKING_GROUP,
+        admin_provider="zoho_bookings",
+        label="Zoho Bookings",
+        short_description="Share a Zoho Bookings page with candidates (requires Zoho CRM connected).",
+        icon_slug="zoho",
+    ),
+    ProviderSpec(
         key="hubspot",
         group=CRM_GROUP,
         admin_provider="hubspot",
         label="HubSpot CRM",
         short_description="Import contacts, push interview shortlists, and write survey results back to HubSpot.",
         icon_slug="hubspot",
+    ),
+    ProviderSpec(
+        key="pipedrive",
+        group=CRM_GROUP,
+        admin_provider="pipedrive",
+        label="Pipedrive",
+        short_description="Push interview shortlists and candidate updates to Pipedrive contacts and deals.",
+        icon_slug="pipedrive",
+    ),
+    ProviderSpec(
+        key="zoho_crm",
+        group=CRM_GROUP,
+        admin_provider="zoho_crm",
+        label="Zoho CRM",
+        short_description="Push interview shortlists and candidate updates to Zoho CRM contacts and deals.",
+        icon_slug="zoho",
     ),
 )
 
@@ -144,6 +168,8 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         connected = bool(str(cfg.get("access_token") or "").strip())
     elif spec.key == "hubspot_meetings":
         connected = bool(str(cfg.get("meeting_link_url") or "").strip())
+    elif spec.key == "zoho_bookings":
+        connected = bool(str(cfg.get("service_url") or "").strip())
     elif spec.key in {"cal_com", "google_calendar", "microsoft_calendar"}:
         connected = bool(str(cfg.get("access_token") or "").strip())
     else:
@@ -173,25 +199,36 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
 
 
 def _crm_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
-    if spec.key != "hubspot":
+    from app.services.crm_providers import CRM_CONFIG_COLUMNS
+
+    column = CRM_CONFIG_COLUMNS.get(spec.key)
+    if not column:
         return {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
 
-    cfg = _loads(getattr(org, "hubspot_config_json", None))
+    cfg = _loads(getattr(org, column, None))
     has_token = bool(str(cfg.get("access_token") or "").strip())
     last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
     account_name = str(cfg.get("account_name") or "").strip() or None
-    hub_domain = str(cfg.get("hub_domain") or "").strip() or None
+    hub_domain = str(cfg.get("hub_domain") or cfg.get("company_domain") or "").strip() or None
+
+    extra: dict[str, Any] = {
+        "auth_mode": cfg.get("auth_mode"),
+        "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
+        "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
+    }
+    if spec.key == "hubspot":
+        extra.update({"hub_domain": hub_domain, "hub_id": cfg.get("hub_id")})
+    elif spec.key == "pipedrive":
+        extra.update({"company_domain": cfg.get("company_domain"), "company_name": cfg.get("company_name")})
+    elif spec.key == "zoho_crm":
+        extra.update({"data_center": cfg.get("data_center"), "api_domain": cfg.get("api_domain")})
 
     return {
         "connected": has_token,
         "connected_account": account_name or hub_domain,
         "connected_at": cfg.get("connected_at"),
         "last_check": last_check,
-        "extra": {
-            "auth_mode": cfg.get("auth_mode"),
-            "hub_domain": hub_domain,
-            "hub_id": cfg.get("hub_id"),
-        },
+        "extra": extra,
     }
 
 
@@ -213,10 +250,16 @@ def _provider_actions(spec: ProviderSpec) -> dict[str, str]:
         elif spec.key == "hubspot_meetings":
             # Connects via HubSpot meeting-link picker, not a fresh OAuth.
             actions["connect_url"] = f"{base}/scheduling/hubspot/meeting-links"
+        elif spec.key == "zoho_bookings":
+            actions["connect_url"] = f"{base}/scheduling/zoho/booking-services"
     elif spec.group == CRM_GROUP:
         if spec.key == "hubspot":
             actions["connect_url"] = f"{base}/hubspot/oauth/start"
             actions["connect_token_url"] = f"{base}/hubspot/connect-token"
+        elif spec.key == "pipedrive":
+            actions["connect_url"] = f"{base}/pipedrive/oauth/start"
+        elif spec.key == "zoho_crm":
+            actions["connect_url"] = f"{base}/zoho-crm/oauth/start"
     return actions
 
 
@@ -228,6 +271,10 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
             from app.services.hubspot_connection_service import platform_oauth_configured as hs_ready
 
             return bool(hs_ready(db))
+        if spec.key == "zoho_bookings":
+            from app.services.zoho_crm_connection_service import platform_oauth_configured as zoho_ready
+
+            return bool(zoho_ready(db))
         if spec.key == "microsoft_calendar":
             from app.services.microsoft_calendar_service import platform_oauth_configured as ms_ready
 
@@ -238,6 +285,14 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
         from app.services.hubspot_connection_service import platform_oauth_configured as hs_ready
 
         return bool(hs_ready(db))
+    if spec.key == "pipedrive":
+        from app.services.pipedrive_connection_service import platform_oauth_configured as pd_ready
+
+        return bool(pd_ready(db))
+    if spec.key == "zoho_crm":
+        from app.services.zoho_crm_connection_service import platform_oauth_configured as zoho_ready
+
+        return bool(zoho_ready(db))
     return False
 
 
@@ -251,6 +306,9 @@ def _iso_or_none(value: Any) -> str | None:
 
 def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[str, Any]]]:
     """Return the integrations the org can see, grouped by category."""
+    from app.services.crm_connection_service import active_crm_provider, crm_provider_label
+    from app.services.crm_providers import CRM_DEPENDENT_BOOKING
+
     org = db.get(Organisation, org_id)
     admin_rows = _admin_rows(db)
 
@@ -262,6 +320,8 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
         active_booking_provider = str(
             _loads(getattr(org, "scheduling_config_json", None)).get("provider") or ""
         ).strip().lower() or None
+
+    active_crm = active_crm_provider(db, org_id) if org is not None else None
 
     for spec in PROVIDER_REGISTRY:
         admin_row = admin_rows.get(spec.admin_provider)
@@ -280,6 +340,29 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
             and active_booking_provider is not None
             and active_booking_provider != spec.key
         )
+        parent_crm = CRM_DEPENDENT_BOOKING.get(spec.key)
+        missing_parent_crm = (
+            spec.group == BOOKING_GROUP
+            and parent_crm is not None
+            and active_crm != parent_crm
+            and not connection_view.get("connected")
+        )
+        another_crm_active = (
+            spec.group == CRM_GROUP
+            and active_crm is not None
+            and active_crm != spec.key
+            and not connection_view.get("connected")
+        )
+
+        blocked_reason: str | None = None
+        if another_booking_active and not connection_view.get("connected"):
+            blocked_reason = "Another booking provider is currently active."
+        elif missing_parent_crm:
+            parent_label = crm_provider_label(parent_crm) or parent_crm.replace("_", " ").title()
+            blocked_reason = f"Connect {parent_label} first."
+        elif another_crm_active:
+            current_label = crm_provider_label(active_crm) or active_crm.replace("_", " ").title()
+            blocked_reason = f"Disconnect {current_label} first to connect this CRM."
 
         last_check = connection_view.get("last_check") or {}
         last_check_ok = last_check.get("ok") if isinstance(last_check, dict) else None
@@ -298,11 +381,7 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
             "connected_at": _iso_or_none(connection_view.get("connected_at")),
             "last_check_ok": last_check_ok,
             "last_check_at": _iso_or_none(last_check_at),
-            "blocked_reason": (
-                "Another booking provider is currently active."
-                if (another_booking_active and not connection_view.get("connected"))
-                else None
-            ),
+            "blocked_reason": blocked_reason,
             "actions": _provider_actions(spec),
             "extra": connection_view.get("extra") or {},
         }
@@ -315,6 +394,7 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
         "booking": booking,
         "crm": crm,
         "active_booking_provider": active_booking_provider if any(b["connected"] for b in booking) else None,
+        "active_crm_provider": active_crm if any(c["connected"] for c in crm) else None,
     }
 
 

@@ -193,6 +193,9 @@ export default function App() {
         <Route path='/integrations/google_calendar' element={<Integrations />} />
         <Route path='/integrations/microsoft_calendar' element={<Integrations />} />
         <Route path='/integrations/hubspot' element={<Integrations />} />
+        <Route path='/integrations/pipedrive' element={<Integrations />} />
+        <Route path='/integrations/zoho_crm' element={<Integrations />} />
+        <Route path='/integrations/zoho_bookings' element={<Integrations />} />
         <Route path='/integrations/webhooks' element={<Integrations />} />
         <Route path='/integrations/social-login' element={<Integrations />} />
         <Route path='/services-api' element={<Navigate to='/integrations/kpi' replace />} />
