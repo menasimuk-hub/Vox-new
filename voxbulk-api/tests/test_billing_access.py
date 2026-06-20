@@ -131,3 +131,75 @@ def test_first_payment_failure_suspends_within_grace():
         assert suspended is True
         db.refresh(sub)
         assert sub.status == "suspended"
+
+
+def test_ghost_voxbulk_feedback_plan_does_not_block_launch():
+    from app.models.customer_feedback import FEEDBACK_SERVICE_CODE
+    from app.models.plan import Plan
+    from app.services.customer_feedback.seed_service import FeedbackSeedService
+    from app.services.subscription_cancellation_service import CANCELLATION_CANCELLED
+    from sqlalchemy import select
+
+    org_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        cf_plan = db.execute(
+            select(Plan).where(Plan.code == "cf_starter_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        db.add(
+            Subscription(
+                org_id=org_id,
+                plan_id=cf_plan.id,
+                service_code="voxbulk",
+                status="active",
+                cancellation_status=CANCELLATION_CANCELLED,
+            )
+        )
+        db.add(
+            Subscription(
+                org_id=org_id,
+                plan_id=cf_plan.id,
+                service_code="customer_feedback",
+                status="active",
+            )
+        )
+        db.commit()
+        org = db.get(Organisation, org_id)
+        reason = BillingAccessService.launch_block_reason(db, org)
+        assert reason is None
+
+
+def test_remove_ghost_voxbulk_subscription():
+    from app.models.customer_feedback import FEEDBACK_SERVICE_CODE
+    from app.models.plan import Plan
+    from app.services.customer_feedback.seed_service import FeedbackSeedService
+    from app.services.customer_feedback.repair_service import FeedbackSubscriptionRepairService
+    from sqlalchemy import select
+
+    org_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        cf_plan = db.execute(
+            select(Plan).where(Plan.code == "cf_starter_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+        ).scalar_one()
+        ghost = Subscription(
+            org_id=org_id,
+            plan_id=cf_plan.id,
+            service_code="voxbulk",
+            status="cancelled",
+        )
+        active = Subscription(
+            org_id=org_id,
+            plan_id=cf_plan.id,
+            service_code="customer_feedback",
+            status="active",
+        )
+        db.add(ghost)
+        db.add(active)
+        db.commit()
+        ghost_id = ghost.id
+
+        removed = FeedbackSubscriptionRepairService.remove_ghost_voxbulk_subscriptions(db, org_id)
+        assert ghost_id in removed
+        assert db.get(Subscription, ghost_id) is None
+        assert BillingAccessService.get_feedback_subscription(db, org_id) is not None

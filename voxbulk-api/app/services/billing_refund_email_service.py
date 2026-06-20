@@ -20,6 +20,7 @@ REFUND_BANK_REFLECTION_NOTE = (
     "Refunds to your bank or card may take up to 3 additional working days to appear on your statement, depending on your bank."
 )
 DASHBOARD_BILLING_URL = "https://dashboard.voxbulk.com/account/billing"
+DASHBOARD_PACKAGES_URL = "https://dashboard.voxbulk.com/account/packages"
 
 
 class BillingRefundEmailService:
@@ -61,7 +62,69 @@ class BillingRefundEmailService:
         return {
             "organisation_name": org.name or "your organisation",
             "billing_url": DASHBOARD_BILLING_URL,
+            "packages_url": DASHBOARD_PACKAGES_URL,
         }
+
+    @staticmethod
+    def product_name_for_subscription(*, service_code: str | None, plan_name: str | None = None) -> str:
+        sc = str(service_code or "voxbulk").strip().lower()
+        if sc == "customer_feedback":
+            return "Customer Feedback"
+        if plan_name:
+            return f"Core platform ({plan_name})"
+        return "Core platform"
+
+    @staticmethod
+    def send_subscription_ended(
+        db: Session,
+        *,
+        org: Organisation,
+        user_id: str | None,
+        service_code: str | None,
+        plan_name: str | None,
+    ) -> bool:
+        product_name = BillingRefundEmailService.product_name_for_subscription(
+            service_code=service_code,
+            plan_name=plan_name,
+        )
+        return BillingRefundEmailService._send(
+            db,
+            template_key="billing_subscription_ended",
+            org=org,
+            user_id=user_id,
+            variables={
+                **BillingRefundEmailService._base_vars(db, org),
+                "product_name": product_name,
+            },
+        )
+
+    @staticmethod
+    def send_renewal_reminder(
+        db: Session,
+        *,
+        org: Organisation,
+        user_id: str | None,
+        service_code: str | None,
+        plan_name: str | None,
+        renewal_date: str,
+        days_remaining: int,
+    ) -> bool:
+        product_name = BillingRefundEmailService.product_name_for_subscription(
+            service_code=service_code,
+            plan_name=plan_name,
+        )
+        return BillingRefundEmailService._send(
+            db,
+            template_key="billing_renewal_reminder",
+            org=org,
+            user_id=user_id,
+            variables={
+                **BillingRefundEmailService._base_vars(db, org),
+                "product_name": product_name,
+                "renewal_date": renewal_date,
+                "days_remaining": str(max(int(days_remaining), 0)),
+            },
+        )
 
     @staticmethod
     def send_cancellation_requested(

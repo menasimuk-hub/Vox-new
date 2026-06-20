@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
 from app.models.organisation import Organisation
+from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.services.billing_currency import money_display, resolve_org_currency
 
@@ -34,9 +35,34 @@ OUTSTANDING_STATUSES = frozenset(
 IMMEDIATE_ACCESS_SCHEMES = frozenset({"bacs", "sepa_core", "sepa_cor1"})
 DEFERRED_FIRST_PAYMENT_SCHEMES = frozenset({"ach", "pad", "becs", "becs_nz", "autogiro", "betalingsservice"})
 FIRST_PAYMENT_GRACE_DAYS = 7
+ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trial", "pending_first_payment"})
 
 
 class BillingAccessService:
+    @staticmethod
+    def is_valid_core_plan(db: Session, plan: Plan | None) -> bool:
+        if plan is None:
+            return False
+        kind = str(getattr(plan, "service_kind", None) or "").strip().lower()
+        code = str(plan.code or "").strip().lower()
+        if kind and kind != "voxbulk":
+            return False
+        if code.startswith("cf_"):
+            return False
+        return True
+
+    @staticmethod
+    def get_valid_core_subscription(db: Session, org_id: str) -> Subscription | None:
+        sub = BillingAccessService.get_subscription(db, org_id)
+        if sub is None:
+            return None
+        if not sub.plan_id:
+            return sub
+        plan = db.get(Plan, sub.plan_id)
+        if not BillingAccessService.is_valid_core_plan(db, plan):
+            return None
+        return sub
+
     @staticmethod
     def outstanding_invoice_minor(db: Session, org_id: str) -> int:
         rows = list(
@@ -97,7 +123,7 @@ class BillingAccessService:
 
     @staticmethod
     def mandate_blocks_launch(db: Session, org_id: str) -> str | None:
-        sub = BillingAccessService.get_subscription(db, org_id)
+        sub = BillingAccessService.get_valid_core_subscription(db, org_id)
         if sub is None:
             return None
         mandate_status = str(sub.mandate_status or "").strip().lower()
@@ -109,7 +135,7 @@ class BillingAccessService:
 
     @staticmethod
     def pending_first_payment_blocks_dd(db: Session, org_id: str) -> bool:
-        sub = BillingAccessService.get_subscription(db, org_id)
+        sub = BillingAccessService.get_valid_core_subscription(db, org_id)
         if sub is None:
             return False
         return str(sub.status or "").strip().lower() == "pending_first_payment"
@@ -130,7 +156,7 @@ class BillingAccessService:
         mandate_block = BillingAccessService.mandate_blocks_launch(db, org.id)
         if mandate_block and not payg_wallet_launch:
             return mandate_block
-        sub = BillingAccessService.get_subscription(db, org.id)
+        sub = BillingAccessService.get_valid_core_subscription(db, org.id)
         if sub is not None:
             from app.services.subscription_cancellation_service import (
                 CANCELLATION_CANCELLED,
@@ -150,7 +176,7 @@ class BillingAccessService:
 
     @staticmethod
     def access_summary(db: Session, org: Organisation) -> dict[str, Any]:
-        sub = BillingAccessService.get_subscription(db, org.id)
+        sub = BillingAccessService.get_valid_core_subscription(db, org.id)
         exceeded, credit = BillingAccessService.credit_limit_exceeded(db, org)
         block = BillingAccessService.launch_block_reason(db, org)
         return {

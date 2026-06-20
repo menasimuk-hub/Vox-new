@@ -79,6 +79,37 @@ class SubscriptionCancellationService:
             return False
 
     @staticmethod
+    def _notify_subscription_ended(
+        db: Session,
+        *,
+        org: Organisation,
+        sub: Subscription,
+        plan: Plan | None,
+        user_id: str | None = None,
+        ended_at: datetime | None = None,
+    ) -> None:
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+        from app.services.notification_service import NotificationService
+
+        when = ended_at or datetime.utcnow()
+        plan_name = getattr(plan, "name", None) if plan else None
+        BillingRefundEmailService.send_subscription_ended(
+            db,
+            org=org,
+            user_id=user_id or sub.cancellation_requested_by_user_id,
+            service_code=sub.service_code,
+            plan_name=plan_name,
+        )
+        NotificationService.notify_org_subscription_ended(
+            db,
+            org_id=org.id,
+            subscription_id=sub.id,
+            service_code=sub.service_code,
+            plan_name=plan_name,
+            ended_at=when,
+        )
+
+    @staticmethod
     def get_plan(db: Session, plan_id: str | None) -> Plan | None:
         if not plan_id:
             return None
@@ -620,6 +651,15 @@ class SubscriptionCancellationService:
                     external_refund_pence=0,
                     dedupe_key=f"billing-request:immediate-wallet:{sub.id}:{now.date().isoformat()}",
                 )
+        if org:
+            SubscriptionCancellationService._notify_subscription_ended(
+                db,
+                org=org,
+                sub=sub,
+                plan=plan,
+                user_id=requesting_user,
+                ended_at=now,
+            )
         db.commit()
         db.refresh(sub)
         open_review = SubscriptionCancellationService.get_open_refund_review(db, org_id)
@@ -767,6 +807,14 @@ class SubscriptionCancellationService:
                         "requested_refund_type": refund_type,
                     },
                     commit=False,
+                )
+                SubscriptionCancellationService._notify_subscription_ended(
+                    db,
+                    org=org,
+                    sub=sub,
+                    plan=plan,
+                    user_id=sub.cancellation_requested_by_user_id,
+                    ended_at=now,
                 )
             stats["finalized"] += 1
         if stats["finalized"]:

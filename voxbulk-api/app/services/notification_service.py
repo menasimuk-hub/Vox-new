@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
 from app.models.notification import Notification
+from app.models.plan import Plan
 from app.models.service_order import ServiceOrder
 from app.models.subscription import Subscription
 from app.models.support_ticket import SupportTicket
@@ -123,27 +124,45 @@ class NotificationService:
 
         now = datetime.utcnow()
         renew_cutoff = now + timedelta(days=14)
-        sub = db.execute(
-            select(Subscription)
-            .where(
-                Subscription.org_id == org_id,
-                Subscription.current_period_end.is_not(None),
-                Subscription.current_period_end >= now,
-                Subscription.current_period_end <= renew_cutoff,
-            )
-            .order_by(Subscription.current_period_end.asc())
-        ).scalar_one_or_none()
-        if sub is not None:
+        active_statuses = ("active", "trial", "pending_first_payment")
+        renewal_subs = list(
+            db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.org_id == org_id,
+                    Subscription.status.in_(active_statuses),
+                    Subscription.current_period_end.is_not(None),
+                    Subscription.current_period_end >= now,
+                    Subscription.current_period_end <= renew_cutoff,
+                )
+                .order_by(Subscription.current_period_end.asc(), Subscription.service_code.asc())
+            ).scalars()
+        )
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        for sub in renewal_subs:
+            if sub.current_period_end is None:
+                continue
             days = max((sub.current_period_end.date() - now.date()).days, 0)
+            plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
+            product_name = BillingRefundEmailService.product_name_for_subscription(
+                service_code=sub.service_code,
+                plan_name=getattr(plan, "name", None) if plan else None,
+            )
+            action_url = (
+                "/account/packages?tab=feedback"
+                if str(sub.service_code or "").strip().lower() == "customer_feedback"
+                else "/account/billing"
+            )
             NotificationService.upsert(
                 db,
                 org_id=org_id,
                 user_id=user_id,
                 type="renewal_reminder",
-                title="Renewal reminder",
-                message=f"Your subscription renews in {days} day{'s' if days != 1 else ''}.",
+                title=f"{product_name} renewal",
+                message=f"Your {product_name} subscription renews in {days} day{'s' if days != 1 else ''}.",
                 severity="warning",
-                action_url="/account/billing",
+                action_url=action_url,
                 dedupe_key=f"renewal:{sub.id}:{sub.current_period_end.date().isoformat()}:{user_id}",
                 created_at=sub.current_period_end,
             )
@@ -355,6 +374,88 @@ class NotificationService:
             action_url="/account/billing",
             dedupe_key=dedupe_key,
         )
+
+    @staticmethod
+    def notify_org_renewal_reminder(
+        db: Session,
+        *,
+        org_id: str,
+        subscription_id: str,
+        service_code: str | None,
+        plan_name: str | None,
+        days_remaining: int,
+        period_end: datetime,
+    ) -> None:
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        product_name = BillingRefundEmailService.product_name_for_subscription(
+            service_code=service_code,
+            plan_name=plan_name,
+        )
+        action_url = (
+            "/account/packages?tab=feedback"
+            if str(service_code or "").strip().lower() == "customer_feedback"
+            else "/account/billing"
+        )
+        members = list(
+            db.execute(select(OrganisationMembership.user_id).where(OrganisationMembership.org_id == org_id)).scalars()
+        )
+        period_key = period_end.date().isoformat()
+        for user_id in members:
+            NotificationService.upsert(
+                db,
+                org_id=org_id,
+                user_id=str(user_id),
+                type="renewal_reminder",
+                title=f"{product_name} renewal",
+                message=(
+                    f"Your {product_name} subscription renews in {days_remaining} "
+                    f"day{'s' if days_remaining != 1 else ''}."
+                ),
+                severity="warning",
+                action_url=action_url,
+                dedupe_key=f"renewal-email:{subscription_id}:{period_key}:{days_remaining}:{user_id}",
+                created_at=period_end,
+            )
+
+    @staticmethod
+    def notify_org_subscription_ended(
+        db: Session,
+        *,
+        org_id: str,
+        subscription_id: str,
+        service_code: str | None,
+        plan_name: str | None,
+        ended_at: datetime,
+    ) -> None:
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        product_name = BillingRefundEmailService.product_name_for_subscription(
+            service_code=service_code,
+            plan_name=plan_name,
+        )
+        action_url = (
+            "/account/packages?tab=feedback"
+            if str(service_code or "").strip().lower() == "customer_feedback"
+            else "/account/packages?tab=core"
+        )
+        members = list(
+            db.execute(select(OrganisationMembership.user_id).where(OrganisationMembership.org_id == org_id)).scalars()
+        )
+        ended_key = ended_at.date().isoformat()
+        for user_id in members:
+            NotificationService.upsert(
+                db,
+                org_id=org_id,
+                user_id=str(user_id),
+                type="subscription_ended",
+                title=f"{product_name} subscription ended",
+                message=f"Your {product_name} subscription has ended. Choose a plan to continue.",
+                severity="warning",
+                action_url=action_url,
+                dedupe_key=f"subscription-ended:{subscription_id}:{ended_key}:{user_id}",
+                created_at=ended_at,
+            )
 
     @staticmethod
     def admin_pending_count(db: Session) -> dict[str, int]:

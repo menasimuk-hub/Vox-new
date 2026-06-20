@@ -10,10 +10,60 @@ from sqlalchemy.orm import Session
 from app.models.customer_feedback import FEEDBACK_SERVICE_CODE, FeedbackUsagePeriod
 from app.models.plan import Plan
 from app.models.subscription import Subscription
+from app.services.billing_access_service import BillingAccessService
 from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.org_audit_service import OrgAuditService
 
 
 class FeedbackSubscriptionRepairService:
+    @staticmethod
+    def _is_feedback_plan(plan: Plan | None) -> bool:
+        if plan is None:
+            return False
+        kind = str(plan.service_kind or "").strip().lower()
+        code = str(plan.code or "").strip().lower()
+        return kind == FEEDBACK_SERVICE_CODE or code.startswith("cf_")
+
+    @staticmethod
+    def remove_ghost_voxbulk_subscriptions(db: Session, org_id: str) -> list[str]:
+        """Remove or re-tag voxbulk rows that reference Customer Feedback plans."""
+        org_id = str(org_id or "").strip()
+        if not org_id:
+            return []
+
+        removed: list[str] = []
+        voxbulk_sub = BillingAccessService.get_subscription(db, org_id, service_code="voxbulk")
+        if voxbulk_sub is None or not voxbulk_sub.plan_id:
+            return removed
+
+        plan = db.get(Plan, voxbulk_sub.plan_id)
+        if not FeedbackSubscriptionRepairService._is_feedback_plan(plan):
+            return removed
+
+        feedback_sub = BillingAccessService.get_feedback_subscription(db, org_id)
+        if feedback_sub is not None and feedback_sub.id != voxbulk_sub.id:
+            sub_id = voxbulk_sub.id
+            db.delete(voxbulk_sub)
+            OrgAuditService.record(
+                db,
+                org_id=org_id,
+                action="Removed ghost Core subscription row",
+                event_type="subscription.ghost_voxbulk_removed",
+                entity_type="subscription",
+                entity_id=sub_id,
+                metadata={"plan_id": plan.id if plan else None, "plan_code": getattr(plan, "code", None)},
+                commit=False,
+            )
+            db.commit()
+            removed.append(sub_id)
+            return removed
+
+        if str(voxbulk_sub.service_code or "") != FEEDBACK_SERVICE_CODE:
+            voxbulk_sub.service_code = FEEDBACK_SERVICE_CODE
+            db.add(voxbulk_sub)
+            db.commit()
+        return removed
+
     @staticmethod
     def repair_org(db: Session, org_id: str) -> dict[str, Any]:
         org_id = str(org_id or "").strip()
@@ -21,6 +71,8 @@ class FeedbackSubscriptionRepairService:
             return {"ok": False, "error": "org_id required"}
 
         fixed: list[str] = []
+        removed = FeedbackSubscriptionRepairService.remove_ghost_voxbulk_subscriptions(db, org_id)
+        fixed.extend(f"removed:{sub_id}" for sub_id in removed)
         subs = list(
             db.execute(
                 select(Subscription)

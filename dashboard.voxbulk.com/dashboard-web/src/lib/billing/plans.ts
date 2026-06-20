@@ -23,37 +23,43 @@ export function feedbackPlanRank(pkg: FeedbackPlanLike | null | undefined) {
   return Number(pkg?.display_order ?? 0);
 }
 
-export function findPlanIndex(
+export function findPlanIndex(plans: PlanLike[], plan: PlanLike | null | undefined) {
+  if (!plan) return -1;
+  const byId = plans.findIndex((p) => p.id && plan.id && String(p.id) === String(plan.id));
+  if (byId >= 0) return byId;
+  const code = String(plan.code || "").toLowerCase();
+  if (!code) return -1;
+  return plans.findIndex((p) => String(p.code || "").toLowerCase() === code);
+}
+
+export function findCurrentPlanIndex(
   plans: PlanLike[],
-  plan: PlanLike | null | undefined,
+  currentPlan: PlanLike | null | undefined,
   currentPlanId?: string | null,
 ) {
-  if (!plan && !currentPlanId) return -1;
   if (currentPlanId) {
     const bySessionId = plans.findIndex((p) => p.id && String(p.id) === String(currentPlanId));
     if (bySessionId >= 0) return bySessionId;
   }
-  if (!plan) return -1;
-  const byId = plans.findIndex((p) => p.id && plan.id && String(p.id) === String(plan.id));
-  if (byId >= 0) return byId;
-  return plans.findIndex((p) => String(p.code || "").toLowerCase() === String(plan.code || "").toLowerCase());
+  return findPlanIndex(plans, currentPlan);
 }
 
 export function isSamePlan(
   a: PlanLike | null | undefined,
   b: PlanLike | null | undefined,
   plans: PlanLike[] = [],
-  currentPlanId?: string | null,
+  _currentPlanId?: string | null,
 ) {
   if (!a || !b) return false;
-  if (currentPlanId && b.id && String(currentPlanId) === String(b.id)) return true;
   if (a.id && b.id && String(a.id) === String(b.id)) return true;
   if (plans.length) {
-    const ai = findPlanIndex(plans, a, currentPlanId);
-    const bi = findPlanIndex(plans, b, currentPlanId);
+    const ai = findPlanIndex(plans, a);
+    const bi = findPlanIndex(plans, b);
     if (ai >= 0 && bi >= 0 && ai === bi) return true;
   }
-  return String(a.code || "").toLowerCase() === String(b.code || "").toLowerCase();
+  const codeA = String(a.code || "").toLowerCase();
+  const codeB = String(b.code || "").toLowerCase();
+  return Boolean(codeA) && codeA === codeB;
 }
 
 export function planButtonLabel(
@@ -73,16 +79,17 @@ export function planButtonLabel(
   }
   const plans = opts?.plans || [];
   const currentPlanId = opts?.currentPlanId ?? null;
-  if (currentPlan && plans.length) {
-    const curIdx = findPlanIndex(plans, currentPlan, currentPlanId);
+  const curIdx =
+    currentPlan && plans.length ? findCurrentPlanIndex(plans, currentPlan, currentPlanId) : -1;
+  if (currentPlan && plans.length && curIdx >= 0) {
     const idx = findPlanIndex(plans, plan);
-    if (curIdx >= 0 && idx >= 0) {
+    if (idx >= 0) {
       if (idx === curIdx) return "Current plan";
       if (idx > curIdx) return `Upgrade to ${plan.name}`;
       if (idx < curIdx) return `Downgrade to ${plan.name}`;
     }
   }
-  if (!currentPlan) return `Subscribe to ${plan.name}`;
+  if (!currentPlan || curIdx < 0) return `Subscribe to ${plan.name}`;
   if (isSamePlan(plan, currentPlan, plans, currentPlanId)) return "Current plan";
   const oldRank = planRank(currentPlan);
   const newRank = planRank(plan);

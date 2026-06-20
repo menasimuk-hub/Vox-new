@@ -329,4 +329,32 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             footer="Sent by VOXBULK Billing · billing@voxbulk.com",
         ),
     },
+    "billing_subscription_ended": {
+        "title": "Subscription ended",
+        "subject": "Your {{product_name}} subscription has ended — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Subscription ended",
+            inner_html="""<p>Hi,</p>
+  <p>Your <strong>{{product_name}}</strong> subscription for <strong>{{organisation_name}}</strong> has ended.</p>
+  <p>To launch new campaigns again, choose a plan on Packages &amp; pricing.</p>
+  """ + cta_button(href="{{packages_url}}", label="View packages") + """
+  <p style="font-size:13px;color:#6b6560;">You can also review past invoices from your billing page.</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_renewal_reminder": {
+        "title": "Subscription renewal reminder",
+        "subject": "{{product_name}} renews in {{days_remaining}} day(s) — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Renewal reminder",
+            inner_html="""<p>Hi,</p>
+  <p>Your <strong>{{product_name}}</strong> subscription for <strong>{{organisation_name}}</strong> renews on <strong>{{renewal_date}}</strong> ({{days_remaining}} day(s) from now).</p>
+  <p>No action is needed if your Direct Debit is active — we'll charge your saved payment method automatically.</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + """
+  <p style="font-size:13px;color:#6b6560;">Manage your plan or payment details from Account → Packages.</p>
+  """ + cta_button(href="{{packages_url}}", label="View packages") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
 }

@@ -130,6 +130,10 @@ class BillingService:
         sub_plan: Plan | None = None
         if sub is not None and sub.plan_id:
             sub_plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+            from app.services.billing_access_service import BillingAccessService
+
+            if sub_plan is not None and not BillingAccessService.is_valid_core_plan(db, sub_plan):
+                sub_plan = None
 
         usage = UsageWalletService.get_current(db, org_id)
         wallet_plan: Plan | None = None
@@ -180,6 +184,9 @@ class BillingService:
     @staticmethod
     def repair_subscription_plan_id(db: Session, org_id: str) -> Subscription | None:
         """Self-heal stale subscription.plan_id when usage wallet still references a valid plan."""
+        from app.services.customer_feedback.repair_service import FeedbackSubscriptionRepairService
+
+        FeedbackSubscriptionRepairService.remove_ghost_voxbulk_subscriptions(db, org_id)
         sub = BillingService.get_subscription(db, org_id)
         if sub is None:
             return None

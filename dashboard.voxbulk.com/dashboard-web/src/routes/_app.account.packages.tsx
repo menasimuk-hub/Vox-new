@@ -132,6 +132,9 @@ function PackagesPage() {
       coreSubStatus === "trial" ||
       coreSubStatus === "pending_first_payment" ||
       (currentPlan ? isPaygPlan(currentPlan as PlanRow) : false));
+  const effectiveCorePlanId = hasActiveCorePlan ? currentCorePlanId : null;
+  const effectiveCurrentPlan = hasActiveCorePlan ? currentPlan : null;
+  const staleCorePlanOnSession = Boolean(currentCorePlanId && !hasActiveCorePlan);
   const settings = (data?.settings || {}) as Record<string, unknown>;
   const plans = sortedPlans((data?.plans || []) as PlanRow[]);
   const services = (data?.services || {}) as Record<string, unknown>;
@@ -178,7 +181,7 @@ function PackagesPage() {
 
   const onSubscribe = async (plan: PlanRow) => {
     if (plan.is_enterprise) return;
-    if (isSamePlan(plan, currentPlan, plans, currentCorePlanId)) return;
+    if (hasActiveCorePlan && isSamePlan(plan, effectiveCurrentPlan, plans, effectiveCorePlanId)) return;
     if (pendingCorePlanId && String(plan.id) === String(pendingCorePlanId)) return;
     if (isPaygPlan(plan)) {
       setBusyPlanId(String(plan.id));
@@ -398,6 +401,15 @@ function PackagesPage() {
         </div>
       ) : null}
 
+      {staleCorePlanOnSession ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">No active Core platform subscription</p>
+          <p className="mt-1 text-muted-foreground">
+            Your previous Core subscription is not active. Choose a plan below to subscribe or switch to Pay as you go.
+          </p>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-background/60 px-4 py-3 text-sm">
         <p className="font-medium">{pricingLabel}</p>
         <p className="text-xs text-muted-foreground">
@@ -438,14 +450,15 @@ function PackagesPage() {
               const conn = connEnabled ? connPence : 0;
               const low = Number(p.typical_call_low_display?.toString().replace(/[^\d.]/g, "") || (conn + perMin * 10) / 100);
               const high = Number(p.typical_call_high_display?.toString().replace(/[^\d.]/g, "") || (conn + perMin * 15) / 100);
-              const isCurrent = isSamePlan(p, currentPlan, plans, currentCorePlanId);
+              const isCurrent =
+                hasActiveCorePlan && isSamePlan(p, effectiveCurrentPlan, plans, effectiveCorePlanId);
               const isFeatured = Boolean(p.is_featured);
               const payg = isPaygPlan(p);
               const isPendingDowngrade = Boolean(pendingCorePlanId && String(p.id) === String(pendingCorePlanId));
-              const btnLabel = planButtonLabel(p, currentPlan, {
+              const btnLabel = planButtonLabel(p, effectiveCurrentPlan, {
                 busy: busyPlanId === String(p.id),
                 plans,
-                currentPlanId: currentCorePlanId,
+                currentPlanId: effectiveCorePlanId,
                 pendingPlanId: pendingCorePlanId,
               });
               return (

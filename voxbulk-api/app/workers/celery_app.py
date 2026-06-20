@@ -32,6 +32,10 @@ celery_app.conf.update(
             "task": "billing.retry_failed_dd_payments",
             "schedule": 3600.0,
         },
+        "subscription-renewal-reminders-daily": {
+            "task": "billing.send_renewal_reminders",
+            "schedule": 86400.0,
+        },
         "sales-promo-followups-daily": {
             "task": "sales.process_promo_followups",
             "schedule": 3600.0,
