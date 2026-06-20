@@ -58,13 +58,13 @@ export function SurveyEditActionBar({
   const status = String(order.status || "").toLowerCase();
   const paymentStatus = String(order.payment_status || "").toLowerCase();
   const pay = orderPayButton(order);
+  const runningLike = ["running", "paused", "scheduled"].includes(status);
+  const canRun = paymentStatus === "approved" && !runningLike && !["completed", "cancelled"].includes(status);
   const needsPayAction = pay.action === "launch" && paymentStatus !== "approved" && !canRun;
   const needsTopUp =
     String(usageQ.data?.next_action || "") === "top_up_wallet" &&
     paymentStatus !== "approved" &&
     !["completed", "cancelled"].includes(status);
-  const runningLike = ["running", "paused", "scheduled"].includes(status);
-  const canRun = paymentStatus === "approved" && !runningLike && !["completed", "cancelled"].includes(status);
 
   const onRun = async () => {
     try {
