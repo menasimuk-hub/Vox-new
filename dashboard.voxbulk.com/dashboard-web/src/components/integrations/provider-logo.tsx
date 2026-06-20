@@ -1,9 +1,5 @@
 import { Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
 
-import {
-  IntegrationBrandMark,
-  hasIntegrationBrandMark,
-} from "@/components/integrations/integration-brand-mark";
 import { integrationLogoSrc, integrationLogoTileBg } from "@/lib/integration-logos";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +15,9 @@ const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
   zoho_crm: Building2,
   zoho_bookings: Building2,
 };
+
+/** Logos that fill the square — no inner padding. */
+const FULL_BLEED_TILES = new Set(["microsoft_calendar"]);
 
 type Props = {
   iconSlug: string;
@@ -39,43 +38,29 @@ export function ProviderLogo({
 }: Props) {
   const slug = String(iconSlug || "").trim().toLowerCase();
   const key = String(providerKey || iconSlug || "").trim().toLowerCase();
-
-  if (variant === "tile" && hasIntegrationBrandMark(providerKey, iconSlug)) {
-    return (
-      <span className={cn("block h-full w-full overflow-hidden", className)}>
-        <IntegrationBrandMark providerKey={providerKey} iconSlug={iconSlug} className={imgClassName} />
-      </span>
-    );
-  }
-
-  if (variant === "inline" && hasIntegrationBrandMark(providerKey, iconSlug)) {
-    return (
-      <span
-        className={cn(
-          "grid shrink-0 place-items-center overflow-hidden rounded-lg border bg-background",
-          className,
-        )}
-      >
-        <IntegrationBrandMark
-          providerKey={providerKey}
-          iconSlug={iconSlug}
-          className={cn("size-8", imgClassName)}
-        />
-      </span>
-    );
-  }
-
   const src = integrationLogoSrc(slug) || (providerKey ? integrationLogoSrc(key) : null);
 
   if (src) {
     if (variant === "tile") {
+      const fullBleed = FULL_BLEED_TILES.has(key) || FULL_BLEED_TILES.has(slug);
+      const tileBg = integrationLogoTileBg(key || slug);
       return (
-        <span className={cn("block h-full w-full overflow-hidden", className)}>
+        <span
+          className={cn(
+            "flex h-full w-full items-center justify-center overflow-hidden",
+            fullBleed ? tileBg : "bg-white",
+            className,
+          )}
+        >
           <img
             src={src}
             alt=""
             aria-hidden
-            className={cn("block h-full w-full object-cover", imgClassName)}
+            className={cn(
+              "block max-h-full max-w-full object-contain",
+              fullBleed ? "h-full w-full" : "h-[88%] w-[88%]",
+              imgClassName,
+            )}
           />
         </span>
       );
