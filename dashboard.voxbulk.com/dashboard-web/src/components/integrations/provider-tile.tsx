@@ -60,13 +60,13 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       onClick={() => onOpen(view)}
       title={view.label}
       className={cn(
-        "group flex h-[5.25rem] w-full overflow-hidden rounded-lg border text-left transition-colors",
+        "group flex w-full overflow-hidden rounded-lg border text-left transition-colors",
         isActive
           ? "border-foreground/15 bg-accent/40 shadow-sm"
           : "border-border bg-card hover:border-border hover:bg-accent/30",
       )}
     >
-      <div className="w-1/3 min-w-[4.75rem] shrink-0 self-stretch border-r border-border/60">
+      <div className="aspect-square w-20 shrink-0 border-r border-border/60 sm:w-[5.5rem]">
         <ProviderLogo
           variant="tile"
           iconSlug={view.icon_slug}
@@ -74,7 +74,7 @@ export function ProviderTile({ view, active, onOpen }: Props) {
           label={view.label}
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 px-3 py-2">
+      <div className="flex min-h-20 min-w-0 flex-1 flex-col justify-center gap-1 px-3 py-2 sm:min-h-[5.5rem]">
         <div className="flex items-start justify-between gap-2">
           <span className="text-sm font-semibold leading-snug">{view.label}</span>
           <IntegrationStatusPill status={status} />

@@ -43,7 +43,7 @@ export function ProviderLogo({
       return (
         <span
           className={cn(
-            "relative block h-full w-full overflow-hidden",
+            "flex h-full w-full items-center justify-center overflow-hidden",
             tileBg,
             className,
           )}
@@ -52,7 +52,7 @@ export function ProviderLogo({
             src={src}
             alt=""
             aria-hidden
-            className={cn("absolute inset-0 h-full w-full object-cover object-center", imgClassName)}
+            className={cn("block h-full w-full object-contain", imgClassName)}
           />
         </span>
       );
