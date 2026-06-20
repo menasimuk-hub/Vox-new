@@ -61,10 +61,13 @@ class FeedbackBillingService:
     def subscription_payload(db: Session, org_id: str) -> dict[str, Any]:
         sub = FeedbackBillingService.get_active_subscription(db, org_id)
         if sub is None:
-            return {"active": False, "status": "none"}
+            return {"active": False, "status": "none", "finance": None}
         plan = db.get(Plan, sub.plan_id)
         pkg = FeedbackBillingService.get_package_for_plan(db, sub.plan_id) if plan else None
         usage = FeedbackBillingService.get_current_usage(db, org_id)
+        from app.services.subscription_summary_service import SubscriptionSummaryService
+
+        finance = SubscriptionSummaryService.feedback_summary(db, org_id)
         return {
             "active": str(sub.status or "").lower() in {"active", "pending_first_payment", "trial"},
             "status": sub.status,
@@ -77,6 +80,7 @@ class FeedbackBillingService:
             "wa_units_remaining": usage.get("wa_units_remaining", 0),
             "payment_provider": sub.payment_provider,
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
+            "finance": finance,
         }
 
     @staticmethod
@@ -373,6 +377,14 @@ class FeedbackBillingService:
                     invoice.dd_status = "submission_failed"
                     db.add(invoice)
                     db.commit()
+
+                from app.services.billing_event_email_service import BillingEventEmailService
+
+                try:
+                    db.refresh(invoice)
+                    BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
+                except Exception:
+                    pass
 
             sub.plan_id = new_plan.id
             sub.pending_plan_id = None

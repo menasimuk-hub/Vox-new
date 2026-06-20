@@ -30,6 +30,18 @@ class CareerMailboxSettingsUpdate(BaseModel):
     is_enabled: bool = False
 
 
+class BillingMailboxSettingsUpdate(BaseModel):
+    mailbox_email: str = Field(default="billing@voxbulk.com")
+    imap_host: str = Field(default="")
+    imap_port: int = Field(default=993, ge=1, le=65535)
+    imap_use_ssl: bool = True
+    imap_use_tls: bool = False
+    imap_username: str | None = Field(default="")
+    password: str | None = None
+    sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    is_enabled: bool = False
+
+
 class SmtpTestSendRequest(BaseModel):
     to: EmailStr
 

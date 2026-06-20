@@ -27,6 +27,16 @@ os.environ.setdefault("DENTALLY_API_KEY", "")
 
 
 @pytest.fixture(autouse=True)
+def _ensure_db_schema():
+    """Create any missing tables for tests that use get_sessionmaker() directly."""
+    from app.core.database import Base, get_engine
+    import app.models  # noqa: F401
+
+    Base.metadata.create_all(bind=get_engine())
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_settings_cache():
     from app.core.config import get_settings
 

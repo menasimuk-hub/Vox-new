@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.admin_rbac import CAP_EMAIL, require_cap
 from app.schemas.email_admin import (
+    BillingMailboxSettingsUpdate,
     CareerMailboxSettingsUpdate,
     EmailTemplateCreate,
     EmailTemplateTestSendRequest,
@@ -121,6 +122,59 @@ def post_career_mailbox_sync_now(db: Session = Depends(get_db), _admin=Depends(r
     from app.services.career_mailbox_sync_service import sync_career_mailbox
 
     result = sync_career_mailbox(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message") or "Sync failed")
+    return result
+
+
+@router.get("/billing-mailbox")
+def get_billing_mailbox_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.billing_mailbox_settings_service import BillingMailboxSettingsService
+
+    row = BillingMailboxSettingsService.get_row(db)
+    return BillingMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.put("/billing-mailbox")
+def put_billing_mailbox_settings(
+    payload: BillingMailboxSettingsUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    from app.services.billing_mailbox_settings_service import BillingMailboxSettingsService
+
+    password = str(payload.password).strip() if payload.password else None
+    BillingMailboxSettingsService.upsert(
+        db,
+        mailbox_email=payload.mailbox_email,
+        imap_host=payload.imap_host,
+        imap_port=payload.imap_port,
+        imap_use_ssl=payload.imap_use_ssl,
+        imap_use_tls=payload.imap_use_tls,
+        imap_username=payload.imap_username,
+        sync_interval_minutes=payload.sync_interval_minutes,
+        is_enabled=payload.is_enabled,
+        password=password,
+    )
+    row = BillingMailboxSettingsService.get_row(db)
+    return BillingMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.post("/billing-mailbox/test")
+def post_billing_mailbox_test(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.billing_mailbox_sync_service import verify_billing_imap_connection
+
+    ok, message = verify_billing_imap_connection(db)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    return {"ok": True, "detail": message}
+
+
+@router.post("/billing-mailbox/sync-now")
+def post_billing_mailbox_sync_now(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.billing_mailbox_sync_service import sync_billing_mailbox
+
+    result = sync_billing_mailbox(db)
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message") or "Sync failed")
     return result
@@ -244,6 +298,17 @@ def post_email_template_send_test(
             template_key=key_norm,
             to_email=str(payload.to),
             variables=vars_plain,
+        )
+    elif key_norm.startswith("billing_") or key_norm in {"new_invoice", "payment_failed", "payment_receipt"}:
+        from app.services.billing_email_service import BillingEmailService
+
+        ok, err = BillingEmailService.send_template_test(
+            db,
+            template_key=key_norm,
+            to_email=str(payload.to),
+            variables=vars_plain,
+            subject=payload.subject,
+            body=payload.body,
         )
     else:
         ok, err = TransactionalEmailService.send_template_test(

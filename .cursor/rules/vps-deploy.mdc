@@ -39,7 +39,8 @@ After `git pull origin main` on a server that previously ran the removed isolate
 
 1. Edit `voxbulk-api/.env` — delete any obsolete isolated-product env keys (no longer read by API)
 2. Redeploy: `./deploy-vps.sh`
-3. Admin → Integrations → Telnyx → **Save** once (clears legacy second-line Telnyx keys from stored JSON if present)
+3. Install Celery beat if missing: `sudo bash scripts/vps-setup-celery.sh` (starts `voxbulk-celery-beat`)
+4. Admin → Integrations → Telnyx → **Save** once (clears legacy second-line Telnyx keys from stored JSON if present)
 4. Optional ops (not in repo):
    - Disable nginx vhosts for retired restaurant/driver portal domains
    - Delete old runtime voice-note dirs under `data/`

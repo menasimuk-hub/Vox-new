@@ -25,6 +25,7 @@ export const queryKeys = {
   serviceOrder: (id: string) => ["service-orders", "detail", id] as const,
   credits: ["service-orders", "credits"] as const,
   billingSubscription: ["billing", "subscription"] as const,
+  billingSubscriptionsSummary: ["billing", "subscriptions", "summary"] as const,
   billingSubscriptionCancellation: ["billing", "subscription", "cancellation"] as const,
   billingPlans: ["billing", "plans"] as const,
   billingPricing: (market: string, orgCountry = "") => ["billing", "pricing", market, orgCountry] as const,
@@ -181,6 +182,7 @@ export type FeedbackSubscription = {
   wa_units_remaining?: number;
   payment_provider?: string | null;
   current_period_end?: string | null;
+  finance?: Record<string, unknown> | null;
 };
 
 export type FeedbackCompareLocation = {
@@ -486,6 +488,21 @@ export function useBillingUsage() {
   return useQuery({
     queryKey: queryKeys.billingUsage,
     queryFn: () => apiFetch<UsageSummary>("/billing/usage-summary"),
+    refetchOnMount: "always",
+  });
+}
+
+export type SubscriptionsSummaryResponse = {
+  ok?: boolean;
+  currency?: string;
+  core?: Record<string, unknown> | null;
+  feedback?: Record<string, unknown> | null;
+};
+
+export function useBillingSubscriptionsSummary() {
+  return useQuery({
+    queryKey: queryKeys.billingSubscriptionsSummary,
+    queryFn: () => apiFetch<SubscriptionsSummaryResponse>("/billing/subscriptions/summary"),
     refetchOnMount: "always",
   });
 }

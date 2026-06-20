@@ -306,6 +306,27 @@ def get_my_subscription(db: Session = Depends(get_db), principal=Depends(require
     )
 
 
+@router.get("/subscriptions/summary")
+def get_subscriptions_summary(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    from app.services.subscription_summary_service import SubscriptionSummaryService
+
+    return SubscriptionSummaryService.build_org_summary(db, principal.org_id)
+
+
+@router.get("/subscription/upgrade-preview")
+def get_subscription_upgrade_preview(
+    plan_code: str,
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    from app.services.billing_finance_service import BillingFinanceService
+
+    try:
+        return BillingFinanceService.upgrade_preview(db, principal.org_id, new_plan_code=plan_code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/subscription/cancellation", response_model=SubscriptionCancellationOut)
 def get_subscription_cancellation(
     db: Session = Depends(get_db),

@@ -357,4 +357,33 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             footer="Sent by VOXBULK Billing · billing@voxbulk.com",
         ),
     },
+    "billing_pending_invoice_reminder": {
+        "title": "Pending invoice reminder",
+        "subject": "Payment reminder — invoice {{invoice_number}} — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Payment reminder",
+            inner_html="""<p>Hi,</p>
+  <p>This is a reminder that invoice <strong>{{invoice_number}}</strong> for <strong>{{organisation_name}}</strong> is still outstanding ({{days_outstanding}} day(s) since issue).</p>
+  <p><strong>Amount:</strong> {{amount_display}}<br/>
+  <strong>Description:</strong> {{invoice_description}}</p>
+  <p>If you pay by Direct Debit, collection may still be in progress. Otherwise please complete payment from your billing page.</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
+    "billing_payment_action_required": {
+        "title": "Payment action required",
+        "subject": "Action required — update payment for {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Payment action required",
+            inner_html="""<p>Hi,</p>
+  <p>We couldn't collect payment for <strong>{{organisation_name}}</strong> ({{product_name}}).</p>
+  <p><strong>Reason:</strong> {{failure_reason}}</p>
+  <p>Please update your Direct Debit mandate or resolve the outstanding balance to avoid service interruption.</p>
+  """ + cta_button(href="{{billing_url}}", label="Update payment") + """
+  <p style="font-size:13px;color:#6b6560;">Need help? Reply to this email or contact support@voxbulk.com.</p>
+  """,
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
 }

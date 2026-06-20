@@ -36,6 +36,10 @@ celery_app.conf.update(
             "task": "billing.send_renewal_reminders",
             "schedule": 86400.0,
         },
+        "pending-invoice-reminders-daily": {
+            "task": "billing.send_pending_invoice_reminders",
+            "schedule": 86400.0,
+        },
         "sales-promo-followups-daily": {
             "task": "sales.process_promo_followups",
             "schedule": 3600.0,

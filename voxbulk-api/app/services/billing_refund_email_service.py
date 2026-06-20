@@ -10,7 +10,7 @@ from app.models.organisation import Organisation
 from app.models.user import User
 from app.services.billing_currency import money_display, resolve_org_currency
 from app.services.email_template_service import EmailTemplateService
-from app.services.transactional_email_service import TransactionalEmailService
+from app.services.billing_email_service import BillingEmailService
 from app.services.usage_wallet_service import UsageWalletService
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class BillingRefundEmailService:
         if not to_email:
             logger.warning("billing_refund_email_skip_no_recipient org_id=%s template=%s", org.id, template_key)
             return False
-        sent, err = TransactionalEmailService.send_templated_optional(
+        sent, err = BillingEmailService.send_templated_optional(
             db,
             template_key=template_key,
             to_email=to_email,

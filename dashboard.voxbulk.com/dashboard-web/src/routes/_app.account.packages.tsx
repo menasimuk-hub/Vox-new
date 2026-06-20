@@ -29,6 +29,7 @@ import {
   changeCorePlan,
   changeFeedbackPlan,
   useBillingPricing,
+  useBillingSubscriptionsSummary,
   useBillingWallet,
   useCreateSupportTicket,
   useFeedbackPackages,
@@ -38,6 +39,7 @@ import {
 } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
+import { SubscriptionSummaryBar } from "@/components/billing/subscription-summary-bar";
 import type { FeedbackPackage } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -104,6 +106,7 @@ function PackagesPage() {
   const walletQ = useBillingWallet();
   const feedbackPackagesQ = useFeedbackPackages();
   const feedbackSubQ = useFeedbackSubscription();
+  const subsSummaryQ = useBillingSubscriptionsSummary();
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
   const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(tabFromUrl || "core");
@@ -380,6 +383,47 @@ function PackagesPage() {
                     <Badge variant="outline">No subscription</Badge>
                   ) : null}
                 </div>
+
+                {key === "core" ? (
+                  <SubscriptionSummaryBar
+                    title="Core subscription"
+                    finance={(subsSummaryQ.data?.core || null) as Parameters<typeof SubscriptionSummaryBar>[0]["finance"]}
+                    loading={subsSummaryQ.isLoading}
+                    emptyMessage="No active Core platform subscription."
+                    tintClass="mt-4 border-primary/20 bg-primary/5"
+                  />
+                ) : null}
+                {key === "feedback" ? (
+                  <SubscriptionSummaryBar
+                    title="Customer Feedback subscription"
+                    finance={
+                      (feedbackSubQ.data?.finance ||
+                        subsSummaryQ.data?.feedback ||
+                        null) as Parameters<typeof SubscriptionSummaryBar>[0]["finance"]
+                    }
+                    loading={feedbackSubQ.isLoading || subsSummaryQ.isLoading}
+                    emptyMessage="No active Customer Feedback subscription."
+                    tintClass="mt-4 border-success/20 bg-success/5"
+                  />
+                ) : null}
+                {key === "campaigns" ? (
+                  <SubscriptionSummaryBar
+                    title="Campaign credits"
+                    finance={
+                      walletQ.data?.balance_display
+                        ? {
+                            plan_name: "Campaign credit wallet",
+                            status: "active",
+                            amount_next_payment_display: String(walletQ.data.balance_display),
+                            next_billing_date: null,
+                          }
+                        : null
+                    }
+                    loading={walletQ.isLoading}
+                    emptyMessage="Top up campaign credits when you need WhatsApp broadcast sends."
+                    tintClass="mt-4 border-amber-500/20 bg-amber-500/5"
+                  />
+                ) : null}
 
                 <div className="mt-5 space-y-6">
                   {key === "core" ? (

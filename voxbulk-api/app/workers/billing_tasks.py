@@ -40,6 +40,16 @@ def send_renewal_reminders_task() -> dict:
     return stats
 
 
+@celery_app.task(name="billing.send_pending_invoice_reminders")
+def send_pending_invoice_reminders_task() -> dict:
+    from app.services.billing_pending_invoice_reminder_service import BillingPendingInvoiceReminderService
+
+    with get_sessionmaker()() as db:
+        stats = BillingPendingInvoiceReminderService.process_due_reminders(db)
+    logger.info("pending_invoice_reminder_complete", extra=stats)
+    return stats
+
+
 @celery_app.task(name="billing.retry_failed_dd_payments")
 def retry_failed_dd_payments_task() -> dict:
     with get_sessionmaker()() as db:

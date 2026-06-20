@@ -13,6 +13,15 @@ export const SYSTEM_EMAIL_META = {
   interview_booking_cancel: { title: 'Interview booking cancellation', description: 'Sent when a candidate cancels their booked interview slot' },
   interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
   interview_missed_call_followup: { title: 'Interview missed call follow-up', description: 'Sent after no-answer when agent policy is Hang up for now' },
+  billing_subscription_ended: { title: 'Subscription ended', description: 'Sent when a Core or Feedback subscription ends' },
+  billing_renewal_reminder: { title: 'Renewal reminder', description: '14/7/1 days before subscription renewal (Celery beat)' },
+  billing_pending_invoice_reminder: { title: 'Pending invoice reminder', description: '3 and 7 days after an unpaid invoice (Celery beat)' },
+  billing_payment_action_required: { title: 'Payment action required', description: 'Mandate failed or past-due — customer must update payment' },
+  billing_cancellation_requested: { title: 'Cancellation requested', description: 'Customer requested subscription cancellation' },
+  billing_cancellation_reversed: { title: 'Cancellation reversed', description: 'Scheduled cancellation was reversed' },
+  billing_wallet_credit_issued: { title: 'Wallet credit issued', description: 'Refund applied as wallet credit' },
+  billing_bank_refund_approved: { title: 'Bank refund approved', description: 'Bank refund approved for processing' },
+  billing_refund_request_rejected: { title: 'Refund request rejected', description: 'Refund request was rejected' },
 }
 
 export const SYSTEM_WHATSAPP_META = {
@@ -286,6 +295,7 @@ export const MESSAGING_TABS = [
   { id: 'sms', label: 'SMS templates', icon: 'ti-message' },
   { id: 'smtp', label: 'SMTP settings', icon: 'ti-server' },
   { id: 'careers', label: 'Career mailbox', icon: 'ti-inbox' },
+  { id: 'billing', label: 'Billing mailbox', icon: 'ti-receipt' },
 ]
 
 export const LAWFUL_BASES = ['consent', 'contract', 'legitimate_interests', 'legal_obligation']

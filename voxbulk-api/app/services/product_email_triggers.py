@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.services.billing_email_service import BillingEmailService
 from app.services.transactional_email_service import TransactionalEmailService
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,33 @@ class ProductEmailTriggers:
         )
 
     @staticmethod
+    def _send_billing_template(
+        db: Session,
+        *,
+        template_key: str,
+        to_email: str,
+        variables: dict[str, str],
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, str | None]:
+        from app.services.billing_email_service import is_billing_template
+
+        if is_billing_template(template_key):
+            return BillingEmailService.send_templated_optional(
+                db,
+                template_key=template_key,
+                to_email=to_email,
+                variables=variables,
+                attachments=attachments,
+            )
+        return TransactionalEmailService.send_templated_optional(
+            db,
+            template_key=template_key,
+            to_email=to_email,
+            variables=variables,
+            attachments=attachments,
+        )
+
+    @staticmethod
     def notify_payment_failed(
         db: Session,
         *,
@@ -115,7 +143,7 @@ class ProductEmailTriggers:
         if extra_variables:
             for k, v in (extra_variables or {}).items():
                 vars_[str(k)] = "" if v is None else str(v)
-        return TransactionalEmailService.send_templated_optional(
+        return ProductEmailTriggers._send_billing_template(
             db, template_key="payment_failed", to_email=em, variables=vars_
         )
 
@@ -134,8 +162,12 @@ class ProductEmailTriggers:
         if extra_variables:
             for k, v in (extra_variables or {}).items():
                 vars_[str(k)] = "" if v is None else str(v)
-        return TransactionalEmailService.send_templated_optional(
-            db, template_key="new_invoice", to_email=em, variables=vars_, attachments=attachments
+        return ProductEmailTriggers._send_billing_template(
+            db,
+            template_key="new_invoice",
+            to_email=em,
+            variables=vars_,
+            attachments=attachments,
         )
 
     @staticmethod
@@ -153,7 +185,7 @@ class ProductEmailTriggers:
         if extra_variables:
             for k, v in (extra_variables or {}).items():
                 vars_[str(k)] = "" if v is None else str(v)
-        return TransactionalEmailService.send_templated_optional(
+        return ProductEmailTriggers._send_billing_template(
             db,
             template_key="payment_receipt",
             to_email=em,

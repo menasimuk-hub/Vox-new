@@ -37,28 +37,41 @@ celery_supervisor_name() {
   return 1
 }
 
+celery_beat_supervisor_name() {
+  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status voxbulk-celery-beat >/dev/null 2>&1; then
+    echo "voxbulk-celery-beat"
+    return 0
+  fi
+  return 1
+}
+
 restart_celery() {
   if ! command -v supervisorctl >/dev/null 2>&1; then
     echo "supervisorctl not found — install Celery via: sudo bash scripts/vps-setup-celery.sh"
     return
   fi
-  local name
+  local name beat
   if name="$(celery_supervisor_name)"; then
-    supervisorctl restart "$name" && echo "Celery restarted ($name)"
+    supervisorctl restart "$name" && echo "Celery worker restarted ($name)"
   else
     echo "Celery not in supervisor — run once: sudo bash scripts/vps-setup-celery.sh"
     echo "  (Required for WA voice-note transcription, billing jobs, webhooks)"
+  fi
+  if beat="$(celery_beat_supervisor_name)"; then
+    supervisorctl restart "$beat" && echo "Celery beat restarted ($beat)"
+  else
+    echo "Celery beat not in supervisor — run: sudo bash scripts/vps-setup-celery.sh"
   fi
 }
 
 status_celery() {
   echo ""
-  echo "=== Celery (WA voice notes, async jobs) ==="
+  echo "=== Celery (WA voice notes, async jobs, billing beat) ==="
   if ! command -v supervisorctl >/dev/null 2>&1; then
     echo "supervisorctl not installed"
     return 1
   fi
-  local name ok=0
+  local name beat ok=0
   if name="$(celery_supervisor_name)"; then
     supervisorctl status "$name" || true
     if supervisorctl status "$name" 2>/dev/null | grep -q RUNNING; then
@@ -67,11 +80,25 @@ status_celery() {
   else
     echo "voxbulk-celery not configured — run: sudo bash scripts/vps-setup-celery.sh"
   fi
+  if beat="$(celery_beat_supervisor_name)"; then
+    supervisorctl status "$beat" || true
+    if supervisorctl status "$beat" 2>/dev/null | grep -q RUNNING; then
+      ok=1
+    fi
+  else
+    echo "voxbulk-celery-beat not configured — run: sudo bash scripts/vps-setup-celery.sh"
+  fi
   if pgrep -af "celery.*worker" >/dev/null 2>&1; then
     pgrep -af "celery.*worker" | head -3
     ok=1
   else
     echo "no celery worker process"
+  fi
+  if pgrep -af "celery.*beat" >/dev/null 2>&1; then
+    pgrep -af "celery.*beat" | head -2
+    ok=1
+  else
+    echo "no celery beat process"
   fi
   if redis-cli ping >/dev/null 2>&1; then
     echo "redis: PONG"

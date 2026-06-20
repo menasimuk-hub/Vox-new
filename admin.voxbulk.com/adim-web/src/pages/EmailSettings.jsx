@@ -132,6 +132,14 @@ export default function EmailSettings() {
   const [careerSyncBusy, setCareerSyncBusy] = useState(false)
   const [careerActionMsg, setCareerActionMsg] = useState('')
 
+  const [billingMailbox, setBillingMailbox] = useState(null)
+  const [billingPasswordDraft, setBillingPasswordDraft] = useState('')
+  const [billingSecureMode, setBillingSecureMode] = useState('ssl')
+  const [billingSaving, setBillingSaving] = useState(false)
+  const [billingTestBusy, setBillingTestBusy] = useState(false)
+  const [billingSyncBusy, setBillingSyncBusy] = useState(false)
+  const [billingActionMsg, setBillingActionMsg] = useState('')
+
   const [emailTemplates, setEmailTemplates] = useState([])
   const [waTemplates, setWaTemplates] = useState([])
   const [smsTemplates, setSmsTemplates] = useState([])
@@ -148,6 +156,12 @@ export default function EmailSettings() {
     const data = await apiFetch('/admin/email/career-mailbox')
     setCareerMailbox(data)
     setCareerSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
+  }, [])
+
+  const loadBillingMailbox = useCallback(async () => {
+    const data = await apiFetch('/admin/email/billing-mailbox')
+    setBillingMailbox(data)
+    setBillingSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
   }, [])
 
   const loadLists = useCallback(async () => {
@@ -191,6 +205,7 @@ export default function EmailSettings() {
       try {
         await loadSmtp()
         await loadCareerMailbox()
+        await loadBillingMailbox()
       } catch (e) {
         if (!cancelled) setLoadError(e?.message || 'Failed to load SMTP')
       }
@@ -206,7 +221,7 @@ export default function EmailSettings() {
     return () => {
       cancelled = true
     }
-  }, [loadSmtp, loadLists, loadCareerMailbox])
+  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox])
 
   const saveSmtp = async () => {
     setSaving(true)
@@ -308,6 +323,75 @@ export default function EmailSettings() {
     }
   }
 
+  const saveBillingMailbox = async () => {
+    setBillingSaving(true)
+    try {
+      const enc = imapDefaultsForSecureMode(billingSecureMode)
+      const payload = {
+        mailbox_email: String(billingMailbox?.mailbox_email || 'billing@voxbulk.com'),
+        imap_host: String(billingMailbox?.imap_host || ''),
+        imap_port: Number(billingMailbox?.imap_port || enc.imap_port),
+        imap_use_ssl: enc.imap_use_ssl,
+        imap_use_tls: enc.imap_use_tls,
+        imap_username: String(billingMailbox?.imap_username || ''),
+        sync_interval_minutes: Number(billingMailbox?.sync_interval_minutes || 60),
+        is_enabled: Boolean(billingMailbox?.is_enabled),
+      }
+      if (billingPasswordDraft.trim()) payload.password = billingPasswordDraft.trim()
+      const data = await apiFetch('/admin/email/billing-mailbox', { method: 'PUT', body: JSON.stringify(payload) })
+      setBillingMailbox(data)
+      setBillingPasswordDraft('')
+      setBillingSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
+    } catch (e) {
+      setSaveError(e?.message || 'Failed to save billing mailbox')
+    } finally {
+      setBillingSaving(false)
+    }
+  }
+
+  const copyBillingFromSmtp = () => {
+    const imapMode = secureModeFromFlags(Boolean(smtp?.use_tls), Boolean(smtp?.use_ssl)) === 'ssl' ? 'ssl' : 'starttls'
+    const enc = imapDefaultsForSecureMode(imapMode)
+    setBillingSecureMode(imapMode)
+    setBillingMailbox((s) => ({
+      ...(s || {}),
+      imap_host: String(smtp?.host || '').replace(/^smtp\./i, 'imap.'),
+      imap_port: enc.imap_port,
+      imap_use_ssl: enc.imap_use_ssl,
+      imap_use_tls: enc.imap_use_tls,
+      mailbox_email: String(smtp?.from_email || s?.mailbox_email || 'billing@voxbulk.com'),
+      imap_username: String(smtp?.username || s?.imap_username || ''),
+    }))
+    setBillingActionMsg('Copied SMTP host/username — set password and save if needed.')
+  }
+
+  const testBillingMailbox = async () => {
+    setBillingTestBusy(true)
+    setBillingActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/billing-mailbox/test', { method: 'POST', body: '{}' })
+      setBillingActionMsg(res?.detail || 'IMAP connection OK')
+    } catch (e) {
+      setBillingActionMsg(e?.message || 'Connection failed')
+    } finally {
+      setBillingTestBusy(false)
+    }
+  }
+
+  const syncBillingMailboxNow = async () => {
+    setBillingSyncBusy(true)
+    setBillingActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/billing-mailbox/sync-now', { method: 'POST', body: '{}' })
+      setBillingActionMsg(res?.message || 'Sync completed')
+      await loadBillingMailbox()
+    } catch (e) {
+      setBillingActionMsg(e?.message || 'Sync failed')
+    } finally {
+      setBillingSyncBusy(false)
+    }
+  }
+
   const sendSmtpTest = async () => {
     setTestBusy(true)
     setTestMsg('')
@@ -393,6 +477,7 @@ export default function EmailSettings() {
   }
 
   const careerPill = careerStatusPill(careerMailbox)
+  const billingPill = careerStatusPill(billingMailbox)
 
   return (
     <>
@@ -549,6 +634,118 @@ export default function EmailSettings() {
                           <i className="ti ti-refresh" /> {careerSyncBusy ? 'Syncing…' : 'Sync now'}
                         </button>
                         {careerActionMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{careerActionMsg}</div> : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'billing' && (
+            <div className="emailTabPanel" role="tabpanel">
+              <div className="emailSectionTitle">
+                <i className="ti ti-receipt" />
+                Billing mailbox (IMAP + outbound From)
+                <span className={`pill ${billingPill.cls}`} style={{ marginLeft: 8 }}>
+                  {billingPill.text}
+                </span>
+              </div>
+              {loading ? (
+                <div className="note">Loading…</div>
+              ) : (
+                <div className="grid-12" style={{ gap: 16 }}>
+                  <div className="span-8 stack" style={{ gap: 14 }}>
+                    <div className="note">
+                      Invoice, renewal, and cancellation emails send with <strong>From: billing@voxbulk.com</strong> using platform SMTP credentials.
+                      Configure <strong>IMAP</strong> here if you want to monitor the billing inbox (optional). Celery beat sends renewal and pending-invoice reminders daily.
+                    </div>
+                    <div className="miniGrid">
+                      <div className="mini">
+                        <label>Password on file</label>
+                        <strong>{billingMailbox?.password_set ? 'Set' : 'Not set'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Last sync</label>
+                        <strong>{billingMailbox?.last_sync_at ? new Date(billingMailbox.last_sync_at).toLocaleString() : '—'}</strong>
+                      </div>
+                    </div>
+                    {billingMailbox?.last_sync_message ? (
+                      <div className="note" style={{ marginBottom: 0 }}>{billingMailbox.last_sync_message}</div>
+                    ) : null}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(billingMailbox?.is_enabled)}
+                        onChange={(e) => setBillingMailbox((s) => ({ ...s, is_enabled: e.target.checked }))}
+                      />
+                      <span className="label" style={{ margin: 0 }}>Billing mailbox sync enabled</span>
+                    </label>
+                    <div className="actions" style={{ marginTop: 4 }}>
+                      <button type="button" className="btn soft" onClick={copyBillingFromSmtp} disabled={!smtp?.host}>
+                        <i className="ti ti-copy" /> Copy from SMTP settings
+                      </button>
+                    </div>
+                    <div className="emailFormGrid">
+                      <div className="span-2">
+                        <label className="label">Mailbox address</label>
+                        <input className="input" value={String(billingMailbox?.mailbox_email || '')} onChange={(e) => setBillingMailbox((s) => ({ ...s, mailbox_email: e.target.value }))} placeholder="billing@voxbulk.com" />
+                      </div>
+                      <div>
+                        <label className="label">IMAP host</label>
+                        <input className="input" value={String(billingMailbox?.imap_host || '')} onChange={(e) => setBillingMailbox((s) => ({ ...s, imap_host: e.target.value }))} placeholder="imap.yourprovider.com" />
+                      </div>
+                      <div>
+                        <label className="label">IMAP port</label>
+                        <input className="input" type="number" min={1} max={65535} value={billingMailbox?.imap_port ?? imapDefaultsForSecureMode(billingSecureMode).imap_port} onChange={(e) => setBillingMailbox((s) => ({ ...s, imap_port: Number(e.target.value) }))} />
+                      </div>
+                      <div>
+                        <label className="label">Encryption</label>
+                        <select
+                          className="input"
+                          value={billingSecureMode}
+                          onChange={(e) => {
+                            const mode = e.target.value
+                            const enc = imapDefaultsForSecureMode(mode)
+                            setBillingSecureMode(mode)
+                            setBillingMailbox((s) => ({ ...s, imap_port: enc.imap_port, imap_use_ssl: enc.imap_use_ssl, imap_use_tls: enc.imap_use_tls }))
+                          }}
+                        >
+                          <option value="starttls">STARTTLS (143)</option>
+                          <option value="ssl">SSL / TLS (993)</option>
+                          <option value="none">None</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">IMAP username</label>
+                        <input className="input" value={String(billingMailbox?.imap_username || '')} onChange={(e) => setBillingMailbox((s) => ({ ...s, imap_username: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="label">Password</label>
+                        <input className="input" type="password" value={billingPasswordDraft} onChange={(e) => setBillingPasswordDraft(e.target.value)} placeholder={billingMailbox?.password_set ? 'Leave blank to keep' : 'Mailbox password'} autoComplete="new-password" />
+                      </div>
+                      <div>
+                        <label className="label">Sync every (minutes)</label>
+                        <input className="input" type="number" min={15} max={1440} value={billingMailbox?.sync_interval_minutes ?? 60} onChange={(e) => setBillingMailbox((s) => ({ ...s, sync_interval_minutes: Number(e.target.value) }))} />
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button type="button" className="btn primary" onClick={saveBillingMailbox} disabled={billingSaving}>
+                        <i className="ti ti-device-floppy" /> {billingSaving ? 'Saving…' : 'Save billing mailbox'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="span-4">
+                    <div className="card" style={{ margin: 0 }}>
+                      <div className="cardHead"><h3>Test &amp; sync</h3></div>
+                      <div className="cardBody">
+                        <button type="button" className="btn soft" onClick={testBillingMailbox} disabled={billingTestBusy} style={{ width: '100%', marginBottom: 10 }}>
+                          <i className="ti ti-plug-connected" /> {billingTestBusy ? 'Testing…' : 'Test IMAP connection'}
+                        </button>
+                        <button type="button" className="btn soft" onClick={syncBillingMailboxNow} disabled={billingSyncBusy} style={{ width: '100%' }}>
+                          <i className="ti ti-refresh" /> {billingSyncBusy ? 'Syncing…' : 'Sync now'}
+                        </button>
+                        {billingActionMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{billingActionMsg}</div> : null}
                       </div>
                     </div>
                   </div>
