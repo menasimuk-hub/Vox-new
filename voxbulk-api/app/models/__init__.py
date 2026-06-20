@@ -94,6 +94,7 @@ from app.models.credit_note import CreditNote  # noqa: F401
 from app.models.billing_refund_review import BillingRefundReview  # noqa: F401
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient  # noqa: F401
 from app.models.hubspot_contact import HubspotContact  # noqa: F401
+from app.models.crm_synced_contact import CrmSyncedContact  # noqa: F401
 from app.models.interview_booking_token import InterviewBookingToken  # noqa: F401
 from app.models.career_mailbox_settings import CareerMailboxSettings  # noqa: F401
 from app.models.ai_team_settings import AiTeamSettings  # noqa: F401

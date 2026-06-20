@@ -316,7 +316,7 @@ def maybe_create_unhappy_crm_task(db: Session, order: ServiceOrder, recipient: S
 
 def maybe_post_survey_crm_actions(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> None:
     """Write-back survey results and optional unhappy follow-up task."""
-    from app.services.hubspot_contact_sync_service import maybe_sync_survey_result_to_hubspot
+    from app.services.crm_survey_result_sync_service import maybe_sync_survey_result_to_active_crm
 
-    maybe_sync_survey_result_to_hubspot(db, order, recipient)
+    maybe_sync_survey_result_to_active_crm(db, order, recipient)
     maybe_create_unhappy_crm_task(db, order, recipient)

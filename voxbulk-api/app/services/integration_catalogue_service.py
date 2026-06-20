@@ -216,12 +216,25 @@ def _crm_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> 
         "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
         "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
         "create_task_on_unhappy_score": cfg.get("create_task_on_unhappy_score") is True,
+        "auto_sync_results_back": cfg.get("auto_sync_results_back") is not False,
     }
     if spec.key == "hubspot":
+        from app.services.hubspot_contact_sync_service import is_sync_v1_enabled, sync_status_extras
+
+        extra.update(sync_status_extras(db, org.id, cfg))
+        extra["sync_settings_enabled"] = is_sync_v1_enabled(db) and has_token
         extra.update({"hub_domain": hub_domain, "hub_id": cfg.get("hub_id")})
     elif spec.key == "pipedrive":
+        if has_token:
+            from app.services.pipedrive_contact_sync_service import sync_status_extras as pd_extras
+
+            extra.update(pd_extras(db, org.id, cfg))
         extra.update({"company_domain": cfg.get("company_domain"), "company_name": cfg.get("company_name")})
     elif spec.key == "zoho_crm":
+        if has_token:
+            from app.services.zoho_crm_contact_sync_service import sync_status_extras as zoho_extras
+
+            extra.update(zoho_extras(db, org.id, cfg))
         extra.update({"data_center": cfg.get("data_center"), "api_domain": cfg.get("api_domain")})
 
     return {

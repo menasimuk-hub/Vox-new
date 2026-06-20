@@ -1,6 +1,6 @@
 import { Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
 
-import { integrationLogoSrc } from "@/lib/integration-logos";
+import { integrationLogoSrc, integrationLogoTileBg } from "@/lib/integration-logos";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
@@ -39,10 +39,12 @@ export function ProviderLogo({
 
   if (src) {
     if (variant === "tile") {
+      const tileBg = integrationLogoTileBg(providerKey || iconSlug);
       return (
         <span
           className={cn(
-            "flex h-full w-full items-center justify-center overflow-hidden bg-muted/10",
+            "relative block h-full w-full overflow-hidden",
+            tileBg,
             className,
           )}
         >
@@ -50,7 +52,7 @@ export function ProviderLogo({
             src={src}
             alt=""
             aria-hidden
-            className={cn("h-full w-full object-contain p-1.5", imgClassName)}
+            className={cn("absolute inset-0 h-full w-full object-cover object-center", imgClassName)}
           />
         </span>
       );
@@ -75,10 +77,12 @@ export function ProviderLogo({
 
   const Fallback = FALLBACK_ICONS[iconSlug] || FALLBACK_ICONS[providerKey || ""] || PlugZap;
   if (variant === "tile") {
+    const tileBg = integrationLogoTileBg(providerKey || iconSlug);
     return (
       <span
         className={cn(
-          "flex h-full w-full items-center justify-center bg-muted/40 text-foreground/80",
+          "flex h-full w-full items-center justify-center text-white",
+          tileBg,
           className,
         )}
         aria-hidden

@@ -152,6 +152,7 @@ def zoho_crm_status(db: Session, org_id: str) -> dict[str, Any]:
         "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
         "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
         "create_task_on_unhappy_score": cfg.get("create_task_on_unhappy_score") is True,
+        "auto_sync_results_back": cfg.get("auto_sync_results_back") is not False,
         "expires_at": cfg.get("expires_at"),
         "connected_at": cfg.get("connected_at"),
     }
@@ -164,6 +165,7 @@ def update_zoho_crm_settings(
     auto_sync_shortlist: bool | None = None,
     auto_sync_scheduling_send: bool | None = None,
     create_task_on_unhappy_score: bool | None = None,
+    auto_sync_results_back: bool | None = None,
 ) -> dict[str, Any]:
     cfg = get_zoho_crm_config(db, org_id)
     if auto_sync_shortlist is not None:
@@ -172,6 +174,8 @@ def update_zoho_crm_settings(
         cfg["auto_sync_scheduling_send"] = bool(auto_sync_scheduling_send)
     if create_task_on_unhappy_score is not None:
         cfg["create_task_on_unhappy_score"] = bool(create_task_on_unhappy_score)
+    if auto_sync_results_back is not None:
+        cfg["auto_sync_results_back"] = bool(auto_sync_results_back)
     save_crm_config_raw(db, org_id, "zoho_crm", cfg)
     return zoho_crm_status(db, org_id)
 

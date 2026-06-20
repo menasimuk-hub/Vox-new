@@ -62,6 +62,8 @@ export const queryKeys = {
   hubspotStatus: ["service-orders", "hubspot", "status"] as const,
   integrationsCatalogue: ["service-orders", "integrations", "catalogue"] as const,
   hubspotContacts: (limit?: number) => ["service-orders", "hubspot", "contacts", limit ?? 50] as const,
+  crmSyncStatus: ["service-orders", "crm", "sync-status"] as const,
+  crmContacts: (limit?: number) => ["service-orders", "crm", "contacts", limit ?? 50] as const,
   serviceApiSettings: ["organisations", "service-api-settings"] as const,
   teamMembers: ["organisations", "team", "members"] as const,
   teamInvites: ["organisations", "team", "invites"] as const,
@@ -1236,6 +1238,81 @@ export function usePatchHubSpotSyncSettings() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
+    },
+  });
+}
+
+export type CrmContactRow = {
+  id: string;
+  external_id?: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  synced_at?: string | null;
+};
+
+export function useCrmSyncStatus(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.crmSyncStatus,
+    queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/crm/sync-status"),
+    enabled,
+  });
+}
+
+export function useCrmContacts(limit = 50, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.crmContacts(limit),
+    queryFn: () =>
+      apiFetch<{ ok: boolean; provider?: string; items: CrmContactRow[]; count: number }>(
+        `/service-orders/crm/contacts?limit=${limit}`,
+      ),
+    enabled,
+  });
+}
+
+export function useSyncCrmContacts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: { limit?: number }) =>
+      apiFetch<{ ok: boolean; imported: number; updated: number; skipped: number; has_more?: boolean }>(
+        "/service-orders/crm/contacts/sync",
+        { method: "POST", body: JSON.stringify(body ?? {}) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.crmSyncStatus });
+      void qc.invalidateQueries({ queryKey: ["service-orders", "crm", "contacts"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
+    },
+  });
+}
+
+export function useImportCrmToOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { order_id: string; contact_ids: string[] }) =>
+      apiFetch<{ ok: boolean; added: number; skipped: number; recipient_count: number }>(
+        "/service-orders/crm/contacts/import-to-order",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(variables.order_id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+    },
+  });
+}
+
+export function usePatchCrmSyncSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { auto_sync_results_back?: boolean; field_map?: Record<string, string> }) =>
+      apiFetch<Record<string, unknown>>("/service-orders/crm/sync-settings", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.crmSyncStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
       void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
     },
   });

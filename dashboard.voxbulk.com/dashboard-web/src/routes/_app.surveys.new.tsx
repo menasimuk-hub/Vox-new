@@ -1453,6 +1453,8 @@ function CreateSurvey() {
           onRecipientContactChange={onRecipientContactChange}
           onRecipientContactBlur={onRecipientContactBlur}
           patchRecipientPending={patchRecipientM.isPending}
+          orderId={orderId}
+          onRecipientsRefresh={() => void recipientsQ.refetch()}
           surveyId={surveyId}
           onEnsureDraft={async () => {
             await ensureOrder();
@@ -1518,6 +1520,8 @@ function CreateSurvey() {
           onRecipientContactChange={onRecipientContactChange}
           onRecipientContactBlur={onRecipientContactBlur}
           patchRecipientPending={patchRecipientM.isPending}
+          orderId={orderId}
+          onRecipientsRefresh={() => void recipientsQ.refetch()}
           uploadConsent={uploadConsent}
           setUploadConsent={setUploadConsent}
           launchConsent={launchConsent}

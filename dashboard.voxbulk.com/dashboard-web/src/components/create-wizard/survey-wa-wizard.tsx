@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
+import { CrmImportContactsPanel } from "@/components/integrations/crm-import-contacts-panel";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
@@ -122,6 +123,8 @@ export type SurveyWaWizardProps = {
   onRecipientContactBlur?: (row: UploadedContactRow, field: "name" | "phone" | "email") => void;
   patchRecipientPending?: boolean;
   surveyId?: string | null;
+  orderId?: string | null;
+  onRecipientsRefresh?: () => void;
   onEnsureDraft?: () => void | Promise<void>;
   uploadConsent: boolean;
   setUploadConsent: (v: boolean) => void;
@@ -141,6 +144,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
   const [draggedServiceIndex, setDraggedServiceIndex] = React.useState<number | null>(null);
   const [dragOverServiceIndex, setDragOverServiceIndex] = React.useState<number | null>(null);
   const [contactsSkipped, setContactsSkipped] = React.useState(false);
+  const [contactSource, setContactSource] = React.useState<"csv" | "crm">("csv");
   const [sendMode, setSendMode] = React.useState<"all" | "test">("all");
   const [testPhone, setTestPhone] = React.useState("");
   const [launchMode, setLaunchMode] = React.useState<"now" | "schedule" | "recurring">("now");
@@ -578,27 +582,55 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Users className="size-4 text-primary" /> Step 4 · Upload contacts
+                <Users className="size-4 text-primary" /> Step 4 · Contacts
               </CardTitle>
-              <CardDescription>CSV or Excel with at least name and phone columns.</CardDescription>
+              <CardDescription>Upload CSV/Excel or import from your connected CRM.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <input ref={props.fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => void props.onUpload(e.target.files)} />
-              <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border bg-background/50 px-4 py-10 text-center transition hover:border-primary/40 hover:bg-primary/5">
-                <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20">
-                  <Upload className="size-6 text-primary" />
-                </div>
-                <p className="text-sm font-medium">Click to upload CSV or Excel</p>
-                <p className="text-xs text-muted-foreground">Columns: name, phone, language (optional)</p>
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                  <Button size="sm" type="button" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
-                    {props.uploading ? "Uploading…" : "Choose file"}
-                  </Button>
-                  <Button size="sm" type="button" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
-                    <Download className="size-3.5" /> Sample template
-                  </Button>
-                </div>
-              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={contactSource === "csv" ? "default" : "outline"}
+                  onClick={() => setContactSource("csv")}
+                >
+                  Upload CSV
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={contactSource === "crm" ? "default" : "outline"}
+                  onClick={() => setContactSource("crm")}
+                >
+                  Import from CRM
+                </Button>
+              </div>
+
+              {contactSource === "csv" ? (
+                <>
+                  <input ref={props.fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => void props.onUpload(e.target.files)} />
+                  <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border bg-background/50 px-4 py-10 text-center transition hover:border-primary/40 hover:bg-primary/5">
+                    <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20">
+                      <Upload className="size-6 text-primary" />
+                    </div>
+                    <p className="text-sm font-medium">Click to upload CSV or Excel</p>
+                    <p className="text-xs text-muted-foreground">Columns: name, phone, language (optional)</p>
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                      <Button size="sm" type="button" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
+                        {props.uploading ? "Uploading…" : "Choose file"}
+                      </Button>
+                      <Button size="sm" type="button" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
+                        <Download className="size-3.5" /> Sample template
+                      </Button>
+                    </div>
+                  </label>
+                </>
+              ) : props.orderId ? (
+                <CrmImportContactsPanel orderId={props.orderId} onImported={props.onRecipientsRefresh} />
+              ) : (
+                <p className="text-sm text-muted-foreground">Save draft first, then import from CRM.</p>
+              )}
+
               <UploadedContactsTable
                 contacts={props.uploadedContacts}
                 loading={props.recipientsLoading || props.uploading}

@@ -1528,9 +1528,139 @@ def patch_pipedrive_settings(
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
             create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
+            auto_sync_results_back=body.get("auto_sync_results_back"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/crm/sync-status")
+def get_crm_sync_status(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import crm_sync_status
+
+    return crm_sync_status(db, principal.org_id)
+
+
+@router.post("/crm/contacts/sync")
+def sync_crm_contacts(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, sync_contacts
+
+    payload = body or {}
+    try:
+        limit = int(payload.get("limit") or 100)
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        return sync_contacts(db, principal.org_id, limit=limit)
+    except CrmContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+
+
+@router.get("/crm/contacts")
+def list_crm_contacts(
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, list_contacts
+
+    try:
+        return list_contacts(db, principal.org_id, limit=limit)
+    except CrmContactSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/crm/contacts/import-to-order")
+def import_crm_contacts_to_order(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, import_contacts_to_order
+
+    order_id = str(body.get("order_id") or "").strip()
+    contact_ids = body.get("contact_ids") or []
+    if not order_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="order_id required")
+    try:
+        return import_contacts_to_order(
+            db,
+            principal.org_id,
+            order_id=order_id,
+            contact_ids=list(contact_ids),
+        )
+    except CrmContactSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.patch("/crm/sync-settings")
+def patch_crm_sync_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, update_crm_sync_settings
+
+    field_map = body.get("field_map")
+    if field_map is not None and not isinstance(field_map, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="field_map must be an object")
+    try:
+        return update_crm_sync_settings(
+            db,
+            principal.org_id,
+            field_map=field_map,
+            auto_sync_results_back=body.get("auto_sync_results_back"),
+        )
+    except CrmContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{order_id}/recipients/{recipient_id}/crm/sync-result")
+def push_survey_result_to_crm(
+    order_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_survey_result_sync_service import sync_survey_result_to_active_crm
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.service_code != "survey":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CRM result sync is only supported for surveys")
+
+    recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
+    if recipient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    if str(recipient.status or "").lower() != "completed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only completed survey responses can be pushed to CRM")
+
+    try:
+        result = sync_survey_result_to_active_crm(
+            db,
+            principal.org_id,
+            order=order,
+            recipient=recipient,
+            force=True,
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/pipedrive/oauth/start")
@@ -1601,6 +1731,7 @@ def patch_zoho_crm_settings(
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
             create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
+            auto_sync_results_back=body.get("auto_sync_results_back"),
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

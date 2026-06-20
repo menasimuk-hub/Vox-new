@@ -16,7 +16,7 @@ import {
 import { apiFetch } from "@/lib/api";
 
 import { GoogleScheduleUrlHelp } from "@/components/google-schedule-url-help";
-import { HubspotSyncSettingsCard } from "@/components/hubspot-sync-settings-card";
+import { CrmSyncSettingsCard } from "@/components/integrations/crm-sync-settings-card";
 import {
   IntegrationStatusPill,
   type IntegrationStatus,
@@ -447,7 +447,13 @@ export function ProviderDetailSheet({
             </div>
           ) : null}
 
-          {showHubspotSyncToggles && hubspot?.showHubspotSettingsCard ? <HubspotSyncSettingsCard /> : null}
+          {showHubspotSyncToggles && hubspot?.showHubspotSettingsCard ? (
+            <CrmSyncSettingsCard providerKey="hubspot" />
+          ) : null}
+
+          {showGenericCrmSyncToggles && view.connected ? (
+            <CrmSyncSettingsCard providerKey={view.key} />
+          ) : null}
 
           <TestResultCard loading={testing} result={testResult} />
 

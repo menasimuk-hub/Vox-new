@@ -12,6 +12,7 @@ import {
   SurveyUploadConsent,
 } from "@/components/create-wizard/survey-upload-consent";
 import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
+import { CrmImportContactsPanel } from "@/components/integrations/crm-import-contacts-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,6 +34,8 @@ export type SurveyPhoneWizardProps = {
   surveyName: string;
   setSurveyName: (v: string) => void;
   surveyId?: string | null;
+  orderId?: string | null;
+  onRecipientsRefresh?: () => void;
   onEnsureDraft?: () => void | Promise<void>;
   anonymous: boolean;
   goal: string;
@@ -91,6 +94,7 @@ function Field({ label, children, error }: { label: string; children: React.Reac
 
 export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const [step, setStep] = React.useState(1);
+  const [contactSource, setContactSource] = React.useState<"csv" | "crm">("csv");
 
   const selectedAgent = props.agents.find((a) => a.id === props.agentId);
   const agentLabel = selectedAgent?.voice_label || selectedAgent?.name || "Survey agent";
@@ -301,35 +305,62 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
           <Card className="animate-scale-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Users className="size-4 text-primary" /> Step 2 · Upload contacts
+                <Users className="size-4 text-primary" /> Step 2 · Contacts
               </CardTitle>
-              <CardDescription>Upload your contact list and confirm consent before continuing.</CardDescription>
+              <CardDescription>Upload CSV/Excel or import from your connected CRM.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <input
-                ref={props.fileRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="hidden"
-                onChange={(e) => void props.onUpload(e.target.files)}
-              />
-              <div className="group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-10 text-center transition-colors hover:border-primary/40 sm:px-6">
-                <div className="relative flex flex-col items-center gap-2">
-                  <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20 transition-transform group-hover:scale-110">
-                    <Upload className="size-6 text-primary" />
-                  </div>
-                  <p className="text-sm font-medium">Upload CSV or Excel</p>
-                  <p className="text-xs text-muted-foreground">Columns: name, phone (required)</p>
-                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                    <Button size="sm" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
-                      {props.uploading ? "Uploading…" : "Choose file"}
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
-                      <Download className="size-3.5" /> Sample template
-                    </Button>
-                  </div>
-                </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={contactSource === "csv" ? "default" : "outline"}
+                  onClick={() => setContactSource("csv")}
+                >
+                  Upload CSV
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={contactSource === "crm" ? "default" : "outline"}
+                  onClick={() => setContactSource("crm")}
+                >
+                  Import from CRM
+                </Button>
               </div>
+
+              {contactSource === "csv" ? (
+                <>
+                  <input
+                    ref={props.fileRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="hidden"
+                    onChange={(e) => void props.onUpload(e.target.files)}
+                  />
+                  <div className="group relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-gradient-to-br from-background/60 via-background/40 to-accent/20 px-4 py-10 text-center transition-colors hover:border-primary/40 sm:px-6">
+                    <div className="relative flex flex-col items-center gap-2">
+                      <div className="rounded-full bg-primary/10 p-3 ring-1 ring-primary/20 transition-transform group-hover:scale-110">
+                        <Upload className="size-6 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium">Upload CSV or Excel</p>
+                      <p className="text-xs text-muted-foreground">Columns: name, phone (required)</p>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <Button size="sm" onClick={() => props.fileRef.current?.click()} disabled={props.uploading}>
+                          {props.uploading ? "Uploading…" : "Choose file"}
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void props.onDownloadTemplate()}>
+                          <Download className="size-3.5" /> Sample template
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : props.orderId ? (
+                <CrmImportContactsPanel orderId={props.orderId} onImported={props.onRecipientsRefresh} />
+              ) : (
+                <p className="text-sm text-muted-foreground">Save draft first, then import from CRM.</p>
+              )}
 
               <UploadedContactsTable
                 contacts={props.uploadedContacts}
