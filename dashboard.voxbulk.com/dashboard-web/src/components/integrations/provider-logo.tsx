@@ -1,6 +1,7 @@
 import { Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
 
-import { integrationLogoSrc, integrationLogoTileBg } from "@/lib/integration-logos";
+import { IntegrationBrandIcon, resolveBrandSlug } from "@/components/integrations/integration-brand-icons";
+import { integrationLogoTileBg } from "@/lib/integration-logos";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
@@ -17,7 +18,7 @@ const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
 };
 
 /** Logos that fill the square — no inner padding. */
-const FULL_BLEED_TILES = new Set(["microsoft_calendar"]);
+const FULL_BLEED_TILES = new Set(["microsoft_calendar", "pipedrive"]);
 
 type Props = {
   iconSlug: string;
@@ -38,11 +39,11 @@ export function ProviderLogo({
 }: Props) {
   const slug = String(iconSlug || "").trim().toLowerCase();
   const key = String(providerKey || iconSlug || "").trim().toLowerCase();
-  const src = integrationLogoSrc(slug) || (providerKey ? integrationLogoSrc(key) : null);
+  const brandSlug = resolveBrandSlug(slug, key);
 
-  if (src) {
+  if (brandSlug) {
     if (variant === "tile") {
-      const fullBleed = FULL_BLEED_TILES.has(key) || FULL_BLEED_TILES.has(slug);
+      const fullBleed = FULL_BLEED_TILES.has(key) || FULL_BLEED_TILES.has(slug) || FULL_BLEED_TILES.has(brandSlug);
       const tileBg = integrationLogoTileBg(key || slug);
       return (
         <span
@@ -52,12 +53,10 @@ export function ProviderLogo({
             className,
           )}
         >
-          <img
-            src={src}
-            alt=""
-            aria-hidden
+          <IntegrationBrandIcon
+            slug={brandSlug}
             className={cn(
-              "block max-h-full max-w-full object-contain",
+              "max-h-full max-w-full",
               fullBleed ? "h-full w-full" : "h-[88%] w-[88%]",
               imgClassName,
             )}
@@ -73,12 +72,7 @@ export function ProviderLogo({
           className,
         )}
       >
-        <img
-          src={src}
-          alt=""
-          aria-hidden
-          className={cn("size-full max-h-8 max-w-8 object-contain", imgClassName)}
-        />
+        <IntegrationBrandIcon slug={brandSlug} className={cn("size-full max-h-8 max-w-8", imgClassName)} />
       </span>
     );
   }

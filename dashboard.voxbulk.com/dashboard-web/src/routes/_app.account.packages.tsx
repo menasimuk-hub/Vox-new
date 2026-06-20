@@ -46,6 +46,12 @@ import { requireBillingAccess } from "@/lib/guards/billing-route";
 export const Route = createFileRoute("/_app/account/packages")({
   beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
+  validateSearch: (search: Record<string, unknown>) => {
+    const tab = typeof search.tab === "string" ? search.tab : undefined;
+    return {
+      tab: tab === "core" || tab === "feedback" || tab === "campaigns" ? tab : undefined,
+    };
+  },
   component: PackagesPage,
 });
 
@@ -88,6 +94,7 @@ function interviewCost(perMin: number, duration: number, conn: number, count: nu
 }
 
 function PackagesPage() {
+  const { tab: tabFromUrl } = Route.useSearch();
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const { session, refetch: refetchSession } = useSession();
   const qc = useQueryClient();
@@ -99,7 +106,7 @@ function PackagesPage() {
   const feedbackSubQ = useFeedbackSubscription();
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
-  const [packagesTab, setPackagesTab] = React.useState<ServiceTab>("core");
+  const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(tabFromUrl || "core");
   const [busyFeedbackPlanId, setBusyFeedbackPlanId] = React.useState<string | null>(null);
   const [enterpriseOpen, setEnterpriseOpen] = React.useState(false);
   const [enterpriseScreenings, setEnterpriseScreenings] = React.useState("");
@@ -119,6 +126,12 @@ function PackagesPage() {
   const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
   const hasActiveCoreGcSub =
     (coreSubStatus === "active" || coreSubStatus === "trial") && corePaymentProvider === "gocardless";
+  const hasActiveCorePlan =
+    Boolean(currentCorePlanId) &&
+    (coreSubStatus === "active" ||
+      coreSubStatus === "trial" ||
+      coreSubStatus === "pending_first_payment" ||
+      (currentPlan ? isPaygPlan(currentPlan as PlanRow) : false));
   const settings = (data?.settings || {}) as Record<string, unknown>;
   const plans = sortedPlans((data?.plans || []) as PlanRow[]);
   const services = (data?.services || {}) as Record<string, unknown>;
@@ -244,6 +257,18 @@ function PackagesPage() {
   const feedbackSub = feedbackSubQ.data;
   const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "GBP").toUpperCase();
   const currentFeedbackPlanId = feedbackSub?.active ? feedbackSub.plan_id : null;
+  const hasActiveFeedbackSub = Boolean(feedbackSub?.active && currentFeedbackPlanId);
+
+  React.useEffect(() => {
+    if (tabFromUrl) {
+      setPackagesTab(tabFromUrl);
+      return;
+    }
+    if (feedbackSubQ.isLoading || pricingQ.isLoading) return;
+    if (hasActiveFeedbackSub && !hasActiveCorePlan) {
+      setPackagesTab("feedback");
+    }
+  }, [tabFromUrl, feedbackSubQ.isLoading, pricingQ.isLoading, hasActiveFeedbackSub, hasActiveCorePlan]);
 
   const formatFeedbackPrice = (pkg: FeedbackPackage) => {
     const prices = pkg.prices || [];
@@ -292,7 +317,7 @@ function PackagesPage() {
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-sm"
-              onClick={() => setPackagesTab("core")}
+              onClick={() => setTopupOpen(true)}
             >
               <Wallet className="size-4 text-primary" />
               <span className="text-muted-foreground">Wallet</span>
@@ -311,6 +336,16 @@ function PackagesPage() {
               <TabsTrigger key={key} value={key} className="flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
                 <Icon className={`size-4 ${s.tint}`} />
                 <span className="text-[11px] font-medium">{s.label}</span>
+                {key === "feedback" && hasActiveFeedbackSub ? (
+                  <Badge variant="secondary" className="mt-0.5 h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide">
+                    Active
+                  </Badge>
+                ) : null}
+                {key === "core" && hasActiveCorePlan ? (
+                  <Badge variant="secondary" className="mt-0.5 h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide">
+                    Active
+                  </Badge>
+                ) : null}
               </TabsTrigger>
             );
           })}
@@ -346,6 +381,23 @@ function PackagesPage() {
                 <div className="mt-5 space-y-6">
                   {key === "core" ? (
                     <>
+      {hasActiveFeedbackSub && !hasActiveCorePlan ? (
+        <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">Your Customer Feedback subscription is active</p>
+          <p className="mt-1 text-muted-foreground">
+            Core platform is a separate product (AI interviews + outbound surveys). You do not need to pick a Core plan unless you want those features —{" "}
+            <button
+              type="button"
+              className="text-primary underline-offset-4 hover:underline"
+              onClick={() => setPackagesTab("feedback")}
+            >
+              manage your Feedback plan
+            </button>
+            .
+          </p>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-background/60 px-4 py-3 text-sm">
         <p className="font-medium">{pricingLabel}</p>
         <p className="text-xs text-muted-foreground">

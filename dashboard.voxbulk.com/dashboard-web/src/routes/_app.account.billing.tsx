@@ -18,7 +18,7 @@ import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
+import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useFeedbackSubscription, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
@@ -145,6 +145,7 @@ function BillingPage() {
   const { highlight } = useAssistantHighlight();
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
+  const feedbackSubQ = useFeedbackSubscription();
   const cancelQ = useBillingSubscriptionCancellation();
   const requestsQ = useBillingRequests();
   const usageQ = useBillingUsage();
@@ -162,6 +163,8 @@ function BillingPage() {
   const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
 
   const plan = subQ.data?.plan || usageQ.data?.current_plan;
+  const feedbackSub = feedbackSubQ.data;
+  const hasActiveFeedbackSub = Boolean(feedbackSub?.active && feedbackSub.plan_id);
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
   const billingCurrency = String(monitor.currency || usageQ.data?.billing_currency || "GBP");
   const commercial = monitor.commercial || {};
@@ -355,13 +358,28 @@ function BillingPage() {
         </div>
       ) : null}
 
-      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !plan ? (
+      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !feedbackSubQ.isLoading && !plan && !hasActiveFeedbackSub ? (
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           No active plan is linked to this organisation yet. Choose a package on{" "}
           <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
             Packages & pricing
           </Link>
           .
+        </div>
+      ) : null}
+
+      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !feedbackSubQ.isLoading && !plan && hasActiveFeedbackSub ? (
+        <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">
+            Customer Feedback — {feedbackSub?.plan_name || "active plan"}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            Your Direct Debit subscription is on the Customer Feedback product. Core platform billing (interviews &amp; outbound surveys) is separate —{" "}
+            <Link to="/account/packages" search={{ tab: "feedback" }} className="text-primary underline-offset-4 hover:underline">
+              manage Feedback plan
+            </Link>
+            .
+          </p>
         </div>
       ) : null}
 
@@ -405,7 +423,7 @@ function BillingPage() {
                 )}
                 {!cancellationScheduled && !subscriptionCancelled ? (
                   <Button asChild size="sm">
-                    <Link to="/account/packages">Change plan</Link>
+                    <Link to="/account/packages">{plan ? "Change plan" : "View packages"}</Link>
                   </Button>
                 ) : (
                   <p className="text-xs text-muted-foreground">
