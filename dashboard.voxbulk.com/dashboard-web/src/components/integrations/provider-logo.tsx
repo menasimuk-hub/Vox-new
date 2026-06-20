@@ -22,14 +22,40 @@ type Props = {
   label: string;
   className?: string;
   imgClassName?: string;
+  variant?: "inline" | "tile";
 };
 
-export function ProviderLogo({ iconSlug, providerKey, label, className, imgClassName }: Props) {
+export function ProviderLogo({
+  iconSlug,
+  providerKey,
+  label,
+  className,
+  imgClassName,
+  variant = "inline",
+}: Props) {
   const src =
     integrationLogoSrc(iconSlug) ||
     (providerKey ? integrationLogoSrc(providerKey) : null);
 
   if (src) {
+    if (variant === "tile") {
+      return (
+        <span
+          className={cn(
+            "flex h-full w-full items-center justify-center overflow-hidden bg-muted/10",
+            className,
+          )}
+        >
+          <img
+            src={src}
+            alt=""
+            aria-hidden
+            className={cn("h-full w-full object-contain p-1.5", imgClassName)}
+          />
+        </span>
+      );
+    }
+
     return (
       <span
         className={cn(
@@ -48,6 +74,21 @@ export function ProviderLogo({ iconSlug, providerKey, label, className, imgClass
   }
 
   const Fallback = FALLBACK_ICONS[iconSlug] || FALLBACK_ICONS[providerKey || ""] || PlugZap;
+  if (variant === "tile") {
+    return (
+      <span
+        className={cn(
+          "flex h-full w-full items-center justify-center bg-muted/40 text-foreground/80",
+          className,
+        )}
+        aria-hidden
+      >
+        <Fallback className="size-10" strokeWidth={1.75} />
+        <span className="sr-only">{label}</span>
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(

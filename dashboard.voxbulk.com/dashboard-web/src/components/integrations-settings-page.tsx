@@ -272,7 +272,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       return (
         <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-36 w-full rounded-lg" />
+            <Skeleton key={i} className="h-[5.25rem] w-full rounded-lg" />
           ))}
         </div>
       );

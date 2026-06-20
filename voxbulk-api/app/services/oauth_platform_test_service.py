@@ -154,6 +154,7 @@ def finalize_platform_test(
     credential_source: str = "",
     client_id_masked: str = "",
     scopes: str = "",
+    data_center: str = "",
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ok": ok,
@@ -168,4 +169,6 @@ def finalize_platform_test(
         result["client_id_masked"] = client_id_masked
     if scopes:
         result["scopes"] = scopes
+    if data_center:
+        result["data_center"] = data_center
     return result

@@ -60,30 +60,26 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       onClick={() => onOpen(view)}
       title={view.label}
       className={cn(
-        "group flex min-h-[9.5rem] w-full rounded-lg border text-left transition-colors",
+        "group flex h-[5.25rem] w-full overflow-hidden rounded-lg border text-left transition-colors",
         isActive
           ? "border-foreground/15 bg-accent/40 shadow-sm"
           : "border-border bg-card hover:border-border hover:bg-accent/30",
       )}
     >
-      <div className="flex w-1/3 min-w-[7rem] shrink-0 items-center justify-center border-r border-border/60 p-4">
+      <div className="w-1/3 min-w-[4.75rem] shrink-0 self-stretch border-r border-border/60">
         <ProviderLogo
+          variant="tile"
           iconSlug={view.icon_slug}
           providerKey={view.key}
           label={view.label}
-          className={cn(
-            "size-full min-h-[4.5rem] w-full rounded-lg border-0 bg-transparent p-1",
-            isActive ? "bg-transparent" : "bg-transparent",
-          )}
-          imgClassName="max-h-14 max-w-full object-contain"
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 p-4 pl-5">
-        <div className="flex items-start justify-between gap-3">
-          <span className="text-base font-semibold leading-snug">{view.label}</span>
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 px-3 py-2">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-sm font-semibold leading-snug">{view.label}</span>
           <IntegrationStatusPill status={status} />
         </div>
-        <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{subline}</p>
+        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{subline}</p>
       </div>
     </button>
   );
