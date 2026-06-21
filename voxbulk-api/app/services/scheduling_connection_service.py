@@ -39,17 +39,56 @@ def _loads(raw: str | None) -> dict[str, Any]:
         return {}
 
 
-def get_scheduling_config(db: Session, org_id: str) -> dict[str, Any]:
+def _encrypt_scheduling_secret(value: str) -> str:
+    token = str(value or "").strip()
+    if not token:
+        return ""
+    if token.startswith("enc:"):
+        return token
+    return "enc:" + get_encryptor().encrypt_str(token)
+
+
+def _decrypt_scheduling_secret(value: str) -> tuple[str, bool]:
+    token = str(value or "").strip()
+    if not token:
+        return "", True
+    if not token.startswith("enc:"):
+        return token, True
+    try:
+        return get_encryptor().decrypt_str(token[4:]), True
+    except Exception:
+        return "", False
+
+
+def _raw_scheduling_config(db: Session, org_id: str) -> dict[str, Any]:
     org = db.get(Organisation, org_id)
     if org is None:
         return {}
-    cfg = _loads(getattr(org, "scheduling_config_json", None))
-    token = str(cfg.get("access_token") or "").strip()
-    if token.startswith("enc:"):
-        try:
-            cfg["access_token"] = get_encryptor().decrypt_str(token[4:])
-        except Exception:
-            cfg["access_token"] = ""
+    return _loads(getattr(org, "scheduling_config_json", None))
+
+
+def _has_stored_access_token(raw_cfg: dict[str, Any]) -> bool:
+    raw_token = str(raw_cfg.get("access_token") or "").strip()
+    if not raw_token:
+        return False
+    if raw_token.startswith("enc:"):
+        return len(raw_token) > 12
+    return len(raw_token) > 20
+
+
+def get_scheduling_config(db: Session, org_id: str) -> dict[str, Any]:
+    raw = _raw_scheduling_config(db, org_id)
+    cfg = dict(raw)
+    decrypt_failed = False
+    for key in ("access_token", "refresh_token"):
+        if key not in cfg:
+            continue
+        plain, ok = _decrypt_scheduling_secret(str(cfg.get(key) or ""))
+        cfg[key] = plain
+        if not ok:
+            decrypt_failed = True
+    if decrypt_failed:
+        cfg["token_decrypt_failed"] = True
     return cfg
 
 
@@ -57,15 +96,25 @@ def save_scheduling_config(db: Session, org_id: str, payload: dict[str, Any]) ->
     org = db.get(Organisation, org_id)
     if org is None:
         raise ValueError("Organisation not found")
-    cfg = dict(payload)
+    existing = _loads(getattr(org, "scheduling_config_json", None))
+    cfg = {**existing, **payload}
     provider = str(cfg.get("provider") or "").strip().lower()
     if provider in LEGACY_UNSUPPORTED_PROVIDERS:
         raise ValueError(f"{provider_label(provider)} is no longer supported — connect Calendly, Cal.com, Google Calendar, or HubSpot Meetings")
     if provider and provider not in BOOKING_PROVIDERS:
         raise ValueError(f"Unsupported booking provider: {provider}")
-    token = str(cfg.get("access_token") or "").strip()
-    if token and not token.startswith("enc:"):
-        cfg["access_token"] = "enc:" + get_encryptor().encrypt_str(token)
+    for key in ("access_token", "refresh_token"):
+        if key not in payload:
+            continue
+        incoming = str(payload.get(key) or "").strip()
+        existing_value = str(existing.get(key) or "").strip()
+        if incoming and not incoming.startswith("enc:"):
+            cfg[key] = _encrypt_scheduling_secret(incoming)
+        elif not incoming and existing_value:
+            # Partial updates (e.g. paste Bookings URL) must not wipe stored OAuth tokens.
+            cfg[key] = existing_value
+        elif not incoming:
+            cfg.pop(key, None)
     cfg["updated_at"] = datetime.utcnow().isoformat()
     org.scheduling_config_json = json.dumps(cfg, ensure_ascii=False)
     db.add(org)
@@ -114,12 +163,14 @@ def disconnect_scheduling(db: Session, org_id: str, *, provider: str | None = No
 
 
 def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
+    raw_cfg = _raw_scheduling_config(db, org_id)
     cfg = get_scheduling_config(db, org_id)
     provider = str(cfg.get("provider") or "").strip().lower()
     legacy_unsupported = provider in LEGACY_UNSUPPORTED_PROVIDERS
     connected = bool(provider) and not legacy_unsupported
+    token_ready = bool(str(cfg.get("access_token") or "").strip()) or _has_stored_access_token(raw_cfg)
     if provider == "calendly":
-        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and token_ready
     elif provider == "hubspot_meetings":
         from app.services.hubspot_connection_service import hubspot_status
 
@@ -135,7 +186,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         if not zs.get("connected"):
             connected = False
     elif provider in ("cal_com", "google_calendar", "microsoft_calendar"):
-        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and token_ready
     elif legacy_unsupported:
         connected = False
 
@@ -169,6 +220,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     account = connected_account_display(cfg)
     return {
         "connected": connected,
+        "token_decrypt_failed": cfg.get("token_decrypt_failed") is True,
         "provider": provider or None,
         "provider_label": provider_label(provider) if provider else None,
         "connected_account": account,

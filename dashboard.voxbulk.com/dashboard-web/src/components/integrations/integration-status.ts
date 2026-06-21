@@ -3,6 +3,7 @@ import type { IntegrationStatus } from "@/components/integrations/integration-st
 
 export function integrationStatusFor(view: IntegrationView): IntegrationStatus {
   if (!view.platform_ready) return "disabled";
+  if (view.extra?.token_decrypt_failed === true) return "error";
   if (view.last_check_ok === false) return "error";
   if (view.connected) {
     if (view.group === "booking" && view.extra?.event_type_configured === false) {

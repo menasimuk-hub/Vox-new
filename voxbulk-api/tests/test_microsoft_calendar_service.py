@@ -106,6 +106,7 @@ def test_oauth_start_includes_multi_tenant_common(session):
 
 
 def test_oauth_complete_persists_token(session, monkeypatch):
+    from app.services.integration_catalogue_service import list_integrations_for_org
     from app.services.microsoft_calendar_service import microsoft_calendar_oauth_complete
     from app.services.scheduling_connection_service import get_scheduling_config
 
@@ -136,6 +137,11 @@ def test_oauth_complete_persists_token(session, monkeypatch):
     assert cfg["access_token"] == "AT"
     assert cfg["owner_name"] == "Jane"
     assert cfg["owner_email"] == "jane@example.com"
+
+    catalogue = list_integrations_for_org(session, org.id)
+    ms = next(row for row in catalogue["booking"] if row["key"] == "microsoft_calendar")
+    assert ms["connected"] is True
+    assert ms["extra"]["event_type_configured"] is False
 
 
 def test_select_schedule_requires_https(session, monkeypatch):

@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch, apiUploadFiles } from "@/lib/api";
-import { writeSessionToStorage } from "@/lib/session-storage";
+import { readOrgIdFromStorage, writeSessionToStorage } from "@/lib/session-storage";
 import {
   BILLING_CHECK_TIMEOUT_MS,
   launchEligibilityLogPayload,
@@ -1097,15 +1097,17 @@ export function useAcceptInviteSession() {
 }
 
 export function useSchedulingStatus() {
+  const orgId = readOrgIdFromStorage() || "";
   return useQuery({
-    queryKey: queryKeys.schedulingStatus,
+    queryKey: [...queryKeys.schedulingStatus, orgId],
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/scheduling/status"),
   });
 }
 
 export function useHubSpotStatus() {
+  const orgId = readOrgIdFromStorage() || "";
   return useQuery({
-    queryKey: queryKeys.hubspotStatus,
+    queryKey: [...queryKeys.hubspotStatus, orgId],
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/hubspot/status"),
   });
 }
@@ -1140,8 +1142,9 @@ export type IntegrationCatalogue = {
 };
 
 export function useIntegrationsCatalogue() {
+  const orgId = readOrgIdFromStorage() || "";
   return useQuery({
-    queryKey: queryKeys.integrationsCatalogue,
+    queryKey: [...queryKeys.integrationsCatalogue, orgId],
     queryFn: () => apiFetch<IntegrationCatalogue>("/service-orders/integrations"),
   });
 }

@@ -185,6 +185,14 @@ export function ProviderDetailSheet({
             </p>
           ) : null}
 
+          {view.extra?.token_decrypt_failed === true ? (
+            <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
+              A Microsoft/Google token is stored for this organisation but the API cannot decrypt it. Ask your admin to
+              verify <code className="text-[11px]">ENCRYPTION_KEY</code> on the API server has not changed, then
+              disconnect and reconnect here.
+            </p>
+          ) : null}
+
           {view.connected ? (
             <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
               <div className="flex items-center gap-2 font-medium">

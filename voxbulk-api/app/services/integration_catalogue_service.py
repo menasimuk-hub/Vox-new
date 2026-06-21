@@ -150,7 +150,11 @@ def _is_provider_visible(spec: ProviderSpec, admin_row: ProviderConfig | None) -
 
 def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
     from app.services.booking_providers import connected_account_display, provider_label
-    from app.services.scheduling_connection_service import get_scheduling_config
+    from app.services.scheduling_connection_service import (
+        _has_stored_access_token,
+        _raw_scheduling_config,
+        get_scheduling_config,
+    )
 
     base: dict[str, Any] = {
         "connected": False,
@@ -158,14 +162,16 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         "connected_at": None,
         "extra": {},
     }
+    raw_cfg = _raw_scheduling_config(db, org.id)
     cfg = get_scheduling_config(db, org.id)
     connected_provider = str(cfg.get("provider") or "").strip().lower()
     if connected_provider != spec.key:
         return base
 
+    token_ready = bool(str(cfg.get("access_token") or "").strip()) or _has_stored_access_token(raw_cfg)
     connected = bool(connected_provider)
     if spec.key == "calendly":
-        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and token_ready
     elif spec.key == "hubspot_meetings":
         from app.services.hubspot_connection_service import hubspot_status
 
@@ -179,7 +185,7 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         if not zoho_crm_status(db, org.id).get("connected"):
             connected = False
     elif spec.key in {"cal_com", "google_calendar", "microsoft_calendar"}:
-        connected = connected and bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and token_ready
     else:
         connected = bool(connected_provider)
 
@@ -213,6 +219,8 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         "event_type_configured": event_type_configured,
         "human_scheduling_ready": connected and event_type_configured,
     }
+    if cfg.get("token_decrypt_failed"):
+        extra["token_decrypt_failed"] = True
 
     return {
         "connected": connected,

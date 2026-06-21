@@ -1196,7 +1196,15 @@ def google_calendar_oauth_callback(
 
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
     try:
-        google_calendar_oauth_complete(db, code=code, state=state)
+        result = google_calendar_oauth_complete(db, code=code, state=state)
+        if not result.get("google_calendar_connected"):
+            msg = (
+                "Google OAuth finished but the connection was not saved correctly. "
+                "Verify ENCRYPTION_KEY on the API server, then reconnect."
+            )
+            return RedirectResponse(
+                url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(msg)}"
+            )
     except ValueError as exc:
         return RedirectResponse(
             url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(str(exc)[:200])}"
@@ -1246,6 +1254,14 @@ def microsoft_calendar_oauth_callback(
             bool(result.get("microsoft_calendar_connected")),
             result.get("provider"),
         )
+        if not result.get("microsoft_calendar_connected"):
+            msg = (
+                "Microsoft OAuth finished but the connection was not saved correctly. "
+                "Verify ENCRYPTION_KEY on the API server, then reconnect."
+            )
+            return RedirectResponse(
+                url=f"{origin}/settings/integrations?scheduling=error&provider=microsoft_calendar&message={quote(msg)}"
+            )
     except ValueError as exc:
         logger.warning("Microsoft Calendar OAuth failed org_id=%s error=%s", org_id, str(exc)[:200])
         return RedirectResponse(

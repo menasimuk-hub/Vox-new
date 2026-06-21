@@ -69,6 +69,7 @@ def _persist_last_check(
     org = db.get(Organisation, org_id)
     if org is None:
         return
+    db.refresh(org)
     raw = getattr(org, field, None)
     cfg = _loads(raw)
     cfg["last_check"] = {

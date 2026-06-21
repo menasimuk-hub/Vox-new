@@ -297,4 +297,31 @@ def test_microsoft_catalogue_disconnected_when_token_decrypt_fails(session):
 
     result = list_integrations_for_org(session, org.id)
     ms = next(row for row in result["booking"] if row["key"] == "microsoft_calendar")
-    assert ms["connected"] is False
+    assert ms["connected"] is True
+    assert ms["extra"]["token_decrypt_failed"] is True
+
+
+def test_microsoft_schedule_save_preserves_encrypted_token_when_decrypt_fails(session):
+    from app.models.organisation import Organisation
+    from app.services.microsoft_calendar_service import select_microsoft_calendar_schedule
+
+    org = _seed_org(session)
+    org_row = session.get(Organisation, org.id)
+    org_row.scheduling_config_json = json.dumps(
+        {
+            "provider": "microsoft_calendar",
+            "access_token": "enc:not-a-valid-fernet-token",
+            "owner_name": "Jane",
+        }
+    )
+    session.add(org_row)
+    session.commit()
+
+    select_microsoft_calendar_schedule(
+        session,
+        org.id,
+        schedule_url="https://outlook.office365.com/owa/calendar/foo/bookings/",
+    )
+    stored = json.loads(session.get(Organisation, org.id).scheduling_config_json or "{}")
+    assert stored["access_token"] == "enc:not-a-valid-fernet-token"
+    assert stored["schedule_url"].startswith("https://outlook.office365.com/")
