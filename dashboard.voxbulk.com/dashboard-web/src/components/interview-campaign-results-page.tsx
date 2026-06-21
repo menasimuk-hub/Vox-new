@@ -136,11 +136,21 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const calendarReady = scheduling.human_scheduling_ready === true;
   const providerLabel = String(scheduling.provider_label || scheduling.provider || "").trim();
   const connectedAccount = String(scheduling.connected_account || scheduling.owner_name || "").trim();
+  const providerKey = String(scheduling.provider || "").trim();
+  const oauthConnected = scheduling.connected === true;
+  const needsScheduleUrl =
+    oauthConnected &&
+    scheduling.event_type_configured === false &&
+    (providerKey === "google_calendar" || providerKey === "microsoft_calendar");
   const bookingDisplay =
     calendarReady && providerLabel
       ? connectedAccount
         ? `${providerLabel} · ${connectedAccount}`
         : providerLabel
+      : needsScheduleUrl && providerKey === "microsoft_calendar"
+        ? "Microsoft connected — add Bookings URL in Settings → Integrations"
+        : needsScheduleUrl && providerKey === "google_calendar"
+          ? "Google connected — add appointment schedule URL in Settings → Integrations"
       : scheduling.legacy_unsupported_provider
         ? "Reconnect required (unsupported provider)"
         : "Not connected";

@@ -192,3 +192,109 @@ def test_microsoft_calendar_appears_when_admin_flips_visible(session):
     )
     live = list_integrations_for_org(session, org.id)
     assert "microsoft_calendar" in _list_keys(live, "booking")
+
+
+def test_microsoft_catalogue_connected_with_encrypted_token(session):
+    from app.services.integration_catalogue_service import list_integrations_for_org
+    from app.services.scheduling_connection_service import save_scheduling_config
+
+    org = _seed_org(session)
+    _seed_admin_row(
+        session,
+        provider="microsoft_calendar",
+        is_enabled=True,
+        visible=True,
+        config={
+            "client_id": "ms-client",
+            "client_secret": "ms-secret",
+            "redirect_uri": "https://a/ms/cb",
+            "tenant": "common",
+        },
+    )
+    save_scheduling_config(
+        session,
+        org.id,
+        {
+            "provider": "microsoft_calendar",
+            "access_token": "ms-token-plain",
+            "owner_name": "Jane",
+            "owner_email": "jane@example.com",
+            "schedule_url": "https://outlook.office365.com/owa/calendar/foo/bookings/",
+        },
+    )
+
+    result = list_integrations_for_org(session, org.id)
+    ms = next(row for row in result["booking"] if row["key"] == "microsoft_calendar")
+    assert ms["connected"] is True
+    assert ms["connected_account"] == "Jane · jane@example.com"
+    assert ms["extra"]["event_type_configured"] is True
+    assert ms["extra"]["human_scheduling_ready"] is True
+    assert result["active_booking_provider"] == "microsoft_calendar"
+
+
+def test_microsoft_catalogue_oauth_without_schedule_url(session):
+    from app.services.integration_catalogue_service import list_integrations_for_org
+    from app.services.scheduling_connection_service import save_scheduling_config
+
+    org = _seed_org(session)
+    _seed_admin_row(
+        session,
+        provider="microsoft_calendar",
+        is_enabled=True,
+        visible=True,
+        config={
+            "client_id": "ms-client",
+            "client_secret": "ms-secret",
+            "redirect_uri": "https://a/ms/cb",
+            "tenant": "common",
+        },
+    )
+    save_scheduling_config(
+        session,
+        org.id,
+        {
+            "provider": "microsoft_calendar",
+            "access_token": "ms-token-plain",
+            "owner_name": "Jane",
+            "schedule_url": "",
+        },
+    )
+
+    result = list_integrations_for_org(session, org.id)
+    ms = next(row for row in result["booking"] if row["key"] == "microsoft_calendar")
+    assert ms["connected"] is True
+    assert ms["extra"]["event_type_configured"] is False
+    assert ms["extra"]["human_scheduling_ready"] is False
+
+
+def test_microsoft_catalogue_disconnected_when_token_decrypt_fails(session):
+    from app.models.organisation import Organisation
+    from app.services.integration_catalogue_service import list_integrations_for_org
+
+    org = _seed_org(session)
+    _seed_admin_row(
+        session,
+        provider="microsoft_calendar",
+        is_enabled=True,
+        visible=True,
+        config={
+            "client_id": "ms-client",
+            "client_secret": "ms-secret",
+            "redirect_uri": "https://a/ms/cb",
+            "tenant": "common",
+        },
+    )
+    org_row = session.get(Organisation, org.id)
+    org_row.scheduling_config_json = json.dumps(
+        {
+            "provider": "microsoft_calendar",
+            "access_token": "enc:not-a-valid-fernet-token",
+            "owner_name": "Jane",
+        }
+    )
+    session.add(org_row)
+    session.commit()
+
+    result = list_integrations_for_org(session, org.id)
+    ms = next(row for row in result["booking"] if row["key"] == "microsoft_calendar")
+    assert ms["connected"] is False

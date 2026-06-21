@@ -1228,16 +1228,26 @@ def microsoft_calendar_oauth_callback(
     state: str = "",
     db: Session = Depends(get_db),
 ):
+    import logging
     from urllib.parse import quote
 
     from app.core.config import get_settings
     from app.services.microsoft_calendar_service import microsoft_calendar_oauth_complete
     from fastapi.responses import RedirectResponse
 
+    logger = logging.getLogger(__name__)
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
+    org_id = str(state).split(":", 1)[0].strip() if state else ""
     try:
-        microsoft_calendar_oauth_complete(db, code=code, state=state)
+        result = microsoft_calendar_oauth_complete(db, code=code, state=state)
+        logger.info(
+            "Microsoft Calendar OAuth saved org_id=%s connected=%s provider=%s",
+            org_id,
+            bool(result.get("microsoft_calendar_connected")),
+            result.get("provider"),
+        )
     except ValueError as exc:
+        logger.warning("Microsoft Calendar OAuth failed org_id=%s error=%s", org_id, str(exc)[:200])
         return RedirectResponse(
             url=f"{origin}/settings/integrations?scheduling=error&provider=microsoft_calendar&message={quote(str(exc)[:200])}"
         )

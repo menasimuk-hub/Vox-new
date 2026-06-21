@@ -17,6 +17,7 @@ import { apiFetch } from "@/lib/api";
 
 import { GoogleScheduleUrlHelp } from "@/components/google-schedule-url-help";
 import { CrmSyncSettingsCard } from "@/components/integrations/crm-sync-settings-card";
+import { integrationStatusFor } from "@/components/integrations/integration-status";
 import {
   IntegrationStatusPill,
   type IntegrationStatus,
@@ -29,10 +30,7 @@ import {
 import type { IntegrationView } from "@/components/integrations/provider-tile";
 
 function statusFor(view: IntegrationView): IntegrationStatus {
-  if (!view.platform_ready) return "disabled";
-  if (view.last_check_ok === false) return "error";
-  if (view.connected) return "connected";
-  return "not_connected";
+  return integrationStatusFor(view);
 }
 
 type Props = {
@@ -240,6 +238,7 @@ export function ProviderDetailSheet({
               </div>
               <Input
                 id="google-schedule-url"
+                autoFocus={open && view.extra?.event_type_configured === false}
                 placeholder="https://calendar.google.com/calendar/appointments/schedules/…"
                 value={scheduleDraft}
                 onChange={(e) => setScheduleDraft(e.target.value)}
@@ -267,6 +266,7 @@ export function ProviderDetailSheet({
               </Label>
               <Input
                 id="microsoft-schedule-url"
+                autoFocus={open && view.extra?.event_type_configured === false}
                 placeholder="https://outlook.office365.com/owa/calendar/…/bookings/"
                 value={scheduleDraft}
                 onChange={(e) => setScheduleDraft(e.target.value)}

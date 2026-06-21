@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-export type IntegrationStatus = "connected" | "not_connected" | "error" | "disabled";
+export type IntegrationStatus = "connected" | "setup_needed" | "not_connected" | "error" | "disabled";
 
 type Props = {
   status: IntegrationStatus;
@@ -12,6 +12,7 @@ type Props = {
 
 const STATUS_TONE: Record<IntegrationStatus, string> = {
   connected: "bg-success/15 text-success",
+  setup_needed: "bg-warning/15 text-warning-foreground",
   not_connected: "bg-muted text-muted-foreground",
   error: "bg-destructive/15 text-destructive",
   disabled: "bg-muted text-muted-foreground",
@@ -19,6 +20,7 @@ const STATUS_TONE: Record<IntegrationStatus, string> = {
 
 const STATUS_LABEL: Record<IntegrationStatus, string> = {
   connected: "Connected",
+  setup_needed: "Setup needed",
   not_connected: "Not connected",
   error: "Error",
   disabled: "Unavailable",
@@ -33,7 +35,7 @@ export function IntegrationStatusPill({ status, label, className }: Props) {
         className,
       )}
     >
-      <span className={cn("size-1.5 rounded-full", status === "connected" ? "bg-success" : status === "error" ? "bg-destructive" : "bg-muted-foreground/60")} />
+      <span className={cn("size-1.5 rounded-full", status === "connected" ? "bg-success" : status === "setup_needed" ? "bg-warning" : status === "error" ? "bg-destructive" : "bg-muted-foreground/60")} />
       {label || STATUS_LABEL[status]}
     </span>
   );

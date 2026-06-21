@@ -6,6 +6,7 @@ import {
   IntegrationStatusPill,
   type IntegrationStatus,
 } from "@/components/integrations/integration-status-pill";
+import { integrationStatusFor } from "@/components/integrations/integration-status";
 import { ProviderLogo } from "@/components/integrations/provider-logo";
 
 export type IntegrationView = {
@@ -32,10 +33,7 @@ export type IntegrationView = {
 };
 
 function statusFor(view: IntegrationView): IntegrationStatus {
-  if (!view.platform_ready) return "disabled";
-  if (view.last_check_ok === false) return "error";
-  if (view.connected) return "connected";
-  return "not_connected";
+  return integrationStatusFor(view);
 }
 
 type Props = {
@@ -48,11 +46,13 @@ export function ProviderTile({ view, active, onOpen }: Props) {
   const status = statusFor(view);
   const isActive = Boolean(active) || view.connected;
   const subline =
-    view.connected && view.connected_account
-      ? view.connected_account
-      : view.blocked_reason
-        ? view.blocked_reason
-        : view.short_description;
+    status === "setup_needed"
+      ? "Paste your booking page URL to finish setup"
+      : view.connected && view.connected_account
+        ? view.connected_account
+        : view.blocked_reason
+          ? view.blocked_reason
+          : view.short_description;
 
   return (
     <button

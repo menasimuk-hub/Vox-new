@@ -150,10 +150,7 @@ def _is_provider_visible(spec: ProviderSpec, admin_row: ProviderConfig | None) -
 
 def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
     from app.services.booking_providers import connected_account_display, provider_label
-
-    cfg = _loads(getattr(org, "scheduling_config_json", None))
-    connected_provider = str(cfg.get("provider") or "").strip().lower()
-    is_active = connected_provider == spec.key
+    from app.services.scheduling_connection_service import get_scheduling_config
 
     base: dict[str, Any] = {
         "connected": False,
@@ -161,19 +158,45 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         "connected_at": None,
         "extra": {},
     }
-    if not is_active:
+    cfg = get_scheduling_config(db, org.id)
+    connected_provider = str(cfg.get("provider") or "").strip().lower()
+    if connected_provider != spec.key:
         return base
 
+    connected = bool(connected_provider)
     if spec.key == "calendly":
-        connected = bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and bool(str(cfg.get("access_token") or "").strip())
     elif spec.key == "hubspot_meetings":
-        connected = bool(str(cfg.get("meeting_link_url") or "").strip())
+        from app.services.hubspot_connection_service import hubspot_status
+
+        connected = connected and bool(str(cfg.get("meeting_link_url") or "").strip())
+        if not hubspot_status(db, org.id).get("connected"):
+            connected = False
     elif spec.key == "zoho_bookings":
-        connected = bool(str(cfg.get("service_url") or "").strip())
+        from app.services.zoho_crm_connection_service import zoho_crm_status
+
+        connected = connected and bool(str(cfg.get("service_url") or "").strip())
+        if not zoho_crm_status(db, org.id).get("connected"):
+            connected = False
     elif spec.key in {"cal_com", "google_calendar", "microsoft_calendar"}:
-        connected = bool(str(cfg.get("access_token") or "").strip())
+        connected = connected and bool(str(cfg.get("access_token") or "").strip())
     else:
         connected = bool(connected_provider)
+
+    event_type_configured = False
+    if connected:
+        if spec.key == "calendly":
+            event_type_configured = bool(str(cfg.get("event_type_uri") or "").strip())
+        elif spec.key == "cal_com":
+            event_type_configured = bool(
+                str(cfg.get("event_type_url") or cfg.get("event_type_id") or "").strip()
+            )
+        elif spec.key in {"google_calendar", "microsoft_calendar"}:
+            event_type_configured = bool(str(cfg.get("schedule_url") or "").strip())
+        elif spec.key == "hubspot_meetings":
+            event_type_configured = bool(str(cfg.get("meeting_link_url") or "").strip())
+        elif spec.key == "zoho_bookings":
+            event_type_configured = bool(str(cfg.get("service_url") or "").strip())
 
     last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
 
@@ -187,6 +210,8 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         ),
         "schedule_name": cfg.get("schedule_name") or cfg.get("meeting_link_name") or cfg.get("event_type_slug"),
         "expires_at": cfg.get("expires_at"),
+        "event_type_configured": event_type_configured,
+        "human_scheduling_ready": connected and event_type_configured,
     }
 
     return {
@@ -331,9 +356,11 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
 
     active_booking_provider: str | None = None
     if org is not None:
-        active_booking_provider = str(
-            _loads(getattr(org, "scheduling_config_json", None)).get("provider") or ""
-        ).strip().lower() or None
+        from app.services.scheduling_connection_service import get_scheduling_config
+
+        active_booking_provider = (
+            str(get_scheduling_config(db, org.id).get("provider") or "").strip().lower() or None
+        )
 
     active_crm = active_crm_provider(db, org_id) if org is not None else None
 

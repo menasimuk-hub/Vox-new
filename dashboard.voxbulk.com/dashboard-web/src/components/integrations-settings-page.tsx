@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, Plug, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,6 +16,7 @@ import { ProviderDetailSheet } from "@/components/integrations/provider-detail-s
 import type { TestResult } from "@/components/integrations/test-result-card";
 import { apiFetch } from "@/lib/api";
 import {
+  queryKeys,
   useDisconnectIntegration,
   useHubSpotStatus,
   useIntegrationsCatalogue,
@@ -49,6 +51,7 @@ function tabFromSearch(tab?: string): "booking" | "crm" {
 
 export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearch }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const catalogueQ = useIntegrationsCatalogue();
   const hubspotQ = useHubSpotStatus();
   const testMutation = useTestIntegration();
@@ -101,20 +104,44 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     if (!message) return;
 
     oauthNoticeShown.current = noticeKey;
-    if (isError) {
-      toast.error(message);
-    } else {
-      toast.success(message);
-    }
-    void catalogueQ.refetch();
-    if (search.hubspot === "connected" || search.crm === "connected") {
-      void hubspotQ.refetch();
-    }
-    void navigate({
-      to: "/settings/integrations",
-      search: { tab: tabFromSearch(search.tab) },
-      replace: true,
-    });
+
+    void (async () => {
+      if (isError) {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
+
+      const [catalogueResult] = await Promise.all([
+        catalogueQ.refetch(),
+        queryClient.invalidateQueries({ queryKey: queryKeys.schedulingStatus }),
+      ]);
+
+      if (search.hubspot === "connected" || search.crm === "connected") {
+        await hubspotQ.refetch();
+      }
+
+      const scheduleSetupProvider =
+        search.scheduling === "connected" &&
+        (search.provider === "microsoft_calendar" || search.provider === "google_calendar")
+          ? search.provider
+          : null;
+      if (scheduleSetupProvider) {
+        const rows = (catalogueResult.data?.booking ?? []) as IntegrationView[];
+        const match = rows.find((row) => row.key === scheduleSetupProvider);
+        if (match?.connected) {
+          setActiveTab("booking");
+          setSheetView(match);
+          setSheetOpen(true);
+        }
+      }
+
+      void navigate({
+        to: "/settings/integrations",
+        search: { tab: tabFromSearch(search.tab) },
+        replace: true,
+      });
+    })();
   }, [
     search.scheduling,
     search.provider,
@@ -125,6 +152,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     catalogueQ,
     hubspotQ,
     navigate,
+    queryClient,
   ]);
 
   const data = catalogueQ.data;
