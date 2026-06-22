@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.platform_service import PlatformService
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.services.billing_call_minutes import billable_call_minutes, call_outcome_label
 
 logger = logging.getLogger(__name__)
 
@@ -512,6 +513,14 @@ class ServiceOrderService:
                 report = json.loads(order.report_json)
         except Exception:
             report = None
+        launch_billing: dict[str, Any] = {}
+        try:
+            if order.launch_billing_json:
+                parsed_launch = json.loads(order.launch_billing_json)
+                if isinstance(parsed_launch, dict):
+                    launch_billing = parsed_launch
+        except Exception:
+            launch_billing = {}
         out = {
             "id": order.id,
             "org_id": order.org_id,
@@ -540,6 +549,9 @@ class ServiceOrderService:
             "payment_note": order.payment_note,
             "admin_decision_note": order.admin_decision_note,
             "report": report,
+            "launch_billing": launch_billing,
+            "billing_settlement": launch_billing.get("settlement") if launch_billing else None,
+            "billing_phase": launch_billing.get("billing_phase") if launch_billing else None,
             "created_at": order.created_at.isoformat() if order.created_at else None,
             "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         }
@@ -558,6 +570,26 @@ class ServiceOrderService:
                 out["recipients"] = enriched
             else:
                 out["recipients"] = [ServiceOrderService.recipient_to_dict(r) for r in (recipients or [])]
+
+            total_secs = 0
+            billable_mins = 0
+            connected = 0
+            for row in out.get("recipients") or []:
+                raw_secs = row.get("duration_seconds")
+                try:
+                    secs = int(raw_secs) if raw_secs is not None else 0
+                except (TypeError, ValueError):
+                    secs = 0
+                if secs <= 0:
+                    continue
+                total_secs += secs
+                connected += 1
+                billable_mins += billable_call_minutes(secs)
+            out["call_usage"] = {
+                "total_duration_seconds": total_secs,
+                "billable_minutes_actual": billable_mins,
+                "connected_calls": connected,
+            }
         out["is_archived"] = ServiceOrderService.is_archived_order(order)
         if order.service_code == "survey":
             from app.services.survey_builder_flow_service import survey_step_labels_from_config
@@ -596,6 +628,18 @@ class ServiceOrderService:
         except Exception:
             result = {}
         analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        hangup = str(result.get("hangup_cause") or "")
+        voicemail = bool(result.get("voicemail") or result.get("answering_machine"))
+        duration_seconds = result.get("duration_seconds")
+        try:
+            duration_seconds = int(duration_seconds) if duration_seconds is not None else None
+        except (TypeError, ValueError):
+            duration_seconds = None
+        bm = result.get("billable_minutes")
+        try:
+            billable_minutes_val = int(bm) if bm is not None else billable_call_minutes(duration_seconds)
+        except (TypeError, ValueError):
+            billable_minutes_val = billable_call_minutes(duration_seconds)
         out = {
             "id": recipient.id,
             "row_number": recipient.row_number,
@@ -603,7 +647,16 @@ class ServiceOrderService:
             "phone": recipient.phone,
             "email": recipient.email,
             "status": recipient.status,
-            "duration_seconds": result.get("duration_seconds"),
+            "duration_seconds": duration_seconds,
+            "billable_minutes": billable_minutes_val,
+            "call_type": call_outcome_label(
+                status=str(recipient.status or ""),
+                hangup_cause=hangup,
+                voicemail=voicemail,
+            ),
+            "hangup_cause": hangup or None,
+            "call_channel": result.get("channel") or "ai_call",
+            "call_control_id": result.get("call_control_id"),
             "call_summary": result.get("call_summary"),
             "sentiment": analysis.get("sentiment") or result.get("sentiment"),
             "short_summary": analysis.get("short_summary") or result.get("short_summary"),

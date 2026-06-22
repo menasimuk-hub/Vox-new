@@ -510,8 +510,10 @@ class UsageWalletService:
                 elif log.answered_at and log.ended_at:
                     secs = int((log.ended_at - log.answered_at).total_seconds())
         if secs is None or secs <= 0:
-            return 1
-        return max(1, int(math.ceil(secs / 60)))
+            return 0
+        from app.services.billing_call_minutes import billable_call_minutes
+
+        return billable_call_minutes(secs)
 
     @staticmethod
     def on_call_completed(

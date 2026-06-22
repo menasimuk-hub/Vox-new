@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { adminOrderViewPath } from '../lib/serviceOrderAdmin'
 
 export default function ServiceOrdersAdmin() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -29,6 +33,23 @@ export default function ServiceOrdersAdmin() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    const orderId = searchParams.get('order')
+    if (!orderId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const row = await apiFetch(`/admin/platform-services/orders/${encodeURIComponent(orderId)}`)
+        if (!cancelled) navigate(adminOrderViewPath(row), { replace: true })
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Could not open order detail')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, navigate])
 
   const approve = async (id) => {
     setBusyId(id)

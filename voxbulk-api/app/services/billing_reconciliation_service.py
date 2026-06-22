@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from datetime import datetime
 from typing import Any
 
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
+from app.services.billing_call_minutes import billable_call_minutes
 from app.services.billing_currency import resolve_org_currency
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class BillingReconciliationService:
                 connected_calls += 1
                 continue
             if secs and secs > 0:
-                total_minutes += max(1, int(math.ceil(secs / 60)))
+                total_minutes += billable_call_minutes(secs)
                 connected_calls += 1
             elif status in {"completed", "calling"}:
                 total_minutes += duration_per_call
@@ -193,7 +193,6 @@ class BillingReconciliationService:
 
     @staticmethod
     def on_order_terminal(db: Session, order: ServiceOrder, *, trigger: str) -> None:
-        try:
-            BillingReconciliationService.reconcile_order(db, order, trigger=trigger)
-        except Exception:
-            logger.exception("billing_reconciliation_failed order_id=%s trigger=%s", order.id, trigger)
+        from app.services.campaign_billing_settlement_service import CampaignBillingSettlementService
+
+        CampaignBillingSettlementService.on_order_terminal(db, order, trigger=trigger)

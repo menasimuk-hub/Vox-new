@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
+import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
+import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
 
 const LIVE_INTERVIEW_STATUSES = new Set(['running', 'paused', 'scheduled'])
 const EMPTY_CANDIDATE = { name: '', phone: '', email: '', status: '' }
@@ -125,6 +128,7 @@ function StatCard({ label, value, hint }) {
 }
 
 export default function RunningInterviews() {
+  const [searchParams] = useSearchParams()
   const [orders, setOrders] = useState([])
   const [overview, setOverview] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -186,6 +190,23 @@ export default function RunningInterviews() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    const orderId = searchParams.get('order')
+    if (!orderId || loading) return
+    let cancelled = false
+    ;(async () => {
+      setPanelTab('overview')
+      try {
+        await loadDetail(orderId)
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Could not load order detail')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, loading, loadDetail])
 
   const runAction = async (orderId, action, body, busy = orderId) => {
     setBusyKey(busy)
@@ -594,6 +615,8 @@ export default function RunningInterviews() {
               </div>
             ) : null}
 
+            {panelTab === 'overview' ? <OrderAdminBillingPanel order={selected} /> : null}
+
             {panelTab === 'candidates' ? (
               <div className="runningSurveyContactsPane">
                 {editingId ? (
@@ -624,6 +647,9 @@ export default function RunningInterviews() {
                         <th>Source</th>
                         <th>Activity</th>
                         <th>Status</th>
+                        <th>Call type</th>
+                        <th>Call time</th>
+                        <th>Bill min</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -640,6 +666,9 @@ export default function RunningInterviews() {
                             <span className={activityPill(r.activity_status)}>{activityStatusLabel(r.activity_status)}</span>
                           </td>
                           <td><span className={candidatePill(r.status)}>{r.status || 'pending'}</span></td>
+                          <td>{r.call_type || '—'}</td>
+                          <td>{formatDurationSeconds(r.duration_seconds)}</td>
+                          <td>{r.billable_minutes != null ? r.billable_minutes : '—'}</td>
                           <td>
                             <div className="runningSurveyRowActions">
                               <button type="button" className="btn soft bsm" onClick={() => openActivity(r)}>

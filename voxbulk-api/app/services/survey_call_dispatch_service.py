@@ -586,6 +586,19 @@ class SurveyCallDispatchService:
         }
         if extra:
             payload.update(extra)
+        secs = payload.get("duration_seconds")
+        try:
+            secs_int = int(secs) if secs is not None else None
+        except (TypeError, ValueError):
+            secs_int = None
+        if secs_int is not None:
+            from app.services.billing_call_minutes import billable_call_minutes, call_outcome_label
+
+            payload["billable_minutes"] = billable_call_minutes(secs_int)
+            payload["call_type"] = call_outcome_label(
+                status=status,
+                hangup_cause=str(payload.get("hangup_cause") or ""),
+            )
         merged = _recipient_result(recipient)
         merged.update(payload)
         recipient.result_json = json.dumps(merged, ensure_ascii=False)

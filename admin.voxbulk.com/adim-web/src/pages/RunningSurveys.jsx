@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Activity, ClipboardList, MessageCircle, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { isWaSurveyOrder, waSessionStatusPill, deliveryOkBadge } from '../lib/waSurveyOps'
 import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
+import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
+import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
 
 function surveyResponded(report) {
   return Number(report?.completed ?? report?.sent ?? 0)
@@ -45,6 +47,7 @@ function StatCard({ label, value, hint }) {
 }
 
 export default function RunningSurveys() {
+  const [searchParams] = useSearchParams()
   const [orders, setOrders] = useState([])
   const [overview, setOverview] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -133,6 +136,23 @@ export default function RunningSurveys() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    const orderId = searchParams.get('order')
+    if (!orderId || loading) return
+    let cancelled = false
+    ;(async () => {
+      setPanelTab('overview')
+      try {
+        await loadDetail(orderId)
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Could not load order detail')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, loading, loadDetail])
 
   const runAction = async (orderId, action, body, busy = orderId) => {
     setBusyKey(busy)
@@ -516,6 +536,8 @@ export default function RunningSurveys() {
               </div>
             ) : null}
 
+            {panelTab === 'overview' ? <OrderAdminBillingPanel order={selected} /> : null}
+
             {panelTab === 'contacts' ? (
               <div className="runningSurveyContactsPane">
                 {detailLoading ? <div className="muted">Loading contact detail…</div> : null}
@@ -582,6 +604,13 @@ export default function RunningSurveys() {
                         <th>Phone</th>
                         <th>Email</th>
                         <th>Status</th>
+                        {!isWaOrder ? (
+                          <>
+                            <th>Call type</th>
+                            <th>Call time</th>
+                            <th>Bill min</th>
+                          </>
+                        ) : null}
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -603,6 +632,13 @@ export default function RunningSurveys() {
                                 <span className={contactPill(r.status)}>{r.status || 'pending'}</span>
                               )}
                             </td>
+                            {!isWaOrder ? (
+                              <>
+                                <td>{r.call_type || '—'}</td>
+                                <td>{formatDurationSeconds(r.duration_seconds)}</td>
+                                <td>{r.billable_minutes != null ? r.billable_minutes : '—'}</td>
+                              </>
+                            ) : null}
                             <td>
                               <div className="runningSurveyRowActions">
                                 {canAiCall ? (

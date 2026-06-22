@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { adminOrderViewPath } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
 import './orgControlCenter.css'
 
@@ -1674,7 +1675,7 @@ export default function OrgControlCenter() {
                         <td>{statusBadge(ord.workflow_label || ord.workflow_state || ord.status)}</td>
                         <td style={{ fontSize: 12, color: 'var(--occ-text3)' }}>{fmtWhen(ord.created_at)}</td>
                         <td>
-                          <Link className="occ-btn-xs" to={`/billing/service-orders?order=${ord.id}`}>
+                          <Link className="occ-btn-xs" to={adminOrderViewPath(ord)}>
                             View
                           </Link>
                         </td>

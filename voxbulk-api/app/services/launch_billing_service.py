@@ -236,6 +236,9 @@ class LaunchBillingService:
         dd_charge = int(breakdown.get("dd_charge_minor") or 0)
         result: dict[str, Any] = {"ok": True, "wallet_charged_minor": 0, "dd_charged_minor": 0, "invoice_id": None}
 
+        method = str(breakdown.get("payment_method") or "")
+        is_payg_hold = method == "wallet" and dd_charge <= 0 and wallet_charge > 0
+
         if wallet_charge > 0:
             from app.services.wallet_service import WalletService
 
@@ -243,8 +246,10 @@ class LaunchBillingService:
                 db,
                 org,
                 amount_minor=wallet_charge,
-                kind="launch_debit",
-                description=f"Campaign launch — {order.title}"[:500],
+                kind="launch_hold" if is_payg_hold else "launch_debit",
+                description=(
+                    f"Campaign launch hold — {order.title}" if is_payg_hold else f"Campaign launch — {order.title}"
+                )[:500],
                 order_id=order.id,
                 created_by_user_id=user_id,
                 metadata={"channel": breakdown.get("channel"), "units": breakdown.get("units_billable")},
@@ -253,29 +258,23 @@ class LaunchBillingService:
             result["wallet_charged_minor"] = wallet_charge
             result["wallet_transaction_id"] = tx.id
 
+        # Deferred settlement: no invoice at launch (PAYG hold or subscription).
         invoice = None
         if dd_charge > 0:
-            invoice = LaunchBillingService._invoice_and_collect_dd(
-                db,
-                order,
-                org,
-                amount_minor=dd_charge,
-                currency=currency,
-                breakdown=breakdown,
-            )
-            result["dd_charged_minor"] = dd_charge
-            result["invoice_id"] = invoice.id if invoice is not None else None
+            result["dd_deferred_minor"] = dd_charge
 
+        billing_phase = "held" if is_payg_hold else "pending_settlement"
         snapshot = {
             **{k: v for k, v in breakdown.items() if not k.startswith("wallet_balance")},
             "charged_at": datetime.utcnow().isoformat(),
             "wallet_transaction_id": result.get("wallet_transaction_id"),
-            "invoice_id": result.get("invoice_id"),
+            "wallet_hold_minor": wallet_charge if wallet_charge > 0 else 0,
+            "billing_phase": billing_phase,
+            "invoice_id": None,
         }
         order.launch_billing_json = json.dumps(snapshot, ensure_ascii=False)
         order.payment_status = "approved"
         order.status = "paid"
-        method = str(breakdown.get("payment_method") or "")
         order.payment_method = {
             "allowance": "subscription_allowance",
             "wallet": "wallet",
@@ -284,25 +283,23 @@ class LaunchBillingService:
         if method == "allowance":
             order.payment_note = "Covered by plan allowance"
         elif method == "wallet":
-            order.payment_note = f"Paid from wallet ({money_display(wallet_charge, currency)})"
+            if is_payg_hold:
+                order.payment_note = f"Wallet hold {money_display(wallet_charge, currency)} — invoice after campaign"
+            else:
+                order.payment_note = f"Paid from wallet ({money_display(wallet_charge, currency)})"
         elif method == "direct_debit":
-            order.payment_note = f"Collected by Direct Debit ({money_display(dd_charge, currency)})"
+            order.payment_note = "Subscription launch — invoice after campaign for extra usage"
         order.updated_at = datetime.utcnow()
         db.add(order)
         db.commit()
         db.refresh(order)
-        from app.services.service_order_payment_workflow_service import ServiceOrderPaymentWorkflowService
-
-        if wallet_charge > 0 and not dd_charge:
-            try:
-                ServiceOrderPaymentWorkflowService.confirm_payment_and_issue_invoice(db, order)
-            except Exception:
-                logger.exception("wallet_launch_invoice_failed order_id=%s", order.id)
-        elif invoice is not None:
-            ServiceOrderPaymentWorkflowService.link_payment_invoice(db, order, invoice.id)
         logger.info(
-            "launch_billing_charged order_id=%s org_id=%s method=%s wallet=%s dd=%s",
-            order.id, org.id, method, wallet_charge, dd_charge,
+            "launch_billing_charged order_id=%s org_id=%s method=%s wallet_hold=%s phase=%s",
+            order.id,
+            org.id,
+            method,
+            wallet_charge,
+            billing_phase,
         )
         return result
 

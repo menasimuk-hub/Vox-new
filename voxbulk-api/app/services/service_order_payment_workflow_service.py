@@ -45,6 +45,9 @@ class ServiceOrderPaymentWorkflowService:
             return False
         quote = int(order.quote_total_pence or 0)
         snapshot = ServiceOrderPaymentWorkflowService._launch_billing_snapshot(order)
+        phase = str(snapshot.get("billing_phase") or "")
+        if phase in {"held", "pending_settlement"}:
+            return False
         wallet_charge = int(snapshot.get("wallet_charge_minor") or 0)
         dd_charge = int(snapshot.get("dd_charge_minor") or 0)
         if quote <= 0 and wallet_charge <= 0 and dd_charge <= 0:
