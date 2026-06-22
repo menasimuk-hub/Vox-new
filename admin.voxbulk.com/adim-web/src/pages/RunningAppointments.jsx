@@ -28,10 +28,12 @@ export default function RunningAppointments() {
   const [search, setSearch] = useState('')
 
   const [orgsError, setOrgsError] = useState('')
+  const [templatesError, setTemplatesError] = useState('')
 
   const load = useCallback(async () => {
     setError('')
     setOrgsError('')
+    setTemplatesError('')
     const [ovRes, listRes, tplRes] = await Promise.allSettled([
       apiFetch('/admin/platform-services/appointments/overview'),
       apiFetch('/admin/platform-services/appointments/organisations'),
@@ -47,12 +49,19 @@ export default function RunningAppointments() {
       setOrgs(Array.isArray(listRes.value?.organisations) ? listRes.value.organisations : [])
     } else {
       setOrgs([])
-      setOrgsError(listRes.reason?.message || 'Could not load customers')
+      const msg = listRes.reason?.message || 'Could not load customers'
+      setOrgsError(msg)
+      if (/display_name/i.test(msg)) {
+        setOrgsError(
+          `${msg} — Production API is stale. On the VPS run: git pull origin main && ./deploy-vps.sh (do not use VOX_SKIP_BUILD=1), then hard-refresh this page.`,
+        )
+      }
     }
     if (tplRes.status === 'fulfilled') {
       setTemplates(Array.isArray(tplRes.value?.templates) ? tplRes.value.templates : [])
     } else {
       setTemplates([])
+      setTemplatesError(tplRes.reason?.message || 'Could not load WA appointment templates')
     }
   }, [])
 
@@ -109,35 +118,52 @@ export default function RunningAppointments() {
       {error ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{error}</div></div> : null}
       {orgsError ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{orgsError}</div></div> : null}
 
-      {overview || loading ? (
-        <div className="runningSurveyStatsCompactRow">
-          <StatCard label="Active customers" value={overview.active_orgs ?? 0} />
-          <StatCard label="Total appointments" value={overview.total_appointments ?? 0} />
-          <StatCard label="At risk (24h)" value={overview.at_risk_24h ?? 0} hint="Unconfirmed soon" />
-          <StatCard label="Customers with issues" value={overview.orgs_with_issues ?? 0} hint="Setup / CRM / agent" />
-        </div>
-      ) : null}
+      <div className="runningSurveyStatsCompactRow">
+        <StatCard label="Active customers" value={loading && !overview ? '…' : (overview?.active_orgs ?? 0)} />
+        <StatCard label="Total appointments" value={loading && !overview ? '…' : (overview?.total_appointments ?? 0)} />
+        <StatCard label="At risk (24h)" value={loading && !overview ? '…' : (overview?.at_risk_24h ?? 0)} hint="Unconfirmed soon" />
+        <StatCard label="Customers with issues" value={loading && !overview ? '…' : (overview?.orgs_with_issues ?? 0)} hint="Setup / CRM / agent" />
+      </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="cardHead runningSurveyListHead">
           <h3>Platform WA templates</h3>
           <Link className="btn soft" to="/settings/wa-appointment">Manage templates</Link>
         </div>
-        <div className="cardBody runningSurveyStatsCompactRow">
-          {(templates.length ? templates : [{ label: '—', name: 'Run deploy to seed 4 templates' }]).map((t) => (
-            <div key={t.id || t.name} className="runningSurveyStatCompact">
-              <span className="runningSurveyStatCompactLabel">{t.display_name || t.label}</span>
-              <span className="runningSurveyStatCompactValue">{t.name}</span>
-              {t.active_for_appointment === false ? (
-                <span className="runningSurveyStatCompactHint">Hidden</span>
-              ) : null}
-              {t.id ? (
-                <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/settings/wa-appointment?edit=${t.id}`}>
-                  Edit
-                </Link>
-              ) : null}
-            </div>
-          ))}
+        <div className="cardBody">
+          {templatesError ? (
+            <div className="note" style={{ color: '#b91c1c', marginBottom: 12 }}>{templatesError}</div>
+          ) : null}
+          <div className="runningSurveyStatsCompactRow">
+            {(templates.length ? templates : [
+              { label: 'Appointment confirmation', name: 'appt_confirm_v1' },
+              { label: 'Friendly confirmation', name: 'appt_confirm_v2' },
+              { label: 'Appointment reminder', name: 'appt_reminder_v1' },
+              { label: 'Clinic reminder', name: 'appt_reminder_v2' },
+            ]).map((t) => (
+              <div key={t.id || t.name} className="runningSurveyStatCompact">
+                <span className="runningSurveyStatCompactLabel">{t.display_name || t.label}</span>
+                <span className="runningSurveyStatCompactValue">{t.name}</span>
+                {t.active_for_appointment === false ? (
+                  <span className="runningSurveyStatCompactHint">Hidden</span>
+                ) : null}
+                {t.id ? (
+                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/settings/wa-appointment?edit=${t.id}`}>
+                    Edit
+                  </Link>
+                ) : (
+                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to="/settings/wa-appointment">
+                    Open editor
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+          {!templates.length && !loading ? (
+            <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
+              Templates seed on first API load after migration <code>0130</code>. If this persists after deploy, open Manage templates and click Refresh.
+            </p>
+          ) : null}
         </div>
       </div>
 
