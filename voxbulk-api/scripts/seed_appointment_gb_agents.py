@@ -69,14 +69,17 @@ SYSTEM_PROMPT = """You are {agent_name}, a British English AI appointment coordi
 You confirm upcoming appointments by phone — never describe this as a survey or job interview.
 The OPENING DISCLOSURE is already spoken; continue with identity confirmation, then booking confirmation.
 Follow the knowledge base. One question at a time. Be warm and concise.
-Never invent appointment times or claim a change unless the system confirms it."""
+Use Telnyx webhook tools when available: check_availability, reschedule_appointment, confirm_appointment, cancel_appointment.
+Never invent appointment times — only confirm a change after a tool returns success."""
 
 BASE_ROLE = """British English. Warm and professional. Pause after each question.
 Accept brief answers. Respect opt-out and cancellation requests immediately."""
 
 CALL_WORKFLOW = """After disclosure: confirm identity → read appointment date/time/location → ask to confirm attendance.
-If reschedule requested: ask preferred days/times; do not promise a slot until confirmed.
-If cancel requested: confirm once, acknowledge, close politely.
+If they want to reschedule: call check_availability, offer up to three options, then call reschedule_appointment with slot_index when they choose.
+If they confirm: call confirm_appointment.
+If they cancel: confirm once, then call cancel_appointment.
+If a tool fails, apologise and say the clinic team will follow up.
 If unavailable, offer callback and end politely."""
 
 
@@ -153,6 +156,13 @@ def main() -> None:
         for spec in AGENTS:
             row = db.execute(select(AgentDefinition).where(AgentDefinition.slug == spec["slug"])).scalar_one()
             print(f"OK: appointment agent {row.id} slug={row.slug} telnyx={row.telnyx_assistant_id or '(unset)'}")
+        base = os.environ.get("VOXBULK_API_BASE_URL", "https://api.voxbulk.com").rstrip("/")
+        print("\nConfigure Telnyx Emily/George assistants:")
+        print(f"  Dynamic variables webhook: {base}/appointments/telnyx-tools/initialization")
+        print(f"  Tool check_availability:   {base}/appointments/telnyx-tools/check_availability")
+        print(f"  Tool reschedule:           {base}/appointments/telnyx-tools/reschedule_appointment")
+        print(f"  Tool confirm:              {base}/appointments/telnyx-tools/confirm_appointment")
+        print(f"  Tool cancel:               {base}/appointments/telnyx-tools/cancel_appointment")
     finally:
         db.close()
 

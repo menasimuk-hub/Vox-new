@@ -35,6 +35,7 @@ from app.routers.knowledge_base import router as knowledge_base_router
 from app.routers.legal_pages import router as legal_pages_router
 from app.routers.promo_offers import router as promo_offers_router
 from app.routers.appointments import router as appointments_router
+from app.routers.appointment_telnyx_tools import router as appointment_telnyx_tools_router
 from app.routers.dentally_appointments import router as dentally_appointments_router
 from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
@@ -518,6 +519,7 @@ app.include_router(organisations_router)
 app.include_router(branches_router)
 app.include_router(users_router)
 app.include_router(appointments_router)
+app.include_router(appointment_telnyx_tools_router)
 app.include_router(dentally_appointments_router)
 app.include_router(calls_router)
 app.include_router(whatsapp_router)

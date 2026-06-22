@@ -453,6 +453,7 @@ class TelnyxVoiceAdapter:
         config: dict[str, Any],
         instructions: str | None = None,
         greeting: str | None = None,
+        dynamic_variables: dict[str, Any] | None = None,
         prepared: bool = False,
     ) -> TelnyxProviderResult:
         from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
@@ -474,6 +475,9 @@ class TelnyxVoiceAdapter:
         payload: dict[str, Any] = {"assistant": assistant_block}
         if clean_greeting:
             payload["greeting"] = clean_greeting
+        clean_dynamic = {str(k): str(v) for k, v in (dynamic_variables or {}).items() if v is not None and str(v).strip()}
+        if clean_dynamic:
+            payload["dynamic_variables"] = clean_dynamic
         try:
             with httpx.Client(timeout=15.0, verify=httpx_ssl_verify()) as client:
                 response = client.post(

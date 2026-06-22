@@ -161,7 +161,7 @@ def build_appointment_runtime_instructions(
     if appt.service_type:
         context_lines.append(f"Service: {appt.service_type}.")
     context_lines.append(
-        "If the caller wants to reschedule, collect preferred days/times. "
-        "Do not confirm a new slot is booked unless the system confirms it."
+        "Live tools (Telnyx webhook): check_availability → reschedule_appointment (slot_index) | confirm_appointment | cancel_appointment. "
+        "Only confirm booking changes to the caller after a tool returns status ok."
     )
     return f"{instructions}\n\n" + "\n".join(context_lines)

@@ -181,12 +181,23 @@ def _start_appointment_assistant(
         append_log(db, appointment_id=appt.id, event_type="call_failed", detail={"error": "assistant_not_configured"})
         db.commit()
         return
+    dynamic_variables = {
+        "appointment_id": appt.id,
+        "org_id": appt.org_id,
+        "company_name": str(voice_config.get("company_name") or ""),
+        "contact_name": appt.contact_name,
+        "first_name": str(appt.contact_name or "").strip().split()[0] if str(appt.contact_name or "").strip() else "there",
+        "appointment_datetime": str(voice_config.get("appointment_datetime") or ""),
+        "location": appt.location or "",
+        "branch": appt.branch or "",
+    }
     result = TelnyxVoiceAdapter.start_ai_assistant(
         call_control_id=call_id,
         assistant_id=assistant_id,
         config=telnyx_config,
         instructions=instructions,
         greeting=greeting,
+        dynamic_variables=dynamic_variables,
         prepared=False,
     )
     if not result.ok:
