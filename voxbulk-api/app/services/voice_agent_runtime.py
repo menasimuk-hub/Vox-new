@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.agent_services import SERVICE_INTERVIEW, SERVICE_SURVEY
+from app.core.agent_services import SERVICE_APPOINTMENTS, SERVICE_INTERVIEW, SERVICE_SURVEY
 from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.voice_agent_platform_settings import DEFAULT_OPENING_DISCLOSURE, VoiceAgentPlatformSettings
@@ -127,6 +127,8 @@ def _service_role(agent: AgentDefinition | None, service_key: str) -> str:
         return str(agent.service_survey_role or "").strip()
     if service_key == SERVICE_INTERVIEW:
         return str(agent.service_interview_role or "").strip()
+    if service_key == SERVICE_APPOINTMENTS:
+        return str(agent.service_appointment_role or "").strip()
     return ""
 
 
@@ -155,6 +157,8 @@ def disclosure_enabled(
     if agent is not None and service_key == SERVICE_SURVEY and not agent.disclosure_for_survey:
         return False
     if agent is not None and service_key == SERVICE_INTERVIEW and not agent.disclosure_for_interview:
+        return False
+    if agent is not None and service_key == SERVICE_APPOINTMENTS and not agent.disclosure_for_appointment:
         return False
     return True
 
@@ -321,6 +325,8 @@ def resolve_opening_disclosure_template(
     elif service_key == SERVICE_INTERVIEW and "good time" not in rendered.lower() and "hear me" not in rendered.lower():
         rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
     elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
+        rendered = f"{rendered} This call is recorded for quality purposes.".strip()
+    elif service_key == SERVICE_APPOINTMENTS and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     return rendered
 
@@ -520,6 +526,24 @@ def build_service_runtime_instructions(
                 "This is an anonymous survey. After the INTRO, mention once that answers are aggregated "
                 "without identifying individuals in customer reports."
             )
+    elif service_key == SERVICE_APPOINTMENTS:
+        parts.append(f"Contact first name: {first}")
+        appt_dt = str(config.get("appointment_datetime") or "").strip()
+        if appt_dt:
+            parts.append(f"Appointment date and time: {appt_dt}")
+        loc = str(config.get("location") or "").strip()
+        if loc:
+            parts.append(f"Location: {loc}")
+        branch = str(config.get("branch") or "").strip()
+        if branch:
+            parts.append(f"Branch: {branch}")
+        svc = str(config.get("service_type") or "").strip()
+        if svc:
+            parts.append(f"Service: {svc}")
+        parts.append(
+            f"When introducing yourself, say you are calling from {company_name}. "
+            "Confirm identity, then confirm or help reschedule/cancel the appointment."
+        )
     else:
         parts.append(f"Calling on behalf of: {organiser}")
         parts.append(f"Candidate first name: {first}")
@@ -550,7 +574,7 @@ def build_service_runtime_instructions(
 
     platform = _platform_settings(db)
     mandatory = disclosure_mandatory(platform, agent)
-    question_label = "survey questions" if service_key == SERVICE_SURVEY else "interview questions"
+    question_label = "survey questions" if service_key == SERVICE_SURVEY else "confirmation steps" if service_key == SERVICE_APPOINTMENTS else "interview questions"
     if layers.opening_disclosure:
         parts.append(
             "The opening disclosure has already been spoken to the recipient as the call greeting. "
@@ -648,6 +672,13 @@ def build_service_opening_greeting(
         return (
             f"Hi {first}, this is {agent_name}, an AI assistant calling from {company_name} "
             f"for a short survey.{anon_clause} This call is recorded for quality."
+        )
+    if service_key == SERVICE_APPOINTMENTS:
+        appt_dt = str(config.get("appointment_datetime") or "your upcoming appointment").strip()
+        return (
+            f"Hello {first}, this is {agent_name} calling from {company_name} "
+            f"about your appointment on {appt_dt}. This call is recorded for quality. "
+            f"Am I speaking with {first}?"
         )
     return substitute_voice_placeholders(DEFAULT_INTERVIEW_OPENING_FALLBACK, **placeholder_kwargs)
 

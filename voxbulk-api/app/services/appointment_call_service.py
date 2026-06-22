@@ -10,38 +10,49 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.agent import AgentDefinition
 from app.models.appointment import Appointment
 from app.models.call_log import CallLog
 from app.services.appointment_analysis_service import process_post_call
+from app.services.appointment_availability_service import auto_assign_reschedule_slot
 from app.services.appointment_billing_service import AppointmentBillingError, AppointmentBillingService
+from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
 from app.services.appointment_log_service import append_log
 from app.services.appointment_settings_service import get_config
+from app.services.appointment_voice_agent_service import (
+    build_appointment_opening_greeting,
+    build_appointment_runtime_instructions,
+    build_appointment_voice_config,
+    resolve_appointment_agent,
+    resolve_appointment_telnyx_assistant_id,
+)
 from app.services.messaging_log_service import normalize_e164
+from app.services.survey_call_dispatch_service import _is_voicemail_telnyx_event
 from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _decode_client_state, _telnyx_config
 from app.services.telnyx_api_key import telnyx_outbound_caller_id
 
 logger = logging.getLogger(__name__)
 
+
+def _call_log_state(log: CallLog | None) -> dict:
+    if log is None or not log.raw_payload:
+        return {}
+    try:
+        data = json.loads(log.raw_payload)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _set_call_log_state(db: Session, log: CallLog | None, **extra) -> None:
+    if log is None:
+        return
+    state = _call_log_state(log)
+    state.update(extra)
+    log.raw_payload = json.dumps(state, ensure_ascii=False)
+    db.add(log)
+
 VOICE_TERMINAL = frozenset({"completed", "failed", "cancelled", "no_answer", "busy", "voicemail"})
-
-
-def _resolve_appointment_agent(db: Session, org_id: str) -> AgentDefinition | None:
-    row = db.execute(
-        select(AgentDefinition)
-        .where(AgentDefinition.is_active.is_(True), AgentDefinition.is_default_appointment.is_(True))
-        .order_by(AgentDefinition.updated_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if row is not None:
-        return row
-    return db.execute(
-        select(AgentDefinition)
-        .where(AgentDefinition.is_active.is_(True), AgentDefinition.supports_appointment.is_(True))
-        .order_by(AgentDefinition.updated_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
 
 
 def _start_call(
@@ -68,12 +79,15 @@ def _start_call(
     if not from_number:
         return {"ok": False, "reason": "caller_id_missing"}
 
-    agent = _resolve_appointment_agent(db, appt.org_id)
-    greeting = (
-        f"Hello {appt.contact_name}, this is a call to {call_kind.replace('_', ' ')} "
-        f"your appointment on {appt.appointment_datetime.strftime('%d %B at %H:%M')}."
+    voice_config = build_appointment_voice_config(db, appt=appt, call_kind=call_kind)
+    agent = resolve_appointment_agent(db, org_id=appt.org_id, config=voice_config)
+    assistant_id, _agent = resolve_appointment_telnyx_assistant_id(
+        db, org_id=appt.org_id, config=voice_config, agent=agent
     )
-    instructions = str(agent.system_prompt if agent else "Confirm or reschedule the appointment politely.")
+    greeting = build_appointment_opening_greeting(db, appt=appt, agent=agent, config=voice_config)
+    instructions = build_appointment_runtime_instructions(
+        db, appt=appt, agent=agent, config=voice_config, call_kind=call_kind
+    )
 
     result = TelnyxVoiceAdapter.start_outbound_call(
         to_number=normalize_e164(appt.contact_phone),
@@ -85,7 +99,7 @@ def _start_call(
             "appointment_id": appt.id,
             "org_id": appt.org_id,
             "agent_id": agent.id if agent else None,
-            "telnyx_assistant_id": agent.telnyx_assistant_id if agent else None,
+            "telnyx_assistant_id": assistant_id or (agent.telnyx_assistant_id if agent else None),
             "appointment_greeting": greeting,
             "appointment_instructions": instructions[:4000],
         },
@@ -134,6 +148,65 @@ def initiate_reschedule_call(db: Session, appointment_id: str) -> dict[str, Any]
     return _start_call(db, appt=appt, call_kind="reschedule")
 
 
+
+def _start_appointment_assistant(
+    db: Session,
+    *,
+    appt: Appointment,
+    call_id: str,
+    parsed: dict,
+) -> None:
+    call_kind = str(parsed.get("call_kind") or "confirmation")
+    voice_config = build_appointment_voice_config(db, appt=appt, call_kind=call_kind)
+    agent = resolve_appointment_agent(
+        db,
+        org_id=appt.org_id,
+        config=voice_config,
+        agent_id=str(parsed.get("agent_id") or "").strip() or None,
+    )
+    assistant_id = str(parsed.get("telnyx_assistant_id") or "").strip()
+    if not assistant_id:
+        assistant_id, _agent = resolve_appointment_telnyx_assistant_id(
+            db, org_id=appt.org_id, config=voice_config, agent=agent
+        )
+    greeting = str(parsed.get("appointment_greeting") or "").strip() or build_appointment_opening_greeting(
+        db, appt=appt, agent=agent, config=voice_config
+    )
+    instructions = str(parsed.get("appointment_instructions") or "").strip() or build_appointment_runtime_instructions(
+        db, appt=appt, agent=agent, config=voice_config, call_kind=call_kind
+    )
+    telnyx_config = _telnyx_config(db)
+    log = db.execute(select(CallLog).where(CallLog.external_call_id == call_id)).scalar_one_or_none()
+    if not assistant_id:
+        append_log(db, appointment_id=appt.id, event_type="call_failed", detail={"error": "assistant_not_configured"})
+        db.commit()
+        return
+    result = TelnyxVoiceAdapter.start_ai_assistant(
+        call_control_id=call_id,
+        assistant_id=assistant_id,
+        config=telnyx_config,
+        instructions=instructions,
+        greeting=greeting,
+        prepared=False,
+    )
+    if not result.ok:
+        append_log(
+            db,
+            appointment_id=appt.id,
+            event_type="call_failed",
+            detail={"error": result.detail or result.status, "call_control_id": call_id},
+        )
+    else:
+        _set_call_log_state(
+            db,
+            log,
+            assistant_started_at=datetime.utcnow().isoformat(),
+            assistant_status=result.status,
+        )
+        append_log(db, appointment_id=appt.id, event_type="assistant_started", detail={"call_control_id": call_id})
+    db.commit()
+
+
 def handle_appointment_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
     """Return True if payload was handled as an appointment voice call."""
     data = payload.get("data") or payload
@@ -159,6 +232,17 @@ def handle_appointment_telnyx_event(db: Session, payload: dict[str, Any]) -> boo
         log.transcript_text = transcript
         db.add(log)
 
+    state = _call_log_state(log)
+    if "answered" in event_type and not state.get("assistant_started_at"):
+        if _is_voicemail_telnyx_event(event_type, record):
+            telnyx_config = _telnyx_config(db)
+            TelnyxVoiceAdapter.hangup_call(call_control_id=call_id, config=telnyx_config)
+            append_log(db, appointment_id=appt.id, event_type="voicemail_hung_up", detail={"call_control_id": call_id})
+            db.commit()
+            return True
+        _start_appointment_assistant(db, appt=appt, call_id=call_id, parsed=parsed)
+        return True
+
     terminal = event_type in {"call.hangup", "call.ended", "call.completed"} or str(record.get("call_state") or "").lower() in VOICE_TERMINAL
     if terminal:
         now = datetime.utcnow()
@@ -174,6 +258,8 @@ def handle_appointment_telnyx_event(db: Session, payload: dict[str, Any]) -> boo
             if analysis.get("rescheduled_to"):
                 appt.rescheduled_to_datetime = analysis.get("rescheduled_to")
                 appt.status = "rescheduled"
+            elif outcome == "rescheduled":
+                auto_assign_reschedule_slot(db, appt)
             elif outcome == "confirmed":
                 appt.status = "confirmed"
                 appt.confirmed_at = now
@@ -185,6 +271,10 @@ def handle_appointment_telnyx_event(db: Session, payload: dict[str, Any]) -> boo
         appt.updated_at = now
         db.add(appt)
         append_log(db, appointment_id=appt.id, event_type="call_completed", detail={"outcome": appt.call_outcome, "event_type": event_type})
+        try:
+            maybe_writeback_appointment_to_crm(db, appt)
+        except Exception:
+            logger.exception("appointment_crm_writeback_failed appointment_id=%s", appt.id)
         db.commit()
 
     return True
