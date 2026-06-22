@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
 from app.models.industry import Industry
 from app.models.survey_type import SurveyType
+from app.services.customer_feedback.feedback_telnyx_push_service import feedback_meta_template_name
 from app.services.wa_template_industry_export_service import (
     build_export_resolver_context,
     parse_feedback_template_name,
@@ -65,6 +66,31 @@ def test_parse_cf_fitness_name():
     assert parsed is not None
     assert parsed["industry_slug"] == "fitness"
     assert parsed["survey_type_slug"] == "would_recommend"
+
+
+def test_cf_meta_index_matches_feedback_row():
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        ind, st = _ensure_feedback_fitness(db)
+        tpl = db.execute(
+            select(FeedbackWaTemplate).where(
+                FeedbackWaTemplate.survey_type_id == st.id,
+                FeedbackWaTemplate.template_key == "would_recommend",
+                FeedbackWaTemplate.language == "en_GB",
+            )
+        ).scalar_one()
+        ctx = build_export_resolver_context(db)
+        meta = feedback_meta_template_name(
+            tpl,
+            industry_slug=ind.slug,
+            survey_type_slug=st.slug,
+            name_anchor_id=tpl.id,
+        ).lower()
+        assert meta in ctx.cf_meta_index
+        assert ctx.cf_meta_index[meta]["source"] == "feedback_db"
+
+
 def test_parse_platform_survey_team_collaboration():
     from app.core.database import get_sessionmaker
     with get_sessionmaker()() as db:
