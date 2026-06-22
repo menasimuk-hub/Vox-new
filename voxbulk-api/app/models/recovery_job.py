@@ -15,7 +15,9 @@ class RecoveryJob(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
-    appointment_id: Mapped[str] = mapped_column(String(36), ForeignKey("appointments.id"), nullable=False, index=True)
+    dentally_appointment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("dentally_appointments.id"), nullable=False, index=True
+    )
     requested_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
 
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -3,12 +3,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.patient import Patient
 
 
-class AppointmentService:
+class DentallyAppointmentService:
     @staticmethod
     def _validate_branch(db: Session, org_id: str, branch_id: str) -> None:
         branch = db.execute(select(Branch.id).where(Branch.id == branch_id, Branch.org_id == org_id)).scalar_one_or_none()
@@ -22,15 +22,15 @@ class AppointmentService:
             raise ValueError("Invalid patient_id for tenant")
 
     @staticmethod
-    def list_appointments(db: Session, org_id: str) -> list[Appointment]:
+    def list_appointments(db: Session, org_id: str) -> list[DentallyAppointment]:
         return list(
-            db.execute(select(Appointment).where(Appointment.org_id == org_id).order_by(Appointment.scheduled_start.desc())).scalars()
+            db.execute(select(DentallyAppointment).where(DentallyAppointment.org_id == org_id).order_by(DentallyAppointment.scheduled_start.desc())).scalars()
         )
 
     @staticmethod
-    def get_appointment(db: Session, org_id: str, appointment_id: str) -> Appointment | None:
+    def get_appointment(db: Session, org_id: str, appointment_id: str) -> DentallyAppointment | None:
         return db.execute(
-            select(Appointment).where(Appointment.id == appointment_id, Appointment.org_id == org_id)
+            select(DentallyAppointment).where(DentallyAppointment.id == appointment_id, DentallyAppointment.org_id == org_id)
         ).scalar_one_or_none()
 
     @staticmethod
@@ -45,13 +45,13 @@ class AppointmentService:
         status: str,
         value_gbp_pence: int | None = None,
         treatment_label: str | None = None,
-    ) -> Appointment:
+    ) -> DentallyAppointment:
         if branch_id:
-            AppointmentService._validate_branch(db, org_id, branch_id)
+            DentallyAppointmentService._validate_branch(db, org_id, branch_id)
         if patient_id:
-            AppointmentService._validate_patient(db, org_id, patient_id)
+            DentallyAppointmentService._validate_patient(db, org_id, patient_id)
 
-        appt = Appointment(
+        appt = DentallyAppointment(
             org_id=org_id,
             branch_id=branch_id,
             patient_id=patient_id,
@@ -79,19 +79,19 @@ class AppointmentService:
         status: str | None = None,
         value_gbp_pence: int | None = None,
         treatment_label: str | None = None,
-    ) -> Appointment | None:
-        appt = AppointmentService.get_appointment(db, org_id, appointment_id)
+    ) -> DentallyAppointment | None:
+        appt = DentallyAppointmentService.get_appointment(db, org_id, appointment_id)
         if appt is None:
             return None
 
         if branch_id is not None:
             if branch_id:
-                AppointmentService._validate_branch(db, org_id, branch_id)
+                DentallyAppointmentService._validate_branch(db, org_id, branch_id)
             appt.branch_id = branch_id
 
         if patient_id is not None:
             if patient_id:
-                AppointmentService._validate_patient(db, org_id, patient_id)
+                DentallyAppointmentService._validate_patient(db, org_id, patient_id)
             appt.patient_id = patient_id
 
         if scheduled_start is not None:
@@ -112,3 +112,5 @@ class AppointmentService:
         db.refresh(appt)
         return appt
 
+
+AppointmentService = DentallyAppointmentService

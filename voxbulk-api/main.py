@@ -34,6 +34,7 @@ from app.routers.knowledge_base import router as knowledge_base_router
 from app.routers.legal_pages import router as legal_pages_router
 from app.routers.promo_offers import router as promo_offers_router
 from app.routers.appointments import router as appointments_router
+from app.routers.dentally_appointments import router as dentally_appointments_router
 from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
 from app.routers.branches import router as branches_router
@@ -251,12 +252,16 @@ async def lifespan(app: FastAPI):
         logger.info("%s main_lifespan_startup_complete", WEBHOOK_BUILD_MARKER)
     except Exception:
         logger.exception("runtime_build_info_failed")
-    try:
-        from app.core.database import run_database_migrations
+    # init_db() already runs Alembic in development — avoid a second upgrade (MySQL metadata lock hang).
+    if str(settings.env).lower() not in {"dev", "development", "local"}:
+        try:
+            from app.core.database import run_database_migrations
 
-        run_database_migrations()
-    except Exception:
-        logger.exception("database migrations failed — check alembic upgrade head")
+            run_database_migrations()
+        except Exception:
+            logger.exception("database migrations failed — check alembic upgrade head")
+    elif os.getenv("VOX_SKIP_MIGRATE", "").strip() not in {"1", "true", "yes"}:
+        pass  # migrations already applied via init_db() above
     try:
         from app.core.database import get_sessionmaker
         from app.services.email_template_service import EmailTemplateService
@@ -512,6 +517,7 @@ app.include_router(organisations_router)
 app.include_router(branches_router)
 app.include_router(users_router)
 app.include_router(appointments_router)
+app.include_router(dentally_appointments_router)
 app.include_router(calls_router)
 app.include_router(whatsapp_router)
 app.include_router(webhooks_router)

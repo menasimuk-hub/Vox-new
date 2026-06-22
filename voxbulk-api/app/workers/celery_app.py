@@ -52,6 +52,18 @@ celery_app.conf.update(
             "task": "crm.poll_deal_survey_automation",
             "schedule": 900.0,
         },
+        "appointment-crm-sync-30m": {
+            "task": "appointments.sync_crm_appointments",
+            "schedule": 1800.0,
+        },
+        "appointment-confirmation-scan-15m": {
+            "task": "appointments.scan_confirmation_windows",
+            "schedule": 900.0,
+        },
+        "appointment-reminder-scan-15m": {
+            "task": "appointments.scan_reminder_sequences",
+            "schedule": 900.0,
+        },
     },
 )
 
@@ -64,6 +76,7 @@ from app.workers import survey_wa_voice_note_tasks  # noqa: E402, F401
 from app.workers import survey_wa_recommendations_tasks  # noqa: E402, F401
 from app.workers import survey_wa_translation_tasks  # noqa: E402, F401
 from app.workers import crm_automation_tasks  # noqa: E402, F401
+from app.workers import appointment_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

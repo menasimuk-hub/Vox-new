@@ -4,7 +4,7 @@ from app.core.security import hash_password
 def _seed(db):
     from datetime import datetime, timezone
 
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.models.membership import OrganisationMembership
     from app.models.organisation import Organisation
     from app.models.patient import Patient
@@ -21,7 +21,7 @@ def _seed(db):
     patient = Patient(org_id=org.id, first_name="A", last_name="B", phone_e164="+447000000001")
     db.add(patient)
     db.flush()
-    appt = Appointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc), status="scheduled")
+    appt = DentallyAppointment(org_id=org.id, patient_id=patient.id, scheduled_start=datetime.now(timezone.utc), status="scheduled")
     db.add(appt)
     ProviderSettingsService.upsert_platform_config(
         db,
@@ -62,7 +62,7 @@ def test_enqueue_recovery_and_poll_status(app_client, monkeypatch):
     ]
     headers = {"Authorization": f"Bearer {tok}"}
 
-    r = app_client.post(f"/appointments/{appt.id}/recovery", headers=headers)
+    r = app_client.post(f"/dentally/appointments/{appt.id}/recovery", headers=headers)
     assert r.status_code == 200
     job_id = r.json()["job_id"]
     task_id = r.json()["task_id"]
@@ -79,7 +79,7 @@ def test_enqueue_recovery_and_poll_status(app_client, monkeypatch):
 def test_telnyx_callback_updates_states(app_client):
     from datetime import datetime, timezone
     from app.core.database import get_sessionmaker
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.models.organisation import Organisation
     from app.models.user import User
     from app.models.membership import OrganisationMembership
@@ -141,7 +141,7 @@ def test_telnyx_callback_updates_states(app_client):
 def test_telnyx_out_of_order_callback_does_not_regress(app_client):
     from datetime import datetime, timezone
     from app.core.database import get_sessionmaker
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.models.organisation import Organisation
     from app.models.user import User
     from app.models.membership import OrganisationMembership
@@ -210,7 +210,7 @@ def test_recovery_state_transitions_are_safe(app_client):
     from datetime import datetime, timezone
 
     from app.core.database import get_sessionmaker
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.services.recovery_service import RecoveryStateMachine
 
     with get_sessionmaker()() as db:

@@ -12,9 +12,30 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
     "recovery": False,
     "follow_up": False,
     "campaigns": False,
+    "appointments": False,
 }
 
 SERVICE_KEYS = tuple(DEFAULT_ENABLED_SERVICES.keys())
+
+SERVICE_LABELS: dict[str, str] = {
+    "interview": "Interviews",
+    "survey": "Surveys",
+    "customer_feedback": "Customer feedback",
+    "appointments": "Appointments",
+    "recovery": "Recovery",
+    "follow_up": "Follow up",
+    "campaigns": "Broadcast campaigns",
+}
+
+SERVICE_ADMIN_ICONS: dict[str, str] = {
+    "interview": "ti-phone",
+    "survey": "ti-clipboard",
+    "customer_feedback": "ti-message-circle",
+    "appointments": "ti-calendar",
+    "recovery": "ti-heart",
+    "follow_up": "ti-bell",
+    "campaigns": "ti-megaphone",
+}
 
 # Brand asset keys under voxbulk-api/logos/ (served at /public/brand/{key})
 DASHBOARD_SERVICE_ICONS: dict[str, str] = {
@@ -24,6 +45,7 @@ DASHBOARD_SERVICE_ICONS: dict[str, str] = {
     "recovery": "icon-black",
     "follow_up": "icon-black",
     "campaigns": "icon-dark",
+    "appointments": "icon-black",
 }
 
 
@@ -137,6 +159,19 @@ def merge_user_enabled_services(
     return merged
 
 
+def apply_admin_org_service_grants(
+    current_enabled: dict[str, bool],
+    grants: dict[str, Any],
+) -> tuple[dict[str, bool], dict[str, bool]]:
+    """Replace org allowed grants from admin UI (full matrix). Clamp user enabled to match."""
+    allowed = {key: bool(grants.get(key)) for key in SERVICE_KEYS}
+    validate_at_least_one_enabled(allowed)
+    enabled = clamp_enabled_to_allowed(allowed, current_enabled)
+    if not any_service_enabled(effective_services(allowed, enabled)):
+        enabled = {key: bool(allowed.get(key)) for key in SERVICE_KEYS}
+    return allowed, enabled
+
+
 def merge_admin_allowed_services(
     current_allowed: dict[str, bool],
     current_enabled: dict[str, bool],
@@ -168,6 +203,9 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
         "follow-up": "follow_up",
         "followup": "follow_up",
         "campaigns": "campaigns",
+        "appointments": "appointments",
+        "appointment": "appointments",
+        "appointment_manager": "appointments",
     }
     return mapping.get(code)
 
@@ -193,3 +231,37 @@ def org_service_maps(org, db=None) -> tuple[dict[str, bool], dict[str, bool], di
 def org_uses_platform_default_allowed(org) -> bool:
     raw = getattr(org, "allowed_services_json", None)
     return raw is None or not str(raw).strip()
+
+
+def customer_service_status(*, allowed: bool, enabled: bool, visible: bool) -> str:
+    if not allowed:
+        return "Not granted"
+    if visible:
+        return "Visible in app"
+    if enabled:
+        return "Visible in app"
+    return "Available in Settings"
+
+
+def build_service_breakdown(
+    allowed: dict[str, bool],
+    enabled: dict[str, bool],
+    visible: dict[str, bool],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in SERVICE_KEYS:
+        a = bool(allowed.get(key))
+        e = bool(enabled.get(key))
+        v = bool(visible.get(key))
+        rows.append(
+            {
+                "key": key,
+                "label": SERVICE_LABELS.get(key, key.replace("_", " ").title()),
+                "icon": SERVICE_ADMIN_ICONS.get(key, "ti-circle-dot"),
+                "allowed": a,
+                "enabled": e,
+                "visible": v,
+                "customer_status": customer_service_status(allowed=a, enabled=e, visible=v),
+            }
+        )
+    return rows

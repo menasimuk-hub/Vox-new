@@ -75,6 +75,7 @@ import PricingCustomOrg from './pages/pricing/PricingCustomOrg'
 import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
+import RunningAppointments from './pages/RunningAppointments'
 import ScriptModeration from './pages/ScriptModeration'
 import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
 import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustriesList'
@@ -143,6 +144,7 @@ export default function App() {
         <Route path='/operations/running-surveys' element={<RunningSurveys />} />
         <Route path='/operations/wa-survey-insights' element={<WaSurveyInsights />} />
         <Route path='/operations/running-interviews' element={<RunningInterviews />} />
+        <Route path='/operations/running-appointments' element={<RunningAppointments />} />
         <Route path='/operations/script-moderation' element={<ScriptModeration />} />
         <Route path='/operations/call-queue' element={<OperationsQueue title='Call queue' />} />
         <Route path='/operations/whatsapp-queue' element={<OperationsQueue title='WhatsApp queue' />} />

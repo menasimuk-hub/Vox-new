@@ -18,6 +18,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    cols = {c["name"] for c in insp.get_columns("users")}
+    if "is_superuser" in cols:
+        return
     op.add_column("users", sa.Column("is_superuser", sa.Boolean(), nullable=False, server_default=sa.text("0")))
     op.alter_column("users", "is_superuser", server_default=None)
 

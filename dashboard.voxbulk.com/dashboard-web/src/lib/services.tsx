@@ -5,12 +5,13 @@ import { apiFetch } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import type { ApiEnabledServices, Organisation } from "@/lib/types/api";
 
-export type ServiceKey = "interviews" | "surveys" | "feedback" | "recovery" | "followup" | "campaigns";
+export type ServiceKey = "interviews" | "surveys" | "feedback" | "appointments" | "recovery" | "followup" | "campaigns";
 
 const DEFAULT: Record<ServiceKey, boolean> = {
   interviews: true,
   surveys: true,
   feedback: false,
+  appointments: false,
   recovery: false,
   followup: false,
   campaigns: false,
@@ -23,6 +24,7 @@ function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
     feedback: Boolean(raw.customer_feedback),
+    appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
     campaigns: Boolean(raw.campaigns),
@@ -41,6 +43,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     interviews: "interview" in raw ? Boolean(raw.interview) : true,
     surveys: "survey" in raw ? Boolean(raw.survey) : true,
     feedback: Boolean(raw.customer_feedback),
+    appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
     campaigns: Boolean(raw.campaigns),
@@ -57,6 +60,7 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
     interview: state.interviews,
     survey: state.surveys,
     customer_feedback: state.feedback,
+    appointments: state.appointments,
     recovery: showRecoveryModules ? state.recovery : false,
     follow_up: showRecoveryModules ? state.followup : false,
     campaigns: state.campaigns,
@@ -68,6 +72,7 @@ function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<Servi
     interviews: allowed.interviews && enabled.interviews,
     surveys: allowed.surveys && enabled.surveys,
     feedback: allowed.feedback && enabled.feedback,
+    appointments: allowed.appointments && enabled.appointments,
     recovery: allowed.recovery && enabled.recovery,
     followup: allowed.followup && enabled.followup,
     campaigns: allowed.campaigns && enabled.campaigns,
@@ -98,21 +103,25 @@ const ServicesCtx = React.createContext<Ctx>({
 
 export function ServicesProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [allowed, setAllowed] = React.useState<Record<ServiceKey, boolean>>(DEFAULT);
-  const [enabled, setEnabled] = React.useState<Record<ServiceKey, boolean>>(DEFAULT);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const orgQ = useQuery({
     queryKey: ["organisations", "me"],
     queryFn: () => apiFetch<Organisation>("/organisations/me"),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
-  React.useEffect(() => {
-    if (!orgQ.isSuccess || !orgQ.data) return;
-    setAllowed(fromAllowedApi(orgQ.data.allowed_services));
-    setEnabled(fromEnabledApi(orgQ.data.enabled_services));
-  }, [orgQ.data, orgQ.isSuccess]);
+  const allowed = React.useMemo(
+    () => (orgQ.isSuccess && orgQ.data ? fromAllowedApi(orgQ.data.allowed_services) : { ...DEFAULT }),
+    [orgQ.data, orgQ.isSuccess],
+  );
+  const enabled = React.useMemo(
+    () => (orgQ.isSuccess && orgQ.data ? fromEnabledApi(orgQ.data.enabled_services) : { ...DEFAULT }),
+    [orgQ.data, orgQ.isSuccess],
+  );
 
   const visible = React.useMemo(() => visibleFrom(allowed, enabled), [allowed, enabled]);
 
@@ -127,8 +136,15 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
         method: "PATCH",
         body: JSON.stringify(toApi(next)),
       });
-      setAllowed(fromAllowedApi(result.allowed_services ?? orgQ.data?.allowed_services));
-      setEnabled(fromEnabledApi(result.enabled_services));
+      queryClient.setQueryData<Organisation>(["organisations", "me"], (prev) =>
+        prev
+          ? {
+              ...prev,
+              allowed_services: result.allowed_services ?? prev.allowed_services,
+              enabled_services: result.enabled_services,
+            }
+          : prev,
+      );
       await queryClient.invalidateQueries({ queryKey: ["organisations", "me"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard", "home-summary"] });
     } catch (e) {
@@ -153,7 +169,6 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
       setError(msg);
       throw new Error(msg);
     }
-    setEnabled(next);
     await saveEnabled(next);
   };
 

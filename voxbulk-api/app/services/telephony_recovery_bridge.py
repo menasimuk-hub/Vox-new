@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.recovery_job import RecoveryJob
 from app.services.recovery_service import RecoveryStateMachine
 
@@ -33,7 +33,7 @@ def apply_call_status_to_recovery(
         return None
 
     appt = db.execute(
-        select(Appointment).where(Appointment.id == job.appointment_id, Appointment.org_id == job.org_id)
+        select(DentallyAppointment).where(DentallyAppointment.id == job.dentally_appointment_id, DentallyAppointment.org_id == job.org_id)
     ).scalar_one()
 
     desired_appt_state, desired_job_state, terminal_error = _map_call_status(call_status)

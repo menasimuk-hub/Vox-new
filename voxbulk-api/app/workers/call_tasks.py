@@ -7,7 +7,7 @@ from app.core.database import get_sessionmaker
 from sqlalchemy import select
 
 from app.models.recovery_job import RecoveryJob
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.call_log import CallLog
 from app.models.whatsapp_log import WhatsAppLog
 from app.workers.celery_app import celery_app
@@ -32,7 +32,7 @@ def process_recovery_job(*, job_id: str) -> dict:
         telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
         job = db.execute(select(RecoveryJob).where(RecoveryJob.id == job_id)).scalar_one()
         appt = db.execute(
-            select(Appointment).where(Appointment.id == job.appointment_id, Appointment.org_id == job.org_id)
+            select(DentallyAppointment).where(DentallyAppointment.id == job.dentally_appointment_id, DentallyAppointment.org_id == job.org_id)
         ).scalar_one()
 
         if appt.recovery_state in RecoveryStateMachine.TERMINAL:
@@ -83,7 +83,7 @@ def process_recovery_job(*, job_id: str) -> dict:
                 config={**config, "api_key": config.get("api_key")},
                 client_state={
                     "org_id": job.org_id,
-                    "appointment_id": job.appointment_id,
+                    "appointment_id": job.dentally_appointment_id,
                     "patient_id": appt.patient_id,
                     "recovery_job_id": job.id,
                 },
@@ -96,7 +96,7 @@ def process_recovery_job(*, job_id: str) -> dict:
                 db.add(
                     CallLog(
                         org_id=job.org_id,
-                        appointment_id=job.appointment_id,
+                        dentally_appointment_id=job.dentally_appointment_id,
                         patient_id=appt.patient_id,
                         provider="telnyx",
                         external_call_id=res.external_id,
@@ -123,7 +123,7 @@ def process_recovery_job(*, job_id: str) -> dict:
                     db.add(
                         WhatsAppLog(
                             org_id=job.org_id,
-                            appointment_id=job.appointment_id,
+                            dentally_appointment_id=job.dentally_appointment_id,
                             patient_id=appt.patient_id,
                             provider="telnyx",
                             external_message_id=wa.external_id,
@@ -147,6 +147,6 @@ def process_recovery_job(*, job_id: str) -> dict:
 
         logger.info(
             "recovery_finished",
-            extra={"org_id": job.org_id, "appointment_id": job.appointment_id, "job_id": job.id, "state": job.state},
+            extra={"org_id": job.org_id, "appointment_id": job.dentally_appointment_id, "job_id": job.id, "state": job.state},
         )
         return {"status": job.state, "job_id": job.id}

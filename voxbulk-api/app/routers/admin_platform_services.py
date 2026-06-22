@@ -135,6 +135,34 @@ def admin_interviews_overview(db: Session = Depends(get_db), _admin=Depends(requ
     return ServiceOrderService.interview_operations_overview(db)
 
 
+@router.get("/appointments/overview")
+def admin_appointments_overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.appointment_admin_service import operations_overview
+
+    return operations_overview(db)
+
+
+@router.get("/appointments/organisations")
+def admin_appointments_organisations(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.appointment_admin_service import list_organisations
+
+    return {"organisations": list_organisations(db)}
+
+
+@router.get("/appointments/organisations/{org_id}")
+def admin_appointments_org_detail(
+    org_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.appointment_admin_service import organisation_detail
+
+    detail = organisation_detail(db, org_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    return detail
+
+
 @router.get("/orders/{order_id}/audit")
 def admin_order_audit(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     order = ServiceOrderService.get_order(db, order_id)

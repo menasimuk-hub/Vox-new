@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class AppointmentCreate(BaseModel):
+class DentallyAppointmentCreate(BaseModel):
     branch_id: str | None = None
     patient_id: str | None = None
     scheduled_start: datetime
@@ -15,7 +15,7 @@ class AppointmentCreate(BaseModel):
     treatment_label: str | None = None
 
 
-class AppointmentOut(BaseModel):
+class DentallyAppointmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -30,7 +30,7 @@ class AppointmentOut(BaseModel):
     created_at: datetime
 
 
-class AppointmentUpdate(BaseModel):
+class DentallyAppointmentUpdate(BaseModel):
     branch_id: str | None = None
     patient_id: str | None = None
     scheduled_start: datetime | None = None
@@ -38,4 +38,3 @@ class AppointmentUpdate(BaseModel):
     status: str | None = None
     value_gbp_pence: int | None = None
     treatment_label: str | None = None
-

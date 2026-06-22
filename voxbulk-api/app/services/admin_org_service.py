@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.membership import OrganisationMembership
 from app.models.category import Category
@@ -90,7 +90,7 @@ class AdminOrganisationService:
 
         branch_counts = _count_by(Branch, Branch.org_id)
         patient_counts = _count_by(Patient, Patient.org_id)
-        appt_counts = _count_by(Appointment, Appointment.org_id)
+        appt_counts = _count_by(DentallyAppointment, DentallyAppointment.org_id)
         job_counts = _count_by(RecoveryJob, RecoveryJob.org_id)
 
         # Users count is via membership table.
@@ -165,7 +165,7 @@ class AdminOrganisationService:
 
         branch_count = db.execute(select(func.count()).select_from(Branch).where(Branch.org_id == org_id)).scalar_one()
         patient_count = db.execute(select(func.count()).select_from(Patient).where(Patient.org_id == org_id)).scalar_one()
-        appointment_count = db.execute(select(func.count()).select_from(Appointment).where(Appointment.org_id == org_id)).scalar_one()
+        appointment_count = db.execute(select(func.count()).select_from(DentallyAppointment).where(DentallyAppointment.org_id == org_id)).scalar_one()
         recovery_job_count = db.execute(select(func.count()).select_from(RecoveryJob).where(RecoveryJob.org_id == org_id)).scalar_one()
 
         user_count = db.execute(

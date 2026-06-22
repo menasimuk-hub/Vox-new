@@ -136,7 +136,7 @@ const NAV = [
 
       ['Add customer', '/onboarding/add-customer'],
 
-      ['Customer services', '/onboarding/services'],
+      ['Dashboard modules', '/onboarding/services'],
 
     ],
 
@@ -199,6 +199,18 @@ const NAV = [
       ['Industries', '/settings/wa-survey/industries'],
 
       ['Flow simulator', '/settings/wa-survey/simulator'],
+
+    ],
+
+  ],
+
+  [
+
+    'Appointments',
+
+    [
+
+      ['Running appointments', '/operations/running-appointments'],
 
     ],
 

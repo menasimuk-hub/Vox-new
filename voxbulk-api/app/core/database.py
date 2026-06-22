@@ -250,11 +250,21 @@ def run_database_migrations() -> None:
     try:
         from alembic import command
         from alembic.config import Config
+        from alembic.runtime.migration import MigrationContext
+        from alembic.script import ScriptDirectory
 
-        cfg = Config(str(alembic_ini))
-        cfg.set_main_option("sqlalchemy.url", settings.database_url)
-        command.upgrade(cfg, "head")
-        logger.info("database_migrations_applied")
+        engine = get_engine()
+        script = ScriptDirectory.from_config(Config(str(alembic_ini)))
+        head = script.get_current_head()
+        with engine.connect() as conn:
+            current = MigrationContext.configure(conn).get_current_revision()
+        if head and current == head:
+            logger.info("database_migrations_skip already_at_head revision=%s", head)
+        else:
+            cfg = Config(str(alembic_ini))
+            cfg.set_main_option("sqlalchemy.url", settings.database_url)
+            command.upgrade(cfg, "head")
+            logger.info("database_migrations_applied")
     except Exception as exc:
         logger.exception("database_migrations_failed: %s", exc)
     try:

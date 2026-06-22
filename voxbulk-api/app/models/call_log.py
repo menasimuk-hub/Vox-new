@@ -15,7 +15,12 @@ class CallLog(Base):
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
 
-    appointment_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("appointments.id"), nullable=True, index=True)
+    dentally_appointment_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("dentally_appointments.id"), nullable=True, index=True
+    )
+    appointment_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("appointments.id"), nullable=True, index=True
+    )
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patients.id"), nullable=True, index=True)
 
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default="twilio")

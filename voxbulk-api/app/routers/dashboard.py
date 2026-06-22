@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.call_log import CallLog
 from app.models.patient import Patient
 from app.models.whatsapp_log import WhatsAppLog
@@ -25,7 +25,7 @@ def metrics(db: Session = Depends(get_db), principal=Depends(get_current_princip
 
     total_patients = db.execute(select(func.count()).select_from(Patient).where(Patient.org_id == org_id)).scalar_one()
     total_appointments = db.execute(
-        select(func.count()).select_from(Appointment).where(Appointment.org_id == org_id)
+        select(func.count()).select_from(DentallyAppointment).where(DentallyAppointment.org_id == org_id)
     ).scalar_one()
     total_call_logs = db.execute(select(func.count()).select_from(CallLog).where(CallLog.org_id == org_id)).scalar_one()
     total_whatsapp_logs = db.execute(
@@ -33,7 +33,7 @@ def metrics(db: Session = Depends(get_db), principal=Depends(get_current_princip
     ).scalar_one()
 
     rows = db.execute(
-        select(Appointment.status, func.count()).where(Appointment.org_id == org_id).group_by(Appointment.status)
+        select(DentallyAppointment.status, func.count()).where(DentallyAppointment.org_id == org_id).group_by(DentallyAppointment.status)
     ).all()
     status_counts = {str(status): int(count) for status, count in rows}
 
@@ -123,9 +123,9 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
         select(func.count()).select_from(Patient).where(Patient.org_id == principal.org_id)
     ).scalar_one()
     status_rows = db.execute(
-        select(Appointment.status, func.count())
-        .where(Appointment.org_id == principal.org_id)
-        .group_by(Appointment.status)
+        select(DentallyAppointment.status, func.count())
+        .where(DentallyAppointment.org_id == principal.org_id)
+        .group_by(DentallyAppointment.status)
     ).all()
     queue_pending = sum(
         int(c)

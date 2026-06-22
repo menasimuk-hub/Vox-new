@@ -625,6 +625,20 @@ class TelnyxInboundMessagingService:
                 except Exception:
                     logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
 
+            handled_appointment = False
+            if not handled_feedback and not handled_survey:
+                try:
+                    from app.services.appointment_wa_inbound_service import try_handle_inbound as try_handle_appointment_inbound
+
+                    handled_appointment = try_handle_appointment_inbound(
+                        db,
+                        from_norm or from_number or "",
+                        inbound_text,
+                        org_id,
+                    )
+                except Exception:
+                    logger.exception("appointment_wa_inbound_handler_failed from=%r", from_norm or from_number)
+
             if not handled_survey:
                 from app.services.survey_whatsapp_conversation_service import (
                     find_awaiting_welcome_recipient,

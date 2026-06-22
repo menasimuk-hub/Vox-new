@@ -51,12 +51,12 @@ def test_tenant_isolation_patient_and_appointment(app_client):
 
     # Org1 creates appointment for its patient
     a1 = app_client.post(
-        "/appointments",
+        "/dentally/appointments",
         json={"scheduled_start": "2026-05-05T10:00:00Z", "patient_id": p1["id"]},
         headers=h1,
     ).json()
 
     # Org2 cannot access Org1 appointment
-    r2 = app_client.get(f"/appointments/{a1['id']}", headers=h2)
+    r2 = app_client.get(f"/dentally/appointments/{a1['id']}", headers=h2)
     assert r2.status_code == 404
 

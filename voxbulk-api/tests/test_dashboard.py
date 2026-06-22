@@ -4,7 +4,7 @@ from app.core.security import hash_password
 def _seed(db):
     from datetime import datetime, timezone
 
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.models.call_log import CallLog
     from app.models.membership import OrganisationMembership
     from app.models.organisation import Organisation

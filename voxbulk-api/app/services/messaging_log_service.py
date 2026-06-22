@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.call_log import CallLog
 from app.models.patient import Patient
@@ -33,7 +33,7 @@ class LogService:
     ) -> None:
         if appointment_id:
             ok = db.execute(
-                select(Appointment.id).where(Appointment.id == appointment_id, Appointment.org_id == org_id)
+                select(DentallyAppointment.id).where(DentallyAppointment.id == appointment_id, DentallyAppointment.org_id == org_id)
             ).scalar_one_or_none()
             if ok is None:
                 raise ValueError("Invalid appointment_id for tenant")
@@ -50,11 +50,11 @@ class LogService:
                 Patient.first_name,
                 Patient.last_name,
                 Branch.name,
-                Appointment.scheduled_start,
+                DentallyAppointment.scheduled_start,
             )
             .outerjoin(Patient, Patient.id == CallLog.patient_id)
-            .outerjoin(Appointment, Appointment.id == CallLog.appointment_id)
-            .outerjoin(Branch, Branch.id == Appointment.branch_id)
+            .outerjoin(DentallyAppointment, DentallyAppointment.id == CallLog.dentally_appointment_id)
+            .outerjoin(Branch, Branch.id == DentallyAppointment.branch_id)
             .where(CallLog.org_id == org_id)
             .order_by(CallLog.id.desc())
             .limit(200)
@@ -70,7 +70,7 @@ class LogService:
                     "id": log.id,
                     "org_id": log.org_id,
                     "user_id": log.user_id,
-                    "appointment_id": log.appointment_id,
+                    "appointment_id": log.dentally_appointment_id,
                     "patient_id": log.patient_id,
                     "patient_name": patient_name,
                     "branch_name": branch_name,
@@ -119,11 +119,11 @@ class LogService:
                 Patient.first_name,
                 Patient.last_name,
                 Branch.name,
-                Appointment.scheduled_start,
+                DentallyAppointment.scheduled_start,
             )
             .outerjoin(Patient, Patient.id == WhatsAppLog.patient_id)
-            .outerjoin(Appointment, Appointment.id == WhatsAppLog.appointment_id)
-            .outerjoin(Branch, Branch.id == Appointment.branch_id)
+            .outerjoin(DentallyAppointment, DentallyAppointment.id == WhatsAppLog.dentally_appointment_id)
+            .outerjoin(Branch, Branch.id == DentallyAppointment.branch_id)
             .where(WhatsAppLog.org_id == org_id)
             .order_by(WhatsAppLog.id.desc())
             .limit(200)
@@ -138,7 +138,7 @@ class LogService:
                 {
                     "id": log.id,
                     "org_id": log.org_id,
-                    "appointment_id": log.appointment_id,
+                    "appointment_id": log.dentally_appointment_id,
                     "patient_id": log.patient_id,
                     "patient_name": patient_name,
                     "branch_name": branch_name,

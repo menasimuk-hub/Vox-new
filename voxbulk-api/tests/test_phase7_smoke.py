@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation

@@ -21,3 +21,15 @@ export async function requireEnabledService(service: ServiceKey) {
     throw redirect({ to: "/" });
   }
 }
+
+/** Appointments module — includes reminder sequences (legacy follow_up compat). */
+export async function requireAppointmentsModule() {
+  await requireCampaignAccess();
+  const org = await apiFetch<Organisation>("/organisations/me");
+  const allowed = fromAllowedApi(org.allowed_services);
+  const enabled = fromEnabledApi(org.enabled_services);
+  const visible = visibleFrom(allowed, enabled);
+  if (!visible.appointments && !(showRecoveryModules && visible.followup)) {
+    throw redirect({ to: "/" });
+  }
+}

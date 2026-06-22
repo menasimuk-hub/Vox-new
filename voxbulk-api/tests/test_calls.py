@@ -34,7 +34,7 @@ def test_branches_and_appointments_and_logs(app_client):
     branch_id = b.json()["id"]
 
     a = app_client.post(
-        "/appointments",
+        "/dentally/appointments",
         json={
             "scheduled_start": "2026-05-05T10:00:00Z",
             "branch_id": branch_id,
@@ -49,7 +49,7 @@ def test_branches_and_appointments_and_logs(app_client):
     assert a.json()["treatment_label"] == "Hygiene"
 
     # update treatment_label
-    u = app_client.patch(f"/appointments/{appointment_id}", json={"treatment_label": "Check-up"}, headers=headers)
+    u = app_client.patch(f"/dentally/appointments/{appointment_id}", json={"treatment_label": "Check-up"}, headers=headers)
     assert u.status_code == 200
     assert u.json()["treatment_label"] == "Check-up"
 
@@ -69,7 +69,7 @@ def test_branches_and_appointments_and_logs(app_client):
     assert g2.status_code == 200
 
     # recovery jobs list includes treatment_label once job exists
-    rj = app_client.post(f"/appointments/{appointment_id}/recovery", headers=headers)
+    rj = app_client.post(f"/dentally/appointments/{appointment_id}/recovery", headers=headers)
     assert rj.status_code == 200
     jobs = app_client.get("/calls/recovery/jobs", headers=headers)
     assert jobs.status_code == 200

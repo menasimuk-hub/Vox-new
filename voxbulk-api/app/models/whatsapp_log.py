@@ -14,7 +14,9 @@ class WhatsAppLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
 
-    appointment_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("appointments.id"), nullable=True, index=True)
+    dentally_appointment_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("dentally_appointments.id"), nullable=True, index=True
+    )
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patients.id"), nullable=True, index=True)
 
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default="twilio")

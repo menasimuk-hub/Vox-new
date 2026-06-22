@@ -38,7 +38,7 @@ from app.models.user import User
 from app.models.billing_invoice import BillingInvoice
 from app.models.payment_event import PaymentEvent
 from app.models.webhook_event import WebhookEvent
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.category import Category
 from app.services.admin_billing_service import AdminBillingService
 from app.services.admin_ops_service import AdminOperationsService
@@ -2384,13 +2384,13 @@ def admin_get_org_allowed_services(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    from app.services.org_enabled_services import org_service_maps
+    from app.services.org_enabled_services import build_service_breakdown, org_service_maps, org_uses_platform_default_allowed
+    from app.services.platform_services_settings_service import get_platform_default_allowed
 
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     allowed, enabled, visible = org_service_maps(org, db)
-    from app.services.org_enabled_services import org_uses_platform_default_allowed
 
     return {
         "org_id": org.id,
@@ -2399,6 +2399,8 @@ def admin_get_org_allowed_services(
         "enabled_services": enabled,
         "visible_services": visible,
         "uses_platform_default_allowed": org_uses_platform_default_allowed(org),
+        "platform_default_allowed": get_platform_default_allowed(db),
+        "service_breakdown": build_service_breakdown(allowed, enabled, visible),
     }
 
 
@@ -2421,12 +2423,14 @@ def admin_patch_org_allowed_services(
 ):
     from app.services.org_enabled_services import (
         AtLeastOneServiceRequiredError,
+        build_service_breakdown,
         merge_admin_allowed_services,
         org_service_maps,
         org_uses_platform_default_allowed,
         serialize_allowed_services,
         serialize_enabled_services,
     )
+    from app.services.platform_services_settings_service import get_platform_default_allowed
 
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
@@ -2448,6 +2452,8 @@ def admin_patch_org_allowed_services(
         "enabled_services": enabled,
         "visible_services": visible,
         "uses_platform_default_allowed": org_uses_platform_default_allowed(org),
+        "platform_default_allowed": get_platform_default_allowed(db),
+        "service_breakdown": build_service_breakdown(allowed, enabled, visible),
     }
 
 
@@ -3550,7 +3556,7 @@ def _recovery_job_out(job: RecoveryJob) -> dict:
     return {
         "id": job.id,
         "org_id": job.org_id,
-        "appointment_id": job.appointment_id,
+        "appointment_id": job.dentally_appointment_id,
         "state": job.state,
         "attempts": job.attempts,
         "provider": job.provider,
@@ -3589,7 +3595,7 @@ def admin_retry_recovery_job(job_id: str, db: Session = Depends(get_db), _admin=
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery job not found")
 
-    appt = db.execute(select(Appointment).where(Appointment.id == job.appointment_id, Appointment.org_id == job.org_id)).scalar_one_or_none()
+    appt = db.execute(select(DentallyAppointment).where(DentallyAppointment.id == job.dentally_appointment_id, DentallyAppointment.org_id == job.org_id)).scalar_one_or_none()
     if appt is not None:
         appt.recovery_state = "queued"
         appt.recovery_last_error = None

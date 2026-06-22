@@ -109,8 +109,10 @@ def bulk_patch_org_allowed_services(
             _, enabled, _ = org_service_maps(org, db)
             org.enabled_services_json = serialize_enabled_services(enabled)
         elif services_patch:
-            allowed, enabled, _ = org_service_maps(org, db)
-            allowed, enabled = merge_admin_allowed_services(allowed, enabled, services_patch)
+            _, enabled, _ = org_service_maps(org, db)
+            from app.services.org_enabled_services import apply_admin_org_service_grants
+
+            allowed, enabled = apply_admin_org_service_grants(enabled, services_patch)
             org.allowed_services_json = serialize_allowed_services(allowed)
             org.enabled_services_json = serialize_enabled_services(enabled)
         else:

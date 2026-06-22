@@ -40,7 +40,7 @@ def test_dentally_sync_idempotent_and_tenant_safe(app_client, monkeypatch):
     from app.models.organisation import Organisation
     from app.models.branch import Branch
     from app.models.patient import Patient
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from sqlalchemy import func, select
 
     with get_sessionmaker()() as db:
@@ -61,8 +61,8 @@ def test_dentally_sync_idempotent_and_tenant_safe(app_client, monkeypatch):
     with get_sessionmaker()() as db:
         assert db.execute(select(func.count()).select_from(Branch)).scalar_one() == 1
         assert db.execute(select(func.count()).select_from(Patient)).scalar_one() == 1
-        assert db.execute(select(func.count()).select_from(Appointment)).scalar_one() == 1
-        appt = db.execute(select(Appointment).limit(1)).scalar_one()
+        assert db.execute(select(func.count()).select_from(DentallyAppointment)).scalar_one() == 1
+        appt = db.execute(select(DentallyAppointment).limit(1)).scalar_one()
         assert appt.treatment_label == "Hygiene appointment"
 
     # tenant-safe: syncing for a second org creates separate rows
@@ -98,7 +98,7 @@ def test_multichannel_fallback_to_whatsapp(app_client, monkeypatch):
     from app.models.user import User
     from app.models.membership import OrganisationMembership
     from app.models.patient import Patient
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from datetime import datetime, timezone
     from app.core.security import hash_password
 
@@ -131,7 +131,7 @@ def test_multichannel_fallback_to_whatsapp(app_client, monkeypatch):
         db.commit()
 
     tok = app_client.post("/auth/token", data={"username": "mc@example.com", "password": "pass123", "org_id": org.id}).json()["access_token"]
-    r = app_client.post(f"/appointments/{appt.id}/recovery", headers={"Authorization": f"Bearer {tok}"})
+    r = app_client.post(f"/dentally/appointments/{appt.id}/recovery", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
     job_id = r.json()["job_id"]
 

@@ -322,6 +322,11 @@ export default function ProductsHub() {
                               </>
                             ) : (
                               <>
+                                {row.code === 'appointments' ? (
+                                  <Link className="btn soft" to="/operations/running-appointments">
+                                    Manage customers
+                                  </Link>
+                                ) : null}
                                 <Link className="btn soft" to="/pricing/services">
                                   Edit pricing
                                 </Link>

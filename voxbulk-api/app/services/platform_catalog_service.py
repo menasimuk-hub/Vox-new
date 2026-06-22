@@ -45,6 +45,13 @@ class PlatformCatalogService:
             "service_kind": "addon",
             "sort_order": 25,
         },
+        {
+            "code": "appointments",
+            "name": "Appointment Manager",
+            "description": "CRM-synced appointments with WhatsApp and AI call confirmation.",
+            "service_kind": "order",
+            "sort_order": 30,
+        },
     ]
 
     @staticmethod

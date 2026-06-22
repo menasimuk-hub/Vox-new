@@ -23,7 +23,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import { useConnections } from "@/lib/connections";
-import { useHomeSummary, useServiceOrders } from "@/lib/queries";
+import { useBillingUsage, useHomeSummary, useServiceOrders } from "@/lib/queries";
+import type { UsageSummary } from "@/lib/types/api";
 import { orderToCampaign } from "@/lib/mappers/orders";
 import { useSession } from "@/lib/session";
 import type { HomeSummary } from "@/lib/types/api";
@@ -44,6 +45,7 @@ function Dashboard() {
   const { session } = useSession();
   const [pickOpen, setPickOpen] = React.useState(false);
   const summaryQ = useHomeSummary();
+  const usageQ = useBillingUsage();
   const interviewOrdersQ = useServiceOrders("interview");
   const summary = summaryQ.data;
   const greetingName = session?.org?.name?.split(/\s+/)[0] || session?.profile?.email?.split("@")[0] || "there";
@@ -97,7 +99,9 @@ function Dashboard() {
       )}
 
       {anyService && summaryReady && <LiveStrip visible={visible} summary={summary} />}
-      {anyService && summaryReady && <HeroRow visible={visible} summary={summary} />}
+      {anyService && summaryReady && (
+        <HeroRow visible={visible} summary={summary} usage={usageQ.data} usageLoading={usageQ.isLoading} />
+      )}
 
       {(anyResponseService || visible.interviews) && summaryReady && (
         <div className="grid gap-4 lg:grid-cols-3">
@@ -147,18 +151,18 @@ function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSu
   if (items.length === 0) return null;
 
   return (
-    <div className={cn("grid gap-2 rounded-2xl border border-border bg-card/60 p-2 sm:grid-cols-2", items.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-2")}>
+    <div className="flex flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-border bg-card/60 p-2">
       {items.map((i) => (
-        <div key={i.label} className="flex items-center gap-3 rounded-xl bg-background/50 px-3 py-2">
-          <span className="relative grid size-9 place-items-center rounded-lg bg-muted">
+        <div key={i.label} className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-background/50 px-2.5 py-2 sm:gap-3 sm:px-3">
+          <span className="relative grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
             <i.icon className={cn("size-4", i.tone)} />
             <span className="absolute -right-0.5 -top-0.5 flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
               <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
             </span>
           </span>
-          <div className="min-w-0">
-            <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{i.label}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate whitespace-nowrap text-[10px] uppercase tracking-wider text-muted-foreground">{i.label}</p>
             <p className="text-lg font-semibold tabular-nums leading-tight">{i.value}</p>
           </div>
         </div>
@@ -167,7 +171,17 @@ function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSu
   );
 }
 
-function HeroRow({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
+function HeroRow({
+  visible,
+  summary,
+  usage,
+  usageLoading,
+}: {
+  visible: VisibleMap;
+  summary?: HomeSummary;
+  usage?: UsageSummary;
+  usageLoading?: boolean;
+}) {
   const int = summary?.interview;
   const sur = summary?.survey;
   const fb = summary?.feedback;
@@ -182,6 +196,24 @@ function HeroRow({ visible, summary }: { visible: VisibleMap; summary?: HomeSumm
 
   const unhappyCount = summary?.feedback?.unhappy?.length ?? 0;
   const liveCampaigns = (int?.live ?? 0) + (sur?.live ?? 0);
+  const monitor = usage?.billing_monitor;
+  const sharedPool = Boolean(monitor?.shared_package_pool);
+  const meters = usage?.meters || [];
+  const callsMeter = meters.find((m) => m.key === "calls");
+  const packageMeter = meters.find((m) => m.key === "package");
+  const primaryMeter = sharedPool && packageMeter ? packageMeter : callsMeter;
+  const used = Number(primaryMeter?.used ?? 0);
+  const included = Number(primaryMeter?.included ?? 0);
+  const unlimited = Boolean(primaryMeter?.unlimited);
+  const usagePct =
+    primaryMeter?.percent != null
+      ? Math.min(100, Math.round(Number(primaryMeter.percent)))
+      : included > 0
+        ? Math.min(100, Math.round((used / included) * 100))
+        : 0;
+  const usageUnit = sharedPool ? "package allowance" : "AI minutes";
+  const overageRisk = Boolean(monitor?.status?.overage_risk);
+  const usageBadge = overageRisk ? "watch usage" : "on track";
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
@@ -202,19 +234,38 @@ function HeroRow({ visible, summary }: { visible: VisibleMap; summary?: HomeSumm
       </div>
 
       <div className="rounded-2xl border border-border bg-card p-5">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Live campaigns</p>
-          <Badge variant="secondary" className="gap-1"><TrendingUp className="size-3" /> active</Badge>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">Usage this month</p>
+          <Badge variant="secondary" className="gap-1 shrink-0">
+            <TrendingUp className="size-3" /> {usageBadge}
+          </Badge>
         </div>
-        <p className="mt-1 text-2xl font-semibold tabular-nums">{liveCampaigns}</p>
-        <Progress value={liveCampaigns ? Math.min(liveCampaigns * 10, 100) : 0} className="mt-3 h-2" />
-        <div className="mt-4 grid grid-cols-1 gap-2 text-sm">
+        {usageLoading ? (
+          <Skeleton className="mt-3 h-9 w-48" />
+        ) : (
+          <p className="mt-1 text-2xl font-semibold tabular-nums">
+            {used.toLocaleString()}
+            {unlimited ? (
+              <span className="text-sm font-normal text-muted-foreground"> {usageUnit}</span>
+            ) : included > 0 ? (
+              <span className="text-sm font-normal text-muted-foreground">
+                {" "}of {included.toLocaleString()} {usageUnit}
+              </span>
+            ) : (
+              <span className="text-sm font-normal text-muted-foreground"> {usageUnit}</span>
+            )}
+          </p>
+        )}
+        <Progress value={usageLoading ? 0 : usagePct} className="mt-3 h-2" />
+        <div className={cn("mt-4 grid gap-2 text-sm", (visible.feedback && unhappyCount > 0) && (overageRisk || liveCampaigns > 0) ? "grid-cols-2" : "grid-cols-1")}>
           {visible.feedback && unhappyCount > 0 && (
             <HeroAlert tone="warning" icon={AlertTriangle} title={`${unhappyCount} need follow-up`} detail="Review unhappy feedback today" />
           )}
-          {liveCampaigns > 0 && (
+          {overageRisk ? (
+            <HeroAlert tone="warning" icon={AlertTriangle} title="Approaching allowance" detail="Check billing before launching more" />
+          ) : liveCampaigns > 0 ? (
             <HeroAlert tone="info" icon={Clock3} title={`${liveCampaigns} campaigns live`} detail="Running across your services" />
-          )}
+          ) : null}
         </div>
       </div>
     </div>

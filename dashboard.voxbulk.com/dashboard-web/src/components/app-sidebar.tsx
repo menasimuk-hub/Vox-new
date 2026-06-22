@@ -7,7 +7,7 @@ import {
   PhoneCall, FilePlus2, FolderOpen, BarChart3, FileBarChart,
   ClipboardList, MessageSquareText, ListChecks, FileText,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
-  CalendarClock, Repeat, QrCode, GitCompare,
+  CalendarClock, Repeat, QrCode, GitCompare, Sparkles,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
@@ -35,7 +35,14 @@ type Item = {
   icon: React.ComponentType<{ className?: string }>;
   isActive?: (path: string) => boolean;
 };
-type Group = { key: ServiceKey | "settings" | "account" | "workspace"; label: string; items: Item[] };
+type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "appointmentReports";
+type Group = {
+  key: GroupKey;
+  label: string;
+  items: Item[];
+  /** When set, sidebar visibility follows this service grant (not group key). */
+  visibleKey?: ServiceKey;
+};
 
 function normalizePath(value: string) {
   const trimmed = value.replace(/\/+$/, "");
@@ -88,15 +95,23 @@ const groups: Group[] = [
     { title: "My templates", url: "/campaigns", icon: ListChecks },
     { title: "Send campaign", url: "/campaigns/send", icon: Megaphone },
   ]},
+  { key: "appointments", label: "Appointments", items: [
+    { title: "Setup", url: "/appointments/setup", icon: Sparkles },
+    { title: "Appointment manager", url: "/appointments", icon: CalendarClock },
+    { title: "Reminder sequences", url: "/follow-up", icon: Repeat },
+  ]},
+  {
+    key: "appointmentReports",
+    label: "Reports",
+    visibleKey: "appointments",
+    items: [{ title: "Reports", url: "/appointments/reports", icon: FileBarChart }],
+  },
   { key: "recovery", label: "Recovery", items: [
     { title: "Recovery queue", url: "/recovery", icon: HeartPulse },
     { title: "No-show follow-up", url: "/recovery/no-show", icon: AlarmClockOff },
     { title: "Emergency reschedule", url: "/recovery/emergency", icon: Bell },
     { title: "Recall campaigns", url: "/recovery/recall", icon: Megaphone },
     { title: "Offer campaigns", url: "/recovery/offers", icon: Tag },
-  ]},
-  { key: "followup", label: "Follow up", items: [
-    { title: "Reminder sequences", url: "/follow-up", icon: Repeat },
   ]},
   { key: "settings", label: "Settings", items: [
     { title: "Profile settings", url: "/settings/profile", icon: User2 },
@@ -158,8 +173,10 @@ export function AppSidebar() {
       if (g.key === "account" && !canAccessBilling(role)) return false;
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
       if (!loaded) return false;
-      if (!showRecoveryModules && isRecoveryServiceKey(g.key)) return false;
-      return visible[g.key];
+      const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
+      if (!showRecoveryModules && isRecoveryServiceKey(visibilityKey)) return false;
+      if (g.key === "appointmentReports" || g.visibleKey) return visible[visibilityKey];
+      return visible[g.key as ServiceKey];
     });
 
   return (
@@ -304,10 +321,13 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
   );
 }
 
-function headIcon(key: Group["key"]) {
+function headIcon(key: GroupKey) {
   switch (key) {
     case "interviews": return PhoneCall;
     case "surveys": return ClipboardList;
+    case "feedback": return QrCode;
+    case "appointments": return CalendarClock;
+    case "appointmentReports": return FileBarChart;
     case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;
     case "followup": return CalendarClock;

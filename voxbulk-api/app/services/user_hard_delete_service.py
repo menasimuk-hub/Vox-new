@@ -14,7 +14,7 @@ from app.models.billing_refund_review import BillingRefundReview
 from app.models.call_log import CallLog
 from app.models.credit_note import CreditNote
 from app.models.agent_service_assignment import AgentServiceAssignment
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.customer_feedback import (
     FeedbackLocation,
@@ -263,7 +263,7 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
     db.execute(delete(FeedbackSession).where(FeedbackSession.org_id == org_id))
     db.execute(delete(FeedbackLocation).where(FeedbackLocation.org_id == org_id))
     db.execute(delete(WhatsAppLog).where(WhatsAppLog.org_id == org_id))
-    db.execute(delete(Appointment).where(Appointment.org_id == org_id))
+    db.execute(delete(DentallyAppointment).where(DentallyAppointment.org_id == org_id))
     db.execute(delete(Patient).where(Patient.org_id == org_id))
     db.execute(delete(CallLog).where(CallLog.org_id == org_id))
     db.execute(delete(RecoveryJob).where(RecoveryJob.org_id == org_id))

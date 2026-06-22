@@ -37,7 +37,7 @@ export default function CampaignsHub() {
         <div>
           <p className="eyebrow">Campaigns</p>
           <h1>Broadcast campaigns hub</h1>
-          <p className="muted">Preview module — enable per org under Onboarding → Customer services. Customer API coming soon.</p>
+          <p className="muted">Preview module — enable per org under Onboarding → Dashboard modules. Customer API coming soon.</p>
         </div>
       </div>
 
@@ -69,7 +69,7 @@ export default function CampaignsHub() {
           <h3><Megaphone size={18} style={{ verticalAlign: 'middle', marginRight: 8 }} />Quick links</h3>
         </div>
         <div className="cardBody" style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          <Link className="btn soft bsm" to="/onboarding/services">Org service toggles</Link>
+          <Link className="btn soft bsm" to="/onboarding/services">Dashboard modules</Link>
           <Link className="btn soft bsm" to="/campaigns/templates">Template library (stub)</Link>
           <Link className="btn soft bsm" to="/platform-services/surveys/wa-system-templates">WA system templates</Link>
         </div>

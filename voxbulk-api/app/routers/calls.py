@@ -12,7 +12,7 @@ from app.services.recovery_service import RecoveryJobService
 from app.workers.celery_app import celery_app
 from sqlalchemy import select
 from app.models.recovery_job import RecoveryJob
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.patient import Patient
 from app.models.branch import Branch
 
@@ -67,7 +67,7 @@ def get_recovery_job(job_id: str, db: Session = Depends(get_db), principal=Depen
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery job not found")
     return {
         "job_id": job.id,
-        "appointment_id": job.appointment_id,
+        "appointment_id": job.dentally_appointment_id,
         "state": job.state,
         "attempts": job.attempts,
         "last_error": job.last_error,
@@ -92,18 +92,18 @@ def list_recovery_jobs(db: Session = Depends(get_db), principal=Depends(get_curr
     rows = db.execute(
         select(
             RecoveryJob,
-            Appointment.id,
-            Appointment.scheduled_start,
-            Appointment.value_gbp_pence,
-            Appointment.treatment_label,
+            DentallyAppointment.id,
+            DentallyAppointment.scheduled_start,
+            DentallyAppointment.value_gbp_pence,
+            DentallyAppointment.treatment_label,
             Patient.id,
             Patient.first_name,
             Patient.last_name,
             Branch.name,
         )
-        .outerjoin(Appointment, Appointment.id == RecoveryJob.appointment_id)
-        .outerjoin(Patient, Patient.id == Appointment.patient_id)
-        .outerjoin(Branch, Branch.id == Appointment.branch_id)
+        .outerjoin(DentallyAppointment, DentallyAppointment.id == RecoveryJob.dentally_appointment_id)
+        .outerjoin(Patient, Patient.id == DentallyAppointment.patient_id)
+        .outerjoin(Branch, Branch.id == DentallyAppointment.branch_id)
         .where(RecoveryJob.org_id == principal.org_id)
         .order_by(RecoveryJob.created_at.desc())
         .limit(200)
@@ -117,7 +117,7 @@ def list_recovery_jobs(db: Session = Depends(get_db), principal=Depends(get_curr
         out.append(
             {
                 "job_id": j.id,
-                "appointment_id": appt_id or j.appointment_id,
+                "appointment_id": appt_id or j.dentally_appointment_id,
                 "patient_id": patient_id,
                 "patient_name": patient_name,
                 "branch_name": branch_name,
@@ -147,7 +147,7 @@ def list_recovery_jobs_for_appointment(
     jobs = list(
         db.execute(
             select(RecoveryJob)
-            .where(RecoveryJob.org_id == principal.org_id, RecoveryJob.appointment_id == appointment_id)
+            .where(RecoveryJob.org_id == principal.org_id, RecoveryJob.dentally_appointment_id == appointment_id)
             .order_by(RecoveryJob.created_at.desc())
         ).scalars()
     )

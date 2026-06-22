@@ -78,7 +78,7 @@ def test_admin_org_list_and_detail_are_superuser_only(app_client):
     from app.models.user import User
     from app.models.branch import Branch
     from app.models.patient import Patient
-    from app.models.appointment import Appointment
+    from app.models.dentally_appointment import DentallyAppointment
     from app.models.recovery_job import RecoveryJob
     from datetime import datetime, timezone
 

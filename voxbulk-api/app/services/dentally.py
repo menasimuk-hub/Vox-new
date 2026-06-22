@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.patient import Patient
 
@@ -197,7 +197,7 @@ class DentallySyncService:
                 continue
 
             existing = db.execute(
-                select(Appointment).where(Appointment.org_id == org_id, Appointment.dentally_id == dentally_id)
+                select(DentallyAppointment).where(DentallyAppointment.org_id == org_id, DentallyAppointment.dentally_id == dentally_id)
             ).scalar_one_or_none()
             if existing is None:
                 value_gbp_pence = None

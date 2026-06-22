@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import './onboarding-services.css'
 
 const SERVICE_ROWS = [
   { key: 'interview', label: 'Interviews', desc: 'AI phone screening campaigns', icon: 'ti-phone' },
   { key: 'survey', label: 'Surveys', desc: 'AI phone & WhatsApp questionnaires', icon: 'ti-clipboard' },
   { key: 'customer_feedback', label: 'Customer feedback', desc: 'WhatsApp QR feedback by location', icon: 'ti-message-circle' },
+  { key: 'appointments', label: 'Appointments', desc: 'CRM booking confirmation via WhatsApp + AI calls', icon: 'ti-calendar' },
   { key: 'recovery', label: 'Recovery', desc: 'Missed-appointment & recall outreach', icon: 'ti-heart' },
   { key: 'follow_up', label: 'Follow up', desc: 'WhatsApp appointment reminders', icon: 'ti-bell' },
   { key: 'campaigns', label: 'Broadcast campaigns', desc: 'WhatsApp template broadcasts (preview)', icon: 'ti-megaphone' },
@@ -14,49 +16,98 @@ const EMPTY_SERVICES = {
   interview: true,
   survey: true,
   customer_feedback: false,
+  appointments: false,
   recovery: false,
   follow_up: false,
   campaigns: false,
 }
 
-function ServiceToggleRows({ services, onToggle, enabledCount, disabled }) {
+function servicesFromApi(raw) {
+  return {
+    interview: raw?.interview !== false,
+    survey: raw?.survey !== false,
+    customer_feedback: Boolean(raw?.customer_feedback),
+    appointments: Boolean(raw?.appointments),
+    recovery: Boolean(raw?.recovery),
+    follow_up: Boolean(raw?.follow_up),
+    campaigns: Boolean(raw?.campaigns),
+  }
+}
+
+function ToggleSwitch({ checked, disabled, onChange, label }) {
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {SERVICE_ROWS.map((row) => (
-        <div
-          key={row.key}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-            padding: '12px 14px',
-            border: '1px solid var(--border, #e5e7eb)',
-            borderRadius: 10,
-          }}
-        >
-          <div>
-            <strong><i className={row.icon} style={{ marginRight: 8 }} aria-hidden />{row.label}</strong>
-            <div className='muted' style={{ fontSize: 13 }}>{row.desc}</div>
-          </div>
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              cursor: services[row.key] && enabledCount <= 1 ? 'not-allowed' : disabled ? 'wait' : 'pointer',
-            }}
-          >
-            <span className='muted' style={{ fontSize: 12 }}>{services[row.key] ? 'On' : 'Off'}</span>
-            <input
-              type='checkbox'
-              checked={Boolean(services[row.key])}
-              disabled={disabled || (Boolean(services[row.key]) && enabledCount <= 1)}
-              onChange={(e) => onToggle(row.key, e.target.checked)}
+    <div className='os-toggle-wrap'>
+      <span className='os-toggle-label'>{checked ? 'Granted' : 'Off'}</span>
+      <button
+        type='button'
+        role='switch'
+        aria-checked={checked}
+        aria-label={label}
+        className={`os-toggle${checked ? ' on' : ''}`}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
+      />
+    </div>
+  )
+}
+
+function ServiceModuleRows({ services, onToggle, enabledCount, disabled }) {
+  return (
+    <div className='os-module-list'>
+      {SERVICE_ROWS.map((row) => {
+        const on = Boolean(services[row.key])
+        const lockOff = on && enabledCount <= 1
+        return (
+          <div key={row.key} className='os-module-row'>
+            <div className='os-module-main'>
+              <span className={`os-icon-chip ${row.key}`} aria-hidden>
+                <i className={`ti ${row.icon}`} />
+              </span>
+              <div className='os-module-text'>
+                <strong>{row.label}</strong>
+                <span>{row.desc}</span>
+              </div>
+            </div>
+            <ToggleSwitch
+              checked={on}
+              disabled={disabled || lockOff}
+              label={`Grant ${row.label}`}
+              onChange={(value) => onToggle(row.key, value)}
             />
-          </label>
-        </div>
-      ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CustomerPreview({ breakdown, orgName }) {
+  if (!breakdown?.length) return null
+  return (
+    <div className='os-preview'>
+      <div className='os-preview-head'>What {orgName || 'this customer'} sees today</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Module</th>
+            <th>Admin granted</th>
+            <th>Customer enabled</th>
+            <th>In sidebar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {breakdown.map((row) => (
+            <tr key={row.key}>
+              <td>{row.label}</td>
+              <td>{row.allowed ? 'Yes' : 'No'}</td>
+              <td>{row.allowed ? (row.enabled ? 'Yes' : 'No') : '—'}</td>
+              <td className={row.allowed && !row.visible ? 'hint' : ''}>
+                {row.visible ? 'Yes' : row.allowed ? 'No' : 'Hidden'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -66,14 +117,21 @@ export default function OnboardingServices() {
   const [platformServices, setPlatformServices] = useState({ ...EMPTY_SERVICES })
   const [orgServices, setOrgServices] = useState({ ...EMPTY_SERVICES })
   const [selectedOrgIds, setSelectedOrgIds] = useState([])
-  const [applyToAll, setApplyToAll] = useState(false)
+  const [orgMode, setOrgMode] = useState('selected')
+  const [orgSearch, setOrgSearch] = useState('')
   const [usesPlatformDefault, setUsesPlatformDefault] = useState(true)
+  const [serviceBreakdown, setServiceBreakdown] = useState([])
+  const [selectedOrgName, setSelectedOrgName] = useState('')
   const [loadingPlatform, setLoadingPlatform] = useState(false)
   const [loadingOrgs, setLoadingOrgs] = useState(false)
   const [savingPlatform, setSavingPlatform] = useState(false)
   const [savingOrgs, setSavingOrgs] = useState(false)
   const [resetAllOnPlatformSave, setResetAllOnPlatformSave] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const applyToAll = orgMode === 'all'
+  const singleOrgId = selectedOrgIds.length === 1 ? selectedOrgIds[0] : ''
 
   useEffect(() => {
     let cancelled = false
@@ -101,15 +159,7 @@ export default function OnboardingServices() {
       try {
         const data = await apiFetch('/admin/platform/default-allowed-services')
         if (cancelled) return
-        const raw = data?.default_allowed_services || {}
-        setPlatformServices({
-          interview: raw.interview !== false,
-          survey: raw.survey !== false,
-          customer_feedback: Boolean(raw.customer_feedback),
-          recovery: Boolean(raw.recovery),
-          follow_up: Boolean(raw.follow_up),
-          campaigns: Boolean(raw.campaigns),
-        })
+        setPlatformServices(servicesFromApi(data?.default_allowed_services || {}))
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load platform defaults')
       } finally {
@@ -121,41 +171,54 @@ export default function OnboardingServices() {
     }
   }, [])
 
-  useEffect(() => {
-    if (applyToAll || selectedOrgIds.length !== 1) {
-      if (applyToAll) {
-        setOrgServices({ ...platformServices })
-        setUsesPlatformDefault(true)
-      }
+  const loadOrgDetail = useCallback(async (orgId) => {
+    if (!orgId) {
+      setServiceBreakdown([])
+      setSelectedOrgName('')
       return
     }
-    let cancelled = false
     setLoadingOrgs(true)
     setError('')
-    ;(async () => {
-      try {
-        const orgId = selectedOrgIds[0]
-        const data = await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/allowed-services`)
-        if (cancelled) return
-        setUsesPlatformDefault(Boolean(data?.uses_platform_default_allowed))
-        setOrgServices({
-          interview: data?.allowed_services?.interview !== false,
-          survey: data?.allowed_services?.survey !== false,
-          customer_feedback: Boolean(data?.allowed_services?.customer_feedback),
-          recovery: Boolean(data?.allowed_services?.recovery),
-          follow_up: Boolean(data?.allowed_services?.follow_up),
-          campaigns: Boolean(data?.allowed_services?.campaigns),
-        })
-      } catch (e) {
-        if (!cancelled) setError(e?.message || 'Could not load organisation services')
-      } finally {
-        if (!cancelled) setLoadingOrgs(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+    try {
+      const data = await apiFetch(`/admin/organisations/${encodeURIComponent(orgId)}/allowed-services`)
+      setUsesPlatformDefault(Boolean(data?.uses_platform_default_allowed))
+      setOrgServices(servicesFromApi(data?.allowed_services || {}))
+      setServiceBreakdown(Array.isArray(data?.service_breakdown) ? data.service_breakdown : [])
+      setSelectedOrgName(data?.org_name || '')
+    } catch (e) {
+      setError(e?.message || 'Could not load organisation services')
+    } finally {
+      setLoadingOrgs(false)
     }
-  }, [selectedOrgIds, applyToAll, platformServices])
+  }, [])
+
+  useEffect(() => {
+    if (applyToAll) {
+      setOrgServices({ ...platformServices })
+      setUsesPlatformDefault(true)
+      setServiceBreakdown([])
+      setSelectedOrgName('')
+      return
+    }
+    if (singleOrgId) {
+      void loadOrgDetail(singleOrgId)
+      return
+    }
+    setServiceBreakdown([])
+    setSelectedOrgName('')
+    if (selectedOrgIds.length > 1) {
+      setUsesPlatformDefault(false)
+    }
+  }, [singleOrgId, selectedOrgIds.length, applyToAll, platformServices, loadOrgDetail])
+
+  const filteredOrgs = useMemo(() => {
+    const list = orgs || []
+    const q = orgSearch.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((o) => String(o.name || '').toLowerCase().includes(q))
+  }, [orgs, orgSearch])
+
+  const filteredOrgIds = useMemo(() => filteredOrgs.map((o) => o.id), [filteredOrgs])
 
   const platformEnabledCount = useMemo(
     () => SERVICE_ROWS.filter((row) => platformServices[row.key]).length,
@@ -166,42 +229,45 @@ export default function OnboardingServices() {
     [orgServices],
   )
 
+  const toggleOrgSelection = (orgId) => {
+    setOrgMode('selected')
+    setSelectedOrgIds((prev) => (prev.includes(orgId) ? prev.filter((id) => id !== orgId) : [...prev, orgId]))
+  }
+
+  const selectAllFiltered = () => {
+    setOrgMode('selected')
+    setSelectedOrgIds((prev) => Array.from(new Set([...prev, ...filteredOrgIds])))
+  }
+
+  const clearOrgSelection = () => {
+    setOrgMode('selected')
+    setSelectedOrgIds([])
+  }
+
   const onPlatformToggle = (key, value) => {
     if (!value && platformEnabledCount <= 1) {
-      setError('At least one dashboard service must stay enabled in platform defaults.')
+      setError('At least one dashboard module must stay granted in platform defaults.')
       return
     }
     setError('')
+    setSuccess('')
     setPlatformServices((prev) => ({ ...prev, [key]: value }))
   }
 
   const onOrgToggle = (key, value) => {
     if (!value && orgEnabledCount <= 1) {
-      setError('At least one dashboard service must stay enabled.')
+      setError('At least one dashboard module must stay granted.')
       return
     }
     setError('')
+    setSuccess('')
     setOrgServices((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const toggleOrgSelection = (orgId) => {
-    setApplyToAll(false)
-    setSelectedOrgIds((prev) => (prev.includes(orgId) ? prev.filter((id) => id !== orgId) : [...prev, orgId]))
-  }
-
-  const onSelectAllOrgs = () => {
-    setApplyToAll(true)
-    setSelectedOrgIds([])
-  }
-
-  const onClearOrgSelection = () => {
-    setApplyToAll(false)
-    setSelectedOrgIds([])
   }
 
   const onSavePlatform = async () => {
     setSavingPlatform(true)
     setError('')
+    setSuccess('')
     try {
       const data = await apiFetch('/admin/platform/default-allowed-services', {
         method: 'PATCH',
@@ -212,8 +278,8 @@ export default function OnboardingServices() {
       })
       const msg = resetAllOnPlatformSave
         ? `Platform defaults saved. ${data?.orgs_reset_to_platform_default ?? 0} organisation(s) reset to inherit them.`
-        : 'Platform defaults saved. Organisations without a custom override will use these automatically.'
-      window.alert(msg)
+        : 'Platform defaults saved. Orgs without a custom override inherit these grants.'
+      setSuccess(msg)
     } catch (e) {
       setError(e?.message || 'Could not save platform defaults')
     } finally {
@@ -223,11 +289,12 @@ export default function OnboardingServices() {
 
   const onSaveSelectedOrgs = async () => {
     if (!applyToAll && selectedOrgIds.length === 0) {
-      setError('Select at least one organisation, or choose “All organisations”.')
+      setError('Select one or more organisations, or switch to All organisations.')
       return
     }
     setSavingOrgs(true)
     setError('')
+    setSuccess('')
     try {
       const data = await apiFetch('/admin/organisations/bulk-allowed-services', {
         method: 'PATCH',
@@ -237,7 +304,10 @@ export default function OnboardingServices() {
           services: orgServices,
         }),
       })
-      window.alert(`Dashboard services updated for ${data?.updated_count ?? 0} organisation(s).`)
+      setSuccess(
+        `Module grants saved for ${data?.updated_count ?? 0} organisation(s). Off = hidden from customer Settings and sidebar. Ask them to refresh the dashboard.`,
+      )
+      if (singleOrgId) await loadOrgDetail(singleOrgId)
     } catch (e) {
       setError(e?.message || 'Could not save organisation overrides')
     } finally {
@@ -247,12 +317,13 @@ export default function OnboardingServices() {
 
   const onResetSelectedToPlatform = async () => {
     if (!applyToAll && selectedOrgIds.length === 0) {
-      setError('Select organisations to reset, or choose “All organisations”.')
+      setError('Select one or more organisations, or switch to All organisations.')
       return
     }
-    if (!window.confirm('Reset selected organisations to inherit VoxBulk platform defaults?')) return
+    if (!window.confirm('Reset selected organisations to inherit platform defaults?')) return
     setSavingOrgs(true)
     setError('')
+    setSuccess('')
     try {
       const data = await apiFetch('/admin/organisations/bulk-allowed-services', {
         method: 'PATCH',
@@ -262,8 +333,9 @@ export default function OnboardingServices() {
           reset_to_platform_default: true,
         }),
       })
-      window.alert(`${data?.updated_count ?? 0} organisation(s) now inherit platform defaults.`)
-      if (selectedOrgIds.length === 1) setUsesPlatformDefault(true)
+      setSuccess(`${data?.updated_count ?? 0} organisation(s) now inherit platform defaults.`)
+      if (singleOrgId) await loadOrgDetail(singleOrgId)
+      else setUsesPlatformDefault(true)
     } catch (e) {
       setError(e?.message || 'Could not reset organisations')
     } finally {
@@ -271,49 +343,55 @@ export default function OnboardingServices() {
     }
   }
 
+  const orgSectionDisabled = loadingOrgs || savingOrgs || (!applyToAll && selectedOrgIds.length === 0)
+
   return (
-    <>
+    <div className='onboarding-services-page'>
       <div className='pageTop'>
         <div>
-          <h1>Customer services</h1>
+          <h1>Dashboard modules</h1>
           <p>
-            Set <strong>VoxBulk platform defaults</strong> for every organisation, or apply custom overrides to one or
-            more selected organisations. Customers can still hide allowed modules in Settings → Services.
+            <strong>Off</strong> = customer cannot see or enable the module. <strong>On</strong> = it appears in their
+            Settings → Services so they can turn it on for their sidebar.
           </p>
         </div>
       </div>
 
-      {error ? (
-        <div className='card' style={{ marginBottom: 16, borderColor: '#fecaca' }}>
-          <div className='cardBody' style={{ color: '#b91c1c', fontSize: 14 }}>{error}</div>
-        </div>
-      ) : null}
+      <div className='os-steps'>
+        <ol>
+          <li>Grant modules <strong>on</strong> here to make them available to organisations.</li>
+          <li>Customers choose visibility in <strong>Settings → Services</strong> — you do not control their sidebar directly.</li>
+          <li>Use <strong>organisation overrides</strong> when specific customers need different grants than platform defaults.</li>
+        </ol>
+      </div>
+
+      {error ? <div className='os-banner error'>{error}</div> : null}
+      {success ? <div className='os-banner success'>{success}</div> : null}
 
       <div className='card' style={{ marginBottom: 16 }}>
         <div className='cardHead'>
-          <h3>VoxBulk defaults (all organisations)</h3>
+          <h3>Platform defaults</h3>
           {loadingPlatform ? <span className='pill'>Loading…</span> : null}
         </div>
         <div className='cardBody'>
           <p className='muted' style={{ fontSize: 13, marginBottom: 12 }}>
-            New organisations and any org without a custom override inherit these modules automatically. Turn on
-            Customer feedback here to make it available platform-wide.
+            Default grants for new organisations and any org without a custom override.
           </p>
-          <ServiceToggleRows
+          <ServiceModuleRows
             services={platformServices}
             onToggle={onPlatformToggle}
             enabledCount={platformEnabledCount}
             disabled={loadingPlatform || savingPlatform}
           />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, fontSize: 13 }}>
+          <label className='os-reset-row'>
             <input
               type='checkbox'
               checked={resetAllOnPlatformSave}
               onChange={(e) => setResetAllOnPlatformSave(e.target.checked)}
             />
-            Also reset <strong>all</strong> organisations to inherit these defaults (clears custom overrides)
+            Also reset <strong>all</strong> organisations to inherit these defaults
           </label>
-          <div className='actions' style={{ marginTop: 16 }}>
+          <div className='os-actions'>
             <button
               type='button'
               className='btn primary'
@@ -328,91 +406,125 @@ export default function OnboardingServices() {
 
       <div className='card'>
         <div className='cardHead'>
-          <h3>Organisation overrides (optional)</h3>
+          <h3>Organisation overrides</h3>
           {loadingOrgs ? <span className='pill'>Loading…</span> : null}
         </div>
         <div className='cardBody'>
-          <p className='muted' style={{ fontSize: 13, marginBottom: 12 }}>
-            Use this when a module should apply only to specific customers. Select one or more organisations, or apply to
-            everyone at once.
-          </p>
-
-          <div className='actions' style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-            <button type='button' className={`btn soft${applyToAll ? ' primary' : ''}`} onClick={onSelectAllOrgs}>
-              All organisations
+          <div className='os-segment'>
+            <button
+              type='button'
+              className={orgMode === 'selected' ? 'active' : ''}
+              onClick={() => setOrgMode('selected')}
+            >
+              Selected organisations
             </button>
-            <button type='button' className='btn soft' onClick={onClearOrgSelection}>
-              Clear selection
-            </button>
-            {applyToAll ? (
-              <span className='pill p-cyan'>Targeting all organisations</span>
-            ) : (
-              <span className='pill'>{selectedOrgIds.length} selected</span>
-            )}
-          </div>
-
-          {!applyToAll ? (
-            <div
-              style={{
-                maxHeight: 220,
-                overflowY: 'auto',
-                border: '1px solid var(--border, #e5e7eb)',
-                borderRadius: 10,
-                padding: 8,
-                marginBottom: 16,
+            <button
+              type='button'
+              className={orgMode === 'all' ? 'active' : ''}
+              onClick={() => {
+                setOrgMode('all')
+                setSelectedOrgIds([])
               }}
             >
-              {(orgs || []).map((o) => (
-                <label
-                  key={o.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', cursor: 'pointer' }}
+              All organisations
+            </button>
+          </div>
+
+          <div className='os-grid org-section'>
+            {!applyToAll ? (
+              <div className='os-org-panel'>
+                <input
+                  className='os-search'
+                  type='search'
+                  placeholder='Search organisations…'
+                  value={orgSearch}
+                  onChange={(e) => setOrgSearch(e.target.value)}
+                />
+                <div className='os-org-toolbar'>
+                  <span className='pill'>{selectedOrgIds.length} selected</span>
+                  <button type='button' onClick={selectAllFiltered}>Select all shown</button>
+                  <button type='button' onClick={clearOrgSelection}>Clear</button>
+                </div>
+                <div className='os-org-list'>
+                  {filteredOrgs.map((o) => (
+                    <label
+                      key={o.id}
+                      className={`os-org-item${selectedOrgIds.includes(o.id) ? ' selected' : ''}`}
+                    >
+                      <input
+                        type='checkbox'
+                        checked={selectedOrgIds.includes(o.id)}
+                        onChange={() => toggleOrgSelection(o.id)}
+                      />
+                      <span>{o.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className='os-org-panel'>
+                <p className='muted' style={{ fontSize: 13, margin: 0 }}>
+                  Module grants below apply to <strong>every organisation</strong> when you save.
+                </p>
+              </div>
+            )}
+
+            <div>
+              {!applyToAll && singleOrgId ? (
+                <span className={`os-status-pill${usesPlatformDefault ? '' : ' custom'}`}>
+                  {usesPlatformDefault ? 'Inherits platform defaults' : 'Custom override active'}
+                </span>
+              ) : null}
+
+              {!applyToAll && selectedOrgIds.length > 1 ? (
+                <p className='os-multi-hint'>
+                  Same module grants will apply to <strong>{selectedOrgIds.length} organisations</strong> when you save.
+                  Select only one org to preview what that customer sees.
+                </p>
+              ) : null}
+
+              <p className='os-grant-hint'>
+                Toggle <strong>Granted</strong> to control what the customer may use. Revoked modules disappear from their
+                dashboard and Settings → Services.
+              </p>
+
+              <ServiceModuleRows
+                services={orgServices}
+                onToggle={onOrgToggle}
+                enabledCount={orgEnabledCount}
+                disabled={orgSectionDisabled}
+              />
+
+              {!applyToAll && singleOrgId ? (
+                <CustomerPreview breakdown={serviceBreakdown} orgName={selectedOrgName} />
+              ) : null}
+
+              <div className='os-actions'>
+                <button
+                  type='button'
+                  className='btn primary'
+                  onClick={() => void onSaveSelectedOrgs()}
+                  disabled={orgSectionDisabled}
                 >
-                  <input
-                    type='checkbox'
-                    checked={selectedOrgIds.includes(o.id)}
-                    onChange={() => toggleOrgSelection(o.id)}
-                  />
-                  <span>{o.name}</span>
-                </label>
-              ))}
+                  {savingOrgs
+                    ? 'Saving…'
+                    : applyToAll
+                      ? 'Apply grants to all organisations'
+                      : `Save grants for ${selectedOrgIds.length} organisation(s)`}
+                </button>
+                <button
+                  type='button'
+                  className='btn soft'
+                  onClick={() => void onResetSelectedToPlatform()}
+                  disabled={savingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
+                >
+                  Reset to platform defaults
+                </button>
+              </div>
             </div>
-          ) : null}
-
-          {selectedOrgIds.length === 1 && !applyToAll ? (
-            <p className='muted' style={{ fontSize: 13, marginBottom: 12 }}>
-              {usesPlatformDefault
-                ? 'This organisation currently inherits VoxBulk platform defaults.'
-                : 'This organisation has a custom override. Saving below replaces it.'}
-            </p>
-          ) : null}
-
-          <ServiceToggleRows
-            services={orgServices}
-            onToggle={onOrgToggle}
-            enabledCount={orgEnabledCount}
-            disabled={loadingOrgs || savingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
-          />
-
-          <div className='actions' style={{ marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
-            <button
-              type='button'
-              className='btn primary'
-              onClick={() => void onSaveSelectedOrgs()}
-              disabled={savingOrgs || loadingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
-            >
-              {savingOrgs ? 'Saving…' : applyToAll ? 'Apply to all organisations' : 'Apply to selected'}
-            </button>
-            <button
-              type='button'
-              className='btn soft'
-              onClick={() => void onResetSelectedToPlatform()}
-              disabled={savingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
-            >
-              Reset to platform defaults
-            </button>
           </div>
         </div>
       </div>
-    </>
+    </div>
   )
 }

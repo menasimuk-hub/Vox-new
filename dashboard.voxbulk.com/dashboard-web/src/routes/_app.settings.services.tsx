@@ -22,6 +22,7 @@ const items: ServiceItem[] = [
   { key: "interviews", title: "Interviews", desc: "AI phone screening for hiring.", Icon: PhoneCall },
   { key: "surveys", title: "Surveys", desc: "AI phone & WhatsApp questionnaires.", Icon: ClipboardList },
   { key: "feedback", title: "Customer feedback", desc: "WhatsApp QR feedback by location.", Icon: QrCode },
+  { key: "appointments", title: "Appointments", desc: "CRM booking confirmation via WhatsApp + AI calls.", Icon: CalendarClock },
   { key: "campaigns", title: "Broadcast campaigns", desc: "WhatsApp template broadcasts.", brandIcon: brandAssets.iconDark },
   { key: "recovery", title: "Recovery", desc: "Missed-appointment & recall outreach.", Icon: HeartPulse },
   { key: "followup", title: "Follow up", desc: "WhatsApp appointment reminders.", Icon: CalendarClock },
@@ -29,7 +30,10 @@ const items: ServiceItem[] = [
 
 export const Route = createFileRoute("/_app/settings/services")({
   head: () => ({ meta: [{ title: "Services — VoxBulk" }] }),
-  beforeLoad: () => requireOrgSettingsAccess(),
+  beforeLoad: async ({ context }) => {
+    requireOrgSettingsAccess();
+    await context.queryClient.invalidateQueries({ queryKey: ["organisations", "me"] });
+  },
   component: ServicesSettings,
 });
 
@@ -57,7 +61,7 @@ function ServicesSettings() {
       <PageHeader
         eyebrow="Settings"
         title="Services"
-        description="Turn modules on or off for your sidebar and dashboard. Hidden modules stay listed here so you can enable them again. Only your account manager can remove a module completely."
+        description="Only modules granted by VoxBulk appear here. Turn them on or off for your sidebar."
       />
       <Card>
         <CardHeader><CardTitle className="text-base">Your modules</CardTitle></CardHeader>

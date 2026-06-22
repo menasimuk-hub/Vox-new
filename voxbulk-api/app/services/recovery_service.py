@@ -13,7 +13,7 @@ from app.models.organisation import Organisation
 from app.models.patient import Patient
 from app.models.webhook_event import WebhookEvent
 from app.models.recovery_job import RecoveryJob
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 
 
 class OrganisationService:
@@ -243,7 +243,7 @@ class RecoveryJobService:
     def enqueue_for_appointment(db: Session, *, org_id: str, appointment_id: str, requested_by_user_id: str | None = None) -> RecoveryJob:
         # Validate appointment belongs to tenant
         appt = db.execute(
-            select(Appointment).where(Appointment.id == appointment_id, Appointment.org_id == org_id)
+            select(DentallyAppointment).where(DentallyAppointment.id == appointment_id, DentallyAppointment.org_id == org_id)
         ).scalar_one_or_none()
         if appt is None:
             raise ValueError("Appointment not found for tenant")
@@ -255,7 +255,7 @@ class RecoveryJobService:
         idempotency_key = f"appointment:{appointment_id}"
         obj = RecoveryJob(
             org_id=org_id,
-            appointment_id=appointment_id,
+            dentally_appointment_id=appointment_id,
             requested_by_user_id=requested_by_user_id,
             idempotency_key=idempotency_key,
             state="queued",

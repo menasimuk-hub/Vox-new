@@ -9,6 +9,7 @@ SERVICE_ORG_DEFAULT = "org_default"
 SERVICE_SURVEY = "survey"
 SERVICE_INTERVIEW = "interview"
 SERVICE_LEAD_SALES = "lead_sales"
+SERVICE_APPOINTMENTS = "appointments"
 
 AGENT_SERVICE_KEYS: tuple[str, ...] = (
     SERVICE_FRONTPAGE_TALK_TO_US,
@@ -17,6 +18,7 @@ AGENT_SERVICE_KEYS: tuple[str, ...] = (
     SERVICE_SURVEY,
     SERVICE_INTERVIEW,
     SERVICE_LEAD_SALES,
+    SERVICE_APPOINTMENTS,
 )
 
 AGENT_SERVICE_LABELS: dict[str, str] = {
@@ -26,6 +28,7 @@ AGENT_SERVICE_LABELS: dict[str, str] = {
     SERVICE_SURVEY: "Survey AI calls",
     SERVICE_INTERVIEW: "Interview AI calls",
     SERVICE_LEAD_SALES: "Lead / Sales AI calls",
+    SERVICE_APPOINTMENTS: "Appointment confirmation AI calls",
 }
 
 

@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.appointment import Appointment
+from app.models.dentally_appointment import DentallyAppointment
 from app.models.patient import Patient
 
 
@@ -61,9 +61,9 @@ class AgentToolRegistry:
             return {"status": "not_found", "appointments": []}
         rows = list(
             db.execute(
-                select(Appointment)
-                .where(Appointment.org_id == org_id, Appointment.patient_id == patient_id)
-                .order_by(Appointment.scheduled_start.asc())
+                select(DentallyAppointment)
+                .where(DentallyAppointment.org_id == org_id, DentallyAppointment.patient_id == patient_id)
+                .order_by(DentallyAppointment.scheduled_start.asc())
                 .limit(10)
             ).scalars()
         )

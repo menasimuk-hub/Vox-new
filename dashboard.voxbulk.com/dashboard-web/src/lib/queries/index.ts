@@ -1028,7 +1028,9 @@ export function useOrganisation() {
   return useQuery({
     queryKey: queryKeys.organisation,
     queryFn: () => apiFetch<Organisation>("/organisations/me"),
-    staleTime: 1000 * 60 * 5, // Org data fresh for 5 minutes
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
