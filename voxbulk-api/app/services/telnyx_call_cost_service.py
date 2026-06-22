@@ -564,3 +564,70 @@ def get_call_insights_by_session(db: Session, session_id: str) -> dict[str, Any]
     payload = fetch_conversation_insights(db, conversation_id)
     payload["session_id"] = clean_session
     return payload
+
+
+def lookup_cost_by_refs(
+    db: Session,
+    *,
+    call_control_id: str | None = None,
+    conversation_id: str | None = None,
+    session_id: str | None = None,
+    date_range: str = "last_30_days",
+) -> dict[str, Any] | None:
+    """Best-effort Telnyx operator cost for a single call (USD from detail records)."""
+    clean_session = str(session_id or "").strip()
+    clean_conv = str(conversation_id or "").strip()
+    clean_control = str(call_control_id or "").strip()
+
+    if clean_session:
+        try:
+            detail = get_call_cost_detail(db, clean_session)
+            call = detail.get("call") or {}
+            return {
+                "total_cost": round(_safe_float(call.get("total_cost")), 6),
+                "currency": str(call.get("currency") or "USD"),
+                "session_id": clean_session,
+            }
+        except ValueError:
+            pass
+
+    targets = {clean_control, clean_conv}
+    targets.discard("")
+    if not targets:
+        return None
+
+    assistant_names = _fetch_assistant_names(db)
+    session_legs = _session_legs_index_for_range(db, date_range, max_pages=2)
+    for page in range(1, 6):
+        ai_rows, meta, err = _detail_records(
+            db,
+            record_type="ai-voice-assistant",
+            date_range=date_range,
+            page_number=page,
+            page_size=50,
+        )
+        if err or not ai_rows:
+            break
+        for ai_row in ai_rows:
+            row_control = str(ai_row.get("call_control_id") or "")
+            row_conv = str(ai_row.get("conversation_id") or "")
+            row_session = str(ai_row.get("telnyx_session_id") or "")
+            if not (row_control in targets or row_conv in targets):
+                continue
+            serialized = _serialize_call_row(
+                ai_row,
+                assistant_names=assistant_names,
+                session_legs=session_legs,
+                conversations={},
+            )
+            return {
+                "total_cost": round(_safe_float(serialized.get("total_cost")), 6),
+                "currency": str(serialized.get("currency") or "USD"),
+                "session_id": row_session or None,
+                "conversation_id": row_conv or None,
+                "call_control_id": row_control or None,
+            }
+        total_pages = int(meta.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+    return None

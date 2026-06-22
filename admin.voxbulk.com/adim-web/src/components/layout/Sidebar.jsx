@@ -206,7 +206,7 @@ const NAV = [
 
   [
 
-    'Appointments',
+    'Appointment Manager',
 
     [
 
@@ -363,8 +363,6 @@ const NAV = [
       ['Tax & VAT', '/billing/tax'],
 
       ['Billing exceptions', '/billing/exceptions'],
-
-      ['Revenue reports', '/billing/reports'],
 
       ['Calls cost', '/billing/calls-cost'],
 

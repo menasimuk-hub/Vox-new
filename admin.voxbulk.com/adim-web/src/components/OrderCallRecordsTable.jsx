@@ -23,6 +23,8 @@ export default function OrderCallRecordsTable({ order }) {
           call_type: r.call_type,
           duration_seconds: r.duration_seconds,
           billable_minutes: r.billable_minutes,
+          retail_cost_display: r.retail_cost_display,
+          operator_cost_display: r.operator_cost_display,
           status: r.status,
           hangup_cause: r.hangup_cause,
         }))
@@ -60,6 +62,8 @@ export default function OrderCallRecordsTable({ order }) {
               <th>Call type</th>
               <th>Duration</th>
               <th>Billable min</th>
+              <th>R.cost</th>
+              <th>O.cost</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -71,6 +75,8 @@ export default function OrderCallRecordsTable({ order }) {
                 <td>{r.call_type || '—'}</td>
                 <td>{formatDurationSeconds(r.duration_seconds)}</td>
                 <td>{r.billable_minutes != null ? r.billable_minutes : '—'}</td>
+                <td className="occ-mono">{r.retail_cost_display || '—'}</td>
+                <td className="occ-mono">{r.operator_cost_display || '—'}</td>
                 <td>{r.status || '—'}</td>
               </tr>
             ))}

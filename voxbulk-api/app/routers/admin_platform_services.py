@@ -402,7 +402,10 @@ def admin_get_order(order_id: str, db: Session = Depends(get_db), _admin=Depends
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipients = ServiceOrderService.get_recipients(db, order.id)
-    return ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+    payload = ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
+    from app.services.service_order_admin_cost_service import enrich_admin_order_costs
+
+    return enrich_admin_order_costs(db, order, payload)
 
 
 @router.post("/orders/{order_id}/dial-next")

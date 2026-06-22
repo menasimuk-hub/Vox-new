@@ -3,10 +3,7 @@
 export function adminOrderViewPath(order) {
   const id = order?.id
   if (!id) return '/billing/service-orders'
-  const sc = String(order.service_code || '').toLowerCase()
-  const q = `?order=${encodeURIComponent(id)}`
-  if (sc === 'interview') return `/operations/running-interviews${q}`
-  return `/operations/running-surveys${q}`
+  return `/operations/orders/${encodeURIComponent(id)}`
 }
 
 export function formatDurationSeconds(secs) {
