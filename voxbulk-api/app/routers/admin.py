@@ -1552,8 +1552,7 @@ def admin_list_organisations(
             "country": getattr(o, "country", None),
             "contact_email": getattr(o, "contact_email", None),
             "contact_name": getattr(o, "contact_name", None),
-            "plan_code": o.plan_code,
-            "plan_name": o.plan_name,
+            **AdminOrganisationService.summary_plan_dict(o),
             "branch_count": o.branch_count,
             "user_count": o.user_count,
             "patient_count": o.patient_count,
@@ -2356,9 +2355,7 @@ def admin_get_organisation(org_id: str, db: Session = Depends(get_db), _admin=De
         "patient_count": o.patient_count,
         "appointment_count": o.appointment_count,
         "recovery_job_count": o.recovery_job_count,
-        "subscription_status": o.subscription_status,
-        "plan_code": o.plan_code,
-        "plan_name": o.plan_name,
+        **AdminOrganisationService.summary_plan_dict(o),
         "wallet_balance_pence": wallet_pence,
         "wallet_balance_gbp": f"£{(wallet_pence / 100):.2f}",
         "market_zone": market_zone,
@@ -2651,18 +2648,40 @@ def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends
     org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    from app.services.billing_access_service import BillingAccessService
+
+    plan_check = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+    if plan_check is not None and not BillingAccessService.is_valid_core_plan(db, plan_check):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Plan is not a Core Platform (C.P) plan. Use feedback-subscription for F.B plans.",
+        )
     status_str = str(payload.get("status") or "").strip().lower()
     force_raw = bool(payload.get("force_raw"))
     if force_raw:
-        plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+        plan = plan_check or db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
         if plan is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown plan_code")
+        if not BillingAccessService.is_valid_core_plan(db, plan):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Plan is not a Core Platform (C.P) plan",
+            )
         sub = db.execute(
-            select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
+            select(Subscription)
+            .where(Subscription.org_id == org_id, Subscription.service_code == "voxbulk")
+            .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+            .limit(1)
         ).scalar_one_or_none()
         status_val = status_str or "active"
         if sub is None:
-            sub = Subscription(id=str(uuid.uuid4()), org_id=org_id, plan_id=plan.id, status=status_val)
+            sub = Subscription(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                plan_id=plan.id,
+                service_code="voxbulk",
+                status=status_val,
+            )
             db.add(sub)
         else:
             sub.plan_id = plan.id
@@ -2692,6 +2711,44 @@ def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends
         "direction": direction,
         "billing_extra": extra,
         "mode": "lifecycle",
+    }
+
+
+@router.put("/organisations/{org_id}/feedback-subscription")
+def admin_set_org_feedback_subscription(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.customer_feedback.billing_service import FeedbackBillingError, FeedbackBillingService
+
+    plan_code = str(payload.get("plan_code") or "").strip()
+    plan_id = str(payload.get("plan_id") or "").strip() or None
+    if not plan_code and not plan_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan_code or plan_id required")
+    org = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    status_str = str(payload.get("status") or "active").strip().lower() or "active"
+    try:
+        sub, plan, mode = FeedbackBillingService.admin_assign_plan(
+            db,
+            org_id=org_id,
+            plan_id=plan_id,
+            plan_code=plan_code or None,
+            status=status_str,
+        )
+    except FeedbackBillingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "org_id": org_id,
+        "plan_code": plan.code,
+        "plan_name": plan.name,
+        "status": sub.status,
+        "service_code": sub.service_code,
+        "mode": mode,
     }
 
 
@@ -2771,9 +2828,11 @@ def admin_get_organisation_operations(
     from app.models.plan import Plan
     from app.models.service_order import ServiceOrder
     from app.models.subscription import Subscription
+    from app.services.billing_access_service import BillingAccessService
     from app.services.invoice_service import InvoiceService
     from app.services.market_zone import country_to_zone, format_wallet_pence, zone_currency_symbol, zone_label
     from app.services.platform_catalog_service import ServiceOrderService
+    from app.services.subscription_summary_service import SubscriptionSummaryService
     from app.services.usage_wallet_service import UsageWalletService
 
     o = AdminOrganisationService.get_org_summary(db, org_id=org_id)
@@ -2782,12 +2841,9 @@ def admin_get_organisation_operations(
 
     market_zone = country_to_zone(getattr(o, "country", None))
     usage_row = UsageWalletService.get_current(db, org_id)
-    if usage_row is None:
-        sub = db.execute(
-            select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
-        ).scalar_one_or_none()
-        if sub is not None:
-            usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=sub)
+    core_sub = BillingAccessService.get_valid_core_subscription(db, org_id)
+    if usage_row is None and core_sub is not None:
+        usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=core_sub)
 
     running_orders = list(
         db.execute(
@@ -2814,23 +2870,17 @@ def admin_get_organisation_operations(
     )
 
     wallet_pence = int(o.wallet_balance_pence or 0)
-    sub_row = db.execute(
-        select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
-    ).scalar_one_or_none()
     subscription_finance = None
+    feedback_subscription_finance = None
     cancellation_preview = None
-    if sub_row is not None:
+    org_row = db.get(Organisation, org_id)
+    if org_row is not None:
         from app.services.billing_finance_service import BillingFinanceService
 
-        org_row = db.get(Organisation, org_id)
-        plan_row = db.get(Plan, sub_row.plan_id) if sub_row.plan_id else None
-        if org_row:
-            BillingFinanceService.sync_subscription_billing_fields(
-                db, sub_row, org=org_row, plan=plan_row, commit=True
-            )
-            subscription_finance = BillingFinanceService.subscription_finance_dict(
-                db, sub_row, org=org_row, plan=plan_row
-            )
+        sub_summary = SubscriptionSummaryService.build_org_summary(db, org_id)
+        subscription_finance = sub_summary.get("core")
+        feedback_subscription_finance = sub_summary.get("feedback")
+        if core_sub is not None:
             try:
                 cancellation_preview = BillingFinanceService.cancellation_preview(db, org_id)
             except ValueError:
@@ -2847,9 +2897,7 @@ def admin_get_organisation_operations(
             "contact_name": getattr(o, "contact_name", None),
             "contact_email": getattr(o, "contact_email", None),
             "contact_phone": getattr(o, "contact_phone", None),
-            "plan_code": o.plan_code,
-            "plan_name": o.plan_name,
-            "subscription_status": o.subscription_status,
+            **AdminOrganisationService.summary_plan_dict(o),
             "user_count": o.user_count,
             "branch_count": o.branch_count,
             "wallet_balance_pence": wallet_pence,
@@ -2874,6 +2922,7 @@ def admin_get_organisation_operations(
             for uid, email, is_active, is_superuser, role, created_at in users
         ],
         "subscription_finance": subscription_finance,
+        "feedback_subscription_finance": feedback_subscription_finance,
         "cancellation_preview": cancellation_preview,
     }
 
@@ -3718,6 +3767,7 @@ def admin_billing_overview(db: Session = Depends(get_db), _admin=Depends(require
 
 @router.get("/billing/plans")
 def admin_list_plans(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.billing_access_service import BillingAccessService
     from app.services.gocardless_service import BillingService
 
     BillingService.ensure_default_plans(db)
@@ -3734,6 +3784,7 @@ def admin_list_plans(db: Session = Depends(get_db), _admin=Depends(require_cap(C
             "features_json": getattr(p, "features_json", None),
         }
         for p in plans
+        if BillingAccessService.is_valid_core_plan(db, p)
     ]
 
 

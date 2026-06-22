@@ -15,6 +15,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.subscription import Subscription
 from app.services.account_deletion_service import AccountDeletionService
 from app.services.admin_org_service import AdminOrganisationService
+from app.services.billing_access_service import BillingAccessService
 from app.services.invoice_service import InvoiceService
 from app.services.market_zone import country_column_matches_zone, country_to_zone, normalize_zone, zone_label
 from app.services.org_audit_service import OrgAuditService
@@ -245,14 +246,9 @@ class OrgControlCenterService:
 
             usage_row = UsageWalletService.get_current(db, org.id)
             if usage_row is None:
-                sub = db.execute(
-                    select(Subscription)
-                    .where(Subscription.org_id == org.id)
-                    .order_by(Subscription.created_at.desc())
-                    .limit(1)
-                ).scalar_one_or_none()
-                if sub is not None:
-                    usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=sub)
+                core_sub = BillingAccessService.get_valid_core_subscription(db, org.id)
+                if core_sub is not None:
+                    usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=core_sub)
 
             profile = resolve_org_billing_profile(db, org)
             usage = _usage_metrics(db, org, usage_row)
@@ -285,8 +281,16 @@ class OrgControlCenterService:
                 "name": org.name,
                 "company": org.name,
                 "status": row_status,
-                "plan": o.plan_name or o.plan_code or "—",
-                "plan_code": o.plan_code,
+                "plan": o.core_plan_name or o.core_plan_code or "—",
+                "plan_code": o.core_plan_code,
+                "core_plan": o.core_plan_name or o.core_plan_code or "—",
+                "core_plan_code": o.core_plan_code,
+                "core_plan_name": o.core_plan_name,
+                "core_subscription_status": o.core_subscription_status,
+                "feedback_plan": o.feedback_plan_name or o.feedback_plan_code or "—",
+                "feedback_plan_code": o.feedback_plan_code,
+                "feedback_plan_name": o.feedback_plan_name,
+                "feedback_subscription_status": o.feedback_subscription_status,
                 "wallet_pence": wallet_pence,
                 "wallet_display": profile.get("wallet_display") or money_for_org(db, org, wallet_pence),
                 "survey_credits": int(org.survey_credits_balance or 0),
@@ -354,24 +358,17 @@ class OrgControlCenterService:
 
         usage_row = UsageWalletService.get_current(db, org_id)
         if usage_row is None:
-            sub = db.execute(
-                select(Subscription)
-                .where(Subscription.org_id == org_id)
-                .order_by(Subscription.created_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            if sub is not None:
-                usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=sub)
+            core_sub = BillingAccessService.get_valid_core_subscription(db, org_id)
+            if core_sub is not None:
+                usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org_id, subscription=core_sub)
 
         usage = _usage_metrics(db, org, usage_row)
         usage_full = UsageWalletService.summary_dict(usage_row, db, org_id) if usage_row else None
 
-        sub = db.execute(
-            select(Subscription)
-            .where(Subscription.org_id == org_id)
-            .order_by(Subscription.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+        core_sub = BillingAccessService.get_valid_core_subscription(db, org_id)
+        from app.services.subscription_summary_service import SubscriptionSummaryService
+
+        sub_summary = SubscriptionSummaryService.build_org_summary(db, org_id)
 
         orders = ServiceOrderService.list_orders(db, org_id=org_id, limit=100)
         campaigns = []
@@ -422,17 +419,8 @@ class OrgControlCenterService:
         )
         last_invoice = invoices[0] if invoices else None
 
-        subscription_finance = None
-        if sub is not None:
-            from app.services.billing_finance_service import BillingFinanceService
-
-            plan_row = db.get(Plan, sub.plan_id) if sub.plan_id else None
-            BillingFinanceService.sync_subscription_billing_fields(
-                db, sub, org=org, plan=plan_row, commit=True
-            )
-            subscription_finance = BillingFinanceService.subscription_finance_dict(
-                db, sub, org=org, plan=plan_row
-            )
+        subscription_finance = sub_summary.get("core")
+        feedback_subscription_finance = sub_summary.get("feedback")
 
         return {
             "organisation": {
@@ -441,10 +429,18 @@ class OrgControlCenterService:
                 "company": org.name,
                 "status": "frozen" if org.is_suspended else "active",
                 "is_suspended": org.is_suspended,
-                "plan": o.plan_name or o.plan_code or "—",
-                "plan_code": o.plan_code,
-                "plan_name": o.plan_name,
-                "subscription_status": o.subscription_status,
+                "plan": o.core_plan_name or o.core_plan_code or "—",
+                "plan_code": o.core_plan_code,
+                "plan_name": o.core_plan_name,
+                "core_plan": o.core_plan_name or o.core_plan_code or "—",
+                "core_plan_code": o.core_plan_code,
+                "core_plan_name": o.core_plan_name,
+                "core_subscription_status": o.core_subscription_status,
+                "feedback_plan": o.feedback_plan_name or o.feedback_plan_code or "—",
+                "feedback_plan_code": o.feedback_plan_code,
+                "feedback_plan_name": o.feedback_plan_name,
+                "feedback_subscription_status": o.feedback_subscription_status,
+                "subscription_status": o.core_subscription_status,
                 "payment_method": profile.get("payment_method") or "—",
                 "payment_status": _payment_status_from_invoices(invoices),
                 "wallet_pence": wallet_pence,
@@ -488,6 +484,7 @@ class OrgControlCenterService:
             if (pending_req := AccountDeletionService._active_pending_request(db, org_id))
             else None,
             "subscription_finance": subscription_finance,
+            "feedback_subscription_finance": feedback_subscription_finance,
             "billing_profile": profile,
             "usage": usage_full,
             "orders": campaigns,
@@ -506,7 +503,7 @@ class OrgControlCenterService:
                 "currency": currency,
             },
             "activity": activity,
-            "subscription_cancellation": _subscription_cancellation_detail(db, org, sub),
+            "subscription_cancellation": _subscription_cancellation_detail(db, org, core_sub),
             "refund_reviews": _list_org_refund_reviews(db, org_id),
         }
 

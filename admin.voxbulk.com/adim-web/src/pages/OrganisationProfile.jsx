@@ -70,6 +70,7 @@ export default function OrganisationProfile() {
   const [branches, setBranches] = useState(null)
   const [users, setUsers] = useState(null)
   const [plans, setPlans] = useState(null)
+  const [feedbackPlans, setFeedbackPlans] = useState(null)
   const [categories, setCategories] = useState(null)
   const [loadError, setLoadError] = useState('')
 
@@ -91,6 +92,9 @@ export default function OrganisationProfile() {
   const [planCode, setPlanCode] = useState('')
   const [subStatus, setSubStatus] = useState('active')
   const [planSaving, setPlanSaving] = useState(false)
+  const [feedbackPlanCode, setFeedbackPlanCode] = useState('')
+  const [feedbackSubStatus, setFeedbackSubStatus] = useState('active')
+  const [feedbackPlanSaving, setFeedbackPlanSaving] = useState(false)
   const [walletCreditGbp, setWalletCreditGbp] = useState('50')
   const [walletBusy, setWalletBusy] = useState(false)
   const [financePreview, setFinancePreview] = useState(null)
@@ -147,8 +151,10 @@ export default function OrganisationProfile() {
     setProfileContactEmail(o?.contact_email || '')
     setProfileContactPhone(o?.contact_phone || '')
     setProfileWebsite(o?.website || '')
-    setPlanCode(o?.plan_code || '')
-    setSubStatus(o?.subscription_status ? String(o.subscription_status) : 'active')
+    setPlanCode(o?.core_plan_code || o?.plan_code || '')
+    setSubStatus(o?.core_subscription_status || o?.subscription_status ? String(o.core_subscription_status || o.subscription_status) : 'active')
+    setFeedbackPlanCode(o?.feedback_plan_code || '')
+    setFeedbackSubStatus(o?.feedback_subscription_status ? String(o.feedback_subscription_status) : 'active')
     setFinanceNote(o?.finance_notes || o?.profile_notes || '')
   }, [orgId])
 
@@ -158,7 +164,7 @@ export default function OrganisationProfile() {
   }, [orgId, refreshFinancePreview, org?.updated_at])
 
   useEffect(() => {
-    if (!orgId || !planCode.trim() || planCode.trim() === String(org?.plan_code || '').trim()) {
+    if (!orgId || !planCode.trim() || planCode.trim() === String(org?.core_plan_code || org?.plan_code || '').trim()) {
       setUpgradePreview(null)
       return undefined
     }
@@ -178,7 +184,18 @@ export default function OrganisationProfile() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [orgId, planCode, org?.plan_code])
+  }, [orgId, planCode, org?.core_plan_code, org?.plan_code])
+
+  const refreshFeedbackPlans = useCallback(async () => {
+    const zone = org?.market_zone || 'gb'
+    try {
+      const data = await apiFetch(`/admin/customer-feedback/plans?market_zone=${encodeURIComponent(zone)}`)
+      const items = Array.isArray(data?.items) ? data.items : []
+      setFeedbackPlans(items)
+    } catch {
+      setFeedbackPlans([])
+    }
+  }, [org?.market_zone])
 
   const refreshBranches = useCallback(async () => {
     if (!orgId) {
@@ -202,6 +219,12 @@ export default function OrganisationProfile() {
     const list = await apiFetch('/admin/billing/plans')
     setPlans(Array.isArray(list) ? list : [])
   }, [])
+
+  useEffect(() => {
+    if (tab === 'plan' && org?.market_zone) {
+      refreshFeedbackPlans().catch(() => setFeedbackPlans([]))
+    }
+  }, [tab, org?.market_zone, refreshFeedbackPlans])
 
   const refreshCategories = useCallback(async () => {
     const list = await apiFetch('/admin/categories')
@@ -395,7 +418,7 @@ export default function OrganisationProfile() {
 
   const savePlan = async () => {
     if (!orgId || !planCode.trim()) {
-      window.alert('Choose a plan code.')
+      window.alert('Choose a C.P plan code.')
       return
     }
     setPlanSaving(true)
@@ -405,11 +428,32 @@ export default function OrganisationProfile() {
         body: JSON.stringify({ plan_code: planCode.trim(), status: subStatus.trim() || 'active' }),
       })
       await refreshOrg()
-      window.alert('Subscription updated.')
+      window.alert('C.P plan updated.')
     } catch (e) {
-      window.alert(e?.message || 'Could not update plan')
+      window.alert(e?.message || 'Could not update C.P plan')
     } finally {
       setPlanSaving(false)
+    }
+  }
+
+  const saveFeedbackPlan = async () => {
+    if (!orgId || !feedbackPlanCode.trim()) {
+      window.alert('Choose an F.B plan code.')
+      return
+    }
+    setFeedbackPlanSaving(true)
+    try {
+      await apiFetch(`/admin/organisations/${orgId}/feedback-subscription`, {
+        method: 'PUT',
+        body: JSON.stringify({ plan_code: feedbackPlanCode.trim(), status: feedbackSubStatus.trim() || 'active' }),
+      })
+      await refreshOrg()
+      await refreshFeedbackPlans()
+      window.alert('F.B plan updated.')
+    } catch (e) {
+      window.alert(e?.message || 'Could not update F.B plan')
+    } finally {
+      setFeedbackPlanSaving(false)
     }
   }
 
@@ -606,7 +650,7 @@ export default function OrganisationProfile() {
               <h2>{org ? org.name : orgId ? 'Loading…' : 'No organisation selected'}</h2>
               <p>
                 {org
-                  ? `${org.user_count} users · ${org.branch_count} branches · ${org.patient_count} patients · Plan ${org.plan_name || org.plan_code || '—'}`
+                  ? `${org.user_count} users · ${org.branch_count} branches · ${org.patient_count} patients · C.P ${org.core_plan_name || org.core_plan_code || org.plan_name || org.plan_code || '—'} · F.B ${org.feedback_plan_name || org.feedback_plan_code || '—'}`
                   : 'Select an org from the Organisations page.'}
               </p>
               {org?.category_name ? <span className='pill p-cyan'>Category: {org.category_name}</span> : null}
@@ -636,10 +680,12 @@ export default function OrganisationProfile() {
               <div className='cardHead'><h3>Billing snapshot</h3></div>
               <div className='cardBody'>
                 <div className='list'>
-                  <div className='listRow'><span>Status</span><strong>{org?.subscription_status || '—'}</strong></div>
-                  <div className='listRow'><span>Plan</span><strong>{org?.plan_name || org?.plan_code || '—'}</strong></div>
-                  <div className='listRow'><span>Next billing</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
-                  <div className='listRow'><span>Next charge</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
+                  <div className='listRow'><span>C.P plan</span><strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong></div>
+                  <div className='listRow'><span>C.P status</span><strong>{org?.core_subscription_status || org?.subscription_status || '—'}</strong></div>
+                  <div className='listRow'><span>F.B plan</span><strong>{org?.feedback_plan_name || org?.feedback_plan_code || '—'}</strong></div>
+                  <div className='listRow'><span>F.B status</span><strong>{org?.feedback_subscription_status || '—'}</strong></div>
+                  <div className='listRow'><span>Next billing (C.P)</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                  <div className='listRow'><span>Next charge (C.P)</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
                   <div className='listRow'><span>Cancellation</span><strong>{financePreview?.status || 'none'}</strong></div>
                 </div>
                 <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
@@ -1136,10 +1182,10 @@ export default function OrganisationProfile() {
       {tab === 'plan' && (
         <div className='stack' style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
           <div className='card'>
-            <div className='cardHead'><h3>Plan & subscription</h3></div>
+            <div className='cardHead'><h3>C.P plan</h3><span className='pill p-cyan'>Core Platform</span></div>
             <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Current: <strong>{org?.plan_name || org?.plan_code || '—'}</strong> ({org?.subscription_status || '—'})
+                Current: <strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong> ({org?.core_subscription_status || org?.subscription_status || '—'})
               </p>
               {financePreview?.subscription_finance ? (
                 <div className='list' style={{ fontSize: 13 }}>
@@ -1150,7 +1196,7 @@ export default function OrganisationProfile() {
                 </div>
               ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Plan</span>
+                <span className='muted' style={{ fontSize: 12 }}>C.P plan</span>
                 <select className='select' value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!orgId}>
                   <option value=''>Choose plan…</option>
                   {(plans || []).map((p) => (
@@ -1170,10 +1216,46 @@ export default function OrganisationProfile() {
                 </div>
               ) : null}
               <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
-                {planSaving ? 'Applying…' : 'Apply plan'}
+                {planSaving ? 'Applying…' : 'Apply C.P plan'}
               </button>
               <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Set <strong>payg</strong> to move a customer to Pay as you go (no monthly fee). Use Promo offers for survey/interview credits.
+                Assigns the Core Platform subscription only. Does not change the F.B plan.
+              </p>
+            </div>
+          </div>
+
+          <div className='card'>
+            <div className='cardHead'><h3>F.B plan</h3><span className='pill p-amber'>Customer Feedback</span></div>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
+              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
+                Current: <strong>{org?.feedback_plan_name || org?.feedback_plan_code || 'None — assign below'}</strong>
+                {org?.feedback_subscription_status ? ` (${org.feedback_subscription_status})` : ''}
+              </p>
+              {(org?.feedback_wa_units_included || org?.feedback_wa_units_used) ? (
+                <div className='list' style={{ fontSize: 13 }}>
+                  <div className='listRow'><span>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
+                  <div className='listRow'><span>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
+                  <div className='listRow'><span>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
+                </div>
+              ) : null}
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='muted' style={{ fontSize: 12 }}>F.B plan</span>
+                <select className='select' value={feedbackPlanCode} onChange={(e) => setFeedbackPlanCode(e.target.value)} disabled={!orgId}>
+                  <option value=''>Choose plan…</option>
+                  {(feedbackPlans || []).map((p) => (
+                    <option key={p.id || p.code} value={p.code}>{p.name} ({p.code})</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
+                <input className='input' value={feedbackSubStatus} onChange={(e) => setFeedbackSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
+              </label>
+              <button className='btn primary' disabled={!orgId || feedbackPlanSaving || !feedbackPlanCode.trim()} onClick={saveFeedbackPlan}>
+                {feedbackPlanSaving ? 'Applying…' : 'Apply F.B plan'}
+              </button>
+              <p className='muted' style={{ fontSize: 12, margin: 0 }}>
+                Customer Feedback billing is separate from C.P. An org can have both plans at once.
               </p>
             </div>
           </div>

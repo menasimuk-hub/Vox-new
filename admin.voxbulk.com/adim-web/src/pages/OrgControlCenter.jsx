@@ -195,9 +195,14 @@ function KpiCards({ org }) {
         <div className="occ-kpi-card-sub">{org.payment_method || '—'}</div>
       </div>
       <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Current plan</div>
-        <div className="occ-kpi-card-value large">{org.plan || '—'}</div>
-        <div className="occ-kpi-card-sub">{org.subscription_status || '—'}</div>
+        <div className="occ-kpi-card-label">C.P plan</div>
+        <div className="occ-kpi-card-value large">{org.core_plan || org.plan || '—'}</div>
+        <div className="occ-kpi-card-sub">{org.core_subscription_status || org.subscription_status || '—'}</div>
+      </div>
+      <div className="occ-kpi-card">
+        <div className="occ-kpi-card-label">F.B plan</div>
+        <div className="occ-kpi-card-value large">{org.feedback_plan || '—'}</div>
+        <div className="occ-kpi-card-sub">{org.feedback_subscription_status || '—'}</div>
       </div>
       {sharedPool ? (
         <div className="occ-kpi-card" style={{ borderColor: 'var(--occ-blue-border, #bfdbfe)', background: 'var(--occ-blue-bg, #eff6ff)' }}>
@@ -305,6 +310,7 @@ export default function OrgControlCenter() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [plans, setPlans] = useState([])
+  const [feedbackPlans, setFeedbackPlans] = useState([])
   const [notes, setNotes] = useState('')
   const [notesBusy, setNotesBusy] = useState(false)
   const [modal, setModal] = useState(null)
@@ -312,6 +318,7 @@ export default function OrgControlCenter() {
   const [fundAmount, setFundAmount] = useState('')
   const [fundNote, setFundNote] = useState('')
   const [planCode, setPlanCode] = useState('')
+  const [feedbackPlanCode, setFeedbackPlanCode] = useState('')
   const [planReason, setPlanReason] = useState('')
   const [upgradePreview, setUpgradePreview] = useState(null)
   const [invoiceAmount, setInvoiceAmount] = useState('')
@@ -399,6 +406,17 @@ export default function OrgControlCenter() {
       .then((rows) => setPlans(Array.isArray(rows) ? rows : []))
       .catch(() => setPlans([]))
   }, [])
+
+  useEffect(() => {
+    const zone = detail?.organisation?.market_zone || 'gb'
+    if (!selectedId) {
+      setFeedbackPlans([])
+      return
+    }
+    apiFetch(`/admin/customer-feedback/plans?market_zone=${encodeURIComponent(zone)}`)
+      .then((res) => setFeedbackPlans(Array.isArray(res?.items) ? res.items : []))
+      .catch(() => setFeedbackPlans([]))
+  }, [selectedId, detail?.organisation?.market_zone])
 
   const filteredItems = useMemo(() => {
     let rows = [...items]
@@ -802,7 +820,7 @@ export default function OrgControlCenter() {
   }
 
   useEffect(() => {
-    if (modal !== 'package' || !selectedId || !planCode.trim() || planCode.trim() === String(org?.plan_code || '').trim()) {
+    if (modal !== 'package' || !selectedId || !planCode.trim() || planCode.trim() === String(org?.core_plan_code || org?.plan_code || '').trim()) {
       setUpgradePreview(null)
       return undefined
     }
@@ -822,11 +840,11 @@ export default function OrgControlCenter() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [modal, selectedId, planCode, org?.plan_code])
+  }, [modal, selectedId, planCode, org?.core_plan_code, org?.plan_code])
 
   const applyPlanChange = async () => {
     if (!selectedId || !planCode.trim()) {
-      pushToast('Select a plan', 'warning')
+      pushToast('Select a C.P plan', 'warning')
       return
     }
     setModalBusy(true)
@@ -835,11 +853,32 @@ export default function OrgControlCenter() {
         method: 'PUT',
         body: JSON.stringify({ plan_code: planCode.trim(), status: 'active' }),
       })
-      pushToast('Plan updated', 'success')
+      pushToast('C.P plan updated', 'success')
       setModal(null)
       await refreshAll()
     } catch (e) {
-      pushToast(e?.message || 'Plan change failed', 'danger')
+      pushToast(e?.message || 'C.P plan change failed', 'danger')
+    } finally {
+      setModalBusy(false)
+    }
+  }
+
+  const applyFeedbackPlanChange = async () => {
+    if (!selectedId || !feedbackPlanCode.trim()) {
+      pushToast('Select an F.B plan', 'warning')
+      return
+    }
+    setModalBusy(true)
+    try {
+      await apiFetch(`/admin/organisations/${encodeURIComponent(selectedId)}/feedback-subscription`, {
+        method: 'PUT',
+        body: JSON.stringify({ plan_code: feedbackPlanCode.trim(), status: 'active' }),
+      })
+      pushToast('F.B plan updated', 'success')
+      setModal(null)
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'F.B plan change failed', 'danger')
     } finally {
       setModalBusy(false)
     }
@@ -1095,7 +1134,8 @@ export default function OrgControlCenter() {
   }
 
   const openModal = (type) => {
-    if (type === 'package' && org?.plan_code) setPlanCode(org.plan_code)
+    if (type === 'package' && (org?.core_plan_code || org?.plan_code)) setPlanCode(org.core_plan_code || org.plan_code)
+    if (type === 'feedbackPackage' && org?.feedback_plan_code) setFeedbackPlanCode(org.feedback_plan_code)
     if (type === 'completeDeletion') {
       setDeleteConfirmText('')
       setDeleteAdminNotes('')
@@ -1316,7 +1356,8 @@ export default function OrgControlCenter() {
                 <div className="occ-detail-org-meta">
                   <span className="occ-detail-org-id">{selectedId}</span>
                   {statusBadge(org?.status)}
-                  <span className="occ-badge occ-badge-gray">{org?.plan || '—'}</span>
+                  <span className="occ-badge occ-badge-gray">C.P {org?.core_plan || org?.plan || '—'}</span>
+                  <span className="occ-badge occ-badge-gray">F.B {org?.feedback_plan || '—'}</span>
                   {org?.market_label ? <span className="muted">{org.market_label}</span> : null}
                   {org?.billing_currency ? (
                     <span className="occ-badge occ-badge-gray">{org.billing_currency}</span>
@@ -1328,7 +1369,10 @@ export default function OrgControlCenter() {
                   Add funds
                 </button>
                 <button type="button" className="occ-btn" onClick={() => openModal('package')}>
-                  Change plan
+                  Change C.P plan
+                </button>
+                <button type="button" className="occ-btn" onClick={() => openModal('feedbackPackage')}>
+                  Change F.B plan
                 </button>
                 <button type="button" className="occ-btn" onClick={() => openModal('invoice')}>
                   Invoice
@@ -1450,13 +1494,20 @@ export default function OrgControlCenter() {
                 <OccInfoBlock
                   title="Plan & usage"
                   action={
-                    <button type="button" className="occ-btn-xs" onClick={() => openModal('package')}>
-                      Change plan
-                    </button>
+                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button type="button" className="occ-btn-xs" onClick={() => openModal('package')}>
+                        Change C.P
+                      </button>
+                      <button type="button" className="occ-btn-xs" onClick={() => openModal('feedbackPackage')}>
+                        Change F.B
+                      </button>
+                    </span>
                   }
                 >
-                  <OccInfoRow label="Plan" value={org?.plan_name || org?.plan || '—'} />
-                  <OccInfoRow label="Subscription" value={statusBadge(org?.subscription_status)} />
+                  <OccInfoRow label="C.P plan" value={org?.core_plan_name || org?.core_plan || org?.plan_name || org?.plan || '—'} />
+                  <OccInfoRow label="C.P status" value={statusBadge(org?.core_subscription_status || org?.subscription_status)} />
+                  <OccInfoRow label="F.B plan" value={org?.feedback_plan_name || org?.feedback_plan || '—'} />
+                  <OccInfoRow label="F.B status" value={statusBadge(org?.feedback_subscription_status || 'none')} />
                   <OccInfoRow label="Payment method" value={org?.payment_method || '—'} />
                   <OccInfoRow label="Billing period" value={`${org?.billing_start || '—'} → ${org?.billing_end || '—'}`} />
                   <OccInfoRow label="Overall usage" value={`${org?.usage_pct ?? 0}%`} />
@@ -2124,9 +2175,9 @@ export default function OrgControlCenter() {
 
             {modal === 'package' ? (
               <>
-                <div className="occ-modal-title">Change plan</div>
-                <div className="occ-modal-sub">Select a new subscription plan for this organisation.</div>
-                <label className="occ-modal-label">New plan</label>
+                <div className="occ-modal-title">Change C.P plan</div>
+                <div className="occ-modal-sub">Core Platform subscription — does not change the F.B plan.</div>
+                <label className="occ-modal-label">C.P plan</label>
                 <select className="occ-modal-input" value={planCode} onChange={(e) => setPlanCode(e.target.value)}>
                   <option value="">Select plan…</option>
                   {plans.map((p) => (
@@ -2155,7 +2206,31 @@ export default function OrgControlCenter() {
                     Cancel
                   </button>
                   <button type="button" className="occ-btn primary" disabled={modalBusy} onClick={applyPlanChange}>
-                    Confirm change
+                    Confirm C.P change
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {modal === 'feedbackPackage' ? (
+              <>
+                <div className="occ-modal-title">Change F.B plan</div>
+                <div className="occ-modal-sub">Customer Feedback subscription — separate from C.P billing.</div>
+                <label className="occ-modal-label">F.B plan</label>
+                <select className="occ-modal-input" value={feedbackPlanCode} onChange={(e) => setFeedbackPlanCode(e.target.value)}>
+                  <option value="">Select plan…</option>
+                  {feedbackPlans.map((p) => (
+                    <option key={p.id || p.code} value={p.code}>
+                      {p.name || p.code}
+                    </option>
+                  ))}
+                </select>
+                <div className="occ-modal-footer">
+                  <button type="button" className="occ-btn" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="occ-btn primary" disabled={modalBusy} onClick={applyFeedbackPlanChange}>
+                    Confirm F.B change
                   </button>
                 </div>
               </>

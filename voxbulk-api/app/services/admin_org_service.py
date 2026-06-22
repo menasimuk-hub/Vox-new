@@ -15,8 +15,9 @@ from app.models.patient import Patient
 from app.models.plan import Plan
 from app.models.recovery_job import RecoveryJob
 from app.models.subscription import Subscription
-from app.models.user import User
-from app.services.market_zone import country_column_matches_zone, country_to_zone, normalize_zone
+from app.services.billing_access_service import BillingAccessService
+from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.market_zone import country_column_matches_zone, normalize_zone
 
 
 @dataclass(frozen=True)
@@ -46,10 +47,74 @@ class AdminOrganisationSummary:
     subscription_status: str | None
     plan_code: str | None
     plan_name: str | None
+    core_plan_code: str | None = None
+    core_plan_name: str | None = None
+    core_subscription_status: str | None = None
+    feedback_plan_code: str | None = None
+    feedback_plan_name: str | None = None
+    feedback_subscription_status: str | None = None
+    feedback_wa_units_included: int = 0
+    feedback_wa_units_used: int = 0
+    feedback_wa_units_remaining: int = 0
     wallet_balance_pence: int = 0
 
 
 class AdminOrganisationService:
+    @staticmethod
+    def _subs_by_org_service(db: Session, org_ids: list[str]) -> dict[str, dict[str, Subscription]]:
+        if not org_ids:
+            return {}
+        rows = list(
+            db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.org_id.in_(org_ids),
+                    Subscription.service_code.in_(("voxbulk", "customer_feedback")),
+                )
+                .order_by(
+                    Subscription.org_id.asc(),
+                    Subscription.service_code.asc(),
+                    Subscription.updated_at.desc(),
+                    Subscription.created_at.desc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        out: dict[str, dict[str, Subscription]] = {}
+        for sub in rows:
+            bucket = out.setdefault(sub.org_id, {})
+            code = str(sub.service_code or "voxbulk")
+            if code not in bucket:
+                bucket[code] = sub
+        return out
+
+    @staticmethod
+    def _plan_fields_for_subs(
+        db: Session,
+        *,
+        org_id: str,
+        core_sub: Subscription | None,
+        feedback_sub: Subscription | None,
+    ) -> dict[str, object]:
+        core_plan = db.get(Plan, core_sub.plan_id) if core_sub and core_sub.plan_id else None
+        feedback_plan = db.get(Plan, feedback_sub.plan_id) if feedback_sub and feedback_sub.plan_id else None
+        usage = FeedbackBillingService.get_current_usage(db, org_id) if feedback_sub else {}
+        return {
+            "subscription_status": core_sub.status if core_sub else None,
+            "plan_code": core_plan.code if core_plan else None,
+            "plan_name": core_plan.name if core_plan else None,
+            "core_plan_code": core_plan.code if core_plan else None,
+            "core_plan_name": core_plan.name if core_plan else None,
+            "core_subscription_status": core_sub.status if core_sub else None,
+            "feedback_plan_code": feedback_plan.code if feedback_plan else None,
+            "feedback_plan_name": feedback_plan.name if feedback_plan else None,
+            "feedback_subscription_status": feedback_sub.status if feedback_sub else None,
+            "feedback_wa_units_included": int(usage.get("wa_units_included", 0) or 0),
+            "feedback_wa_units_used": int(usage.get("wa_units_used", 0) or 0),
+            "feedback_wa_units_remaining": int(usage.get("wa_units_remaining", 0) or 0),
+        }
+
     @staticmethod
     def list_orgs(
         db: Session,
@@ -93,7 +158,6 @@ class AdminOrganisationService:
         appt_counts = _count_by(DentallyAppointment, DentallyAppointment.org_id)
         job_counts = _count_by(RecoveryJob, RecoveryJob.org_id)
 
-        # Users count is via membership table.
         user_counts = dict(
             db.execute(
                 select(OrganisationMembership.org_id, func.count(func.distinct(OrganisationMembership.user_id)))
@@ -102,28 +166,25 @@ class AdminOrganisationService:
             ).all()
         )
 
-        # Subscription/plan: keep it summary-level; pick "latest" subscription by created_at if multiple.
-        sub_rows = list(
-            db.execute(
-                select(Subscription.org_id, Subscription.status, Subscription.plan_id, Subscription.created_at)
-                .where(Subscription.org_id.in_(org_ids))
-                .order_by(Subscription.org_id.asc(), Subscription.created_at.desc())
-            ).all()
-        )
-        latest_sub: dict[str, tuple[str, str]] = {}
-        for r in sub_rows:
-            if r.org_id not in latest_sub:
-                latest_sub[r.org_id] = (r.status, r.plan_id)
-
-        plan_ids = list({plan_id for (_, plan_id) in latest_sub.values() if plan_id})
-        plans = {}
-        if plan_ids:
-            plans = {p.id: p for p in db.execute(select(Plan).where(Plan.id.in_(plan_ids))).scalars().all()}
+        subs_by_org = AdminOrganisationService._subs_by_org_service(db, org_ids)
 
         out: list[AdminOrganisationSummary] = []
         for org in org_rows:
-            sub = latest_sub.get(org.id)
-            plan = plans.get(sub[1]) if sub else None
+            org_subs = subs_by_org.get(org.id, {})
+            core_sub = org_subs.get("voxbulk")
+            if core_sub is not None:
+                core_plan = db.get(Plan, core_sub.plan_id) if core_sub.plan_id else None
+                if core_plan is not None and not BillingAccessService.is_valid_core_plan(db, core_plan):
+                    core_sub = None
+            feedback_sub = org_subs.get("customer_feedback")
+            if feedback_sub is not None and str(feedback_sub.status or "").lower() in {"cancelled", "inactive"}:
+                feedback_sub = None
+            plan_fields = AdminOrganisationService._plan_fields_for_subs(
+                db,
+                org_id=org.id,
+                core_sub=core_sub,
+                feedback_sub=feedback_sub,
+            )
             cat = categories.get(getattr(org, "category_id", None))
             out.append(
                 AdminOrganisationSummary(
@@ -149,10 +210,8 @@ class AdminOrganisationService:
                     patient_count=int(patient_counts.get(org.id, 0)),
                     appointment_count=int(appt_counts.get(org.id, 0)),
                     recovery_job_count=int(job_counts.get(org.id, 0)),
-                    subscription_status=sub[0] if sub else None,
-                    plan_code=plan.code if plan else None,
-                    plan_name=plan.name if plan else None,
                     wallet_balance_pence=int(getattr(org, "wallet_balance_pence", 0) or 0),
+                    **plan_fields,
                 )
             )
         return out
@@ -174,12 +233,14 @@ class AdminOrganisationService:
             .where(OrganisationMembership.org_id == org_id)
         ).scalar_one()
 
-        sub = db.execute(
-            select(Subscription).where(Subscription.org_id == org_id).order_by(Subscription.created_at.desc()).limit(1)
-        ).scalar_one_or_none()
-        plan = None
-        if sub is not None:
-            plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+        core_sub = BillingAccessService.get_valid_core_subscription(db, org_id)
+        feedback_sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        plan_fields = AdminOrganisationService._plan_fields_for_subs(
+            db,
+            org_id=org_id,
+            core_sub=core_sub,
+            feedback_sub=feedback_sub,
+        )
 
         cat_name: str | None = None
         cat_id = getattr(org, "category_id", None)
@@ -209,9 +270,23 @@ class AdminOrganisationService:
             patient_count=int(patient_count),
             appointment_count=int(appointment_count),
             recovery_job_count=int(recovery_job_count),
-            subscription_status=sub.status if sub else None,
-            plan_code=plan.code if plan else None,
-            plan_name=plan.name if plan else None,
             wallet_balance_pence=int(getattr(org, "wallet_balance_pence", 0) or 0),
+            **plan_fields,
         )
 
+    @staticmethod
+    def summary_plan_dict(o: AdminOrganisationSummary) -> dict[str, object]:
+        return {
+            "subscription_status": o.subscription_status,
+            "plan_code": o.plan_code,
+            "plan_name": o.plan_name,
+            "core_plan_code": o.core_plan_code,
+            "core_plan_name": o.core_plan_name,
+            "core_subscription_status": o.core_subscription_status,
+            "feedback_plan_code": o.feedback_plan_code,
+            "feedback_plan_name": o.feedback_plan_name,
+            "feedback_subscription_status": o.feedback_subscription_status,
+            "feedback_wa_units_included": o.feedback_wa_units_included,
+            "feedback_wa_units_used": o.feedback_wa_units_used,
+            "feedback_wa_units_remaining": o.feedback_wa_units_remaining,
+        }

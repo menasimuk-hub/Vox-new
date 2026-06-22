@@ -433,6 +433,73 @@ class FeedbackBillingService:
         return {"ok": True, "direction": "same", "plan_id": new_plan.id}
 
     @staticmethod
+    def admin_assign_plan(
+        db: Session,
+        *,
+        org_id: str,
+        plan_id: str | None = None,
+        plan_code: str | None = None,
+        status: str = "active",
+    ) -> tuple[Subscription, Plan, str]:
+        plan = None
+        if plan_id:
+            plan = db.get(Plan, plan_id)
+        if plan is None and plan_code:
+            plan = db.execute(select(Plan).where(Plan.code == str(plan_code).strip().lower())).scalar_one_or_none()
+        if plan is None:
+            raise FeedbackBillingError("Unknown plan")
+        FeedbackBillingService._validate_feedback_plan(db, plan)
+
+        status_val = str(status or "active").strip().lower() or "active"
+        existing = BillingAccessService.get_feedback_subscription(db, org_id)
+        if existing is not None and str(existing.status or "").lower() in {"active", "trial", "pending_first_payment"}:
+            if existing.plan_id == plan.id and str(existing.status or "").lower() == status_val:
+                return existing, plan, "same"
+            FeedbackBillingService.change_plan(db, org_id=org_id, plan_id=plan.id)
+            db.refresh(existing)
+            if status_val and str(existing.status or "").lower() != status_val:
+                existing.status = status_val
+                existing.updated_at = datetime.utcnow()
+                db.add(existing)
+                db.commit()
+                db.refresh(existing)
+            return existing, plan, "change"
+
+        now = datetime.utcnow()
+        period_end = now + timedelta(days=30)
+        if existing is not None:
+            sub = existing
+            sub.plan_id = plan.id
+            sub.service_code = FEEDBACK_SERVICE_CODE
+            sub.status = status_val
+            sub.pending_plan_id = None
+            sub.current_period_end = period_end
+            sub.payment_provider = "manual_cash"
+            sub.payment_mode = "test"
+            sub.updated_at = now
+            db.add(sub)
+            db.commit()
+            db.refresh(sub)
+            FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+            return sub, plan, "reactivate"
+
+        sub = Subscription(
+            org_id=org_id,
+            plan_id=plan.id,
+            service_code=FEEDBACK_SERVICE_CODE,
+            status=status_val,
+            current_period_end=period_end,
+            payment_provider="manual_cash",
+            payment_mode="test",
+            updated_at=now,
+        )
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+        return sub, plan, "create"
+
+    @staticmethod
     def cancellation_payload(db: Session, org_id: str) -> dict[str, Any]:
         org = db.get(Organisation, org_id)
         if org is None:
