@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, ClipboardList, MessageCircle, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { isWaSurveyOrder, waSessionStatusPill, deliveryOkBadge } from '../lib/waSurveyOps'
@@ -48,6 +48,8 @@ function StatCard({ label, value, hint }) {
 
 export default function RunningSurveys() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const detailRef = useRef(null)
   const [orders, setOrders] = useState([])
   const [overview, setOverview] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -145,6 +147,11 @@ export default function RunningSurveys() {
       setPanelTab('overview')
       try {
         await loadDetail(orderId)
+        if (!cancelled) {
+          window.requestAnimationFrame(() => {
+            detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+          })
+        }
       } catch (e) {
         if (!cancelled) setError(e?.message || 'Could not load order detail')
       }
@@ -178,8 +185,22 @@ export default function RunningSurveys() {
     setError('')
     try {
       await loadDetail(order.id)
+      window.requestAnimationFrame(() => {
+        detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      })
     } catch (e) {
       setError(e?.message || 'Could not load survey detail')
+    }
+  }
+
+  const closeDetail = () => {
+    setSelected(null)
+    setEditingId(null)
+    setContactDetail(null)
+    setWaSessionDetail(null)
+    setSelectedWaSessionId(null)
+    if (searchParams.get('order')) {
+      navigate('/operations/running-surveys', { replace: true })
     }
   }
 
@@ -363,87 +384,20 @@ export default function RunningSurveys() {
 
       {error ? <div className="note runningSurveyError">{error}</div> : null}
 
-      <div className="grid-4 runningSurveyStats">
-        {overviewCards.map((c) => (
-          <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
-        ))}
-      </div>
-
-      <div className="note runningSurveyGuide">
-        <strong>How to run calls for a customer</strong>
-        <ol>
-          <li>Select a survey from the list below.</li>
-          <li>Confirm payment is approved and the script is approved.</li>
-          <li>Click <strong>Start survey</strong> — the AI dials the first pending contact automatically.</li>
-          <li>Use <strong>Dial next contact</strong> while running, or <strong>Run AI call</strong> on a specific row in Contacts.</li>
-          <li>The plain <strong>Phone</strong> link is for your handset only; it does not trigger the customer&apos;s AI survey.</li>
-        </ol>
-      </div>
-
-      <div className="card runningSurveyListCard">
-        <div className="cardHead runningSurveyListHead">
-          <h3><ClipboardList size={16} /> Surveys</h3>
-          <div className="runningSurveyTabs">
-            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running surveys</button>
-            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished surveys</button>
-          </div>
-        </div>
-        <div className="cardBody">
-          {loading ? <div className="muted">Loading surveys…</div> : null}
-          {!loading && !filteredOrders.length ? (
-            <div className="muted">{listTab === 'running' ? 'No running surveys right now.' : 'No finished surveys yet.'}</div>
-          ) : null}
-          {!loading && filteredOrders.length ? (
-            <div className="tableWrap">
-              <table className="table runningSurveyTable">
-                <thead>
-                  <tr>
-                    <th>Survey</th>
-                    <th>Organisation</th>
-                    <th>Owner</th>
-                    <th>Status</th>
-                    <th>Progress</th>
-                    <th>Quote</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.map((o) => {
-                    const sent = surveyResponded(o.report)
-                    const total = o.recipient_count || 0
-                    return (
-                      <tr key={o.id} className={selected?.id === o.id ? 'isSelected' : ''}>
-                        <td><strong>{o.title}</strong></td>
-                        <td>{o.org_name || o.org_id}</td>
-                        <td>{o.owner_email || '—'}</td>
-                        <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
-                        <td>{sent} / {total}</td>
-                        <td>{o.quote_total_gbp || '—'}</td>
-                        <td>
-                          <button type="button" className="btn soft bsm" onClick={() => openRow(o)}>
-                            Manage
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
       {selected ? (
-        <div className="card runningSurveyDetailCard">
+        <div className="card runningSurveyDetailCard runningSurveyDetailCard--top" ref={detailRef}>
           <div className="cardHead runningSurveyDetailHead">
             <div>
               <h3>{selected.title}</h3>
               <div className="muted runningSurveyDetailSub">
-                {selected.org_name} · {selected.owner_email} · {selected.recipient_count} contacts · {selected.quote_total_gbp}
+                {selected.org_name} · {selected.owner_email} · {selected.recipient_count} contacts
               </div>
             </div>
-            <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
+            <div className="runningSurveyDetailHeadActions">
+              <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
+              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
+              <button type="button" className="btn soft bsm" onClick={closeDetail}>Close</button>
+            </div>
           </div>
 
           <div className="cardBody">
@@ -452,6 +406,8 @@ export default function RunningSurveys() {
                 <strong>Next step:</strong> {selected.next_action.label} — {selected.next_action.hint}
               </div>
             ) : null}
+
+            <OrderAdminBillingPanel order={selected} showCallTable={false} showFootnote={false} />
 
             <div className="runningSurveyTabs">
               <button type="button" className={`runningSurveyTab${panelTab === 'overview' ? ' on' : ''}`} onClick={() => setPanelTab('overview')}>Overview</button>
@@ -471,43 +427,41 @@ export default function RunningSurveys() {
             {panelTab === 'overview' ? (
               <div className="runningSurveyMetaGrid">
                 <div className="runningSurveyMetaBlock">
-                  <div className="runningSurveyMetaLabel">Payment</div>
-                  <div>{selected.payment_status} · {selected.payment_method || 'none'}</div>
-                </div>
-                <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Schedule</div>
-                  <div>{fmtWhen(selected.scheduled_start_at)} → {fmtWhen(selected.scheduled_end_at)}</div>
+                  <div className="runningSurveyMetaValue">{fmtWhen(selected.scheduled_start_at)} → {fmtWhen(selected.scheduled_end_at)}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Script</div>
-                  <div>{config.script_approved ? 'Approved' : 'Not approved'}</div>
+                  <div className={`runningSurveyMetaValue${config.script_approved ? ' isOk' : ' isWarn'}`}>{config.script_approved ? 'Approved' : 'Not approved'}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Goal</div>
-                  <div>{config.goal || '—'}</div>
+                  <div className="runningSurveyMetaValue">{config.goal || '—'}</div>
                 </div>
                 {isWaOrder ? (
                   <div className="runningSurveyMetaBlock">
                     <div className="runningSurveyMetaLabel">WhatsApp flow</div>
-                    <div>{config.flow_engine || 'linear'} · channel whatsapp</div>
+                    <div className="runningSurveyMetaValue">{config.flow_engine || 'linear'}</div>
                   </div>
                 ) : null}
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Call progress</div>
-                  <div>{surveyResponded(report)} responded · {report.failed || 0} failed · {Math.max(0, (selected.recipient_count || 0) - surveyResponded(report) - (report.failed || 0))} pending</div>
+                  <div className="runningSurveyMetaValue">{surveyResponded(report)} responded · {report.failed || 0} failed · {Math.max(0, (selected.recipient_count || 0) - surveyResponded(report) - (report.failed || 0))} pending</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">AI analysis</div>
-                  <div>{analysis.analyzed_count ?? 0} analysed · {analysis.pending_analysis ?? 0} pending</div>
+                  <div className="runningSurveyMetaValue">{analysis.analyzed_count ?? 0} analysed · {analysis.pending_analysis ?? 0} pending</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Started</div>
-                  <div>{fmtWhen(selected.started_at)}</div>
+                  <div className="runningSurveyMetaValue">{fmtWhen(selected.started_at)}</div>
                 </div>
               </div>
             ) : null}
 
-            {panelTab === 'overview' ? <OrderAdminBillingPanel order={selected} /> : null}
+            {panelTab === 'overview' ? (
+              <OrderAdminBillingPanel order={selected} showMetrics={false} showFootnote />
+            ) : null}
 
             {panelTab === 'contacts' ? (
               <div className="runningSurveyContactsPane">
@@ -707,7 +661,8 @@ export default function RunningSurveys() {
               </ul>
             ) : null}
 
-            <div className="runningSurveyActionBar" style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--b1)' }}>
+            <div className="runningSurveyControlsLabel">Campaign controls</div>
+            <div className="runningSurveyActionBar">
               <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
                 <Play size={14} /> Start survey
               </button>
@@ -734,15 +689,82 @@ export default function RunningSurveys() {
               {selected.owner_email ? (
                 <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
               ) : null}
-              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Order detail</Link>
             </div>
           </div>
         </div>
-      ) : (
-        <div className="card runningSurveyEmptyDetail">
-          <div className="cardBody muted">Select a survey and click <strong>Manage</strong> to control calls and contacts.</div>
+      ) : null}
+
+      {!selected ? (
+        <div className="grid-4 runningSurveyStats">
+          {overviewCards.map((c) => (
+            <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
+          ))}
         </div>
-      )}
+      ) : null}
+
+      {!selected ? (
+        <div className="note runningSurveyGuide">
+          <strong>How to run calls for a customer</strong>
+          <ol>
+            <li>Click a survey row in the list below to open it.</li>
+            <li>Confirm payment is approved and the script is approved.</li>
+            <li>Use <strong>Start survey</strong> at the bottom of the detail panel.</li>
+            <li>Use <strong>Dial next contact</strong> while running, or <strong>Run AI call</strong> on a contact row.</li>
+          </ol>
+        </div>
+      ) : null}
+
+      <div className="card runningSurveyListCard">
+        <div className="cardHead runningSurveyListHead">
+          <h3><ClipboardList size={16} /> Surveys</h3>
+          <div className="runningSurveyTabs">
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running surveys</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished surveys</button>
+          </div>
+        </div>
+        <div className="cardBody">
+          {loading ? <div className="muted">Loading surveys…</div> : null}
+          {!loading && !filteredOrders.length ? (
+            <div className="muted">{listTab === 'running' ? 'No running surveys right now.' : 'No finished surveys yet.'}</div>
+          ) : null}
+          {!loading && filteredOrders.length ? (
+            <div className="tableWrap">
+              <table className="table runningSurveyTable">
+                <thead>
+                  <tr>
+                    <th>Survey</th>
+                    <th>Organisation</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Quote (est.)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map((o) => {
+                    const sent = surveyResponded(o.report)
+                    const total = o.recipient_count || 0
+                    return (
+                      <tr
+                        key={o.id}
+                        className={`isClickable${selected?.id === o.id ? ' isSelected' : ''}`}
+                        onClick={() => openRow(o)}
+                      >
+                        <td><strong>{o.title}</strong></td>
+                        <td>{o.org_name || o.org_id}</td>
+                        <td>{o.owner_email || '—'}</td>
+                        <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
+                        <td>{sent} / {total}</td>
+                        <td>{o.quote_total_gbp || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </>
   )
 }

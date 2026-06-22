@@ -25,11 +25,11 @@ function billingModeLabel(order, launch) {
   return method || '—'
 }
 
-function MetricCard({ label, value, sub, mono }) {
+function MetricCard({ label, value, sub, mono, tone }) {
   return (
     <div className="order-billing-card">
       <div className="order-billing-card-label">{label}</div>
-      <div className={`order-billing-card-value${mono ? ' mono' : ''}`}>{value}</div>
+      <div className={`order-billing-card-value${mono ? ' mono' : ''}${tone ? ` val-${tone}` : ''}`}>{value}</div>
       {sub ? <div className="order-billing-card-sub">{sub}</div> : null}
     </div>
   )
@@ -67,19 +67,33 @@ export default function OrderAdminBillingPanel({
   const billableMin =
     usage.billableMinutes ?? usage.billable_minutes_actual ?? settlement?.total_billable_minutes ?? 0
 
+  const quoteDisplay = order.quote_total_gbp || moneyMinor(order.quote_total_pence)
+  const retailDisplay = costSummary.total_retail_cost_display || '—'
+  const hasActualRetail = retailDisplay !== '—' && billableMin > 0
+
   const metrics = useMemo(() => {
     const items = [
       { label: 'Billing mode', value: billingModeLabel(order, launch) },
-      { label: 'Payment', value: order.payment_status || '—', sub: order.payment_method || undefined },
-      { label: 'Quote (est.)', value: order.quote_total_gbp || moneyMinor(order.quote_total_pence) },
+      {
+        label: 'Payment',
+        value: order.payment_status || '—',
+        sub: order.payment_method || undefined,
+        tone: order.payment_status === 'paid' || order.payment_status === 'approved' ? 'ok' : 'muted',
+      },
+      {
+        label: 'Checkout quote',
+        value: quoteDisplay,
+        sub: 'estimate at launch (not final bill)',
+        tone: 'quote',
+      },
     ]
 
     if (holdMinor > 0) {
-      items.push({ label: 'Wallet hold', value: moneyMinor(holdMinor) })
+      items.push({ label: 'Wallet hold', value: moneyMinor(holdMinor), tone: 'money' })
     }
 
     if (isPhone && launch.unit_rate_minor != null) {
-      items.push({ label: 'Per minute', value: `${moneyMinor(launch.unit_rate_minor)}/min` })
+      items.push({ label: 'Per minute', value: `${moneyMinor(launch.unit_rate_minor)}/min`, tone: 'money' })
     }
 
     if (isPhone) {
@@ -91,15 +105,38 @@ export default function OrderAdminBillingPanel({
             : '—',
         sub: connected > 0 ? `${connected} call${connected === 1 ? '' : 's'}` : undefined,
       })
-      items.push({ label: 'Billable min', value: `${billableMin} min` })
+      items.push({
+        label: 'Billable min',
+        value: `${billableMin} min`,
+        sub: 'rounded up per call',
+        tone: billableMin > 0 ? 'accent' : undefined,
+      })
     }
 
-    if (costSummary.total_retail_cost_display && costSummary.total_retail_cost_display !== '—') {
-      items.push({ label: 'R.cost', value: costSummary.total_retail_cost_display, mono: true })
-    }
+    items.push({
+      label: 'R.cost',
+      value: retailDisplay,
+      sub: hasActualRetail ? 'actual retail (min × rate)' : 'actual after calls complete',
+      tone: 'retail',
+      mono: true,
+    })
 
     if (costSummary.total_operator_cost_display && costSummary.total_operator_cost_display !== '—') {
-      items.push({ label: 'O.cost', value: costSummary.total_operator_cost_display, mono: true })
+      items.push({
+        label: 'O.cost',
+        value: costSummary.total_operator_cost_display,
+        sub: 'Telnyx operator (USD)',
+        tone: 'operator',
+        mono: true,
+      })
+    } else if (isPhone) {
+      items.push({
+        label: 'O.cost',
+        value: '—',
+        sub: 'Telnyx operator (USD)',
+        tone: 'operator',
+        mono: true,
+      })
     }
 
     if (isPhone && estimatedMin != null) {
@@ -110,10 +147,10 @@ export default function OrderAdminBillingPanel({
       items.push(
         { label: 'Included', value: String(settlement.included_minutes ?? settlement.included_units ?? 0) },
         { label: 'Extra billed', value: String(settlement.extra_minutes ?? settlement.extra_units ?? 0) },
-        { label: 'Final charge', value: moneyMinor(settlement.final_charge_minor) },
+        { label: 'Final charge', value: moneyMinor(settlement.final_charge_minor), tone: 'money' },
       )
       if (settlement.hold_refund_minor > 0) {
-        items.push({ label: 'Hold refunded', value: moneyMinor(settlement.hold_refund_minor) })
+        items.push({ label: 'Hold refunded', value: moneyMinor(settlement.hold_refund_minor), tone: 'ok' })
       }
     }
 
@@ -144,6 +181,9 @@ export default function OrderAdminBillingPanel({
     costSummary,
     settlement,
     templateLabel,
+    quoteDisplay,
+    retailDisplay,
+    hasActualRetail,
   ])
 
   return (
@@ -164,8 +204,9 @@ export default function OrderAdminBillingPanel({
 
       {showFootnote && isPhone ? (
         <p className="order-billing-footnote">
-          Billing uses actual call time after the campaign finishes; each call rounds up to the next full minute.
-          Subscription plans are invoiced only for extra minutes beyond allowance.
+          <strong>Checkout quote</strong> is the pre-launch estimate.{' '}
+          <strong>R.cost</strong> is what you charge from actual billable minutes after calls finish (often lower than the quote).
+          Each call rounds up to the next full minute. Subscription plans invoice only extra minutes beyond allowance.
         </p>
       ) : null}
 

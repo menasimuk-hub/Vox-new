@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
@@ -129,6 +129,7 @@ function StatCard({ label, value, hint }) {
 
 export default function RunningInterviews() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [orders, setOrders] = useState([])
   const [overview, setOverview] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -239,6 +240,14 @@ export default function RunningInterviews() {
       setError(e?.message || 'Could not load interview detail')
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  const closeDetail = () => {
+    setSelected(null)
+    setEditingId(null)
+    if (searchParams.get('order')) {
+      navigate('/operations/running-interviews', { replace: true })
     }
   }
 
@@ -454,88 +463,26 @@ export default function RunningInterviews() {
 
       {error ? <div className="note runningSurveyError">{error}</div> : null}
 
-      <div className="grid-4 runningSurveyStats">
-        {overviewCards.map((c) => (
-          <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
-        ))}
-      </div>
-
-      <div className="note runningSurveyGuide">
-        <strong>How to support a customer interview task</strong>
-        <ol>
-          <li>Select a task from the list and click <strong>Manage</strong>.</li>
-          <li>Check the <strong>Task reference</strong> — candidates email CVs to careers@voxbulk.com with this ID.</li>
-          <li>Approve cash payment if needed, then <strong>Start interview</strong> when the customer is ready.</li>
-          <li>Use <strong>Candidates</strong> to edit contact details or download CV files.</li>
-          <li>AI outbound interview calls run via Telnyx when campaigns start (phone delivery).</li>
-        </ol>
-      </div>
-
-      <div className="card runningSurveyListCard">
-        <div className="cardHead runningSurveyListHead">
-          <h3><Briefcase size={16} /> Interviews</h3>
-          <div className="runningSurveyTabs">
-            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
-            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished</button>
-          </div>
-        </div>
-        <div className="cardBody">
-          {loading ? <div className="muted">Loading interviews…</div> : null}
-          {!loading && !filteredOrders.length ? (
-            <div className="muted">{listTab === 'running' ? 'No running interview tasks right now.' : 'No finished interviews yet.'}</div>
-          ) : null}
-          {!loading && filteredOrders.length ? (
-            <div className="tableWrap">
-              <table className="table runningSurveyTable">
-                <thead>
-                  <tr>
-                    <th>Interview #</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Candidates</th>
-                    <th>Updated</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.map((o) => {
-                    const total = o.recipient_count || 0
-                    return (
-                      <tr key={o.id} className={selected?.id === o.id ? 'isSelected' : ''}>
-                        <td><code>{o.reference_id || o.campaign_id || '—'}</code></td>
-                        <td><strong>{o.title}</strong></td>
-                        <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
-                        <td>{total || '—'}</td>
-                        <td className="muted" style={{ fontSize: 12 }}>{fmtWhen(o.updated_at || o.started_at || o.created_at)}</td>
-                        <td>
-                          <button type="button" className="btn soft bsm" disabled={detailLoading} onClick={() => openRow(o)}>
-                            {detailLoading && selected?.id === o.id ? 'Loading…' : 'Open'}
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
       {selected ? (
-        <div className="card runningSurveyDetailCard" ref={detailRef}>
+        <div className="card runningSurveyDetailCard runningSurveyDetailCard--top" ref={detailRef}>
           <div className="cardHead runningSurveyDetailHead">
             <div>
               <h3>{selected.title}</h3>
               <div className="muted runningSurveyDetailSub">
                 {selected.reference_id ? <><code>{selected.reference_id}</code> · </> : null}
-                {selected.org_name} · {selected.owner_email} · {selected.recipient_count} candidates · {selected.quote_total_gbp}
+                {selected.org_name} · {selected.owner_email} · {selected.recipient_count} candidates
               </div>
             </div>
-            <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
+            <div className="runningSurveyDetailHeadActions">
+              <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
+              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
+              <button type="button" className="btn soft bsm" onClick={closeDetail}>Close</button>
+            </div>
           </div>
 
           <div className="cardBody">
+            <OrderAdminBillingPanel order={selected} showCallTable={false} showFootnote={false} />
+
             <div className="runningSurveyTabs">
               <button type="button" className={`runningSurveyTab${panelTab === 'overview' ? ' on' : ''}`} onClick={() => setPanelTab('overview')}>Overview</button>
               <button type="button" className={`runningSurveyTab${panelTab === 'candidates' ? ' on' : ''}`} onClick={() => setPanelTab('candidates')}>
@@ -550,40 +497,38 @@ export default function RunningInterviews() {
               <div className="runningSurveyMetaGrid">
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Task reference</div>
-                  <div><code>{selected.reference_id || '—'}</code></div>
-                </div>
-                <div className="runningSurveyMetaBlock">
-                  <div className="runningSurveyMetaLabel">Payment</div>
-                  <div>{selected.payment_status} · {selected.payment_method || 'none'}</div>
+                  <div className="runningSurveyMetaValue"><code>{selected.reference_id || '—'}</code></div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Schedule</div>
-                  <div>{fmtWhen(selected.scheduled_start_at)} → {fmtWhen(selected.scheduled_end_at)}</div>
+                  <div className="runningSurveyMetaValue">{fmtWhen(selected.scheduled_start_at)} → {fmtWhen(selected.scheduled_end_at)}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Role</div>
-                  <div>{config.role || '—'}</div>
+                  <div className="runningSurveyMetaValue">{config.role || '—'}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Criteria</div>
-                  <div>{config.criteria || '—'}</div>
+                  <div className="runningSurveyMetaValue">{config.criteria || '—'}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Script</div>
-                  <div>{config.script_approved ? 'Approved' : 'Not approved'}</div>
+                  <div className={`runningSurveyMetaValue${config.script_approved ? ' isOk' : ' isWarn'}`}>{config.script_approved ? 'Approved' : 'Not approved'}</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Call progress</div>
-                  <div>{interviewProgress(report)} screened · {Math.max(0, (selected.recipient_count || 0) - interviewProgress(report))} pending</div>
+                  <div className="runningSurveyMetaValue">{interviewProgress(report)} screened · {Math.max(0, (selected.recipient_count || 0) - interviewProgress(report))} pending</div>
                 </div>
                 <div className="runningSurveyMetaBlock">
                   <div className="runningSurveyMetaLabel">Started</div>
-                  <div>{fmtWhen(selected.started_at)}</div>
+                  <div className="runningSurveyMetaValue">{fmtWhen(selected.started_at)}</div>
                 </div>
               </div>
             ) : null}
 
-            {panelTab === 'overview' ? <OrderAdminBillingPanel order={selected} /> : null}
+            {panelTab === 'overview' ? (
+              <OrderAdminBillingPanel order={selected} showMetrics={false} showFootnote />
+            ) : null}
 
             {panelTab === 'candidates' ? (
               <div className="runningSurveyContactsPane">
@@ -699,7 +644,8 @@ export default function RunningInterviews() {
               </ul>
             ) : null}
 
-            <div className="runningSurveyActionBar" style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--b1)' }}>
+            <div className="runningSurveyControlsLabel">Campaign controls</div>
+            <div className="runningSurveyActionBar">
               {selected.payment_status === 'pending_approval' ? (
                 <>
                   <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'approve-payment')}>
@@ -729,15 +675,78 @@ export default function RunningInterviews() {
               {selected.owner_email ? (
                 <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
               ) : null}
-              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Order detail</Link>
             </div>
           </div>
         </div>
-      ) : (
-        <div className="card runningSurveyEmptyDetail">
-          <div className="cardBody muted">Select an interview task and click <strong>Manage</strong> to monitor and support the customer.</div>
+      ) : null}
+
+      {!selected ? (
+        <div className="grid-4 runningSurveyStats">
+          {overviewCards.map((c) => (
+            <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
+          ))}
         </div>
-      )}
+      ) : null}
+
+      {!selected ? (
+        <div className="note runningSurveyGuide">
+          <strong>How to support a customer interview task</strong>
+          <ol>
+            <li>Click an interview row in the list below to open it.</li>
+            <li>Check the <strong>Task reference</strong> — candidates email CVs to careers@voxbulk.com with this ID.</li>
+            <li>Approve cash payment if needed, then <strong>Start interview</strong> when ready.</li>
+          </ol>
+        </div>
+      ) : null}
+
+      <div className="card runningSurveyListCard">
+        <div className="cardHead runningSurveyListHead">
+          <h3><Briefcase size={16} /> Interviews</h3>
+          <div className="runningSurveyTabs">
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished</button>
+          </div>
+        </div>
+        <div className="cardBody">
+          {loading ? <div className="muted">Loading interviews…</div> : null}
+          {!loading && !filteredOrders.length ? (
+            <div className="muted">{listTab === 'running' ? 'No running interview tasks right now.' : 'No finished interviews yet.'}</div>
+          ) : null}
+          {!loading && filteredOrders.length ? (
+            <div className="tableWrap">
+              <table className="table runningSurveyTable">
+                <thead>
+                  <tr>
+                    <th>Interview #</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Candidates</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map((o) => {
+                    const total = o.recipient_count || 0
+                    return (
+                      <tr
+                        key={o.id}
+                        className={`isClickable${selected?.id === o.id ? ' isSelected' : ''}`}
+                        onClick={() => !detailLoading && openRow(o)}
+                      >
+                        <td><code>{o.reference_id || o.campaign_id || '—'}</code></td>
+                        <td><strong>{o.title}</strong></td>
+                        <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
+                        <td>{total || '—'}</td>
+                        <td className="muted" style={{ fontSize: 12 }}>{fmtWhen(o.updated_at || o.started_at || o.created_at)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       {activityRow ? (
         <div className="modalOverlay" role="presentation" onClick={closeActivity}>

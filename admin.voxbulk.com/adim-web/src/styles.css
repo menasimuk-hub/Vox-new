@@ -7721,6 +7721,12 @@ body.dark .matrix th {
 .runningSurveyListCard,
 .runningSurveyDetailCard,
 .runningSurveyEmptyDetail { margin-bottom: 16px; }
+.runningSurveyTable tbody tr.isClickable {
+  cursor: pointer;
+}
+.runningSurveyTable tbody tr.isClickable:hover {
+  background: var(--s2);
+}
 .runningSurveyDetailHead {
   display: flex;
   align-items: flex-start;
@@ -7773,13 +7779,20 @@ body.dark .matrix th {
   gap: 8px;
 }
 .runningSurveyMetaBlock {
-  background: var(--s2);
+  background: #fff;
   border: 1px solid var(--b1);
   border-radius: 8px;
-  padding: 9px 11px;
+  padding: 10px 12px;
   font-size: 12px;
   line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(15, 15, 14, 0.04);
 }
+.runningSurveyMetaValue {
+  font-weight: 700;
+  color: var(--t1);
+}
+.runningSurveyMetaValue.isOk { color: #15803d; }
+.runningSurveyMetaValue.isWarn { color: #b45309; }
 .runningSurveyMetaLabel {
   font-size: 10px;
   font-weight: 600;
