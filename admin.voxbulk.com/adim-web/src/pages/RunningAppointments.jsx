@@ -27,16 +27,33 @@ export default function RunningAppointments() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
 
+  const [orgsError, setOrgsError] = useState('')
+
   const load = useCallback(async () => {
     setError('')
-    const [ov, list, tplRes] = await Promise.all([
+    setOrgsError('')
+    const [ovRes, listRes, tplRes] = await Promise.allSettled([
       apiFetch('/admin/platform-services/appointments/overview'),
       apiFetch('/admin/platform-services/appointments/organisations'),
-      apiFetch('/admin/wa-appointment/templates').catch(() => ({ templates: [] })),
+      apiFetch('/admin/wa-appointment/templates'),
     ])
-    setOverview(ov || null)
-    setOrgs(Array.isArray(list?.organisations) ? list.organisations : [])
-    setTemplates(Array.isArray(tplRes?.templates) ? tplRes.templates : [])
+    if (ovRes.status === 'fulfilled') {
+      setOverview(ovRes.value || null)
+    } else {
+      setOverview(null)
+      setError(ovRes.reason?.message || 'Could not load appointment overview')
+    }
+    if (listRes.status === 'fulfilled') {
+      setOrgs(Array.isArray(listRes.value?.organisations) ? listRes.value.organisations : [])
+    } else {
+      setOrgs([])
+      setOrgsError(listRes.reason?.message || 'Could not load customers')
+    }
+    if (tplRes.status === 'fulfilled') {
+      setTemplates(Array.isArray(tplRes.value?.templates) ? tplRes.value.templates : [])
+    } else {
+      setTemplates([])
+    }
   }, [])
 
   const loadDetail = useCallback(async (orgId) => {
@@ -90,8 +107,9 @@ export default function RunningAppointments() {
       </div>
 
       {error ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{error}</div></div> : null}
+      {orgsError ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{orgsError}</div></div> : null}
 
-      {overview ? (
+      {overview || loading ? (
         <div className="runningSurveyStatsCompactRow">
           <StatCard label="Active customers" value={overview.active_orgs ?? 0} />
           <StatCard label="Total appointments" value={overview.total_appointments ?? 0} />
@@ -112,6 +130,11 @@ export default function RunningAppointments() {
               <span className="runningSurveyStatCompactValue">{t.name}</span>
               {t.active_for_appointment === false ? (
                 <span className="runningSurveyStatCompactHint">Hidden</span>
+              ) : null}
+              {t.id ? (
+                <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/settings/wa-appointment?edit=${t.id}`}>
+                  Edit
+                </Link>
               ) : null}
             </div>
           ))}

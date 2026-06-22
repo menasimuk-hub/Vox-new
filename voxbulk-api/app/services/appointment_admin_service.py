@@ -126,7 +126,7 @@ def list_organisations(db: Session) -> list[dict[str, Any]]:
         out.append(
             {
                 "org_id": org.id,
-                "org_name": org.display_name or org.name,
+                "org_name": org.name,
                 "contact_email": org.contact_email,
                 "setup_complete": bool(cfg.get("setup_complete")),
                 "wa_template_name": cfg.get("wa_template_name"),
@@ -207,7 +207,7 @@ def organisation_detail(db: Session, org_id: str) -> dict[str, Any] | None:
     return {
         "org": {
             "id": org.id,
-            "name": org.display_name or org.name,
+            "name": org.name,
             "contact_email": org.contact_email,
         },
         "config": cfg,
