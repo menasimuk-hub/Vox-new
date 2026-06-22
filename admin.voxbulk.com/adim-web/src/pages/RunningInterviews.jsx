@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
@@ -536,38 +536,6 @@ export default function RunningInterviews() {
           </div>
 
           <div className="cardBody">
-            <div className="runningSurveyActionBar">
-              {selected.payment_status === 'pending_approval' ? (
-                <>
-                  <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'approve-payment')}>
-                    Approve payment
-                  </button>
-                  <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'reject-payment', { note: 'Rejected by admin' })}>
-                    Reject payment
-                  </button>
-                </>
-              ) : null}
-              <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
-                <Play size={14} /> Start interview
-              </button>
-              <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === selected.id} onClick={() => runAction(selected.id, 'pause')}>
-                <Pause size={14} /> Pause
-              </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'resume')}>
-                <Play size={14} /> Resume
-              </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => {
-                if (!window.confirm(`Stop interview "${selected.title}"? Pending calls will not be placed.`)) return
-                if (!window.confirm('Final confirmation: stop this interview campaign now?')) return
-                runAction(selected.id, 'stop', { reason: 'Stopped by admin' })
-              }}>
-                <Square size={14} /> Stop
-              </button>
-              {selected.owner_email ? (
-                <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
-              ) : null}
-            </div>
-
             <div className="runningSurveyTabs">
               <button type="button" className={`runningSurveyTab${panelTab === 'overview' ? ' on' : ''}`} onClick={() => setPanelTab('overview')}>Overview</button>
               <button type="button" className={`runningSurveyTab${panelTab === 'candidates' ? ' on' : ''}`} onClick={() => setPanelTab('candidates')}>
@@ -730,6 +698,39 @@ export default function RunningInterviews() {
                 {!timeline.length ? <li className="muted">No audit events yet.</li> : null}
               </ul>
             ) : null}
+
+            <div className="runningSurveyActionBar" style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--b1)' }}>
+              {selected.payment_status === 'pending_approval' ? (
+                <>
+                  <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'approve-payment')}>
+                    Approve payment
+                  </button>
+                  <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'reject-payment', { note: 'Rejected by admin' })}>
+                    Reject payment
+                  </button>
+                </>
+              ) : null}
+              <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
+                <Play size={14} /> Start interview
+              </button>
+              <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === selected.id} onClick={() => runAction(selected.id, 'pause')}>
+                <Pause size={14} /> Pause
+              </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'resume')}>
+                <Play size={14} /> Resume
+              </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => {
+                if (!window.confirm(`Stop interview "${selected.title}"? Pending calls will not be placed.`)) return
+                if (!window.confirm('Final confirmation: stop this interview campaign now?')) return
+                runAction(selected.id, 'stop', { reason: 'Stopped by admin' })
+              }}>
+                <Square size={14} /> Stop
+              </button>
+              {selected.owner_email ? (
+                <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
+              ) : null}
+              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Order detail</Link>
+            </div>
           </div>
         </div>
       ) : (

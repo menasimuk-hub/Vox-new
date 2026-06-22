@@ -1,7 +1,7 @@
 import React from 'react'
 import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
 
-export default function OrderCallRecordsTable({ order }) {
+export default function OrderCallRecordsTable({ order, compact = false }) {
   const recipients = Array.isArray(order?.recipients) ? order.recipients : []
   const settlementCalls = order?.billing_settlement?.call_records
   const rows =
@@ -13,6 +13,8 @@ export default function OrderCallRecordsTable({ order }) {
           call_type: c.call_type,
           duration_seconds: c.duration_seconds,
           billable_minutes: c.billable_minutes,
+          retail_cost_display: c.retail_cost_display,
+          operator_cost_display: c.operator_cost_display,
           status: c.status,
           hangup_cause: c.hangup_cause,
         }))
@@ -39,6 +41,9 @@ export default function OrderCallRecordsTable({ order }) {
   )
 
   if (!phoneRows.length) {
+    if (compact) {
+      return <p className="order-billing-footnote">No call attempts recorded yet.</p>
+    }
     return (
       <div className="note" style={{ marginTop: 12 }}>
         <strong>Call records</strong>
@@ -47,42 +52,52 @@ export default function OrderCallRecordsTable({ order }) {
     )
   }
 
+  const table = (
+    <div className="tableWrap">
+      <table className={`table runningSurveyContactsTable${compact ? ' compact' : ''}`}>
+        <thead>
+          <tr>
+            <th>Contact</th>
+            <th>Phone</th>
+            <th>Type</th>
+            <th>Duration</th>
+            <th>Min</th>
+            <th>R.cost</th>
+            <th>O.cost</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phoneRows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.name || '—'}</td>
+              <td>{r.phone || '—'}</td>
+              <td>{r.call_type || '—'}</td>
+              <td>{formatDurationSeconds(r.duration_seconds)}</td>
+              <td>{r.billable_minutes != null ? r.billable_minutes : '—'}</td>
+              <td className="occ-mono">{r.retail_cost_display || '—'}</td>
+              <td className="occ-mono">{r.operator_cost_display || '—'}</td>
+              <td>{r.status || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  if (compact) {
+    return (
+      <div>
+        <div className="order-billing-card-label" style={{ marginBottom: 6 }}>Call records</div>
+        {table}
+      </div>
+    )
+  }
+
   return (
     <div className="note" style={{ marginTop: 12 }}>
       <strong>Call records</strong>
-      <p className="muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>
-        Telnyx talk time per contact. Billable minutes round up (50s → 1 min, 1m 05s → 2 min).
-      </p>
-      <div className="tableWrap">
-        <table className="table runningSurveyContactsTable">
-          <thead>
-            <tr>
-              <th>Contact</th>
-              <th>Phone</th>
-              <th>Call type</th>
-              <th>Duration</th>
-              <th>Billable min</th>
-              <th>R.cost</th>
-              <th>O.cost</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {phoneRows.map((r) => (
-              <tr key={r.key}>
-                <td>{r.name || '—'}</td>
-                <td>{r.phone || '—'}</td>
-                <td>{r.call_type || '—'}</td>
-                <td>{formatDurationSeconds(r.duration_seconds)}</td>
-                <td>{r.billable_minutes != null ? r.billable_minutes : '—'}</td>
-                <td className="occ-mono">{r.retail_cost_display || '—'}</td>
-                <td className="occ-mono">{r.operator_cost_display || '—'}</td>
-                <td>{r.status || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {table}
     </div>
   )
 }

@@ -453,35 +453,6 @@ export default function RunningSurveys() {
               </div>
             ) : null}
 
-            <div className="runningSurveyActionBar">
-              <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
-                <Play size={14} /> Start survey
-              </button>
-              {!isWaOrder ? (
-                <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === 'dial-next'} onClick={dialNext}>
-                  <PhoneCall size={14} /> Dial next contact
-                </button>
-              ) : null}
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'pause')}>
-                <Pause size={14} /> Pause
-              </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'resume')}>
-                <Play size={14} /> Resume
-              </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'stop', { reason: 'Stopped by admin' })}>
-                <Square size={14} /> Stop
-              </button>
-              <button type="button" className="btn soft bsm" disabled={busyKey === 'reanalyze-order'} onClick={reanalyzeOrder}>
-                <RefreshCw size={14} /> Re-analyze all
-              </button>
-              {selected.org_phone ? (
-                <a className="btn soft bsm" href={`tel:${selected.org_phone}`}><Phone size={14} /> Phone clinic</a>
-              ) : null}
-              {selected.owner_email ? (
-                <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
-              ) : null}
-            </div>
-
             <div className="runningSurveyTabs">
               <button type="button" className={`runningSurveyTab${panelTab === 'overview' ? ' on' : ''}`} onClick={() => setPanelTab('overview')}>Overview</button>
               <button type="button" className={`runningSurveyTab${panelTab === 'contacts' ? ' on' : ''}`} onClick={() => setPanelTab('contacts')}>
@@ -735,6 +706,36 @@ export default function RunningSurveys() {
                 {!timeline.length ? <li className="muted">No audit events yet.</li> : null}
               </ul>
             ) : null}
+
+            <div className="runningSurveyActionBar" style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--b1)' }}>
+              <button type="button" className="btn primary bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'start')}>
+                <Play size={14} /> Start survey
+              </button>
+              {!isWaOrder ? (
+                <button type="button" className="btn soft bsm" disabled={!isRunning || busyKey === 'dial-next'} onClick={dialNext}>
+                  <PhoneCall size={14} /> Dial next contact
+                </button>
+              ) : null}
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'pause')}>
+                <Pause size={14} /> Pause
+              </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'resume')}>
+                <Play size={14} /> Resume
+              </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === selected.id} onClick={() => runAction(selected.id, 'stop', { reason: 'Stopped by admin' })}>
+                <Square size={14} /> Stop
+              </button>
+              <button type="button" className="btn soft bsm" disabled={busyKey === 'reanalyze-order'} onClick={reanalyzeOrder}>
+                <RefreshCw size={14} /> Re-analyze all
+              </button>
+              {selected.org_phone ? (
+                <a className="btn soft bsm" href={`tel:${selected.org_phone}`}><Phone size={14} /> Phone clinic</a>
+              ) : null}
+              {selected.owner_email ? (
+                <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>
+              ) : null}
+              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Order detail</Link>
+            </div>
           </div>
         </div>
       ) : (
