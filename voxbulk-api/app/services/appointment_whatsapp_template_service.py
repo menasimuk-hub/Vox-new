@@ -166,3 +166,52 @@ class AppointmentWhatsappTemplateService:
                 continue
             payload.append(AppointmentWhatsappTemplateService.row_to_customer_dict(row))
         return payload
+
+    @staticmethod
+    def get_template(db: Session, template_id: int) -> TelnyxWhatsappTemplate | None:
+        row = db.get(TelnyxWhatsappTemplate, template_id)
+        if row is None or not AppointmentWhatsappTemplateService._is_appointment_row(row):
+            return None
+        return row
+
+    @staticmethod
+    def list_admin_templates(db: Session) -> list[dict[str, Any]]:
+        AppointmentWhatsappTemplateService.ensure_catalog_seeded(db)
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.sales_template_key.in_(APPOINTMENT_WA_TEMPLATE_KEYS),
+                )
+            ).scalars()
+        )
+        rows.sort(key=lambda r: APPOINTMENT_WA_TEMPLATE_KEYS.index(str(r.sales_template_key or "")) if str(r.sales_template_key or "") in APPOINTMENT_WA_TEMPLATE_KEYS else 99)
+        return [AppointmentWhatsappTemplateService.row_to_admin_dict(row) for row in rows]
+
+    @staticmethod
+    def row_to_admin_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+        customer = AppointmentWhatsappTemplateService.row_to_customer_dict(row)
+        return {
+            **customer,
+            "id": row.id,
+            "name": row.name,
+            "display_name": row.display_name or customer.get("label"),
+            "status": str(row.status or "UNKNOWN").upper(),
+            "local_sync_status": str(row.local_sync_status or "draft"),
+            "active_for_appointment": bool(getattr(row, "active_for_appointment", True)),
+            "language": row.language,
+            "category": row.category,
+        }
+
+    @staticmethod
+    def save_draft(db: Session, row: TelnyxWhatsappTemplate, payload: dict[str, Any]) -> TelnyxWhatsappTemplate:
+        if "display_name" in payload:
+            row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
+        if "customer_description" in payload:
+            row.customer_description = str(payload.get("customer_description") or "").strip() or None
+        if "active_for_appointment" in payload:
+            row.active_for_appointment = bool(payload["active_for_appointment"])
+        row.updated_at = _now()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row

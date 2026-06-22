@@ -76,6 +76,7 @@ import ServiceOrdersAdmin from './pages/ServiceOrdersAdmin'
 import RunningSurveys from './pages/RunningSurveys'
 import RunningInterviews from './pages/RunningInterviews'
 import RunningAppointments from './pages/RunningAppointments'
+import WaAppointmentTemplates from './pages/WaAppointmentTemplates'
 import ScriptModeration from './pages/ScriptModeration'
 import CustomerFeedbackHub from './pages/customer-feedback/CustomerFeedbackHub'
 import FeedbackIndustriesList from './pages/customer-feedback/FeedbackIndustriesList'
@@ -288,6 +289,7 @@ export default function App() {
         <Route path='/settings/wa-survey' element={<WaSurveyTypes />} />
         <Route path='/settings/wa-survey/system-templates' element={<WaSurveySystemTemplates />} />
         <Route path='/settings/wa-interview' element={<WaInterviewTemplates />} />
+        <Route path='/settings/wa-appointment' element={<WaAppointmentTemplates />} />
         <Route path='/settings/wa-survey/simulator' element={<WaSurveyFlowSimulator />} />
         <Route path='/settings/wa-survey/industries/:industryId' element={<WaSurveyIndustryEdit />} />
         <Route path='/settings/wa-survey/industries' element={<WaSurveyIndustries />} />

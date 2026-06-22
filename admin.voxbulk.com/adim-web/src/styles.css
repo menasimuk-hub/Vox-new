@@ -7660,6 +7660,43 @@ body.dark .matrix th {
 .runningSurveyStats { margin-bottom: 16px; }
 .runningSurveyStat { min-height: 108px; }
 .runningSurveyStatHint { font-size: 11px; margin-top: 6px; }
+.runningSurveyStatsCompactRow {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 16px;
+  padding-bottom: 2px;
+}
+.runningSurveyStatCompact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  flex: 1 1 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--card, #fff);
+}
+.runningSurveyStatCompactLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+}
+.runningSurveyStatCompactValue {
+  font-size: 16px;
+  font-weight: 600;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.runningSurveyStatCompactHint {
+  font-size: 10px;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+}
 .runningSurveyError { border-color: rgba(220, 38, 38, 0.35); margin-bottom: 16px; }
 .runningSurveyGuide {
   margin-bottom: 16px;

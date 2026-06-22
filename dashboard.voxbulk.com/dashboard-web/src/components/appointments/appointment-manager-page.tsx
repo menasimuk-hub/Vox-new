@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -449,7 +450,7 @@ export function AppointmentManagerPage() {
               </p>
             </div>
             <Button asChild size="sm" variant="outline">
-              <a href="/appointments/setup">Complete setup</a>
+              <Link to="/appointments/setup">Complete setup</Link>
             </Button>
           </CardContent>
         </Card>
@@ -1122,9 +1123,9 @@ function WaTemplatePicker({
     return (
       <p className="text-sm text-muted-foreground">
         No templates found. Complete setup at{" "}
-        <a href="/appointments/setup" className="text-primary underline">
+        <Link to="/appointments/setup" className="text-primary underline">
           Appointment setup
-        </a>
+        </Link>
         .
       </p>
     );

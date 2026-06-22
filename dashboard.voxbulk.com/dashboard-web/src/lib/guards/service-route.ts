@@ -1,10 +1,12 @@
-import { redirect } from "@tanstack/react-router";
+import { isRedirect, redirect } from "@tanstack/react-router";
 
 import { apiFetch } from "@/lib/api";
 import { requireCampaignAccess } from "@/lib/guards/campaign-route";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import { fromAllowedApi, fromEnabledApi, visibleFrom, type ServiceKey } from "@/lib/services";
 import type { Organisation } from "@/lib/types/api";
+
+type AppointmentSettings = { setup_complete?: boolean };
 
 export async function requireEnabledService(service: ServiceKey) {
   await requireCampaignAccess();
@@ -31,5 +33,21 @@ export async function requireAppointmentsModule() {
   const visible = visibleFrom(allowed, enabled);
   if (!visible.appointments && !(showRecoveryModules && visible.followup)) {
     throw redirect({ to: "/" });
+  }
+}
+
+/** Appointments routes — enable check + auto-open setup wizard until complete. */
+export async function requireAppointmentsRoute(location: { pathname: string }) {
+  await requireEnabledService("appointments");
+  const path = String(location.pathname || "");
+  if (path.includes("/appointments/setup")) return;
+
+  try {
+    const settings = await apiFetch<AppointmentSettings>("/appointments/settings");
+    if (!settings.setup_complete) {
+      throw redirect({ to: "/appointments/setup" });
+    }
+  } catch (e) {
+    if (isRedirect(e)) throw e;
   }
 }

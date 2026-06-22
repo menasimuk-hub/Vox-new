@@ -50,6 +50,7 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/operations') ||
       isUnder('/settings/wa-survey') ||
       isUnder('/settings/wa-interview') ||
+      isUnder('/settings/wa-appointment') ||
       isUnder('/analytics') ||
       isUnder('/ai/agents') ||
       p === '/ai/agent-demo' ||
@@ -81,6 +82,7 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/operations') ||
       isUnder('/settings/wa-survey') ||
       isUnder('/settings/wa-interview') ||
+      isUnder('/settings/wa-appointment') ||
       isUnder('/ai') ||
       isUnder('/compliance') ||
       isUnder('/analytics') ||

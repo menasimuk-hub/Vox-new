@@ -1,8 +1,8 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-import { requireEnabledService } from "@/lib/guards/service-route";
+import { requireAppointmentsRoute } from "@/lib/guards/service-route";
 
 export const Route = createFileRoute("/_app/appointments")({
-  beforeLoad: () => requireEnabledService("appointments"),
+  beforeLoad: ({ location }) => requireAppointmentsRoute(location),
   component: () => <Outlet />,
 });

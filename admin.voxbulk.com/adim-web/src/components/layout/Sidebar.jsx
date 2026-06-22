@@ -212,6 +212,8 @@ const NAV = [
 
       ['Running appointments', '/operations/running-appointments'],
 
+      ['WA Appointment templates', '/settings/wa-appointment'],
+
     ],
 
   ],
