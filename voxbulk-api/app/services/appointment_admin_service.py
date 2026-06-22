@@ -61,6 +61,14 @@ def operations_overview(db: Session) -> dict[str, Any]:
     org_rows = list(db.execute(select(Organisation)).scalars())
     active_orgs = 0
     orgs_with_issues = 0
+    appt_agents = list(
+        db.execute(
+            select(AgentDefinition).where(
+                AgentDefinition.is_active.is_(True),
+                AgentDefinition.supports_appointment.is_(True),
+            ).order_by(AgentDefinition.is_default_appointment.desc(), AgentDefinition.name.asc())
+        ).scalars()
+    )
     for org in org_rows:
         allowed, enabled, visible = org_service_maps(org, db)
         if not visible.get("appointments"):
@@ -84,6 +92,16 @@ def operations_overview(db: Session) -> dict[str, Any]:
         "at_risk_24h": at_risk,
         "active_orgs": active_orgs,
         "orgs_with_issues": orgs_with_issues,
+        "appointment_agent_count": len(appt_agents),
+        "appointment_agents": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "voice_label": a.voice_label,
+                "is_default": bool(a.is_default_appointment),
+            }
+            for a in appt_agents
+        ],
     }
 
 

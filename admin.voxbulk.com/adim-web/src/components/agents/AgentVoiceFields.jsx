@@ -8,6 +8,7 @@ export const voiceAgentDefaults = {
   service_survey_role: '',
   service_interview_role: '',
   service_lead_sales_role: '',
+  service_appointment_role: '',
   opening_disclosure_template: '',
   retry_policy_notes: '',
   interruption_behavior_notes: '',
@@ -16,11 +17,14 @@ export const voiceAgentDefaults = {
   supports_survey: false,
   supports_interview: false,
   supports_lead_sales: false,
+  supports_appointment: false,
   is_default_survey: false,
   is_default_interview: false,
   is_default_lead_sales: false,
+  is_default_appointment: false,
   disclosure_for_survey: true,
   disclosure_for_interview: true,
+  disclosure_for_appointment: true,
   disclosure_mandatory: true,
 }
 
@@ -29,8 +33,10 @@ export function serviceBadges(agent) {
   if (agent.supports_survey) badges.push('Survey')
   if (agent.supports_interview) badges.push('Interview')
   if (agent.supports_lead_sales) badges.push('Lead/Sales')
+  if (agent.supports_appointment) badges.push('Appointments')
   if (agent.is_default_survey) badges.push('Default survey')
   if (agent.is_default_interview) badges.push('Default interview')
+  if (agent.is_default_appointment) badges.push('Default appointments')
   return badges
 }
 

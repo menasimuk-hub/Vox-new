@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.agent_services import SERVICE_INTERVIEW, SERVICE_LEAD_SALES, SERVICE_SURVEY
+from app.core.agent_services import SERVICE_APPOINTMENTS, SERVICE_INTERVIEW, SERVICE_LEAD_SALES, SERVICE_SURVEY
 from app.core.config import get_settings
 from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
@@ -96,18 +96,22 @@ def agent_to_voice_dict(agent: AgentDefinition) -> dict[str, Any]:
         "supports_survey": bool(agent.supports_survey),
         "supports_interview": bool(agent.supports_interview),
         "supports_lead_sales": bool(agent.supports_lead_sales),
+        "supports_appointment": bool(agent.supports_appointment),
         "is_default_survey": bool(agent.is_default_survey),
         "is_default_interview": bool(agent.is_default_interview),
         "is_default_lead_sales": bool(agent.is_default_lead_sales),
+        "is_default_appointment": bool(agent.is_default_appointment),
         "system_prompt": agent.system_prompt,
         "base_role": agent.base_role,
         "service_survey_role": agent.service_survey_role,
         "service_interview_role": agent.service_interview_role,
         "service_lead_sales_role": agent.service_lead_sales_role,
+        "service_appointment_role": agent.service_appointment_role,
         "call_workflow": agent.call_workflow,
         "opening_disclosure_template": agent.opening_disclosure_template,
         "disclosure_for_survey": bool(agent.disclosure_for_survey),
         "disclosure_for_interview": bool(agent.disclosure_for_interview),
+        "disclosure_for_appointment": bool(agent.disclosure_for_appointment),
         "disclosure_mandatory": bool(agent.disclosure_mandatory),
         "retry_policy_notes": agent.retry_policy_notes,
         "interruption_behavior_notes": agent.interruption_behavior_notes,
@@ -128,6 +132,8 @@ def _service_support_field(service_key: str) -> str:
         return "supports_interview"
     if service_key == SERVICE_LEAD_SALES:
         return "supports_lead_sales"
+    if service_key == SERVICE_APPOINTMENTS:
+        return "supports_appointment"
     return ""
 
 
@@ -138,6 +144,8 @@ def _default_field(service_key: str) -> str:
         return "is_default_interview"
     if service_key == SERVICE_LEAD_SALES:
         return "is_default_lead_sales"
+    if service_key == SERVICE_APPOINTMENTS:
+        return "is_default_appointment"
     return ""
 
 

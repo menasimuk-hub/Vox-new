@@ -101,6 +101,7 @@ def _apply_agent_payload(agent: AgentDefinition, payload: dict) -> None:
         "service_survey_role",
         "service_interview_role",
         "service_lead_sales_role",
+        "service_appointment_role",
         "opening_disclosure_template",
         "retry_policy_notes",
         "interruption_behavior_notes",
@@ -121,11 +122,14 @@ def _apply_agent_payload(agent: AgentDefinition, payload: dict) -> None:
         "supports_survey",
         "supports_interview",
         "supports_lead_sales",
+        "supports_appointment",
         "is_default_survey",
         "is_default_interview",
         "is_default_lead_sales",
+        "is_default_appointment",
         "disclosure_for_survey",
         "disclosure_for_interview",
+        "disclosure_for_appointment",
         "disclosure_mandatory",
         "allow_lookup_tool",
         "allow_booking_tool",
@@ -169,7 +173,7 @@ def create_agent(payload: dict, db: Session = Depends(get_db), _admin=Depends(re
     now = datetime.utcnow()
     agent = AgentDefinition(name=name, slug=slug, system_prompt=system_prompt, created_at=now, updated_at=now)
     _apply_agent_payload(agent, payload)
-    for service_key in ("survey", "interview", "lead_sales"):
+    for service_key in ("survey", "interview", "lead_sales", "appointments"):
         field = _default_field(service_key)
         if field:
             _clear_other_defaults(db, agent, field)
@@ -355,7 +359,7 @@ def update_agent(agent_id: str, payload: dict, db: Session = Depends(get_db), _a
         if clash:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent slug already exists")
     _apply_agent_payload(agent, payload)
-    for service_key in ("survey", "interview", "lead_sales"):
+    for service_key in ("survey", "interview", "lead_sales", "appointments"):
         field = _default_field(service_key)
         if field:
             _clear_other_defaults(db, agent, field)

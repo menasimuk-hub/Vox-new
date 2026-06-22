@@ -15,16 +15,20 @@ const emptyAgent = {
   service_survey_role: '',
   service_interview_role: '',
   service_lead_sales_role: '',
+  service_appointment_role: '',
   opening_disclosure_template:
     'Hello, this is {agent_name}, the AI assistant calling from {company_name}. This call is recorded for quality and service purposes.',
   supports_survey: false,
   supports_interview: false,
   supports_lead_sales: false,
+  supports_appointment: false,
   is_default_survey: false,
   is_default_interview: false,
   is_default_lead_sales: false,
+  is_default_appointment: false,
   disclosure_for_survey: true,
   disclosure_for_interview: true,
+  disclosure_for_appointment: true,
   disclosure_mandatory: true,
   retry_policy_notes: 'Retry once after 1 hour for busy/no answer.',
   interruption_behavior_notes: 'If interrupted before disclosure, restart it clearly.',
@@ -39,6 +43,7 @@ const SERVICE_CATALOG = [
   { id: 'survey', name: 'Survey', icon: 'ti ti-clipboard-list' },
   { id: 'interview', name: 'Interview', icon: 'ti ti-microphone' },
   { id: 'lead_sales', name: 'Lead / Sales', icon: 'ti ti-bolt' },
+  { id: 'appointment', name: 'Appointments', icon: 'ti ti-calendar' },
 ]
 
 function hasWorkflow(agent) {
@@ -241,6 +246,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     service_survey_role: agent.service_survey_role,
     service_interview_role: agent.service_interview_role,
     service_lead_sales_role: agent.service_lead_sales_role,
+    service_appointment_role: agent.service_appointment_role,
     opening_disclosure_template: agent.opening_disclosure_template,
     retry_policy_notes: agent.retry_policy_notes,
     interruption_behavior_notes: agent.interruption_behavior_notes,
@@ -251,11 +257,14 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
     supports_survey: agent.supports_survey,
     supports_interview: agent.supports_interview,
     supports_lead_sales: agent.supports_lead_sales,
+    supports_appointment: agent.supports_appointment,
     is_default_survey: agent.is_default_survey,
     is_default_interview: agent.is_default_interview,
     is_default_lead_sales: agent.is_default_lead_sales,
+    is_default_appointment: agent.is_default_appointment,
     disclosure_for_survey: agent.disclosure_for_survey,
     disclosure_for_interview: agent.disclosure_for_interview,
+    disclosure_for_appointment: agent.disclosure_for_appointment,
     disclosure_mandatory: agent.disclosure_mandatory,
   })
 
@@ -569,7 +578,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
             </div>
           </div>
           <p className="agentsEditNote">
-            Enable <strong>Interview</strong> or <strong>Survey</strong> so this agent appears in the matching dashboard dropdown.
+            Enable <strong>Interview</strong>, <strong>Survey</strong>, or <strong>Appointments</strong> so this agent appears in the matching dashboard flow.
           </p>
           <div className="agentsTableWrap">
             <table className="agentsEditServiceTable">
@@ -630,6 +639,10 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
             <div className="agentsEditField">
               <label>Lead / Sales role override</label>
               <textarea className="input agentPromptAreaSm" rows={3} value={agent.service_lead_sales_role || ''} onChange={(e) => setField('service_lead_sales_role', e.target.value)} />
+            </div>
+            <div className="agentsEditField">
+              <label>Appointments role override</label>
+              <textarea className="input agentPromptAreaSm" rows={3} value={agent.service_appointment_role || ''} onChange={(e) => setField('service_appointment_role', e.target.value)} />
             </div>
           </section>
           <section className="agentsPanel">

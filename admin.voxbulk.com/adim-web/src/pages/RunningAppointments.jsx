@@ -107,6 +107,7 @@ export default function RunningAppointments() {
           <p>Customers with the appointments module — setup status, WA templates, agents, and live pipeline.</p>
         </div>
         <div className="pageTopActions">
+          <Link className="btn soft" to="/ai/agents">Appointment agents</Link>
           <Link className="btn soft" to="/settings/wa-appointment">WA templates</Link>
           <Link className="btn soft" to="/onboarding/services">Dashboard modules</Link>
           <button type="button" className="btn primary" onClick={() => load().catch((e) => setError(e?.message))}>
@@ -123,6 +124,33 @@ export default function RunningAppointments() {
         <StatCard label="Total appointments" value={loading && !overview ? '…' : (overview?.total_appointments ?? 0)} />
         <StatCard label="At risk (24h)" value={loading && !overview ? '…' : (overview?.at_risk_24h ?? 0)} hint="Unconfirmed soon" />
         <StatCard label="Customers with issues" value={loading && !overview ? '…' : (overview?.orgs_with_issues ?? 0)} hint="Setup / CRM / agent" />
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="cardHead runningSurveyListHead">
+          <h3>Appointment AI agents</h3>
+          <Link className="btn soft" to="/ai/agents">Manage agents</Link>
+        </div>
+        <div className="cardBody">
+          {(overview?.appointment_agents || []).length ? (
+            <div className="runningSurveyStatsCompactRow">
+              {overview.appointment_agents.map((a) => (
+                <div key={a.id} className="runningSurveyStatCompact">
+                  <span className="runningSurveyStatCompactLabel">{a.voice_label || a.name}</span>
+                  <span className="runningSurveyStatCompactValue">{a.name}</span>
+                  {a.is_default ? <span className="runningSurveyStatCompactHint">Platform default</span> : null}
+                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/ai/agents/${a.id}`}>
+                    Edit agent
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="note">
+              No appointment agents yet. Open <Link to="/ai/agents">AI → Agents</Link>, edit an agent, enable <strong>Appointments</strong> under Service assignment, and mark one as <strong>Default</strong>. Customers pick the agent in their dashboard setup wizard when AI calls are on.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
