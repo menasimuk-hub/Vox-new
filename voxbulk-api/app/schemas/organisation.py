@@ -44,6 +44,7 @@ class EnabledServicesUpdate(BaseModel):
     recovery: bool | None = None
     follow_up: bool | None = None
     campaigns: bool | None = None
+    appointments: bool | None = None
 
 
 class OrganisationUpdate(BaseModel):

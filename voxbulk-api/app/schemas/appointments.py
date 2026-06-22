@@ -151,6 +151,20 @@ class AppointmentTemplateOut(BaseModel):
     body: str | None = None
     footer: str | None = None
     buttons: list[dict] = Field(default_factory=list)
+    approval_status: str | None = None
+
+
+class AppointmentBillingEligibilityOut(BaseModel):
+    allowed: bool
+    reason: str | None = None
+    requires_subscription: bool = True
+    topup_only_blocked: bool = False
+    plan_name: str | None = None
+    plan_code: str | None = None
+    package_remaining: int = 0
+    whatsapp_remaining: int = 0
+    has_active_subscription: bool = False
+    can_launch_and_invoice: bool = False
 
 
 class AppointmentAgentOut(BaseModel):

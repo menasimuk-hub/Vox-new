@@ -80,9 +80,9 @@ type Metrics = {
 
 function Mini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+    <div className="flex min-w-[120px] flex-1 items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+      <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="shrink-0 text-sm font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -221,7 +221,7 @@ export function AppointmentReportsPanel() {
             WA &amp; AI calls only send between {outreachStart} and {outreachEnd} (your outreach window)
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <CardContent className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5">
           <Mini label="Total appointments" value={String(summary?.total ?? "—")} />
           <Mini label="Confirmation rate" value={summary ? `${confirmationRate}%` : "—"} />
           <Mini label="WA messages sent" value={formatted.waSent} />
@@ -360,7 +360,7 @@ export function AppointmentReportsPanel() {
 
       <Card>
         <CardHeader><CardTitle>Detail metrics</CardTitle></CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <CardContent className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5">
           <Mini label="Call answer rate" value={formatted.callRate} />
           <Mini label="Rescheduled → kept" value={formatted.rescheduledKept} />
           <Mini label="Cancelled" value={String(summary?.cancelled ?? "—")} />

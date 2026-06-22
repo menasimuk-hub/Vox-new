@@ -14,6 +14,7 @@ from app.models.agent import AgentDefinition
 from app.models.appointment import Appointment
 from app.models.call_log import CallLog
 from app.services.appointment_analysis_service import process_post_call
+from app.services.appointment_billing_service import AppointmentBillingError, AppointmentBillingService
 from app.services.appointment_log_service import append_log
 from app.services.appointment_settings_service import get_config
 from app.services.messaging_log_service import normalize_e164
@@ -52,6 +53,11 @@ def _start_call(
     cfg = get_config(db, appt.org_id)
     if not cfg.get("call_enabled"):
         return {"ok": False, "reason": "call_disabled"}
+
+    try:
+        AppointmentBillingService.assert_can_operate(db, appt.org_id)
+    except AppointmentBillingError as exc:
+        return {"ok": False, "reason": "billing_blocked", "detail": str(exc)}
 
     phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, appt.contact_phone)
     if not phone_check.get("allowed"):

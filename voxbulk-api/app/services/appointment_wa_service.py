@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.models.appointment import Appointment
+from app.services.appointment_billing_service import AppointmentBillingError, AppointmentBillingService
 from app.services.appointment_log_service import append_log
 from app.services.appointment_settings_service import get_config
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -23,6 +24,11 @@ def send_confirmation(db: Session, appointment_id: str) -> dict:
     cfg = get_config(db, appt.org_id)
     if not cfg.get("wa_enabled"):
         return {"ok": False, "reason": "wa_disabled"}
+
+    try:
+        AppointmentBillingService.assert_can_operate(db, appt.org_id)
+    except AppointmentBillingError as exc:
+        return {"ok": False, "reason": "billing_blocked", "detail": str(exc)}
 
     template_name = str(cfg.get("wa_template_name") or "appt_confirm_v1")
     body = (

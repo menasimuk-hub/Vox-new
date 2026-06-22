@@ -174,7 +174,7 @@ def update_enabled_services(
     allowed, enabled, _ = org_service_maps(org, db)
     patch = {
         k: getattr(body, k)
-        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up", "campaigns")
+        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up", "campaigns", "appointments")
         if getattr(body, k, None) is not None
     }
     try:

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Check, ChevronLeft, ChevronRight, Eye, Plug } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Plug, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
 import { IPhonePreview } from "@/components/iphone-preview";
@@ -38,6 +38,14 @@ type WaTemplate = {
   body?: string;
   footer?: string;
   buttons?: Array<{ label: string; type?: string }>;
+  approval_status?: string;
+};
+
+type BillingEligibility = {
+  allowed: boolean;
+  reason?: string | null;
+  plan_name?: string | null;
+  package_remaining?: number;
 };
 
 type Agent = { id: string; name: string; voice_label?: string; is_platform_default?: boolean };
@@ -68,6 +76,10 @@ export function AppointmentSetupWizard() {
     queryKey: ["appointments", "templates"],
     queryFn: () => apiFetch<WaTemplate[]>("/appointments/templates"),
     enabled: step >= 2,
+  });
+  const billingQ = useQuery({
+    queryKey: ["appointments", "billing", "eligibility"],
+    queryFn: () => apiFetch<BillingEligibility>("/appointments/billing/eligibility"),
   });
   const agentsQ = useQuery({
     queryKey: ["appointments", "agents"],
@@ -115,6 +127,7 @@ export function AppointmentSetupWizard() {
   const canNextStep1 = crmReady && Boolean(form.workspace_name?.trim());
   const canNextStep2 = !form.wa_enabled || Boolean(form.wa_template_name);
   const canNextStep3 = !form.call_enabled || Boolean(form.appointment_agent_id);
+  const billingOk = billingQ.data?.allowed !== false;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -128,6 +141,24 @@ export function AppointmentSetupWizard() {
           </Button>
         }
       />
+
+      {billingQ.data && !billingQ.data.allowed && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center gap-3 p-4">
+            <CreditCard className="size-5 shrink-0 text-amber-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Platform subscription required</p>
+              <p className="text-xs text-muted-foreground">
+                {billingQ.data.reason ||
+                  "Appointment Manager uses your core platform package (same as surveys & interviews). Wallet top-up alone is not enough."}
+              </p>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/account/billing">View billing</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex items-center gap-2 text-sm">
         {[1, 2, 3, 4].map((n) => (
@@ -302,7 +333,10 @@ export function AppointmentSetupWizard() {
               <CardTitle>Step 2 — WhatsApp template</CardTitle>
               <CardDescription>Preview and select an approved template (like survey templates).</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
+            <CardContent className="flex flex-col gap-1.5">
+              {(templatesQ.data ?? []).length === 0 && !templatesQ.isLoading && (
+                <p className="text-sm text-muted-foreground">No templates available yet — contact support.</p>
+              )}
               {(templatesQ.data ?? []).map((t) => {
                 const selected = form.wa_template_name === t.name;
                 return (
@@ -311,16 +345,19 @@ export function AppointmentSetupWizard() {
                     type="button"
                     onClick={() => patch({ wa_template_name: t.name })}
                     className={cn(
-                      "rounded-lg border p-3 text-left transition",
-                      selected ? "border-primary ring-2 ring-primary/30" : "hover:border-primary/40",
+                      "flex items-center gap-2 rounded-md border px-3 py-2 text-left transition",
+                      selected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "hover:border-primary/40",
                     )}
                   >
-                    <p className="font-medium">{t.label}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
-                    <p className="mt-2 line-clamp-2 text-[11px] text-muted-foreground">{t.body}</p>
-                    <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary">
-                      {selected ? <Check className="size-3" /> : <Eye className="size-3" />}
-                      {selected ? "Selected" : "Use this template"}
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.label}</span>
+                    <span className="hidden max-w-[40%] truncate text-xs text-muted-foreground sm:inline">
+                      {t.description}
+                    </span>
+                    {t.approval_status && t.approval_status !== "APPROVED" && (
+                      <span className="shrink-0 text-[10px] text-amber-600">{t.approval_status}</span>
+                    )}
+                    <span className="shrink-0 text-xs text-primary">
+                      {selected ? <Check className="inline size-3" /> : <Eye className="inline size-3" />}
                     </span>
                   </button>
                 );
@@ -433,7 +470,7 @@ export function AppointmentSetupWizard() {
             Next <ChevronRight className="size-4" />
           </Button>
         ) : (
-          <Button disabled={launchMut.isPending || !crmReady} onClick={() => launchMut.mutate()}>
+          <Button disabled={launchMut.isPending || !crmReady || !billingOk} onClick={() => launchMut.mutate()}>
             Launch appointment manager
           </Button>
         )}

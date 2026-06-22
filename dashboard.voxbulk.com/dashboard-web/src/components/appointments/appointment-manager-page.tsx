@@ -678,40 +678,28 @@ function KpiBar({ summary, loading }: { summary?: ReportSummary; loading?: boole
   const rate = total > 0 ? Math.round((100 * confirmed) / total) : 0;
   const rescheduledPct = total > 0 ? ((100 * rescheduled) / total).toFixed(1) : "0";
 
+  const items = [
+    { label: "Total (month)", value: String(total), hint: "All bookings" },
+    { label: "Confirm rate", value: `${rate}%`, tone: rate >= 80 ? "ok" as const : "default" as const },
+    { label: "Rescheduled", value: String(rescheduled), hint: `${rescheduledPct}%` },
+    { label: "Unconfirmed", value: String(scheduled), tone: scheduled > 0 ? "warn" as const : "default" as const, urgent: scheduled > 0 },
+  ];
+
   if (loading && !summary) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="flex flex-nowrap gap-2 overflow-x-auto">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i}>
-            <CardContent className="h-24 p-4" />
-          </Card>
+          <div key={i} className="h-9 min-w-[140px] flex-1 animate-pulse rounded-md border bg-muted/40" />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <KpiCard label="Total appointments (this month)" value={String(total)} hint="All synced bookings" />
-      <KpiCard
-        label="Confirmation rate"
-        value={`${rate}%`}
-        hint={rate >= 80 ? "Above 80% target" : "Target: above 80%"}
-        tone={rate >= 80 ? "ok" : "default"}
-      />
-      <KpiCard
-        label="Rescheduled"
-        value={String(rescheduled)}
-        hint={`${rescheduledPct}% of total`}
-        tone="info"
-      />
-      <KpiCard
-        label="Upcoming unconfirmed"
-        value={String(scheduled)}
-        hint="Scheduled, not yet confirmed"
-        tone="warn"
-        urgent={scheduled > 0}
-      />
+    <div className="flex flex-nowrap gap-2 overflow-x-auto pb-0.5">
+      {items.map((item) => (
+        <KpiCard key={item.label} {...item} />
+      ))}
     </div>
   );
 }
@@ -731,27 +719,30 @@ function KpiCard({
 }) {
   const colour =
     tone === "ok"
-      ? "text-emerald-500"
+      ? "text-emerald-600"
       : tone === "warn"
-        ? "text-amber-500"
+        ? "text-amber-600"
         : tone === "info"
-          ? "text-blue-500"
+          ? "text-blue-600"
           : "text-foreground";
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-          {urgent && (
-            <Badge variant="destructive" className="gap-1 text-[10px]">
-              <AlertTriangle className="size-3" /> Urgent
-            </Badge>
-          )}
-        </div>
-        <p className={cn("mt-1 text-3xl font-semibold tabular-nums", colour)}>{value}</p>
-        {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
+    <div
+      className={cn(
+        "flex min-w-[140px] flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2",
+        urgent && "border-amber-500/40 bg-amber-500/5",
+      )}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className={cn("text-lg font-semibold tabular-nums leading-tight", colour)}>{value}</p>
+      </div>
+      {hint ? <span className="shrink-0 text-[10px] text-muted-foreground">{hint}</span> : null}
+      {urgent && !hint ? (
+        <Badge variant="destructive" className="shrink-0 text-[9px]">
+          Urgent
+        </Badge>
+      ) : null}
+    </div>
   );
 }
 
@@ -965,6 +956,19 @@ function SettingsTab({
     <>
       <Card>
         <CardHeader>
+          <CardTitle>WhatsApp template</CardTitle>
+          <CardDescription>Choose the confirmation template sent before each appointment.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <WaTemplatePicker
+            value={s.wa_template_name}
+            onChange={(wa_template_name) => update({ wa_template_name })}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Confirmation timing</CardTitle>
           <CardDescription>When to ask, when to call.</CardDescription>
         </CardHeader>
@@ -1093,6 +1097,60 @@ function SettingsTab({
         </Button>
       </div>
     </>
+  );
+}
+
+function WaTemplatePicker({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (name: string) => void;
+}) {
+  const templatesQ = useQuery({
+    queryKey: ["appointments", "templates"],
+    queryFn: () =>
+      apiFetch<Array<{ name: string; label: string; description?: string }>>("/appointments/templates"),
+  });
+
+  if (templatesQ.isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading templates…</p>;
+  }
+
+  const rows = templatesQ.data ?? [];
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No templates found. Complete setup at{" "}
+        <a href="/appointments/setup" className="text-primary underline">
+          Appointment setup
+        </a>
+        .
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {rows.map((t) => {
+        const selected = value === t.name;
+        return (
+          <button
+            key={t.name}
+            type="button"
+            onClick={() => onChange(t.name)}
+            className={cn(
+              "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition",
+              selected ? "border-primary bg-primary/5" : "hover:border-primary/40",
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate font-medium">{t.label}</span>
+            <span className="hidden truncate text-xs text-muted-foreground sm:inline">{t.description}</span>
+            {selected ? <CheckCircle2 className="size-4 shrink-0 text-primary" /> : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
