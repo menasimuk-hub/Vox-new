@@ -152,7 +152,6 @@ export type FeedbackSurveyType = {
   name: string;
   description?: string | null;
   is_active?: boolean;
-  customer_selectable?: boolean;
   sort_order?: number;
 };
 
@@ -1740,22 +1739,9 @@ export function useWaSurveyTypes(industryId?: string | null) {
   const qs = industryId ? `?industry_id=${encodeURIComponent(industryId)}` : "";
   return useQuery({
     queryKey: ["dashboard", "wa-survey-types", industryId || ""],
-    queryFn: async () => {
-      const data = await apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>(
-        `/dashboard/service-scripts/wa-survey/types${qs}`,
-      );
-      return (data.types || []).filter(
-        (item) =>
-          item.is_active !== false &&
-          item.customer_hidden !== true &&
-          item.customer_selectable !== false,
-      );
-    },
+    queryFn: () =>
+      apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>(`/dashboard/service-scripts/wa-survey/types${qs}`),
     enabled: Boolean(industryId),
-    staleTime: 0,
-    gcTime: 60_000,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
   });
 }
 
@@ -2267,18 +2253,9 @@ export function useFeedbackSurveyTypes(industryId?: string | null) {
       const data = await apiFetch<{ ok?: boolean; items?: FeedbackSurveyType[] }>(
         `/customer-feedback/catalog/survey-types${qs}`,
       );
-      return (data.items || []).filter(
-        (item) =>
-          item.is_active !== false &&
-          item.customer_hidden !== true &&
-          item.customer_selectable !== false,
-      );
+      return data.items || [];
     },
     enabled: Boolean(industryId),
-    staleTime: 0,
-    gcTime: 60_000,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
   });
 }
 

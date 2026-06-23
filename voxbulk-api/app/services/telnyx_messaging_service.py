@@ -375,7 +375,6 @@ class TelnyxMessagingService:
         org_id: str | None = None,
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
-        waive_marketing_block: bool = False,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         _, wa_from = TelnyxMessagingService._from_numbers(config)
@@ -403,13 +402,6 @@ class TelnyxMessagingService:
             )
         if not recipient:
             return TelnyxMessageResult(ok=False, status="invalid_to", detail="Recipient phone number is invalid.", channel="whatsapp")
-
-        from app.services.customer_feedback.feedback_marketing_policy import assert_whatsapp_template_send_allowed
-
-        if not waive_marketing_block:
-            blocked_reason = assert_whatsapp_template_send_allowed(template_name=template_name)
-            if blocked_reason:
-                return TelnyxMessageResult(ok=False, status="template_blocked", detail=blocked_reason, channel="whatsapp")
 
         try:
             whatsapp_message = TelnyxMessagingService._build_whatsapp_message(

@@ -290,36 +290,6 @@ async def lifespan(app: FastAPI):
         logger.exception("feedback_seed failed")
     try:
         from app.core.database import get_sessionmaker
-        from app.services.customer_feedback.feedback_marketing_policy import apply_platform_wa_marketing_blocks
-
-        with get_sessionmaker()() as db:
-            stats = apply_platform_wa_marketing_blocks(db)
-            if stats.get("feedback_deactivated") or stats.get("survey_deactivated"):
-                logger.info("wa_marketing_blocks_applied", extra=stats)
-    except Exception:
-        logger.exception("wa_marketing_blocks failed")
-    try:
-        from app.core.database import get_sessionmaker
-        from app.services.customer_feedback.feedback_marketing_policy import repair_customer_hidden_flags
-
-        with get_sessionmaker()() as db:
-            stats = repair_customer_hidden_flags(db)
-            if stats.get("repaired"):
-                logger.info("customer_hidden_repair", extra=stats)
-    except Exception:
-        logger.exception("customer_hidden_repair failed")
-    try:
-        from app.core.database import get_sessionmaker
-        from app.services.wa_survey_visibility_service import repair_wa_survey_customer_hidden_flags
-
-        with get_sessionmaker()() as db:
-            stats = repair_wa_survey_customer_hidden_flags(db)
-            if stats.get("repaired"):
-                logger.info("wa_survey_customer_hidden_repair", extra=stats)
-    except Exception:
-        logger.exception("wa_survey_customer_hidden_repair failed")
-    try:
-        from app.core.database import get_sessionmaker
         from app.services.sales_offer_template_service import ensure_default_offer_templates
 
         with get_sessionmaker()() as db:

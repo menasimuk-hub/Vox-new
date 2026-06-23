@@ -235,33 +235,10 @@ def get_survey_type(survey_type_id: str, db: Session = Depends(get_db), _admin=D
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/survey-types/{survey_type_id}/set-active")
-def set_survey_type_active(
-    survey_type_id: str,
-    payload: dict,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    from app.services.customer_feedback.feedback_marketing_policy import coerce_bool, set_feedback_survey_type_active
-
-    active = payload.get("is_active")
-    if active is None and "active" in payload:
-        active = payload.get("active")
-    if active is None:
-        raise HTTPException(status_code=400, detail="Provide is_active (boolean).")
-    try:
-        result = set_feedback_survey_type_active(db, survey_type_id, active=coerce_bool(active))
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"ok": True, **result}
-
-
 @router.post("/survey-types/{survey_type_id}/sync-telnyx")
 def sync_survey_type_templates(
     survey_type_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))
 ):
-    from app.services.customer_feedback.feedback_marketing_policy import apply_platform_wa_marketing_blocks
-
     row = db.get(FeedbackSurveyType, survey_type_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Survey type not found")
@@ -274,7 +251,6 @@ def sync_survey_type_templates(
         tpl.updated_at = now
         db.add(tpl)
     db.commit()
-    apply_platform_wa_marketing_blocks(db)
     return {"ok": True, "submitted": len(rows)}
 
 
@@ -392,16 +368,13 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
         ],
     }
 def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.customer_feedback.feedback_marketing_policy import (
-        feedback_template_meta_name_for_row,
-        is_marketing_wa_template,
-    )
+    from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
 
     rows = list(db.execute(select(FeedbackWaTemplate).order_by(FeedbackWaTemplate.step_order)).scalars().all())
-    items = []
-    for r in rows:
-        meta_name = feedback_template_meta_name_for_row(db, r)
-        items.append(
+    rows = [r for r in rows if not is_marketing_wa_template(r)]
+    return {
+        "ok": True,
+        "items": [
             {
                 "id": r.id,
                 "industry_id": r.industry_id,
@@ -410,12 +383,10 @@ def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(
                 "template_key": r.template_key,
                 "body_text": r.body_text,
                 "is_active": r.is_active,
-                "meta_category": r.meta_category,
-                "meta_name": meta_name,
-                "marketing_blocked": is_marketing_wa_template(r, meta_name=meta_name),
             }
-        )
-    return {"ok": True, "items": items}
+            for r in rows
+        ],
+    }
 
 
 @router.post("/wa-templates")
@@ -460,28 +431,4 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     row.updated_at = now
     db.commit()
     db.refresh(row)
-    if row.survey_type_id:
-        FeedbackCatalogService.sync_survey_type_customer_visibility(db, row.survey_type_id)
     return {"ok": True, "item": FeedbackCatalogService.template_to_dict(row)}
-
-
-@router.post("/wa-templates/{template_id}/set-active")
-def set_wa_template_active(
-    template_id: str,
-    payload: dict,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    from app.services.customer_feedback.feedback_marketing_policy import coerce_bool, set_feedback_wa_template_active
-
-    active = payload.get("is_active")
-    if active is None and "active" in payload:
-        active = payload.get("active")
-    if active is None:
-        raise HTTPException(status_code=400, detail="Provide is_active (boolean).")
-    try:
-        result = set_feedback_wa_template_active(db, template_id, active=coerce_bool(active))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    row = db.get(FeedbackWaTemplate, template_id)
-    return {"ok": True, **result, "item": FeedbackCatalogService.template_to_dict(row) if row else None}

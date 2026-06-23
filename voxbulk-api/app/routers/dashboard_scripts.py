@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -142,16 +142,17 @@ def list_wa_survey_industries(db: Session = Depends(get_db), principal=Depends(g
 
 @router.get("/wa-survey/types")
 def list_wa_survey_types(
-    response: Response,
     industry_id: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from app.services.wa_survey_visibility_service import list_wa_survey_customer_catalog_types
+    from app.services.survey_type_service import SurveyTypeService
 
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    types = list_wa_survey_customer_catalog_types(db, industry_id=industry_id)
+    types = [
+        t
+        for t in SurveyTypeService.list_types(db, industry_id=industry_id)
+        if t.get("is_active") and not t.get("system_template_kind")
+    ]
     return {"ok": True, "types": types}
 
 
@@ -207,7 +208,7 @@ def get_wa_survey_step_bank(
     from app.services.survey_type_service import SurveyTypeService
 
     survey_type = SurveyTypeService.get_type(db, survey_type_id)
-    if survey_type is None or not survey_type.is_active or bool(getattr(survey_type, "customer_hidden", False)):
+    if survey_type is None or not survey_type.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     return SurveyStepBankService.get_bank(
         db,
@@ -230,7 +231,7 @@ def list_wa_survey_library_templates(
     from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 
     survey_type = SurveyTypeService.get_type(db, survey_type_id)
-    if survey_type is None or not survey_type.is_active or bool(getattr(survey_type, "customer_hidden", False)):
+    if survey_type is None or not survey_type.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     rows = SurveyWhatsappTemplateService.list_for_survey_type(
         db,

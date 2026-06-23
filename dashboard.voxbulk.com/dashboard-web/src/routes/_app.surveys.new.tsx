@@ -834,11 +834,10 @@ function CreateSurvey() {
     });
   }, [selectedServiceTagIds]);
 
-  const serviceTypes = React.useMemo(() => {
-    const raw = waTypesQ.data;
-    if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
-    return (raw?.types || []) as Array<Record<string, unknown>>;
-  }, [waTypesQ.data]);
+  const serviceTypes = React.useMemo(
+    () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
+    [waTypesQ.data],
+  );
 
   const libraryTemplatesByTypeId = React.useMemo(() => {
     const map: Record<string, Array<Record<string, unknown>>> = {};

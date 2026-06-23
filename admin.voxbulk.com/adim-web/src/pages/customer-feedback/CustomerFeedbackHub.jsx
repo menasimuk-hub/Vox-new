@@ -205,38 +205,6 @@ export default function CustomerFeedbackHub() {
     }
   }
 
-  const toggleSurveyTypeActive = async (row, nextActive) => {
-    setBusy(`type-${row.id}`)
-    setError('')
-    try {
-      await apiFetch(`/admin/customer-feedback/survey-types/${row.id}/set-active`, {
-        method: 'POST',
-        body: JSON.stringify({ is_active: nextActive }),
-      })
-      await loadTab()
-    } catch (e) {
-      setError(e?.message || 'Could not update survey type')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const toggleWaTemplateActive = async (row, nextActive) => {
-    setBusy(`tpl-${row.id}`)
-    setError('')
-    try {
-      await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}/set-active`, {
-        method: 'POST',
-        body: JSON.stringify({ is_active: nextActive }),
-      })
-      await loadTab()
-    } catch (e) {
-      setError(e?.message || 'Could not update template')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const savePackage = async () => {
     if (!packageEdit) return
     setBusy(true)
@@ -464,39 +432,17 @@ export default function CustomerFeedbackHub() {
                   </thead>
                   <tbody>
                     {surveyTypes.map((row) => (
-                      <tr key={row.id} style={!row.is_active ? { opacity: 0.72 } : undefined}>
+                      <tr key={row.id}>
                         <td><strong>{row.name}</strong></td>
                         <td>{industryName(row.industry_id)}</td>
                         <td><code>{row.slug}</code></td>
                         <td>
                           <span className={statusPill(row.is_active && !row.archived_at)}>
-                            {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Disabled'}
+                            {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            {row.is_active ? (
-                              <button
-                                type="button"
-                                className="btn soft bsm"
-                                disabled={Boolean(busy)}
-                                onClick={() => void toggleSurveyTypeActive(row, false)}
-                              >
-                                Disable
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn soft bsm"
-                                disabled={Boolean(busy)}
-                                onClick={() => void toggleSurveyTypeActive(row, true)}
-                              >
-                                Enable
-                              </button>
-                            )}
-                            <button type="button" className="btn soft bsm" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</button>
-                            <Link className="btn soft bsm" to={`/customer-feedback/survey-types/${row.id}`}>Templates</Link>
-                          </div>
+                          <button type="button" className="btn soft bsm" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</button>
                         </td>
                       </tr>
                     ))}
@@ -779,30 +725,15 @@ export default function CustomerFeedbackHub() {
                   </thead>
                   <tbody>
                     {waTemplates.map((row) => (
-                      <tr key={row.id} style={!row.is_active || row.marketing_blocked ? { opacity: 0.72 } : undefined}>
+                      <tr key={row.id}>
                         <td>{row.step_order}</td>
                         <td><code>{row.template_key}</code></td>
                         <td>{industryName(row.industry_id)}</td>
                         <td>{surveyTypes.find((s) => s.id === row.survey_type_id)?.name || row.survey_type_id || '—'}</td>
                         <td className="muted" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.body_text}</td>
-                        <td>
-                          <span className={statusPill(row.is_active && !row.marketing_blocked)}>
-                            {row.marketing_blocked ? 'Platform disabled' : row.is_active ? 'Active' : 'Hidden'}
-                          </span>
-                        </td>
+                        <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
                         <td>
                           <button type="button" className="btn soft bsm" onClick={() => setWaTemplateEdit({ ...row })}>Edit</button>
-                          {!row.marketing_blocked ? (
-                            row.is_active ? (
-                              <button type="button" className="btn soft bsm" disabled={busy === `tpl-${row.id}`} onClick={() => toggleWaTemplateActive(row, false)}>
-                                {busy === `tpl-${row.id}` ? '…' : 'Hide'}
-                              </button>
-                            ) : (
-                              <button type="button" className="btn soft bsm" disabled={busy === `tpl-${row.id}`} onClick={() => toggleWaTemplateActive(row, true)}>
-                                {busy === `tpl-${row.id}` ? '…' : 'Enable'}
-                              </button>
-                            )
-                          ) : null}
                         </td>
                       </tr>
                     ))}
