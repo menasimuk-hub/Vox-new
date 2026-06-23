@@ -231,6 +231,9 @@ def template_for_step(
         template_key = str(step.get("template_key") or "").strip()
         rows: list[FeedbackWaTemplate] = []
         if survey_type_id:
+            survey_type = db.get(FeedbackSurveyType, survey_type_id)
+            if survey_type is None or not bool(survey_type.is_active):
+                return None
             rows = list(
                 db.execute(
                     select(FeedbackWaTemplate)
@@ -249,6 +252,8 @@ def template_for_step(
                 ).limit(1)
             ).scalar_one_or_none()
             if survey_type is not None:
+                if not bool(survey_type.is_active):
+                    return None
                 rows = list(
                     db.execute(
                         select(FeedbackWaTemplate)

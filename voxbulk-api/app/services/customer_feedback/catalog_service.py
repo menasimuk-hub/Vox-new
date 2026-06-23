@@ -170,7 +170,18 @@ class FeedbackCatalogService:
                 .order_by(FeedbackWaTemplate.step_order, FeedbackWaTemplate.template_key)
             ).scalars().all()
         )
-        detail["templates"] = [FeedbackCatalogService.template_to_dict(t) for t in tpl_rows]
+        detail["templates"] = []
+        for t in tpl_rows:
+            tpl_dict = FeedbackCatalogService.template_to_dict(t)
+            from app.services.customer_feedback.feedback_marketing_policy import (
+                feedback_template_meta_name_for_row,
+                is_marketing_wa_template,
+            )
+
+            meta = feedback_template_meta_name_for_row(db, t)
+            tpl_dict["meta_template_name"] = meta
+            tpl_dict["marketing_blocked"] = is_marketing_wa_template(t, meta_name=meta)
+            detail["templates"].append(tpl_dict)
         approved = sum(1 for t in tpl_rows if str(t.telnyx_sync_status or "").lower() in {"approved", "synced", "live"})
         detail["template_count"] = len(tpl_rows)
         detail["approved_count"] = approved
@@ -204,7 +215,13 @@ class FeedbackCatalogService:
         }
 
     @staticmethod
-    def list_survey_types(db: Session, *, industry_id: str | None = None, include_archived: bool = False) -> list[dict[str, Any]]:
+    def list_survey_types(
+        db: Session,
+        *,
+        industry_id: str | None = None,
+        include_archived: bool = False,
+        customer_facing: bool = False,
+    ) -> list[dict[str, Any]]:
         FeedbackCatalogService.ensure_ready(db)
         q = select(FeedbackSurveyType).order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
         if industry_id:
@@ -212,7 +229,12 @@ class FeedbackCatalogService:
         if not include_archived:
             q = q.where(FeedbackSurveyType.archived_at.is_(None), FeedbackSurveyType.is_active.is_(True))
         rows = list(db.execute(q).scalars().all())
-        return [survey_type_to_dict(r) for r in rows]
+        items = [survey_type_to_dict(r) for r in rows]
+        if not customer_facing:
+            return items
+        from app.services.customer_feedback.feedback_marketing_policy import survey_type_has_sendable_template
+
+        return [item for item in items if survey_type_has_sendable_template(db, item["id"])]
 
     @staticmethod
     def upsert_industry(db: Session, payload: dict[str, Any]) -> dict[str, Any]:

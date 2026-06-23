@@ -41,7 +41,7 @@ def list_survey_types(
     principal=Depends(get_current_principal),
 ):
     _require_feedback_enabled(db, principal.org_id)
-    return {"ok": True, "items": FeedbackCatalogService.list_survey_types(db, industry_id=industry_id)}
+    return {"ok": True, "items": FeedbackCatalogService.list_survey_types(db, industry_id=industry_id, customer_facing=True)}
 
 
 @router.get("/subscription")

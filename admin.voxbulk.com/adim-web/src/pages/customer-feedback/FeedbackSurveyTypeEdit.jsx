@@ -81,6 +81,24 @@ export default function FeedbackSurveyTypeEdit() {
     }
   }
 
+  const toggleActive = async (nextActive) => {
+    if (!item) return
+    setBusy('toggle')
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/survey-types/${typeId}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ is_active: nextActive }),
+      })
+      setMsg(nextActive ? 'Survey type enabled.' : 'Survey type disabled.')
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Could not update survey type')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const openTemplate = (tpl) => {
     setEditing({
       ...tpl,
@@ -176,6 +194,15 @@ export default function FeedbackSurveyTypeEdit() {
           </p>
         </div>
         <div className="pageHeadActions">
+          {item.is_active ? (
+            <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={() => void toggleActive(false)}>
+              {busy === 'toggle' ? 'Updating…' : 'Disable type'}
+            </button>
+          ) : (
+            <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={() => void toggleActive(true)}>
+              {busy === 'toggle' ? 'Updating…' : 'Enable type'}
+            </button>
+          )}
           <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={syncTelnyx}>
             {busy === 'sync' ? 'Syncing…' : 'Sync to Telnyx'}
           </button>
@@ -223,12 +250,16 @@ export default function FeedbackSurveyTypeEdit() {
               </tr>
             </thead>
             <tbody>
-              {(item.templates || [])
-                .filter((tpl) => String(tpl.meta_category || '').toLowerCase() !== 'marketing'
-                  && String(tpl.template_key || '').toLowerCase() !== 'marketing_opt_in')
-                .map((tpl) => (
-                <tr key={tpl.id}>
-                  <td><strong>{tpl.template_key}</strong></td>
+              {(item.templates || []).map((tpl) => {
+                const disabled = !tpl.is_active || tpl.marketing_blocked
+                return (
+                <tr key={tpl.id} style={disabled ? { opacity: 0.72 } : undefined}>
+                  <td>
+                    <strong>{tpl.template_key}</strong>
+                    {tpl.marketing_blocked ? (
+                      <span className="leadPill leadPillNeutral" style={{ marginLeft: 8 }}>Platform disabled</span>
+                    ) : null}
+                  </td>
                   <td>{tpl.step_role || '—'}</td>
                   <td>{tpl.language}</td>
                   <td>{tpl.meta_category}</td>
@@ -238,7 +269,7 @@ export default function FeedbackSurveyTypeEdit() {
                     <button type="button" className="btn soft bsm" onClick={() => openTemplate(tpl)}>Edit</button>
                   </td>
                 </tr>
-              ))}
+              )})}
               {!item.templates?.length ? (
                 <tr><td colSpan={7} className="muted">No templates yet. Import from MD on Industries or add one here.</td></tr>
               ) : null}

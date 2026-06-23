@@ -205,6 +205,22 @@ export default function CustomerFeedbackHub() {
     }
   }
 
+  const toggleSurveyTypeActive = async (row, nextActive) => {
+    setBusy(`type-${row.id}`)
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/survey-types/${row.id}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ is_active: nextActive }),
+      })
+      await loadTab()
+    } catch (e) {
+      setError(e?.message || 'Could not update survey type')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const savePackage = async () => {
     if (!packageEdit) return
     setBusy(true)
@@ -432,17 +448,39 @@ export default function CustomerFeedbackHub() {
                   </thead>
                   <tbody>
                     {surveyTypes.map((row) => (
-                      <tr key={row.id}>
+                      <tr key={row.id} style={!row.is_active ? { opacity: 0.72 } : undefined}>
                         <td><strong>{row.name}</strong></td>
                         <td>{industryName(row.industry_id)}</td>
                         <td><code>{row.slug}</code></td>
                         <td>
                           <span className={statusPill(row.is_active && !row.archived_at)}>
-                            {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Inactive'}
+                            {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Disabled'}
                           </span>
                         </td>
                         <td>
-                          <button type="button" className="btn soft bsm" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</button>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {row.is_active ? (
+                              <button
+                                type="button"
+                                className="btn soft bsm"
+                                disabled={Boolean(busy)}
+                                onClick={() => void toggleSurveyTypeActive(row, false)}
+                              >
+                                Disable
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn soft bsm"
+                                disabled={Boolean(busy)}
+                                onClick={() => void toggleSurveyTypeActive(row, true)}
+                              >
+                                Enable
+                              </button>
+                            )}
+                            <button type="button" className="btn soft bsm" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</button>
+                            <Link className="btn soft bsm" to={`/customer-feedback/survey-types/${row.id}`}>Templates</Link>
+                          </div>
                         </td>
                       </tr>
                     ))}

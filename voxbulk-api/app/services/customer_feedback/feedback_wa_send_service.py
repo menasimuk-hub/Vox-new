@@ -64,6 +64,15 @@ class FeedbackWaSendService:
             )
 
         meta_name = FeedbackWaSendService.resolve_meta_template_name(db, tpl)
+        from app.services.customer_feedback.feedback_marketing_policy import _feedback_template_is_blocklisted
+
+        if _feedback_template_is_blocklisted(db, tpl, meta_name=meta_name):
+            return TelnyxMessageResult(
+                ok=False,
+                status="template_blocked",
+                detail=f"WhatsApp template '{meta_name}' is blocked (Meta marketing category).",
+                channel="whatsapp",
+            )
         rendered_body = format_template_message(tpl)
         langs = FeedbackWaSendService._language_candidates(tpl)
 
@@ -77,6 +86,7 @@ class FeedbackWaSendService:
                 template_language=lang,
                 org_id=org_id,
                 meter_usage=False,
+                waive_marketing_block=True,
             )
             result = attempt
             if attempt.ok:
