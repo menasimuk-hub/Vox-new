@@ -14,3 +14,13 @@ export function filterSystemTemplatesByPrivacy(
     return privacyMode === "on" ? isAnonymous : !isAnonymous;
   });
 }
+
+/** True when the catalog row has at least one sendable WA template linked. */
+export function surveyTypeHasWaTemplate(row: Record<string, unknown> | null | undefined): boolean {
+  if (!row) return false;
+  if (typeof row.has_wa_template === "boolean") return row.has_wa_template;
+  const std = Number(row.standard_template_count || 0);
+  const anon = Number(row.anonymous_template_count || 0);
+  if (std + anon > 0) return true;
+  return String(row.status_label || "").trim() === "Ready";
+}

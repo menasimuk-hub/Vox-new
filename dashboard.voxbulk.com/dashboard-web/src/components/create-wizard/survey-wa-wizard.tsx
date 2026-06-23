@@ -36,6 +36,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { surveyTemplateLabel, wizardTemplateDisplayName } from "@/lib/survey-step-labels";
 import { WaIndustryIcon } from "@/lib/wa-industry-icon";
+import { surveyTypeHasWaTemplate } from "@/lib/wa-survey-template-mode";
 
 const WA_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", icon: Briefcase },
@@ -239,7 +240,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
       if (props.selectedServiceTagIds.length < 1) return false;
       for (const id of props.selectedServiceTagIds) {
         const row = props.serviceTypes.find((t) => String(t.id) === id);
-        if (row && !row.has_wa_template) return false;
+        if (row && !surveyTypeHasWaTemplate(row)) return false;
       }
       return true;
     }
@@ -417,7 +418,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   {props.serviceTypes.map((t) => {
                     const id = String(t.id);
                     const active = props.selectedServiceTagIds.includes(id);
-                    const missingTemplate = !t.has_wa_template;
+                    const missingTemplate = !surveyTypeHasWaTemplate(t);
                     const disabled = !active && props.selectedServiceTagIds.length >= 4;
                     return (
                       <button

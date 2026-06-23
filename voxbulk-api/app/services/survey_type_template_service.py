@@ -126,9 +126,11 @@ class SurveyTypeTemplateService:
         rows = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
         standard = anonymous = 0
         for row in rows:
+            tpl = db.get(TelnyxWhatsappTemplate, row.template_id)
+            if tpl is None or not tpl.active_for_survey:
+                continue
             if survey_type is not None:
-                tpl = db.get(TelnyxWhatsappTemplate, row.template_id)
-                if tpl is None or not template_belongs_to_survey_type(tpl, survey_type):
+                if not template_belongs_to_survey_type(tpl, survey_type):
                     continue
                 if not template_matches_survey_industry(tpl, survey_type, mapping=row):
                     continue

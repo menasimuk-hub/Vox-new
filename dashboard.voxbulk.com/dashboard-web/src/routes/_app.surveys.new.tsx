@@ -56,6 +56,7 @@ import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/
 import {
   SURVEY_TYPE_LIBRARY_PRIVACY_MODE,
   filterSystemTemplatesByPrivacy,
+  surveyTypeHasWaTemplate,
 } from "@/lib/wa-survey-template-mode";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/index";
@@ -987,7 +988,7 @@ function CreateSurvey() {
     for (const id of selectedServiceTagIds) {
       const row = serviceTypes.find((t) => normalizeSurveyTypeId(t.id) === normalizeSurveyTypeId(id));
       if (!row) continue;
-      if (!row.has_wa_template) {
+      if (!surveyTypeHasWaTemplate(row)) {
         errors.push(`"${String(row.name)}" has no WhatsApp template yet.`);
       }
     }

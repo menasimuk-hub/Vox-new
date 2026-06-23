@@ -297,6 +297,24 @@ async def lifespan(app: FastAPI):
                 logger.info("seeded_default_sales_offer_templates")
     except Exception:
         logger.exception("ensure_default_offer_templates failed")
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.wa_template_unblock_repair_service import repair_unblocked_wa_templates
+
+        with get_sessionmaker()() as db:
+            repair_stats = repair_unblocked_wa_templates(db)
+            if any(
+                repair_stats.get(key, 0)
+                for key in (
+                    "survey_types_reactivated",
+                    "feedback_survey_types_reactivated",
+                    "telnyx_templates_reactivated",
+                    "feedback_templates_reactivated",
+                )
+            ):
+                logger.info("wa_template_unblock_repair_applied", extra=repair_stats)
+    except Exception:
+        logger.exception("wa_template_unblock_repair failed")
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(lead_sales_scheduler_loop(stop_event))
     survey_scheduler_task = asyncio.create_task(survey_call_scheduler_loop(stop_event))
