@@ -190,6 +190,9 @@ def _upsert_appointment(db: Session, org_id: str, data: AppointmentData) -> tupl
         db.add(row)
         db.flush()
         append_log(db, appointment_id=row.id, event_type="crm_sync_created", detail={"crm_source": data.crm_source})
+        from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
+
+        maybe_sync_appointment_calendar(db, row)
         return row, True
 
     changed = (
@@ -209,7 +212,11 @@ def _upsert_appointment(db: Session, org_id: str, data: AppointmentData) -> tupl
     db.add(existing)
     if changed:
         append_log(db, appointment_id=existing.id, event_type="crm_sync_updated", detail={"crm_source": data.crm_source})
-    return existing, False
+    from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
+
+    row = existing
+    maybe_sync_appointment_calendar(db, row)
+    return row, False
 
 
 def sync_org_appointments(db: Session, org_id: str) -> dict[str, Any]:

@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.appointment import Appointment
+from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
+from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
 from app.services.appointment_log_service import append_log
 
 _CONFIRM_RE = re.compile(r"\b(confirm|yes|y|1|confirmed)\b", re.I)
@@ -70,5 +72,14 @@ def try_handle_inbound(db: Session, from_phone: str, body: str, org_id: str) -> 
     appt.updated_at = now
     db.add(appt)
     append_log(db, appointment_id=appt.id, event_type=event, detail={"body": text[:500]})
+    try:
+        maybe_writeback_appointment_to_crm(db, appt)
+    except Exception:
+        pass
+    try:
+        action = "cancel" if appt.status == "cancelled" else "upsert"
+        maybe_sync_appointment_calendar(db, appt, action=action)
+    except Exception:
+        pass
     db.commit()
     return True

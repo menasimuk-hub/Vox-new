@@ -100,6 +100,16 @@ def scan_confirmation_windows() -> dict:
     return result
 
 
+@celery_app.task(name="appointments.scan_post_visit_surveys")
+def scan_post_visit_surveys() -> dict:
+    from app.services.appointment_post_survey_service import scan_all_orgs_post_visit_surveys
+
+    with get_sessionmaker()() as db:
+        result = scan_all_orgs_post_visit_surveys(db)
+    logger.info("appointment_post_survey_scan %s", result)
+    return result
+
+
 @celery_app.task(name="appointments.send_wa_confirmation")
 def send_wa_confirmation(appointment_id: str) -> dict:
     with get_sessionmaker()() as db:

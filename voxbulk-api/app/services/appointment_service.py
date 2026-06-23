@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.models.appointment import APPOINTMENT_STATUSES, Appointment
 from app.services.appointment_call_service import initiate_confirmation_call
+from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
+from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
 from app.services.appointment_log_service import append_log, list_logs_for_appointment
 
 
@@ -111,6 +113,15 @@ class AppointmentService:
             appt.confirmed_at = datetime.utcnow()
         db.add(appt)
         append_log(db, appointment_id=appt.id, event_type="status_changed", detail={"status": clean})
+        try:
+            maybe_writeback_appointment_to_crm(db, appt)
+        except Exception:
+            pass
+        try:
+            action = "cancel" if clean == "cancelled" else "upsert"
+            maybe_sync_appointment_calendar(db, appt, action=action)
+        except Exception:
+            pass
         db.commit()
         db.refresh(appt)
         return appt

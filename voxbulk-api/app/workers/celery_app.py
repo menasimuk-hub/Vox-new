@@ -64,6 +64,10 @@ celery_app.conf.update(
             "task": "appointments.scan_reminder_sequences",
             "schedule": 900.0,
         },
+        "appointment-post-survey-scan-15m": {
+            "task": "appointments.scan_post_visit_surveys",
+            "schedule": 900.0,
+        },
     },
 )
 

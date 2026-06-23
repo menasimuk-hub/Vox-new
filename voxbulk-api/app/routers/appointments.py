@@ -43,6 +43,7 @@ from app.services.appointment_report_service import (
 from app.services.appointment_service import AppointmentService
 from app.services.appointment_settings_service import get_config, save_config
 from app.services.appointment_billing_service import AppointmentBillingError, AppointmentBillingService
+from app.services.appointment_calendar_service import calendar_status
 from app.services.appointment_whatsapp_template_service import AppointmentWhatsappTemplateService
 from app.services.appointment_wa_inbound_service import try_handle_inbound
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
@@ -129,6 +130,12 @@ def list_appointment_agents(db: Session = Depends(get_db), principal=Depends(get
         )
         for a in rows
     ]
+
+
+@router.get("/settings/calendar-status")
+def get_calendar_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_appointments_enabled(db, principal.org_id)
+    return calendar_status(db, principal.org_id)
 
 
 @router.get("/settings", response_model=AppointmentSettingsOut)

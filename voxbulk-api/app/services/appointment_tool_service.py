@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.appointment import Appointment
 from app.models.call_log import CallLog
 from app.services.appointment_availability_service import find_free_slots
+from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
 from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
 from app.services.appointment_log_service import append_log
 from app.services.appointment_voice_agent_service import build_appointment_voice_config
@@ -216,6 +217,10 @@ def tool_confirm_appointment(db: Session, payload: dict[str, Any]) -> dict[str, 
         maybe_writeback_appointment_to_crm(db, appt)
     except Exception:
         logger.exception("appointment_tool_crm_writeback_failed confirm appointment_id=%s", appt.id)
+    try:
+        maybe_sync_appointment_calendar(db, appt)
+    except Exception:
+        logger.exception("appointment_tool_calendar_sync_failed confirm appointment_id=%s", appt.id)
     db.commit()
     voice_cfg = build_appointment_voice_config(db, appt=appt, call_kind="confirmation")
     return {
@@ -253,6 +258,10 @@ def tool_reschedule_appointment(db: Session, payload: dict[str, Any]) -> dict[st
         maybe_writeback_appointment_to_crm(db, appt)
     except Exception:
         logger.exception("appointment_tool_crm_writeback_failed reschedule appointment_id=%s", appt.id)
+    try:
+        maybe_sync_appointment_calendar(db, appt)
+    except Exception:
+        logger.exception("appointment_tool_calendar_sync_failed reschedule appointment_id=%s", appt.id)
     db.commit()
     return {
         "status": "ok",
@@ -278,6 +287,10 @@ def tool_cancel_appointment(db: Session, payload: dict[str, Any]) -> dict[str, A
         maybe_writeback_appointment_to_crm(db, appt)
     except Exception:
         logger.exception("appointment_tool_crm_writeback_failed cancel appointment_id=%s", appt.id)
+    try:
+        maybe_sync_appointment_calendar(db, appt, action="cancel")
+    except Exception:
+        logger.exception("appointment_tool_calendar_sync_failed cancel appointment_id=%s", appt.id)
     db.commit()
     return {
         "status": "ok",

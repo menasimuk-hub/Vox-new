@@ -40,6 +40,8 @@ class AppointmentOut(BaseModel):
     confirmation_channel: str | None = None
     confirmed_at: datetime | None = None
     notes: str | None = None
+    calendar_event_id: str | None = None
+    post_survey_sent_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -101,6 +103,12 @@ class AppointmentSettingsOut(BaseModel):
     wa_enabled: bool
     call_enabled: bool
     reminder_sequence_json: list[dict] = Field(default_factory=list)
+    calendar_enabled: bool = False
+    calendar_id: str = "primary"
+    slot_duration_minutes: int = 30
+    post_survey_enabled: bool = False
+    post_survey_order_id: str | None = None
+    post_survey_delay_hours: int = 2
 
 
 class AppointmentSettingsPatchIn(BaseModel):
@@ -119,6 +127,12 @@ class AppointmentSettingsPatchIn(BaseModel):
     wa_enabled: bool | None = None
     call_enabled: bool | None = None
     reminder_sequence_json: list[dict] | None = None
+    calendar_enabled: bool | None = None
+    calendar_id: str | None = None
+    slot_duration_minutes: int | None = Field(default=None, ge=15, le=240)
+    post_survey_enabled: bool | None = None
+    post_survey_order_id: str | None = None
+    post_survey_delay_hours: int | None = Field(default=None, ge=0, le=168)
 
 
 class AppointmentReportSummaryOut(BaseModel):

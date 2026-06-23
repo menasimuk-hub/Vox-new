@@ -25,6 +25,12 @@ DEFAULT_APPOINTMENT_CONFIG: dict[str, Any] = {
     "wa_enabled": True,
     "call_enabled": True,
     "reminder_sequence_json": [],
+    "calendar_enabled": False,
+    "calendar_id": "primary",
+    "slot_duration_minutes": 30,
+    "post_survey_enabled": False,
+    "post_survey_order_id": None,
+    "post_survey_delay_hours": 2,
 }
 
 
@@ -58,6 +64,13 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     out["appointment_agent_id"] = str(agent_id).strip() if agent_id else None
     out["outreach_window_start"] = str(out.get("outreach_window_start") or DEFAULT_APPOINTMENT_CONFIG["outreach_window_start"])
     out["outreach_window_end"] = str(out.get("outreach_window_end") or DEFAULT_APPOINTMENT_CONFIG["outreach_window_end"])
+    out["calendar_enabled"] = bool(out.get("calendar_enabled"))
+    out["calendar_id"] = str(out.get("calendar_id") or DEFAULT_APPOINTMENT_CONFIG["calendar_id"]).strip() or "primary"
+    out["slot_duration_minutes"] = int(out.get("slot_duration_minutes") or DEFAULT_APPOINTMENT_CONFIG["slot_duration_minutes"])
+    out["post_survey_enabled"] = bool(out.get("post_survey_enabled"))
+    survey_id = out.get("post_survey_order_id")
+    out["post_survey_order_id"] = str(survey_id).strip() if survey_id else None
+    out["post_survey_delay_hours"] = int(out.get("post_survey_delay_hours") or DEFAULT_APPOINTMENT_CONFIG["post_survey_delay_hours"])
     return out
 
 

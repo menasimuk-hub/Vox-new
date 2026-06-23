@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useIntegrationsCatalogue, useHubSpotStatus, usePatchHubSpotSettings } from "@/lib/queries";
+import { useIntegrationsCatalogue, useHubSpotStatus, usePatchHubSpotSettings, useSchedulingStatus, useServiceOrders } from "@/lib/queries";
 import { HubSpotAppointmentListPickers } from "@/components/integrations/hubspot-list-import-panel";
 
 type Settings = {
@@ -30,6 +30,12 @@ type Settings = {
   call_hours_before?: number;
   wa_enabled?: boolean;
   call_enabled?: boolean;
+  calendar_enabled?: boolean;
+  calendar_id?: string;
+  slot_duration_minutes?: number;
+  post_survey_enabled?: boolean;
+  post_survey_order_id?: string | null;
+  post_survey_delay_hours?: number;
 };
 
 type WaTemplate = {
@@ -50,6 +56,10 @@ type BillingEligibility = {
 };
 
 type Agent = { id: string; name: string; voice_label?: string; is_platform_default?: boolean };
+
+type SurveyOrder = { id: string; title: string; status?: string };
+
+const TOTAL_STEPS = 5;
 
 const CRM_PROVIDERS = [
   { id: "hubspot", label: "HubSpot" },
@@ -76,7 +86,7 @@ export function AppointmentSetupWizard() {
   const templatesQ = useQuery({
     queryKey: ["appointments", "templates"],
     queryFn: () => apiFetch<WaTemplate[]>("/appointments/templates"),
-    enabled: step >= 2,
+    enabled: step >= 3,
   });
   const billingQ = useQuery({
     queryKey: ["appointments", "billing", "eligibility"],
@@ -85,10 +95,12 @@ export function AppointmentSetupWizard() {
   const agentsQ = useQuery({
     queryKey: ["appointments", "agents"],
     queryFn: () => apiFetch<Agent[]>("/appointments/agents"),
-    enabled: step >= 3,
+    enabled: step >= 4,
   });
   const integrationsQ = useIntegrationsCatalogue();
   const hubspotQ = useHubSpotStatus();
+  const schedulingQ = useSchedulingStatus();
+  const surveysQ = useServiceOrders("survey");
   const patchHubspotM = usePatchHubSpotSettings();
 
   const [form, setForm] = React.useState<Settings>({});
@@ -145,20 +157,26 @@ export function AppointmentSetupWizard() {
   });
 
   const hubspotCrm = connectedCrm?.key === "hubspot";
+  const schedulingReady = Boolean(schedulingQ.data?.connected);
+  const calendarApiReady = Boolean(schedulingQ.data?.google_calendar_connected || schedulingQ.data?.microsoft_calendar_connected);
   const canNextStep1 =
     crmReady &&
     Boolean(form.workspace_name?.trim()) &&
     (!hubspotCrm || Boolean(appointmentListId.trim()));
-  const canNextStep2 = !form.wa_enabled || Boolean(form.wa_template_name);
-  const canNextStep3 = !form.call_enabled || Boolean(form.appointment_agent_id);
+  const canNextStep2 = !form.calendar_enabled || schedulingReady;
+  const canNextStep3 = !form.wa_enabled || Boolean(form.wa_template_name);
+  const canNextStep4 = !form.call_enabled || Boolean(form.appointment_agent_id);
+  const canNextStep5 = !form.post_survey_enabled || Boolean(form.post_survey_order_id);
   const billingOk = billingQ.data?.allowed !== false;
+
+  const surveyOrders = (surveysQ.data ?? []) as SurveyOrder[];
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <PageHeader
         eyebrow="Appointment Manager"
         title="Setup wizard"
-        description="Connect CRM, choose WhatsApp template, and configure AI confirmation calls."
+        description="Connect CRM, calendar, WhatsApp, AI calls, and optional post-visit survey."
         actions={
           <Button variant="outline" asChild>
             <Link to="/appointments">Back to manager</Link>
@@ -185,7 +203,7 @@ export function AppointmentSetupWizard() {
       )}
 
       <div className="flex items-center gap-2 text-sm">
-        {[1, 2, 3, 4].map((n) => (
+        {[1, 2, 3, 4, 5].map((n) => (
           <div key={n} className="flex items-center gap-2">
             <span
               className={cn(
@@ -196,9 +214,9 @@ export function AppointmentSetupWizard() {
               {step > n ? <Check className="size-3.5" /> : n}
             </span>
             <span className={cn("hidden sm:inline", step === n ? "font-medium" : "text-muted-foreground")}>
-              {n === 1 ? "Basics & CRM" : n === 2 ? "WhatsApp" : n === 3 ? "AI call" : "Launch"}
+              {n === 1 ? "Basics & CRM" : n === 2 ? "Calendar" : n === 3 ? "WhatsApp" : n === 4 ? "AI call" : "Launch"}
             </span>
-            {n < 4 && <ChevronRight className="size-4 text-muted-foreground" />}
+            {n < TOTAL_STEPS && <ChevronRight className="size-4 text-muted-foreground" />}
           </div>
         ))}
       </div>
@@ -364,11 +382,74 @@ export function AppointmentSetupWizard() {
         </Card>
       )}
 
-      {step === 2 && form.wa_enabled && (
+      {step === 2 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Step 2 — Calendar</CardTitle>
+            <CardDescription>
+              Use your connected booking calendar for free/busy slots and write-back when appointments change.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label>Sync with org calendar</Label>
+                <p className="text-xs text-muted-foreground">
+                  Reuses the provider from Settings → Integrations (Google or Microsoft for API sync).
+                </p>
+              </div>
+              <Switch checked={Boolean(form.calendar_enabled)} onCheckedChange={(v) => patch({ calendar_enabled: v })} />
+            </div>
+
+            {form.calendar_enabled && !schedulingReady && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                <p className="font-medium">Connect a calendar provider first</p>
+                <p className="mt-1 text-muted-foreground">
+                  Connect Google Calendar or Microsoft 365 in Settings → Integrations → Booking.
+                </p>
+                <Button className="mt-3 gap-1.5" asChild size="sm" variant="outline">
+                  <Link to="/settings/integrations"><Plug className="size-4" /> Open integrations</Link>
+                </Button>
+              </div>
+            )}
+
+            {form.calendar_enabled && schedulingReady && (
+              <>
+                <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                  Provider: <strong>{String(schedulingQ.data?.provider_label || schedulingQ.data?.provider || "Connected")}</strong>
+                  {calendarApiReady ? " · API read/write enabled" : " · Link-only provider (internal hours used for slots)"}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>Slot length (minutes)</Label>
+                    <Input
+                      type="number"
+                      min={15}
+                      max={240}
+                      value={form.slot_duration_minutes ?? 30}
+                      onChange={(e) => patch({ slot_duration_minutes: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Calendar ID</Label>
+                    <Input
+                      value={form.calendar_id ?? "primary"}
+                      onChange={(e) => patch({ calendar_id: e.target.value })}
+                      placeholder="primary"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 3 && form.wa_enabled && (
         <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
           <Card>
             <CardHeader>
-              <CardTitle>Step 2 — WhatsApp template</CardTitle>
+              <CardTitle>Step 3 — WhatsApp template</CardTitle>
               <CardDescription>Preview and select an approved template (like survey templates).</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5">
@@ -416,14 +497,14 @@ export function AppointmentSetupWizard() {
         </div>
       )}
 
-      {step === 2 && !form.wa_enabled && (
-        <Card><CardContent className="p-6 text-sm text-muted-foreground">WhatsApp is disabled — skip to AI call settings.</CardContent></Card>
+      {step === 3 && !form.wa_enabled && (
+        <Card><CardContent className="p-6 text-sm text-muted-foreground">WhatsApp is disabled — continue to AI call settings.</CardContent></Card>
       )}
 
-      {step === 3 && form.call_enabled && (
+      {step === 4 && form.call_enabled && (
         <Card>
           <CardHeader>
-            <CardTitle>Step 3 — AI call agent</CardTitle>
+            <CardTitle>Step 4 — AI call agent</CardTitle>
             <CardDescription>Choose the voice agent and when to call if WhatsApp gets no reply.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -464,21 +545,67 @@ export function AppointmentSetupWizard() {
         </Card>
       )}
 
-      {step === 3 && !form.call_enabled && (
+      {step === 4 && !form.call_enabled && (
         <Card><CardContent className="p-6 text-sm text-muted-foreground">AI calls are disabled — continue to launch.</CardContent></Card>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <Card>
           <CardHeader>
-            <CardTitle>Step 4 — Review & launch</CardTitle>
-            <CardDescription>Confirm settings and start syncing appointments.</CardDescription>
+            <CardTitle>Step 5 — Post-visit survey & launch</CardTitle>
+            <CardDescription>Optionally send a WhatsApp survey after the visit, then go live.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-2 text-sm">
-            <p><strong>Workspace:</strong> {form.workspace_name || "—"}</p>
-            <p><strong>CRM:</strong> {connectedCrm?.label || "Not connected"} · sync every {form.sync_interval_minutes ?? 60}m</p>
-            <p><strong>WhatsApp:</strong> {form.wa_enabled ? `On · ${form.wa_template_name} · ${form.wa_send_hours_before}h before` : "Off"}</p>
-            <p><strong>AI call:</strong> {form.call_enabled ? `On · agent ${form.appointment_agent_id ?? "default"} · ${form.call_hours_before}h before` : "Off"}</p>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label>Send post-visit survey</Label>
+                <p className="text-xs text-muted-foreground">Uses the same contact phone — no separate HubSpot list.</p>
+              </div>
+              <Switch checked={Boolean(form.post_survey_enabled)} onCheckedChange={(v) => patch({ post_survey_enabled: v })} />
+            </div>
+
+            {form.post_survey_enabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label>Saved WhatsApp survey</Label>
+                  <Select
+                    value={form.post_survey_order_id ?? ""}
+                    onValueChange={(v) => patch({ post_survey_order_id: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Choose survey campaign" /></SelectTrigger>
+                    <SelectContent>
+                      {surveyOrders.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.title || s.id} {s.status ? `(${s.status})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {surveyOrders.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Create a survey first under Surveys, then return here.</p>
+                  )}
+                </div>
+                <div className="grid gap-2">
+                  <Label>Delay after appointment (hours)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={168}
+                    value={form.post_survey_delay_hours ?? 2}
+                    onChange={(e) => patch({ post_survey_delay_hours: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-2 border-t pt-4 text-sm">
+              <p><strong>Workspace:</strong> {form.workspace_name || "—"}</p>
+              <p><strong>CRM:</strong> {connectedCrm?.label || "Not connected"} · sync every {form.sync_interval_minutes ?? 60}m</p>
+              <p><strong>Calendar:</strong> {form.calendar_enabled ? `On · ${form.slot_duration_minutes ?? 30} min slots` : "Off"}</p>
+              <p><strong>WhatsApp:</strong> {form.wa_enabled ? `On · ${form.wa_template_name} · ${form.wa_send_hours_before}h before` : "Off"}</p>
+              <p><strong>AI call:</strong> {form.call_enabled ? `On · agent ${form.appointment_agent_id ?? "default"} · ${form.call_hours_before}h before` : "Off"}</p>
+              <p><strong>Post-visit survey:</strong> {form.post_survey_enabled ? `On · ${form.post_survey_delay_hours ?? 2}h after` : "Off"}</p>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -487,12 +614,13 @@ export function AppointmentSetupWizard() {
         <Button variant="outline" disabled={step <= 1} onClick={() => setStep((s) => s - 1)} className="gap-1">
           <ChevronLeft className="size-4" /> Back
         </Button>
-        {step < 4 ? (
+        {step < TOTAL_STEPS ? (
           <Button
             disabled={
               (step === 1 && !canNextStep1) ||
               (step === 2 && !canNextStep2) ||
               (step === 3 && !canNextStep3) ||
+              (step === 4 && !canNextStep4) ||
               saveMut.isPending
             }
             onClick={async () => {
@@ -508,7 +636,10 @@ export function AppointmentSetupWizard() {
             Next <ChevronRight className="size-4" />
           </Button>
         ) : (
-          <Button disabled={launchMut.isPending || !crmReady || !billingOk} onClick={() => launchMut.mutate()}>
+          <Button
+            disabled={launchMut.isPending || !crmReady || !billingOk || !canNextStep5}
+            onClick={() => launchMut.mutate()}
+          >
             Launch appointment manager
           </Button>
         )}
