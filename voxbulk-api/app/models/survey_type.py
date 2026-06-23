@@ -21,6 +21,8 @@ class SurveyType(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    wa_platform_block_exempt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    customer_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     default_length: Mapped[str] = mapped_column(String(16), nullable=False, default="standard")
     min_length: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     max_length: Mapped[int] = mapped_column(Integer, nullable=False, default=6)

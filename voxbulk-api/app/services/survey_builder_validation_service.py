@@ -162,7 +162,7 @@ class SurveyBuilderValidationService:
             errors.append("Duplicate service tags are not allowed.")
         for tid in ids:
             st = db.get(SurveyType, tid)
-            if st is None or not st.is_active:
+            if st is None or not st.is_active or bool(getattr(st, "customer_hidden", False)):
                 errors.append(f"Service tag not found: {tid}")
                 continue
             if industry is not None and st.industry_id != industry.id:

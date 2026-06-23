@@ -233,6 +233,7 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
     feedback_deactivated = 0
     survey_deactivated = 0
     survey_types_deactivated = 0
+    wa_survey_types_deactivated = 0
     now = datetime.utcnow()
 
     blocked_feedback_ids = _collect_blocked_feedback_template_ids(db)
@@ -271,6 +272,32 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
             db.add(st)
 
     blocked_telnyx_ids = _collect_blocked_telnyx_template_ids(db)
+    blocked_wa_survey_type_ids: set[str] = set()
+    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars():
+        if int(row.id) in blocked_telnyx_ids and row.survey_type_id:
+            blocked_wa_survey_type_ids.add(str(row.survey_type_id))
+
+    wa_survey_types_deactivated = 0
+    from app.models.survey_type import SurveyType
+
+    for type_id in blocked_wa_survey_type_ids:
+        st = db.get(SurveyType, type_id)
+        if st is None or st.system_template_kind:
+            continue
+        if bool(getattr(st, "wa_platform_block_exempt", False)):
+            continue
+        changed = False
+        if st.is_active:
+            st.is_active = False
+            wa_survey_types_deactivated += 1
+            changed = True
+        if not bool(getattr(st, "customer_hidden", False)):
+            st.customer_hidden = True
+            changed = True
+        if changed:
+            st.updated_at = now
+            db.add(st)
+
     for row in db.execute(select(TelnyxWhatsappTemplate)).scalars():
         if int(row.id) not in blocked_telnyx_ids:
             continue
@@ -280,13 +307,14 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
         row.updated_at = now
         db.add(row)
 
-    if feedback_deactivated or survey_deactivated or survey_types_deactivated:
+    if feedback_deactivated or survey_deactivated or survey_types_deactivated or wa_survey_types_deactivated:
         db.commit()
 
     return {
         "feedback_deactivated": feedback_deactivated,
         "survey_deactivated": survey_deactivated,
         "survey_types_deactivated": survey_types_deactivated,
+        "wa_survey_types_deactivated": wa_survey_types_deactivated,
         "blocklist_size": len(blocked_meta_template_names()),
     }
 
@@ -380,3 +408,31 @@ def assert_whatsapp_template_send_allowed(*, template_name: str | None) -> str |
     if is_blocked_meta_template_name(template_name):
         return f"WhatsApp template '{template_name}' is blocked (Meta marketing category)."
     return None
+
+
+def set_feedback_wa_template_active(db: Session, template_id: str, *, active: bool) -> dict[str, Any]:
+    """Hide/show a Customer Feedback WA template. Hidden templates are not sent or shown to customers."""
+    from app.models.customer_feedback import FeedbackWaTemplate
+
+    row = db.get(FeedbackWaTemplate, str(template_id or "").strip())
+    if row is None:
+        raise ValueError("Template not found")
+    if active and _feedback_template_is_blocklisted(db, row) and not _survey_type_wa_block_exempt(db, row.survey_type_id):
+        raise ValueError(
+            "This template is blocked platform-wide. Enable the survey type first if you need to override."
+        )
+    now = datetime.utcnow()
+    row.is_active = bool(active)
+    row.updated_at = now
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    if row.survey_type_id:
+        from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+        FeedbackCatalogService.sync_survey_type_customer_visibility(db, row.survey_type_id)
+    return {
+        "id": row.id,
+        "is_active": row.is_active,
+        "survey_type_id": row.survey_type_id,
+    }

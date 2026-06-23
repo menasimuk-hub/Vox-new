@@ -463,3 +463,25 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     if row.survey_type_id:
         FeedbackCatalogService.sync_survey_type_customer_visibility(db, row.survey_type_id)
     return {"ok": True, "item": FeedbackCatalogService.template_to_dict(row)}
+
+
+@router.post("/wa-templates/{template_id}/set-active")
+def set_wa_template_active(
+    template_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_marketing_policy import coerce_bool, set_feedback_wa_template_active
+
+    active = payload.get("is_active")
+    if active is None and "active" in payload:
+        active = payload.get("active")
+    if active is None:
+        raise HTTPException(status_code=400, detail="Provide is_active (boolean).")
+    try:
+        result = set_feedback_wa_template_active(db, template_id, active=coerce_bool(active))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    row = db.get(FeedbackWaTemplate, template_id)
+    return {"ok": True, **result, "item": FeedbackCatalogService.template_to_dict(row) if row else None}

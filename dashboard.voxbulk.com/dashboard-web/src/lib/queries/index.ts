@@ -1740,9 +1740,22 @@ export function useWaSurveyTypes(industryId?: string | null) {
   const qs = industryId ? `?industry_id=${encodeURIComponent(industryId)}` : "";
   return useQuery({
     queryKey: ["dashboard", "wa-survey-types", industryId || ""],
-    queryFn: () =>
-      apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>(`/dashboard/service-scripts/wa-survey/types${qs}`),
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; types?: Array<Record<string, unknown>> }>(
+        `/dashboard/service-scripts/wa-survey/types${qs}`,
+      );
+      return (data.types || []).filter(
+        (item) =>
+          item.is_active !== false &&
+          item.customer_hidden !== true &&
+          item.customer_selectable !== false,
+      );
+    },
     enabled: Boolean(industryId),
+    staleTime: 0,
+    gcTime: 60_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -307,6 +307,30 @@ def update_survey_type(
     return {"ok": True, "type": survey_type_to_dict(updated, template_counts=counts)}
 
 
+@router.post("/types/{type_id}/set-active")
+def set_survey_type_active(
+    type_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_marketing_policy import coerce_bool
+    from app.services.wa_survey_visibility_service import set_wa_survey_type_active
+
+    active = payload.get("is_active")
+    if active is None and "active" in payload:
+        active = payload.get("active")
+    if active is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide is_active (boolean).")
+    try:
+        result = set_wa_survey_type_active(db, type_id, active=coerce_bool(active))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    row = SurveyTypeService.get_type(db, type_id)
+    counts = SurveyTypeService._template_counts(db, type_id) if row else {}
+    return {"ok": True, **result, "type": survey_type_to_dict(row, template_counts=counts) if row else None}
+
+
 @router.delete("/types/{type_id}")
 def delete_survey_type(
     type_id: str,
@@ -668,6 +692,10 @@ def set_template_active_for_survey(
         )
     updated = SurveyWhatsappTemplateService.save_draft(db, row, {"active_for_survey": active})
     tpl = survey_template_to_dict(updated)
+    if row.survey_type_id:
+        from app.services.wa_survey_visibility_service import sync_wa_survey_type_customer_visibility
+
+        sync_wa_survey_type_customer_visibility(db, str(row.survey_type_id))
     message = (
         "Template enabled for surveys."
         if active

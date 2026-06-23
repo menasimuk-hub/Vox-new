@@ -99,6 +99,23 @@ export default function FeedbackSurveyTypeEdit() {
     }
   }
 
+  const toggleTemplateActive = async (tpl, nextActive) => {
+    setBusy(`tpl-active-${tpl.id}`)
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/wa-templates/${tpl.id}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ is_active: nextActive }),
+      })
+      setMsg(nextActive ? 'Template enabled.' : 'Template hidden from customers.')
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Could not update template')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const openTemplate = (tpl) => {
     setEditing({
       ...tpl,
@@ -267,6 +284,17 @@ export default function FeedbackSurveyTypeEdit() {
                   <td>{tpl.is_active ? 'Yes' : 'No'}</td>
                   <td>
                     <button type="button" className="btn soft bsm" onClick={() => openTemplate(tpl)}>Edit</button>
+                    {!tpl.marketing_blocked ? (
+                      tpl.is_active ? (
+                        <button type="button" className="btn soft bsm" disabled={busy === `tpl-active-${tpl.id}`} onClick={() => toggleTemplateActive(tpl, false)}>
+                          {busy === `tpl-active-${tpl.id}` ? '…' : 'Hide'}
+                        </button>
+                      ) : (
+                        <button type="button" className="btn soft bsm" disabled={busy === `tpl-active-${tpl.id}`} onClick={() => toggleTemplateActive(tpl, true)}>
+                          {busy === `tpl-active-${tpl.id}` ? '…' : 'Enable'}
+                        </button>
+                      )
+                    ) : null}
                   </td>
                 </tr>
               )})}

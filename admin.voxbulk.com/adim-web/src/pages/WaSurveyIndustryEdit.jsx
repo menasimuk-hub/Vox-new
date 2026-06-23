@@ -74,6 +74,8 @@ export default function WaSurveyIndustryEdit() {
 
   const [typeDeleteBusy, setTypeDeleteBusy] = useState(false)
 
+  const [typeToggleBusy, setTypeToggleBusy] = useState('')
+
   const [syncBusy, setSyncBusy] = useState(false)
   const [orgs, setOrgs] = useState([])
 
@@ -341,6 +343,42 @@ export default function WaSurveyIndustryEdit() {
     } finally {
 
       setCreatingType(false)
+
+    }
+
+  }
+
+
+
+  const toggleTypeActive = async (type, nextActive) => {
+
+    if (!type?.id || !industry?.id) return
+
+    setTypeToggleBusy(type.id)
+
+    setError('')
+
+    try {
+
+      await apiFetch(`/admin/wa-survey/types/${type.id}/set-active`, {
+
+        method: 'POST',
+
+        body: JSON.stringify({ is_active: nextActive }),
+
+      })
+
+      setMsg(nextActive ? `"${type.name}" enabled for customers.` : `"${type.name}" disabled for customers.`)
+
+      await loadSurveyTypes(industry.id)
+
+    } catch (err) {
+
+      setError(formatWaSurveyError(err, 'Could not update survey type status').message)
+
+    } finally {
+
+      setTypeToggleBusy('')
 
     }
 
@@ -884,7 +922,7 @@ export default function WaSurveyIndustryEdit() {
 
                       </td>
 
-                      <td>{type.is_active ? 'Yes' : 'No'}</td>
+                      <td>{type.is_active && !type.customer_hidden ? 'Active' : 'Disabled'}</td>
 
                       <td>{type.standard_template_count || 0}</td>
 
@@ -901,6 +939,48 @@ export default function WaSurveyIndustryEdit() {
                       <td className="waIndustryTypesActions">
 
                         <Link className="btn sm primary" to={`/settings/wa-survey/${type.id}`}>Open</Link>
+
+                        {!industry.is_hidden ? (
+
+                          type.is_active && !type.customer_hidden ? (
+
+                            <button
+
+                              type="button"
+
+                              className="btn sm"
+
+                              disabled={typeToggleBusy === typeId}
+
+                              onClick={() => toggleTypeActive(type, false)}
+
+                            >
+
+                              {typeToggleBusy === typeId ? 'Updating…' : 'Disable'}
+
+                            </button>
+
+                          ) : (
+
+                            <button
+
+                              type="button"
+
+                              className="btn sm"
+
+                              disabled={typeToggleBusy === typeId}
+
+                              onClick={() => toggleTypeActive(type, true)}
+
+                            >
+
+                              {typeToggleBusy === typeId ? 'Updating…' : 'Enable'}
+
+                            </button>
+
+                          )
+
+                        ) : null}
 
                         {!industry.is_hidden ? (
 

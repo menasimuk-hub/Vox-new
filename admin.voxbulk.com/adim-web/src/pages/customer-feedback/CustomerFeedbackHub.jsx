@@ -221,6 +221,22 @@ export default function CustomerFeedbackHub() {
     }
   }
 
+  const toggleWaTemplateActive = async (row, nextActive) => {
+    setBusy(`tpl-${row.id}`)
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ is_active: nextActive }),
+      })
+      await loadTab()
+    } catch (e) {
+      setError(e?.message || 'Could not update template')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const savePackage = async () => {
     if (!packageEdit) return
     setBusy(true)
@@ -763,15 +779,30 @@ export default function CustomerFeedbackHub() {
                   </thead>
                   <tbody>
                     {waTemplates.map((row) => (
-                      <tr key={row.id}>
+                      <tr key={row.id} style={!row.is_active || row.marketing_blocked ? { opacity: 0.72 } : undefined}>
                         <td>{row.step_order}</td>
                         <td><code>{row.template_key}</code></td>
                         <td>{industryName(row.industry_id)}</td>
                         <td>{surveyTypes.find((s) => s.id === row.survey_type_id)?.name || row.survey_type_id || '—'}</td>
                         <td className="muted" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.body_text}</td>
-                        <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
+                        <td>
+                          <span className={statusPill(row.is_active && !row.marketing_blocked)}>
+                            {row.marketing_blocked ? 'Platform disabled' : row.is_active ? 'Active' : 'Hidden'}
+                          </span>
+                        </td>
                         <td>
                           <button type="button" className="btn soft bsm" onClick={() => setWaTemplateEdit({ ...row })}>Edit</button>
+                          {!row.marketing_blocked ? (
+                            row.is_active ? (
+                              <button type="button" className="btn soft bsm" disabled={busy === `tpl-${row.id}`} onClick={() => toggleWaTemplateActive(row, false)}>
+                                {busy === `tpl-${row.id}` ? '…' : 'Hide'}
+                              </button>
+                            ) : (
+                              <button type="button" className="btn soft bsm" disabled={busy === `tpl-${row.id}`} onClick={() => toggleWaTemplateActive(row, true)}>
+                                {busy === `tpl-${row.id}` ? '…' : 'Enable'}
+                              </button>
+                            )
+                          ) : null}
                         </td>
                       </tr>
                     ))}

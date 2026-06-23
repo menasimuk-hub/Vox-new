@@ -71,6 +71,8 @@ def survey_type_to_dict(
         "name": row.name,
         "description": row.description,
         "is_active": bool(row.is_active),
+        "customer_hidden": bool(getattr(row, "customer_hidden", False)),
+        "wa_platform_block_exempt": bool(getattr(row, "wa_platform_block_exempt", False)),
         "default_length": row.default_length,
         "min_length": int(row.min_length or 4),
         "max_length": int(row.max_length or 6),
