@@ -114,6 +114,36 @@ def test_wa_survey_catalog_excludes_disabled_type():
         assert disabled_type.id not in ids
 
 
+def test_wa_survey_catalog_includes_active_type_without_sendable_template():
+    with get_sessionmaker()() as db:
+        industry = Industry(
+            id=str(uuid.uuid4()),
+            slug=f"no-tpl-{uuid.uuid4().hex[:6]}",
+            name="No Template Industry",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(industry)
+        db.flush()
+        survey_type = SurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug="active_no_tpl",
+            name="Active without template",
+            is_active=True,
+            customer_hidden=False,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(survey_type)
+        db.commit()
+
+        items = list_wa_survey_customer_catalog_types(db, industry_id=industry.id)
+        ids = {item["id"] for item in items}
+        assert survey_type.id in ids
+
+
 def test_set_wa_survey_type_active_sets_customer_hidden():
     with get_sessionmaker()() as db:
         industry = Industry(

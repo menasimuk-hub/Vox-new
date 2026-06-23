@@ -76,8 +76,6 @@ def list_wa_survey_customer_catalog_types(
     rows = list(db.execute(q).scalars().all())
     items: list[dict[str, Any]] = []
     for row in rows:
-        if not is_wa_survey_type_customer_selectable(db, row.id, industry_id=industry_id or row.industry_id):
-            continue
         item = survey_type_to_dict(row)
         item["customer_selectable"] = True
         item["customer_hidden"] = bool(getattr(row, "customer_hidden", False))
@@ -137,15 +135,10 @@ def repair_wa_survey_customer_hidden_flags(db: Session) -> dict[str, int]:
         if st.system_template_kind:
             continue
         should_hide = not bool(st.is_active)
-        if not should_hide and not _wa_survey_type_block_exempt(db, st.id):
-            if not wa_survey_type_has_sendable_template(db, st.id):
-                should_hide = True
         current_hidden = bool(getattr(st, "customer_hidden", False))
         if should_hide == current_hidden:
             continue
         st.customer_hidden = should_hide
-        if should_hide and st.is_active:
-            st.is_active = False
         st.updated_at = now
         db.add(st)
         repaired += 1

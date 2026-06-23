@@ -287,16 +287,13 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
         if bool(getattr(st, "wa_platform_block_exempt", False)):
             continue
         changed = False
-        if st.is_active:
-            st.is_active = False
-            wa_survey_types_deactivated += 1
-            changed = True
         if not bool(getattr(st, "customer_hidden", False)):
             st.customer_hidden = True
             changed = True
         if changed:
             st.updated_at = now
             db.add(st)
+            wa_survey_types_deactivated += 1
 
     for row in db.execute(select(TelnyxWhatsappTemplate)).scalars():
         if int(row.id) not in blocked_telnyx_ids:
