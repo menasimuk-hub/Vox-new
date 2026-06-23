@@ -2632,6 +2632,17 @@ export default function Integrations() {
                     <div className='muted' style={{ fontSize: 12, marginTop: -4 }}>
                       When enabled, dashboard orgs see a separate Contact sync (beta) card for pulling HubSpot contacts into VoxBulk. Existing CRM connect and interview sync are unchanged.
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type='checkbox'
+                        checked={Boolean(activeConfig.hubspot_list_scopes_enabled)}
+                        onChange={(e) => setProviderField('hubspot', 'hubspot_list_scopes_enabled', e.target.checked)}
+                      />
+                      <span>Request list scopes for appointment/survey list sync</span>
+                    </label>
+                    <div className='muted' style={{ fontSize: 12, marginTop: -4 }}>
+                      Only enable after adding <code>crm.lists.read</code> and <code>crm.lists.write</code> as <strong>optional scopes</strong> in your HubSpot app → Auth. Leave off until then to avoid OAuth scope mismatch errors.
+                    </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Connection type</label>
                       <select className='input' value={String(activeConfig.auth_mode || 'private_app')} onChange={(e) => setProviderField('hubspot', 'auth_mode', e.target.value)}>
@@ -2682,7 +2693,8 @@ export default function Integrations() {
                         <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                           <li>Only for legacy OAuth apps or CLI-built apps (<code>hs project create</code>) — not available in HubSpot UI for new accounts.</li>
                           <li>Redirect URI: <code>https://api.voxbulk.com/service-orders/hubspot/oauth/callback</code></li>
-                          <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>oauth</code></li>
+                          <li>Scopes (required): <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>crm.objects.deals.read</code>, <code>crm.schemas.deals.read</code>, <code>scheduler.meetings.meeting-link.read</code>, <code>oauth</code></li>
+                          <li>Optional (list sync): <code>crm.lists.read</code>, <code>crm.lists.write</code> — add in HubSpot app Auth, then enable “Request list scopes” above</li>
                           <li>Paste Client ID and secret below → Save. Companies use <strong>Connect HubSpot</strong> in Dashboard → Integrations.</li>
                         </ol>
                       )}

@@ -963,6 +963,8 @@ class ProviderSettingsService:
         cfg["auth_mode"] = mode if mode in {"oauth", "private_app"} else "private_app"
         if cfg.get("contact_sync_v1_enabled") is not None:
             cfg["contact_sync_v1_enabled"] = bool(cfg.get("contact_sync_v1_enabled"))
+        if cfg.get("hubspot_list_scopes_enabled") is not None:
+            cfg["hubspot_list_scopes_enabled"] = bool(cfg.get("hubspot_list_scopes_enabled"))
         if cfg["auth_mode"] != "oauth":
             return cfg
         errors: dict[str, str] = {}

@@ -19,12 +19,35 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 HUBSPOT_AUTHORIZE_URL = "https://app.hubspot.com/oauth/authorize"
 HUBSPOT_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token"
 HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
-HUBSPOT_SCOPES = (
+HUBSPOT_SCOPES_BASE = (
     "crm.objects.contacts.read crm.objects.contacts.write "
     "crm.objects.deals.read crm.schemas.deals.read "
-    "crm.lists.read crm.lists.write "
     "scheduler.meetings.meeting-link.read oauth"
 )
+HUBSPOT_SCOPES_LIST = "crm.lists.read crm.lists.write"
+# Back-compat alias for admin verify + docs
+HUBSPOT_SCOPES = f"{HUBSPOT_SCOPES_BASE} {HUBSPOT_SCOPES_LIST}".strip()
+
+
+def hubspot_list_scopes_enabled(db: Session | None) -> bool:
+    if db is None:
+        return False
+    cfg, enabled = _hubspot_platform_config(db)
+    if not enabled:
+        return False
+    return cfg.get("hubspot_list_scopes_enabled") is True
+
+
+def hubspot_oauth_scope_params(db: Session | None) -> dict[str, str]:
+    """Build OAuth scope query params matching the HubSpot app Auth tab.
+
+    List scopes are sent as optional_scope unless enabled in Admin — avoids OAuth
+    mismatch when the developer app has not added crm.lists.* yet.
+    """
+    params: dict[str, str] = {"scope": HUBSPOT_SCOPES_BASE}
+    if hubspot_list_scopes_enabled(db):
+        params["optional_scope"] = HUBSPOT_SCOPES_LIST
+    return params
 
 
 def _loads(raw: str | None) -> dict[str, Any]:
@@ -289,7 +312,8 @@ def verify_hubspot_platform_config(db: Session) -> dict[str, Any]:
         "auth_mode": "oauth",
         "detail": "HubSpot OAuth credentials saved. Companies click Connect HubSpot in Dashboard → Integrations.",
         "redirect_uri": redirect,
-        "scopes": HUBSPOT_SCOPES,
+        "scopes": HUBSPOT_SCOPES_BASE if not hubspot_list_scopes_enabled(db) else HUBSPOT_SCOPES,
+        "list_scopes_enabled": hubspot_list_scopes_enabled(db),
     }
 
 
@@ -321,8 +345,8 @@ def hubspot_oauth_start(*, org_id: str, db: Session | None = None) -> str:
     params = {
         "client_id": client_id,
         "redirect_uri": redirect,
-        "scope": HUBSPOT_SCOPES,
         "state": state,
+        **hubspot_oauth_scope_params(db),
     }
     return f"{HUBSPOT_AUTHORIZE_URL}?{urlencode(params)}"
 

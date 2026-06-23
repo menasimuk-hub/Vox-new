@@ -13,7 +13,12 @@ from app.models.organisation import Organisation
 from app.models.user import User
 from app.services.appointment_crm_sync_service import _fetch_hubspot_appointments
 from app.services.appointment_settings_service import save_config
-from app.services.hubspot_connection_service import save_hubspot_config
+from app.services.hubspot_connection_service import (
+    HUBSPOT_SCOPES_BASE,
+    HUBSPOT_SCOPES_LIST,
+    hubspot_oauth_scope_params,
+    save_hubspot_config,
+)
 from app.services.hubspot_list_service import (
     batch_read_contacts,
     fetch_list_member_record_ids,
@@ -95,6 +100,20 @@ def test_batch_read_contacts():
         client.post.return_value = mock_res
         rows = batch_read_contacts("tok", ["1"], ["firstname", "phone", "appointment_date"])
     assert rows[0]["id"] == "1"
+
+
+def test_hubspot_oauth_scope_params_default_without_list_scopes():
+    with patch("app.services.hubspot_connection_service.hubspot_list_scopes_enabled", return_value=False):
+        params = hubspot_oauth_scope_params(None)
+    assert params["scope"] == HUBSPOT_SCOPES_BASE
+    assert "optional_scope" not in params
+
+
+def test_hubspot_oauth_scope_params_includes_optional_list_scopes():
+    with patch("app.services.hubspot_connection_service.hubspot_list_scopes_enabled", return_value=True):
+        params = hubspot_oauth_scope_params(None)
+    assert params["scope"] == HUBSPOT_SCOPES_BASE
+    assert params.get("optional_scope") == HUBSPOT_SCOPES_LIST
 
 
 def test_fetch_hubspot_appointments_from_list():
