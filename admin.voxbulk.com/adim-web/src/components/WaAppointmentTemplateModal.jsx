@@ -18,6 +18,7 @@ import {
   appointmentVarLabels,
   substituteTemplateVars,
 } from '../lib/waAppointmentTemplateVars'
+import WaPhonePreview from './WaPhonePreview'
 import '../styles/waTemplateEditor.css'
 
 function parseComponents(raw) {
@@ -483,13 +484,12 @@ export default function WaAppointmentTemplateModal({ templateId, open, onClose, 
               <p className="text-muted text-sm">
                 {draft.active_for_appointment ? 'Visible to Appointment Manager customers' : 'Hidden from customers'}
               </p>
-              <div className="wa-phone-preview">
-                <p className="wa-phone-preview-title">Preview</p>
-                <div className="wa-phone-preview-body">{renderedPreview || 'No body yet'}</div>
-                {(draft.buttons || []).filter((b) => b.text).map((b, i) => (
-                  <div key={i} className="wa-phone-preview-button">{b.text}</div>
-                ))}
-              </div>
+              <div className="waTplEd-preview-label">Mobile preview</div>
+              <WaPhonePreview
+                title={draft.display_name || 'VoxBulk'}
+                body={renderedPreview}
+                buttons={(draft.buttons || []).filter((b) => b.text)}
+              />
               {preview?.rendered_body ? (
                 <p className="text-muted text-sm">Server preview loaded.</p>
               ) : null}

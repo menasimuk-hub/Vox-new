@@ -568,3 +568,97 @@
   gap: 8px;
   margin-top: 8px;
 }
+
+/* WA Appointment templates list */
+.waApptTemplateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.waApptTemplateCard {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #faf7f2;
+  box-shadow: 0 8px 24px rgba(28, 23, 18, 0.06);
+}
+
+.waApptTemplateCard__preview {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.waApptTemplateCard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.waApptTemplateCard__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.waApptTemplateCard__head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.waApptTemplateCard__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  font-size: 12px;
+  align-items: center;
+}
+
+.waApptTemplateCard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.waTplEd-phone--compact {
+  width: 118px;
+  min-height: 220px;
+  border-radius: 22px;
+}
+
+.waTplEd-phone--compact .waTplEd-wa-body {
+  font-size: 9px;
+}
+
+.wa-template-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.wa-template-editor-side {
+  position: sticky;
+  top: 0;
+}
+
+.wa-template-modal {
+  max-width: 980px;
+  width: calc(100% - 2rem);
+}
+
+@media (max-width: 860px) {
+  .wa-template-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .waApptTemplateCard {
+    grid-template-columns: 1fr;
+  }
+}

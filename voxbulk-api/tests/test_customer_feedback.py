@@ -703,7 +703,8 @@ def test_load_survey_config_rebuilds_from_flags_when_json_missing():
         assert survey_config_needs_rebuild(loc, None) is True
         config = load_survey_config(db, loc)
         kinds = [step["kind"] for step in config["steps"]]
-        assert kinds == ["topic", "topic", "open_question", "marketing_opt_in"]
+        assert kinds == ["topic", "topic", "open_question"]
+        assert "marketing_opt_in" not in kinds
         assert "thank_you" not in kinds
 
 
@@ -764,7 +765,7 @@ def test_repair_survey_config_persists_rebuilt_json():
         parsed = json.loads(loc.survey_config_json or "{}")
         kinds = [step["kind"] for step in parsed.get("steps", [])]
         assert "open_question" in kinds
-        assert "marketing_opt_in" in kinds
+        assert "marketing_opt_in" not in kinds
         assert "thank_you" not in kinds
 
 
@@ -839,7 +840,7 @@ def test_update_location_rebuilds_survey_config():
             },
         )
         assert updated["open_question_enabled"] is True
-        assert updated["marketing_opt_in_enabled"] is True
+        assert updated["marketing_opt_in_enabled"] is False
         assert len(updated.get("selected_survey_type_ids") or []) == 2
 
         db.refresh(row)
@@ -847,5 +848,5 @@ def test_update_location_rebuilds_survey_config():
         kinds = [step["kind"] for step in parsed.get("steps", [])]
         assert kinds.count("topic") == 2
         assert "open_question" in kinds
-        assert "marketing_opt_in" in kinds
+        assert "marketing_opt_in" not in kinds
         assert row.qr_token == qr_token

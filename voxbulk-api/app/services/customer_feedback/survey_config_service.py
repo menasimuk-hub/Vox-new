@@ -10,6 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
+from app.services.customer_feedback.feedback_marketing_policy import (
+    effective_marketing_opt_in_enabled,
+    filter_survey_steps,
+    is_marketing_wa_template,
+)
 
 
 SYSTEM_TEMPLATE_KEYS = frozenset({"open_question", "marketing_opt_in", "thank_you", "tell_us_more"})
@@ -20,18 +25,21 @@ _APPROVED_TEMPLATE_STATUSES = frozenset({"approved", "synced", "live"})
 def _language_variants(language: str | None) -> list[str]:
     primary = resolve_template_language(language)
     variants: list[str] = []
-    for code in (primary, "en_GB", "en_US", "en_AU", "en", "ar"):
+    for code in (primary, "en_GB", "en_US", "en_AU", "en"):
         clean = str(code or "").strip()
         if clean and clean not in variants:
             variants.append(clean)
+    if primary == "ar" and "ar" not in variants:
+        variants.append("ar")
     return variants or ["en_GB"]
 
 
 def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> FeedbackWaTemplate | None:
-    if not rows:
+    visible = [row for row in rows if row.is_active and not is_marketing_wa_template(row)]
+    if not visible:
         return None
     normalized: dict[str, FeedbackWaTemplate] = {}
-    for row in rows:
+    for row in visible:
         key = str(row.language or "").strip()
         if key:
             normalized[key] = row
@@ -44,12 +52,12 @@ def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> 
                     return row
     approved = [
         row
-        for row in rows
+        for row in visible
         if str(row.telnyx_sync_status or "").lower() in _APPROVED_TEMPLATE_STATUSES
     ]
     if approved:
         return approved[0]
-    return rows[0]
+    return visible[0]
 
 
 def resolve_template_language(raw: str | None) -> str:
@@ -59,6 +67,10 @@ def resolve_template_language(raw: str | None) -> str:
 
 
 def get_system_template(db: Session, template_key: str, *, language: str | None = None) -> FeedbackWaTemplate | None:
+    from app.services.customer_feedback.feedback_marketing_policy import marketing_wa_enabled
+
+    if template_key == "marketing_opt_in" and not marketing_wa_enabled():
+        return None
     lang = resolve_template_language(language)
     base_q = (
         select(FeedbackWaTemplate)
@@ -101,9 +113,9 @@ def build_survey_config(
         steps.append({"kind": "topic", "survey_type_id": row.id, "template_key": row.slug})
     if open_question_enabled:
         steps.append({"kind": "open_question", "template_key": "open_question"})
-    if marketing_opt_in_enabled:
+    if effective_marketing_opt_in_enabled(marketing_opt_in_enabled):
         steps.append({"kind": "marketing_opt_in", "template_key": "marketing_opt_in"})
-    return {"steps": steps}
+    return {"steps": filter_survey_steps(steps)}
 
 
 def parse_selected_type_ids_from_location(location: FeedbackLocation) -> list[str]:
@@ -137,11 +149,15 @@ def survey_config_needs_rebuild(location: FeedbackLocation, steps: list[dict[str
         return True
     if bool(location.open_question_enabled) and not _steps_have_kind(interactive, "open_question"):
         return True
-    if bool(location.marketing_opt_in_enabled) and not _steps_have_kind(interactive, "marketing_opt_in"):
+    if effective_marketing_opt_in_enabled(location.marketing_opt_in_enabled) and not _steps_have_kind(
+        interactive, "marketing_opt_in"
+    ):
         return True
     if not bool(location.open_question_enabled) and _steps_have_kind(interactive, "open_question"):
         return True
-    if not bool(location.marketing_opt_in_enabled) and _steps_have_kind(interactive, "marketing_opt_in"):
+    if not effective_marketing_opt_in_enabled(location.marketing_opt_in_enabled) and _steps_have_kind(
+        interactive, "marketing_opt_in"
+    ):
         return True
     selected = parse_selected_type_ids_from_location(location)
     topic_steps = [step for step in interactive if str(step.get("kind") or "") == "topic"]
@@ -158,7 +174,7 @@ def rebuild_survey_config_for_location(db: Session, location: FeedbackLocation) 
         industry_id=str(location.industry_id),
         selected_type_ids=parse_selected_type_ids_from_location(location),
         open_question_enabled=bool(location.open_question_enabled),
-        marketing_opt_in_enabled=bool(location.marketing_opt_in_enabled),
+        marketing_opt_in_enabled=effective_marketing_opt_in_enabled(location.marketing_opt_in_enabled),
     )
 
 
@@ -185,6 +201,7 @@ def load_survey_config(
         return config
 
     interactive = _strip_non_interactive_steps(steps or [])
+    interactive = filter_survey_steps(interactive)
     return {"steps": interactive}
 
 

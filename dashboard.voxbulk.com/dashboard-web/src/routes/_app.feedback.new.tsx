@@ -141,7 +141,7 @@ function CreateFeedback() {
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
   const [branches, setBranches] = React.useState<Branch[]>([{ id: "b1", name: "Main branch" }]);
-  const [marketingOptIn, setMarketingOptIn] = React.useState(true);
+  const marketingOptIn = false;
   const [consent, setConsent] = React.useState(false);
   const [previewQr, setPreviewQr] = React.useState<{ wa_url: string; qr_image_url: string; trigger_text: string } | null>(null);
   const [done, setDone] = React.useState(false);
@@ -176,7 +176,6 @@ function CreateFeedback() {
         : [source.survey_type_id],
     );
     setOpenQuestion(source.open_question_enabled !== false);
-    setMarketingOptIn(source.marketing_opt_in_enabled !== false);
     setBranches([{ id: "dup1", name: "" }]);
     setStep(3);
   }, [duplicateFrom, locationsQ.data, subscriptionQ.data]);
@@ -430,26 +429,6 @@ function CreateFeedback() {
                   </p>
                 </div>
               </div>
-
-              <div
-                className={cn(
-                  "flex items-start gap-3 rounded-xl border p-4 transition",
-                  marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
-                )}
-              >
-                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-                  <Sparkles className="size-4" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold">News & promo opt-in question</p>
-                    <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Ask visitors at the end if they want offers and updates from your business.
-                  </p>
-                </div>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -636,7 +615,6 @@ function CreateFeedback() {
                   <Summary label="Industry" value={industry?.name || "—"} />
                   <Summary label="Topics" value={selectedTypes.map((t) => t.name).join(", ") || "—"} />
                   <Summary label="Open question" value={openQuestion ? "On" : "Off"} />
-                  <Summary label="Promo opt-in" value={marketingOptIn ? "On" : "Off"} />
                   <Summary label="Branches" value={branches.map((b) => b.name).filter(Boolean).join(", ") || "—"} />
                 </div>
               </div>

@@ -184,8 +184,10 @@ class FeedbackWhatsappService:
 
     @staticmethod
     def _steps_for_location(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
+        from app.services.customer_feedback.feedback_marketing_policy import filter_survey_steps
+
         config = load_survey_config(db, location)
-        steps = config.get("steps") or []
+        steps = filter_survey_steps(config.get("steps") or [])
         if steps:
             return steps
         tpl = db.execute(

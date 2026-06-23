@@ -4,8 +4,8 @@ import { brandAssets } from "@/lib/brand";
 import { useTheme } from "@/lib/theme";
 import {
   LayoutDashboard, ChevronDown, LogOut,
-  PhoneCall, FilePlus2, FolderOpen, BarChart3, FileBarChart,
-  ClipboardList, MessageSquareText, ListChecks, FileText,
+  PhoneCall, FilePlus2, FolderOpen, BarChart3,
+  ClipboardList, MessageSquareText, ListChecks,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat, QrCode, GitCompare, Sparkles,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
@@ -35,7 +35,7 @@ type Item = {
   icon: React.ComponentType<{ className?: string }>;
   isActive?: (path: string) => boolean;
 };
-type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "appointmentReports";
+type GroupKey = ServiceKey | "settings" | "account" | "workspace";
 type Group = {
   key: GroupKey;
   label: string;
@@ -77,13 +77,11 @@ const groups: Group[] = [
         return p === "/interviews/results" || p.startsWith("/interviews/results/");
       },
     },
-    { title: "Reports", url: "/interviews/reports", icon: FileBarChart },
   ]},
   { key: "surveys", label: "Surveys", items: [
     { title: "Create new survey", url: "/surveys/new", icon: MessageSquareText },
     { title: "Saved surveys", url: "/surveys", icon: ListChecks },
     { title: "Survey results", url: "/surveys/results", icon: BarChart3 },
-    { title: "Reports", url: "/surveys/reports", icon: FileText },
   ]},
   { key: "feedback", label: "Customer feedback", items: [
     { title: "Create QR survey", url: "/feedback/new", icon: QrCode },
@@ -100,12 +98,6 @@ const groups: Group[] = [
     { title: "Appointment manager", url: "/appointments", icon: CalendarClock },
     { title: "Reminder sequences", url: "/follow-up", icon: Repeat },
   ]},
-  {
-    key: "appointmentReports",
-    label: "Reports",
-    visibleKey: "appointments",
-    items: [{ title: "Reports", url: "/appointments/reports", icon: FileBarChart }],
-  },
   { key: "recovery", label: "Recovery", items: [
     { title: "Recovery queue", url: "/recovery", icon: HeartPulse },
     { title: "No-show follow-up", url: "/recovery/no-show", icon: AlarmClockOff },
@@ -175,7 +167,7 @@ export function AppSidebar() {
       if (!loaded) return false;
       const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
       if (!showRecoveryModules && isRecoveryServiceKey(visibilityKey)) return false;
-      if (g.key === "appointmentReports" || g.visibleKey) return visible[visibilityKey];
+      if (g.visibleKey) return visible[visibilityKey];
       return visible[g.key as ServiceKey];
     });
 
@@ -327,7 +319,6 @@ function headIcon(key: GroupKey) {
     case "surveys": return ClipboardList;
     case "feedback": return QrCode;
     case "appointments": return CalendarClock;
-    case "appointmentReports": return FileBarChart;
     case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;
     case "followup": return CalendarClock;

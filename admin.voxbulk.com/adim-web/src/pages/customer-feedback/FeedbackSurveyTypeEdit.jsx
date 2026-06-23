@@ -223,7 +223,10 @@ export default function FeedbackSurveyTypeEdit() {
               </tr>
             </thead>
             <tbody>
-              {(item.templates || []).map((tpl) => (
+              {(item.templates || [])
+                .filter((tpl) => String(tpl.meta_category || '').toLowerCase() !== 'marketing'
+                  && String(tpl.template_key || '').toLowerCase() !== 'marketing_opt_in')
+                .map((tpl) => (
                 <tr key={tpl.id}>
                   <td><strong>{tpl.template_key}</strong></td>
                   <td>{tpl.step_role || '—'}</td>
@@ -258,7 +261,6 @@ export default function FeedbackSurveyTypeEdit() {
             <label>Meta category
               <select className="input" value={editing.meta_category || 'utility'} onChange={(e) => setEditing((f) => ({ ...f, meta_category: e.target.value }))}>
                 <option value="utility">Utility</option>
-                <option value="marketing">Marketing</option>
               </select>
             </label>
             <label style={{ gridColumn: '1 / -1' }}>Body text

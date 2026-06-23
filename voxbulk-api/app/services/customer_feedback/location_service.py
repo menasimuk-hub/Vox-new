@@ -23,6 +23,7 @@ from app.services.customer_feedback.survey_config_service import (
     parse_selected_type_ids_from_location,
     rebuild_survey_config_for_location,
 )
+from app.services.customer_feedback.feedback_marketing_policy import effective_marketing_opt_in_enabled
 from app.services.market_zone import country_to_zone
 
 
@@ -30,7 +31,10 @@ TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {t
 TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
-LANGUAGE_HINT_PATTERN = re.compile(r"\(\s*(ar|en|en_gb|en_us|en_au|arabic|english)\s*\)\s*$", re.IGNORECASE)
+LANGUAGE_HINT_PATTERN = re.compile(
+    r"(?:\(\s*(ar|en|en_gb|en_us|en_au|arabic|english)\s*\)|\s+(ar|en))\s*$",
+    re.IGNORECASE,
+)
 _FEEDBACK_INTENT_PATTERNS = (
     re.compile(r"(?i)\bshare feedback\b"),
     re.compile(r"(?i)\bi['']?d like to share feedback\b"),
@@ -104,7 +108,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "survey_type_name": survey_type.name if survey_type else None,
         "selected_survey_type_ids": selected_ids,
         "open_question_enabled": bool(row.open_question_enabled),
-        "marketing_opt_in_enabled": bool(row.marketing_opt_in_enabled),
+        "marketing_opt_in_enabled": effective_marketing_opt_in_enabled(row.marketing_opt_in_enabled),
         "qr_token": row.qr_token,
         "wa_sender_country": row.wa_sender_country,
         "status": row.status,
@@ -188,7 +192,7 @@ class FeedbackLocationService:
         if not industry_id or not primary_type_id:
             raise ValueError("industry_id and at least one survey topic are required")
         open_question = bool(payload.get("open_question_enabled", True))
-        marketing_opt_in = bool(payload.get("marketing_opt_in_enabled", True))
+        marketing_opt_in = effective_marketing_opt_in_enabled(payload.get("marketing_opt_in_enabled", False))
         survey_config = build_survey_config(
             db,
             industry_id=industry_id,
@@ -250,7 +254,7 @@ class FeedbackLocationService:
             row.open_question_enabled = bool(payload.get("open_question_enabled"))
             survey_fields_changed = True
         if "marketing_opt_in_enabled" in payload:
-            row.marketing_opt_in_enabled = bool(payload.get("marketing_opt_in_enabled"))
+            row.marketing_opt_in_enabled = effective_marketing_opt_in_enabled(payload.get("marketing_opt_in_enabled"))
             survey_fields_changed = True
 
         if survey_fields_changed:
@@ -282,7 +286,8 @@ class FeedbackLocationService:
         match = LANGUAGE_HINT_PATTERN.search(str(body or ""))
         if not match:
             return None
-        return str(match.group(1)).strip().lower()
+        raw = str(match.group(1) or match.group(2) or "").strip().lower()
+        return raw or None
 
     @staticmethod
     def is_feedback_intent_message(body: str) -> bool:

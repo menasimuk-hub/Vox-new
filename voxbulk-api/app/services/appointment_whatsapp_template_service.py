@@ -132,6 +132,8 @@ class AppointmentWhatsappTemplateService:
             key = str(spec["sales_template_key"])
             telnyx_name = str(spec["telnyx_name"])
             existing = AppointmentWhatsappTemplateService._find_row_for_spec(db, key, telnyx_name)
+            if existing is not None and str(existing.status or "").upper() == "DELETED":
+                continue
             components = appointment_spec_components(spec)
             examples = [str(v) for v in spec.get("example_values") or []]
             if existing is None:
@@ -171,6 +173,8 @@ class AppointmentWhatsappTemplateService:
                 existing.customer_description = str(spec.get("description") or "")
                 changed = True
             if not getattr(existing, "active_for_appointment", True):
+                if str(existing.status or "").upper() == "DELETED":
+                    continue
                 existing.active_for_appointment = True
                 changed = True
             if not existing.draft_components_json and _is_local_row(existing):
@@ -247,6 +251,7 @@ class AppointmentWhatsappTemplateService:
                 )
             ).scalars()
         )
+        rows = [row for row in rows if str(row.status or "").upper() != "DELETED"]
         rows.sort(key=lambda r: APPOINTMENT_WA_TEMPLATE_KEYS.index(str(r.sales_template_key or "")) if str(r.sales_template_key or "") in APPOINTMENT_WA_TEMPLATE_KEYS else 99)
         return [appointment_template_to_dict(row) for row in rows]
 
@@ -395,12 +400,15 @@ class AppointmentWhatsappTemplateService:
                     f"Telnyx delete failed: {exc}",
                     payload={"message": str(exc), "provider_error": str(exc)},
                 ) from exc
-        db.delete(row)
+        row.status = "DELETED"
+        row.active_for_appointment = False
+        row.local_sync_status = "deleted"
+        row.updated_at = _now()
+        db.add(row)
         db.commit()
-        AppointmentWhatsappTemplateService.ensure_catalog_seeded(db)
         return {
             "ok": True,
-            "message": "Template deleted from Telnyx and database. A fresh local draft was recreated if needed.",
+            "message": "Template deleted from Telnyx and removed from the appointment catalog.",
             "template_id": template_id,
         }
 

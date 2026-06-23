@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, MessageSquarePlus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -30,7 +30,7 @@ function EditFeedbackSurvey() {
 
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
-  const [marketingOptIn, setMarketingOptIn] = React.useState(true);
+  const marketingOptIn = false;
   const initialized = React.useRef(false);
 
   React.useEffect(() => {
@@ -42,7 +42,6 @@ function EditFeedbackSurvey() {
         : [location.survey_type_id],
     );
     setOpenQuestion(location.open_question_enabled !== false);
-    setMarketingOptIn(location.marketing_opt_in_enabled !== false);
   }, [location]);
 
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
@@ -186,26 +185,6 @@ function EditFeedbackSurvey() {
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 Adds a final open question. Responses appear in feedback results under more details.
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "flex items-start gap-3 rounded-xl border p-4 transition",
-              marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
-            )}
-          >
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-              <Sparkles className="size-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold">News & promo opt-in question</p>
-                <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Ask visitors at the end if they want offers and updates from your business.
               </p>
             </div>
           </div>

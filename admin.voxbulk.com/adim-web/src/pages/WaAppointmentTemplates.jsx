@@ -3,7 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
+import { substituteTemplateVars } from '../lib/waAppointmentTemplateVars'
 import WaAppointmentTemplateModal from '../components/WaAppointmentTemplateModal'
+import WaPhonePreview from '../components/WaPhonePreview'
+import '../styles/waTemplateEditor.css'
 
 function formatWhen(iso) {
   if (!iso) return '—'
@@ -12,6 +15,17 @@ function formatWhen(iso) {
   } catch {
     return iso
   }
+}
+
+function previewBody(tpl) {
+  const components = tpl?.draft_components || tpl?.remote_components
+  let body = tpl?.body_preview || ''
+  if (Array.isArray(components)) {
+    const row = components.find((c) => String(c?.type || '').toUpperCase() === 'BODY')
+    if (row?.text) body = row.text
+  }
+  const examples = Array.isArray(tpl?.example_values) ? tpl.example_values : ['Alex']
+  return substituteTemplateVars(body, examples)
 }
 
 export default function WaAppointmentTemplates() {
@@ -95,6 +109,7 @@ export default function WaAppointmentTemplates() {
     try {
       const result = await apiFetch(`/admin/wa-appointment/templates/${tpl.id}`, { method: 'DELETE' })
       setMsg(formatActionSuccess(result, 'Template deleted').message)
+      if (editId === tpl.id) closeEditor()
       await load()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not delete template').message)
@@ -117,13 +132,13 @@ export default function WaAppointmentTemplates() {
   }
 
   return (
-    <div className="pageShell">
+    <div className="pageShell waApptTemplatesPage">
       <div className="pageTop">
         <div>
           <p className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Platform Settings</p>
           <h1>WA Appointment templates</h1>
           <p className="muted">
-            Manage WhatsApp UTILITY templates for Appointment Manager — confirmations and reminders.
+            UTILITY WhatsApp templates for Appointment Manager — edit copy, preview on mobile, sync to Telnyx.
           </p>
         </div>
         <div className="actions">
@@ -144,70 +159,43 @@ export default function WaAppointmentTemplates() {
           <div className="cardBody note">No templates seeded yet — deploy API migration 0130 and refresh.</div>
         </div>
       ) : (
-        <div className="card">
-          <div className="tableWrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Template</th>
-                  <th>Telnyx name</th>
-                  <th>Status</th>
-                  <th>Visibility</th>
-                  <th>Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((tpl) => (
-                  <tr key={tpl.id}>
-                    <td>
-                      <strong>{tpl.display_name || tpl.name}</strong>
-                      <div className="muted" style={{ fontSize: '11.5px', marginTop: '3px' }}>{tpl.description || tpl.sales_template_key}</div>
-                    </td>
-                    <td><code>{tpl.name}</code></td>
-                    <td>
-                      <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
-                        {resolveTelnyxSyncLabel(tpl)}
-                      </span>
-                    </td>
-                    <td>{tpl.active_for_appointment === false ? 'Hidden' : 'Active'}</td>
-                    <td>{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
-                        <button type="button" className="btn soft sm" onClick={() => setEditId(tpl.id)}>
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn soft sm"
-                          disabled={!!working}
-                          onClick={() => void toggleHidden(tpl)}
-                        >
-                          {tpl.active_for_appointment === false ? 'Show' : 'Hide'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn soft sm"
-                          disabled={!!working}
-                          onClick={() => void pushTemplate(tpl)}
-                        >
-                          Sync
-                        </button>
-                        <button
-                          type="button"
-                          className="btn sm danger"
-                          disabled={!!working}
-                          onClick={() => void deleteTemplate(tpl)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="waApptTemplateGrid">
+          {templates.map((tpl) => (
+            <article key={tpl.id} className="waApptTemplateCard">
+              <div className="waApptTemplateCard__preview">
+                <WaPhonePreview
+                  compact
+                  title="VoxBulk"
+                  body={previewBody(tpl)}
+                  buttons={tpl.buttons || []}
+                />
+              </div>
+              <div className="waApptTemplateCard__body">
+                <div className="waApptTemplateCard__head">
+                  <div>
+                    <h3>{tpl.display_name || tpl.name}</h3>
+                    <p className="muted">{tpl.description || tpl.sales_template_key}</p>
+                  </div>
+                  <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
+                    {resolveTelnyxSyncLabel(tpl)}
+                  </span>
+                </div>
+                <div className="waApptTemplateCard__meta">
+                  <code>{tpl.name}</code>
+                  <span>{tpl.active_for_appointment === false ? 'Hidden' : 'Active'}</span>
+                  <span className="muted">{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</span>
+                </div>
+                <div className="waApptTemplateCard__actions">
+                  <button type="button" className="btn soft sm" onClick={() => setEditId(tpl.id)}>Edit</button>
+                  <button type="button" className="btn soft sm" disabled={!!working} onClick={() => void toggleHidden(tpl)}>
+                    {tpl.active_for_appointment === false ? 'Show' : 'Hide'}
+                  </button>
+                  <button type="button" className="btn soft sm" disabled={!!working} onClick={() => void pushTemplate(tpl)}>Sync</button>
+                  <button type="button" className="btn sm danger" disabled={!!working} onClick={() => void deleteTemplate(tpl)}>Delete</button>
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
       )}
 

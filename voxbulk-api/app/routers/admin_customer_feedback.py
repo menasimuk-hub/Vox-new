@@ -368,7 +368,10 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
         ],
     }
 def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
+
     rows = list(db.execute(select(FeedbackWaTemplate).order_by(FeedbackWaTemplate.step_order)).scalars().all())
+    rows = [r for r in rows if not is_marketing_wa_template(r)]
     return {
         "ok": True,
         "items": [
@@ -389,6 +392,16 @@ def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(
 @router.post("/wa-templates")
 def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     import json
+
+    from app.services.customer_feedback.feedback_marketing_policy import marketing_wa_enabled
+
+    proposed_category = str(payload.get("meta_category") or "utility").strip().lower()
+    proposed_key = str(payload.get("template_key") or "").strip().lower()
+    if not marketing_wa_enabled() and (proposed_category == "marketing" or proposed_key == "marketing_opt_in"):
+        raise HTTPException(
+            status_code=400,
+            detail="Marketing-category WhatsApp templates are disabled on this platform.",
+        )
 
     now = datetime.utcnow()
     row_id = str(payload.get("id") or "").strip()
