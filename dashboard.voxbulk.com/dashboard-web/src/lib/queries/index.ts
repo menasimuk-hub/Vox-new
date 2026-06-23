@@ -61,6 +61,7 @@ export const queryKeys = {
   faq: ["faq"] as const,
   schedulingStatus: ["service-orders", "scheduling", "status"] as const,
   hubspotStatus: ["service-orders", "hubspot", "status"] as const,
+  hubspotLists: (query?: string) => ["service-orders", "hubspot", "lists", query ?? ""] as const,
   integrationsCatalogue: ["service-orders", "integrations", "catalogue"] as const,
   hubspotContacts: (limit?: number) => ["service-orders", "hubspot", "contacts", limit ?? 50] as const,
   crmSyncStatus: ["service-orders", "crm", "sync-status"] as const,
@@ -1111,6 +1112,64 @@ export function useHubSpotStatus() {
   return useQuery({
     queryKey: [...queryKeys.hubspotStatus, orgId],
     queryFn: () => apiFetch<Record<string, unknown>>("/service-orders/hubspot/status"),
+  });
+}
+
+export type HubSpotListRow = {
+  id: string;
+  name: string;
+  processing_type?: string;
+  size?: number;
+};
+
+export function useHubSpotLists(enabled = true, query = "") {
+  const orgId = readOrgIdFromStorage() || "";
+  return useQuery({
+    queryKey: [...queryKeys.hubspotLists(query), orgId],
+    queryFn: () =>
+      apiFetch<{ ok: boolean; items: HubSpotListRow[]; count: number }>(
+        `/service-orders/hubspot/lists?limit=100${query ? `&query=${encodeURIComponent(query)}` : ""}`,
+      ),
+    enabled,
+  });
+}
+
+export function usePatchHubSpotSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      appointment_list_id?: string;
+      survey_list_id?: string;
+      appointment_confirmed_list_id?: string;
+      appointment_cancelled_list_id?: string;
+      field_map?: Record<string, string>;
+      auto_sync_results_back?: boolean;
+    }) =>
+      apiFetch<Record<string, unknown>>("/service-orders/hubspot/settings", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.crmSyncStatus });
+      void qc.invalidateQueries({ queryKey: queryKeys.integrationsCatalogue });
+    },
+  });
+}
+
+export function useImportHubSpotListToOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { order_id: string; list_id?: string }) =>
+      apiFetch<{ ok: boolean; added: number; skipped: number; recipient_count: number; fetched?: number }>(
+        "/service-orders/crm/lists/import-to-order",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.orderRecipients(variables.order_id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serviceOrders("survey") });
+      void qc.invalidateQueries({ queryKey: queryKeys.hubspotContacts() });
+    },
   });
 }
 

@@ -22,6 +22,7 @@ HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
 HUBSPOT_SCOPES = (
     "crm.objects.contacts.read crm.objects.contacts.write "
     "crm.objects.deals.read crm.schemas.deals.read "
+    "crm.lists.read crm.lists.write "
     "scheduler.meetings.meeting-link.read oauth"
 )
 
@@ -100,6 +101,10 @@ def hubspot_status(db: Session, org_id: str) -> dict[str, Any]:
         "auto_sync_shortlist": cfg.get("auto_sync_shortlist", True) is not False,
         "auto_sync_scheduling_send": cfg.get("auto_sync_scheduling_send", True) is not False,
         "create_task_on_unhappy_score": cfg.get("create_task_on_unhappy_score") is True,
+        "appointment_list_id": str(cfg.get("appointment_list_id") or "").strip() or None,
+        "survey_list_id": str(cfg.get("survey_list_id") or "").strip() or None,
+        "appointment_confirmed_list_id": str(cfg.get("appointment_confirmed_list_id") or "").strip() or None,
+        "appointment_cancelled_list_id": str(cfg.get("appointment_cancelled_list_id") or "").strip() or None,
         "expires_at": cfg.get("expires_at"),
         "connected_at": cfg.get("connected_at"),
     }
@@ -128,6 +133,12 @@ def update_hubspot_settings(
     auto_sync_shortlist: bool | None = None,
     auto_sync_scheduling_send: bool | None = None,
     create_task_on_unhappy_score: bool | None = None,
+    appointment_list_id: str | None = None,
+    survey_list_id: str | None = None,
+    appointment_confirmed_list_id: str | None = None,
+    appointment_cancelled_list_id: str | None = None,
+    field_map: dict[str, str] | None = None,
+    auto_sync_results_back: bool | None = None,
 ) -> dict[str, Any]:
     org = db.get(Organisation, org_id)
     if org is None:
@@ -139,6 +150,26 @@ def update_hubspot_settings(
         cfg["auto_sync_scheduling_send"] = bool(auto_sync_scheduling_send)
     if create_task_on_unhappy_score is not None:
         cfg["create_task_on_unhappy_score"] = bool(create_task_on_unhappy_score)
+    if appointment_list_id is not None:
+        cfg["appointment_list_id"] = str(appointment_list_id).strip()
+    if survey_list_id is not None:
+        cfg["survey_list_id"] = str(survey_list_id).strip()
+    if appointment_confirmed_list_id is not None:
+        cfg["appointment_confirmed_list_id"] = str(appointment_confirmed_list_id).strip()
+    if appointment_cancelled_list_id is not None:
+        cfg["appointment_cancelled_list_id"] = str(appointment_cancelled_list_id).strip()
+    if field_map is not None:
+        from app.services.hubspot_contact_sync_service import default_field_map
+
+        cleaned: dict[str, str] = {}
+        defaults = default_field_map()
+        for key in defaults:
+            val = str(field_map.get(key) or defaults[key]).strip()
+            if val:
+                cleaned[key] = val[:128]
+        cfg["field_map"] = cleaned
+    if auto_sync_results_back is not None:
+        cfg["auto_sync_results_back"] = bool(auto_sync_results_back)
     org.hubspot_config_json = json.dumps(cfg, ensure_ascii=False)
     db.add(org)
     db.commit()

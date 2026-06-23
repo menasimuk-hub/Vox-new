@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useIntegrationsCatalogue } from "@/lib/queries";
+import { useIntegrationsCatalogue, useHubSpotStatus, usePatchHubSpotSettings } from "@/lib/queries";
+import { HubSpotAppointmentListPickers } from "@/components/integrations/hubspot-list-import-panel";
 
 type Settings = {
   setup_complete?: boolean;
@@ -87,12 +88,24 @@ export function AppointmentSetupWizard() {
     enabled: step >= 3,
   });
   const integrationsQ = useIntegrationsCatalogue();
+  const hubspotQ = useHubSpotStatus();
+  const patchHubspotM = usePatchHubSpotSettings();
 
   const [form, setForm] = React.useState<Settings>({});
+  const [appointmentListId, setAppointmentListId] = React.useState("");
+  const [confirmedListId, setConfirmedListId] = React.useState("");
+  const [cancelledListId, setCancelledListId] = React.useState("");
 
   React.useEffect(() => {
     if (settingsQ.data) setForm(settingsQ.data);
   }, [settingsQ.data]);
+
+  React.useEffect(() => {
+    if (!hubspotQ.data) return;
+    setAppointmentListId(String(hubspotQ.data.appointment_list_id || ""));
+    setConfirmedListId(String(hubspotQ.data.appointment_confirmed_list_id || ""));
+    setCancelledListId(String(hubspotQ.data.appointment_cancelled_list_id || ""));
+  }, [hubspotQ.data]);
 
   const patch = (partial: Partial<Settings>) => setForm((prev) => ({ ...prev, ...partial }));
 
@@ -114,6 +127,13 @@ export function AppointmentSetupWizard() {
         method: "PATCH",
         body: JSON.stringify({ ...form, setup_complete: true }),
       });
+      if (connectedCrm?.key === "hubspot" && appointmentListId) {
+        await patchHubspotM.mutateAsync({
+          appointment_list_id: appointmentListId,
+          appointment_confirmed_list_id: confirmedListId,
+          appointment_cancelled_list_id: cancelledListId,
+        });
+      }
       await apiFetch("/appointments/sync-crm", { method: "POST" });
     },
     onSuccess: () => {
@@ -124,7 +144,11 @@ export function AppointmentSetupWizard() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const canNextStep1 = crmReady && Boolean(form.workspace_name?.trim());
+  const hubspotCrm = connectedCrm?.key === "hubspot";
+  const canNextStep1 =
+    crmReady &&
+    Boolean(form.workspace_name?.trim()) &&
+    (!hubspotCrm || Boolean(appointmentListId.trim()));
   const canNextStep2 = !form.wa_enabled || Boolean(form.wa_template_name);
   const canNextStep3 = !form.call_enabled || Boolean(form.appointment_agent_id);
   const billingOk = billingQ.data?.allowed !== false;
@@ -263,7 +287,21 @@ export function AppointmentSetupWizard() {
                 value={form.crm_date_property ?? "appointment_date"}
                 onChange={(e) => patch({ crm_date_property: e.target.value })}
               />
+              <p className="text-xs text-muted-foreground">HubSpot internal property name on each contact in your list.</p>
             </div>
+
+            {hubspotCrm && crmReady && (
+              <HubSpotAppointmentListPickers
+                appointmentListId={appointmentListId}
+                confirmedListId={confirmedListId}
+                cancelledListId={cancelledListId}
+                onChange={(patch) => {
+                  if (patch.appointment_list_id !== undefined) setAppointmentListId(patch.appointment_list_id);
+                  if (patch.appointment_confirmed_list_id !== undefined) setConfirmedListId(patch.appointment_confirmed_list_id);
+                  if (patch.appointment_cancelled_list_id !== undefined) setCancelledListId(patch.appointment_cancelled_list_id);
+                }}
+              />
+            )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2">

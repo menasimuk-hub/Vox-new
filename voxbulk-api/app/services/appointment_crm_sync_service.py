@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.appointment import Appointment
 from app.models.organisation import Organisation
 from app.services.appointment_log_service import append_log
+from app.services.appointment_settings_service import get_config
 from app.services.crm_providers import CRM_CONFIG_COLUMNS
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 
@@ -62,61 +63,90 @@ def _org_has_crm_connected(db: Session, org_id: str, provider: str) -> bool:
     return False
 
 
+def _contact_item_to_appointment(item: dict[str, Any], *, date_prop: str) -> AppointmentData | None:
+    if not isinstance(item, dict):
+        return None
+    hs_id = str(item.get("id") or "").strip()
+    props_raw = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+    date_raw = str(props_raw.get(date_prop) or "").strip()
+    if not hs_id or not date_raw:
+        return None
+    try:
+        appt_dt = datetime.fromisoformat(date_raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+    first = str(props_raw.get("firstname") or "").strip()
+    last = str(props_raw.get("lastname") or "").strip()
+    name = " ".join(x for x in (first, last) if x).strip() or str(props_raw.get("email") or "Contact")
+    phone = str(props_raw.get("phone") or "").strip()
+    if not phone:
+        return None
+    return AppointmentData(
+        crm_source="hubspot",
+        crm_record_id=hs_id,
+        contact_name=name,
+        contact_phone=phone,
+        contact_email=str(props_raw.get("email") or "").strip() or None,
+        appointment_datetime=appt_dt,
+    )
+
+
 def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentData]:
-    from app.services.hubspot_connection_service import get_hubspot_config, hubspot_status
+    from app.services.hubspot_connection_service import _ensure_access_token, get_hubspot_config, hubspot_status
+    from app.services.hubspot_list_service import HubspotListError, fetch_list_contacts
 
     if not hubspot_status(db, org_id).get("connected"):
         return []
     cfg = get_hubspot_config(db, org_id)
-    token = str(cfg.get("access_token") or "").strip()
+    token = _ensure_access_token(db, org_id)
     if not token:
         return []
-    date_prop = str(cfg.get("appointment_date_property") or "appointment_date").strip() or "appointment_date"
+
+    appt_cfg = get_config(db, org_id)
+    date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
     props = ["firstname", "lastname", "email", "phone", date_prop]
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            res = client.get(
-                HUBSPOT_CONTACTS_URL,
-                headers={"Authorization": f"Bearer {token}"},
-                params={"limit": 100, "properties": ",".join(props)},
-            )
-        if res.status_code >= 400:
-            logger.warning("hubspot_appointment_sync_failed org=%s status=%s", org_id, res.status_code)
-            return []
-        body = res.json() or {}
-    except Exception:
-        logger.exception("hubspot_appointment_sync_error org=%s", org_id)
-        return []
+    list_id = str(cfg.get("appointment_list_id") or "").strip()
 
     out: list[AppointmentData] = []
-    for item in body.get("results") or []:
-        if not isinstance(item, dict):
-            continue
-        hs_id = str(item.get("id") or "").strip()
-        props_raw = item.get("properties") if isinstance(item.get("properties"), dict) else {}
-        date_raw = str(props_raw.get(date_prop) or "").strip()
-        if not date_raw:
-            continue
-        try:
-            appt_dt = datetime.fromisoformat(date_raw.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            continue
-        first = str(props_raw.get("firstname") or "").strip()
-        last = str(props_raw.get("lastname") or "").strip()
-        name = " ".join(x for x in (first, last) if x).strip() or str(props_raw.get("email") or "Contact")
-        phone = str(props_raw.get("phone") or "").strip()
-        if not phone:
-            continue
-        out.append(
-            AppointmentData(
-                crm_source="hubspot",
-                crm_record_id=hs_id,
-                contact_name=name,
-                contact_phone=phone,
-                contact_email=str(props_raw.get("email") or "").strip() or None,
-                appointment_datetime=appt_dt,
-            )
-        )
+    try:
+        if list_id:
+            items = fetch_list_contacts(token, list_id, props)
+            for item in items:
+                row = _contact_item_to_appointment(item, date_prop=date_prop)
+                if row:
+                    out.append(row)
+            return out
+
+        after: str | None = None
+        with httpx.Client(timeout=60.0) as client:
+            while True:
+                params: dict[str, Any] = {"limit": 100, "properties": ",".join(props)}
+                if after:
+                    params["after"] = after
+                res = client.get(
+                    HUBSPOT_CONTACTS_URL,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=params,
+                )
+                if res.status_code >= 400:
+                    logger.warning("hubspot_appointment_sync_failed org=%s status=%s", org_id, res.status_code)
+                    break
+                body = res.json() or {}
+                for item in body.get("results") or []:
+                    row = _contact_item_to_appointment(item, date_prop=date_prop)
+                    if row:
+                        out.append(row)
+                paging = body.get("paging") or {}
+                next_link = paging.get("next") if isinstance(paging, dict) else None
+                after = None
+                if isinstance(next_link, dict):
+                    after = str(next_link.get("after") or "").strip() or None
+                if not after:
+                    break
+    except HubspotListError as exc:
+        logger.warning("hubspot_appointment_list_sync_failed org=%s err=%s", org_id, str(exc)[:200])
+    except Exception:
+        logger.exception("hubspot_appointment_sync_error org=%s", org_id)
     return out
 
 
@@ -200,7 +230,7 @@ def sync_org_appointments(db: Session, org_id: str) -> dict[str, Any]:
         else:
             updated += 1
     db.commit()
-    return {"org_id": org_id, "fetched": len(rows), "created": created, "updated": updated}
+    return {"org_id": org_id, "fetched": len(rows), "created": created, "updated": updated, "synced": created + updated}
 
 
 def sync_all_orgs(db: Session) -> dict[str, Any]:

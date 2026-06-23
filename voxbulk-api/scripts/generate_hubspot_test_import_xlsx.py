@@ -125,14 +125,13 @@ def _won_deal_rows(email: str) -> list[dict]:
 
 def _readme_rows() -> list[dict]:
     return [
-        {"step": "1", "action": "HubSpot → Settings → Properties → Contact → create appointment_date (date/time) if missing"},
-        {"step": "2", "action": "Import sheet 'appointment_contacts' → map appointment_date to your custom property"},
-        {"step": "3", "action": "Import 'wa_survey_contacts' for manual WhatsApp survey recipient testing"},
-        {"step": "4", "action": "Import 'won_deal_contacts' then 'won_deals' (fix dealstage/pipeline to match your HubSpot)"},
-        {"step": "5", "action": "Dashboard → Integrations → connect HubSpot (reconnect once for deal automation scopes)"},
-        {"step": "6", "action": "Replace +447700… phones with real mobiles that receive WhatsApp / Telnyx test calls"},
-        {"step": "7", "action": "Appointment Manager: CRM=HubSpot, date property=appointment_date"},
-        {"step": "8", "action": "Survey launch: enable CRM deal automation, pick Closed Won stage, run Test preview"},
+        {"step": "1", "action": "HubSpot → create static lists (MANUAL): Appointments + Survey (+ optional Confirmed/Cancelled)"},
+        {"step": "2", "action": "Add contacts to lists with phone; appointment list also needs appointment_date property"},
+        {"step": "3", "action": "Dashboard → Integrations → connect HubSpot (reconnect once for list scopes)"},
+        {"step": "4", "action": "Appointment Manager setup → pick HubSpot appointment list → Launch → Sync CRM"},
+        {"step": "5", "action": "New survey → Import from HubSpot list (can be same list as appointments)"},
+        {"step": "6", "action": "Optional: set Confirmed/Cancelled lists in appointment setup for write-back"},
+        {"step": "7", "action": "Replace +447700… phones with real mobiles that receive WhatsApp / Telnyx test calls"},
     ]
 
 

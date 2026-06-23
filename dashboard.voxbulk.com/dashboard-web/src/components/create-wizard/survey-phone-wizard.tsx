@@ -13,6 +13,7 @@ import {
 } from "@/components/create-wizard/survey-upload-consent";
 import { UploadedContactsTable, type UploadedContactRow } from "@/components/create-wizard/uploaded-contacts-table";
 import { CrmImportContactsPanel } from "@/components/integrations/crm-import-contacts-panel";
+import { HubSpotListImportPanel } from "@/components/integrations/hubspot-list-import-panel";
 import { CrmSurveyAutomationCard } from "@/components/integrations/crm-survey-automation-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -358,7 +359,10 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                   </div>
                 </>
               ) : props.orderId ? (
-                <CrmImportContactsPanel orderId={props.orderId} onImported={props.onRecipientsRefresh} />
+                <div className="space-y-4">
+                  <HubSpotListImportPanel orderId={props.orderId} onImported={props.onRecipientsRefresh} />
+                  <CrmImportContactsPanel orderId={props.orderId} onImported={props.onRecipientsRefresh} />
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Save draft first, then import from CRM.</p>
               )}

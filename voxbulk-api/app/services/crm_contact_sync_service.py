@@ -191,12 +191,53 @@ def import_contacts_to_order(
     raise CrmContactSyncError(f"CRM import is not supported for {provider}")
 
 
+def import_list_contacts_to_order(
+    db: Session,
+    org_id: str,
+    *,
+    order_id: str,
+    list_id: str | None = None,
+) -> dict[str, Any]:
+    provider = _require_active_provider(db, org_id)
+    if provider != "hubspot":
+        raise CrmContactSyncError("HubSpot list import requires HubSpot as the active CRM")
+
+    from app.services.hubspot_contact_sync_service import HubspotContactSyncError, import_list_contacts_to_order as hs_import
+
+    try:
+        result = hs_import(db, org_id, order_id=order_id, list_id=list_id)
+        result["provider"] = provider
+        return result
+    except HubspotContactSyncError as exc:
+        raise CrmContactSyncError(str(exc)) from exc
+
+
+def list_hubspot_lists_for_org(db: Session, org_id: str, *, query: str = "", limit: int = 100) -> dict[str, Any]:
+    from app.services.hubspot_connection_service import _ensure_access_token, hubspot_status
+    from app.services.hubspot_list_service import HubspotListError, list_hubspot_lists
+
+    if not hubspot_status(db, org_id).get("connected"):
+        raise CrmContactSyncError("Connect HubSpot first")
+    token = _ensure_access_token(db, org_id)
+    if not token:
+        raise CrmContactSyncError("Connect HubSpot first")
+    try:
+        items = list_hubspot_lists(token, query=query, limit=limit)
+    except HubspotListError as exc:
+        raise CrmContactSyncError(str(exc)) from exc
+    return {"ok": True, "provider": "hubspot", "items": items, "count": len(items)}
+
+
 def update_crm_sync_settings(
     db: Session,
     org_id: str,
     *,
     auto_sync_results_back: bool | None = None,
     field_map: dict[str, str] | None = None,
+    appointment_list_id: str | None = None,
+    survey_list_id: str | None = None,
+    appointment_confirmed_list_id: str | None = None,
+    appointment_cancelled_list_id: str | None = None,
 ) -> dict[str, Any]:
     provider = _require_active_provider(db, org_id)
 
@@ -209,6 +250,10 @@ def update_crm_sync_settings(
                 org_id,
                 field_map=field_map,
                 auto_sync_results_back=auto_sync_results_back,
+                appointment_list_id=appointment_list_id,
+                survey_list_id=survey_list_id,
+                appointment_confirmed_list_id=appointment_confirmed_list_id,
+                appointment_cancelled_list_id=appointment_cancelled_list_id,
             )
         except HubspotContactSyncError as exc:
             raise CrmContactSyncError(str(exc)) from exc

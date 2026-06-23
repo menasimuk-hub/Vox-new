@@ -1464,8 +1464,29 @@ def patch_hubspot_settings(
             auto_sync_shortlist=body.get("auto_sync_shortlist"),
             auto_sync_scheduling_send=body.get("auto_sync_scheduling_send"),
             create_task_on_unhappy_score=body.get("create_task_on_unhappy_score"),
+            appointment_list_id=body.get("appointment_list_id"),
+            survey_list_id=body.get("survey_list_id"),
+            appointment_confirmed_list_id=body.get("appointment_confirmed_list_id"),
+            appointment_cancelled_list_id=body.get("appointment_cancelled_list_id"),
+            field_map=body.get("field_map") if isinstance(body.get("field_map"), dict) else None,
+            auto_sync_results_back=body.get("auto_sync_results_back"),
         )
     except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/hubspot/lists")
+def get_hubspot_lists(
+    query: str = Query("", max_length=200),
+    limit: int = Query(100, ge=1, le=250),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, list_hubspot_lists_for_org
+
+    try:
+        return list_hubspot_lists_for_org(db, principal.org_id, query=query, limit=limit)
+    except CrmContactSyncError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
@@ -1645,6 +1666,10 @@ def patch_crm_sync_settings(
             principal.org_id,
             field_map=field_map,
             auto_sync_results_back=body.get("auto_sync_results_back"),
+            appointment_list_id=body.get("appointment_list_id"),
+            survey_list_id=body.get("survey_list_id"),
+            appointment_confirmed_list_id=body.get("appointment_confirmed_list_id"),
+            appointment_cancelled_list_id=body.get("appointment_cancelled_list_id"),
         )
     except CrmContactSyncError as exc:
         msg = str(exc)
@@ -1652,6 +1677,31 @@ def patch_crm_sync_settings(
         raise HTTPException(status_code=code, detail=msg) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/crm/lists/import-to-order")
+def import_crm_list_to_order(
+    body: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.crm_contact_sync_service import CrmContactSyncError, import_list_contacts_to_order
+
+    order_id = str(body.get("order_id") or "").strip()
+    list_id = str(body.get("list_id") or "").strip() or None
+    if not order_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="order_id required")
+    try:
+        return import_list_contacts_to_order(
+            db,
+            principal.org_id,
+            order_id=order_id,
+            list_id=list_id,
+        )
+    except CrmContactSyncError as exc:
+        msg = str(exc)
+        code = status.HTTP_404_NOT_FOUND if "not enabled" in msg.lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=msg) from exc
 
 
 @router.post("/{order_id}/recipients/{recipient_id}/crm/sync-result")

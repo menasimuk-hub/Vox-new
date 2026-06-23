@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 HUBSPOT_NOTES_URL = "https://api.hubapi.com/crm/v3/objects/notes"
 DEFAULT_SYNC_LIMIT = 100
+MAX_SYNC_CONTACTS = 5000
 NOTE_TO_CONTACT_ASSOCIATION_TYPE_ID = 202
 
 
@@ -109,6 +110,10 @@ def sync_status_extras(db: Session, org_id: str, cfg: dict[str, Any]) -> dict[st
         "last_sync_at": cfg.get("last_sync_at"),
         "contact_count": count,
         "last_sync_summary": cfg.get("last_sync_summary"),
+        "appointment_list_id": str(cfg.get("appointment_list_id") or "").strip() or None,
+        "survey_list_id": str(cfg.get("survey_list_id") or "").strip() or None,
+        "appointment_confirmed_list_id": str(cfg.get("appointment_confirmed_list_id") or "").strip() or None,
+        "appointment_cancelled_list_id": str(cfg.get("appointment_cancelled_list_id") or "").strip() or None,
     }
 
 
@@ -118,28 +123,24 @@ def update_hubspot_sync_settings(
     *,
     field_map: dict[str, str] | None = None,
     auto_sync_results_back: bool | None = None,
+    appointment_list_id: str | None = None,
+    survey_list_id: str | None = None,
+    appointment_confirmed_list_id: str | None = None,
+    appointment_cancelled_list_id: str | None = None,
 ) -> dict[str, Any]:
     require_sync_v1_enabled(db)
-    from app.models.organisation import Organisation
+    from app.services.hubspot_connection_service import update_hubspot_settings
 
-    org = db.get(Organisation, org_id)
-    if org is None:
-        raise ValueError("Organisation not found")
-    cfg = _loads(org.hubspot_config_json)
-    if field_map is not None:
-        cleaned: dict[str, str] = {}
-        defaults = default_field_map()
-        for key in defaults:
-            val = str(field_map.get(key) or defaults[key]).strip()
-            if val:
-                cleaned[key] = val[:128]
-        cfg["field_map"] = cleaned
-    if auto_sync_results_back is not None:
-        cfg["auto_sync_results_back"] = bool(auto_sync_results_back)
-    org.hubspot_config_json = json.dumps(cfg, ensure_ascii=False)
-    db.add(org)
-    db.commit()
-    return hubspot_status(db, org_id)
+    return update_hubspot_settings(
+        db,
+        org_id,
+        field_map=field_map,
+        auto_sync_results_back=auto_sync_results_back,
+        appointment_list_id=appointment_list_id,
+        survey_list_id=survey_list_id,
+        appointment_confirmed_list_id=appointment_confirmed_list_id,
+        appointment_cancelled_list_id=appointment_cancelled_list_id,
+    )
 
 
 def _map_contact_properties(props: dict[str, Any], field_map: dict[str, str]) -> dict[str, str | None]:
@@ -157,6 +158,50 @@ def _map_contact_properties(props: dict[str, Any], field_map: dict[str, str]) ->
     return {"name": name or email or "Contact", "email": email, "phone": phone}
 
 
+def _upsert_hubspot_contact_row(
+    db: Session,
+    org_id: str,
+    *,
+    hs_id: str,
+    mapped: dict[str, str | None],
+    props_raw: dict[str, Any],
+    now: datetime,
+) -> str:
+    """Returns 'imported' | 'updated' | 'skipped'."""
+    if not mapped.get("email") and not mapped.get("phone"):
+        return "skipped"
+    existing = db.execute(
+        select(HubspotContact).where(
+            HubspotContact.org_id == org_id,
+            HubspotContact.hubspot_contact_id == hs_id,
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(
+            HubspotContact(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                hubspot_contact_id=hs_id,
+                name=str(mapped["name"] or "Contact"),
+                email=mapped.get("email"),
+                phone=mapped.get("phone"),
+                raw_properties_json=json.dumps(props_raw, ensure_ascii=False),
+                synced_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        return "imported"
+    existing.name = str(mapped["name"] or existing.name or "Contact")
+    existing.email = mapped.get("email") or existing.email
+    existing.phone = mapped.get("phone") or existing.phone
+    existing.raw_properties_json = json.dumps(props_raw, ensure_ascii=False)
+    existing.synced_at = now
+    existing.updated_at = now
+    db.add(existing)
+    return "updated"
+
+
 def fetch_and_upsert_contacts(db: Session, org_id: str, *, limit: int = DEFAULT_SYNC_LIMIT) -> dict[str, Any]:
     require_sync_v1_enabled(db)
     status = hubspot_status(db, org_id)
@@ -167,26 +212,55 @@ def fetch_and_upsert_contacts(db: Session, org_id: str, *, limit: int = DEFAULT_
     field_map = read_field_map(cfg)
     token = _ensure_access_token(db, org_id)
     props = list({field_map["first_name"], field_map["last_name"], field_map["email"], field_map["phone"]})
-    params: dict[str, Any] = {"limit": min(max(1, limit), DEFAULT_SYNC_LIMIT), "properties": ",".join(props)}
-
-    with httpx.Client(timeout=45.0) as client:
-        res = client.get(
-            HUBSPOT_CONTACTS_URL,
-            headers={"Authorization": f"Bearer {token}"},
-            params=params,
-        )
-    if res.status_code >= 400:
-        raise HubspotContactSyncError(f"HubSpot contact fetch failed: {res.text[:300]}")
-
-    body = res.json() or {}
-    results = body.get("results") or []
-    paging = body.get("paging") or {}
-    has_more = bool(paging.get("next"))
+    list_id = str(cfg.get("survey_list_id") or "").strip()
 
     imported = 0
     updated = 0
     skipped = 0
+    fetched = 0
+    has_more = False
     now = datetime.utcnow()
+    results: list[dict[str, Any]] = []
+
+    if list_id:
+        from app.services.hubspot_list_service import HubspotListError, fetch_list_contacts
+
+        try:
+            cap = min(max(1, limit), MAX_SYNC_CONTACTS)
+            results = fetch_list_contacts(token, list_id, props, max_members=cap)
+            fetched = len(results)
+        except HubspotListError as exc:
+            raise HubspotContactSyncError(str(exc)) from exc
+    else:
+        page_cap = min(max(1, limit), MAX_SYNC_CONTACTS)
+        after: str | None = None
+        with httpx.Client(timeout=60.0) as client:
+            while len(results) < page_cap:
+                params: dict[str, Any] = {
+                    "limit": min(DEFAULT_SYNC_LIMIT, page_cap - len(results)),
+                    "properties": ",".join(props),
+                }
+                if after:
+                    params["after"] = after
+                res = client.get(
+                    HUBSPOT_CONTACTS_URL,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=params,
+                )
+                if res.status_code >= 400:
+                    raise HubspotContactSyncError(f"HubSpot contact fetch failed: {res.text[:300]}")
+                body = res.json() or {}
+                batch = body.get("results") or []
+                results.extend(batch)
+                paging = body.get("paging") or {}
+                next_link = paging.get("next") if isinstance(paging, dict) else None
+                after = None
+                if isinstance(next_link, dict):
+                    after = str(next_link.get("after") or "").strip() or None
+                has_more = bool(after)
+                if not after:
+                    break
+        fetched = len(results)
 
     for item in results:
         if not isinstance(item, dict):
@@ -198,49 +272,21 @@ def fetch_and_upsert_contacts(db: Session, org_id: str, *, limit: int = DEFAULT_
             continue
         props_raw = item.get("properties") if isinstance(item.get("properties"), dict) else {}
         mapped = _map_contact_properties(props_raw, field_map)
-        if not mapped.get("email") and not mapped.get("phone"):
-            skipped += 1
-            continue
-
-        existing = db.execute(
-            select(HubspotContact).where(
-                HubspotContact.org_id == org_id,
-                HubspotContact.hubspot_contact_id == hs_id,
-            )
-        ).scalar_one_or_none()
-
-        if existing is None:
-            db.add(
-                HubspotContact(
-                    id=str(uuid.uuid4()),
-                    org_id=org_id,
-                    hubspot_contact_id=hs_id,
-                    name=str(mapped["name"] or "Contact"),
-                    email=mapped.get("email"),
-                    phone=mapped.get("phone"),
-                    raw_properties_json=json.dumps(props_raw, ensure_ascii=False),
-                    synced_at=now,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+        outcome = _upsert_hubspot_contact_row(db, org_id, hs_id=hs_id, mapped=mapped, props_raw=props_raw, now=now)
+        if outcome == "imported":
             imported += 1
-        else:
-            existing.name = str(mapped["name"] or existing.name or "Contact")
-            existing.email = mapped.get("email") or existing.email
-            existing.phone = mapped.get("phone") or existing.phone
-            existing.raw_properties_json = json.dumps(props_raw, ensure_ascii=False)
-            existing.synced_at = now
-            existing.updated_at = now
-            db.add(existing)
+        elif outcome == "updated":
             updated += 1
+        else:
+            skipped += 1
 
     summary = {
         "imported": imported,
         "updated": updated,
         "skipped": skipped,
-        "fetched": len(results),
+        "fetched": fetched,
         "has_more": has_more,
+        "list_id": list_id or None,
     }
     cfg_update = dict(cfg)
     cfg_update["last_sync_at"] = now.isoformat()
@@ -370,6 +416,98 @@ def import_contacts_to_order(
         "skipped": skipped,
         "recipient_count": order.recipient_count,
         "order_id": order.id,
+    }
+
+
+def import_list_contacts_to_order(
+    db: Session,
+    org_id: str,
+    *,
+    order_id: str,
+    list_id: str | None = None,
+) -> dict[str, Any]:
+    """Import all contacts from a HubSpot static list into a draft survey order."""
+    from app.services.hubspot_list_service import HubspotListError, fetch_list_contacts
+
+    status = hubspot_status(db, org_id)
+    if not status.get("connected"):
+        raise HubspotContactSyncError("Connect HubSpot before importing a list")
+
+    cfg = get_hubspot_config(db, org_id)
+    field_map = read_field_map(cfg)
+    token = _ensure_access_token(db, org_id)
+    lid = str(list_id or cfg.get("survey_list_id") or "").strip()
+    if not lid:
+        raise HubspotContactSyncError("Select a HubSpot list first")
+
+    from app.services.platform_catalog_service import ServiceOrderService
+
+    order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
+    if order is None:
+        raise HubspotContactSyncError("Order not found")
+    if order.service_code != "survey":
+        raise HubspotContactSyncError("HubSpot list import is only supported for survey campaigns")
+    if order.status == "completed":
+        raise HubspotContactSyncError("Cannot import contacts into a completed campaign")
+    if str(order.payment_status or "").lower() == "approved":
+        raise HubspotContactSyncError("Cannot import contacts after payment is approved")
+
+    props = list({field_map["first_name"], field_map["last_name"], field_map["email"], field_map["phone"]})
+    try:
+        items = fetch_list_contacts(token, lid, props)
+    except HubspotListError as exc:
+        raise HubspotContactSyncError(str(exc)) from exc
+
+    recipients = list(
+        db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars().all()
+    )
+    added = 0
+    skipped = 0
+    now = datetime.utcnow()
+    for item in items:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        hs_id = str(item.get("id") or "").strip()
+        props_raw = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+        mapped = _map_contact_properties(props_raw, field_map)
+        if not mapped.get("phone"):
+            skipped += 1
+            continue
+        if _recipient_exists(recipients, email=mapped.get("email"), phone=mapped.get("phone")):
+            skipped += 1
+            continue
+        if hs_id:
+            _upsert_hubspot_contact_row(db, org_id, hs_id=hs_id, mapped=mapped, props_raw=props_raw, now=now)
+        recipient = ServiceOrderRecipient(
+            order_id=order.id,
+            row_number=len(recipients) + 1,
+            name=str(mapped["name"] or "Contact"),
+            phone=mapped["phone"],
+            email=mapped.get("email"),
+            status="pending",
+        )
+        db.add(recipient)
+        recipients.append(recipient)
+        added += 1
+
+    for i, r in enumerate(recipients, start=1):
+        r.row_number = i
+        db.add(r)
+    order.recipient_count = len(recipients)
+    order.updated_at = now
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "ok": True,
+        "added": added,
+        "skipped": skipped,
+        "recipient_count": order.recipient_count,
+        "order_id": order.id,
+        "list_id": lid,
+        "fetched": len(items),
     }
 
 

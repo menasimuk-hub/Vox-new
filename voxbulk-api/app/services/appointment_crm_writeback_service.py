@@ -27,6 +27,41 @@ def _patch_hubspot_contact(token, contact_id, properties):
     if res.status_code >= 400:
         raise ValueError(f"HubSpot contact update failed: {res.text[:300]}")
 
+
+def _maybe_move_hubspot_lists(
+    db: Session,
+    org_id: str,
+    token: str,
+    *,
+    contact_id: str,
+    status: str,
+) -> None:
+    from app.services.hubspot_connection_service import get_hubspot_config
+    from app.services.hubspot_list_service import move_contact_between_lists
+
+    cfg = get_hubspot_config(db, org_id)
+    source_list = str(cfg.get("appointment_list_id") or "").strip() or None
+    confirmed_list = str(cfg.get("appointment_confirmed_list_id") or "").strip() or None
+    cancelled_list = str(cfg.get("appointment_cancelled_list_id") or "").strip() or None
+    if status == "confirmed" and confirmed_list:
+        move_contact_between_lists(
+            token,
+            contact_id=contact_id,
+            remove_from_list_id=source_list if source_list != confirmed_list else None,
+            add_to_list_id=confirmed_list,
+        )
+    elif status == "cancelled" and cancelled_list:
+        move_contact_between_lists(
+            token,
+            contact_id=contact_id,
+            remove_from_list_id=source_list if source_list != cancelled_list else None,
+            add_to_list_id=cancelled_list,
+        )
+    elif status == "rescheduled" and confirmed_list:
+        # Keep on source list unless a confirmed list is configured for completed outcomes only
+        pass
+
+
 def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[str, Any]:
     source = str(appt.crm_source or "").strip().lower()
     record_id = str(appt.crm_record_id or "").strip()
@@ -54,5 +89,9 @@ def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[s
     if not properties:
         return {"skipped": True, "reason": "no_properties"}
     _patch_hubspot_contact(token, record_id, properties)
+    try:
+        _maybe_move_hubspot_lists(db, appt.org_id, token, contact_id=record_id, status=status)
+    except Exception:
+        logger.exception("appointment_hubspot_list_writeback_failed appointment_id=%s", appt.id)
     append_log(db, appointment_id=appt.id, event_type="crm_writeback", detail={"crm_source": source, "properties": list(properties.keys())})
     return {"ok": True, "crm_source": source, "properties": properties}
