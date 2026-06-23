@@ -502,7 +502,7 @@ async function resolveSessionFromToken(token) {
       }
     }
     if (data?.admin_access || data?.is_superuser) {
-      return { status: 'ready', token }
+      return { status: 'ready', token, profile: data }
     }
     return {
       status: 'blocked',

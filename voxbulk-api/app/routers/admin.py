@@ -1527,6 +1527,21 @@ def admin_upsert_social_login_provider(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider")
 
 
+@router.get("/organisations/summary")
+def admin_organisations_summary(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    total = int(db.scalar(select(sa.func.count()).select_from(Organisation)) or 0)
+    active = int(
+        db.scalar(
+            select(sa.func.count()).select_from(Organisation).where(Organisation.is_suspended.is_(False))
+        )
+        or 0
+    )
+    return {"total": total, "active": active}
+
+
 @router.get("/organisations")
 def admin_list_organisations(
     limit: int = 50,

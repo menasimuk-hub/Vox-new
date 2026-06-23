@@ -74,6 +74,16 @@ export default defineConfig(({ mode }) => {
   return {
     define: defineOverrides,
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'react-router-dom'],
+            charts: ['recharts'],
+          },
+        },
+      },
+    },
     server: {
       // Listen on IPv4 + IPv6 so both http://localhost:5174 and http://127.0.0.1:5174 hit the proxy.
       host: true,

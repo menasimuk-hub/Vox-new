@@ -10,16 +10,15 @@ const AdminProfileContext = createContext({
   reload: async () => {},
 })
 
-export function AdminProfileProvider({ children }) {
-  const [loading, setLoading] = useState(true)
+export function AdminProfileProvider({ children, initialProfile = null }) {
+  const [loading, setLoading] = useState(() => !initialProfile)
   const [error, setError] = useState('')
-  const [profile, setProfile] = useState(null)
+  const [profile, setProfile] = useState(initialProfile)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      // In Vite dev, `getApiBaseUrl()` is intentionally '' so `/auth/me` hits the same origin and Vite proxies to FastAPI.
       const data = await apiFetch('/auth/me')
       setProfile(data && typeof data === 'object' ? data : null)
     } catch (e) {
@@ -31,8 +30,14 @@ export function AdminProfileProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    load()
-  }, [load])
+    if (initialProfile) {
+      setProfile(initialProfile)
+      setLoading(false)
+      return undefined
+    }
+    void load()
+    return undefined
+  }, [initialProfile, load])
 
   const adminRole = useMemo(() => normalizeAdminRole(profile?.admin_role), [profile])
 

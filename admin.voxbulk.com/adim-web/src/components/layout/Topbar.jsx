@@ -33,11 +33,17 @@ export default function Topbar({ dark, toggleTheme, onOpenMobile, collapsed, onT
         if (!cancelled) setNotifyCount(0)
       }
     }
-    void load()
+    const defer = window.requestIdleCallback || ((fn) => window.setTimeout(fn, 1200))
+    const idleId = defer(() => {
+      void load()
+    })
     const id = window.setInterval(load, 60_000)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      if (window.cancelIdleCallback && typeof idleId === 'number') {
+        window.cancelIdleCallback(idleId)
+      }
     }
   }, [])
 

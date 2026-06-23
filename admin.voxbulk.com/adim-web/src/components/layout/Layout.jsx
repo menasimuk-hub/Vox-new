@@ -1,8 +1,9 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react'
+import React, { Suspense, useEffect, useLayoutEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import AdminRouteGuard from './AdminRouteGuard'
+import PageLoader from '../PageLoader'
 import { AdminProfileProvider } from '../../context/AdminProfileContext'
 import { adminLogoutRedirect, consumeAdminAuthHandoffFromHash, ensureAdminSession, getPublicAppOrigin } from '../../lib/api'
 
@@ -91,7 +92,7 @@ export default function Layout() {
   }
 
   return (
-    <AdminProfileProvider>
+    <AdminProfileProvider initialProfile={session.profile || null}>
       <div className='app'>
         <div
           className={`sb-overlay ${mobileOpen ? 'on' : ''}`}
@@ -115,7 +116,9 @@ export default function Layout() {
           />
           <div className='content'>
             <AdminRouteGuard>
-              <Outlet />
+              <Suspense fallback={<PageLoader />}>
+                <Outlet />
+              </Suspense>
             </AdminRouteGuard>
           </div>
         </main>

@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts'
 import {
   BadgeCheck,
   AlertTriangle,
@@ -15,6 +14,14 @@ import {
   INTEGRATION_PROVIDERS,
   integrationCardStatus,
 } from '../lib/integrationsCatalog'
+
+const DashboardProductChart = lazy(() => import('../components/DashboardProductChart'))
+const DashboardKpiSpark = lazy(() => import('../components/DashboardKpiSpark'))
+
+function deferNonCritical(task) {
+  const run = window.requestIdleCallback || ((fn) => window.setTimeout(fn, 250))
+  return run(task)
+}
 
 const n = (value) => Number(value || 0).toLocaleString()
 const money = (amount, currency = 'USD') => {
@@ -105,29 +112,29 @@ function DashboardApiCard({ provider, summary, balances, onOpen }) {
   )
 }
 
-function ProductMiniChart({ title, href, total, live, rows, accent }) {
+function ProductMiniChart(props) {
   return (
-    <Link to={href} className='dashProductCard dashProductCardLink'>
-      <div className='dashProductCardHead'>
-        <strong>{title}</strong>
-        <span className='pill p-cyan'>{n(live)} live</span>
-      </div>
-      <span className='dashProductCardSub'>{n(total)} total campaigns</span>
-      <div className='dashProductChart' style={{ '--dash-accent': accent }}>
-        <ResponsiveContainer width='100%' height='100%'>
-          <BarChart data={rows} margin={{ top: 4, right: 0, left: -22, bottom: 0 }}>
-            <XAxis dataKey='n' tick={{ fill: 'var(--t3)', fontSize: 9 }} axisLine={false} tickLine={false} />
-            <YAxis hide allowDecimals={false} />
-            <Tooltip contentStyle={{ fontSize: 11 }} />
-            <Bar dataKey='v' radius={[4, 4, 0, 0]}>
-              {rows.map((entry) => (
-                <Cell key={entry.n} fill={entry.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </Link>
+    <Suspense
+      fallback={
+        <div className="dashProductCard">
+          <div className="dashProductCardHead">
+            <strong>{props.title}</strong>
+          </div>
+          <span className="dashProductCardSub muted">Loading chart…</span>
+        </div>
+      }
+    >
+      <DashboardProductChart {...props} />
+    </Suspense>
+  )
+}
+
+function KpiSpark({ rows }) {
+  if (!rows?.length) return null
+  return (
+    <Suspense fallback={<div className="dashKpiSpark muted" style={{ fontSize: 11 }}>…</div>}>
+      <DashboardKpiSpark rows={rows} />
+    </Suspense>
   )
 }
 
@@ -153,19 +160,43 @@ export default function Dashboard() {
   const isSuper = normalizeAdminRole(adminRole) === 'superadmin'
 
   const [loading, setLoading] = useState(true)
+  const [integrationsLoading, setIntegrationsLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [health, setHealth] = useState({})
   const [providerBalances, setProviderBalances] = useState({ telnyx: null, elevenlabs: null })
   const [billing, setBilling] = useState(null)
   const [operations, setOperations] = useState(null)
   const [support, setSupport] = useState(null)
-  const [orgs, setOrgs] = useState([])
+  const [orgSummary, setOrgSummary] = useState({ total: 0, active: 0 })
   const [pending, setPending] = useState([])
   const [accountDeletions, setAccountDeletions] = useState({ items: [], pending_count: 0 })
   const [tickets, setTickets] = useState([])
   const [surveys, setSurveys] = useState(null)
   const [interviews, setInterviews] = useState(null)
   const [error, setError] = useState('')
+
+  const loadIntegrations = useCallback(async () => {
+    if (!isSuper) {
+      setHealth({})
+      return
+    }
+    setIntegrationsLoading(true)
+    try {
+      const next = {}
+      await Promise.all(
+        INTEGRATION_PROVIDERS.map(async (p) => {
+          try {
+            next[p.key] = await apiFetch(`/admin/integrations/${p.key}`)
+          } catch {
+            next[p.key] = { error: true }
+          }
+        }),
+      )
+      setHealth(next)
+    } finally {
+      setIntegrationsLoading(false)
+    }
+  }, [isSuper])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -175,7 +206,7 @@ export default function Dashboard() {
         billingRes,
         operationsRes,
         supportRes,
-        orgsRes,
+        orgSummaryRes,
         pendingRes,
         deletionsRes,
         ticketsRes,
@@ -186,7 +217,7 @@ export default function Dashboard() {
         apiFetch('/admin/billing/overview').catch(() => null),
         apiFetch('/admin/operations/overview').catch(() => null),
         apiFetch('/admin/support/kpis').catch(() => null),
-        apiFetch('/admin/organisations?limit=200').catch(() => []),
+        apiFetch('/admin/organisations/summary').catch(() => ({ total: 0, active: 0 })),
         apiFetch('/admin/onboarding/requests?status_filter=pending').catch(() => []),
         apiFetch('/admin/account-deletions?status_filter=pending&limit=20').catch(() => ({ items: [], pending_count: 0 })),
         apiFetch('/admin/support/tickets?limit=12&status_filter=open').catch(() => []),
@@ -198,7 +229,14 @@ export default function Dashboard() {
       setBilling(billingRes)
       setOperations(operationsRes)
       setSupport(supportRes)
-      setOrgs(Array.isArray(orgsRes) ? orgsRes : [])
+      setOrgSummary(
+        orgSummaryRes && typeof orgSummaryRes === 'object'
+          ? {
+              total: Number(orgSummaryRes.total || 0),
+              active: Number(orgSummaryRes.active || 0),
+            }
+          : { total: 0, active: 0 },
+      )
       setPending(Array.isArray(pendingRes) ? pendingRes : [])
       setAccountDeletions(
         deletionsRes && typeof deletionsRes === 'object'
@@ -212,35 +250,34 @@ export default function Dashboard() {
       setProviderBalances(balancesRes || { telnyx: null, elevenlabs: null })
       setSurveys(surveysRes)
       setInterviews(interviewsRes)
-
-      if (isSuper) {
-        const next = {}
-        await Promise.all(
-          INTEGRATION_PROVIDERS.map(async (p) => {
-            try {
-              next[p.key] = await apiFetch(`/admin/integrations/${p.key}`)
-            } catch {
-              next[p.key] = { error: true }
-            }
-          }),
-        )
-        setHealth(next)
-      } else {
-        setHealth({})
-      }
     } catch (e) {
       setError(e?.message || 'Could not load dashboard')
     } finally {
       setLoading(false)
     }
-  }, [isSuper])
+  }, [])
 
   useEffect(() => {
-    loadAll()
+    void loadAll()
   }, [loadAll, refreshKey])
 
+  useEffect(() => {
+    if (!isSuper) return undefined
+    let cancelled = false
+    const idleId = deferNonCritical(() => {
+      if (!cancelled) void loadIntegrations()
+    })
+    return () => {
+      cancelled = true
+      if (window.cancelIdleCallback && typeof idleId === 'number') {
+        window.cancelIdleCallback(idleId)
+      }
+    }
+  }, [isSuper, loadIntegrations, refreshKey])
+
   const webhooks = operations?.webhooks || {}
-  const activeOrgs = orgs.filter((o) => !o.is_suspended).length
+  const orgTotal = orgSummary.total
+  const activeOrgs = orgSummary.active
   const telnyxBalance = providerBalances?.telnyx
   const elevenBalance = providerBalances?.elevenlabs
 
@@ -276,7 +313,7 @@ export default function Dashboard() {
   )
 
   const overviewKpis = [
-    { label: 'Organisations', value: n(orgs.length), sub: `${n(activeOrgs)} active`, href: '/organisations', spark: [{ v: orgs.length }] },
+    { label: 'Organisations', value: n(orgTotal), sub: `${n(activeOrgs)} active`, href: '/organisations', spark: [{ v: orgTotal }] },
     { label: 'Active subscriptions', value: n(billing?.subscriptions_active), sub: `${n(billing?.subscriptions_trial)} trial`, href: '/billing/subscriptions' },
     { label: 'Past due', value: n(billing?.subscriptions_past_due), sub: `${n(billing?.subscriptions_pending_payment)} pending pay`, href: '/billing/subscriptions' },
     { label: 'Open tickets', value: n(support?.total_open ?? support?.open ?? 0), sub: `${n(support?.unassigned ?? 0)} unassigned`, href: '/support/inbox' },
@@ -331,13 +368,7 @@ export default function Dashboard() {
               <strong className='dashKpiValue'>{loading ? '…' : kpi.value}</strong>
               <span className='dashKpiSub'>{kpi.sub}</span>
               {kpi.spark?.length ? (
-                <div className='dashKpiSpark'>
-                  <ResponsiveContainer width='100%' height={32}>
-                    <BarChart data={kpi.spark}>
-                      <Bar dataKey='v' fill='var(--accent, #0891b2)' radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <KpiSpark rows={kpi.spark} />
               ) : null}
             </Link>
           ))}
@@ -392,6 +423,8 @@ export default function Dashboard() {
       >
         {!isSuper ? (
           <p className='muted dashboardHint'>Enabled API status is visible to superadmin only.</p>
+        ) : integrationsLoading ? (
+          <p className='muted dashboardHint'>Loading integration status…</p>
         ) : enabledIntegrations.length === 0 ? (
           <p className='muted dashboardHint'>No enabled integrations — turn providers on in Integrations.</p>
         ) : (
