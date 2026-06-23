@@ -232,9 +232,68 @@ class FeedbackCatalogService:
         items = [survey_type_to_dict(r) for r in rows]
         if not customer_facing:
             return items
+        return [item for item in items if FeedbackCatalogService.is_customer_selectable_survey_type(db, item["id"])]
+
+    @staticmethod
+    def is_customer_selectable_survey_type(
+        db: Session,
+        survey_type_id: str,
+        *,
+        industry_id: str | None = None,
+    ) -> bool:
+        """Customer dashboard + live surveys: type must be active and have a sendable template."""
+        row = db.get(FeedbackSurveyType, survey_type_id)
+        if row is None or row.archived_at is not None:
+            return False
+        if not bool(row.is_active):
+            return False
+        if industry_id and str(row.industry_id) != str(industry_id):
+            return False
         from app.services.customer_feedback.feedback_marketing_policy import survey_type_has_sendable_template
 
-        return [item for item in items if survey_type_has_sendable_template(db, item["id"])]
+        return survey_type_has_sendable_template(db, survey_type_id)
+
+    @staticmethod
+    def filter_customer_selectable_type_ids(
+        db: Session,
+        *,
+        industry_id: str,
+        type_ids: list[str],
+    ) -> list[str]:
+        seen: set[str] = set()
+        kept: list[str] = []
+        for type_id in type_ids:
+            clean = str(type_id or "").strip()
+            if not clean or clean in seen:
+                continue
+            if not FeedbackCatalogService.is_customer_selectable_survey_type(db, clean, industry_id=industry_id):
+                continue
+            seen.add(clean)
+            kept.append(clean)
+        return kept
+
+    @staticmethod
+    def validate_customer_selectable_type_ids(
+        db: Session,
+        *,
+        industry_id: str,
+        type_ids: list[str],
+    ) -> list[str]:
+        requested: list[str] = []
+        for raw in type_ids:
+            clean = str(raw or "").strip()
+            if clean and clean not in requested:
+                requested.append(clean)
+        if not requested:
+            raise ValueError("At least one active survey topic is required. Disabled topics cannot be used.")
+        invalid = [
+            type_id
+            for type_id in requested
+            if not FeedbackCatalogService.is_customer_selectable_survey_type(db, type_id, industry_id=industry_id)
+        ]
+        if invalid:
+            raise ValueError("One or more selected survey topics are disabled or unavailable.")
+        return requested
 
     @staticmethod
     def upsert_industry(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -282,15 +341,25 @@ class FeedbackCatalogService:
         if payload.get("slug"):
             row.slug = _slugify(payload["slug"])
         row.description = payload.get("description")
-        if "is_active" in payload:
-            row.is_active = bool(payload["is_active"])
-        if payload.get("archive"):
+        archive = bool(payload.get("archive"))
+        toggle_active = "is_active" in payload
+        if archive:
             row.archived_at = now
-            row.is_active = False
         row.sort_order = int(payload.get("sort_order", row.sort_order or 100))
         row.updated_at = now
         db.commit()
         db.refresh(row)
+        if row_id and (archive or toggle_active):
+            from app.services.customer_feedback.feedback_marketing_policy import set_feedback_survey_type_active
+
+            active = False if archive else bool(payload.get("is_active"))
+            set_feedback_survey_type_active(db, row.id, active=active)
+            db.refresh(row)
+        elif toggle_active:
+            row.is_active = bool(payload.get("is_active"))
+            row.updated_at = now
+            db.commit()
+            db.refresh(row)
         return survey_type_to_dict(row)
 
     @staticmethod

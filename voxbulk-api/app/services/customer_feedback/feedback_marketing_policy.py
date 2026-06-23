@@ -293,10 +293,16 @@ def set_feedback_survey_type_active(db: Session, survey_type_id: str, *, active:
 
     db.commit()
     db.refresh(row)
+    locations_updated = 0
+    if not active:
+        from app.services.customer_feedback.location_service import FeedbackLocationService
+
+        locations_updated = FeedbackLocationService.purge_survey_type_from_locations(db, survey_type_id)
     return {
         "id": row.id,
         "is_active": row.is_active,
         "templates_updated": len(tpl_rows),
+        "locations_updated": locations_updated,
     }
 
 

@@ -185,6 +185,16 @@ function CreateFeedback() {
   const surveyTypes = typesQ.data || [];
   const industry = industries.find((i) => i.id === industryId);
   const companyName = String(orgQ.data?.name || "Your business").trim();
+
+  React.useEffect(() => {
+    if (!surveyTypes.length) return;
+    const allowed = new Set(surveyTypes.map((t) => t.id));
+    setSelectedTypeIds((prev) => {
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [surveyTypes]);
+
   const selectedTypes = surveyTypes.filter((t) => selectedTypeIds.includes(t.id));
 
   const canNext: Record<Step, boolean> = {

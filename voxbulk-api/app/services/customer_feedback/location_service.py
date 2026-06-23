@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 from app.services.customer_feedback.survey_config_service import (
     build_survey_config,
@@ -123,6 +124,51 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
 
 class FeedbackLocationService:
     @staticmethod
+    def _normalize_selected_type_ids(
+        db: Session,
+        *,
+        industry_id: str,
+        payload: dict[str, Any],
+        existing_location: FeedbackLocation | None = None,
+    ) -> list[str]:
+        selected_ids = parse_selected_type_ids(payload)
+        if not selected_ids and existing_location is not None:
+            selected_ids = parse_selected_type_ids_from_location(existing_location)
+        return FeedbackCatalogService.validate_customer_selectable_type_ids(
+            db,
+            industry_id=industry_id,
+            type_ids=selected_ids,
+        )
+
+    @staticmethod
+    def purge_survey_type_from_locations(db: Session, survey_type_id: str) -> int:
+        """Remove a disabled topic from saved locations and rebuild their survey configs."""
+        clean_id = str(survey_type_id or "").strip()
+        if not clean_id:
+            return 0
+        updated = 0
+        now = datetime.utcnow()
+        for row in db.execute(select(FeedbackLocation)).scalars():
+            selected_ids = parse_selected_type_ids_from_location(row)
+            if clean_id not in selected_ids:
+                continue
+            filtered = FeedbackCatalogService.filter_customer_selectable_type_ids(
+                db,
+                industry_id=str(row.industry_id),
+                type_ids=selected_ids,
+            )
+            row.selected_survey_type_ids_json = json.dumps(filtered)
+            if filtered:
+                row.survey_type_id = filtered[0]
+            row.survey_config_json = json.dumps(rebuild_survey_config_for_location(db, row))
+            row.updated_at = now
+            db.add(row)
+            updated += 1
+        if updated:
+            db.commit()
+        return updated
+
+    @staticmethod
     def list_locations(db: Session, org_id: str) -> list[dict[str, Any]]:
         rows = list(
             db.execute(
@@ -152,9 +198,11 @@ class FeedbackLocationService:
         industry_id = str(payload.get("industry_id") or "").strip()
         if not industry_id:
             raise ValueError("industry_id required")
-        selected_ids = parse_selected_type_ids(payload)
-        if not selected_ids:
-            raise ValueError("At least one survey topic is required")
+        selected_ids = FeedbackLocationService._normalize_selected_type_ids(
+            db,
+            industry_id=industry_id,
+            payload=payload,
+        )
         zone = country_to_zone(getattr(org, "country", None))
         phone = resolve_feedback_wa_phone_for_qr(db, zone)
         branch = str(payload.get("name") or "Main branch").strip()
@@ -187,10 +235,14 @@ class FeedbackLocationService:
         org = db.get(Organisation, org_id)
         zone = country_to_zone(getattr(org, "country", None) if org else None)
         industry_id = str(payload.get("industry_id") or "").strip()
-        selected_ids = parse_selected_type_ids(payload)
-        primary_type_id = selected_ids[0] if selected_ids else str(payload.get("survey_type_id") or "").strip()
-        if not industry_id or not primary_type_id:
-            raise ValueError("industry_id and at least one survey topic are required")
+        if not industry_id:
+            raise ValueError("industry_id is required")
+        selected_ids = FeedbackLocationService._normalize_selected_type_ids(
+            db,
+            industry_id=industry_id,
+            payload=payload,
+        )
+        primary_type_id = selected_ids[0]
         open_question = bool(payload.get("open_question_enabled", True))
         marketing_opt_in = effective_marketing_opt_in_enabled(payload.get("marketing_opt_in_enabled", False))
         survey_config = build_survey_config(
@@ -242,11 +294,12 @@ class FeedbackLocationService:
 
         survey_fields_changed = False
         if "selected_survey_type_ids" in payload or "survey_type_id" in payload:
-            selected_ids = parse_selected_type_ids(payload)
-            if not selected_ids:
-                selected_ids = parse_selected_type_ids_from_location(row)
-            if not selected_ids:
-                raise ValueError("At least one survey topic is required")
+            selected_ids = FeedbackLocationService._normalize_selected_type_ids(
+                db,
+                industry_id=str(row.industry_id),
+                payload=payload,
+                existing_location=row,
+            )
             row.selected_survey_type_ids_json = json.dumps(selected_ids)
             row.survey_type_id = selected_ids[0]
             survey_fields_changed = True

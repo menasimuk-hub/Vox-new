@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 
@@ -251,3 +252,98 @@ def test_apply_platform_blocks_seeded_blocklisted_templates():
         assert result["feedback_deactivated"] >= 0
         if blocked_tpls:
             assert all(not t.is_active for t in blocked_tpls)
+
+
+def test_validate_customer_selectable_rejects_disabled_type():
+    from app.models.customer_feedback import FeedbackLocation
+    from app.models.organisation import Organisation
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+    from app.services.customer_feedback.location_service import FeedbackLocationService
+    from app.services.customer_feedback.survey_config_service import build_survey_config
+
+    with get_sessionmaker()() as db:
+        industry = FeedbackIndustry(
+            id=str(uuid.uuid4()),
+            slug=f"val-ind-{uuid.uuid4().hex[:6]}",
+            name="Validate Industry",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(industry)
+        db.flush()
+        active_type = FeedbackSurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug="active_topic",
+            name="Active topic",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        disabled_type = FeedbackSurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug="disabled_topic",
+            name="Disabled topic",
+            is_active=False,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add_all([active_type, disabled_type])
+        db.flush()
+        db.add(
+            FeedbackWaTemplate(
+                id=str(uuid.uuid4()),
+                industry_id=industry.id,
+                survey_type_id=active_type.id,
+                template_key="active_topic",
+                step_role="topic",
+                step_order=1,
+                language="en_GB",
+                body_text="Active?",
+                meta_category="utility",
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+        org = Organisation(name="Org", contact_email=f"org-{uuid.uuid4().hex[:6]}@example.com")
+        db.add(org)
+        db.flush()
+        loc = FeedbackLocation(
+            id=str(uuid.uuid4()),
+            org_id=org.id,
+            industry_id=industry.id,
+            survey_type_id=active_type.id,
+            selected_survey_type_ids_json=json.dumps([active_type.id, disabled_type.id]),
+            name="Branch",
+            qr_token=f"tok-{uuid.uuid4().hex[:8]}",
+            wa_sender_country="gb",
+            status="active",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(loc)
+        db.commit()
+
+        with pytest.raises(ValueError, match="disabled or unavailable"):
+            FeedbackCatalogService.validate_customer_selectable_type_ids(
+                db,
+                industry_id=industry.id,
+                type_ids=[disabled_type.id],
+            )
+
+        config = build_survey_config(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=[active_type.id, disabled_type.id],
+            open_question_enabled=False,
+            marketing_opt_in_enabled=False,
+        )
+        topic_ids = [step["survey_type_id"] for step in config["steps"] if step.get("kind") == "topic"]
+        assert topic_ids == [active_type.id]
+
+        updated = FeedbackLocationService.purge_survey_type_from_locations(db, disabled_type.id)
+        assert updated == 1
+        db.refresh(loc)
+        assert json.loads(loc.selected_survey_type_ids_json) == [active_type.id]

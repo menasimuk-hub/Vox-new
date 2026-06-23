@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
 from app.services.customer_feedback.feedback_marketing_policy import (
+    _feedback_template_is_blocklisted,
     effective_marketing_opt_in_enabled,
     filter_survey_steps,
-    is_marketing_wa_template,
 )
 
 
@@ -34,8 +34,12 @@ def _language_variants(language: str | None) -> list[str]:
     return variants or ["en_GB"]
 
 
-def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> FeedbackWaTemplate | None:
-    visible = [row for row in rows if row.is_active and not is_marketing_wa_template(row)]
+def _pick_template_row(
+    db: Session,
+    rows: list[FeedbackWaTemplate],
+    language: str | None,
+) -> FeedbackWaTemplate | None:
+    visible = [row for row in rows if row.is_active and not _feedback_template_is_blocklisted(db, row)]
     if not visible:
         return None
     normalized: dict[str, FeedbackWaTemplate] = {}
@@ -105,10 +109,17 @@ def build_survey_config(
     marketing_opt_in_enabled: bool,
 ) -> dict[str, Any]:
     """Build interactive survey steps (thank-you is sent on completion, not as a step)."""
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+    allowed_ids = FeedbackCatalogService.filter_customer_selectable_type_ids(
+        db,
+        industry_id=industry_id,
+        type_ids=selected_type_ids,
+    )
     steps: list[dict[str, Any]] = []
-    for type_id in selected_type_ids[:6]:
+    for type_id in allowed_ids[:6]:
         row = db.get(FeedbackSurveyType, type_id)
-        if row is None or row.industry_id != industry_id:
+        if row is None:
             continue
         steps.append({"kind": "topic", "survey_type_id": row.id, "template_key": row.slug})
     if open_question_enabled:
@@ -141,9 +152,23 @@ def _strip_non_interactive_steps(steps: list[dict[str, Any]]) -> list[dict[str, 
     return [step for step in steps if str(step.get("kind") or "") != "thank_you"]
 
 
-def survey_config_needs_rebuild(location: FeedbackLocation, steps: list[dict[str, Any]] | None) -> bool:
+def survey_config_needs_rebuild(
+    location: FeedbackLocation,
+    steps: list[dict[str, Any]] | None,
+    db: Session | None = None,
+) -> bool:
     if not steps:
         return True
+    if db is not None:
+        from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+        for type_id in parse_selected_type_ids_from_location(location):
+            if not FeedbackCatalogService.is_customer_selectable_survey_type(
+                db,
+                type_id,
+                industry_id=str(location.industry_id),
+            ):
+                return True
     interactive = _strip_non_interactive_steps(steps)
     if len(interactive) != len(steps):
         return True
@@ -194,7 +219,7 @@ def load_survey_config(
         except json.JSONDecodeError:
             pass
 
-    if survey_config_needs_rebuild(location, steps):
+    if survey_config_needs_rebuild(location, steps, db):
         config = rebuild_survey_config_for_location(db, location)
         if persist_repair:
             location.survey_config_json = json.dumps(config)
@@ -231,8 +256,13 @@ def template_for_step(
         template_key = str(step.get("template_key") or "").strip()
         rows: list[FeedbackWaTemplate] = []
         if survey_type_id:
-            survey_type = db.get(FeedbackSurveyType, survey_type_id)
-            if survey_type is None or not bool(survey_type.is_active):
+            from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+            if not FeedbackCatalogService.is_customer_selectable_survey_type(
+                db,
+                survey_type_id,
+                industry_id=str(location.industry_id),
+            ):
                 return None
             rows = list(
                 db.execute(
@@ -252,7 +282,13 @@ def template_for_step(
                 ).limit(1)
             ).scalar_one_or_none()
             if survey_type is not None:
-                if not bool(survey_type.is_active):
+                from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+                if not FeedbackCatalogService.is_customer_selectable_survey_type(
+                    db,
+                    survey_type.id,
+                    industry_id=str(location.industry_id),
+                ):
                     return None
                 rows = list(
                     db.execute(
@@ -264,7 +300,7 @@ def template_for_step(
                         .order_by(FeedbackWaTemplate.step_order.asc())
                     ).scalars().all()
                 )
-        return _pick_template_row(rows, language)
+        return _pick_template_row(db, rows, language)
     template_key = str(step.get("template_key") or kind)
     lang = resolve_template_language(language)
     base_q = (
@@ -278,7 +314,7 @@ def template_for_step(
         .order_by(FeedbackWaTemplate.step_order.asc())
     )
     rows = list(db.execute(base_q).scalars().all())
-    picked = _pick_template_row(rows, lang)
+    picked = _pick_template_row(db, rows, lang)
     if picked is not None:
         return picked
     return get_system_template(db, template_key, language=lang)

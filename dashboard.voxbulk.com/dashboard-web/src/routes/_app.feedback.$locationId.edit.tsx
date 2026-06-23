@@ -47,6 +47,15 @@ function EditFeedbackSurvey() {
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
   const surveyTypes = typesQ.data || [];
 
+  React.useEffect(() => {
+    if (!surveyTypes.length) return;
+    const allowed = new Set(surveyTypes.map((t) => t.id));
+    setSelectedTypeIds((prev) => {
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [surveyTypes]);
+
   const onSave = async () => {
     if (!location || selectedTypeIds.length === 0) {
       toast.error("Select at least one survey topic.");
