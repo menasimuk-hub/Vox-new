@@ -254,6 +254,64 @@ def test_apply_platform_blocks_seeded_blocklisted_templates():
             assert all(not t.is_active for t in blocked_tpls)
 
 
+def test_list_customer_catalog_excludes_disabled_type():
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+    with get_sessionmaker()() as db:
+        industry = FeedbackIndustry(
+            id=str(uuid.uuid4()),
+            slug=f"cat-ind-{uuid.uuid4().hex[:6]}",
+            name="Catalog Industry",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(industry)
+        db.flush()
+        active_type = FeedbackSurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug="active_topic",
+            name="Active topic",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        disabled_type = FeedbackSurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug="disabled_topic",
+            name="Disabled topic",
+            is_active=False,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add_all([active_type, disabled_type])
+        db.flush()
+        db.add(
+            FeedbackWaTemplate(
+                id=str(uuid.uuid4()),
+                industry_id=industry.id,
+                survey_type_id=active_type.id,
+                template_key="active_topic",
+                step_role="topic",
+                step_order=1,
+                language="en_GB",
+                body_text="Active?",
+                meta_category="utility",
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+
+        items = FeedbackCatalogService.list_customer_catalog_survey_types(db, industry_id=industry.id)
+        ids = {item["id"] for item in items}
+        assert active_type.id in ids
+        assert disabled_type.id not in ids
+        assert all(item.get("customer_selectable") for item in items)
+
+
 def test_validate_customer_selectable_rejects_disabled_type():
     from app.models.customer_feedback import FeedbackLocation
     from app.models.organisation import Organisation

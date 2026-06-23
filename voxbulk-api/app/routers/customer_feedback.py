@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -36,12 +36,16 @@ def list_industries(db: Session = Depends(get_db), principal=Depends(get_current
 
 @router.get("/catalog/survey-types")
 def list_survey_types(
+    response: Response,
     industry_id: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     _require_feedback_enabled(db, principal.org_id)
-    return {"ok": True, "items": FeedbackCatalogService.list_survey_types(db, industry_id=industry_id, customer_facing=True)}
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    items = FeedbackCatalogService.list_customer_catalog_survey_types(db, industry_id=industry_id)
+    return {"ok": True, "items": items}
 
 
 @router.get("/subscription")

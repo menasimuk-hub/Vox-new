@@ -187,6 +187,12 @@ function CreateFeedback() {
   const companyName = String(orgQ.data?.name || "Your business").trim();
 
   React.useEffect(() => {
+    if (step === 2 && industryId) {
+      void typesQ.refetch();
+    }
+  }, [step, industryId, typesQ.refetch]);
+
+  React.useEffect(() => {
     if (!surveyTypes.length) return;
     const allowed = new Set(surveyTypes.map((t) => t.id));
     setSelectedTypeIds((prev) => {

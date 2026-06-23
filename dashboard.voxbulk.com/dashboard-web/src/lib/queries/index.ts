@@ -152,6 +152,7 @@ export type FeedbackSurveyType = {
   name: string;
   description?: string | null;
   is_active?: boolean;
+  customer_selectable?: boolean;
   sort_order?: number;
 };
 
@@ -2253,9 +2254,15 @@ export function useFeedbackSurveyTypes(industryId?: string | null) {
       const data = await apiFetch<{ ok?: boolean; items?: FeedbackSurveyType[] }>(
         `/customer-feedback/catalog/survey-types${qs}`,
       );
-      return data.items || [];
+      return (data.items || []).filter(
+        (item) => item.is_active !== false && item.customer_selectable !== false,
+      );
     },
     enabled: Boolean(industryId),
+    staleTime: 0,
+    gcTime: 60_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 

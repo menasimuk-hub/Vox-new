@@ -215,6 +215,56 @@ class FeedbackCatalogService:
         }
 
     @staticmethod
+    def list_customer_catalog_survey_types(
+        db: Session,
+        *,
+        industry_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Topics shown in the customer feedback wizard — active, sendable types only."""
+        FeedbackCatalogService.ensure_ready(db)
+        q = (
+            select(FeedbackSurveyType)
+            .where(
+                FeedbackSurveyType.archived_at.is_(None),
+                FeedbackSurveyType.is_active.is_(True),
+            )
+            .order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
+        )
+        if industry_id:
+            q = q.where(FeedbackSurveyType.industry_id == industry_id)
+        rows = list(db.execute(q).scalars().all())
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            if not bool(row.is_active):
+                continue
+            if not FeedbackCatalogService.is_customer_selectable_survey_type(
+                db,
+                row.id,
+                industry_id=industry_id or row.industry_id,
+            ):
+                continue
+            item = survey_type_to_dict(row)
+            item["customer_selectable"] = True
+            items.append(item)
+        return items
+
+    @staticmethod
+    def sync_survey_type_customer_visibility(db: Session, survey_type_id: str | None) -> bool:
+        """When no sendable templates remain, mark the survey type disabled for customers."""
+        clean_id = str(survey_type_id or "").strip()
+        if not clean_id:
+            return False
+        if FeedbackCatalogService.is_customer_selectable_survey_type(db, clean_id):
+            return False
+        row = db.get(FeedbackSurveyType, clean_id)
+        if row is None or not bool(row.is_active):
+            return False
+        from app.services.customer_feedback.feedback_marketing_policy import set_feedback_survey_type_active
+
+        set_feedback_survey_type_active(db, clean_id, active=False)
+        return True
+
+    @staticmethod
     def list_survey_types(
         db: Session,
         *,
@@ -232,7 +282,15 @@ class FeedbackCatalogService:
         items = [survey_type_to_dict(r) for r in rows]
         if not customer_facing:
             return items
-        return [item for item in items if FeedbackCatalogService.is_customer_selectable_survey_type(db, item["id"])]
+        return [
+            item
+            for item in items
+            if FeedbackCatalogService.is_customer_selectable_survey_type(
+                db,
+                item["id"],
+                industry_id=industry_id or item.get("industry_id"),
+            )
+        ]
 
     @staticmethod
     def is_customer_selectable_survey_type(
@@ -350,13 +408,18 @@ class FeedbackCatalogService:
         db.commit()
         db.refresh(row)
         if row_id and (archive or toggle_active):
-            from app.services.customer_feedback.feedback_marketing_policy import set_feedback_survey_type_active
+            from app.services.customer_feedback.feedback_marketing_policy import (
+                coerce_bool,
+                set_feedback_survey_type_active,
+            )
 
-            active = False if archive else bool(payload.get("is_active"))
+            active = False if archive else coerce_bool(payload.get("is_active"))
             set_feedback_survey_type_active(db, row.id, active=active)
             db.refresh(row)
         elif toggle_active:
-            row.is_active = bool(payload.get("is_active"))
+            from app.services.customer_feedback.feedback_marketing_policy import coerce_bool
+
+            row.is_active = coerce_bool(payload.get("is_active"))
             row.updated_at = now
             db.commit()
             db.refresh(row)

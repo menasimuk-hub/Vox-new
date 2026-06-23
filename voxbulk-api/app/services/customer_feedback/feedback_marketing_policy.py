@@ -40,6 +40,20 @@ def marketing_wa_enabled() -> bool:
     return not MARKETING_WA_TEMPLATES_DISABLED
 
 
+def coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        clean = value.strip().lower()
+        if clean in {"true", "1", "yes", "on"}:
+            return True
+        if clean in {"false", "0", "no", "off", ""}:
+            return False
+    return bool(value)
+
+
 def _normalize_category(value: str | None) -> str:
     return str(value or "").strip().lower()
 

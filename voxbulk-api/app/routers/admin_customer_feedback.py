@@ -242,7 +242,7 @@ def set_survey_type_active(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    from app.services.customer_feedback.feedback_marketing_policy import set_feedback_survey_type_active
+    from app.services.customer_feedback.feedback_marketing_policy import coerce_bool, set_feedback_survey_type_active
 
     active = payload.get("is_active")
     if active is None and "active" in payload:
@@ -250,7 +250,7 @@ def set_survey_type_active(
     if active is None:
         raise HTTPException(status_code=400, detail="Provide is_active (boolean).")
     try:
-        result = set_feedback_survey_type_active(db, survey_type_id, active=bool(active))
+        result = set_feedback_survey_type_active(db, survey_type_id, active=coerce_bool(active))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return {"ok": True, **result}
@@ -460,4 +460,6 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     row.updated_at = now
     db.commit()
     db.refresh(row)
+    if row.survey_type_id:
+        FeedbackCatalogService.sync_survey_type_customer_visibility(db, row.survey_type_id)
     return {"ok": True, "item": FeedbackCatalogService.template_to_dict(row)}
