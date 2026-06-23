@@ -256,12 +256,19 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
         if _survey_type_admin_reenabled(db, type_id):
             continue
         st = db.get(FeedbackSurveyType, type_id)
-        if st is None or not st.is_active:
+        if st is None:
             continue
-        st.is_active = False
-        st.updated_at = now
-        db.add(st)
-        survey_types_deactivated += 1
+        changed = False
+        if st.is_active:
+            st.is_active = False
+            survey_types_deactivated += 1
+            changed = True
+        if not bool(getattr(st, "customer_hidden", False)):
+            st.customer_hidden = True
+            changed = True
+        if changed:
+            st.updated_at = now
+            db.add(st)
 
     blocked_telnyx_ids = _collect_blocked_telnyx_template_ids(db)
     for row in db.execute(select(TelnyxWhatsappTemplate)).scalars():
@@ -284,6 +291,31 @@ def apply_platform_wa_marketing_blocks(db: Session) -> dict[str, int]:
     }
 
 
+def repair_customer_hidden_flags(db: Session) -> dict[str, int]:
+    """Ensure disabled survey types stay hidden from the customer catalog."""
+    from app.models.customer_feedback import FeedbackSurveyType
+
+    repaired = 0
+    now = datetime.utcnow()
+    for st in db.execute(select(FeedbackSurveyType)).scalars():
+        should_hide = not bool(st.is_active)
+        if not should_hide and not _survey_type_admin_reenabled(db, st.id):
+            if not survey_type_has_sendable_template(db, st.id):
+                should_hide = True
+        current_hidden = bool(getattr(st, "customer_hidden", False))
+        if should_hide == current_hidden:
+            continue
+        st.customer_hidden = should_hide
+        if should_hide and st.is_active:
+            st.is_active = False
+        st.updated_at = now
+        db.add(st)
+        repaired += 1
+    if repaired:
+        db.commit()
+    return {"repaired": repaired}
+
+
 def set_feedback_survey_type_active(db: Session, survey_type_id: str, *, active: bool) -> dict[str, Any]:
     """Admin toggle — enable/disable survey type and all its WA templates (EN + AR pairs)."""
     from app.models.customer_feedback import FeedbackSurveyType, FeedbackWaTemplate
@@ -294,6 +326,7 @@ def set_feedback_survey_type_active(db: Session, survey_type_id: str, *, active:
     now = datetime.utcnow()
     row.is_active = bool(active)
     row.wa_platform_block_exempt = bool(active)
+    row.customer_hidden = not bool(active)
     row.updated_at = now
     db.add(row)
 
@@ -315,6 +348,7 @@ def set_feedback_survey_type_active(db: Session, survey_type_id: str, *, active:
     return {
         "id": row.id,
         "is_active": row.is_active,
+        "customer_hidden": bool(getattr(row, "customer_hidden", False)),
         "templates_updated": len(tpl_rows),
         "locations_updated": locations_updated,
     }

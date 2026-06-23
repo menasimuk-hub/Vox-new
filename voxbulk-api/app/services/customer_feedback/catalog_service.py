@@ -48,6 +48,7 @@ def survey_type_to_dict(row: FeedbackSurveyType) -> dict[str, Any]:
         "name": row.name,
         "description": row.description,
         "is_active": row.is_active,
+        "customer_hidden": bool(getattr(row, "customer_hidden", False)),
         "archived_at": row.archived_at.isoformat() if row.archived_at else None,
         "sort_order": row.sort_order,
     }
@@ -227,6 +228,7 @@ class FeedbackCatalogService:
             .where(
                 FeedbackSurveyType.archived_at.is_(None),
                 FeedbackSurveyType.is_active.is_(True),
+                FeedbackSurveyType.customer_hidden.is_(False),
             )
             .order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
         )
@@ -235,7 +237,7 @@ class FeedbackCatalogService:
         rows = list(db.execute(q).scalars().all())
         items: list[dict[str, Any]] = []
         for row in rows:
-            if not bool(row.is_active):
+            if not bool(row.is_active) or bool(getattr(row, "customer_hidden", False)):
                 continue
             if not FeedbackCatalogService.is_customer_selectable_survey_type(
                 db,
@@ -303,7 +305,7 @@ class FeedbackCatalogService:
         row = db.get(FeedbackSurveyType, survey_type_id)
         if row is None or row.archived_at is not None:
             return False
-        if not bool(row.is_active):
+        if not bool(row.is_active) or bool(getattr(row, "customer_hidden", False)):
             return False
         if industry_id and str(row.industry_id) != str(industry_id):
             return False
@@ -417,11 +419,12 @@ class FeedbackCatalogService:
             set_feedback_survey_type_active(db, row.id, active=active)
             db.refresh(row)
         elif toggle_active:
-            from app.services.customer_feedback.feedback_marketing_policy import coerce_bool
+            from app.services.customer_feedback.feedback_marketing_policy import (
+                coerce_bool,
+                set_feedback_survey_type_active,
+            )
 
-            row.is_active = coerce_bool(payload.get("is_active"))
-            row.updated_at = now
-            db.commit()
+            set_feedback_survey_type_active(db, row.id, active=coerce_bool(payload.get("is_active")))
             db.refresh(row)
         return survey_type_to_dict(row)
 

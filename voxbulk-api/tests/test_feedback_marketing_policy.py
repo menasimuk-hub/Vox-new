@@ -42,6 +42,15 @@ def _prepare_db():
                         "ADD COLUMN wa_platform_block_exempt BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
+        cols = {c["name"] for c in insp.get_columns("feedback_survey_types")}
+        if "customer_hidden" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_survey_types "
+                        "ADD COLUMN customer_hidden BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
 
 
 def test_blocklist_has_53_names():
@@ -154,6 +163,7 @@ def test_customer_catalog_hides_disabled_survey_types():
             slug="disabled_topic",
             name="Disabled topic",
             is_active=False,
+            customer_hidden=True,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -228,12 +238,14 @@ def test_set_feedback_survey_type_active_toggles_templates():
         db.refresh(survey_type)
         db.refresh(tpl)
         assert survey_type.is_active is False
+        assert survey_type.customer_hidden is True
         assert tpl.is_active is False
 
         set_feedback_survey_type_active(db, survey_type.id, active=True)
         db.refresh(survey_type)
         db.refresh(tpl)
         assert survey_type.is_active is True
+        assert survey_type.customer_hidden is False
         assert tpl.is_active is True
 
 
@@ -282,6 +294,7 @@ def test_list_customer_catalog_excludes_disabled_type():
             slug="disabled_topic",
             name="Disabled topic",
             is_active=False,
+            customer_hidden=True,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -344,6 +357,7 @@ def test_validate_customer_selectable_rejects_disabled_type():
             slug="disabled_topic",
             name="Disabled topic",
             is_active=False,
+            customer_hidden=True,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )

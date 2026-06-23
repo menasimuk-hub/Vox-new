@@ -2255,7 +2255,10 @@ export function useFeedbackSurveyTypes(industryId?: string | null) {
         `/customer-feedback/catalog/survey-types${qs}`,
       );
       return (data.items || []).filter(
-        (item) => item.is_active !== false && item.customer_selectable !== false,
+        (item) =>
+          item.is_active !== false &&
+          item.customer_hidden !== true &&
+          item.customer_selectable !== false,
       );
     },
     enabled: Boolean(industryId),
