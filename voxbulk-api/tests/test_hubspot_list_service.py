@@ -21,9 +21,13 @@ from app.services.hubspot_connection_service import (
 )
 from app.services.hubspot_list_service import (
     batch_read_contacts,
+    create_hubspot_static_list,
+    ensure_appointment_source_list,
     fetch_list_member_record_ids,
     list_hubspot_lists,
     move_contact_between_lists,
+    search_contacts_with_appointment_date,
+    sync_contacts_to_list,
 )
 
 
@@ -63,6 +67,26 @@ def test_list_hubspot_lists_parses_search_response():
     assert len(items) == 1
     assert items[0]["id"] == "101"
     assert items[0]["name"] == "VoxBulk Appointments"
+    assert items[0]["size"] == 2
+
+
+def test_list_hubspot_lists_enriches_zero_search_size_from_memberships():
+    search_res = MagicMock(status_code=200)
+    search_res.json.return_value = {
+        "lists": [{"listId": "9", "name": "VoxBulk · Appointment test", "processingType": "MANUAL", "size": 0}]
+    }
+    detail_res = MagicMock(status_code=200)
+    detail_res.json.return_value = {"list": {"listId": "9", "size": 0}}
+    members_res = MagicMock(status_code=200)
+    members_res.json.return_value = {"results": [{"recordId": "1"}, {"recordId": "2"}], "paging": {}}
+
+    with patch("app.services.hubspot_list_service.httpx.Client") as client_cls:
+        client = client_cls.return_value.__enter__.return_value
+        client.post.return_value = search_res
+        client.get.side_effect = [detail_res, members_res]
+        items = list_hubspot_lists("tok", limit=10)
+    assert len(items) == 1
+    assert items[0]["size"] == 2
 
 
 def test_fetch_list_member_record_ids_paginates():
@@ -116,6 +140,38 @@ def test_hubspot_oauth_scope_params_includes_optional_list_scopes():
     assert params.get("optional_scope") == HUBSPOT_SCOPES_LIST
 
 
+def test_search_contacts_with_appointment_date():
+    mock_res = MagicMock(status_code=200)
+    mock_res.json.return_value = {
+        "results": [
+            {
+                "id": "77",
+                "properties": {
+                    "firstname": "Sara",
+                    "phone": "+447700900123",
+                    "appointment_date": "2026-06-25T10:00:00Z",
+                },
+            }
+        ]
+    }
+    with patch("app.services.hubspot_list_service.httpx.Client") as client_cls:
+        client = client_cls.return_value.__enter__.return_value
+        client.post.return_value = mock_res
+        rows = search_contacts_with_appointment_date("tok", "appointment_date", ["firstname"])
+    assert len(rows) == 1
+    assert rows[0]["id"] == "77"
+
+
+def test_ensure_appointment_source_list_creates_when_missing():
+    with (
+        patch("app.services.hubspot_list_service.find_hubspot_list_id_by_name", return_value=None),
+        patch("app.services.hubspot_list_service.create_hubspot_static_list", return_value="42") as create_m,
+    ):
+        list_id = ensure_appointment_source_list("tok", None)
+    assert list_id == "42"
+    create_m.assert_called_once()
+
+
 def test_fetch_hubspot_appointments_from_list():
     tomorrow = (datetime.utcnow() + timedelta(days=1)).replace(microsecond=0)
     appt_iso = tomorrow.isoformat() + "Z"
@@ -124,8 +180,9 @@ def test_fetch_hubspot_appointments_from_list():
         with (
             patch("app.services.hubspot_connection_service.hubspot_status", return_value={"connected": True}),
             patch("app.services.hubspot_connection_service._ensure_access_token", return_value="tok-list"),
+            patch("app.services.hubspot_connection_service.update_hubspot_settings", return_value={}),
             patch(
-                "app.services.hubspot_list_service.fetch_list_contacts",
+                "app.services.hubspot_list_service.search_contacts_with_appointment_date",
                 return_value=[
                     {
                         "id": "hs-1",
@@ -139,11 +196,14 @@ def test_fetch_hubspot_appointments_from_list():
                     }
                 ],
             ),
+            patch("app.services.hubspot_list_service.ensure_appointment_source_list", return_value="list-appt-1"),
+            patch("app.services.hubspot_list_service.sync_contacts_to_list", return_value=1) as sync_m,
         ):
             rows = _fetch_hubspot_appointments(db, org.id)
         assert len(rows) == 1
         assert rows[0].crm_record_id == "hs-1"
         assert rows[0].contact_phone == "+447700900123"
+        sync_m.assert_called_once()
 
 
 def test_move_contact_between_lists_calls_add_and_remove():

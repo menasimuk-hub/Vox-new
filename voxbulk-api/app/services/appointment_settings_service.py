@@ -31,6 +31,10 @@ DEFAULT_APPOINTMENT_CONFIG: dict[str, Any] = {
     "post_survey_enabled": False,
     "post_survey_order_id": None,
     "post_survey_delay_hours": 2,
+    "last_crm_sync_at": None,
+    "last_crm_sync_fetched": 0,
+    "last_crm_sync_created": 0,
+    "last_crm_sync_updated": 0,
 }
 
 
@@ -71,6 +75,12 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     survey_id = out.get("post_survey_order_id")
     out["post_survey_order_id"] = str(survey_id).strip() if survey_id else None
     out["post_survey_delay_hours"] = int(out.get("post_survey_delay_hours") or DEFAULT_APPOINTMENT_CONFIG["post_survey_delay_hours"])
+    out["last_crm_sync_at"] = str(out.get("last_crm_sync_at") or "").strip() or None
+    for key in ("last_crm_sync_fetched", "last_crm_sync_created", "last_crm_sync_updated"):
+        try:
+            out[key] = int(out.get(key) or 0)
+        except (TypeError, ValueError):
+            out[key] = 0
     return out
 
 

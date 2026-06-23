@@ -22,6 +22,12 @@ import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { AppointmentReportsPanel } from "@/components/appointments/appointment-reports-panel";
+import {
+  AppointmentCrmSyncPanel,
+  showCrmSyncToast,
+  type CrmSyncResult,
+  useCrmSyncStatus,
+} from "@/components/appointments/appointment-crm-sync-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -333,10 +339,12 @@ export function AppointmentManagerPage() {
     enabled: Boolean(selectedId),
   });
 
+  const crmSyncStatusQ = useCrmSyncStatus();
+
   const syncMut = useMutation({
-    mutationFn: () => apiFetch<{ synced?: number }>("/appointments/sync-crm", { method: "POST" }),
+    mutationFn: () => apiFetch<CrmSyncResult>("/appointments/sync-crm", { method: "POST" }),
     onSuccess: (data) => {
-      toast.success(`CRM sync complete (${data.synced ?? 0} records)`);
+      showCrmSyncToast(data);
       void queryClient.invalidateQueries({ queryKey: ["appointments"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -455,6 +463,13 @@ export function AppointmentManagerPage() {
           </CardContent>
         </Card>
       )}
+
+      <AppointmentCrmSyncPanel
+        status={crmSyncStatusQ.data}
+        loading={crmSyncStatusQ.isLoading}
+        syncing={syncMut.isPending}
+        onSync={() => syncMut.mutate()}
+      />
 
       <KpiBar summary={summaryQ.data} loading={summaryQ.isLoading} />
 

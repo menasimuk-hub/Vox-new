@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,8 +19,6 @@ from app.services.crm_providers import CRM_CONFIG_COLUMNS
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 
 logger = logging.getLogger(__name__)
-
-HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
 
 
 @dataclass(frozen=True)
@@ -92,8 +89,18 @@ def _contact_item_to_appointment(item: dict[str, Any], *, date_prop: str) -> App
 
 
 def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentData]:
-    from app.services.hubspot_connection_service import _ensure_access_token, get_hubspot_config, hubspot_status
-    from app.services.hubspot_list_service import HubspotListError, fetch_list_contacts
+    from app.services.hubspot_connection_service import (
+        _ensure_access_token,
+        get_hubspot_config,
+        hubspot_status,
+        update_hubspot_settings,
+    )
+    from app.services.hubspot_list_service import (
+        HubspotListError,
+        ensure_appointment_source_list,
+        search_contacts_with_appointment_date,
+        sync_contacts_to_list,
+    )
 
     if not hubspot_status(db, org_id).get("connected"):
         return []
@@ -105,44 +112,35 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
     appt_cfg = get_config(db, org_id)
     date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
     props = ["firstname", "lastname", "email", "phone", date_prop]
-    list_id = str(cfg.get("appointment_list_id") or "").strip()
+    configured_list_id = str(cfg.get("appointment_list_id") or "").strip()
 
     out: list[AppointmentData] = []
     try:
-        if list_id:
-            items = fetch_list_contacts(token, list_id, props)
-            for item in items:
-                row = _contact_item_to_appointment(item, date_prop=date_prop)
-                if row:
-                    out.append(row)
-            return out
-
-        after: str | None = None
-        with httpx.Client(timeout=60.0) as client:
-            while True:
-                params: dict[str, Any] = {"limit": 100, "properties": ",".join(props)}
-                if after:
-                    params["after"] = after
-                res = client.get(
-                    HUBSPOT_CONTACTS_URL,
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=params,
+        items = search_contacts_with_appointment_date(token, date_prop, props)
+        source_list_id = ensure_appointment_source_list(token, configured_list_id or None)
+        if source_list_id != configured_list_id:
+            update_hubspot_settings(db, org_id, appointment_list_id=source_list_id)
+        if source_list_id and items:
+            contact_ids = [str(item.get("id") or "").strip() for item in items if str(item.get("id") or "").strip()]
+            try:
+                added = sync_contacts_to_list(token, source_list_id, contact_ids)
+                logger.info(
+                    "hubspot_appointment_list_auto_sync org=%s list=%s contacts=%s",
+                    org_id,
+                    source_list_id,
+                    added,
                 )
-                if res.status_code >= 400:
-                    logger.warning("hubspot_appointment_sync_failed org=%s status=%s", org_id, res.status_code)
-                    break
-                body = res.json() or {}
-                for item in body.get("results") or []:
-                    row = _contact_item_to_appointment(item, date_prop=date_prop)
-                    if row:
-                        out.append(row)
-                paging = body.get("paging") or {}
-                next_link = paging.get("next") if isinstance(paging, dict) else None
-                after = None
-                if isinstance(next_link, dict):
-                    after = str(next_link.get("after") or "").strip() or None
-                if not after:
-                    break
+            except HubspotListError as exc:
+                logger.warning(
+                    "hubspot_appointment_list_auto_sync_failed org=%s list=%s err=%s",
+                    org_id,
+                    source_list_id,
+                    str(exc)[:200],
+                )
+        for item in items:
+            row = _contact_item_to_appointment(item, date_prop=date_prop)
+            if row:
+                out.append(row)
     except HubspotListError as exc:
         logger.warning("hubspot_appointment_list_sync_failed org=%s err=%s", org_id, str(exc)[:200])
     except Exception:
@@ -237,7 +235,135 @@ def sync_org_appointments(db: Session, org_id: str) -> dict[str, Any]:
         else:
             updated += 1
     db.commit()
-    return {"org_id": org_id, "fetched": len(rows), "created": created, "updated": updated, "synced": created + updated}
+
+    result = {
+        "org_id": org_id,
+        "fetched": len(rows),
+        "created": created,
+        "updated": updated,
+        "synced": created + updated,
+    }
+    try:
+        from app.services.appointment_settings_service import save_config
+
+        save_config(
+            db,
+            org_id,
+            {
+                "last_crm_sync_at": datetime.utcnow().isoformat(),
+                "last_crm_sync_fetched": len(rows),
+                "last_crm_sync_created": created,
+                "last_crm_sync_updated": updated,
+            },
+        )
+    except Exception:
+        logger.exception("appointment_crm_sync_save_summary_failed org=%s", org_id)
+    return result
+
+
+def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
+    """Dashboard-facing CRM sync readiness (no scripts required)."""
+    from app.services.appointment_settings_service import get_config
+    from app.services.hubspot_connection_service import get_hubspot_config, hubspot_status
+    from app.services.hubspot_list_service import (
+        DEFAULT_APPOINTMENT_LIST_NAME,
+        HubspotListError,
+        find_hubspot_list_id_by_name,
+        search_contacts_with_appointment_date,
+    )
+
+    appt_cfg = get_config(db, org_id)
+    date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
+    provider: str | None = None
+    if _org_has_crm_connected(db, org_id, "hubspot"):
+        provider = "hubspot"
+    elif _org_has_crm_connected(db, org_id, "pipedrive"):
+        provider = "pipedrive"
+    elif _org_has_crm_connected(db, org_id, "zoho_crm"):
+        provider = "zoho_crm"
+
+    out: dict[str, Any] = {
+        "crm_connected": provider is not None,
+        "crm_provider": provider,
+        "date_property": date_prop,
+        "eligible_contacts": 0,
+        "appointment_list_id": None,
+        "appointment_list_name": None,
+        "last_sync_at": appt_cfg.get("last_crm_sync_at"),
+        "last_sync_fetched": int(appt_cfg.get("last_crm_sync_fetched") or 0),
+        "last_sync_created": int(appt_cfg.get("last_crm_sync_created") or 0),
+        "last_sync_updated": int(appt_cfg.get("last_crm_sync_updated") or 0),
+        "ready": False,
+        "message": "Connect a CRM in Settings → Integrations to sync appointments.",
+    }
+
+    if not provider:
+        return out
+
+    if provider == "hubspot":
+        hs = hubspot_status(db, org_id)
+        if not hs.get("connected"):
+            out["message"] = "HubSpot is not connected — open Settings → Integrations → HubSpot and paste your service key."
+            return out
+        cfg = get_hubspot_config(db, org_id)
+        list_id = str(cfg.get("appointment_list_id") or "").strip() or None
+        list_name = DEFAULT_APPOINTMENT_LIST_NAME
+        if list_id:
+            from app.services.hubspot_list_service import list_hubspot_lists
+            from app.services.hubspot_connection_service import _ensure_access_token
+
+            token = _ensure_access_token(db, org_id)
+            try:
+                for row in list_hubspot_lists(token, limit=100):
+                    if str(row.get("id") or "") == list_id:
+                        list_name = str(row.get("name") or list_name)
+                        break
+            except HubspotListError:
+                pass
+        else:
+            token = None
+            try:
+                from app.services.hubspot_connection_service import _ensure_access_token
+
+                token = _ensure_access_token(db, org_id)
+                list_id = find_hubspot_list_id_by_name(token, DEFAULT_APPOINTMENT_LIST_NAME)
+            except Exception:
+                list_id = None
+
+        out["appointment_list_id"] = list_id
+        out["appointment_list_name"] = list_name if list_id else DEFAULT_APPOINTMENT_LIST_NAME
+
+        try:
+            from app.services.hubspot_connection_service import _ensure_access_token
+
+            token = _ensure_access_token(db, org_id)
+            eligible = search_contacts_with_appointment_date(
+                token,
+                date_prop,
+                ["firstname", "lastname", "email", "phone", date_prop],
+                max_results=5000,
+            )
+            out["eligible_contacts"] = len(eligible)
+        except HubspotListError as exc:
+            out["message"] = str(exc)[:240]
+            return out
+
+        if out["eligible_contacts"] > 0:
+            out["ready"] = True
+            out["message"] = (
+                f"{out['eligible_contacts']} HubSpot contact(s) have phone + {date_prop}. "
+                "Click Sync CRM to import them — list membership is handled automatically."
+            )
+        else:
+            out["message"] = (
+                f"No HubSpot contacts have both phone and {date_prop} set. "
+                f"Add those fields on each contact in HubSpot, then click Sync CRM."
+            )
+        return out
+
+    out["ready"] = True
+    out["message"] = f"{provider.replace('_', ' ').title()} is connected. Click Sync CRM to pull appointments."
+    return out
 
 
 def sync_all_orgs(db: Session) -> dict[str, Any]:

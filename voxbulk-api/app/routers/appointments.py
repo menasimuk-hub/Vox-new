@@ -30,7 +30,7 @@ from app.schemas.appointments import (
     AppointmentTemplateOut,
 )
 from app.services.appointment_call_service import handle_appointment_telnyx_event
-from app.services.appointment_crm_sync_service import sync_org_appointments
+from app.services.appointment_crm_sync_service import get_crm_sync_status, sync_org_appointments
 from app.services.appointment_report_service import (
     by_branch,
     by_crm,
@@ -208,6 +208,12 @@ def create_appointment(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/crm-sync-status")
+def crm_sync_status(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_appointments_enabled(db, principal.org_id)
+    return get_crm_sync_status(db, principal.org_id)
+
+
 @router.post("/sync-crm")
 def sync_crm(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     org = _require_appointments_enabled(db, principal.org_id)
@@ -215,6 +221,10 @@ def sync_crm(db: Session = Depends(get_db), principal=Depends(get_current_princi
         result = sync_org_appointments(db, principal.org_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    if int(result.get("fetched") or 0) == 0:
+        preview = get_crm_sync_status(db, principal.org_id)
+        result["message"] = preview.get("message")
+        result["eligible_contacts"] = preview.get("eligible_contacts")
     return {"ok": True, **result}
 
 

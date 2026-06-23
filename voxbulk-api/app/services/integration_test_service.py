@@ -383,11 +383,13 @@ def _check_hubspot_crm(db: Session, org_id: str) -> list[dict[str, Any]]:
     hs = hubspot_status(db, org_id)
     if not hs.get("connected"):
         return [_check("connection", False, "HubSpot CRM is not connected for this organisation")]
-    token = str(get_hubspot_config(db, org_id).get("access_token") or "").strip()
+    cfg = get_hubspot_config(db, org_id)
+    token = str(cfg.get("access_token") or "").strip()
     if not token:
         return [_check("token", False, "HubSpot access token missing — reconnect HubSpot")]
     checks: list[dict[str, Any]] = []
-    auth_mode = str(hs.get("auth_mode") or "").lower()
+    # Use org connection mode — platform auth_mode alone mis-classifies service keys as OAuth.
+    auth_mode = str(cfg.get("auth_mode") or hs.get("connection_mode") or "private_app").lower()
 
     if auth_mode == "oauth":
         with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:

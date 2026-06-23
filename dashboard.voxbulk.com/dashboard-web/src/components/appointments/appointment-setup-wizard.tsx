@@ -16,6 +16,7 @@ import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useIntegrationsCatalogue, useHubSpotStatus, usePatchHubSpotSettings, useSchedulingStatus, useServiceOrders } from "@/lib/queries";
 import { HubSpotAppointmentListPickers } from "@/components/integrations/hubspot-list-import-panel";
+import { showCrmSyncToast, type CrmSyncResult } from "@/components/appointments/appointment-crm-sync-panel";
 
 type Settings = {
   setup_complete?: boolean;
@@ -139,16 +140,20 @@ export function AppointmentSetupWizard() {
         method: "PATCH",
         body: JSON.stringify({ ...form, setup_complete: true }),
       });
-      if (connectedCrm?.key === "hubspot" && appointmentListId) {
-        await patchHubspotM.mutateAsync({
-          appointment_list_id: appointmentListId,
-          appointment_confirmed_list_id: confirmedListId,
-          appointment_cancelled_list_id: cancelledListId,
-        });
+      if (connectedCrm?.key === "hubspot") {
+        const hubspotPatch: Record<string, string> = {};
+        if (appointmentListId) hubspotPatch.appointment_list_id = appointmentListId;
+        if (confirmedListId) hubspotPatch.appointment_confirmed_list_id = confirmedListId;
+        if (cancelledListId) hubspotPatch.appointment_cancelled_list_id = cancelledListId;
+        if (Object.keys(hubspotPatch).length > 0) {
+          await patchHubspotM.mutateAsync(hubspotPatch);
+        }
       }
-      await apiFetch("/appointments/sync-crm", { method: "POST" });
+      const syncResult = await apiFetch<CrmSyncResult>("/appointments/sync-crm", { method: "POST" });
+      return syncResult;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      showCrmSyncToast(data);
       toast.success("Appointment Manager is live");
       void queryClient.invalidateQueries({ queryKey: ["appointments"] });
       void navigate({ to: "/appointments" });
@@ -161,8 +166,7 @@ export function AppointmentSetupWizard() {
   const calendarApiReady = Boolean(schedulingQ.data?.google_calendar_connected || schedulingQ.data?.microsoft_calendar_connected);
   const canNextStep1 =
     crmReady &&
-    Boolean(form.workspace_name?.trim()) &&
-    (!hubspotCrm || Boolean(appointmentListId.trim()));
+    Boolean(form.workspace_name?.trim());
   const canNextStep2 = !form.calendar_enabled || schedulingReady;
   const canNextStep3 = !form.wa_enabled || Boolean(form.wa_template_name);
   const canNextStep4 = !form.call_enabled || Boolean(form.appointment_agent_id);
@@ -287,14 +291,23 @@ export function AppointmentSetupWizard() {
               </div>
               <div className="grid gap-2">
                 <Label>CRM object / table</Label>
-                <Select value={form.crm_object ?? "contacts"} onValueChange={(v) => patch({ crm_object: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="contacts">Contacts</SelectItem>
-                    <SelectItem value="deals">Deals</SelectItem>
-                    <SelectItem value="appointments">Appointments</SelectItem>
-                  </SelectContent>
-                </Select>
+                {hubspotCrm ? (
+                  <>
+                    <Input value="Contacts" readOnly disabled />
+                    <p className="text-xs text-muted-foreground">
+                      HubSpot appointment sync reads <strong>contact</strong> static lists only. Deals and other objects are not used here yet.
+                    </p>
+                  </>
+                ) : (
+                  <Select value={form.crm_object ?? "contacts"} onValueChange={(v) => patch({ crm_object: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contacts">Contacts</SelectItem>
+                      <SelectItem value="deals">Deals</SelectItem>
+                      <SelectItem value="appointments">Appointments</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
 
@@ -305,20 +318,25 @@ export function AppointmentSetupWizard() {
                 value={form.crm_date_property ?? "appointment_date"}
                 onChange={(e) => patch({ crm_date_property: e.target.value })}
               />
-              <p className="text-xs text-muted-foreground">HubSpot internal property name on each contact in your list.</p>
+              <p className="text-xs text-muted-foreground">HubSpot internal property name on each contact.</p>
             </div>
 
             {hubspotCrm && crmReady && (
-              <HubSpotAppointmentListPickers
-                appointmentListId={appointmentListId}
-                confirmedListId={confirmedListId}
-                cancelledListId={cancelledListId}
-                onChange={(patch) => {
-                  if (patch.appointment_list_id !== undefined) setAppointmentListId(patch.appointment_list_id);
-                  if (patch.appointment_confirmed_list_id !== undefined) setConfirmedListId(patch.appointment_confirmed_list_id);
-                  if (patch.appointment_cancelled_list_id !== undefined) setCancelledListId(patch.appointment_cancelled_list_id);
-                }}
-              />
+              <>
+                <p className="text-xs text-muted-foreground">
+                  HubSpot sync is automatic: contacts with <strong>phone</strong> and your appointment date field are imported on every sync. List membership is handled for you.
+                </p>
+                <HubSpotAppointmentListPickers
+                  appointmentListId={appointmentListId}
+                  confirmedListId={confirmedListId}
+                  cancelledListId={cancelledListId}
+                  onChange={(patch) => {
+                    if (patch.appointment_list_id !== undefined) setAppointmentListId(patch.appointment_list_id);
+                    if (patch.appointment_confirmed_list_id !== undefined) setConfirmedListId(patch.appointment_confirmed_list_id);
+                    if (patch.appointment_cancelled_list_id !== undefined) setCancelledListId(patch.appointment_cancelled_list_id);
+                  }}
+                />
+              </>
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">

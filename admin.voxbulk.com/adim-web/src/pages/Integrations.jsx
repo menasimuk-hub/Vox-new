@@ -2685,7 +2685,7 @@ export default function Integrations() {
                         <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                           <li>Enable HubSpot above → Save → Test.</li>
                           <li>Each company: HubSpot → Settings → Integrations → <strong>Service Keys</strong> (or Development → Keys → Service Keys) → create key.</li>
-                          <li>Scopes: <code>crm.objects.contacts.read</code> and <code>crm.objects.contacts.write</code>.</li>
+                          <li>Scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>crm.lists.read</code>, <code>crm.lists.write</code>.</li>
                           <li>Copy the <strong>Service key</strong> — use as Bearer token; no client secret.</li>
                           <li>Paste token in <strong>Dashboard → Integrations → HubSpot</strong>.</li>
                         </ol>

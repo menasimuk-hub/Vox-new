@@ -214,6 +214,46 @@ def test_cal_com_selected_event_type_missing(session, monkeypatch):
     assert any(c["name"] == "selected_event_type" and c["status"] == "fail" for c in result["checks"])
 
 
+def test_hubspot_crm_private_app_token_skips_oauth_introspection(session, monkeypatch):
+    from app.services.hubspot_connection_service import save_hubspot_config
+    from app.services.integration_test_service import deep_health_check
+    from app.services.provider_settings import ProviderSettingsService
+
+    org = _seed_org(session)
+    ProviderSettingsService.upsert_platform_config(
+        session,
+        provider="hubspot",
+        is_enabled=True,
+        config={
+            "auth_mode": "oauth",
+            "client_id": "cid",
+            "client_secret": "sec",
+            "redirect_uri": "https://api.test/cb",
+        },
+    )
+    save_hubspot_config(
+        session,
+        org.id,
+        {
+            "auth_mode": "private_app",
+            "access_token": "pat-dummy",
+            "account_name": "Acme",
+        },
+    )
+    _patch_httpx(
+        monkeypatch,
+        {
+            "/oauth/v1/access-tokens/": _Resp(400, payload={}, text="bad"),
+            "/crm/v3/objects/contacts": _Resp(200, payload={"results": [{"id": "1"}]}),
+        },
+    )
+
+    result = deep_health_check(session, org.id, "hubspot")
+    assert result["ok"] is True
+    assert any(c["name"] == "token" and c["status"] == "ok" for c in result["checks"])
+    assert any(c["name"] == "contacts_probe" and c["status"] == "ok" for c in result["checks"])
+
+
 def test_hubspot_meetings_requires_oauth(session, monkeypatch):
     from app.services.hubspot_connection_service import save_hubspot_config
     from app.services.integration_test_service import deep_health_check

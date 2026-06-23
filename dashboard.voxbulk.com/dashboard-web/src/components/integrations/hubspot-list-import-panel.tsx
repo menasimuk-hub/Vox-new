@@ -177,11 +177,17 @@ export function HubSpotAppointmentListPickers({
 
   return (
     <div className="grid gap-4">
+      {items.length > 0 && items.every((row) => (row.size ?? 0) === 0) ? (
+        <p className="rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          List member counts update after the first CRM sync. VoxBulk automatically adds contacts with a phone number and appointment date to your source list.
+        </p>
+      ) : null}
       {renderSelect(
-        "Appointment source list",
-        "Contacts in this HubSpot static list are synced into Appointment Manager (phone + appointment date required).",
+        "Appointment source list (optional)",
+        "Leave blank to auto-create VoxBulk · Appointments. Sync pulls every contact with phone + appointment date and adds them to the list automatically.",
         appointmentListId,
         "appointment_list_id",
+        true,
       )}
       {renderSelect(
         "Confirmed list (write-back)",
