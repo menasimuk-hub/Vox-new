@@ -59,6 +59,7 @@ DEALS_BATCH_CREATE = f"{HUBSPOT_API}/crm/v3/objects/deals/batch/create"
 PROPERTIES_BASE = f"{HUBSPOT_API}/crm/v3/properties"
 LISTS_SEARCH = f"{HUBSPOT_API}/crm/v3/lists/search"
 LISTS_BASE = f"{HUBSPOT_API}/crm/v3/lists"
+ROUTE_BUCKET_PROPERTY = "voxbulk_appointment_bucket"
 
 
 class SeedError(Exception):
@@ -349,6 +350,7 @@ def _ensure_hubspot_property(
     property_label: str,
     property_type: str,
     field_type: str,
+    group_name: str | None = None,
 ) -> None:
     get_res = client.get(
         f"{PROPERTIES_BASE}/{object_type_id}/{property_name}",
@@ -364,10 +366,28 @@ def _ensure_hubspot_property(
         "label": property_label,
         "type": property_type,
         "fieldType": field_type,
-        "groupName": "contactinformation" if object_type_id == "0-1" else "dealinformation",
+        "groupName": group_name
+        or ("contactinformation" if object_type_id == "0-1" else "dealinformation"),
     }
     create_res = client.post(f"{PROPERTIES_BASE}/{object_type_id}", headers=_headers(token), json=payload)
     _raise_for_status(create_res, action=f"create property {object_type_id}.{property_name}")
+
+
+def _resolve_property_group_name(client: httpx.Client, token: str, object_type_id: str) -> str:
+    if object_type_id == "0-1":
+        return "contactinformation"
+    if object_type_id == "0-3":
+        return "dealinformation"
+    res = client.get(f"{PROPERTIES_BASE}/{object_type_id}", headers=_headers(token))
+    _raise_for_status(res, action=f"list properties for {object_type_id}")
+    rows = (res.json() or {}).get("results") or []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        group = str(row.get("groupName") or "").strip()
+        if group:
+            return group
+    return "customobjectinformation"
 
 
 def _find_or_create_hubspot_list(client: httpx.Client, token: str, list_name: str) -> str:
@@ -428,6 +448,7 @@ def _upsert_hubspot_contacts(
                     "phone": f"+4477009{10000 + idx:05d}"[:13],
                     date_property: appt_time,
                     "voxbulk_appointment_status": "scheduled",
+                    ROUTE_BUCKET_PROPERTY: "source",
                 },
             }
         )
@@ -481,11 +502,55 @@ def _create_hubspot_deals(
                     "contact_phone": f"+4477019{20000 + idx:05d}"[:13],
                     date_property: appt_time,
                     "voxbulk_appointment_status": "scheduled",
+                    ROUTE_BUCKET_PROPERTY: "source",
                 }
             }
         )
     res = client.post(DEALS_BATCH_CREATE, headers=_headers(token), json={"inputs": inputs})
     _raise_for_status(res, action="create deals")
+    ids: list[str] = []
+    for row in (res.json() or {}).get("results") or []:
+        if isinstance(row, dict):
+            rid = str(row.get("id") or "").strip()
+            if rid:
+                ids.append(rid)
+    return ids
+
+
+def _create_hubspot_custom_object_records(
+    client: httpx.Client,
+    token: str,
+    *,
+    object_type: str,
+    count: int,
+    date_property: str,
+    phone_property: str,
+    name_property: str,
+) -> list[str]:
+    now = datetime.now(timezone.utc)
+    inputs = []
+    for idx in range(count):
+        appt_time = (now + timedelta(days=idx + 1, hours=14 + (idx % 2))).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        label = f"VoxBulk Custom Seed {now.strftime('%Y%m%d%H%M')}-{idx+1}-{uuid.uuid4().hex[:5]}"
+        inputs.append(
+            {
+                "properties": {
+                    name_property: label,
+                    phone_property: f"+4477029{30000 + idx:05d}"[:13],
+                    date_property: appt_time,
+                    "voxbulk_appointment_status": "scheduled",
+                    ROUTE_BUCKET_PROPERTY: "source",
+                }
+            }
+        )
+
+    object_slug = str(object_type).strip()
+    res = client.post(
+        f"{HUBSPOT_API}/crm/v3/objects/{object_slug}/batch/create",
+        headers=_headers(token),
+        json={"inputs": inputs},
+    )
+    _raise_for_status(res, action=f"create custom object records for {object_slug}")
     ids: list[str] = []
     for row in (res.json() or {}).get("results") or []:
         if isinstance(row, dict):
@@ -503,6 +568,10 @@ def _seed_hubspot_data(
     list_name: str,
     date_property: str,
     count: int,
+    custom_object: str | None = None,
+    custom_phone_property: str = "contact_phone",
+    custom_name_property: str = "name",
+    custom_count: int = 0,
 ) -> dict[str, Any]:
     date_property = _safe_slug(date_property)
     with httpx.Client(timeout=60.0) as client:
@@ -521,6 +590,15 @@ def _seed_hubspot_data(
             object_type_id="0-1",
             property_name="voxbulk_appointment_status",
             property_label="VoxBulk appointment status",
+            property_type="string",
+            field_type="text",
+        )
+        _ensure_hubspot_property(
+            client,
+            token,
+            object_type_id="0-1",
+            property_name=ROUTE_BUCKET_PROPERTY,
+            property_label="VoxBulk appointment bucket",
             property_type="string",
             field_type="text",
         )
@@ -551,6 +629,72 @@ def _seed_hubspot_data(
             property_type="string",
             field_type="text",
         )
+        _ensure_hubspot_property(
+            client,
+            token,
+            object_type_id="0-3",
+            property_name=ROUTE_BUCKET_PROPERTY,
+            property_label="VoxBulk appointment bucket",
+            property_type="string",
+            field_type="text",
+        )
+
+        custom_created: list[str] = []
+        custom_slug = str(custom_object or "").strip()
+        custom_phone = _safe_slug(custom_phone_property)
+        custom_name = _safe_slug(custom_name_property)
+        if custom_slug:
+            group_name = _resolve_property_group_name(client, token, custom_slug)
+            _ensure_hubspot_property(
+                client,
+                token,
+                object_type_id=custom_slug,
+                property_name=date_property,
+                property_label="Appointment date",
+                property_type="datetime",
+                field_type="date",
+                group_name=group_name,
+            )
+            _ensure_hubspot_property(
+                client,
+                token,
+                object_type_id=custom_slug,
+                property_name=custom_phone,
+                property_label="Contact phone",
+                property_type="string",
+                field_type="text",
+                group_name=group_name,
+            )
+            _ensure_hubspot_property(
+                client,
+                token,
+                object_type_id=custom_slug,
+                property_name=custom_name,
+                property_label="Record name",
+                property_type="string",
+                field_type="text",
+                group_name=group_name,
+            )
+            _ensure_hubspot_property(
+                client,
+                token,
+                object_type_id=custom_slug,
+                property_name="voxbulk_appointment_status",
+                property_label="VoxBulk appointment status",
+                property_type="string",
+                field_type="text",
+                group_name=group_name,
+            )
+            _ensure_hubspot_property(
+                client,
+                token,
+                object_type_id=custom_slug,
+                property_name=ROUTE_BUCKET_PROPERTY,
+                property_label="VoxBulk appointment bucket",
+                property_type="string",
+                field_type="text",
+                group_name=group_name,
+            )
 
         list_id = _find_or_create_hubspot_list(client, token, list_name)
         contacts = _upsert_hubspot_contacts(
@@ -567,6 +711,16 @@ def _seed_hubspot_data(
             count=max(1, count),
             date_property=date_property,
         )
+        if custom_slug:
+            custom_created = _create_hubspot_custom_object_records(
+                client,
+                token,
+                object_type=custom_slug,
+                count=max(1, custom_count),
+                date_property=date_property,
+                phone_property=custom_phone,
+                name_property=custom_name,
+            )
 
     save_hubspot_config(
         db,
@@ -588,6 +742,10 @@ def _seed_hubspot_data(
         "appointment_list_id": list_id,
         "contacts_seeded": len(contacts),
         "deals_seeded": len(deals),
+        "custom_object": custom_slug or None,
+        "custom_phone_property": custom_phone if custom_slug else None,
+        "custom_name_property": custom_name if custom_slug else None,
+        "custom_records_seeded": len(custom_created),
     }
 
 
@@ -598,6 +756,10 @@ def seed_all(
     hubspot_list_name: str,
     hubspot_date_property: str,
     hubspot_count: int,
+    hubspot_custom_object: str | None = None,
+    hubspot_custom_phone_property: str = "contact_phone",
+    hubspot_custom_name_property: str = "name",
+    hubspot_custom_count: int = 4,
 ) -> dict[str, Any]:
     Session = get_sessionmaker()
     with Session() as db:
@@ -685,6 +847,10 @@ def seed_all(
                 list_name=hubspot_list_name,
                 date_property=hubspot_date_property,
                 count=max(1, hubspot_count),
+                custom_object=hubspot_custom_object,
+                custom_phone_property=hubspot_custom_phone_property,
+                custom_name_property=hubspot_custom_name_property,
+                custom_count=max(1, hubspot_custom_count),
             )
         return output
 
@@ -696,6 +862,27 @@ def main() -> None:
     parser.add_argument("--hubspot-list-name", default="VoxBulk · Appointment test", help="HubSpot static list name")
     parser.add_argument("--hubspot-date-property", default="appointment_date", help="HubSpot datetime property name")
     parser.add_argument("--hubspot-count", type=int, default=6, help="How many contacts/deals to seed")
+    parser.add_argument(
+        "--hubspot-custom-object",
+        default=None,
+        help="Optional HubSpot custom object type id/name (e.g. 2-1234567) to seed records for phase-3 tests",
+    )
+    parser.add_argument(
+        "--hubspot-custom-phone-property",
+        default="contact_phone",
+        help="Phone property name on the custom object (created if missing)",
+    )
+    parser.add_argument(
+        "--hubspot-custom-name-property",
+        default="name",
+        help="Display/name property on the custom object (created if missing)",
+    )
+    parser.add_argument(
+        "--hubspot-custom-count",
+        type=int,
+        default=4,
+        help="How many custom-object records to seed when --hubspot-custom-object is set",
+    )
     args = parser.parse_args()
 
     token = (args.hubspot_token or os.getenv("HUBSPOT_ACCESS_TOKEN") or "").strip() or None
@@ -705,6 +892,10 @@ def main() -> None:
         hubspot_list_name=str(args.hubspot_list_name),
         hubspot_date_property=str(args.hubspot_date_property),
         hubspot_count=max(1, int(args.hubspot_count)),
+        hubspot_custom_object=(str(args.hubspot_custom_object).strip() or None) if args.hubspot_custom_object else None,
+        hubspot_custom_phone_property=str(args.hubspot_custom_phone_property),
+        hubspot_custom_name_property=str(args.hubspot_custom_name_property),
+        hubspot_custom_count=max(1, int(args.hubspot_custom_count)),
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
