@@ -11,7 +11,7 @@ from app.core.security import hash_password
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
-from app.services.appointment_crm_sync_service import _fetch_hubspot_appointments
+from app.services.appointment_crm_sync_service import _fetch_hubspot_appointments, get_crm_sync_status
 from app.services.appointment_settings_service import save_config
 from app.services.hubspot_connection_service import (
     HUBSPOT_SCOPES_BASE,
@@ -218,3 +218,71 @@ def test_move_contact_between_lists_calls_add_and_remove():
         )
         remove_m.assert_called_once_with("tok", "src", ["42"])
         add_m.assert_called_once_with("tok", "dst", ["42"])
+
+
+def test_fetch_hubspot_appointments_from_deals_object():
+    tomorrow = (datetime.utcnow() + timedelta(days=1)).replace(microsecond=0)
+    appt_iso = tomorrow.isoformat() + "Z"
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(db, org.id, {"crm_object": "deals", "crm_date_property": "appointment_date"})
+        search_res = MagicMock(status_code=200)
+        search_res.json.return_value = {
+            "results": [
+                {
+                    "id": "deal-101",
+                    "properties": {
+                        "dealname": "Implant consult",
+                        "phone": "+447700922000",
+                        "email": "deal.patient@example.com",
+                        "appointment_date": appt_iso,
+                    },
+                }
+            ],
+            "paging": {},
+        }
+        with (
+            patch("app.services.hubspot_connection_service.hubspot_status", return_value={"connected": True}),
+            patch("app.services.hubspot_connection_service._ensure_access_token", return_value="tok-list"),
+            patch("app.services.appointment_crm_sync_service.httpx.Client") as client_cls,
+        ):
+            client = client_cls.return_value.__enter__.return_value
+            client.post.return_value = search_res
+            rows = _fetch_hubspot_appointments(db, org.id)
+        assert len(rows) == 1
+        assert rows[0].crm_record_id == "deals:deal-101"
+        assert rows[0].contact_phone == "+447700922000"
+
+
+def test_get_crm_sync_status_hubspot_non_contact_object():
+    tomorrow = (datetime.utcnow() + timedelta(days=2)).replace(microsecond=0)
+    appt_iso = tomorrow.isoformat() + "Z"
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(db, org.id, {"crm_object": "deals", "crm_date_property": "appointment_date"})
+        search_res = MagicMock(status_code=200)
+        search_res.json.return_value = {
+            "results": [
+                {
+                    "id": "deal-202",
+                    "properties": {
+                        "dealname": "Whitening consult",
+                        "phone": "+447700933111",
+                        "appointment_date": appt_iso,
+                    },
+                }
+            ],
+            "paging": {},
+        }
+        with (
+            patch("app.services.hubspot_connection_service.hubspot_status", return_value={"connected": True}),
+            patch("app.services.hubspot_connection_service._ensure_access_token", return_value="tok-list"),
+            patch("app.services.appointment_crm_sync_service.httpx.Client") as client_cls,
+        ):
+            client = client_cls.return_value.__enter__.return_value
+            client.post.return_value = search_res
+            status = get_crm_sync_status(db, org.id)
+        assert status["crm_object"] == "deals"
+        assert status["appointment_list_id"] is None
+        assert status["eligible_contacts"] == 1
+        assert status["ready"] is True

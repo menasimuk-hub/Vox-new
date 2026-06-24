@@ -162,6 +162,11 @@ export function AppointmentSetupWizard() {
   });
 
   const hubspotCrm = connectedCrm?.key === "hubspot";
+  const hubspotObjectRaw = String(form.crm_object ?? "contacts").trim().toLowerCase();
+  const hubspotObjectMode =
+    !hubspotCrm ? "default" : hubspotObjectRaw === "contacts" || hubspotObjectRaw === "deals" ? hubspotObjectRaw : "custom";
+  const hubspotObjectForSync =
+    hubspotObjectMode === "custom" ? String(form.crm_object ?? "").trim() : hubspotObjectMode;
   const schedulingReady = Boolean(schedulingQ.data?.connected);
   const calendarApiReady = Boolean(schedulingQ.data?.google_calendar_connected || schedulingQ.data?.microsoft_calendar_connected);
   const canNextStep1 =
@@ -229,7 +234,9 @@ export function AppointmentSetupWizard() {
         <Card>
           <CardHeader>
             <CardTitle>Step 1 — Basics & CRM</CardTitle>
-            <CardDescription>Name your flow, sync schedule, and CRM object mapping.</CardDescription>
+            <CardDescription>
+              Connect CRM source settings first: object/table, appointment date field, and list routing.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {!crmReady && (
@@ -293,9 +300,37 @@ export function AppointmentSetupWizard() {
                 <Label>CRM object / table</Label>
                 {hubspotCrm ? (
                   <>
-                    <Input value="Contacts" readOnly disabled />
+                    <Select
+                      value={hubspotObjectMode}
+                      onValueChange={(v) => {
+                        if (v === "contacts" || v === "deals") {
+                          patch({ crm_object: v });
+                          return;
+                        }
+                        patch({ crm_object: hubspotObjectRaw && hubspotObjectRaw !== "contacts" && hubspotObjectRaw !== "deals" ? hubspotObjectRaw : "" });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="contacts">Contacts</SelectItem>
+                        <SelectItem value="deals">Deals</SelectItem>
+                        <SelectItem value="custom">Custom object</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {hubspotObjectMode === "custom" && (
+                      <div className="grid gap-2">
+                        <Input
+                          placeholder="HubSpot object name or type id (e.g. 2-1234567)"
+                          value={String(form.crm_object ?? "")}
+                          onChange={(e) => patch({ crm_object: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Use your exact HubSpot object API name/type id for custom objects.
+                        </p>
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      HubSpot appointment sync reads <strong>contact</strong> static lists only. Deals and other objects are not used here yet.
+                      Contacts support list routing. Deals/custom objects sync by date + phone fields (list routing does not apply).
                     </p>
                   </>
                 ) : (
@@ -318,24 +353,43 @@ export function AppointmentSetupWizard() {
                 value={form.crm_date_property ?? "appointment_date"}
                 onChange={(e) => patch({ crm_date_property: e.target.value })}
               />
-              <p className="text-xs text-muted-foreground">HubSpot internal property name on each contact.</p>
+              <p className="text-xs text-muted-foreground">
+                HubSpot property for the selected object ({hubspotCrm ? hubspotObjectForSync || "contacts" : "contacts"}).
+              </p>
             </div>
 
             {hubspotCrm && crmReady && (
               <>
-                <p className="text-xs text-muted-foreground">
-                  HubSpot sync is automatic: contacts with <strong>phone</strong> and your appointment date field are imported on every sync. List membership is handled for you.
-                </p>
-                <HubSpotAppointmentListPickers
-                  appointmentListId={appointmentListId}
-                  confirmedListId={confirmedListId}
-                  cancelledListId={cancelledListId}
-                  onChange={(patch) => {
-                    if (patch.appointment_list_id !== undefined) setAppointmentListId(patch.appointment_list_id);
-                    if (patch.appointment_confirmed_list_id !== undefined) setConfirmedListId(patch.appointment_confirmed_list_id);
-                    if (patch.appointment_cancelled_list_id !== undefined) setCancelledListId(patch.appointment_cancelled_list_id);
-                  }}
-                />
+                {hubspotObjectMode === "contacts" ? (
+                  <>
+                    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                      <p className="font-medium">HubSpot lists for appointment workflow</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Source list is optional (VoxBulk auto-creates one). Confirmed/Cancelled lists are optional write-back targets.
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      HubSpot sync is automatic: contacts with <strong>phone</strong> and your appointment date field are imported on every sync. List membership is handled for you.
+                    </p>
+                    <HubSpotAppointmentListPickers
+                      appointmentListId={appointmentListId}
+                      confirmedListId={confirmedListId}
+                      cancelledListId={cancelledListId}
+                      onChange={(patch) => {
+                        if (patch.appointment_list_id !== undefined) setAppointmentListId(patch.appointment_list_id);
+                        if (patch.appointment_confirmed_list_id !== undefined) setConfirmedListId(patch.appointment_confirmed_list_id);
+                        if (patch.appointment_cancelled_list_id !== undefined) setCancelledListId(patch.appointment_cancelled_list_id);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                    <p className="font-medium">List routing skipped for non-contact objects</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      For <strong>{hubspotObjectForSync || "custom object"}</strong>, VoxBulk syncs by date + phone fields directly from HubSpot object records.
+                    </p>
+                  </div>
+                )}
               </>
             )}
 
@@ -359,10 +413,11 @@ export function AppointmentSetupWizard() {
             </div>
 
             <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-sm font-medium">Confirmation channels</p>
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Enable WhatsApp confirmation</Label>
-                  <p className="text-xs text-muted-foreground">Send template before appointment</p>
+                  <p className="text-xs text-muted-foreground">Send template before appointment (template is selected in Step 3)</p>
                 </div>
                 <Switch checked={Boolean(form.wa_enabled)} onCheckedChange={(v) => patch({ wa_enabled: v })} />
               </div>
@@ -618,7 +673,7 @@ export function AppointmentSetupWizard() {
 
             <div className="grid gap-2 border-t pt-4 text-sm">
               <p><strong>Workspace:</strong> {form.workspace_name || "—"}</p>
-              <p><strong>CRM:</strong> {connectedCrm?.label || "Not connected"} · sync every {form.sync_interval_minutes ?? 60}m</p>
+              <p><strong>CRM:</strong> {connectedCrm?.label || "Not connected"} · object {form.crm_object || "contacts"} · sync every {form.sync_interval_minutes ?? 60}m</p>
               <p><strong>Calendar:</strong> {form.calendar_enabled ? `On · ${form.slot_duration_minutes ?? 30} min slots` : "Off"}</p>
               <p><strong>WhatsApp:</strong> {form.wa_enabled ? `On · ${form.wa_template_name} · ${form.wa_send_hours_before}h before` : "Off"}</p>
               <p><strong>AI call:</strong> {form.call_enabled ? `On · agent ${form.appointment_agent_id ?? "default"} · ${form.call_hours_before}h before` : "Off"}</p>

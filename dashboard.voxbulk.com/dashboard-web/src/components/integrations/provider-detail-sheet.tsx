@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
@@ -16,7 +15,6 @@ import {
 import { apiFetch } from "@/lib/api";
 
 import { GoogleScheduleUrlHelp } from "@/components/google-schedule-url-help";
-import { CrmSyncSettingsCard } from "@/components/integrations/crm-sync-settings-card";
 import { integrationStatusFor } from "@/components/integrations/integration-status";
 import {
   IntegrationStatusPill,
@@ -42,10 +40,8 @@ type Props = {
   onDisconnect: (view: IntegrationView) => Promise<void>;
   onRefresh: () => void;
   hubspot?: {
-    syncSettingsEnabled: boolean;
     usesOAuth: boolean;
     usesAccessToken: boolean;
-    showHubspotSettingsCard: boolean;
   };
 };
 
@@ -145,15 +141,6 @@ export function ProviderDetailSheet({
     isBookingPage && view.key === "microsoft_calendar" && view.connected;
   const showHubspotTokenField =
     !isBookingPage && view.key === "hubspot" && hubspot?.usesAccessToken && !view.connected;
-  const showHubspotSyncToggles =
-    !isBookingPage && view.key === "hubspot" && view.connected;
-  const crmSettingsUrl =
-    view.key === "pipedrive"
-      ? "/service-orders/pipedrive/settings"
-      : view.key === "zoho_crm"
-        ? "/service-orders/zoho-crm/settings"
-        : null;
-  const showGenericCrmSyncToggles = !isBookingPage && Boolean(crmSettingsUrl) && view.connected;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -227,6 +214,11 @@ export function ProviderDetailSheet({
                   </div>
                 ) : null}
               </dl>
+              {!isBookingPage ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Appointment-specific mapping (CRM object, lists, WhatsApp template) is configured in Appointment Setup.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -319,148 +311,6 @@ export function ProviderDetailSheet({
                 <Plug className="size-4" /> Connect HubSpot
               </Button>
             </div>
-          ) : null}
-
-          {showHubspotSyncToggles ? (
-            <div className="space-y-3 rounded-md border p-3">
-              <p className="text-sm font-medium">Auto-sync</p>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="hubspot-shortlist" className="text-sm">Sync when saving shortlist</Label>
-                <Switch
-                  id="hubspot-shortlist"
-                  checked={(view.extra?.auto_sync_shortlist ?? true) !== false}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch("/service-orders/hubspot/settings", {
-                        method: "PATCH",
-                        body: JSON.stringify({ auto_sync_shortlist: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="hubspot-send" className="text-sm">Sync when sending interview links</Label>
-                <Switch
-                  id="hubspot-send"
-                  checked={(view.extra?.auto_sync_scheduling_send ?? true) !== false}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch("/service-orders/hubspot/settings", {
-                        method: "PATCH",
-                        body: JSON.stringify({ auto_sync_scheduling_send: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor="hubspot-unhappy-task" className="text-sm">
-                    Create CRM task on unhappy survey
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Adds a follow-up task (due in 24h) when a WA or AI call survey response is flagged unhappy.
-                  </p>
-                </div>
-                <Switch
-                  id="hubspot-unhappy-task"
-                  checked={view.extra?.create_task_on_unhappy_score === true}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch("/service-orders/hubspot/settings", {
-                        method: "PATCH",
-                        body: JSON.stringify({ create_task_on_unhappy_score: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {showGenericCrmSyncToggles && crmSettingsUrl ? (
-            <div className="space-y-3 rounded-md border p-3">
-              <p className="text-sm font-medium">Auto-sync</p>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="crm-shortlist" className="text-sm">Sync when saving shortlist</Label>
-                <Switch
-                  id="crm-shortlist"
-                  checked={(view.extra?.auto_sync_shortlist ?? true) !== false}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch(crmSettingsUrl, {
-                        method: "PATCH",
-                        body: JSON.stringify({ auto_sync_shortlist: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label htmlFor="crm-send" className="text-sm">Sync when sending interview links</Label>
-                <Switch
-                  id="crm-send"
-                  checked={(view.extra?.auto_sync_scheduling_send ?? true) !== false}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch(crmSettingsUrl, {
-                        method: "PATCH",
-                        body: JSON.stringify({ auto_sync_scheduling_send: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor="crm-unhappy-task" className="text-sm">
-                    Create CRM task on unhappy survey
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Adds a follow-up task (due in 24h) when a WA or AI call survey response is flagged unhappy.
-                  </p>
-                </div>
-                <Switch
-                  id="crm-unhappy-task"
-                  checked={view.extra?.create_task_on_unhappy_score === true}
-                  onCheckedChange={async (checked) => {
-                    try {
-                      await apiFetch(crmSettingsUrl, {
-                        method: "PATCH",
-                        body: JSON.stringify({ create_task_on_unhappy_score: checked }),
-                      });
-                      onRefresh();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Update failed");
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {showHubspotSyncToggles && hubspot?.showHubspotSettingsCard ? (
-            <CrmSyncSettingsCard providerKey="hubspot" />
-          ) : null}
-
-          {showGenericCrmSyncToggles && view.connected ? (
-            <CrmSyncSettingsCard providerKey={view.key} />
           ) : null}
 
           <TestResultCard loading={testing} result={testResult} />

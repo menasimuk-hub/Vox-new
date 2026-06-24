@@ -165,10 +165,8 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
 
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const hubspotMeta = {
-    syncSettingsEnabled: hubspot.sync_settings_enabled === true,
     usesOAuth: hubspot.uses_oauth_connect === true,
     usesAccessToken: hubspot.uses_access_token === true,
-    showHubspotSettingsCard: hubspot.sync_settings_enabled === true,
   };
 
   const openTile = (view: IntegrationView) => {
