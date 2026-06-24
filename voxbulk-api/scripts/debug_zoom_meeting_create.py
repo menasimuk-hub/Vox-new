@@ -67,12 +67,34 @@ def _resolve_zoom_config(db) -> tuple[dict[str, str], dict[str, str]]:
         "base_url": "zoom",
     }
 
-    if (not zoom_enabled or not account_id or not client_id or not client_secret) and telnyx_enabled:
-        telnyx_account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
-        telnyx_client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
-        telnyx_client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
-        telnyx_base_url = str(telnyx_cfg.get("zoom_base_url") or "").strip().rstrip("/")
+    zoom_complete = bool(account_id and client_id and client_secret)
+    telnyx_account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
+    telnyx_client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
+    telnyx_client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+    telnyx_base_url = str(telnyx_cfg.get("zoom_base_url") or "").strip().rstrip("/")
+    telnyx_complete = bool(telnyx_account_id and telnyx_client_id and telnyx_client_secret)
 
+    if telnyx_enabled and telnyx_complete:
+        use_telnyx = False
+        if not zoom_enabled or not zoom_complete:
+            use_telnyx = True
+        else:
+            zoom_obj = ProviderSettingsService.get_platform_config(db, provider="zoom")
+            telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+            zoom_updated = getattr(zoom_obj, "updated_at", None)
+            telnyx_updated = getattr(telnyx_obj, "updated_at", None)
+            if zoom_updated is not None and telnyx_updated is not None and telnyx_updated > zoom_updated:
+                use_telnyx = True
+        if use_telnyx:
+            account_id = telnyx_account_id
+            client_id = telnyx_client_id
+            client_secret = telnyx_client_secret
+            base_url = telnyx_base_url or base_url or "https://api.zoom.us/v2"
+            source["account_id"] = "telnyx.zoom_account_id"
+            source["client_id"] = "telnyx.zoom_client_id"
+            source["client_secret"] = "telnyx.zoom_client_secret"
+            source["base_url"] = "telnyx.zoom_base_url" if telnyx_base_url else source["base_url"]
+    elif telnyx_enabled and (not zoom_enabled or not zoom_complete):
         if not account_id and telnyx_account_id:
             account_id = telnyx_account_id
             source["account_id"] = "telnyx.zoom_account_id"
