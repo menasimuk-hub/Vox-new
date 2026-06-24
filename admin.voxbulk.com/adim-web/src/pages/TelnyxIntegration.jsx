@@ -222,6 +222,7 @@ export default function TelnyxIntegration({
   telnyxSmsTestResult,
   telnyxMessagingSyncResult,
   telnyxZoomTestResult,
+  telnyxZoomJoinUrl,
   telnyxZoomConnectionResult,
   telnyxTeamsTestResult,
   telnyxZoomVoiceProfiles,
@@ -1245,6 +1246,46 @@ export default function TelnyxIntegration({
               <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
                 Create and validate a real Telnyx Zoom external connection first, then run an interview meeting test.
               </p>
+              <div className='note'>
+                If your Telnyx account does not expose <code>/zoom/meetings</code>, VoxBulk falls back to Zoom OAuth.
+                Add Zoom OAuth credentials here and save Telnyx settings.
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Zoom Account ID (OAuth fallback)</label>
+                <input
+                  className='input'
+                  value={String(activeConfig.zoom_account_id || '')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_account_id', e.target.value)}
+                  placeholder='Zoom Server-to-Server account_id'
+                />
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Zoom Client ID (OAuth fallback)</label>
+                <input
+                  className='input'
+                  value={String(activeConfig.zoom_client_id || '')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_client_id', e.target.value)}
+                  placeholder='Zoom Server-to-Server client_id'
+                />
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Zoom Client Secret (OAuth fallback)</label>
+                <input
+                  className='input'
+                  type='password'
+                  value={String(activeConfig.zoom_client_secret || '')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_client_secret', e.target.value)}
+                  placeholder='Leave blank to keep current secret'
+                />
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Zoom API base URL (optional)</label>
+                <input
+                  className='input'
+                  value={String(activeConfig.zoom_base_url || 'https://api.zoom.us/v2')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_base_url', e.target.value)}
+                />
+              </div>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Outbound voice profile ID (required by Telnyx)</label>
                 <div className='actions' style={{ gap: 8 }}>
@@ -1313,6 +1354,22 @@ export default function TelnyxIntegration({
                 </button>
               </div>
               {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
+              {telnyxZoomJoinUrl ? (
+                <div className='note'>
+                  <div style={{ marginBottom: 6 }}>
+                    <strong>Meeting link ready</strong>
+                  </div>
+                  <div className='telnyxCopyRow'>
+                    <input className='input' value={telnyxZoomJoinUrl} readOnly />
+                    <button type='button' className='btn soft' onClick={() => copyText(telnyxZoomJoinUrl)}>
+                      Copy
+                    </button>
+                    <a className='btn soft' href={telnyxZoomJoinUrl} target='_blank' rel='noreferrer'>
+                      Open
+                    </a>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

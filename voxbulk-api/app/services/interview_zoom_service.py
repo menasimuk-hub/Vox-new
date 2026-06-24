@@ -207,7 +207,8 @@ class InterviewZoomService:
 
         if not ZoomService.is_configured(db):
             hint = (
-                "Configure Zoom under Admin → Integrations → Zoom (account_id, client_id, client_secret), "
+                "Configure Zoom under Admin → Integrations → Zoom (or Telnyx → Zoom) with "
+                "(account_id, client_id, client_secret), "
                 "then click Test Zoom."
             )
             if telnyx_error:
