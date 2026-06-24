@@ -21,6 +21,16 @@ from app.services.org_enabled_services import is_service_enabled, org_service_ma
 
 logger = logging.getLogger(__name__)
 HUBSPOT_OBJECTS_BASE = "https://api.hubapi.com/crm/v3/objects"
+HUBSPOT_OBJECT_PHONE_KEYS = (
+    "phone",
+    "mobilephone",
+    "hs_phone_number",
+    "phone_number",
+    "contact_phone",
+)
+HUBSPOT_OBJECT_NAME_KEYS = ("firstname", "lastname", "name", "dealname", "company", "email")
+HUBSPOT_OBJECT_BRANCH_KEYS = ("branch", "city")
+HUBSPOT_OBJECT_SERVICE_KEYS = ("service_type", "jobtitle")
 
 
 @dataclass(frozen=True)
@@ -132,7 +142,7 @@ def _hubspot_item_to_appointment(
 
     phone = _first_non_empty(
         props,
-        ("phone", "mobilephone", "hs_phone_number", "phone_number", "contact_phone"),
+        HUBSPOT_OBJECT_PHONE_KEYS,
     )
     if not phone:
         return None
@@ -141,7 +151,7 @@ def _hubspot_item_to_appointment(
     last = str(props.get("lastname") or "").strip()
     contact_name = " ".join(x for x in (first, last) if x).strip()
     if not contact_name:
-        contact_name = _first_non_empty(props, ("name", "dealname", "company", "email"))
+        contact_name = _first_non_empty(props, HUBSPOT_OBJECT_NAME_KEYS)
     if not contact_name:
         contact_name = f"{object_type.title()} {hs_id[:8]}"
     email = str(props.get("email") or "").strip() or None
@@ -153,8 +163,8 @@ def _hubspot_item_to_appointment(
         contact_phone=phone,
         contact_email=email,
         appointment_datetime=appt_dt,
-        branch=_first_non_empty(props, ("branch", "city")) or None,
-        service_type=_first_non_empty(props, ("service_type", "jobtitle")) or None,
+        branch=_first_non_empty(props, HUBSPOT_OBJECT_BRANCH_KEYS) or None,
+        service_type=_first_non_empty(props, HUBSPOT_OBJECT_SERVICE_KEYS) or None,
     )
 
 
@@ -226,7 +236,13 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
     appt_cfg = get_config(db, org_id)
     date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
     object_type = str(appt_cfg.get("crm_object") or "contacts").strip().lower() or "contacts"
-    props = ["firstname", "lastname", "name", "dealname", "email", "phone", "mobilephone", "service_type", date_prop]
+    props = [
+        *HUBSPOT_OBJECT_NAME_KEYS,
+        *HUBSPOT_OBJECT_PHONE_KEYS,
+        *HUBSPOT_OBJECT_BRANCH_KEYS,
+        *HUBSPOT_OBJECT_SERVICE_KEYS,
+        date_prop,
+    ]
     configured_list_id = str(cfg.get("appointment_list_id") or "").strip()
 
     out: list[AppointmentData] = []
@@ -447,7 +463,7 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
                     token,
                     object_type=crm_object,
                     date_prop=date_prop,
-                    properties=["firstname", "lastname", "name", "dealname", "email", "phone", "mobilephone", date_prop],
+                    properties=[*HUBSPOT_OBJECT_NAME_KEYS, *HUBSPOT_OBJECT_PHONE_KEYS, date_prop],
                     max_results=5000,
                 )
                 eligible = 0
