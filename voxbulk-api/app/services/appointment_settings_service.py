@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,10 @@ DEFAULT_APPOINTMENT_CONFIG: dict[str, Any] = {
     "crm_provider": "hubspot",
     "crm_object": "contacts",
     "crm_date_property": "appointment_date",
+    "crm_phone_property": "phone",
+    "crm_name_property": "name",
+    "crm_status_property": "voxbulk_appointment_status",
+    "crm_bucket_property": "voxbulk_appointment_bucket",
     "sync_interval_minutes": 60,
     "appointment_agent_id": None,
     "outreach_window_start": "09:00",
@@ -35,6 +40,13 @@ DEFAULT_APPOINTMENT_CONFIG: dict[str, Any] = {
     "last_crm_sync_fetched": 0,
     "last_crm_sync_created": 0,
     "last_crm_sync_updated": 0,
+    "last_crm_writeback_at": None,
+    "last_crm_writeback_status": None,
+    "last_crm_writeback_reason": None,
+    "last_crm_writeback_object": None,
+    "last_crm_writeback_ok": 0,
+    "last_crm_writeback_skipped": 0,
+    "last_crm_writeback_failed": 0,
 }
 
 
@@ -63,6 +75,10 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     out["crm_provider"] = str(out.get("crm_provider") or DEFAULT_APPOINTMENT_CONFIG["crm_provider"]).strip()
     out["crm_object"] = str(out.get("crm_object") or DEFAULT_APPOINTMENT_CONFIG["crm_object"]).strip()
     out["crm_date_property"] = str(out.get("crm_date_property") or DEFAULT_APPOINTMENT_CONFIG["crm_date_property"]).strip()
+    out["crm_phone_property"] = str(out.get("crm_phone_property") or DEFAULT_APPOINTMENT_CONFIG["crm_phone_property"]).strip()
+    out["crm_name_property"] = str(out.get("crm_name_property") or DEFAULT_APPOINTMENT_CONFIG["crm_name_property"]).strip()
+    out["crm_status_property"] = str(out.get("crm_status_property") or DEFAULT_APPOINTMENT_CONFIG["crm_status_property"]).strip()
+    out["crm_bucket_property"] = str(out.get("crm_bucket_property") or DEFAULT_APPOINTMENT_CONFIG["crm_bucket_property"]).strip()
     out["sync_interval_minutes"] = int(out.get("sync_interval_minutes") or DEFAULT_APPOINTMENT_CONFIG["sync_interval_minutes"])
     agent_id = out.get("appointment_agent_id")
     out["appointment_agent_id"] = str(agent_id).strip() if agent_id else None
@@ -77,6 +93,15 @@ def _merge_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     out["post_survey_delay_hours"] = int(out.get("post_survey_delay_hours") or DEFAULT_APPOINTMENT_CONFIG["post_survey_delay_hours"])
     out["last_crm_sync_at"] = str(out.get("last_crm_sync_at") or "").strip() or None
     for key in ("last_crm_sync_fetched", "last_crm_sync_created", "last_crm_sync_updated"):
+        try:
+            out[key] = int(out.get(key) or 0)
+        except (TypeError, ValueError):
+            out[key] = 0
+    out["last_crm_writeback_at"] = str(out.get("last_crm_writeback_at") or "").strip() or None
+    out["last_crm_writeback_status"] = str(out.get("last_crm_writeback_status") or "").strip() or None
+    out["last_crm_writeback_reason"] = str(out.get("last_crm_writeback_reason") or "").strip() or None
+    out["last_crm_writeback_object"] = str(out.get("last_crm_writeback_object") or "").strip() or None
+    for key in ("last_crm_writeback_ok", "last_crm_writeback_skipped", "last_crm_writeback_failed"):
         try:
             out[key] = int(out.get(key) or 0)
         except (TypeError, ValueError):
@@ -115,3 +140,32 @@ def save_config(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, 
     db.commit()
     db.refresh(org)
     return current
+
+
+def record_writeback_event(
+    db: Session,
+    org_id: str,
+    *,
+    status: str,
+    reason: str | None = None,
+    crm_object: str | None = None,
+) -> None:
+    """Lightweight writeback observability counters stored in appointment config."""
+    org = db.get(Organisation, org_id)
+    if org is None:
+        return
+    current = get_config(db, org_id)
+    clean = str(status or "").strip().lower()
+    current["last_crm_writeback_at"] = datetime.utcnow().isoformat()
+    current["last_crm_writeback_status"] = clean or None
+    current["last_crm_writeback_reason"] = (str(reason or "").strip() or None)
+    current["last_crm_writeback_object"] = (str(crm_object or "").strip() or None)
+    if clean == "ok":
+        current["last_crm_writeback_ok"] = int(current.get("last_crm_writeback_ok") or 0) + 1
+    elif clean == "skipped":
+        current["last_crm_writeback_skipped"] = int(current.get("last_crm_writeback_skipped") or 0) + 1
+    elif clean == "failed":
+        current["last_crm_writeback_failed"] = int(current.get("last_crm_writeback_failed") or 0) + 1
+    current = _merge_defaults(current)
+    org.appointment_manager_config_json = json.dumps(current, ensure_ascii=False)
+    db.add(org)
