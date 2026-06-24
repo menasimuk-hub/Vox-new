@@ -194,6 +194,7 @@ const TELNYX_TABS = [
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'messages', label: 'Messages' },
   { id: 'zoom', label: 'Zoom' },
+  { id: 'microsoft_teams', label: 'Microsoft Teams' },
 ]
 
 export default function TelnyxIntegration({
@@ -221,6 +222,10 @@ export default function TelnyxIntegration({
   telnyxSmsTestResult,
   telnyxMessagingSyncResult,
   telnyxZoomTestResult,
+  telnyxZoomConnectionResult,
+  telnyxTeamsTestResult,
+  telnyxZoomVoiceProfiles,
+  telnyxZoomVoiceProfilesBusy,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
   fetchTelnyxMessageDetail,
@@ -253,6 +258,11 @@ export default function TelnyxIntegration({
   syncTelnyxMessagingDestinations,
   testTelnyxWhatsApp,
   testTelnyxZoom,
+  createTelnyxZoomConnection,
+  testTelnyxZoomConnection,
+  createTelnyxTeamsConnection,
+  testTelnyxTeamsConnection,
+  loadTelnyxZoomVoiceProfiles,
   loadTelnyxInboundMessages,
   telnyxMessageFilters,
   setTelnyxMessageFilters,
@@ -1228,25 +1238,105 @@ export default function TelnyxIntegration({
       {activeTab === 'zoom' ? (
         <div className='card'>
           <div className='cardHead'>
-            <h3>Zoom for AI interviews</h3>
+            <h3>Zoom external connection (Telnyx-native)</h3>
           </div>
           <div className='cardBody'>
             <div className='stack' style={{ gap: 12 }}>
               <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
-                Creates a test interview meeting. Telnyx does not expose <code>/zoom/meetings</code> on most accounts, so VoxBulk falls back to{' '}
-                <strong>Integrations → Zoom</strong> (Server-to-Server OAuth) for meeting links. Telnyx AI/voice settings remain separate.
+                Create and validate a real Telnyx Zoom external connection first, then run an interview meeting test.
               </p>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Outbound voice profile ID (required by Telnyx)</label>
+                <div className='actions' style={{ gap: 8 }}>
+                  <select
+                    className='input'
+                    value={String(activeConfig.zoom_outbound_voice_profile_id || '')}
+                    onChange={(e) => setProviderField('telnyx', 'zoom_outbound_voice_profile_id', e.target.value)}
+                  >
+                    <option value=''>
+                      {telnyxZoomVoiceProfilesBusy ? 'Loading Telnyx profiles…' : 'Auto-select from Telnyx'}
+                    </option>
+                    {Array.isArray(telnyxZoomVoiceProfiles)
+                      ? telnyxZoomVoiceProfiles.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.name || row.id} ({row.id})
+                          </option>
+                        ))
+                      : null}
+                  </select>
+                  <button type='button' className='btn soft' onClick={() => loadTelnyxZoomVoiceProfiles(false)} disabled={providerSaving || telnyxZoomVoiceProfilesBusy}>
+                    {telnyxZoomVoiceProfilesBusy ? 'Loading…' : 'Refresh profiles'}
+                  </button>
+                </div>
+                <div className='muted telnyxFieldHint'>
+                  Leave it on auto if unsure. VoxBulk will use the first available Telnyx outbound profile.
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Webhook event URL (optional)</label>
+                <input
+                  className='input'
+                  value={String(activeConfig.zoom_webhook_event_url || '')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_webhook_event_url', e.target.value)}
+                  placeholder={`${String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom`}
+                />
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                <label className='label'>Zoom external connection ID (optional for test)</label>
+                <input
+                  className='input'
+                  value={String(activeConfig.zoom_external_connection_id || '')}
+                  onChange={(e) => setProviderField('telnyx', 'zoom_external_connection_id', e.target.value)}
+                  placeholder='Auto-filled after create'
+                />
+              </div>
+              <div className='actions telnyxTestActions'>
+                <button type='button' className='btn soft' onClick={createTelnyxZoomConnection} disabled={providerSaving}>
+                  Create Zoom Connection
+                </button>
+                <button type='button' className='btn soft' onClick={testTelnyxZoomConnection} disabled={providerSaving}>
+                  Test Zoom Connection
+                </button>
+              </div>
+              {telnyxZoomConnectionResult ? <div className='note'>{telnyxZoomConnectionResult}</div> : null}
               <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
                 After interviews, point Telnyx Zoom webhooks to{' '}
                 <code>{String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom</code>{' '}
                 (or your API host + <code>/telnyx/webhooks/zoom</code>) so recordings and transcripts sync automatically.
               </p>
+              <div className='note'>
+                Interview delivery test (below) verifies meeting creation flow used by campaigns.
+              </div>
               <div className='actions telnyxTestActions'>
                 <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
-                  Test Zoom Connection
+                  Test Interview Meeting
                 </button>
               </div>
               {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === 'microsoft_teams' ? (
+        <div className='card'>
+          <div className='cardHead'>
+            <h3>Microsoft Teams (Operator Connect)</h3>
+          </div>
+          <div className='cardBody'>
+            <div className='stack' style={{ gap: 12 }}>
+              <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
+                Telnyx creates Operator Connect external connections asynchronously. Use Create, then Test until it reports active.
+              </p>
+              <div className='actions telnyxTestActions'>
+                <button type='button' className='btn soft' onClick={createTelnyxTeamsConnection} disabled={providerSaving}>
+                  Create Teams Connection
+                </button>
+                <button type='button' className='btn soft' onClick={testTelnyxTeamsConnection} disabled={providerSaving}>
+                  Test Teams Connection
+                </button>
+              </div>
+              {telnyxTeamsTestResult ? <div className='note'>{telnyxTeamsTestResult}</div> : null}
             </div>
           </div>
         </div>
