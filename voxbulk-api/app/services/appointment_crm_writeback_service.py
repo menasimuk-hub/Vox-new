@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from datetime import datetime
 from urllib.parse import quote
 from typing import Any
@@ -18,6 +17,7 @@ logger = logging.getLogger(__name__)
 HUBSPOT_CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
 HUBSPOT_OBJECTS_URL = "https://api.hubapi.com/crm/v3/objects"
 HUBSPOT_PROPERTIES_URL = "https://api.hubapi.com/crm/v3/properties"
+HUBSPOT_ROUTE_BUCKET_PROPERTY = "voxbulk_appointment_bucket"
 
 def _hubspot_datetime(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat() + "Z"
@@ -50,7 +50,6 @@ def _patch_hubspot_object(token: str, object_type: str, object_id: str, properti
         raise ValueError(f"HubSpot {object_type} update failed: {res.text[:300]}")
 
 
-@lru_cache(maxsize=256)
 def _hubspot_property_exists(token: str, object_type: str, property_name: str) -> bool:
     object_path = quote(str(object_type).strip(), safe="-_")
     property_path = quote(str(property_name).strip(), safe="-_")
@@ -129,6 +128,19 @@ def _filter_writable_properties(token: str, object_type: str, properties: dict[s
     return out
 
 
+def _route_bucket_for_status(status: str) -> str:
+    clean = str(status or "").strip().lower()
+    if clean == "confirmed":
+        return "confirmed"
+    if clean == "cancelled":
+        return "cancelled"
+    if clean == "rescheduled":
+        return "rescheduled"
+    if clean == "no_show":
+        return "no_show"
+    return "source"
+
+
 def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[str, Any]:
     source = str(appt.crm_source or "").strip().lower()
     record_id = str(appt.crm_record_id or "").strip()
@@ -155,8 +167,13 @@ def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[s
         target = appt.rescheduled_to_datetime or appt.appointment_datetime
         if isinstance(target, datetime):
             properties[date_prop] = _hubspot_datetime(target)
+    elif status == "no_show":
+        properties["voxbulk_appointment_status"] = "no_show"
+    elif status == "scheduled":
+        properties["voxbulk_appointment_status"] = "scheduled"
     if status in {"confirmed", "scheduled"} and isinstance(appt.appointment_datetime, datetime):
         properties.setdefault(date_prop, _hubspot_datetime(appt.appointment_datetime))
+    properties[HUBSPOT_ROUTE_BUCKET_PROPERTY] = _route_bucket_for_status(status)
     if not properties:
         return {"skipped": True, "reason": "no_properties"}
     writable = _filter_writable_properties(token, object_type, properties)

@@ -82,8 +82,14 @@ def test_writeback_contacts_updates_contact_and_lists(
 
         assert result.get("ok") is True
         assert result.get("crm_object") == "contacts"
+        assert "voxbulk_appointment_bucket" in result.get("properties", {})
+        assert result.get("properties", {}).get("voxbulk_appointment_bucket") == "confirmed"
         called_url = str(client.patch.call_args.args[0])
         assert "/crm/v3/objects/contacts/hs-contact-1" in called_url
+        payload = client.patch.call_args.kwargs.get("json") or {}
+        props = payload.get("properties") or {}
+        assert props.get("voxbulk_appointment_status") == "confirmed"
+        assert props.get("voxbulk_appointment_bucket") == "confirmed"
         assert list_move_m.called
 
 
@@ -110,8 +116,13 @@ def test_writeback_deals_updates_object_without_list_moves(
 
         assert result.get("ok") is True
         assert result.get("crm_object") == "deals"
+        assert result.get("properties", {}).get("voxbulk_appointment_bucket") == "rescheduled"
         called_url = str(client.patch.call_args.args[0])
         assert "/crm/v3/objects/deals/deal-99" in called_url
+        payload = client.patch.call_args.kwargs.get("json") or {}
+        props = payload.get("properties") or {}
+        assert props.get("voxbulk_appointment_status") == "rescheduled"
+        assert props.get("voxbulk_appointment_bucket") == "rescheduled"
         list_move_m.assert_not_called()
 
 
@@ -131,3 +142,31 @@ def test_writeback_skips_when_no_matching_properties(
 
         assert result.get("skipped") is True
         assert result.get("reason") == "no_writable_properties"
+
+
+@patch("app.services.appointment_crm_writeback_service._hubspot_property_exists", return_value=True)
+@patch("app.services.hubspot_connection_service._ensure_access_token", return_value="tok-writeback")
+@patch("app.services.hubspot_connection_service.hubspot_status", return_value={"connected": True})
+@patch("app.services.appointment_crm_writeback_service.httpx.Client")
+def test_writeback_no_show_sets_bucket_and_status(
+    client_cls,
+    _status_m,
+    _token_m,
+    _prop_exists_m,
+):
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(db, org.id, {"crm_object": "deals", "crm_date_property": "appointment_date"})
+        appt = _seed_appointment(db, org_id=org.id, status="no_show", crm_record_id="deals:deal-404")
+
+        client = client_cls.return_value.__enter__.return_value
+        client.patch.return_value = MagicMock(status_code=200, text="ok")
+        result = maybe_writeback_appointment_to_crm(db, appt)
+
+        assert result.get("ok") is True
+        assert result.get("properties", {}).get("voxbulk_appointment_status") == "no_show"
+        assert result.get("properties", {}).get("voxbulk_appointment_bucket") == "no_show"
+        payload = client.patch.call_args.kwargs.get("json") or {}
+        props = payload.get("properties") or {}
+        assert props.get("voxbulk_appointment_status") == "no_show"
+        assert props.get("voxbulk_appointment_bucket") == "no_show"
