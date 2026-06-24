@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from app.services.crm_providers import CRM_CONFIG_COLUMNS
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 
 logger = logging.getLogger(__name__)
+HUBSPOT_OBJECTS_BASE = "https://api.hubapi.com/crm/v3/objects"
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,118 @@ def _contact_item_to_appointment(item: dict[str, Any], *, date_prop: str) -> App
     )
 
 
+def _parse_hubspot_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    # HubSpot datetime can arrive as ISO string or epoch milliseconds.
+    if raw.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(raw) / 1000.0)
+        except Exception:
+            return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _first_non_empty(props: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        val = str(props.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _hubspot_item_to_appointment(
+    item: dict[str, Any],
+    *,
+    date_prop: str,
+    object_type: str,
+) -> AppointmentData | None:
+    if not isinstance(item, dict):
+        return None
+    hs_id = str(item.get("id") or "").strip()
+    props = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+    if not hs_id or not isinstance(props, dict):
+        return None
+    appt_dt = _parse_hubspot_datetime(str(props.get(date_prop) or ""))
+    if appt_dt is None:
+        return None
+
+    phone = _first_non_empty(
+        props,
+        ("phone", "mobilephone", "hs_phone_number", "phone_number", "contact_phone"),
+    )
+    if not phone:
+        return None
+
+    first = str(props.get("firstname") or "").strip()
+    last = str(props.get("lastname") or "").strip()
+    contact_name = " ".join(x for x in (first, last) if x).strip()
+    if not contact_name:
+        contact_name = _first_non_empty(props, ("name", "dealname", "company", "email"))
+    if not contact_name:
+        contact_name = f"{object_type.title()} {hs_id[:8]}"
+    email = str(props.get("email") or "").strip() or None
+    crm_record_id = hs_id if object_type == "contacts" else f"{object_type}:{hs_id}"
+    return AppointmentData(
+        crm_source="hubspot",
+        crm_record_id=crm_record_id,
+        contact_name=contact_name,
+        contact_phone=phone,
+        contact_email=email,
+        appointment_datetime=appt_dt,
+        branch=_first_non_empty(props, ("branch", "city")) or None,
+        service_type=_first_non_empty(props, ("service_type", "jobtitle")) or None,
+    )
+
+
+def _search_hubspot_object_rows(
+    token: str,
+    *,
+    object_type: str,
+    date_prop: str,
+    properties: list[str],
+    max_results: int = 5000,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    after: str | None = None
+    cap = min(max(1, max_results), 5000)
+    with httpx.Client(timeout=60.0) as client:
+        while len(out) < cap:
+            payload: dict[str, Any] = {
+                "filterGroups": [
+                    {"filters": [{"propertyName": date_prop, "operator": "HAS_PROPERTY"}]},
+                ],
+                "properties": properties,
+                "limit": min(100, cap - len(out)),
+            }
+            if after:
+                payload["after"] = after
+            res = client.post(
+                f"{HUBSPOT_OBJECTS_BASE}/{object_type}/search",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            if res.status_code >= 400:
+                raise ValueError(f"HubSpot object search failed: {res.text[:300]}")
+            body = res.json() or {}
+            rows = body.get("results") or []
+            for row in rows:
+                if isinstance(row, dict):
+                    out.append(row)
+                    if len(out) >= cap:
+                        break
+            paging = body.get("paging") if isinstance(body, dict) else None
+            nxt = paging.get("next") if isinstance(paging, dict) else None
+            after = str(nxt.get("after") or "").strip() if isinstance(nxt, dict) else ""
+            if not after:
+                break
+    return out
+
+
 def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentData]:
     from app.services.hubspot_connection_service import (
         _ensure_access_token,
@@ -111,10 +225,27 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
 
     appt_cfg = get_config(db, org_id)
     date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
-    props = ["firstname", "lastname", "email", "phone", date_prop]
+    object_type = str(appt_cfg.get("crm_object") or "contacts").strip().lower() or "contacts"
+    props = ["firstname", "lastname", "name", "dealname", "email", "phone", "mobilephone", "service_type", date_prop]
     configured_list_id = str(cfg.get("appointment_list_id") or "").strip()
 
     out: list[AppointmentData] = []
+    if object_type != "contacts":
+        try:
+            items = _search_hubspot_object_rows(
+                token,
+                object_type=object_type,
+                date_prop=date_prop,
+                properties=props,
+            )
+            for item in items:
+                row = _hubspot_item_to_appointment(item, date_prop=date_prop, object_type=object_type)
+                if row:
+                    out.append(row)
+        except Exception:
+            logger.exception("hubspot_appointment_object_sync_error org=%s object=%s", org_id, object_type)
+        return out
+
     try:
         items = search_contacts_with_appointment_date(token, date_prop, props)
         source_list_id = ensure_appointment_source_list(token, configured_list_id or None)
@@ -138,7 +269,7 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
                     str(exc)[:200],
                 )
         for item in items:
-            row = _contact_item_to_appointment(item, date_prop=date_prop)
+            row = _hubspot_item_to_appointment(item, date_prop=date_prop, object_type="contacts")
             if row:
                 out.append(row)
     except HubspotListError as exc:
@@ -273,6 +404,7 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
     )
 
     appt_cfg = get_config(db, org_id)
+    crm_object = str(appt_cfg.get("crm_object") or "contacts").strip().lower() or "contacts"
     date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
     provider: str | None = None
     if _org_has_crm_connected(db, org_id, "hubspot"):
@@ -285,6 +417,7 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
     out: dict[str, Any] = {
         "crm_connected": provider is not None,
         "crm_provider": provider,
+        "crm_object": crm_object,
         "date_property": date_prop,
         "eligible_contacts": 0,
         "appointment_list_id": None,
@@ -304,6 +437,37 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
         hs = hubspot_status(db, org_id)
         if not hs.get("connected"):
             out["message"] = "HubSpot is not connected — open Settings → Integrations → HubSpot and paste your service key."
+            return out
+        if crm_object != "contacts":
+            try:
+                from app.services.hubspot_connection_service import _ensure_access_token
+
+                token = _ensure_access_token(db, org_id)
+                items = _search_hubspot_object_rows(
+                    token,
+                    object_type=crm_object,
+                    date_prop=date_prop,
+                    properties=["firstname", "lastname", "name", "dealname", "email", "phone", "mobilephone", date_prop],
+                    max_results=5000,
+                )
+                eligible = 0
+                for item in items:
+                    if _hubspot_item_to_appointment(item, date_prop=date_prop, object_type=crm_object):
+                        eligible += 1
+                out["eligible_contacts"] = eligible
+                if eligible > 0:
+                    out["ready"] = True
+                    out["message"] = (
+                        f"{eligible} HubSpot {crm_object} record(s) have phone + {date_prop}. "
+                        "Click Sync CRM to import them."
+                    )
+                else:
+                    out["message"] = (
+                        f"No HubSpot {crm_object} records have both phone and {date_prop} set. "
+                        "Update those properties, then click Sync CRM."
+                    )
+            except Exception as exc:
+                out["message"] = str(exc)[:240] or f"HubSpot {crm_object} check failed"
             return out
         cfg = get_hubspot_config(db, org_id)
         list_id = str(cfg.get("appointment_list_id") or "").strip() or None

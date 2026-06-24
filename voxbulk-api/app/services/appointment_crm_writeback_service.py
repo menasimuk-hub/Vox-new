@@ -67,6 +67,17 @@ def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[s
     record_id = str(appt.crm_record_id or "").strip()
     if not record_id or source not in {"hubspot"}:
         return {"skipped": True, "reason": "no_crm_record"}
+    object_type = "contacts"
+    object_record_id = record_id
+    if ":" in record_id:
+        maybe_type, maybe_id = record_id.split(":", 1)
+        maybe_type = maybe_type.strip().lower()
+        maybe_id = maybe_id.strip()
+        if maybe_type and maybe_id:
+            object_type = maybe_type
+            object_record_id = maybe_id
+    if object_type != "contacts":
+        return {"skipped": True, "reason": f"hubspot_writeback_unsupported_for_{object_type}"}
     from app.services.hubspot_connection_service import _ensure_access_token, hubspot_status
     if not hubspot_status(db, appt.org_id).get("connected"):
         return {"skipped": True, "reason": "hubspot_not_connected"}
@@ -88,9 +99,9 @@ def maybe_writeback_appointment_to_crm(db: Session, appt: Appointment) -> dict[s
         properties.setdefault(date_prop, _hubspot_datetime(appt.appointment_datetime))
     if not properties:
         return {"skipped": True, "reason": "no_properties"}
-    _patch_hubspot_contact(token, record_id, properties)
+    _patch_hubspot_contact(token, object_record_id, properties)
     try:
-        _maybe_move_hubspot_lists(db, appt.org_id, token, contact_id=record_id, status=status)
+        _maybe_move_hubspot_lists(db, appt.org_id, token, contact_id=object_record_id, status=status)
     except Exception:
         logger.exception("appointment_hubspot_list_writeback_failed appointment_id=%s", appt.id)
     append_log(db, appointment_id=appt.id, event_type="crm_writeback", detail={"crm_source": source, "properties": list(properties.keys())})
