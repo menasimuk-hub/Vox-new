@@ -150,7 +150,7 @@ class ProviderSettingsService:
                 merged = {**current, **config}
                 for secret_key in ProviderSettingsService._secret_keys(provider):
                     incoming = config.get(secret_key)
-                    if (incoming is None or (isinstance(incoming, str) and not incoming.strip())) and current.get(secret_key):
+                    if incoming is None and current.get(secret_key):
                         merged[secret_key] = current[secret_key]
                 config = merged
 
