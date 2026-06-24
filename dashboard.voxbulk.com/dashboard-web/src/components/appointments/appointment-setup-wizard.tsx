@@ -24,6 +24,10 @@ type Settings = {
   crm_provider?: string;
   crm_object?: string;
   crm_date_property?: string;
+  crm_phone_property?: string;
+  crm_name_property?: string;
+  crm_status_property?: string;
+  crm_bucket_property?: string;
   sync_interval_minutes?: number;
   appointment_agent_id?: string | null;
   wa_template_name?: string;
@@ -355,6 +359,51 @@ export function AppointmentSetupWizard() {
               />
               <p className="text-xs text-muted-foreground">
                 HubSpot property for the selected object ({hubspotCrm ? hubspotObjectForSync || "contacts" : "contacts"}).
+              </p>
+            </div>
+
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-sm font-medium">Advanced CRM field mapping</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="phone-prop">Phone field</Label>
+                  <Input
+                    id="phone-prop"
+                    value={form.crm_phone_property ?? "phone"}
+                    onChange={(e) => patch({ crm_phone_property: e.target.value })}
+                    placeholder="phone"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="name-prop">Name field</Label>
+                  <Input
+                    id="name-prop"
+                    value={form.crm_name_property ?? "name"}
+                    onChange={(e) => patch({ crm_name_property: e.target.value })}
+                    placeholder="name"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="status-prop">Status writeback field</Label>
+                  <Input
+                    id="status-prop"
+                    value={form.crm_status_property ?? "voxbulk_appointment_status"}
+                    onChange={(e) => patch({ crm_status_property: e.target.value })}
+                    placeholder="voxbulk_appointment_status"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="bucket-prop">Route bucket field</Label>
+                  <Input
+                    id="bucket-prop"
+                    value={form.crm_bucket_property ?? "voxbulk_appointment_bucket"}
+                    onChange={(e) => patch({ crm_bucket_property: e.target.value })}
+                    placeholder="voxbulk_appointment_bucket"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use this when your CRM object stores phone/name/status in custom properties.
               </p>
             </div>
 

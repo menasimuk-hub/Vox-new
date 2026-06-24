@@ -10,8 +10,9 @@ from app.models.appointment import Appointment
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
+from app.services.appointment_service import AppointmentService
 from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
-from app.services.appointment_settings_service import save_config
+from app.services.appointment_settings_service import get_config, save_config
 from app.services.hubspot_connection_service import save_hubspot_config
 
 
@@ -35,7 +36,14 @@ def _seed_org(db):
     return org
 
 
-def _seed_appointment(db, *, org_id: str, status: str, crm_record_id: str) -> Appointment:
+def _seed_appointment(
+    db,
+    *,
+    org_id: str,
+    status: str,
+    crm_record_id: str,
+    crm_source: str = "hubspot",
+) -> Appointment:
     now = datetime.utcnow()
     appt = Appointment(
         id=str(uuid.uuid4()),
@@ -46,7 +54,7 @@ def _seed_appointment(db, *, org_id: str, status: str, crm_record_id: str) -> Ap
         appointment_datetime=now + timedelta(days=1),
         timezone="Europe/London",
         status=status,
-        crm_source="hubspot",
+        crm_source=crm_source,
         crm_record_id=crm_record_id,
         created_at=now,
         updated_at=now,
@@ -170,3 +178,112 @@ def test_writeback_no_show_sets_bucket_and_status(
         props = payload.get("properties") or {}
         assert props.get("voxbulk_appointment_status") == "no_show"
         assert props.get("voxbulk_appointment_bucket") == "no_show"
+
+
+@patch("app.services.appointment_crm_writeback_service._hubspot_property_exists", return_value=True)
+@patch("app.services.hubspot_connection_service._ensure_access_token", return_value="tok-writeback")
+@patch("app.services.hubspot_connection_service.hubspot_status", return_value={"connected": True})
+@patch("app.services.appointment_crm_writeback_service.httpx.Client")
+def test_writeback_uses_custom_status_and_bucket_properties(
+    client_cls,
+    _status_m,
+    _token_m,
+    _prop_exists_m,
+):
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(
+            db,
+            org.id,
+            {
+                "crm_object": "deals",
+                "crm_date_property": "appointment_date",
+                "crm_status_property": "custom_status_prop",
+                "crm_bucket_property": "custom_bucket_prop",
+            },
+        )
+        appt = _seed_appointment(db, org_id=org.id, status="confirmed", crm_record_id="deals:deal-505")
+
+        client = client_cls.return_value.__enter__.return_value
+        client.patch.return_value = MagicMock(status_code=200, text="ok")
+        result = maybe_writeback_appointment_to_crm(db, appt)
+
+        assert result.get("ok") is True
+        assert result.get("properties", {}).get("custom_status_prop") == "confirmed"
+        assert result.get("properties", {}).get("custom_bucket_prop") == "confirmed"
+        payload = client.patch.call_args.kwargs.get("json") or {}
+        props = payload.get("properties") or {}
+        assert props.get("custom_status_prop") == "confirmed"
+        assert props.get("custom_bucket_prop") == "confirmed"
+
+
+@patch("app.services.pipedrive_connection_service._ensure_access_token", return_value="tok-pd")
+@patch("app.services.pipedrive_connection_service.pipedrive_status", return_value={"connected": True})
+@patch("app.services.appointment_crm_writeback_service.httpx.Client")
+def test_writeback_pipedrive_updates_deal(client_cls, _status_m, _token_m):
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(db, org.id, {"crm_status_property": "pd_status", "crm_bucket_property": "pd_bucket"})
+        appt = _seed_appointment(
+            db,
+            org_id=org.id,
+            status="confirmed",
+            crm_source="pipedrive",
+            crm_record_id="901",
+        )
+
+        client = client_cls.return_value.__enter__.return_value
+        client.put.return_value = MagicMock(status_code=200, text="ok")
+        result = maybe_writeback_appointment_to_crm(db, appt)
+
+        assert result.get("ok") is True
+        assert result.get("crm_source") == "pipedrive"
+        url = str(client.put.call_args.args[0])
+        assert "/v1/deals/901" in url
+        payload = client.put.call_args.kwargs.get("json") or {}
+        assert payload.get("pd_status") == "confirmed"
+        assert payload.get("pd_bucket") == "confirmed"
+
+
+@patch("app.services.zoho_crm_connection_service._ensure_access_token", return_value=("tok-zoho", "www.zohoapis.com"))
+@patch("app.services.zoho_crm_connection_service.zoho_crm_status", return_value={"connected": True})
+@patch("app.services.appointment_crm_writeback_service.httpx.Client")
+def test_writeback_zoho_updates_deal(client_cls, _status_m, _token_m):
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        save_config(db, org.id, {"crm_status_property": "zoho_status", "crm_bucket_property": "zoho_bucket"})
+        appt = _seed_appointment(
+            db,
+            org_id=org.id,
+            status="no_show",
+            crm_source="zoho_crm",
+            crm_record_id="701",
+        )
+
+        client = client_cls.return_value.__enter__.return_value
+        client.put.return_value = MagicMock(status_code=200, text="ok")
+        result = maybe_writeback_appointment_to_crm(db, appt)
+
+        assert result.get("ok") is True
+        assert result.get("crm_source") == "zoho_crm"
+        url = str(client.put.call_args.args[0])
+        assert "/crm/v2/Deals/701" in url
+        payload = client.put.call_args.kwargs.get("json") or {}
+        rows = payload.get("data") or []
+        assert rows and rows[0].get("zoho_status") == "no_show"
+        assert rows[0].get("zoho_bucket") == "no_show"
+
+
+@patch("app.services.appointment_service.maybe_sync_appointment_calendar")
+@patch("app.services.appointment_service.maybe_writeback_appointment_to_crm", return_value={"skipped": True, "reason": "no_writable_properties"})
+def test_patch_status_records_writeback_observability(_writeback_m, _calendar_m):
+    with get_sessionmaker()() as db:
+        org = _seed_org(db)
+        appt = _seed_appointment(db, org_id=org.id, status="scheduled", crm_record_id="contacts:hs-observe-1")
+        patched = AppointmentService.patch_status(db, org.id, appt.id, "confirmed")
+
+        assert patched is not None
+        cfg = get_config(db, org.id)
+        assert cfg.get("last_crm_writeback_status") == "skipped"
+        assert cfg.get("last_crm_writeback_reason") == "no_writable_properties"
+        assert int(cfg.get("last_crm_writeback_skipped") or 0) >= 1
