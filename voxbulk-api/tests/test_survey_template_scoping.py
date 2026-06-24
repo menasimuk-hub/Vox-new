@@ -95,6 +95,7 @@ def test_cleanup_removes_mistaken_links():
         db.flush()
         db.add(
             SurveyTypeTemplate(
+                industry_id=cs.industry_id,
                 survey_type_id=cs.id,
                 template_id=row.id,
                 usable_as_standard=True,
@@ -132,8 +133,22 @@ def test_list_for_survey_type_excludes_hidden_templates():
         db.add(active_tpl)
         db.add(hidden_tpl)
         db.flush()
-        db.add(SurveyTypeTemplate(survey_type_id=cs.id, template_id=active_tpl.id, usable_as_standard=True))
-        db.add(SurveyTypeTemplate(survey_type_id=cs.id, template_id=hidden_tpl.id, usable_as_standard=True))
+        db.add(
+            SurveyTypeTemplate(
+                industry_id=cs.industry_id,
+                survey_type_id=cs.id,
+                template_id=active_tpl.id,
+                usable_as_standard=True,
+            )
+        )
+        db.add(
+            SurveyTypeTemplate(
+                industry_id=cs.industry_id,
+                survey_type_id=cs.id,
+                template_id=hidden_tpl.id,
+                usable_as_standard=True,
+            )
+        )
         db.commit()
 
         listed = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)
