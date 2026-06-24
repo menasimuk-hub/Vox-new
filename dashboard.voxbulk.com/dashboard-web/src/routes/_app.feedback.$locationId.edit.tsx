@@ -47,6 +47,16 @@ function EditFeedbackSurvey() {
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
   const surveyTypes = typesQ.data || [];
 
+  React.useEffect(() => {
+    if (!location?.industry_id || !typesQ.isFetched) return;
+    const validTypeIds = new Set(surveyTypes.map((row) => String(row.id)));
+    setSelectedTypeIds((prev) => {
+      const next = prev.filter((id) => validTypeIds.has(id));
+      if (next.length === prev.length && next.every((id, idx) => id === prev[idx])) return prev;
+      return next;
+    });
+  }, [location?.industry_id, typesQ.isFetched, surveyTypes]);
+
   const onSave = async () => {
     if (!location || selectedTypeIds.length === 0) {
       toast.error("Select at least one survey topic.");

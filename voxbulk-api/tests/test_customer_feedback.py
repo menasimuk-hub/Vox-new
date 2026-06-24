@@ -730,6 +730,38 @@ def test_build_survey_config_excludes_thank_you_step():
         assert "thank_you" not in kinds
 
 
+def test_build_survey_config_skips_inactive_topics():
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType
+    from app.services.customer_feedback.survey_config_service import build_survey_config
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")).scalar_one()
+        types = list(
+            db.execute(
+                select(FeedbackSurveyType)
+                .where(FeedbackSurveyType.industry_id == industry.id)
+                .order_by(FeedbackSurveyType.sort_order)
+                .limit(2)
+            ).scalars().all()
+        )
+        assert len(types) == 2
+        inactive = types[1]
+        inactive.is_active = False
+        db.add(inactive)
+        db.commit()
+        config = build_survey_config(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=[types[0].id, types[1].id],
+            open_question_enabled=False,
+            marketing_opt_in_enabled=False,
+        )
+        topic_steps = [step for step in config["steps"] if step.get("kind") == "topic"]
+        assert len(topic_steps) == 1
+        assert topic_steps[0]["survey_type_id"] == types[0].id
+
+
 def test_repair_survey_config_persists_rebuilt_json():
     from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
     from app.services.customer_feedback.survey_config_service import repair_survey_config_if_needed

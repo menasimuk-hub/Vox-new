@@ -1433,6 +1433,8 @@ class SurveyWhatsappTemplateService:
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
                 continue
+            if not bool(row.active_for_survey):
+                continue
             if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
             if survey_type is not None and not template_matches_survey_industry(row, survey_type, mapping=mapping):

@@ -108,6 +108,40 @@ def test_cleanup_removes_mistaken_links():
         assert len(SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)) == 0
 
 
+def test_list_for_survey_type_excludes_hidden_templates():
+    with get_sessionmaker()() as db:
+        cs, _ = _seed_types(db)
+        active_tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"local-{uuid.uuid4().hex}",
+            template_id=f"local-{uuid.uuid4().hex}",
+            name="voxbulk_survey_customer_satisfaction_std_visible",
+            language="en_US",
+            status="LOCAL_DRAFT",
+            survey_type_id=cs.id,
+            active_for_survey=True,
+        )
+        hidden_tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"local-{uuid.uuid4().hex}",
+            template_id=f"local-{uuid.uuid4().hex}",
+            name="voxbulk_survey_customer_satisfaction_std_hidden",
+            language="en_US",
+            status="LOCAL_DRAFT",
+            survey_type_id=cs.id,
+            active_for_survey=False,
+        )
+        db.add(active_tpl)
+        db.add(hidden_tpl)
+        db.flush()
+        db.add(SurveyTypeTemplate(survey_type_id=cs.id, template_id=active_tpl.id, usable_as_standard=True))
+        db.add(SurveyTypeTemplate(survey_type_id=cs.id, template_id=hidden_tpl.id, usable_as_standard=True))
+        db.commit()
+
+        listed = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)
+        listed_ids = {int(item["id"]) for item in listed}
+        assert active_tpl.id in listed_ids
+        assert hidden_tpl.id not in listed_ids
+
+
 def test_template_belongs_uses_survey_type_id():
     with get_sessionmaker()() as db:
         cs, _ = _seed_types(db)
