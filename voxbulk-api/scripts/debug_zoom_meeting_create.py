@@ -95,6 +95,35 @@ def _resolve_zoom_config(db) -> tuple[dict[str, str], dict[str, str]]:
     return cfg, source
 
 
+def _resolve_telnyx_zoom_only_config(db) -> dict[str, str] | None:
+    telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    if not telnyx_enabled:
+        return None
+    telnyx_cfg = telnyx_cfg or {}
+    account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
+    client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
+    client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+    if not account_id or not client_id or not client_secret:
+        return None
+    base_url = str(telnyx_cfg.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
+    return {
+        "account_id": account_id,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "base_url": base_url or "https://api.zoom.us/v2",
+    }
+
+
+def _is_invalid_client(response: httpx.Response) -> bool:
+    body = _parse_json(response.text)
+    if isinstance(body, dict):
+        err = str(body.get("error") or "").strip().lower()
+        reason = str(body.get("reason") or body.get("error_description") or "").strip().lower()
+        if err == "invalid_client" or "invalid client" in reason:
+            return True
+    return "invalid client" in str(response.text or "").lower()
+
+
 def _print_http_result(label: str, response: httpx.Response) -> None:
     parsed = _parse_json(response.text)
     print(f"\n[{label}] status={response.status_code}")
@@ -115,12 +144,19 @@ def main() -> int:
 
     with get_sessionmaker()() as db:
         cfg, source = _resolve_zoom_config(db)
+        telnyx_only_cfg = _resolve_telnyx_zoom_only_config(db)
 
     print("=== VoxBulk Zoom Config Resolver ===")
     print(f"account_id: {_mask(cfg['account_id'])} (source: {source['account_id']})")
     print(f"client_id: {_mask(cfg['client_id'])} (source: {source['client_id']})")
     print(f"client_secret: {_mask(cfg['client_secret'])} (source: {source['client_secret']})")
     print(f"base_url: {cfg['base_url']} (source: {source['base_url']})")
+    if telnyx_only_cfg:
+        print("\nTelnyx Zoom-only credentials detected:")
+        print(f"account_id: {_mask(telnyx_only_cfg['account_id'])}")
+        print(f"client_id: {_mask(telnyx_only_cfg['client_id'])}")
+        print(f"client_secret: {_mask(telnyx_only_cfg['client_secret'])}")
+        print(f"base_url: {telnyx_only_cfg['base_url']}")
 
     missing = [k for k in ("account_id", "client_id", "client_secret") if not cfg.get(k)]
     if missing:
@@ -135,9 +171,35 @@ def main() -> int:
         with httpx.Client(timeout=30.0) as client:
             token_res = client.post(token_url, headers={"Authorization": f"Basic {auth}"})
             _print_http_result("TOKEN", token_res)
+            active_cfg = cfg
             if token_res.status_code >= 400:
-                print("\nFAIL: token request failed, cannot continue.")
-                return 2
+                can_fallback = bool(telnyx_only_cfg)
+                same_creds = False
+                if telnyx_only_cfg:
+                    same_creds = (
+                        telnyx_only_cfg["account_id"] == cfg["account_id"]
+                        and telnyx_only_cfg["client_id"] == cfg["client_id"]
+                        and telnyx_only_cfg["client_secret"] == cfg["client_secret"]
+                    )
+                if can_fallback and not same_creds and _is_invalid_client(token_res):
+                    print("\nPrimary token failed with invalid_client. Retrying with telnyx.zoom_* credentials ...")
+                    fallback_auth = base64.b64encode(
+                        f"{telnyx_only_cfg['client_id']}:{telnyx_only_cfg['client_secret']}".encode()
+                    ).decode()
+                    fallback_token_url = (
+                        f"{TOKEN_URL}?grant_type=account_credentials&account_id={telnyx_only_cfg['account_id']}"
+                    )
+                    fallback_res = client.post(
+                        fallback_token_url,
+                        headers={"Authorization": f"Basic {fallback_auth}"},
+                    )
+                    _print_http_result("TOKEN_FALLBACK_TELNYX", fallback_res)
+                    token_res = fallback_res
+                    if token_res.status_code < 400:
+                        active_cfg = telnyx_only_cfg
+                if token_res.status_code >= 400:
+                    print("\nFAIL: token request failed, cannot continue.")
+                    return 2
 
             token_data = _parse_json(token_res.text)
             if not isinstance(token_data, dict):
@@ -159,7 +221,7 @@ def main() -> int:
                 return 2
 
             user_res = client.get(
-                f"{cfg['base_url']}/users/me",
+                f"{active_cfg['base_url']}/users/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
             _print_http_result("USERS_ME", user_res)
@@ -185,7 +247,7 @@ def main() -> int:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
 
             create_res = client.post(
-                f"{cfg['base_url']}/users/me/meetings",
+                f"{active_cfg['base_url']}/users/me/meetings",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json=payload,
             )

@@ -42,24 +42,111 @@ class ZoomService:
         }
 
     @staticmethod
-    def get_access_token(db: Session) -> str:
-        cfg = ZoomService._config(db)
+    def _telnyx_zoom_config(db: Session) -> dict[str, Any] | None:
+        telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        if not telnyx_enabled:
+            return None
+        telnyx_cfg = telnyx_cfg or {}
+        account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
+        client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
+        client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+        if not account_id or not client_id or not client_secret:
+            return None
+        base_url = str(telnyx_cfg.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
+        return {
+            "account_id": account_id,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "base_url": base_url or "https://api.zoom.us/v2",
+        }
+
+    @staticmethod
+    def _request_access_token(cfg: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str]:
         auth = base64.b64encode(f"{cfg['client_id']}:{cfg['client_secret']}".encode()).decode()
         url = f"{ZoomService.TOKEN_URL}?grant_type=account_credentials&account_id={cfg['account_id']}"
         with httpx.Client(timeout=20.0) as client:
             res = client.post(url, headers={"Authorization": f"Basic {auth}"})
-        if res.status_code >= 400:
-            raise ValueError(f"Zoom token request failed: {res.text[:300]}")
-        data = res.json()
-        token = str(data.get("access_token") or "").strip()
-        if not token:
-            raise ValueError("Zoom token response missing access_token")
+        text = res.text or ""
+        parsed: dict[str, Any] | None = None
+        if text:
+            try:
+                payload = res.json()
+                if isinstance(payload, dict):
+                    parsed = payload
+            except Exception:
+                parsed = None
+        return res.status_code, parsed, text
+
+    @staticmethod
+    def _token_error_detail(status: int, parsed: dict[str, Any] | None, raw: str) -> str:
+        if isinstance(parsed, dict):
+            reason = str(parsed.get("reason") or parsed.get("error_description") or "").strip()
+            error = str(parsed.get("error") or "").strip()
+            if reason and error:
+                return f"{reason} ({error})"
+            if reason:
+                return reason
+            if error:
+                return error
+        text = str(raw or "").strip()
+        return text[:300] if text else f"HTTP {status}"
+
+    @staticmethod
+    def _is_invalid_client_error(status: int, parsed: dict[str, Any] | None, raw: str) -> bool:
+        if status not in (400, 401):
+            return False
+        if isinstance(parsed, dict):
+            err = str(parsed.get("error") or "").strip().lower()
+            reason = str(parsed.get("reason") or parsed.get("error_description") or "").strip().lower()
+            if err == "invalid_client" or "invalid client" in reason:
+                return True
+        return "invalid client" in str(raw or "").strip().lower()
+
+    @staticmethod
+    def _auth_context(db: Session) -> tuple[str, dict[str, Any], str]:
+        primary = ZoomService._config(db)
+        candidates: list[tuple[str, dict[str, Any]]] = [("zoom", primary)]
+        telnyx = ZoomService._telnyx_zoom_config(db)
+        if telnyx is not None:
+            primary_key = (str(primary["account_id"]), str(primary["client_id"]), str(primary["client_secret"]))
+            telnyx_key = (str(telnyx["account_id"]), str(telnyx["client_id"]), str(telnyx["client_secret"]))
+            if telnyx_key != primary_key:
+                candidates.append(("telnyx.zoom_*", telnyx))
+
+        errors: list[tuple[str, str]] = []
+        for idx, (source, cfg) in enumerate(candidates):
+            status, parsed, raw = ZoomService._request_access_token(cfg)
+            if status < 400:
+                token = str((parsed or {}).get("access_token") or "").strip()
+                if token:
+                    return token, cfg, source
+                errors.append((source, "Zoom token response missing access_token"))
+                continue
+            detail = ZoomService._token_error_detail(status, parsed, raw)
+            errors.append((source, detail))
+            should_try_next = (
+                idx == 0
+                and len(candidates) > 1
+                and ZoomService._is_invalid_client_error(status, parsed, raw)
+            )
+            if not should_try_next:
+                break
+
+        if not errors:
+            raise ValueError("Zoom token request failed")
+        if len(errors) == 1:
+            raise ValueError(f"Zoom token request failed: {errors[0][1]}")
+        joined = " ; ".join(f"{source}: {detail}" for source, detail in errors)
+        raise ValueError(f"Zoom token request failed: {joined}")
+
+    @staticmethod
+    def get_access_token(db: Session) -> str:
+        token, _cfg, _source = ZoomService._auth_context(db)
         return token
 
     @staticmethod
     def test_connection(db: Session) -> dict[str, Any]:
-        token = ZoomService.get_access_token(db)
-        cfg = ZoomService._config(db)
+        token, cfg, _source = ZoomService._auth_context(db)
         with httpx.Client(timeout=20.0) as client:
             res = client.get(f"{cfg['base_url']}/users/me", headers={"Authorization": f"Bearer {token}"})
         if res.status_code >= 400:
@@ -74,8 +161,7 @@ class ZoomService:
 
     @staticmethod
     def create_meeting(db: Session, *, topic: str, start_time_iso: str | None = None, duration_min: int = 30) -> dict[str, Any]:
-        token = ZoomService.get_access_token(db)
-        cfg = ZoomService._config(db)
+        token, cfg, _source = ZoomService._auth_context(db)
         payload: dict[str, Any] = {
             "topic": topic,
             "type": 2,
@@ -137,8 +223,7 @@ class ZoomService:
         if not mid:
             return {"ready": False, "error": "missing meeting id", "provider": "zoom_oauth"}
 
-        token = ZoomService.get_access_token(db)
-        cfg = ZoomService._config(db)
+        token, cfg, _source = ZoomService._auth_context(db)
         with httpx.Client(timeout=30.0) as client:
             res = client.get(
                 f"{cfg['base_url']}/meetings/{mid}/recordings",
