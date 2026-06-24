@@ -687,6 +687,8 @@ export default function Integrations() {
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxMessagingSyncResult, setTelnyxMessagingSyncResult] = useState('')
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
+  const [telnyxZoomConnectionResult, setTelnyxZoomConnectionResult] = useState('')
+  const [telnyxTeamsTestResult, setTelnyxTeamsTestResult] = useState('')
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
   const [telnyxMessageFilters, setTelnyxMessageFilters] = useState({
@@ -1027,7 +1029,11 @@ export default function Integrations() {
       if (providerKey === 'cartesia') setCartesiaTestResult('')
       if (providerKey === 'vapi') setVapiTestResult('')
       if (providerKey === 'elevenlabs') setElevenLabsTestResult('')
-      if (providerKey === 'telnyx') setTelnyxTestResult('')
+      if (providerKey === 'telnyx') {
+        setTelnyxTestResult('')
+        setTelnyxZoomConnectionResult('')
+        setTelnyxTeamsTestResult('')
+      }
       if (providerKey === 'zoom') setZoomTestResult('')
     } catch (e) {
       setProviderError(e?.message || 'Could not save provider')
@@ -1695,6 +1701,93 @@ export default function Integrations() {
     }
   }
 
+  const createTelnyxZoomConnection = async () => {
+    setProviderError('')
+    setTelnyxZoomConnectionResult('Creating Zoom external connection in Telnyx…')
+    try {
+      const payload = {
+        outbound_voice_profile_id: String(activeConfig.zoom_outbound_voice_profile_id || '').trim(),
+        webhook_event_url: String(activeConfig.zoom_webhook_event_url || '').trim(),
+      }
+      const result = await apiFetch('/admin/integrations/telnyx/zoom/create-connection', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const connection = result?.connection || {}
+      if (connection?.id) {
+        setProviderField('telnyx', 'zoom_external_connection_id', connection.id)
+      }
+      setTelnyxZoomConnectionResult(
+        `✓ ${result?.message || 'Zoom connection created'} · ID: ${connection?.id || '—'} · active: ${connection?.active ? 'yes' : 'no'}`,
+      )
+      await reloadSummaries()
+    } catch (e) {
+      setTelnyxZoomConnectionResult('')
+      setProviderError(formatTelnyxApiError(e))
+    }
+  }
+
+  const testTelnyxZoomConnection = async () => {
+    setProviderError('')
+    setTelnyxZoomConnectionResult('Testing Zoom external connection in Telnyx…')
+    try {
+      const payload = {
+        connection_id: String(activeConfig.zoom_external_connection_id || '').trim(),
+      }
+      const result = await apiFetch('/admin/integrations/telnyx/zoom/test-connection', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const connection = result?.connection || {}
+      if (connection?.id) {
+        setProviderField('telnyx', 'zoom_external_connection_id', connection.id)
+      }
+      const prefix = result?.ok ? '✓' : '⚠'
+      setTelnyxZoomConnectionResult(
+        `${prefix} ${result?.message || 'Zoom test complete'} · ID: ${connection?.id || '—'} · credential_active: ${connection?.credential_active === false ? 'no' : 'yes'}`,
+      )
+    } catch (e) {
+      setTelnyxZoomConnectionResult('')
+      setProviderError(formatTelnyxApiError(e))
+    }
+  }
+
+  const createTelnyxTeamsConnection = async () => {
+    setProviderError('')
+    setTelnyxTeamsTestResult('Requesting Microsoft Teams Operator Connect refresh…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/microsoft-teams/create-connection', { method: 'POST' })
+      const snapshot = result?.snapshot || {}
+      const count = Number(snapshot?.connection_count || 0)
+      const active = Number(snapshot?.active_connection_count || 0)
+      const prefix = result?.ok ? '✓' : '⚠'
+      setTelnyxTeamsTestResult(
+        `${prefix} ${result?.message || 'Refresh requested'} · connections: ${count} · active: ${active}`,
+      )
+      await reloadSummaries()
+    } catch (e) {
+      setTelnyxTeamsTestResult('')
+      setProviderError(formatTelnyxApiError(e))
+    }
+  }
+
+  const testTelnyxTeamsConnection = async () => {
+    setProviderError('')
+    setTelnyxTeamsTestResult('Testing Microsoft Teams Operator Connect…')
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/microsoft-teams/test-connection', { method: 'POST' })
+      const count = Number(result?.connection_count || 0)
+      const active = Number(result?.active_connection_count || 0)
+      const prefix = result?.ok ? '✓' : '⚠'
+      setTelnyxTeamsTestResult(
+        `${prefix} ${result?.message || 'Teams test complete'} · connections: ${count} · active: ${active}`,
+      )
+    } catch (e) {
+      setTelnyxTeamsTestResult('')
+      setProviderError(formatTelnyxApiError(e))
+    }
+  }
+
   const loadTelnyxInboundMessages = async (silent = false, filters = telnyxMessageFilters) => {
     if (!silent) {
       setProviderError('')
@@ -1863,6 +1956,8 @@ export default function Integrations() {
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxMessagingSyncResult={telnyxMessagingSyncResult}
           telnyxZoomTestResult={telnyxZoomTestResult}
+          telnyxZoomConnectionResult={telnyxZoomConnectionResult}
+          telnyxTeamsTestResult={telnyxTeamsTestResult}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
           fetchTelnyxMessageDetail={fetchTelnyxMessageDetail}
@@ -1892,6 +1987,10 @@ export default function Integrations() {
           testTelnyxCall={testTelnyxCall}
           hangupTelnyxCall={hangupTelnyxCall}
           testTelnyxZoom={testTelnyxZoom}
+          createTelnyxZoomConnection={createTelnyxZoomConnection}
+          testTelnyxZoomConnection={testTelnyxZoomConnection}
+          createTelnyxTeamsConnection={createTelnyxTeamsConnection}
+          testTelnyxTeamsConnection={testTelnyxTeamsConnection}
           testTelnyxSms={testTelnyxSms}
           syncTelnyxMessagingDestinations={syncTelnyxMessagingDestinations}
           testTelnyxWhatsApp={testTelnyxWhatsApp}

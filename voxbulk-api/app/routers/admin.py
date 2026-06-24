@@ -52,6 +52,7 @@ from app.services.providers.deepgram_service import DeepgramProviderService
 from app.services.providers.elevenlabs_service import ElevenLabsProviderService
 from app.services.providers.groq_service import GroqProviderService
 from app.services.providers.openai_service import OpenAIProviderService
+from app.services.telnyx_external_connection_service import TelnyxExternalConnectionService
 from app.services.telnyx_api_key import (
     normalize_telnyx_api_key,
     normalize_telnyx_e164,
@@ -294,6 +295,146 @@ def test_telnyx_zoom_integration(db: Session = Depends(get_db), _admin=Depends(r
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom test failed: {str(e)[:300]}") from e
+
+
+def _persist_telnyx_connection_metadata(db: Session, patch: dict[str, Any]) -> None:
+    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    current = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    merged = {**current, **patch}
+    ProviderSettingsService.upsert_platform_config(
+        db,
+        provider="telnyx",
+        is_enabled=bool(enabled),
+        config=merged,
+    )
+
+
+@router.post("/integrations/telnyx/zoom/create-connection")
+def create_telnyx_zoom_connection(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    payload = payload or {}
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    outbound_voice_profile_id = str(
+        payload.get("outbound_voice_profile_id")
+        or config.get("zoom_outbound_voice_profile_id")
+        or ""
+    ).strip()
+    webhook_event_url = str(payload.get("webhook_event_url") or config.get("zoom_webhook_event_url") or "").strip()
+    if not webhook_event_url:
+        webhook_base = str(config.get("webhook_base_url") or "").strip().rstrip("/")
+        if webhook_base:
+            webhook_event_url = f"{webhook_base}/telnyx/webhooks/zoom"
+    try:
+        connection = TelnyxExternalConnectionService.create_zoom_connection(
+            db,
+            outbound_voice_profile_id=outbound_voice_profile_id,
+            webhook_event_url=webhook_event_url or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom connection create failed: {e}") from e
+    _persist_telnyx_connection_metadata(
+        db,
+        {
+            "zoom_external_connection_id": connection.get("id"),
+            "zoom_outbound_voice_profile_id": outbound_voice_profile_id,
+            "zoom_webhook_event_url": webhook_event_url or "",
+        },
+    )
+    return {
+        "ok": True,
+        "message": "Telnyx Zoom external connection created.",
+        "connection": connection,
+    }
+
+
+@router.post("/integrations/telnyx/zoom/test-connection")
+def test_telnyx_zoom_connection(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    payload = payload or {}
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    connection_id = str(payload.get("connection_id") or config.get("zoom_external_connection_id") or "").strip() or None
+    try:
+        result = TelnyxExternalConnectionService.test_zoom_connection(
+            db,
+            connection_id=connection_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom connection test failed: {e}") from e
+    connection = result.get("connection") if isinstance(result, dict) else None
+    if isinstance(connection, dict) and connection.get("id"):
+        _persist_telnyx_connection_metadata(
+            db,
+            {"zoom_external_connection_id": str(connection.get("id"))},
+        )
+    return result
+
+
+@router.post("/integrations/telnyx/microsoft-teams/create-connection")
+def create_telnyx_microsoft_teams_connection(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        refresh = TelnyxExternalConnectionService.refresh_operator_connect(db)
+        snapshot = TelnyxExternalConnectionService.test_operator_connect(db, refresh_first=False)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Microsoft Teams create failed: {e}") from e
+    first_id = ""
+    if isinstance(snapshot, dict):
+        rows = snapshot.get("connections")
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            first_id = str(rows[0].get("id") or "").strip()
+    _persist_telnyx_connection_metadata(
+        db,
+        {
+            "teams_external_connection_id": first_id,
+            "teams_operator_connect_last_refresh_at": datetime.utcnow().isoformat(),
+        },
+    )
+    return {
+        "ok": bool(refresh.get("ok") or snapshot.get("ok")),
+        "message": str(refresh.get("message") or "Operator Connect refresh sent."),
+        "refresh": refresh,
+        "snapshot": snapshot,
+    }
+
+
+@router.post("/integrations/telnyx/microsoft-teams/test-connection")
+def test_telnyx_microsoft_teams_connection(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        result = TelnyxExternalConnectionService.test_operator_connect(db, refresh_first=True)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Microsoft Teams test failed: {e}") from e
+    rows = result.get("connections")
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        cid = str(rows[0].get("id") or "").strip()
+        _persist_telnyx_connection_metadata(
+            db,
+            {
+                "teams_external_connection_id": cid,
+                "teams_operator_connect_last_refresh_at": datetime.utcnow().isoformat(),
+            },
+        )
+    return result
 
 
 @router.post("/integrations/calendly/test")
