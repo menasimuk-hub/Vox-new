@@ -837,6 +837,7 @@ export default function Integrations() {
   }
 
   const saveIntegrationProvider = async (providerKey) => {
+    let savedOk = false
     setProviderSaving(true)
     setProviderError('')
     try {
@@ -1038,11 +1039,29 @@ export default function Integrations() {
         setTelnyxTeamsTestResult('')
       }
       if (providerKey === 'zoom') setZoomTestResult('')
+      savedOk = true
     } catch (e) {
       setProviderError(e?.message || 'Could not save provider')
     } finally {
       setProviderSaving(false)
     }
+    return savedOk
+  }
+
+  const hasUnsavedProviderDraft = (providerKey) => {
+    const draft = providerDrafts[providerKey]
+    if (!draft || typeof draft !== 'object') return false
+    if (draft.is_enabled !== undefined || draft.visible_to_orgs !== undefined) return true
+    if (draft.config && Object.keys(draft.config).length > 0) return true
+    for (const [key, value] of Object.entries(draft)) {
+      if (key.endsWith('_draft') && String(value || '').trim()) return true
+    }
+    return false
+  }
+
+  const ensureProviderSaved = async (providerKey) => {
+    if (!hasUnsavedProviderDraft(providerKey)) return true
+    return saveIntegrationProvider(providerKey)
   }
 
   const activeSummary = activeProvider ? summaries[activeProvider] || {} : {}
@@ -1122,6 +1141,10 @@ export default function Integrations() {
 
   const testZoom = async () => {
     setProviderError('')
+    if (!(await ensureProviderSaved('zoom'))) {
+      setZoomTestResult('')
+      return
+    }
     setZoomTestResult('Testing Zoom…')
     try {
       const result = await apiFetch('/admin/integrations/zoom/test', { method: 'POST' })
@@ -1687,6 +1710,11 @@ export default function Integrations() {
 
   const testTelnyxZoom = async () => {
     setProviderError('')
+    if (!(await ensureProviderSaved('telnyx'))) {
+      setTelnyxZoomTestResult('')
+      setTelnyxZoomJoinUrl('')
+      return
+    }
     setTelnyxZoomJoinUrl('')
     setTelnyxZoomTestResult('Testing Zoom connection via Telnyx…')
     try {
@@ -1731,6 +1759,10 @@ export default function Integrations() {
 
   const createTelnyxZoomConnection = async () => {
     setProviderError('')
+    if (!(await ensureProviderSaved('telnyx'))) {
+      setTelnyxZoomConnectionResult('')
+      return
+    }
     setTelnyxZoomConnectionResult('Creating Zoom external connection in Telnyx…')
     try {
       let outboundVoiceProfileId = String(activeConfig.zoom_outbound_voice_profile_id || '').trim()
@@ -1765,6 +1797,10 @@ export default function Integrations() {
 
   const testTelnyxZoomConnection = async () => {
     setProviderError('')
+    if (!(await ensureProviderSaved('telnyx'))) {
+      setTelnyxZoomConnectionResult('')
+      return
+    }
     setTelnyxZoomConnectionResult('Testing Zoom external connection in Telnyx…')
     try {
       const payload = {
