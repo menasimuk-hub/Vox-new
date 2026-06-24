@@ -224,6 +224,8 @@ export default function TelnyxIntegration({
   telnyxZoomTestResult,
   telnyxZoomConnectionResult,
   telnyxTeamsTestResult,
+  telnyxZoomVoiceProfiles,
+  telnyxZoomVoiceProfilesBusy,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
   fetchTelnyxMessageDetail,
@@ -260,6 +262,7 @@ export default function TelnyxIntegration({
   testTelnyxZoomConnection,
   createTelnyxTeamsConnection,
   testTelnyxTeamsConnection,
+  loadTelnyxZoomVoiceProfiles,
   loadTelnyxInboundMessages,
   telnyxMessageFilters,
   setTelnyxMessageFilters,
@@ -1244,12 +1247,30 @@ export default function TelnyxIntegration({
               </p>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Outbound voice profile ID (required by Telnyx)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_outbound_voice_profile_id || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_outbound_voice_profile_id', e.target.value)}
-                  placeholder='e.g. 1911630617284445511'
-                />
+                <div className='actions' style={{ gap: 8 }}>
+                  <select
+                    className='input'
+                    value={String(activeConfig.zoom_outbound_voice_profile_id || '')}
+                    onChange={(e) => setProviderField('telnyx', 'zoom_outbound_voice_profile_id', e.target.value)}
+                  >
+                    <option value=''>
+                      {telnyxZoomVoiceProfilesBusy ? 'Loading Telnyx profiles…' : 'Auto-select from Telnyx'}
+                    </option>
+                    {Array.isArray(telnyxZoomVoiceProfiles)
+                      ? telnyxZoomVoiceProfiles.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.name || row.id} ({row.id})
+                          </option>
+                        ))
+                      : null}
+                  </select>
+                  <button type='button' className='btn soft' onClick={() => loadTelnyxZoomVoiceProfiles(false)} disabled={providerSaving || telnyxZoomVoiceProfilesBusy}>
+                    {telnyxZoomVoiceProfilesBusy ? 'Loading…' : 'Refresh profiles'}
+                  </button>
+                </div>
+                <div className='muted telnyxFieldHint'>
+                  Leave it on auto if unsure. VoxBulk will use the first available Telnyx outbound profile.
+                </div>
               </div>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Webhook event URL (optional)</label>
