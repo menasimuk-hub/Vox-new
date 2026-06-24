@@ -1166,6 +1166,67 @@ def test_admin_wa_survey_api(app_client):
     assert len(body["survey_types"]) >= 1
 
 
+def test_admin_detail_shows_hidden_templates_but_dashboard_library_hides_them(app_client):
+    from tests.test_agent_architecture import _headers
+
+    headers, _org_id, _category_id = _headers(app_client)
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        active_tpl = _approved_template(db, survey_type, name="voxbulk_cs_visible", step_role="yes_no")
+        hidden_tpl = _approved_template(db, survey_type, name="voxbulk_cs_hidden", step_role="rating")
+        hidden_tpl.active_for_survey = False
+        db.add(hidden_tpl)
+        db.commit()
+        db.refresh(active_tpl)
+        db.refresh(hidden_tpl)
+        survey_type_id = survey_type.id
+        active_id = active_tpl.id
+        hidden_id = hidden_tpl.id
+
+    admin_detail = app_client.get(f"/admin/wa-survey/types/{survey_type_id}", headers=headers)
+    assert admin_detail.status_code == 200
+    admin_template_ids = {int(t["id"]) for t in admin_detail.json().get("templates") or []}
+    assert active_id in admin_template_ids
+    assert hidden_id in admin_template_ids
+
+    library = app_client.get(
+        f"/dashboard/service-scripts/wa-survey/types/{survey_type_id}/library-templates?privacy_mode=off",
+        headers=headers,
+    )
+    assert library.status_code == 200
+    dashboard_template_ids = {int(t["id"]) for t in library.json().get("templates") or []}
+    assert active_id in dashboard_template_ids
+    assert hidden_id not in dashboard_template_ids
+
+
+def test_dashboard_wa_type_list_hides_types_without_active_templates(app_client):
+    from tests.test_agent_architecture import _headers
+
+    headers, _org_id, _category_id = _headers(app_client)
+    with get_sessionmaker()() as db:
+        type_visible = _seed_survey_type(db)
+        type_hidden = SurveyTypeService.get_by_slug(db, "quick_feedback")
+        assert type_hidden is not None
+        visible_tpl = _approved_template(db, type_visible, name="voxbulk_cs_visible_only", step_role="yes_no")
+        hidden_tpl = _approved_template(db, type_hidden, name="voxbulk_qf_hidden_only", step_role="rating")
+        hidden_tpl.active_for_survey = False
+        db.add(hidden_tpl)
+        db.commit()
+        db.refresh(visible_tpl)
+        industry_id = type_visible.industry_id
+        visible_id = type_visible.id
+        hidden_id = type_hidden.id
+
+    listed = app_client.get(
+        f"/dashboard/service-scripts/wa-survey/types?industry_id={industry_id}",
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    type_ids = {str(t["id"]) for t in listed.json().get("types") or []}
+    assert visible_id in type_ids
+    assert hidden_id not in type_ids
+
+
 def test_one_template_mapped_to_multiple_survey_types():
     with get_sessionmaker()() as db:
         type_a = _seed_survey_type(db)

@@ -102,7 +102,7 @@ class ProviderSettingsService:
         "gocardless": {"access_token", "webhook_secret"},
         "stripe": {"secret_key", "webhook_secret"},
         "airwallex": {"api_key", "webhook_secret"},
-        "telnyx": {"api_key"},
+        "telnyx": {"api_key", "zoom_client_secret"},
         "azure_speech": {"api_key"},
         "openai": {"api_key"},
         "google": {"client_secret"},
@@ -744,6 +744,14 @@ class ProviderSettingsService:
             cfg["whatsapp_waba_id"] = waba_id
             cfg["waba_id"] = waba_id
         cfg["messaging_org_id"] = str(cfg.get("messaging_org_id") or cfg.get("default_messaging_org_id") or "").strip()
+        cfg["zoom_account_id"] = str(cfg.get("zoom_account_id") or "").strip()
+        cfg["zoom_client_id"] = str(cfg.get("zoom_client_id") or "").strip()
+        zoom_client_secret = str(cfg.get("zoom_client_secret") or "").strip()
+        if zoom_client_secret:
+            cfg["zoom_client_secret"] = zoom_client_secret
+        zoom_base_url = str(cfg.get("zoom_base_url") or "").strip().rstrip("/")
+        if zoom_base_url:
+            cfg["zoom_base_url"] = zoom_base_url
         cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
         from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService

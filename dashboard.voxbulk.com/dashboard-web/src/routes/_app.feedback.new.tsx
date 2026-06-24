@@ -187,6 +187,16 @@ function CreateFeedback() {
   const companyName = String(orgQ.data?.name || "Your business").trim();
   const selectedTypes = surveyTypes.filter((t) => selectedTypeIds.includes(t.id));
 
+  React.useEffect(() => {
+    if (!industryId || !typesQ.isFetched) return;
+    const validTypeIds = new Set(surveyTypes.map((row) => String(row.id)));
+    setSelectedTypeIds((prev) => {
+      const next = prev.filter((id) => validTypeIds.has(id));
+      if (next.length === prev.length && next.every((id, idx) => id === prev[idx])) return prev;
+      return next;
+    });
+  }, [industryId, typesQ.isFetched, surveyTypes]);
+
   const canNext: Record<Step, boolean> = {
     1: !!industryId,
     2: selectedTypeIds.length >= 1,

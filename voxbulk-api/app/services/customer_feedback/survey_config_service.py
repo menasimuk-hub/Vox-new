@@ -108,7 +108,7 @@ def build_survey_config(
     steps: list[dict[str, Any]] = []
     for type_id in selected_type_ids[:6]:
         row = db.get(FeedbackSurveyType, type_id)
-        if row is None or row.industry_id != industry_id:
+        if row is None or row.industry_id != industry_id or not bool(row.is_active) or row.archived_at is not None:
             continue
         steps.append({"kind": "topic", "survey_type_id": row.id, "template_key": row.slug})
     if open_question_enabled:

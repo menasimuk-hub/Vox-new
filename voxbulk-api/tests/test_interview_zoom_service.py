@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import uuid
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from app.core.database import get_sessionmaker
@@ -13,6 +15,7 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
 from app.services.interview_zoom_service import InterviewZoomService, is_zoom_interview_order
+from app.services.zoom_service import ZoomService
 
 
 def _seed_zoom_order(db):
@@ -134,3 +137,148 @@ def test_handle_webhook_ignores_unknown_events(app_client):
     with get_sessionmaker()() as db:
         out = InterviewZoomService.handle_webhook(db, {"data": {"event_type": "ping", "payload": {}}})
         assert out.get("ignored") is True
+
+
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+def test_zoom_service_reads_telnyx_fallback_credentials(mock_cfg, app_client):  # noqa: ARG001
+    def _fake(db, *, provider: str):
+        if provider == "zoom":
+            return ({}, False)
+        if provider == "telnyx":
+            return (
+                {
+                    "zoom_account_id": "acct_from_telnyx",
+                    "zoom_client_id": "cid_from_telnyx",
+                    "zoom_client_secret": "csec_from_telnyx",
+                    "zoom_base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        return ({}, False)
+
+    mock_cfg.side_effect = _fake
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+    assert cfg["account_id"] == "acct_from_telnyx"
+    assert cfg["client_id"] == "cid_from_telnyx"
+    assert cfg["client_secret"] == "csec_from_telnyx"
+    assert cfg["base_url"] == "https://api.zoom.us/v2"
+
+
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config")
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+def test_zoom_service_prefers_telnyx_when_it_was_updated_more_recently(mock_cfg, mock_get_config, app_client):  # noqa: ARG001
+    class _Obj:
+        def __init__(self, updated_at):
+            self.updated_at = updated_at
+
+    now = datetime.utcnow()
+
+    def _fake(db, *, provider: str):
+        if provider == "zoom":
+            return (
+                {
+                    "account_id": "zoom-old-acct",
+                    "client_id": "zoom-old-client",
+                    "client_secret": "zoom-old-secret",
+                    "base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        if provider == "telnyx":
+            return (
+                {
+                    "zoom_account_id": "zoom-new-acct",
+                    "zoom_client_id": "zoom-new-client",
+                    "zoom_client_secret": "zoom-new-secret",
+                    "zoom_base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        return ({}, False)
+
+    def _fake_obj(db, *, provider: str):
+        if provider == "zoom":
+            return _Obj(now - timedelta(minutes=10))
+        if provider == "telnyx":
+            return _Obj(now)
+        return None
+
+    mock_cfg.side_effect = _fake
+    mock_get_config.side_effect = _fake_obj
+
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+    assert cfg["account_id"] == "zoom-new-acct"
+    assert cfg["client_id"] == "zoom-new-client"
+    assert cfg["client_secret"] == "zoom-new-secret"
+
+
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+@patch("app.services.zoom_service.httpx.Client")
+def test_zoom_service_retries_token_with_telnyx_when_zoom_invalid_client(mock_http_client, mock_cfg, app_client):  # noqa: ARG001
+    class _Resp:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return self._payload
+
+    class _Client:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, headers=None, **_kwargs):
+            auth = str((headers or {}).get("Authorization") or "")
+            self.calls.append((url, auth))
+            if "account_id=zoom-old-acct" in str(url):
+                return _Resp(400, {"reason": "Invalid client_id or client_secret", "error": "invalid_client"})
+            if "account_id=zoom-new-acct" in str(url):
+                return _Resp(200, {"access_token": "tok_from_telnyx"})
+            raise AssertionError(f"Unexpected token URL: {url}")
+
+    fake_client = _Client()
+    mock_http_client.return_value = fake_client
+
+    def _fake(db, *, provider: str):
+        if provider == "zoom":
+            return (
+                {
+                    "account_id": "zoom-old-acct",
+                    "client_id": "zoom-old-client",
+                    "client_secret": "zoom-old-secret",
+                    "base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        if provider == "telnyx":
+            return (
+                {
+                    "zoom_account_id": "zoom-new-acct",
+                    "zoom_client_id": "zoom-new-client",
+                    "zoom_client_secret": "zoom-new-secret",
+                    "zoom_base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        return ({}, False)
+
+    mock_cfg.side_effect = _fake
+
+    with get_sessionmaker()() as db:
+        token = ZoomService.get_access_token(db)
+
+    assert token == "tok_from_telnyx"
+    assert len(fake_client.calls) == 2
+    old_auth = f"Basic {base64.b64encode(b'zoom-old-client:zoom-old-secret').decode()}"
+    new_auth = f"Basic {base64.b64encode(b'zoom-new-client:zoom-new-secret').decode()}"
+    assert fake_client.calls[0][1] == old_auth
+    assert fake_client.calls[1][1] == new_auth

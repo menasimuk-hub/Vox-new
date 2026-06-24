@@ -14,6 +14,7 @@ from app.services.appointment_call_service import initiate_confirmation_call
 from app.services.appointment_calendar_service import maybe_sync_appointment_calendar
 from app.services.appointment_crm_writeback_service import maybe_writeback_appointment_to_crm
 from app.services.appointment_log_service import append_log, list_logs_for_appointment
+from app.services.appointment_settings_service import record_writeback_event
 
 
 class AppointmentService:
@@ -114,9 +115,37 @@ class AppointmentService:
         db.add(appt)
         append_log(db, appointment_id=appt.id, event_type="status_changed", detail={"status": clean})
         try:
-            maybe_writeback_appointment_to_crm(db, appt)
-        except Exception:
-            pass
+            result = maybe_writeback_appointment_to_crm(db, appt)
+            if result.get("ok"):
+                record_writeback_event(
+                    db,
+                    org_id=org_id,
+                    status="ok",
+                    crm_object=str(result.get("crm_object") or ""),
+                )
+            elif result.get("skipped"):
+                reason = str(result.get("reason") or "skipped")
+                append_log(
+                    db,
+                    appointment_id=appt.id,
+                    event_type="crm_writeback_skipped",
+                    detail={"reason": reason, "crm_source": str(result.get("crm_source") or appt.crm_source or "")},
+                )
+                record_writeback_event(
+                    db,
+                    org_id=org_id,
+                    status="skipped",
+                    reason=reason,
+                    crm_object=str(result.get("crm_object") or ""),
+                )
+        except Exception as exc:
+            append_log(
+                db,
+                appointment_id=appt.id,
+                event_type="crm_writeback_failed",
+                detail={"error": str(exc)[:500], "crm_source": str(appt.crm_source or "")},
+            )
+            record_writeback_event(db, org_id=org_id, status="failed", reason=str(exc)[:240])
         try:
             action = "cancel" if clean == "cancelled" else "upsert"
             maybe_sync_appointment_calendar(db, appt, action=action)

@@ -93,6 +93,10 @@ class AppointmentSettingsOut(BaseModel):
     crm_provider: str = "hubspot"
     crm_object: str = "contacts"
     crm_date_property: str = "appointment_date"
+    crm_phone_property: str = "phone"
+    crm_name_property: str = "name"
+    crm_status_property: str = "voxbulk_appointment_status"
+    crm_bucket_property: str = "voxbulk_appointment_bucket"
     sync_interval_minutes: int = 60
     appointment_agent_id: str | None = None
     outreach_window_start: str = "09:00"
@@ -109,6 +113,13 @@ class AppointmentSettingsOut(BaseModel):
     post_survey_enabled: bool = False
     post_survey_order_id: str | None = None
     post_survey_delay_hours: int = 2
+    last_crm_writeback_at: str | None = None
+    last_crm_writeback_status: str | None = None
+    last_crm_writeback_reason: str | None = None
+    last_crm_writeback_object: str | None = None
+    last_crm_writeback_ok: int = 0
+    last_crm_writeback_skipped: int = 0
+    last_crm_writeback_failed: int = 0
 
 
 class AppointmentSettingsPatchIn(BaseModel):
@@ -117,6 +128,10 @@ class AppointmentSettingsPatchIn(BaseModel):
     crm_provider: str | None = None
     crm_object: str | None = None
     crm_date_property: str | None = None
+    crm_phone_property: str | None = None
+    crm_name_property: str | None = None
+    crm_status_property: str | None = None
+    crm_bucket_property: str | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=5)
     appointment_agent_id: str | None = None
     outreach_window_start: str | None = None

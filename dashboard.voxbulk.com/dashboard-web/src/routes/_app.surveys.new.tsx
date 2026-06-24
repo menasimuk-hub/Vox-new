@@ -840,6 +840,23 @@ function CreateSurvey() {
     [waTypesQ.data],
   );
 
+  React.useEffect(() => {
+    if (!industryId || !waTypesQ.isFetched) return;
+    const validTypeIds = new Set(
+      serviceTypes.map((row) => normalizeSurveyTypeId(row.id)).filter((id) => id.length > 0),
+    );
+    setSelectedServiceTagIds((prev) => {
+      const next = prev.map(normalizeSurveyTypeId).filter((id) => validTypeIds.has(id));
+      if (next.length === prev.length && next.every((id, idx) => id === prev[idx])) return prev;
+      return next;
+    });
+    setOrderedServiceTagIds((prev) => {
+      const next = prev.map(normalizeSurveyTypeId).filter((id) => validTypeIds.has(id));
+      if (next.length === prev.length && next.every((id, idx) => id === prev[idx])) return prev;
+      return next;
+    });
+  }, [industryId, waTypesQ.isFetched, serviceTypes]);
+
   const libraryTemplatesByTypeId = React.useMemo(() => {
     const map: Record<string, Array<Record<string, unknown>>> = {};
     orderedServiceTagIds.forEach((typeId, index) => {

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,22 @@ from app.services.crm_providers import CRM_CONFIG_COLUMNS
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 
 logger = logging.getLogger(__name__)
+HUBSPOT_OBJECTS_BASE = "https://api.hubapi.com/crm/v3/objects"
+HUBSPOT_OBJECT_PHONE_KEYS = (
+    "phone",
+    "mobilephone",
+    "hs_phone_number",
+    "phone_number",
+    "contact_phone",
+)
+HUBSPOT_OBJECT_NAME_KEYS = ("firstname", "lastname", "name", "dealname", "company", "email")
+HUBSPOT_OBJECT_BRANCH_KEYS = ("branch", "city")
+HUBSPOT_OBJECT_SERVICE_KEYS = ("service_type", "jobtitle")
+DEFAULT_CRM_DATE_PROP = "appointment_date"
+DEFAULT_CRM_PHONE_PROP = "phone"
+DEFAULT_CRM_NAME_PROP = "name"
+DEFAULT_CRM_STATUS_PROP = "voxbulk_appointment_status"
+DEFAULT_CRM_BUCKET_PROP = "voxbulk_appointment_bucket"
 
 
 @dataclass(frozen=True)
@@ -88,6 +105,156 @@ def _contact_item_to_appointment(item: dict[str, Any], *, date_prop: str) -> App
     )
 
 
+def _parse_hubspot_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    # HubSpot datetime can arrive as ISO string or epoch milliseconds.
+    if raw.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(raw) / 1000.0)
+        except Exception:
+            return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(raw) / 1000.0)
+        except Exception:
+            return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _first_non_empty(props: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        val = str(props.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _hubspot_item_to_appointment(
+    item: dict[str, Any],
+    *,
+    date_prop: str,
+    object_type: str,
+    phone_prop: str | None = None,
+    name_prop: str | None = None,
+) -> AppointmentData | None:
+    if not isinstance(item, dict):
+        return None
+    hs_id = str(item.get("id") or "").strip()
+    props = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+    if not hs_id or not isinstance(props, dict):
+        return None
+    appt_dt = _parse_datetime_value(props.get(date_prop))
+    if appt_dt is None:
+        return None
+
+    phone = ""
+    if phone_prop:
+        phone = str(props.get(phone_prop) or "").strip()
+    if not phone:
+        phone = _first_non_empty(props, HUBSPOT_OBJECT_PHONE_KEYS)
+    if not phone:
+        return None
+
+    contact_name = ""
+    if name_prop:
+        contact_name = str(props.get(name_prop) or "").strip()
+    if not contact_name:
+        first = str(props.get("firstname") or "").strip()
+        last = str(props.get("lastname") or "").strip()
+        contact_name = " ".join(x for x in (first, last) if x).strip()
+    if not contact_name:
+        contact_name = _first_non_empty(props, HUBSPOT_OBJECT_NAME_KEYS)
+    if not contact_name:
+        contact_name = f"{object_type.title()} {hs_id[:8]}"
+    email = str(props.get("email") or "").strip() or None
+    crm_record_id = hs_id if object_type == "contacts" else f"{object_type}:{hs_id}"
+    return AppointmentData(
+        crm_source="hubspot",
+        crm_record_id=crm_record_id,
+        contact_name=contact_name,
+        contact_phone=phone,
+        contact_email=email,
+        appointment_datetime=appt_dt,
+        branch=_first_non_empty(props, HUBSPOT_OBJECT_BRANCH_KEYS) or None,
+        service_type=_first_non_empty(props, HUBSPOT_OBJECT_SERVICE_KEYS) or None,
+    )
+
+
+def _crm_mapping(appt_cfg: dict[str, Any]) -> dict[str, str]:
+    return {
+        "date_prop": str(appt_cfg.get("crm_date_property") or DEFAULT_CRM_DATE_PROP).strip() or DEFAULT_CRM_DATE_PROP,
+        "phone_prop": str(appt_cfg.get("crm_phone_property") or DEFAULT_CRM_PHONE_PROP).strip() or DEFAULT_CRM_PHONE_PROP,
+        "name_prop": str(appt_cfg.get("crm_name_property") or DEFAULT_CRM_NAME_PROP).strip() or DEFAULT_CRM_NAME_PROP,
+        "status_prop": str(appt_cfg.get("crm_status_property") or DEFAULT_CRM_STATUS_PROP).strip() or DEFAULT_CRM_STATUS_PROP,
+        "bucket_prop": str(appt_cfg.get("crm_bucket_property") or DEFAULT_CRM_BUCKET_PROP).strip() or DEFAULT_CRM_BUCKET_PROP,
+    }
+
+
+def _search_hubspot_object_rows(
+    token: str,
+    *,
+    object_type: str,
+    date_prop: str,
+    properties: list[str],
+    max_results: int = 5000,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    after: str | None = None
+    cap = min(max(1, max_results), 5000)
+    with httpx.Client(timeout=60.0) as client:
+        while len(out) < cap:
+            payload: dict[str, Any] = {
+                "filterGroups": [
+                    {"filters": [{"propertyName": date_prop, "operator": "HAS_PROPERTY"}]},
+                ],
+                "properties": properties,
+                "limit": min(100, cap - len(out)),
+            }
+            if after:
+                payload["after"] = after
+            res = client.post(
+                f"{HUBSPOT_OBJECTS_BASE}/{object_type}/search",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            if res.status_code >= 400:
+                raise ValueError(f"HubSpot object search failed: {res.text[:300]}")
+            body = res.json() or {}
+            rows = body.get("results") or []
+            for row in rows:
+                if isinstance(row, dict):
+                    out.append(row)
+                    if len(out) >= cap:
+                        break
+            paging = body.get("paging") if isinstance(body, dict) else None
+            nxt = paging.get("next") if isinstance(paging, dict) else None
+            after = str(nxt.get("after") or "").strip() if isinstance(nxt, dict) else ""
+            if not after:
+                break
+    return out
+
+
 def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentData]:
     from app.services.hubspot_connection_service import (
         _ensure_access_token,
@@ -110,11 +277,45 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
         return []
 
     appt_cfg = get_config(db, org_id)
-    date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
-    props = ["firstname", "lastname", "email", "phone", date_prop]
+    mapping = _crm_mapping(appt_cfg)
+    date_prop = mapping["date_prop"]
+    phone_prop = mapping["phone_prop"]
+    name_prop = mapping["name_prop"]
+    object_type = str(appt_cfg.get("crm_object") or "contacts").strip().lower() or "contacts"
+    props = [
+        *HUBSPOT_OBJECT_NAME_KEYS,
+        *HUBSPOT_OBJECT_PHONE_KEYS,
+        *HUBSPOT_OBJECT_BRANCH_KEYS,
+        *HUBSPOT_OBJECT_SERVICE_KEYS,
+        name_prop,
+        phone_prop,
+        date_prop,
+    ]
     configured_list_id = str(cfg.get("appointment_list_id") or "").strip()
 
     out: list[AppointmentData] = []
+    if object_type != "contacts":
+        try:
+            items = _search_hubspot_object_rows(
+                token,
+                object_type=object_type,
+                date_prop=date_prop,
+                properties=props,
+            )
+            for item in items:
+                row = _hubspot_item_to_appointment(
+                    item,
+                    date_prop=date_prop,
+                    object_type=object_type,
+                    phone_prop=phone_prop,
+                    name_prop=name_prop,
+                )
+                if row:
+                    out.append(row)
+        except Exception:
+            logger.exception("hubspot_appointment_object_sync_error org=%s object=%s", org_id, object_type)
+        return out
+
     try:
         items = search_contacts_with_appointment_date(token, date_prop, props)
         source_list_id = ensure_appointment_source_list(token, configured_list_id or None)
@@ -138,7 +339,13 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
                     str(exc)[:200],
                 )
         for item in items:
-            row = _contact_item_to_appointment(item, date_prop=date_prop)
+            row = _hubspot_item_to_appointment(
+                item,
+                date_prop=date_prop,
+                object_type="contacts",
+                phone_prop=phone_prop,
+                name_prop=name_prop,
+            )
             if row:
                 out.append(row)
     except HubspotListError as exc:
@@ -149,13 +356,151 @@ def _fetch_hubspot_appointments(db: Session, org_id: str) -> list[AppointmentDat
 
 
 def _fetch_pipedrive_appointments(db: Session, org_id: str) -> list[AppointmentData]:
-    _ = (db, org_id)
-    return []
+    from app.services.pipedrive_connection_service import (
+        PIPEDRIVE_API_BASE,
+        _ensure_access_token,
+        pipedrive_status,
+    )
+
+    if not pipedrive_status(db, org_id).get("connected"):
+        return []
+
+    appt_cfg = get_config(db, org_id)
+    mapping = _crm_mapping(appt_cfg)
+    date_prop = mapping["date_prop"]
+    phone_prop = mapping["phone_prop"]
+    name_prop = mapping["name_prop"]
+    token = _ensure_access_token(db, org_id)
+    out: list[AppointmentData] = []
+
+    with httpx.Client(timeout=45.0) as client:
+        res = client.get(
+            f"{PIPEDRIVE_API_BASE}/deals",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"status": "open", "limit": 500, "start": 0},
+        )
+    if res.status_code >= 400:
+        logger.warning("pipedrive_appointment_sync_failed org=%s status=%s", org_id, res.status_code)
+        return out
+
+    rows = (res.json() or {}).get("data") or []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        deal_id = str(item.get("id") or "").strip()
+        if not deal_id:
+            continue
+        appt_dt = _parse_datetime_value(item.get(date_prop))
+        if appt_dt is None:
+            continue
+
+        phone = str(item.get(phone_prop) or "").strip()
+        person = item.get("person_id")
+        if isinstance(person, dict):
+            person_name = str(person.get("name") or "").strip()
+            person_email = str(person.get("email") or "").strip() or None
+            person_phone = str(person.get("phone") or "").strip()
+        else:
+            person_name = ""
+            person_email = None
+            person_phone = ""
+        if not phone:
+            phone = person_phone
+        if not phone:
+            continue
+
+        contact_name = str(item.get(name_prop) or "").strip() or person_name or str(item.get("title") or "").strip()
+        if not contact_name:
+            contact_name = f"Pipedrive Deal {deal_id}"
+        branch = str(item.get("stage_name") or "").strip() or None
+        service_type = str(item.get("title") or "").strip() or None
+        out.append(
+            AppointmentData(
+                crm_source="pipedrive",
+                crm_record_id=deal_id,
+                contact_name=contact_name,
+                contact_phone=phone,
+                contact_email=person_email,
+                appointment_datetime=appt_dt,
+                branch=branch,
+                service_type=service_type,
+            )
+        )
+    return out
 
 
 def _fetch_zoho_appointments(db: Session, org_id: str) -> list[AppointmentData]:
-    _ = (db, org_id)
-    return []
+    from app.services.zoho_crm_connection_service import _ensure_access_token, zoho_crm_status
+
+    if not zoho_crm_status(db, org_id).get("connected"):
+        return []
+
+    appt_cfg = get_config(db, org_id)
+    mapping = _crm_mapping(appt_cfg)
+    date_prop = mapping["date_prop"]
+    phone_prop = mapping["phone_prop"]
+    name_prop = mapping["name_prop"]
+    token, api_domain = _ensure_access_token(db, org_id)
+    base = f"https://{str(api_domain).strip().lstrip('https://').lstrip('http://')}"
+    out: list[AppointmentData] = []
+    fields = ",".join(
+        sorted(
+            {
+                "Deal_Name",
+                "Stage",
+                "Contact_Name",
+                "Email",
+                date_prop,
+                phone_prop,
+                name_prop,
+            }
+        )
+    )
+    with httpx.Client(timeout=45.0) as client:
+        res = client.get(
+            f"{base}/crm/v2/Deals",
+            headers={"Authorization": f"Zoho-oauthtoken {token}"},
+            params={"fields": fields, "per_page": 200, "page": 1},
+        )
+    if res.status_code >= 400:
+        logger.warning("zoho_appointment_sync_failed org=%s status=%s", org_id, res.status_code)
+        return out
+
+    rows = (res.json() or {}).get("data") or []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        deal_id = str(item.get("id") or "").strip()
+        if not deal_id:
+            continue
+        appt_dt = _parse_datetime_value(item.get(date_prop))
+        if appt_dt is None:
+            continue
+        phone = str(item.get(phone_prop) or "").strip()
+        if not phone:
+            continue
+        deal_name = str(item.get("Deal_Name") or "").strip()
+        contact_name = str(item.get(name_prop) or "").strip()
+        if not contact_name:
+            contact = item.get("Contact_Name")
+            if isinstance(contact, dict):
+                contact_name = str(contact.get("name") or "").strip()
+        contact_name = contact_name or deal_name or f"Zoho Deal {deal_id}"
+        email = str(item.get("Email") or "").strip() or None
+        branch = str(item.get("Stage") or "").strip() or None
+        out.append(
+            AppointmentData(
+                crm_source="zoho_crm",
+                crm_record_id=deal_id,
+                contact_name=contact_name,
+                contact_phone=phone,
+                contact_email=email,
+                appointment_datetime=appt_dt,
+                branch=branch,
+                service_type=deal_name or None,
+            )
+        )
+    return out
 
 
 def _upsert_appointment(db: Session, org_id: str, data: AppointmentData) -> tuple[Appointment, bool]:
@@ -273,7 +618,11 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
     )
 
     appt_cfg = get_config(db, org_id)
-    date_prop = str(appt_cfg.get("crm_date_property") or "appointment_date").strip() or "appointment_date"
+    mapping = _crm_mapping(appt_cfg)
+    crm_object = str(appt_cfg.get("crm_object") or "contacts").strip().lower() or "contacts"
+    date_prop = mapping["date_prop"]
+    phone_prop = mapping["phone_prop"]
+    name_prop = mapping["name_prop"]
     provider: str | None = None
     if _org_has_crm_connected(db, org_id, "hubspot"):
         provider = "hubspot"
@@ -285,6 +634,7 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
     out: dict[str, Any] = {
         "crm_connected": provider is not None,
         "crm_provider": provider,
+        "crm_object": crm_object,
         "date_property": date_prop,
         "eligible_contacts": 0,
         "appointment_list_id": None,
@@ -304,6 +654,43 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
         hs = hubspot_status(db, org_id)
         if not hs.get("connected"):
             out["message"] = "HubSpot is not connected — open Settings → Integrations → HubSpot and paste your service key."
+            return out
+        if crm_object != "contacts":
+            try:
+                from app.services.hubspot_connection_service import _ensure_access_token
+
+                token = _ensure_access_token(db, org_id)
+                items = _search_hubspot_object_rows(
+                    token,
+                    object_type=crm_object,
+                    date_prop=date_prop,
+                    properties=[*HUBSPOT_OBJECT_NAME_KEYS, *HUBSPOT_OBJECT_PHONE_KEYS, name_prop, phone_prop, date_prop],
+                    max_results=5000,
+                )
+                eligible = 0
+                for item in items:
+                    if _hubspot_item_to_appointment(
+                        item,
+                        date_prop=date_prop,
+                        object_type=crm_object,
+                        phone_prop=phone_prop,
+                        name_prop=name_prop,
+                    ):
+                        eligible += 1
+                out["eligible_contacts"] = eligible
+                if eligible > 0:
+                    out["ready"] = True
+                    out["message"] = (
+                        f"{eligible} HubSpot {crm_object} record(s) have phone + {date_prop}. "
+                        "Click Sync CRM to import them."
+                    )
+                else:
+                    out["message"] = (
+                        f"No HubSpot {crm_object} records have both phone and {date_prop} set. "
+                        "Update those properties, then click Sync CRM."
+                    )
+            except Exception as exc:
+                out["message"] = str(exc)[:240] or f"HubSpot {crm_object} check failed"
             return out
         cfg = get_hubspot_config(db, org_id)
         list_id = str(cfg.get("appointment_list_id") or "").strip() or None
@@ -340,7 +727,7 @@ def get_crm_sync_status(db: Session, org_id: str) -> dict[str, Any]:
             eligible = search_contacts_with_appointment_date(
                 token,
                 date_prop,
-                ["firstname", "lastname", "email", "phone", date_prop],
+                ["firstname", "lastname", "email", "phone", name_prop, phone_prop, date_prop],
                 max_results=5000,
             )
             out["eligible_contacts"] = len(eligible)
