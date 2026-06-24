@@ -689,6 +689,8 @@ export default function Integrations() {
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
   const [telnyxZoomConnectionResult, setTelnyxZoomConnectionResult] = useState('')
   const [telnyxTeamsTestResult, setTelnyxTeamsTestResult] = useState('')
+  const [telnyxZoomVoiceProfiles, setTelnyxZoomVoiceProfiles] = useState([])
+  const [telnyxZoomVoiceProfilesBusy, setTelnyxZoomVoiceProfilesBusy] = useState(false)
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
   const [telnyxMessageFilters, setTelnyxMessageFilters] = useState({
@@ -1701,12 +1703,40 @@ export default function Integrations() {
     }
   }
 
+  const loadTelnyxZoomVoiceProfiles = async (silent = false) => {
+    if (!silent) setProviderError('')
+    setTelnyxZoomVoiceProfilesBusy(true)
+    try {
+      const result = await apiFetch('/admin/integrations/telnyx/zoom/outbound-voice-profiles')
+      const rows = Array.isArray(result?.profiles) ? result.profiles : []
+      setTelnyxZoomVoiceProfiles(rows)
+      const selected = String(result?.selected_outbound_voice_profile_id || '').trim()
+      if (selected && !String(activeConfig.zoom_outbound_voice_profile_id || '').trim()) {
+        setProviderField('telnyx', 'zoom_outbound_voice_profile_id', selected)
+      }
+      return rows
+    } catch (e) {
+      if (!silent) setProviderError(formatTelnyxApiError(e))
+      return []
+    } finally {
+      setTelnyxZoomVoiceProfilesBusy(false)
+    }
+  }
+
   const createTelnyxZoomConnection = async () => {
     setProviderError('')
     setTelnyxZoomConnectionResult('Creating Zoom external connection in Telnyx…')
     try {
+      let outboundVoiceProfileId = String(activeConfig.zoom_outbound_voice_profile_id || '').trim()
+      if (!outboundVoiceProfileId) {
+        const profiles = await loadTelnyxZoomVoiceProfiles(true)
+        outboundVoiceProfileId = String(profiles?.[0]?.id || '').trim()
+        if (outboundVoiceProfileId) {
+          setProviderField('telnyx', 'zoom_outbound_voice_profile_id', outboundVoiceProfileId)
+        }
+      }
       const payload = {
-        outbound_voice_profile_id: String(activeConfig.zoom_outbound_voice_profile_id || '').trim(),
+        outbound_voice_profile_id: outboundVoiceProfileId,
         webhook_event_url: String(activeConfig.zoom_webhook_event_url || '').trim(),
       }
       const result = await apiFetch('/admin/integrations/telnyx/zoom/create-connection', {
@@ -1866,6 +1896,13 @@ export default function Integrations() {
     loadTelnyxWaTemplates(true)
   }, [activeProvider, summaries.telnyx?.exists])
 
+  useEffect(() => {
+    if (activeProvider !== 'telnyx') return
+    if (!summaries.telnyx?.exists) return
+    if (String(activeConfig.zoom_outbound_voice_profile_id || '').trim()) return
+    loadTelnyxZoomVoiceProfiles(true)
+  }, [activeProvider, summaries.telnyx?.exists, activeConfig.zoom_outbound_voice_profile_id])
+
   return (
     <>
       <div className='pageTop'>
@@ -1958,6 +1995,8 @@ export default function Integrations() {
           telnyxZoomTestResult={telnyxZoomTestResult}
           telnyxZoomConnectionResult={telnyxZoomConnectionResult}
           telnyxTeamsTestResult={telnyxTeamsTestResult}
+          telnyxZoomVoiceProfiles={telnyxZoomVoiceProfiles}
+          telnyxZoomVoiceProfilesBusy={telnyxZoomVoiceProfilesBusy}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
           fetchTelnyxMessageDetail={fetchTelnyxMessageDetail}
@@ -1991,6 +2030,7 @@ export default function Integrations() {
           testTelnyxZoomConnection={testTelnyxZoomConnection}
           createTelnyxTeamsConnection={createTelnyxTeamsConnection}
           testTelnyxTeamsConnection={testTelnyxTeamsConnection}
+          loadTelnyxZoomVoiceProfiles={loadTelnyxZoomVoiceProfiles}
           testTelnyxSms={testTelnyxSms}
           syncTelnyxMessagingDestinations={syncTelnyxMessagingDestinations}
           testTelnyxWhatsApp={testTelnyxWhatsApp}

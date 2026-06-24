@@ -321,6 +321,8 @@ def create_telnyx_zoom_connection(
     outbound_voice_profile_id = str(
         payload.get("outbound_voice_profile_id")
         or config.get("zoom_outbound_voice_profile_id")
+        or config.get("connection_id")
+        or config.get("voice_api_application_id")
         or ""
     ).strip()
     webhook_event_url = str(payload.get("webhook_event_url") or config.get("zoom_webhook_event_url") or "").strip()
@@ -350,6 +352,32 @@ def create_telnyx_zoom_connection(
         "ok": True,
         "message": "Telnyx Zoom external connection created.",
         "connection": connection,
+    }
+
+
+@router.get("/integrations/telnyx/zoom/outbound-voice-profiles")
+def list_telnyx_zoom_outbound_voice_profiles(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
+    selected_id = str(
+        config.get("zoom_outbound_voice_profile_id")
+        or config.get("connection_id")
+        or config.get("voice_api_application_id")
+        or ""
+    ).strip()
+    try:
+        profiles = TelnyxExternalConnectionService.list_outbound_voice_profiles(db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx voice profiles fetch failed: {e}") from e
+    return {
+        "ok": True,
+        "profiles": profiles,
+        "selected_outbound_voice_profile_id": selected_id or None,
     }
 
 

@@ -97,6 +97,40 @@ def _serialize_connection(row: dict[str, Any]) -> dict[str, Any]:
 
 class TelnyxExternalConnectionService:
     @staticmethod
+    def list_outbound_voice_profiles(db: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"page[size]": max(int(limit or 100), 1)}
+        status, parsed, raw = _telnyx_request(
+            db,
+            "GET",
+            "/outbound_voice_profiles",
+            params=params,
+        )
+        if status >= 400:
+            raise ValueError(_first_error(status, parsed, raw))
+        rows: list[dict[str, Any]] = []
+        if isinstance(parsed, dict):
+            data = parsed.get("data")
+            if isinstance(data, list):
+                rows = [r for r in data if isinstance(r, dict)]
+            elif isinstance(data, dict):
+                rows = [data]
+        elif isinstance(parsed, list):
+            rows = [r for r in parsed if isinstance(r, dict)]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            profile_id = str(row.get("id") or "").strip()
+            if not profile_id:
+                continue
+            result.append(
+                {
+                    "id": profile_id,
+                    "name": str(row.get("name") or "").strip() or f"Profile {profile_id[:8]}…",
+                    "active": bool(row.get("active")) if row.get("active") is not None else None,
+                }
+            )
+        return result
+
+    @staticmethod
     def list_connections(
         db: Session,
         *,
@@ -130,7 +164,10 @@ class TelnyxExternalConnectionService:
     ) -> dict[str, Any]:
         ovp = str(outbound_voice_profile_id or "").strip()
         if not ovp:
-            raise ValueError("Outbound voice profile ID is required for Telnyx Zoom external connection.")
+            raise ValueError(
+                "Outbound voice profile ID is required for Telnyx Zoom external connection. "
+                "Choose it in Admin -> Integrations -> Telnyx -> Zoom."
+            )
         body: dict[str, Any] = {
             "external_sip_connection": "zoom",
             "active": True,

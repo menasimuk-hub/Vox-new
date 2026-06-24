@@ -174,3 +174,65 @@ def test_admin_telnyx_microsoft_teams_create_and_test(app_client, monkeypatch):
     cfg = app_client.get("/admin/integrations/telnyx", headers=headers)
     assert cfg.status_code == 200
     assert cfg.json()["config"]["teams_external_connection_id"] == "teams-conn-1"
+
+
+def test_admin_telnyx_zoom_profiles_and_create_uses_config_fallback(app_client, monkeypatch):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    def fake_telnyx_request(_db, method, path, *, json_body=None, params=None, timeout=30.0):
+        _ = timeout
+        m = str(method).upper()
+        if m == "GET" and path == "/outbound_voice_profiles":
+            return (
+                200,
+                {
+                    "data": [
+                        {"id": "ovp-1", "name": "Primary UK", "active": True},
+                        {"id": "ovp-2", "name": "Backup", "active": True},
+                    ]
+                },
+                "",
+            )
+        if m == "POST" and path == "/external_connections":
+            assert json_body["external_sip_connection"] == "zoom"
+            # falls back to telnyx connection_id from saved config when payload omits outbound_voice_profile_id
+            assert json_body["outbound"]["outbound_voice_profile_id"] == "conn-123"
+            return (
+                201,
+                {
+                    "data": {
+                        "id": "zoom-conn-fallback",
+                        "external_sip_connection": "zoom",
+                        "active": True,
+                        "credential_active": True,
+                    }
+                },
+                "",
+            )
+        raise AssertionError(f"Unexpected Telnyx call: {m} {path} params={params} body={json_body}")
+
+    monkeypatch.setattr(
+        "app.services.telnyx_external_connection_service._telnyx_request",
+        fake_telnyx_request,
+    )
+
+    listed = app_client.get(
+        "/admin/integrations/telnyx/zoom/outbound-voice-profiles",
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["ok"] is True
+    assert len(payload["profiles"]) == 2
+    assert payload["selected_outbound_voice_profile_id"] == "conn-123"
+
+    created = app_client.post(
+        "/admin/integrations/telnyx/zoom/create-connection",
+        json={},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["ok"] is True
+    assert body["connection"]["id"] == "zoom-conn-fallback"
