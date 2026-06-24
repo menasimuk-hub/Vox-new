@@ -1425,6 +1425,7 @@ class SurveyWhatsappTemplateService:
         survey_type_id: str,
         *,
         privacy_mode: str | None = None,
+        include_inactive: bool = True,
     ) -> list[dict[str, Any]]:
         payload: list[dict[str, Any]] = []
         survey_type = db.get(SurveyType, survey_type_id)
@@ -1433,7 +1434,7 @@ class SurveyWhatsappTemplateService:
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
                 continue
-            if not bool(row.active_for_survey):
+            if not include_inactive and not bool(row.active_for_survey):
                 continue
             if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue

@@ -151,7 +151,7 @@ def list_wa_survey_types(
     types = [
         t
         for t in SurveyTypeService.list_types(db, industry_id=industry_id)
-        if t.get("is_active") and not t.get("system_template_kind")
+        if t.get("is_active") and not t.get("system_template_kind") and t.get("has_wa_template")
     ]
     return {"ok": True, "types": types}
 
@@ -237,6 +237,7 @@ def list_wa_survey_library_templates(
         db,
         survey_type_id,
         privacy_mode=privacy_mode,
+        include_inactive=False,
     )
     middle_roles = set(MIDDLE_STEP_ROLES)
     templates = [

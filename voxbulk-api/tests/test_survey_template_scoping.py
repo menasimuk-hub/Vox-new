@@ -109,7 +109,7 @@ def test_cleanup_removes_mistaken_links():
         assert len(SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)) == 0
 
 
-def test_list_for_survey_type_excludes_hidden_templates():
+def test_list_for_survey_type_includes_hidden_by_default_and_can_filter_for_dashboard():
     with get_sessionmaker()() as db:
         cs, _ = _seed_types(db)
         active_tpl = TelnyxWhatsappTemplate(
@@ -151,10 +151,15 @@ def test_list_for_survey_type_excludes_hidden_templates():
         )
         db.commit()
 
-        listed = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)
-        listed_ids = {int(item["id"]) for item in listed}
-        assert active_tpl.id in listed_ids
-        assert hidden_tpl.id not in listed_ids
+        admin_listed = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id)
+        admin_ids = {int(item["id"]) for item in admin_listed}
+        assert active_tpl.id in admin_ids
+        assert hidden_tpl.id in admin_ids
+
+        dashboard_listed = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id, include_inactive=False)
+        dashboard_ids = {int(item["id"]) for item in dashboard_listed}
+        assert active_tpl.id in dashboard_ids
+        assert hidden_tpl.id not in dashboard_ids
 
 
 def test_template_belongs_uses_survey_type_id():
