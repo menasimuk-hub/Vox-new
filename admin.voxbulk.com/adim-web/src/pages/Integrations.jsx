@@ -687,6 +687,7 @@ export default function Integrations() {
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxMessagingSyncResult, setTelnyxMessagingSyncResult] = useState('')
   const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
+  const [telnyxZoomJoinUrl, setTelnyxZoomJoinUrl] = useState('')
   const [telnyxZoomConnectionResult, setTelnyxZoomConnectionResult] = useState('')
   const [telnyxTeamsTestResult, setTelnyxTeamsTestResult] = useState('')
   const [telnyxZoomVoiceProfiles, setTelnyxZoomVoiceProfiles] = useState([])
@@ -1686,18 +1687,23 @@ export default function Integrations() {
 
   const testTelnyxZoom = async () => {
     setProviderError('')
+    setTelnyxZoomJoinUrl('')
     setTelnyxZoomTestResult('Testing Zoom connection via Telnyx…')
     try {
       const result = await apiFetch('/admin/integrations/telnyx/test-zoom', { method: 'POST' })
       if (result.ok) {
         const provider = result.meeting_provider === 'telnyx_zoom' ? 'Telnyx' : 'Zoom OAuth'
+        const joinUrl = String(result.join_url || '').trim()
+        setTelnyxZoomJoinUrl(joinUrl)
         setTelnyxZoomTestResult(
-          `✓ ${provider} · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}`,
+          `✓ ${provider} · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}${joinUrl ? ' · Join URL ready' : ''}`,
         )
       } else {
+        setTelnyxZoomJoinUrl('')
         setTelnyxZoomTestResult(`✗ Zoom failed: ${result.detail || 'Unknown error'}`)
       }
     } catch (e) {
+      setTelnyxZoomJoinUrl('')
       setTelnyxZoomTestResult('')
       setProviderError(e?.message || 'Telnyx Zoom test failed')
     }
@@ -1993,6 +1999,7 @@ export default function Integrations() {
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxMessagingSyncResult={telnyxMessagingSyncResult}
           telnyxZoomTestResult={telnyxZoomTestResult}
+          telnyxZoomJoinUrl={telnyxZoomJoinUrl}
           telnyxZoomConnectionResult={telnyxZoomConnectionResult}
           telnyxTeamsTestResult={telnyxTeamsTestResult}
           telnyxZoomVoiceProfiles={telnyxZoomVoiceProfiles}

@@ -15,18 +15,30 @@ class ZoomService:
     @staticmethod
     def _config(db: Session) -> dict[str, Any]:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-        if not cfg or not enabled:
-            raise ValueError("Zoom is not configured")
+        cfg = cfg or {}
         account_id = str(cfg.get("account_id") or "").strip()
         client_id = str(cfg.get("client_id") or "").strip()
         client_secret = str(cfg.get("client_secret") or "").strip()
+        base_url = str(cfg.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
+
+        # UX fallback: allow Zoom OAuth credentials to be stored under
+        # Telnyx -> Zoom settings for admins who manage everything in one tab.
+        if (not enabled or not account_id or not client_id or not client_secret):
+            telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+            telnyx_cfg = telnyx_cfg or {}
+            if telnyx_enabled:
+                account_id = account_id or str(telnyx_cfg.get("zoom_account_id") or "").strip()
+                client_id = client_id or str(telnyx_cfg.get("zoom_client_id") or "").strip()
+                client_secret = client_secret or str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+                base_url = str(telnyx_cfg.get("zoom_base_url") or base_url or "https://api.zoom.us/v2").strip().rstrip("/")
+
         if not account_id or not client_id or not client_secret:
             raise ValueError("Zoom account_id, client_id and client_secret are required")
         return {
             "account_id": account_id,
             "client_id": client_id,
             "client_secret": client_secret,
-            "base_url": str(cfg.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/"),
+            "base_url": base_url,
         }
 
     @staticmethod
