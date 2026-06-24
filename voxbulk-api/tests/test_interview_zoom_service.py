@@ -13,6 +13,7 @@ from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
 from app.services.interview_zoom_service import InterviewZoomService, is_zoom_interview_order
+from app.services.zoom_service import ZoomService
 
 
 def _seed_zoom_order(db):
@@ -134,3 +135,29 @@ def test_handle_webhook_ignores_unknown_events(app_client):
     with get_sessionmaker()() as db:
         out = InterviewZoomService.handle_webhook(db, {"data": {"event_type": "ping", "payload": {}}})
         assert out.get("ignored") is True
+
+
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+def test_zoom_service_reads_telnyx_fallback_credentials(mock_cfg, app_client):  # noqa: ARG001
+    def _fake(db, *, provider: str):
+        if provider == "zoom":
+            return ({}, False)
+        if provider == "telnyx":
+            return (
+                {
+                    "zoom_account_id": "acct_from_telnyx",
+                    "zoom_client_id": "cid_from_telnyx",
+                    "zoom_client_secret": "csec_from_telnyx",
+                    "zoom_base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        return ({}, False)
+
+    mock_cfg.side_effect = _fake
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+    assert cfg["account_id"] == "acct_from_telnyx"
+    assert cfg["client_id"] == "cid_from_telnyx"
+    assert cfg["client_secret"] == "csec_from_telnyx"
+    assert cfg["base_url"] == "https://api.zoom.us/v2"
