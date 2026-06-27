@@ -6368,11 +6368,42 @@ body.dark .matrix th {
 }
 
 .integrationKpiGridEnabled {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .integrationKpiCardRich {
-  min-height: 220px;
+  min-height: 0;
+  padding: 10px 12px;
+  gap: 5px;
+}
+
+.integrationKpiCardRich .integrationKpiTitle {
+  font-size: 13px;
+}
+
+.integrationKpiCardRich .integrationKpiBlurb {
+  display: none;
+}
+
+.integrationKpiCardRich .integrationKpiMetrics li {
+  font-size: 10px;
+}
+
+.integrationKpiCardRich .integrationKpiFoot {
+  margin-top: 2px;
+}
+
+@media (max-width: 1200px) {
+  .integrationKpiGridEnabled {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .integrationKpiGridEnabled {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .integrationKpiMetrics {

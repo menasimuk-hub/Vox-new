@@ -373,6 +373,25 @@ export default function TelnyxIntegration({
   const [editCred, setEditCred] = React.useState(null)
   const [prefixDialogCountry, setPrefixDialogCountry] = React.useState(null)
   const [showAddCallRegion, setShowAddCallRegion] = React.useState(false)
+  const [topNoticeClosed, setTopNoticeClosed] = React.useState(false)
+
+  const healthChecks = telnyxNumberHealth?.configured_checks || []
+  const healthCounts = healthChecks.reduce(
+    (acc, r) => {
+      if (r.status === 'ok') acc.ok += 1
+      else if (r.status === 'warn') acc.warn += 1
+      else acc.err += 1
+      return acc
+    },
+    { ok: 0, warn: 0, err: 0 },
+  )
+  const healthProblems = healthChecks.filter((r) => r.status !== 'ok')
+  const hasTopNotice = Boolean(providerError || telnyxTestResult || healthChecks.length)
+
+  // Re-open the compact notice whenever a new test result / health report arrives.
+  React.useEffect(() => {
+    setTopNoticeClosed(false)
+  }, [telnyxTestResult, providerError, telnyxNumberHealth])
 
   const CRED_FIELDS = [
     { key: 'api_key', label: 'API key', secret: true, info: 'Secret v2 key from Telnyx Portal → API Keys (starts with KEY).' },
@@ -534,56 +553,46 @@ export default function TelnyxIntegration({
       </div>
 
       <div className='telnyxIntegrationPage'>
-      {(providerError || telnyxHasUnsavedDraft || telnyxTestResult) ? (
-        <div className='tsh-alerts'>
-          {providerError ? (
-            <div className='tsh-banner tsh-banner-error' role='alert'>
-              {providerError}
-            </div>
-          ) : null}
-          {telnyxHasUnsavedDraft ? (
-            <div className='tsh-banner tsh-banner-warning' role='status'>
-              <AlertTriangle size={14} aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
-              <span>You have unsaved changes — save settings before testing new numbers.</span>
-            </div>
-          ) : null}
-          {telnyxTestResult ? (
-            <div className='tsh-banner tsh-banner-info' role='status'>
-              {telnyxTestResult}
-            </div>
-          ) : null}
+      {telnyxHasUnsavedDraft ? (
+        <div className='tsh-topline tsh-topline-warning' role='status'>
+          <AlertTriangle size={13} aria-hidden />
+          <span>Unsaved changes — save settings before testing new numbers.</span>
         </div>
       ) : null}
-      {telnyxNumberHealth?.configured_checks?.length ? (
-        <div className='card telnyxNumberHealth'>
-          <div className='cardHead'>
-            <h3>Number health</h3>
-            <span className='pill p-cyan'>Telnyx API</span>
-          </div>
-          <div className='cardBody stack'>
-            <div className='telnyxNumberHealthList'>
-              {telnyxNumberHealth.configured_checks.map((row) => (
-                <div key={`${row.role}-${row.number}`} className='telnyxNumberHealthRow'>
-                  <div className='telnyxNumberHealthMain'>
-                    <span className={`pill ${row.status === 'ok' ? 'p-green' : row.status === 'warn' ? 'p-amber' : 'p-red'}`}>
-                      {row.status === 'ok' ? 'OK' : row.status === 'warn' ? 'Warn' : 'Error'}
-                    </span>
-                    <strong>{row.number}</strong>
-                    <span className='pill p-cyan'>{String(row.role || '').toUpperCase()}</span>
-                    {row.label ? <span className='muted'>{row.label}</span> : null}
-                  </div>
-                  {row.issues?.length ? <div className='muted telnyxFieldHint'>{row.issues.join(' · ')}</div> : null}
-                </div>
-              ))}
-            </div>
-            {telnyxNumberHealth.inventory_warnings?.length ? (
-              <div className='note'>
-                {telnyxNumberHealth.inventory_warnings.map((w) => (
-                  <div key={w}>{w}</div>
+      {hasTopNotice && !topNoticeClosed ? (
+        <div
+          className={`tsh-topline ${providerError || healthCounts.err ? 'tsh-topline-error' : healthCounts.warn ? 'tsh-topline-warning' : 'tsh-topline-info'}`}
+          role='status'
+        >
+          <div className='tsh-topline-body'>
+            {providerError ? <span className='tsh-topline-item'>{providerError}</span> : null}
+            {telnyxTestResult ? <span className='tsh-topline-item'>{telnyxTestResult}</span> : null}
+            {healthChecks.length ? (
+              <span className='tsh-topline-item'>
+                <strong>Number health:</strong> {healthCounts.ok} OK
+                {healthCounts.warn ? ` · ${healthCounts.warn} warn` : ''}
+                {healthCounts.err ? ` · ${healthCounts.err} error` : ''}
+                {healthProblems.map((row) => (
+                  <span key={`${row.role}-${row.number}`} className='tsh-topline-sub'>
+                    {' · '}
+                    {row.number} {String(row.role || '').toUpperCase()}
+                    {row.issues?.length ? `: ${row.issues.join(', ')}` : ''}
+                  </span>
                 ))}
-              </div>
+                {(telnyxNumberHealth?.inventory_warnings || []).map((w) => (
+                  <span key={w} className='tsh-topline-sub'>{` · ${w}`}</span>
+                ))}
+              </span>
             ) : null}
           </div>
+          <button
+            type='button'
+            className='tsh-topline-x'
+            aria-label='Dismiss'
+            onClick={() => setTopNoticeClosed(true)}
+          >
+            <X size={14} aria-hidden />
+          </button>
         </div>
       ) : null}
 
@@ -1120,6 +1129,119 @@ export default function TelnyxIntegration({
           </div>
         </div>
 
+        <div className='card'>
+          <div className='cardHead'>
+            <div className='cardHeadText'>
+              <h3>Test outgoing</h3>
+              <p className='cardSub'>Send a real WhatsApp or SMS to your mobile</p>
+            </div>
+            <span className='pill p-cyan'>Your mobile</span>
+          </div>
+          <div className='cardBody'>
+            <div className='telnyxGrid2'>
+              <div className='telnyxTestBlock'>
+                <div className='telnyxTestBlockHead'>
+                  <div className='telnyxTestBlockTitle'>Platform SMS</div>
+                  <span className='pill p-cyan'>SMS</span>
+                </div>
+                <div className='muted telnyxFieldHint'>Uses the primary SMS number from the Telnyx API tab.</div>
+                <Field label='Destination number (E.164)' hint='Your personal mobile, e.g. +447700900123'>
+                  <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
+                </Field>
+                <Field label='From number (SMS)'>
+                  <select className='input' value={telnyxTestFromSms} onChange={(e) => setTelnyxTestFromSms(e.target.value)}>
+                    <option value=''>Default (sms_from)</option>
+                    {String(activeConfig.sms_from || '')
+                      .trim()
+                      ? [String(activeConfig.sms_from).trim()].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))
+                      : null}
+                  </select>
+                </Field>
+                <div className='actions telnyxTestActions'>
+                  <button type='button' className='btn soft' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
+                    Test SMS
+                  </button>
+                </div>
+                {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
+              </div>
+              <div className='telnyxTestBlock'>
+                <div className='telnyxTestBlockHead'>
+                  <div className='telnyxTestBlockTitle'>Platform WhatsApp</div>
+                  <span className='pill p-green'>WhatsApp</span>
+                </div>
+                <div className='muted telnyxFieldHint'>Uses the platform WhatsApp number — survey templates and customer feedback.</div>
+                <Field label='Destination number (E.164)' hint='Your personal mobile, e.g. +447700900123'>
+                  <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
+                </Field>
+                <Field label='From number (WhatsApp)'>
+                  <select className='input' value={telnyxTestFromWa} onChange={(e) => setTelnyxTestFromWa(e.target.value)}>
+                    <option value=''>Default (first WhatsApp route)</option>
+                    {compactRouteRows(activeConfig.whatsapp_routes)
+                      .map((r) => r.number)
+                      .concat(
+                        String(activeConfig.whatsapp_from || '').trim() ? [String(activeConfig.whatsapp_from).trim()] : []
+                      )
+                      .filter((n, i, a) => n && a.indexOf(n) === i)
+                      .map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Field
+                  label='WhatsApp template (approved only)'
+                  hint='Pick from the Templates list below, or choose here.'
+                >
+                  <select
+                    className='input'
+                    value={telnyxWaTemplateId}
+                    onChange={(e) => onSelectTelnyxWaTemplate(e.target.value)}
+                  >
+                    <option value=''>— Select approved template —</option>
+                    {(telnyxWaTemplates || [])
+                      .filter((t) => String(t.status || '').toUpperCase() === 'APPROVED')
+                      .map((t) => (
+                        <option key={t.template_id || t.id} value={t.template_id || ''}>
+                          {t.name} · {t.language}
+                          {t.template_id ? ` · ${String(t.template_id).slice(0, 8)}…` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Field
+                  label='Or template name / UUID (manual)'
+                  hint='Optional override. Prefer the synced list below.'
+                >
+                  <input
+                    className='input'
+                    value={telnyxWaTemplateName}
+                    onChange={(e) => setTelnyxWaTemplateName(e.target.value)}
+                    placeholder='voxbulk_sales_offer or UUID'
+                  />
+                </Field>
+                <Field label='Template language' hint='Auto-filled when you pick a synced template (your templates use en_US).'>
+                  <input
+                    className='input'
+                    value={telnyxWaTemplateLang}
+                    onChange={(e) => setTelnyxWaTemplateLang(e.target.value)}
+                    placeholder='en_US'
+                  />
+                </Field>
+                <div className='actions telnyxTestActions'>
+                  <button type='button' className='btn soft' onClick={testTelnyxWhatsApp} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
+                    Test WhatsApp
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className='card telnyxWaTemplatesCard'>
           <div className='cardHead'>
             <div className='cardHeadText'>
@@ -1199,108 +1321,6 @@ export default function TelnyxIntegration({
             )}
             <div className='muted telnyxFieldHint' style={{ marginTop: 10 }}>
               Sync pulls live templates from Telnyx and removes stale rows. Only <strong>Approved</strong> templates can be used for test sends.
-            </div>
-          </div>
-        </div>
-
-        <div className='card'>
-          <div className='cardHead'>
-            <div className='cardHeadText'>
-              <h3>Test outgoing</h3>
-              <p className='cardSub'>Send a real WhatsApp or SMS to your mobile</p>
-            </div>
-            <span className='pill p-cyan'>Your mobile</span>
-          </div>
-          <div className='cardBody stack'>
-            <Field label='Destination number (E.164)' hint='Your personal mobile, e.g. +447700900123'>
-              <input className='input' value={telnyxTestNumber} onChange={(e) => setTelnyxTestNumber(e.target.value)} placeholder='+447700900123' />
-            </Field>
-            <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>Platform SMS</div>
-              <div className='muted telnyxFieldHint'>Uses the primary SMS number from the Telnyx API tab.</div>
-              <Field label='From number (SMS)'>
-                <select className='input' value={telnyxTestFromSms} onChange={(e) => setTelnyxTestFromSms(e.target.value)}>
-                  <option value=''>Default (sms_from)</option>
-                  {String(activeConfig.sms_from || '')
-                    .trim()
-                    ? [String(activeConfig.sms_from).trim()].map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))
-                    : null}
-                </select>
-              </Field>
-              <div className='actions telnyxTestActions'>
-                <button type='button' className='btn soft' onClick={testTelnyxSms} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
-                  Test SMS
-                </button>
-              </div>
-              {telnyxSmsTestResult ? <div className='note'>{telnyxSmsTestResult}</div> : null}
-            </div>
-            <div className='telnyxTestBlock'>
-              <div className='telnyxTestBlockTitle'>Platform WhatsApp (surveys & feedback)</div>
-              <div className='muted telnyxFieldHint'>Uses the platform WhatsApp number — survey templates and customer feedback.</div>
-              <Field label='From number (WhatsApp)'>
-                <select className='input' value={telnyxTestFromWa} onChange={(e) => setTelnyxTestFromWa(e.target.value)}>
-                  <option value=''>Default (first WhatsApp route)</option>
-                  {compactRouteRows(activeConfig.whatsapp_routes)
-                    .map((r) => r.number)
-                    .concat(
-                      String(activeConfig.whatsapp_from || '').trim() ? [String(activeConfig.whatsapp_from).trim()] : []
-                    )
-                    .filter((n, i, a) => n && a.indexOf(n) === i)
-                    .map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-              <Field
-                label='WhatsApp template (approved only)'
-                hint='Pick from the list on the left, or choose here.'
-              >
-                <select
-                  className='input'
-                  value={telnyxWaTemplateId}
-                  onChange={(e) => onSelectTelnyxWaTemplate(e.target.value)}
-                >
-                  <option value=''>— Select approved template —</option>
-                  {(telnyxWaTemplates || [])
-                    .filter((t) => String(t.status || '').toUpperCase() === 'APPROVED')
-                    .map((t) => (
-                      <option key={t.template_id || t.id} value={t.template_id || ''}>
-                        {t.name} · {t.language}
-                        {t.template_id ? ` · ${String(t.template_id).slice(0, 8)}…` : ''}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-              <Field
-                label='Or template name / UUID (manual)'
-                hint='Optional override. Prefer the synced list on the left.'
-              >
-                <input
-                  className='input'
-                  value={telnyxWaTemplateName}
-                  onChange={(e) => setTelnyxWaTemplateName(e.target.value)}
-                  placeholder='voxbulk_sales_offer or UUID'
-                />
-              </Field>
-              <Field label='Template language' hint='Auto-filled when you pick a synced template (your templates use en_US).'>
-                <input
-                  className='input'
-                  value={telnyxWaTemplateLang}
-                  onChange={(e) => setTelnyxWaTemplateLang(e.target.value)}
-                  placeholder='en_US'
-                />
-              </Field>
-              <div className='actions telnyxTestActions'>
-                <button type='button' className='btn soft' onClick={testTelnyxWhatsApp} disabled={providerSaving || !activeSummary?.exists || !telnyxTestNumber.trim()}>
-                  Test WhatsApp
-                </button>
-              </div>
             </div>
           </div>
         </div>
