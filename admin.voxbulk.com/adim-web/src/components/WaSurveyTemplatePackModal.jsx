@@ -396,7 +396,6 @@ export default function WaSurveyTemplatePackModal({ surveyTypeId, surveyTypeName
           privacy_mode: privacyMode,
           template_count: resolveTemplateCount(),
           theme_variant: categoryHint || undefined,
-          template_count: resolveTemplateCount(),
           pack_mode: packMode,
         }),
       })

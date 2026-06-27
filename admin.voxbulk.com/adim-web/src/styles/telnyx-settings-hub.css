@@ -29,9 +29,26 @@
 
 .telnyxPageShell:has(.telnyxHub) {
   background: var(--tsh-bg);
-  border-radius: var(--tsh-radius);
-  padding: 12px 20px 20px;
-  min-height: calc(100vh - 120px);
+  padding: 20px;
+  min-height: 100vh;
+}
+
+/* Full-bleed: render the Telnyx hub exactly like the standalone design
+   by hiding the admin sidebar / topbar / content padding on this page. */
+.app:has(.telnyxHub) .sb,
+.app:has(.telnyxHub) .sb-overlay,
+.app:has(.telnyxHub) .topbar {
+  display: none !important;
+}
+
+.app:has(.telnyxHub) .main,
+.app:has(.telnyxHub) .main.expanded {
+  margin-left: 0 !important;
+}
+
+.app:has(.telnyxHub) .content {
+  padding: 0 !important;
+  max-width: none !important;
 }
 
 .telnyxHub .tsh-back {
