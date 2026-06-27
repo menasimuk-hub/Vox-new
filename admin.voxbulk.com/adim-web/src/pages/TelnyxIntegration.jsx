@@ -536,7 +536,10 @@ export default function TelnyxIntegration({
       <div className='telnyxGrid3'>
         <div className='card'>
           <div className='cardHead'>
-            <h3>Account</h3>
+            <div className='cardHeadText'>
+              <h3>Credentials</h3>
+              <p className='cardSub'>Keys & IDs from your Telnyx account</p>
+            </div>
             <span className='pill p-cyan'>API</span>
           </div>
           <div className='cardBody stack'>
@@ -590,7 +593,10 @@ export default function TelnyxIntegration({
 
         <div className='card'>
           <div className='cardHead'>
-            <h3>Outbound number routing</h3>
+            <div className='cardHeadText'>
+              <h3>Outbound routes</h3>
+              <p className='cardSub'>Numbers used per channel + region</p>
+            </div>
             <span className='pill p-cyan'>Per region</span>
           </div>
           <div className='cardBody stack'>
@@ -619,8 +625,11 @@ export default function TelnyxIntegration({
 
         <div className='card'>
           <div className='cardHead'>
-            <h3>Default senders</h3>
-            <span className='pill p-cyan'>Synced from routes on save</span>
+            <div className='cardHeadText'>
+              <h3>Default senders</h3>
+              <p className='cardSub'>Mirror the first entry in each route list</p>
+            </div>
+            <span className='pill p-cyan'>Synced on save</span>
           </div>
           <div className='cardBody stack'>
             <div className='note'>
@@ -700,7 +709,10 @@ export default function TelnyxIntegration({
 
         <div className='card'>
           <div className='cardHead'>
-            <h3>Webhooks</h3>
+            <div className='cardHeadText'>
+              <h3>Webhooks</h3>
+              <p className='cardSub'>Public URLs — paste in Telnyx portal</p>
+            </div>
             <span className='pill p-cyan'>Public URLs</span>
           </div>
           <div className='cardBody stack'>
@@ -752,7 +764,10 @@ export default function TelnyxIntegration({
       <div className='telnyxGrid2'>
         <div className='card'>
           <div className='cardHead'>
-            <h3>Test voice call</h3>
+            <div className='cardHeadText'>
+              <h3>Test voice call</h3>
+              <p className='cardSub'>Dial your mobile from a configured landline</p>
+            </div>
             <span className='pill p-cyan'>Your mobile</span>
           </div>
           <div className='cardBody stack'>
@@ -846,7 +861,10 @@ export default function TelnyxIntegration({
         <div className='stack' style={{ gap: 20 }}>
           <div className='card'>
             <div className='cardHead'>
-              <h3>Call allowlist — AI voice only</h3>
+              <div className='cardHeadText'>
+                <h3>Call allowlist — AI voice</h3>
+                <p className='cardSub'>Per-region dial rules · controls which numbers AI voice can dial</p>
+              </div>
               <span className='pill p-cyan'>Interviews / surveys</span>
             </div>
             <div className='cardBody stack'>
@@ -957,7 +975,10 @@ export default function TelnyxIntegration({
 
           <div className='card'>
             <div className='cardHead'>
-              <h3>Messaging destinations — WhatsApp &amp; SMS</h3>
+              <div className='cardHeadText'>
+                <h3>Messaging destinations — WhatsApp &amp; SMS</h3>
+                <p className='cardSub'>Synced to Telnyx messaging profile whitelisted destinations</p>
+              </div>
               <span className='pill p-cyan'>Telnyx profiles</span>
             </div>
             <div className='cardBody stack'>
@@ -1030,8 +1051,11 @@ export default function TelnyxIntegration({
       <div className='telnyxWaLayout'>
         <div className='card'>
           <div className='cardHead'>
-            <h3>WhatsApp Business Account (WABA)</h3>
-            <span className='pill p-cyan'>Template push</span>
+            <div className='cardHeadText'>
+              <h3>WhatsApp Business Account</h3>
+              <p className='cardSub'>Required to push survey templates to Meta</p>
+            </div>
+            <span className='pill p-cyan'>WABA</span>
           </div>
           <div className='cardBody stack'>
             <Field
@@ -1057,7 +1081,10 @@ export default function TelnyxIntegration({
 
         <div className='card telnyxWaTemplatesCard'>
           <div className='cardHead'>
-            <h3>WhatsApp templates</h3>
+            <div className='cardHeadText'>
+              <h3>Templates</h3>
+              <p className='cardSub'>Synced from Telnyx · only Approved are usable</p>
+            </div>
             <div className='actions'>
               <button
                 type='button'
@@ -1125,7 +1152,10 @@ export default function TelnyxIntegration({
 
         <div className='card'>
           <div className='cardHead'>
-            <h3>Test outgoing — WhatsApp & SMS</h3>
+            <div className='cardHeadText'>
+              <h3>Test outgoing</h3>
+              <p className='cardSub'>Send a real WhatsApp or SMS to your mobile</p>
+            </div>
             <span className='pill p-cyan'>Your mobile</span>
           </div>
           <div className='cardBody stack'>
@@ -1227,7 +1257,10 @@ export default function TelnyxIntegration({
       {activeTab === 'messages' ? (
       <div className='card telnyxInboundCard'>
         <div className='cardHead'>
-          <h3>Messages</h3>
+          <div className='cardHeadText'>
+            <h3>Messages</h3>
+            <p className='cardSub'>Inbound &amp; outbound SMS / WhatsApp log</p>
+          </div>
           <div className='actions'>
             <button type='button' className='btn soft' onClick={loadTelnyxInboundMessages} disabled={providerSaving || !activeSummary?.exists}>
               Search
@@ -1321,7 +1354,11 @@ export default function TelnyxIntegration({
       {activeTab === 'zoom' ? (
         <div className='card'>
           <div className='cardHead'>
-            <h3>Zoom external connection (Telnyx-native)</h3>
+            <div className='cardHeadText'>
+              <h3>Zoom external connection</h3>
+              <p className='cardSub'>Telnyx-native first, OAuth fallback</p>
+            </div>
+            <span className='pill p-cyan'>Interviews</span>
           </div>
           <div className='cardBody'>
             <div className='stack' style={{ gap: 12 }}>
@@ -1479,7 +1516,11 @@ export default function TelnyxIntegration({
       {activeTab === 'microsoft_teams' ? (
         <div className='card'>
           <div className='cardHead'>
-            <h3>Microsoft Teams (Operator Connect)</h3>
+            <div className='cardHeadText'>
+              <h3>Microsoft Teams — Operator Connect</h3>
+              <p className='cardSub'>Telnyx creates external connections asynchronously</p>
+            </div>
+            <span className='pill p-amber'>Pending</span>
           </div>
           <div className='cardBody'>
             <div className='stack' style={{ gap: 12 }}>

@@ -317,29 +317,66 @@
 /* Cards inside hub */
 .telnyxHub .card {
   border: 1px solid var(--tsh-border);
-  border-radius: calc(var(--tsh-radius) - 2px);
+  border-radius: var(--tsh-radius);
   background: var(--tsh-card);
-  box-shadow: none;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  overflow: hidden;
 }
 
 .telnyxHub .cardHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--tsh-border);
-  background: var(--tsh-surface);
+  background: transparent;
 }
 
 .telnyxHub .cardHead h3 {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.telnyxHub .cardHeadText {
+  min-width: 0;
+}
+
+.telnyxHub .cardSub {
+  margin: 1px 0 0;
+  font-size: 11px;
+  color: var(--tsh-muted-fg);
+}
+
+.telnyxHub .cardHead .actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .telnyxHub .cardBody {
-  padding: 14px;
+  padding: 16px;
+}
+
+.telnyxHub .cardBody.stack,
+.telnyxHub .stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.telnyxHub .cardBody.stack {
+  gap: 12px;
+}
+
+/* Compact header action buttons inside cards */
+.telnyxHub .cardHead .btn,
+.telnyxHub .cardHead .actions .btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .telnyxHub .pill.p-cyan,
@@ -396,9 +433,28 @@
 .telnyxHub .input,
 .telnyxHub select.input,
 .telnyxHub textarea.input {
-  border-color: var(--tsh-border);
+  border: 1px solid var(--tsh-border);
   border-radius: calc(var(--tsh-radius) - 4px);
+  background: var(--tsh-card);
+  color: var(--tsh-fg);
   font-size: 12.5px;
+  padding: 0 10px;
+  height: 34px;
+}
+
+.telnyxHub textarea.input {
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.45;
+}
+
+.telnyxHub select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
 }
 
 .telnyxHub .input:focus {
@@ -407,40 +463,91 @@
   outline-offset: 0;
 }
 
+.telnyxHub .label,
+.telnyxHub label.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tsh-fg);
+}
+
+.telnyxHub input[type='checkbox'] {
+  accent-color: var(--tsh-primary);
+  width: 15px;
+  height: 15px;
+}
+
+.telnyxHub .btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: calc(var(--tsh-radius) - 4px);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .telnyxHub .btn.soft {
-  border-color: var(--tsh-border);
+  border: 1px solid var(--tsh-border);
   background: var(--tsh-card);
   color: var(--tsh-fg);
-  font-size: 12px;
 }
 
 .telnyxHub .btn.primary {
   background: var(--tsh-primary);
-  border-color: var(--tsh-primary);
+  border: 1px solid var(--tsh-primary);
   color: var(--tsh-primary-fg);
-  font-size: 12px;
 }
 
-.telnyxHub .btn.soft:hover:not(:disabled),
+.telnyxHub .btn.soft:hover:not(:disabled) {
+  background: var(--tsh-surface-muted);
+}
+
 .telnyxHub .btn.primary:hover:not(:disabled) {
-  filter: brightness(1.05);
+  filter: brightness(1.1);
+}
+
+.telnyxHub .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.telnyxHub .tableWrap {
+  border: 1px solid var(--tsh-border);
+  border-radius: calc(var(--tsh-radius) - 2px);
+  overflow: hidden;
 }
 
 .telnyxHub table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 12.5px;
 }
 
 .telnyxHub table thead th {
+  height: 32px;
+  padding: 0 12px;
+  text-align: left;
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--tsh-muted-fg);
   background: var(--tsh-surface);
+  border-bottom: 1px solid var(--tsh-border);
+}
+
+.telnyxHub table tbody td {
+  height: 38px;
+  padding: 6px 12px;
+  vertical-align: middle;
+  border-top: 1px solid color-mix(in oklch, var(--tsh-border) 60%, transparent);
 }
 
 .telnyxHub table tbody tr:nth-child(even) {
-  background: color-mix(in oklch, var(--tsh-surface-muted) 60%, transparent);
+  background: color-mix(in oklch, var(--tsh-surface-muted) 55%, transparent);
+}
+
+.telnyxHub table tbody tr:first-child td {
+  border-top: none;
 }
 
 .telnyxHub .muted {
@@ -448,7 +555,99 @@
 }
 
 .telnyxHub .telnyxIntegrationPage {
-  gap: 12px;
+  gap: 16px;
+}
+
+.telnyxHub .telnyxGrid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.telnyxHub .telnyxGrid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 860px) {
+  .telnyxHub .telnyxGrid2,
+  .telnyxHub .telnyxGrid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Test blocks + checklist */
+.telnyxHub .telnyxTestBlock {
+  border: 1px solid var(--tsh-border);
+  border-radius: calc(var(--tsh-radius) - 2px);
+  background: var(--tsh-surface-muted);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.telnyxHub .telnyxTestBlockTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.telnyxHub .telnyxChecklist {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Route cards */
+.telnyxHub .telnyxRouteCard {
+  border: 1px solid var(--tsh-border);
+  border-radius: calc(var(--tsh-radius) - 2px);
+  background: var(--tsh-surface-muted);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.telnyxHub .telnyxRouteCardTop {
+  display: flex;
+  gap: 8px;
+}
+
+.telnyxHub .telnyxRouteCardTop .input {
+  flex: 1;
+}
+
+.telnyxHub .telnyxRegionChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.telnyxHub .telnyxRouteList {
+  display: grid;
+  gap: 10px;
+}
+
+/* WA template list active state uses navy */
+.telnyxHub .telnyxWaTemplateListItemActive {
+  border-color: var(--tsh-primary);
+  background: color-mix(in oklch, var(--tsh-primary) 8%, transparent);
+}
+
+.telnyxHub .telnyxWaTemplateListItem:hover:not(:disabled) {
+  border-color: var(--tsh-primary);
+}
+
+.telnyxHub .telnyxNumberHealthRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 12.5px;
 }
 
 @media (max-width: 960px) {
