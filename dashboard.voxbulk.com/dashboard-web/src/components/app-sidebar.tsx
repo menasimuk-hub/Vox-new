@@ -25,8 +25,7 @@ import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
 import { canAccessBilling, canManageOrgSettings, canManageTeam, isBillingOnlyRole, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
-import { useOrganisation, useFeedbackSubscription } from "@/lib/queries";
-import { isMultiLocationFeedbackPlan } from "@/lib/feedback-plan";
+import { useOrganisation } from "@/lib/queries";
 
 type Item = {
   title: string;
@@ -34,6 +33,7 @@ type Item = {
   search?: Record<string, unknown>;
   icon: React.ComponentType<{ className?: string }>;
   isActive?: (path: string) => boolean;
+  addon?: boolean;
 };
 type GroupKey = ServiceKey | "settings" | "account" | "workspace";
 type Group = {
@@ -87,8 +87,9 @@ const groups: Group[] = [
     { title: "Create QR survey", url: "/feedback/new", icon: QrCode },
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
-    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send },
-    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3 },
+    { title: "Compare locations", url: "/feedback/compare", icon: GitCompare },
+    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true },
+    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true },
   ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
@@ -132,8 +133,6 @@ export function AppSidebar() {
     if (isMobile) setOpenMobile(false);
   }, [isMobile, setOpenMobile]);
   const orgQ = useOrganisation();
-  const feedbackSubQ = useFeedbackSubscription();
-  const multiLocationFeedback = isMultiLocationFeedbackPlan(feedbackSubQ.data);
   const orgName = session?.org?.name || session?.org?.display_name || orgQ.data?.name || session?.profile?.email || "Your organisation";
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
@@ -143,15 +142,6 @@ export function AppSidebar() {
 
   const visibleGroups = groups
     .map((g) => {
-      if (g.key === "feedback" && multiLocationFeedback) {
-        const hasCompare = g.items.some((i) => i.url === "/feedback/compare");
-        if (!hasCompare) {
-          return {
-            ...g,
-            items: [...g.items, { title: "Compare locations", url: "/feedback/compare", icon: GitCompare }],
-          };
-        }
-      }
       if (g.key !== "settings") return g;
       return {
         ...g,
@@ -296,16 +286,26 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuSub>
-                {group.items.map((item) => (
-                  <SidebarMenuSubItem key={item.title}>
+                {group.items.map((item, idx) => {
+                  const showAddonDivider = item.addon && !group.items[idx - 1]?.addon;
+                  return (
+                  <SidebarMenuSubItem key={item.title} className={showAddonDivider ? "mt-2 border-t border-sidebar-border pt-2" : undefined}>
                     <SidebarMenuSubButton asChild isActive={itemActive(item)}>
-                      <Link to={item.url} search={item.search} onClick={onNavigate}>
-                        <item.icon className="size-3.5" />
-                        <span>{item.title}</span>
+                      <Link to={item.url} search={item.search} onClick={onNavigate} className="items-start">
+                        <item.icon className="size-3.5 mt-0.5 shrink-0" />
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          {item.addon ? (
+                            <span className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground/80">
+                              Add-on
+                            </span>
+                          ) : null}
+                          <span>{item.title}</span>
+                        </span>
                       </Link>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
-                ))}
+                  );
+                })}
               </SidebarMenuSub>
             </SidebarMenu>
           </SidebarGroupContent>

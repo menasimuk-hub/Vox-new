@@ -4986,14 +4986,13 @@ body.dark .emailPreviewInner {
 
 .telnyxWaLayout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
 }
 
 .telnyxWaTemplatesCard {
-  position: sticky;
-  top: 12px;
+  position: static;
 }
 
 .telnyxWaTemplatesBody {

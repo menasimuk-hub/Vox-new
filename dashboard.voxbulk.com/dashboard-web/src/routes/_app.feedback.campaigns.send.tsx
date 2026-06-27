@@ -148,7 +148,11 @@ function FeedbackCampaignSend() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader eyebrow="Customer feedback" title="Send campaign" description="Pick an approved template, fill variables, add opt-in audience or numbers — pay invoice, then launch." />
+      <PageHeader
+        eyebrow="Add-on · Customer feedback"
+        title="Send campaign"
+        description="Promo WhatsApp broadcasts — billed per send. Pay invoice before launch."
+      />
 
       <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3 text-sm text-success">
         <ShieldCheck className="size-4" />

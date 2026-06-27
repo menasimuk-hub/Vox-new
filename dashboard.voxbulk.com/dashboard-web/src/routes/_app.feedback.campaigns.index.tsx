@@ -1,13 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import * as React from "react";
-import { Send, ShieldCheck, BarChart3, ThumbsUp, ThumbsDown, CheckCircle2 } from "lucide-react";
+import { Send, ShieldCheck, CheckCircle2 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useFeedbackPromoDashboard, useFeedbackPromoTemplates } from "@/lib/queries";
+import { useFeedbackPromoDashboard } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/feedback/campaigns/")({
   head: () => ({ meta: [{ title: "Campaign dashboard — Customer feedback" }] }),
@@ -16,17 +15,15 @@ export const Route = createFileRoute("/_app/feedback/campaigns/")({
 
 function FeedbackCampaignDashboard() {
   const dashQ = useFeedbackPromoDashboard();
-  const tplQ = useFeedbackPromoTemplates();
   const totals = dashQ.data?.totals || { sent: 0, coming: 0, not_interested: 0 };
   const campaigns = dashQ.data?.campaigns || [];
-  const templates = tplQ.data || [];
 
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
-        eyebrow="Customer feedback"
+        eyebrow="Add-on · Customer feedback"
         title="Campaign dashboard"
-        description="Pre-approved promo templates, opt-in audience sends, and reply-rate tracking."
+        description="Promo WhatsApp broadcasts — billed per send. Pay invoice before launch."
         actions={
           <Button asChild className="gap-1.5">
             <Link to="/feedback/campaigns/send"><Send className="size-4" /> Send campaign</Link>
@@ -78,28 +75,6 @@ function FeedbackCampaignDashboard() {
             }) : (
               <div className="p-6 text-sm text-muted-foreground">No campaigns yet. Send your first promo campaign.</div>
             )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-4">
-          <h2 className="mb-3 text-base font-semibold">Available templates ({templates.length})</h2>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {templates.map((t) => (
-              <Link
-                key={String(t.id)}
-                to="/feedback/campaigns/send"
-                search={{ template: String(t.id) }}
-                className="group rounded-lg border border-border bg-background p-3 transition hover:border-primary/50 hover:bg-primary/5"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">{String(t.name)}</p>
-                  <Badge variant="secondary" className="text-[10px]">{String(t.category)}</Badge>
-                </div>
-                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{String(t.scenario)}</p>
-              </Link>
-            ))}
           </div>
         </CardContent>
       </Card>
