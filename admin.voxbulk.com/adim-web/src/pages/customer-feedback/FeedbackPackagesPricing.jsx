@@ -1,46 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Globe, Info, Infinity, PackageOpen, Plus, Save, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
-import PricingPageFrame, { PricingLoadGate } from '../pricing/PricingPageFrame'
 import { penceToPounds, poundsToPence } from '../pricing/pricingUtils'
+import './feedbackPackagesTheme.css'
 
 const CURRENCIES = [
-  { code: 'GBP', label: 'GB £' },
-  { code: 'EUR', label: 'Euro €' },
-  { code: 'USD', label: 'US $' },
-  { code: 'CAD', label: 'CA $' },
-  { code: 'AUD', label: 'AU $' },
+  { code: 'GBP', label: 'GB £', zone: 'gb' },
+  { code: 'EUR', label: 'Euro €', zone: 'eu' },
+  { code: 'USD', label: 'US $', zone: 'us' },
+  { code: 'CAD', label: 'CA $', zone: 'ca' },
+  { code: 'AUD', label: 'AU $', zone: 'au' },
 ]
 
-function MoneyInput({ value, onChange, disabled, placeholder }) {
-  return (
-    <input
-      className="input pricingInputSm pricingInputNum"
-      type="number"
-      step="0.01"
-      min="0"
-      value={value}
-      disabled={disabled}
-      placeholder={placeholder || '0.00'}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  )
-}
-
-function NumInput({ value, onChange, disabled, placeholder }) {
-  return (
-    <input
-      className="input pricingInputSm pricingInputNum"
-      type="number"
-      min="0"
-      value={value}
-      disabled={disabled}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  )
-}
+const SEEDED_CODES = new Set(['cf_starter_gb', 'cf_growth_gb', 'cf_pro_gb', 'cf_business_gb'])
 
 function webUnitsUnlimited(webUnits) {
   return Number(webUnits) < 0
@@ -51,9 +25,19 @@ export default function FeedbackPackagesPricing() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [msg, setMsg] = useState('')
   const [items, setItems] = useState([])
   const [yearlyManual, setYearlyManual] = useState(() => new Set())
+  const [manageMode, setManageMode] = useState(false)
+  const [toast, setToast] = useState({ show: false, message: '', error: false })
+  const toastTimer = useRef(null)
+
+  const showToast = useCallback((message, isError = false) => {
+    setToast({ show: true, message, error: isError })
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => {
+      setToast((t) => ({ ...t, show: false }))
+    }, 3000)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -72,6 +56,10 @@ export default function FeedbackPackagesPricing() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+  }, [])
 
   const updateRow = (planId, field, value) => {
     setItems((rows) => rows.map((row) => (row.plan_id === planId ? { ...row, [field]: value } : row)))
@@ -100,181 +88,314 @@ export default function FeedbackPackagesPricing() {
     updateRow(planId, 'web_units_included', unlimited ? -1 : 200)
   }
 
-  const save = async () => {
+  const save = async (subset) => {
     setBusy(true)
     setError('')
-    setMsg('')
     try {
+      const payload = subset || items
       await apiFetch('/admin/customer-feedback/plans/pricing/bulk', {
         method: 'PUT',
-        body: JSON.stringify({ currency, items }),
+        body: JSON.stringify({ currency, items: payload }),
       })
-      setMsg('All Customer feedback pricing saved. Changes apply to new subscriptions and renewals.')
+      showToast('All packages saved. Changes apply to new subscriptions and renewals.')
       await load()
     } catch (e) {
-      setError(e?.message || 'Save failed')
+      const msg = e?.message || 'Save failed'
+      setError(msg)
+      showToast(msg, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveOne = async (planId) => {
+    const row = items.find((r) => r.plan_id === planId)
+    if (!row) return
+    await save([row])
+    showToast('Package saved successfully!')
+  }
+
+  const addPackage = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const zone = CURRENCIES.find((c) => c.code === currency)?.zone || 'gb'
+      const data = await apiFetch('/admin/customer-feedback/plans/pricing', {
+        method: 'POST',
+        body: JSON.stringify({ currency, market_zone: zone, name: 'Enterprise' }),
+      })
+      if (data?.item) {
+        setItems((prev) => [...prev, data.item])
+        showToast('New Enterprise package created!')
+      } else {
+        await load()
+        showToast('New package created!')
+      }
+    } catch (e) {
+      const msg = e?.message || 'Could not create package'
+      setError(msg)
+      showToast(msg, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deletePackage = async (planId) => {
+    if (!window.confirm('Are you sure you want to delete this package?')) return
+    setBusy(true)
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/plans/pricing/${encodeURIComponent(planId)}`, {
+        method: 'DELETE',
+      })
+      setItems((prev) => prev.filter((r) => r.plan_id !== planId))
+      showToast('Package deleted successfully!')
+    } catch (e) {
+      const msg = e?.message || 'Delete failed'
+      setError(msg)
+      showToast(msg, true)
     } finally {
       setBusy(false)
     }
   }
 
   const symbol = CURRENCY_SYMBOLS[currency] || currency
+  const codeEditable = (code) => !SEEDED_CODES.has(String(code || '').toLowerCase())
 
   return (
-    <div className="pageWrap">
-      <div className="pageHead">
-        <div>
+    <div className="cfpTheme">
+      <div className="cfp-app">
+        <div className="page-header">
           <h1>Customer feedback pricing</h1>
-          <p className="muted">
-            Manage Starter, Growth, and Business tiers — locations, survey allowances, and monthly/yearly prices per currency.
+          <p>
+            Manage Starter, Growth, and Business tiers — locations, survey allowances, and monthly/yearly prices per
+            currency.
           </p>
+          <Link className="hub-badge" to="/customer-feedback/subscriptions">
+            <Globe size={12} /> Feedback hub
+          </Link>
         </div>
-        <Link className="btn soft bsm" to="/customer-feedback/subscriptions">
-          Feedback hub
-        </Link>
-      </div>
 
-      <PricingLoadGate
-        loading={loading}
-        error={!items.length && error ? error : ''}
-        title="Customer feedback pricing"
-        description="Starter, Growth, and Business packages for WhatsApp and web QR surveys."
-        onRetry={load}
-      >
-        <PricingPageFrame
-          title={`Packages — ${currency}`}
-          description="Prices are ex-VAT. Yearly billing = 10 months (2 months free). Edits flow to the customer dashboard package picker."
-          error={error}
-          msg={msg}
-          actions={
-            <button type="button" className="btn primary" disabled={busy || loading} onClick={() => void save()}>
-              {busy ? 'Saving…' : 'Save all'}
-            </button>
-          }
-        >
-          <div className="runningSurveyTabs" style={{ marginBottom: 16 }}>
+        <div className="top-bar">
+          <div className="currency-tabs">
             {CURRENCIES.map((c) => (
               <button
                 key={c.code}
                 type="button"
-                className={`runningSurveyTab${currency === c.code ? ' on' : ''}`}
+                className={`currency-tab${currency === c.code ? ' active' : ''}`}
                 onClick={() => setCurrency(c.code)}
               >
                 {c.label}
               </button>
             ))}
           </div>
+          <div className="top-actions">
+            <button
+              type="button"
+              className={`cfp-btn cfp-btn-ghost cfp-btn-sm${manageMode ? ' cfp-btn-primary' : ''}`}
+              onClick={() => setManageMode((v) => !v)}
+            >
+              {manageMode ? 'Done' : 'Manage'}
+            </button>
+            <button type="button" className="cfp-btn cfp-btn-primary" disabled={busy || loading} onClick={() => void addPackage()}>
+              <Plus size={14} /> Create package
+            </button>
+            <button type="button" className="cfp-btn cfp-btn-success" disabled={busy || loading} onClick={() => void save()}>
+              <Save size={14} /> {busy ? 'Saving…' : 'Save all'}
+            </button>
+          </div>
+        </div>
 
-          <p className="muted" style={{ marginBottom: 16, fontSize: 13 }}>
+        <div className="vat-note">
+          <Info size={14} style={{ flexShrink: 0, marginTop: 1, color: '#1a2332' }} />
+          <span>
             Prices are ex-VAT. VAT is applied at checkout based on the customer&apos;s country — manage rates in{' '}
             <Link to="/billing/tax">Billing → Tax &amp; VAT</Link>.
-          </p>
+          </span>
+        </div>
 
-          {!loading && !items.length ? (
-            <p className="muted">No plans for {currency}. Check that feedback packages are seeded for this market zone.</p>
-          ) : (
-            <div className="pricingPlanPricesStack">
-              {items.map((row) => {
-                const frozen = Boolean(row.is_frozen)
-                const unlimitedWeb = webUnitsUnlimited(row.web_units_included)
-                return (
-                  <div key={row.plan_id} className="pricingPlanPriceCard">
-                    <div className="pricingPlanPriceHead">
+        {error ? (
+          <p className="vat-note" style={{ background: '#f8e8e4', borderColor: '#d4b0a8', color: '#8a4a3a' }}>
+            {error}
+          </p>
+        ) : null}
+
+        {loading ? (
+          <div className="cfp-loading">Loading packages…</div>
+        ) : !items.length ? (
+          <div className="empty-state">
+            <PackageOpen size={32} style={{ margin: '0 auto 10px', display: 'block' }} />
+            <p>No packages yet. Click &quot;Create package&quot; to add one.</p>
+          </div>
+        ) : (
+          <div id="packageContainer">
+            {items.map((row) => {
+              const frozen = Boolean(row.is_frozen)
+              const unlimitedWeb = webUnitsUnlimited(row.web_units_included)
+              const canEditCode = codeEditable(row.code)
+              return (
+                <div key={row.plan_id} className="package-row">
+                  <div className="row-header">
+                    <div className="left">
                       <input
-                        className="input"
+                        className="name-input"
+                        type="text"
                         disabled={frozen}
                         value={row.name || ''}
                         onChange={(e) => updateRow(row.plan_id, 'name', e.target.value)}
-                        style={{ fontWeight: 600, maxWidth: 220 }}
+                        placeholder="Package name"
                       />
-                      <span className="muted">{row.code}</span>
-                      {frozen ? <span className="pill p-amber">Frozen</span> : null}
-                      {!row.is_active ? <span className="pill p-amber">Inactive</span> : null}
+                      <input
+                        className="code-input"
+                        type="text"
+                        readOnly={!canEditCode || frozen}
+                        value={row.code || ''}
+                        onChange={(e) => updateRow(row.plan_id, 'code', e.target.value)}
+                        placeholder="Package code"
+                      />
+                      {frozen ? <span className="status-pill">Frozen</span> : null}
+                      {!row.is_active ? <span className="status-pill">Inactive</span> : null}
                     </div>
+                    <div className="right">
+                      {manageMode && !frozen ? (
+                        <button
+                          type="button"
+                          className="cfp-btn cfp-btn-danger cfp-btn-sm"
+                          disabled={busy}
+                          onClick={() => void deletePackage(row.plan_id)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
 
-                    <table className="pricingPlanPriceTable">
+                  <div className="row-body">
+                    <table>
                       <thead>
                         <tr>
-                          <th>Locations</th>
-                          <th>WhatsApp surveys / mo</th>
-                          <th>Web surveys / mo</th>
-                          <th>Monthly ({symbol})</th>
-                          <th>Yearly ({symbol})</th>
-                          <th>Promo msg cost</th>
+                          <th style={{ width: 80 }}>Locations</th>
+                          <th style={{ width: 100 }}>WhatsApp / mo</th>
+                          <th style={{ width: 120 }}>Web surveys / mo</th>
+                          <th style={{ width: 90 }}>Monthly ({symbol})</th>
+                          <th style={{ width: 90 }}>Yearly ({symbol})</th>
+                          <th style={{ width: 90 }}>Promo msg</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr>
                           <td>
-                            <NumInput
+                            <input
+                              type="number"
+                              min="0"
                               disabled={frozen}
                               value={row.max_locations ?? 0}
-                              onChange={(v) => updateRow(row.plan_id, 'max_locations', Number(v || 0))}
+                              onChange={(e) => updateRow(row.plan_id, 'max_locations', Number(e.target.value || 0))}
                             />
                           </td>
                           <td>
-                            <NumInput
+                            <input
+                              type="number"
+                              min="0"
                               disabled={frozen}
                               value={row.wa_units_included ?? 0}
-                              onChange={(v) => updateRow(row.plan_id, 'wa_units_included', Number(v || 0))}
+                              onChange={(e) => updateRow(row.plan_id, 'wa_units_included', Number(e.target.value || 0))}
                             />
                           </td>
                           <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            {unlimitedWeb ? (
+                              <span className="web-unlimited-badge">
+                                <Infinity size={12} /> Unlimited
+                              </span>
+                            ) : (
+                              <input
+                                type="number"
+                                min="0"
+                                disabled={frozen}
+                                value={row.web_units_included ?? 0}
+                                onChange={(e) =>
+                                  updateRow(row.plan_id, 'web_units_included', Number(e.target.value || 0))
+                                }
+                              />
+                            )}
+                            <div className="unlimited-toggle">
+                              <label className="toggle-switch">
                                 <input
                                   type="checkbox"
                                   disabled={frozen}
                                   checked={unlimitedWeb}
                                   onChange={(e) => toggleWebUnlimited(row.plan_id, e.target.checked)}
                                 />
-                                Unlimited
+                                <span className="toggle-slider" />
                               </label>
-                              {!unlimitedWeb ? (
-                                <NumInput
-                                  disabled={frozen}
-                                  value={row.web_units_included ?? 0}
-                                  onChange={(v) => updateRow(row.plan_id, 'web_units_included', Number(v || 0))}
-                                />
-                              ) : (
-                                <span className="pill p-cyan">Unlimited</span>
-                              )}
+                              <label>Unlimited</label>
                             </div>
                           </td>
                           <td>
-                            <MoneyInput
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
                               disabled={frozen}
                               value={penceToPounds(row.price_minor || 0)}
-                              onChange={(v) => updateMonthly(row.plan_id, v)}
+                              onChange={(e) => updateMonthly(row.plan_id, e.target.value)}
                             />
                           </td>
                           <td>
-                            <MoneyInput
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
                               disabled={frozen}
                               value={penceToPounds(row.yearly_price_minor || (row.price_minor || 0) * 10)}
-                              onChange={(v) => updateYearly(row.plan_id, v)}
+                              onChange={(e) => updateYearly(row.plan_id, e.target.value)}
                             />
-                            <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                              2 months free (×10)
-                            </span>
                           </td>
                           <td>
-                            <MoneyInput
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
                               disabled={frozen}
                               value={penceToPounds(row.promo_message_cost_minor || 0)}
-                              onChange={(v) => updateRow(row.plan_id, 'promo_message_cost_minor', poundsToPence(v))}
+                              onChange={(e) =>
+                                updateRow(row.plan_id, 'promo_message_cost_minor', poundsToPence(e.target.value))
+                              }
                             />
                           </td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </PricingPageFrame>
-      </PricingLoadGate>
+
+                  <div className="row-footer">
+                    <div>
+                      <span className="badge">Yearly billing</span>
+                      <span className="free-text">
+                        <span>2 months free (×10)</span>
+                      </span>
+                    </div>
+                    <div className="footer-actions">
+                      <button
+                        type="button"
+                        className="cfp-btn cfp-btn-sm"
+                        disabled={busy || frozen}
+                        onClick={() => void saveOne(row.plan_id)}
+                      >
+                        <Save size={12} /> Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className={`cfp-toast${toast.show ? ' show' : ''}${toast.error ? ' error' : ''}`} role="status">
+        {toast.message}
+      </div>
     </div>
   )
 }

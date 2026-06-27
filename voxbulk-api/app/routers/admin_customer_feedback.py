@@ -166,6 +166,145 @@ def list_pricing_rows(
     return {"ok": True, "currency": currency, "items": items}
 
 
+def _pricing_row_dict(plan, pkg, price, currency: str) -> dict[str, Any]:
+    return {
+        "plan_id": plan.id,
+        "package_id": pkg.id,
+        "name": plan.name,
+        "code": plan.code,
+        "price_minor": price.monthly_price_minor,
+        "wa_units_included": pkg.wa_units_included,
+        "web_units_included": pkg.web_units_included,
+        "max_locations": pkg.max_locations,
+        "promo_message_cost_minor": pkg.promo_message_cost_minor,
+        "yearly_price_minor": price.yearly_price_minor,
+        "is_frozen": bool(plan.is_frozen),
+        "is_active": bool(plan.is_active and pkg.is_active),
+        "currency": currency,
+    }
+
+
+def _sync_plan_marketing(plan, row: dict[str, Any]) -> None:
+    import json
+
+    locs = int(row.get("max_locations") or 0)
+    wa = int(row.get("wa_units_included") or 0)
+    web = int(row.get("web_units_included") or 0)
+    web_label = "unlimited" if web < 0 else str(web)
+    name = str(row.get("name") or plan.name or "Package").strip()
+    plan.description = (
+        f"WhatsApp + web QR feedback — {name} "
+        f"({locs} location(s), {wa} WA + {web_label} web surveys/month)"
+    )
+    features = [
+        f"{locs} location{'s' if locs != 1 else ''}",
+        f"{wa:,} WhatsApp surveys/mo",
+        "Unlimited web surveys/mo" if web < 0 else f"{web:,} web surveys/mo",
+    ]
+    plan.features_json = json.dumps(features)
+    plan.whatsapp_included = wa
+
+
+@router.post("/plans/pricing")
+def create_pricing_row(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.models.plan import Plan
+    from app.models.plan_price import PlanPrice
+    from app.models.customer_feedback import FEEDBACK_SERVICE_CODE
+
+    currency = str(payload.get("currency") or "GBP").upper()
+    zone = str(payload.get("market_zone") or "gb").lower()
+    name = str(payload.get("name") or "Enterprise").strip() or "Enterprise"
+    suffix = uuid.uuid4().hex[:6]
+    code = str(payload.get("code") or f"cf_enterprise_{zone}_{suffix}").strip().lower()
+    if db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none():
+        code = f"cf_enterprise_{zone}_{suffix}"
+
+    now = datetime.utcnow()
+    max_order = db.execute(
+        select(func.max(FeedbackPackage.display_order)).where(FeedbackPackage.market_zone == zone)
+    ).scalar()
+    display_order = int(max_order or 0) + 10
+
+    plan = Plan(
+        id=str(uuid.uuid4()),
+        code=code,
+        name=name,
+        price_gbp_pence=0,
+        interval="monthly",
+        service_kind=FEEDBACK_SERVICE_CODE,
+        is_active=True,
+        is_enterprise=True,
+        is_featured=False,
+        sort_order=display_order,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(plan)
+    db.flush()
+
+    pkg = FeedbackPackage(
+        id=str(uuid.uuid4()),
+        plan_id=plan.id,
+        market_zone=zone,
+        max_locations=1,
+        wa_units_included=100,
+        web_units_included=100,
+        promo_message_cost_minor=5,
+        display_order=display_order,
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(pkg)
+
+    price = PlanPrice(
+        id=str(uuid.uuid4()),
+        plan_id=plan.id,
+        currency=currency,
+        monthly_price_minor=0,
+        yearly_price_minor=0,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(price)
+
+    row = {
+        "name": name,
+        "max_locations": pkg.max_locations,
+        "wa_units_included": pkg.wa_units_included,
+        "web_units_included": pkg.web_units_included,
+    }
+    _sync_plan_marketing(plan, row)
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    db.refresh(pkg)
+    db.refresh(price)
+    return {"ok": True, "item": _pricing_row_dict(plan, pkg, price, currency)}
+
+
+@router.delete("/plans/pricing/{plan_id}")
+def delete_pricing_row(plan_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.models.plan import Plan
+
+    plan = db.get(Plan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if bool(plan.is_frozen):
+        raise HTTPException(status_code=400, detail="Frozen plans cannot be deleted")
+    pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()
+    now = datetime.utcnow()
+    plan.is_active = False
+    plan.updated_at = now
+    if pkg:
+        pkg.is_active = False
+        pkg.updated_at = now
+        db.add(pkg)
+    db.add(plan)
+    db.commit()
+    return {"ok": True, "plan_id": plan_id}
+
+
 @router.put("/plans/pricing/bulk")
 def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.models.plan import Plan
@@ -185,6 +324,12 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
         if pkg is None:
             continue
         plan.name = str(row.get("name") or plan.name).strip()
+        if row.get("code") and not bool(plan.is_frozen):
+            new_code = str(row.get("code")).strip().lower()
+            if new_code and new_code != plan.code:
+                existing = db.execute(select(Plan).where(Plan.code == new_code, Plan.id != plan.id)).scalar_one_or_none()
+                if existing is None:
+                    plan.code = new_code
         plan.is_active = bool(row.get("is_active", plan.is_active))
         if "is_frozen" in row:
             plan.is_frozen = bool(row.get("is_frozen"))
@@ -195,6 +340,7 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
             pkg.web_units_included = int(row.get("web_units_included") or pkg.web_units_included or 0)
         pkg.promo_message_cost_minor = int(row.get("promo_message_cost_minor") or pkg.promo_message_cost_minor or 5)
         pkg.updated_at = now
+        _sync_plan_marketing(plan, row)
         price = db.execute(
             select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
         ).scalar_one_or_none()

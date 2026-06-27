@@ -43,6 +43,23 @@ function formatPackagePrice(pkg: FeedbackPackage, orgCurrency?: string, yearly =
   return `${sym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
 }
 
+function buildPackageFeatures(pkg: FeedbackPackage): string[] {
+  const webIncluded = pkg.web_units_included ?? 0;
+  const webLine =
+    webIncluded < 0
+      ? "Unlimited web surveys/mo"
+      : `${webIncluded.toLocaleString()} web surveys/mo`;
+  const defaults = [
+    `${pkg.max_locations} location${pkg.max_locations === 1 ? "" : "s"}`,
+    `${pkg.wa_units_included.toLocaleString()} WhatsApp surveys/mo`,
+    webLine,
+  ];
+  const fromApi = pkg.features?.length ? [...pkg.features] : defaults;
+  const hasWeb = fromApi.some((f) => /web survey/i.test(f));
+  if (!hasWeb) fromApi.push(webLine);
+  return fromApi;
+}
+
 function FeedbackPackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const [billingInterval, setBillingInterval] = React.useState<"monthly" | "yearly">("monthly");
@@ -90,7 +107,7 @@ function FeedbackPackagesPage() {
       <PageHeader
         eyebrow="Account"
         title="Customer feedback plans"
-        description="Direct Debit packages for WhatsApp QR feedback — locations and monthly response allowance."
+        description="Direct Debit packages for WhatsApp and web QR feedback — locations, survey allowances, and monthly/yearly billing."
         actions={
           <Button asChild variant="outline" className="gap-1.5">
             <Link to="/feedback/new">
@@ -219,12 +236,7 @@ function FeedbackPackagesPage() {
                 busy,
                 currentPlanId,
               });
-              const features = pkg.features?.length
-                ? pkg.features
-                : [
-                    `${pkg.max_locations} location${pkg.max_locations === 1 ? "" : "s"}`,
-                    `${pkg.wa_units_included.toLocaleString()} surveys/mo`,
-                  ];
+              const features = buildPackageFeatures(pkg);
               return (
                 <Card
                   key={pkg.id}
