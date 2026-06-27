@@ -24,34 +24,49 @@ _TIER_LIMITS = {
 }
 
 
-def upgrade() -> None:
-    op.add_column(
-        "feedback_packages",
-        sa.Column("web_units_included", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column(
-        "feedback_usage_periods",
-        sa.Column("web_units_included", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column(
-        "feedback_usage_periods",
-        sa.Column("web_units_used", sa.Integer(), nullable=False, server_default="0"),
-    )
-    op.add_column("plan_prices", sa.Column("yearly_price_minor", sa.Integer(), nullable=True))
+def _has_column(inspector, table: str, column: str) -> bool:
+    try:
+        return any(c["name"] == column for c in inspector.get_columns(table))
+    except Exception:
+        return False
 
+
+def upgrade() -> None:
     conn = op.get_bind()
+    inspector = sa.inspect(conn)
+
+    # Idempotent column adds — a prior partial run on MySQL auto-commits DDL,
+    # so guard against "Duplicate column" when the migration is retried.
+    if not _has_column(inspector, "feedback_packages", "web_units_included"):
+        op.add_column(
+            "feedback_packages",
+            sa.Column("web_units_included", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if not _has_column(inspector, "feedback_usage_periods", "web_units_included"):
+        op.add_column(
+            "feedback_usage_periods",
+            sa.Column("web_units_included", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if not _has_column(inspector, "feedback_usage_periods", "web_units_used"):
+        op.add_column(
+            "feedback_usage_periods",
+            sa.Column("web_units_used", sa.Integer(), nullable=False, server_default="0"),
+        )
+    if not _has_column(inspector, "plan_prices", "yearly_price_minor"):
+        op.add_column("plan_prices", sa.Column("yearly_price_minor", sa.Integer(), nullable=True))
     for tier, limits in _TIER_LIMITS.items():
         conn.execute(
             sa.text(
                 """
-                UPDATE feedback_packages fp
+                UPDATE feedback_packages
                 SET max_locations = :max_locations,
                     wa_units_included = :wa_units,
                     web_units_included = :web_units
-                FROM plans p
-                WHERE fp.plan_id = p.id
-                  AND p.service_kind = 'customer_feedback'
-                  AND p.code LIKE :code_pattern
+                WHERE plan_id IN (
+                    SELECT id FROM plans
+                    WHERE service_kind = 'customer_feedback'
+                      AND code LIKE :code_pattern
+                )
                 """
             ),
             {
@@ -65,15 +80,15 @@ def upgrade() -> None:
             conn.execute(
                 sa.text(
                     """
-                    UPDATE plan_prices pp
+                    UPDATE plan_prices
                     SET monthly_price_minor = :monthly,
                         yearly_price_minor = :yearly
-                    FROM plans p
-                    JOIN feedback_packages fp ON fp.plan_id = p.id
-                    WHERE pp.plan_id = p.id
-                      AND pp.currency = :currency
-                      AND p.service_kind = 'customer_feedback'
-                      AND p.code LIKE :code_pattern
+                    WHERE currency = :currency
+                      AND plan_id IN (
+                        SELECT id FROM plans
+                        WHERE service_kind = 'customer_feedback'
+                          AND code LIKE :code_pattern
+                      )
                     """
                 ),
                 {
@@ -102,7 +117,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("plan_prices", "yearly_price_minor")
-    op.drop_column("feedback_usage_periods", "web_units_used")
-    op.drop_column("feedback_usage_periods", "web_units_included")
-    op.drop_column("feedback_packages", "web_units_included")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if _has_column(inspector, "plan_prices", "yearly_price_minor"):
+        op.drop_column("plan_prices", "yearly_price_minor")
+    if _has_column(inspector, "feedback_usage_periods", "web_units_used"):
+        op.drop_column("feedback_usage_periods", "web_units_used")
+    if _has_column(inspector, "feedback_usage_periods", "web_units_included"):
+        op.drop_column("feedback_usage_periods", "web_units_included")
+    if _has_column(inspector, "feedback_packages", "web_units_included"):
+        op.drop_column("feedback_packages", "web_units_included")

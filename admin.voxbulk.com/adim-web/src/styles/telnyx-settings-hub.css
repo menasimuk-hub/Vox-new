@@ -650,6 +650,268 @@
   font-size: 12.5px;
 }
 
+/* Info tooltip (ⓘ) */
+.telnyxHub .tsh-infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: var(--tsh-muted-fg);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.telnyxHub .tsh-infotip:hover,
+.telnyxHub .tsh-infotip:focus-visible {
+  background: var(--tsh-surface-muted);
+  color: var(--tsh-fg);
+  outline: none;
+}
+
+.telnyxHub .tsh-infotip-bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--tsh-border);
+  background: var(--tsh-card);
+  color: var(--tsh-fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.telnyxHub .tsh-infotip:hover .tsh-infotip-bubble,
+.telnyxHub .tsh-infotip:focus-visible .tsh-infotip-bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Pill neutral tone (extends existing tones) */
+.telnyxHub .tsh-pill-neutral {
+  background: var(--tsh-surface-muted);
+  color: var(--tsh-muted-fg);
+}
+
+/* Copy-inline row (webhooks) */
+.telnyxHub .tsh-copyinline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--tsh-border);
+  border-radius: calc(var(--tsh-radius) - 4px);
+  background: var(--tsh-surface-muted);
+  color: var(--tsh-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.telnyxHub .tsh-copyinline:hover {
+  background: color-mix(in oklch, var(--tsh-surface-muted) 70%, var(--tsh-card));
+}
+
+.telnyxHub .tsh-copyinline-val {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telnyxHub .tsh-copyinline svg {
+  flex-shrink: 0;
+  color: var(--tsh-muted-fg);
+}
+
+/* Field|Value table */
+.telnyxHub .tsh-kv-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.telnyxHub .tsh-kv-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--tsh-muted-fg);
+}
+
+.telnyxHub .tsh-kv-secret {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telnyxHub .tsh-kv-dots {
+  letter-spacing: 0.18em;
+}
+
+.telnyxHub .tsh-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--tsh-muted-fg);
+  cursor: pointer;
+}
+
+.telnyxHub .tsh-icon-btn:hover:not(:disabled) {
+  background: var(--tsh-surface-muted);
+  color: var(--tsh-fg);
+}
+
+.telnyxHub .tsh-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.telnyxHub .tsh-icon-btn.danger:hover:not(:disabled) {
+  background: var(--tsh-danger-soft);
+  color: var(--tsh-danger);
+}
+
+.telnyxHub .tsh-actions-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* Dialog */
+.telnyxHub .tsh-dialog-overlay,
+.tsh-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 18, 25, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+
+.tsh-dialog {
+  width: 100%;
+  background: var(--tsh-card, #fff);
+  border: 1px solid var(--tsh-border, #e5e1da);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  color: var(--tsh-fg, #1f2430);
+  overflow: hidden;
+}
+
+.tsh-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 10px;
+}
+
+.tsh-dialog-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tsh-dialog-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--tsh-muted-fg, #6b7280);
+  line-height: 1.45;
+}
+
+.tsh-dialog-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--tsh-muted-fg, #6b7280);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tsh-dialog-x:hover {
+  background: var(--tsh-surface-muted, #f1eee9);
+}
+
+.tsh-dialog-body {
+  padding: 6px 18px 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.tsh-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--tsh-border, #e5e1da);
+}
+
+/* Messages pagination footer */
+.telnyxHub .tsh-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--tsh-muted-fg);
+}
+
+.telnyxHub .tsh-msg-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.telnyxHub .tsh-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.telnyxHub .tsh-search svg {
+  position: absolute;
+  left: 8px;
+  color: var(--tsh-muted-fg);
+  pointer-events: none;
+}
+
+.telnyxHub .tsh-search .input {
+  padding-left: 28px;
+  width: 200px;
+}
+
 @media (max-width: 960px) {
   .telnyxPageShell:has(.telnyxHub) {
     padding: 8px 12px 16px;

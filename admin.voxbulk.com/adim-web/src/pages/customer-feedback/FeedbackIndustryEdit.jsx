@@ -3,13 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import '../../styles/admin-industries.css'
 
-function statusBadge(label) {
-  const s = String(label || 'draft').toLowerCase()
+function rowBadge(row) {
+  if (!row?.is_active) return <span className="badge-disabled">Disabled</span>
+  const s = String(row?.status || 'draft').toLowerCase()
   if (['approved', 'synced', 'live', 'active'].includes(s)) {
     return <span className="badge-approved">✓ Approved</span>
-  }
-  if (s === 'disabled' || s === 'inactive') {
-    return <span className="badge-disabled">Disabled</span>
   }
   return <span className="badge-draft">Draft</span>
 }
@@ -99,6 +97,55 @@ export default function FeedbackIndustryEdit() {
     }
   }
 
+  const syncType = async (row) => {
+    setBusy(true)
+    setError('')
+    try {
+      const data = await apiFetch(`/admin/customer-feedback/survey-types/${row.id}/sync-telnyx`, { method: 'POST' })
+      setMsg(`Sync queued for “${row.name}” · ${data?.submitted ?? 0} template(s) submitted.`)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Sync failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleType = async (row) => {
+    setBusy(true)
+    setError('')
+    try {
+      await apiFetch('/admin/customer-feedback/survey-types', {
+        method: 'POST',
+        body: JSON.stringify({ id: row.id, industry_id: industryId, is_active: !row.is_active }),
+      })
+      setMsg(`“${row.name}” ${row.is_active ? 'disabled' : 'enabled'}.`)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Could not update survey type')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeType = async (row) => {
+    if (!window.confirm(`Remove survey type “${row.name}”? It will be archived (reversible).`)) return
+    setBusy(true)
+    setError('')
+    try {
+      await apiFetch('/admin/customer-feedback/survey-types', {
+        method: 'POST',
+        body: JSON.stringify({ id: row.id, industry_id: industryId, archive: true }),
+      })
+      setMsg(`“${row.name}” removed.`)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Could not remove survey type')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (loading) {
     return <div className="pageWrap indHub"><div className="card"><div className="cardBody muted">Loading…</div></div></div>
   }
@@ -167,28 +214,70 @@ export default function FeedbackIndustryEdit() {
               </tr>
             </thead>
             <tbody>
-              {(item.survey_types || []).map((row) => (
-                <tr key={row.id}>
-                  <td><strong>{row.name}</strong></td>
-                  <td><span className="num-link">{row.template_count ?? 0}</span></td>
-                  <td>{row.approved_count ?? 0}</td>
-                  <td>{row.pending_count ?? 0}</td>
-                  <td>{statusBadge(row.status)}</td>
-                  <td>
-                    <div className="actions-cell">
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        data-tip="Open"
-                        onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}
-                      >
-                        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!item.survey_types?.length ? <tr><td colSpan={6} className="muted">No survey types yet.</td></tr> : null}
+              {(item.survey_types || [])
+                .filter((row) => !row.archived_at)
+                .map((row) => {
+                  const disabled = !row.is_active
+                  return (
+                    <tr key={row.id} style={disabled ? { opacity: 0.45 } : undefined}>
+                      <td><strong>{row.name}</strong></td>
+                      <td>
+                        <span className="num-link" onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}>
+                          {row.template_count ?? 0}
+                        </span>
+                      </td>
+                      <td>{row.approved_count ?? 0}</td>
+                      <td>{row.pending_count ?? 0}</td>
+                      <td>{rowBadge(row)}</td>
+                      <td>
+                        <div className="actions-cell">
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            data-tip="Open"
+                            onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}
+                          >
+                            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            data-tip="Sync (Telnyx)"
+                            disabled={busy}
+                            onClick={() => syncType(row)}
+                          >
+                            <svg viewBox="0 0 24 24"><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`icon-btn${disabled ? ' disabled-row' : ''}`}
+                            data-tip={disabled ? 'Enable' : 'Disable'}
+                            disabled={busy}
+                            onClick={() => toggleType(row)}
+                          >
+                            {disabled ? (
+                              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+                            ) : (
+                              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            data-tip="Remove"
+                            disabled={busy}
+                            onClick={() => removeType(row)}
+                          >
+                            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              {!(item.survey_types || []).filter((row) => !row.archived_at).length ? (
+                <tr><td colSpan={6} className="muted">No survey types yet.</td></tr>
+              ) : null}
             </tbody>
           </table>
         </div>

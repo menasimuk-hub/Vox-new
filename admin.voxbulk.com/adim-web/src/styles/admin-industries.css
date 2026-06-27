@@ -461,6 +461,10 @@
   stroke: #c0392b;
 }
 
+.indHub .icon-btn.disabled-row svg {
+  stroke: #aaa;
+}
+
 .indHub .icon-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
