@@ -452,87 +452,322 @@ function TextStep({
   );
 }
 
-type RecState = "idle" | "recording" | "recorded" | "uploading";
+type RecState = "idle" | "recording" | "recorded" | "uploading" | "sent";
+
+const MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
+
+function pickMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  for (const mime of MIME_CANDIDATES) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  }
+  return undefined;
+}
+
+function micErrorMessage(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Microphone access was blocked. Allow the mic in your browser settings and try again.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "No microphone found on this device.";
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Could not start recording. Please type your answer instead.";
+}
+
+function Waveform() {
+  return (
+    <div className="fb-waveform" aria-hidden>
+      {Array.from({ length: 18 }).map((_, i) => (
+        <span
+          key={i}
+          className="fb-waveform-bar"
+          style={{ animationDelay: `${i * 0.06}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PlaybackBar({
+  playing,
+  onToggle,
+  duration,
+  onReset,
+  onSend,
+  busy,
+  uploading,
+}: {
+  playing: boolean;
+  onToggle: () => void;
+  duration: number;
+  onReset: () => void;
+  onSend: () => void;
+  busy: boolean;
+  uploading: boolean;
+}) {
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return (
+    <div className="fb-playback">
+      <div className="fb-playback-bar">
+        <button type="button" className="fb-playback-play" onClick={onToggle} disabled={busy || uploading} aria-label={playing ? "Pause" : "Play"}>
+          {playing ? (
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <rect x="6" y="5" width="4" height="14" rx="1" />
+              <rect x="14" y="5" width="4" height="14" rx="1" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M7 5v14l12-7z" />
+            </svg>
+          )}
+        </button>
+        <div className="fb-playback-static" aria-hidden>
+          {Array.from({ length: 28 }).map((_, i) => (
+            <span key={i} style={{ height: `${30 + Math.abs(Math.sin(i * 1.3)) * 70}%` }} />
+          ))}
+        </div>
+        <span className="fb-playback-time">{fmt(duration)}</span>
+      </div>
+      <div className="fb-playback-actions">
+        <button type="button" className="fb-playback-send" onClick={onSend} disabled={busy || uploading}>
+          {uploading ? "Transcribing…" : "Send voice note"}
+          {!uploading ? <ArrowRight className="fb-btn-icon" /> : null}
+        </button>
+        <button type="button" className="fb-rec-reset" onClick={onReset} disabled={busy || uploading}>
+          <RotateCcw className="fb-btn-icon" /> Re-record
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob: Blob) => Promise<unknown> }) {
   const [recState, setRecState] = useState<RecState>("idle");
   const [elapsed, setElapsed] = useState(0);
-  const [supported, setSupported] = useState(true);
+  const [recError, setRecError] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const [supported] = useState(() => {
+    if (typeof navigator === "undefined") return false;
+    return Boolean(navigator.mediaDevices && typeof MediaRecorder !== "undefined");
+  });
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const blobRef = useRef<Blob | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const holdActiveRef = useRef(false);
+  const isRecordingRef = useRef(false);
+  const skipClickRef = useRef(false);
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const revokeAudioUrl = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    audioRef.current = null;
+    setPlaying(false);
+  };
+
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
 
   useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices || typeof MediaRecorder === "undefined") {
-      setSupported(false);
-    }
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      clearTimer();
+      stopStream();
+      revokeAudioUrl();
     };
   }, []);
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   const start = async () => {
-    if (recState === "recording" || busy) return;
+    if (isRecordingRef.current || recState === "uploading" || busy) return;
+    setRecError("");
+    revokeAudioUrl();
+    blobRef.current = null;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!holdActiveRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       chunksRef.current = [];
-      const rec = new MediaRecorder(stream);
+      const mimeType = pickMimeType();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
-      rec.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        setRecState("uploading");
-        try {
-          await onRecorded(blob);
+      rec.onstop = () => {
+        isRecordingRef.current = false;
+        clearTimer();
+        stopStream();
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" });
+        if (blob.size > 0) {
+          blobRef.current = blob;
           setRecState("recorded");
-        } catch {
+        } else {
+          setRecError("Recording was empty. Try again and speak clearly.");
           setRecState("idle");
           setElapsed(0);
         }
+        recorderRef.current = null;
       };
       recorderRef.current = rec;
-      rec.start();
+      rec.start(250);
+      isRecordingRef.current = true;
       setRecState("recording");
       setElapsed(0);
       timerRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
-    } catch {
-      setSupported(false);
+    } catch (err) {
+      holdActiveRef.current = false;
+      isRecordingRef.current = false;
+      stopStream();
+      setRecError(micErrorMessage(err));
+      setRecState("idle");
     }
   };
 
   const stop = () => {
-    if (recState !== "recording") return;
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    recorderRef.current?.stop();
+    if (!isRecordingRef.current) return;
+    holdActiveRef.current = false;
+    clearTimer();
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") rec.stop();
   };
 
   const reset = () => {
+    holdActiveRef.current = false;
+    isRecordingRef.current = false;
+    skipClickRef.current = false;
+    clearTimer();
+    stopStream();
+    revokeAudioUrl();
+    blobRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+    }
+    recorderRef.current = null;
     setRecState("idle");
     setElapsed(0);
+    setRecError("");
+  };
+
+  const togglePlayback = () => {
+    const blob = blobRef.current;
+    if (!blob) return;
+    if (!audioRef.current) {
+      const url = URL.createObjectURL(blob);
+      objectUrlRef.current = url;
+      const audio = new Audio(url);
+      audio.onended = () => setPlaying(false);
+      audioRef.current = audio;
+    }
+    const audio = audioRef.current;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      void audio.play();
+      setPlaying(true);
+    }
+  };
+
+  const sendRecording = async () => {
+    const blob = blobRef.current;
+    if (!blob || busy) return;
+    setRecError("");
+    setRecState("uploading");
+    revokeAudioUrl();
+    try {
+      await onRecorded(blob);
+      setRecState("sent");
+    } catch (err) {
+      setRecState("recorded");
+      setRecError(err instanceof Error ? err.message : "Could not send voice note");
+    }
+  };
+
+  const handleMicDown = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (isRecordingRef.current || busy) return;
+    holdActiveRef.current = true;
+    skipClickRef.current = false;
+    void start();
+  };
+
+  const handleMicUp = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (isRecordingRef.current) {
+      skipClickRef.current = true;
+      stop();
+    } else {
+      holdActiveRef.current = false;
+    }
+  };
+
+  const handleMicClick = () => {
+    if (skipClickRef.current) {
+      skipClickRef.current = false;
+      return;
+    }
+    if (busy) return;
+    if (isRecordingRef.current) stop();
+    else if (recState === "idle") {
+      holdActiveRef.current = true;
+      void start();
+    }
   };
 
   if (!supported) {
     return <p className="fb-voice-hint">Voice notes aren't supported on this browser — please type instead.</p>;
   }
 
-  if (recState === "recorded") {
+  if (recState === "sent") {
     return (
       <div className="fb-rec-done">
-        <span className="fb-rec-check">Voice note ready ✓</span>
+        <span className="fb-rec-check">Voice note sent ✓</span>
         <button type="button" className="fb-rec-reset" onClick={reset} disabled={busy}>
           <RotateCcw className="fb-btn-icon" /> Re-record
         </button>
+      </div>
+    );
+  }
+
+  if (recState === "recorded" || recState === "uploading") {
+    return (
+      <div className="fb-rec">
+        <PlaybackBar
+          playing={playing}
+          onToggle={togglePlayback}
+          duration={elapsed}
+          onReset={reset}
+          onSend={() => void sendRecording()}
+          busy={busy}
+          uploading={recState === "uploading"}
+        />
+        {recError ? <p className="fb-rec-error">{recError}</p> : null}
       </div>
     );
   }
@@ -542,16 +777,38 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
       <button
         type="button"
         className={`fb-mic ${recState === "recording" ? "rec" : ""}`}
-        onClick={recState === "recording" ? stop : start}
-        disabled={busy || recState === "uploading"}
-        aria-label={recState === "recording" ? "Stop recording" : "Record voice note"}
+        onMouseDown={handleMicDown}
+        onMouseUp={handleMicUp}
+        onMouseLeave={() => {
+          if (isRecordingRef.current) stop();
+        }}
+        onTouchStart={handleMicDown}
+        onTouchEnd={handleMicUp}
+        onClick={handleMicClick}
+        disabled={busy}
+        aria-label={recState === "recording" ? "Stop recording" : "Hold or tap to record"}
       >
-        {recState === "recording" ? <Square className="fb-mic-icon" /> : <Mic className="fb-mic-icon" />}
-        {recState === "recording" ? <span className="fb-mic-ring" aria-hidden /> : null}
+        {recState === "recording" ? (
+          <>
+            <span className="fb-mic-ring" aria-hidden />
+            <span className="fb-mic-ring fb-mic-ring-delay" aria-hidden />
+            <Square className={`fb-mic-icon ${recState === "recording" ? "fb-mic-icon-pulse" : ""}`} />
+          </>
+        ) : (
+          <Mic className="fb-mic-icon" />
+        )}
       </button>
-      <span className="fb-rec-label">
-        {recState === "uploading" ? "Transcribing…" : recState === "recording" ? fmt(elapsed) : "Tap to record"}
-      </span>
+
+      {recState === "recording" ? (
+        <div className="fb-rec-live">
+          <Waveform />
+          <span className="fb-rec-timer">{fmt(elapsed)}</span>
+        </div>
+      ) : (
+        <span className="fb-rec-label">Hold or tap to record</span>
+      )}
+
+      {recError ? <p className="fb-rec-error">{recError}</p> : null}
     </div>
   );
 }
