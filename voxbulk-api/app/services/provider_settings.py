@@ -129,6 +129,29 @@ class ProviderSettingsService:
             raise ProviderUnknown("Unknown provider")
 
     @staticmethod
+    def _merge_preserving_secrets(
+        current: dict[str, Any],
+        incoming: dict[str, Any],
+        provider: str,
+    ) -> dict[str, Any]:
+        merged = {**current, **incoming}
+        for secret_key in ProviderSettingsService._secret_keys(provider):
+            incoming_val = incoming.get(secret_key)
+            current_val = current.get(secret_key)
+            if (incoming_val is None or incoming_val == "") and current_val:
+                merged[secret_key] = current_val
+        return merged
+
+    @staticmethod
+    def _strip_empty_secrets(config: dict[str, Any], provider: str) -> dict[str, Any]:
+        cfg = dict(config)
+        for secret_key in ProviderSettingsService._secret_keys(provider):
+            val = cfg.get(secret_key)
+            if val is None or (isinstance(val, str) and not str(val).strip()):
+                cfg.pop(secret_key, None)
+        return cfg
+
+    @staticmethod
     def upsert_platform_config(
         db: Session,
         *,
@@ -144,15 +167,16 @@ class ProviderSettingsService:
         if existing is not None:
             try:
                 current = json.loads(enc.decrypt_str(existing.encrypted_json))
-            except Exception:
-                current = {}
+            except Exception as exc:
+                logger.error("provider_config_decrypt_failed provider=%s", provider, exc_info=exc)
+                raise ValueError(
+                    "Could not decrypt existing provider settings. "
+                    "Check ENCRYPTION_KEY in voxbulk-api/.env has not changed."
+                ) from exc
             if isinstance(current, dict):
-                merged = {**current, **config}
-                for secret_key in ProviderSettingsService._secret_keys(provider):
-                    incoming = config.get(secret_key)
-                    if (incoming is None or incoming == "") and current.get(secret_key):
-                        merged[secret_key] = current[secret_key]
-                config = merged
+                config = ProviderSettingsService._merge_preserving_secrets(current, config, provider)
+            else:
+                raise ValueError(f"Stored settings for {provider} are invalid; contact support.")
 
         if provider == "openai":
             config = ProviderSettingsService._validate_openai_config(config)
@@ -216,6 +240,8 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_zoho_bookings_config(config)
         if provider == "deepinfra":
             config = ProviderSettingsService._validate_deepinfra_config(config)
+
+        config = ProviderSettingsService._strip_empty_secrets(config, provider)
 
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         cipher = enc.encrypt_str(payload)
@@ -289,6 +315,18 @@ class ProviderSettingsService:
             is_enabled=telnyx_is_enabled,
             config=patch,
         )
+
+    @staticmethod
+    def verify_telnyx_zoom_oauth_persisted(db: Session) -> None:
+        """Raise if Zoom OAuth credentials did not persist to telnyx + zoom provider rows."""
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        secret = str((cfg or {}).get("zoom_client_secret") or "").strip()
+        if not secret:
+            raise ValueError("Zoom client_secret was not saved to the database")
+        zoom_cfg, _zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+        mirror_secret = str((zoom_cfg or {}).get("client_secret") or "").strip()
+        if not mirror_secret:
+            raise ValueError("Zoom client_secret mirror was not saved to the database")
 
     @staticmethod
     def _mirror_telnyx_zoom_to_zoom_provider(db: Session, telnyx_config: dict[str, Any]) -> None:
@@ -816,10 +854,16 @@ class ProviderSettingsService:
         zoom_client_secret = str(cfg.get("zoom_client_secret") or "").strip()
         if zoom_client_secret:
             cfg["zoom_client_secret"] = zoom_client_secret
+        else:
+            cfg.pop("zoom_client_secret", None)
         zoom_base_url = str(cfg.get("zoom_base_url") or "").strip().rstrip("/")
         if zoom_base_url:
             cfg["zoom_base_url"] = zoom_base_url
-        cfg["api_key"] = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
+        api_key = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
+        if api_key:
+            cfg["api_key"] = api_key
+        else:
+            cfg.pop("api_key", None)
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
         from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
 

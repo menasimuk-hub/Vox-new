@@ -83,6 +83,78 @@ def test_admin_telnyx_zoom_oauth_save_endpoint(app_client):
         assert zoom_cfg["client_id"] == "client-zoom-test"
 
 
+def test_zoom_secret_survives_main_telnyx_resave(app_client):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    zoom_res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-zoom-persist",
+            "client_id": "client-zoom-persist",
+            "client_secret": "secret-zoom-persist",
+            "base_url": "https://api.zoom.us/v2",
+        },
+        headers=headers,
+    )
+    assert zoom_res.status_code == 200, zoom_res.text
+
+    telnyx_res = app_client.put(
+        "/admin/integrations/telnyx",
+        json={
+            "is_enabled": True,
+            "config": {
+                "connection_id": "conn-updated-999",
+                "voice_api_application_id": "conn-updated-999",
+                "default_outbound_number": "+15550001111",
+                "voice_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/voice",
+                "status_callback_url": "https://api.voxbulk.com/telnyx/webhooks/status",
+                "messaging_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/messages",
+            },
+        },
+        headers=headers,
+    )
+    assert telnyx_res.status_code == 200, telnyx_res.text
+    body = telnyx_res.json()
+    assert body["secret_set"]["zoom_client_secret"] is True
+    assert body["config"]["connection_id"] == "conn-updated-999"
+
+    from app.core.database import get_sessionmaker
+    from app.services.provider_settings import ProviderSettingsService
+
+    with get_sessionmaker()() as db:
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        assert str(cfg.get("zoom_client_secret") or "") == "secret-zoom-persist"
+        assert str(cfg.get("zoom_account_id") or "") == "acct-zoom-persist"
+
+
+def test_zoom_secret_readable_after_new_db_session(app_client):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-restart-test",
+            "client_id": "client-restart-test",
+            "client_secret": "secret-restart-test",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
+    from app.core.database import get_sessionmaker
+    from app.services.provider_settings import ProviderSettingsService
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        assert str(cfg.get("zoom_client_secret") or "") == "secret-restart-test"
+        zoom_cfg = ZoomService._config(db)
+        assert zoom_cfg["client_secret"] == "secret-restart-test"
+        assert zoom_cfg["account_id"] == "acct-restart-test"
+
+
 def test_admin_telnyx_zoom_external_connection_create_and_test(app_client, monkeypatch):
     headers = _admin_headers(app_client)
     _save_telnyx_minimal(app_client, headers)

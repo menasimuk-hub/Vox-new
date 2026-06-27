@@ -1514,6 +1514,11 @@ export default function TelnyxIntegration({
                 >
                   {providerSaving ? 'Saving…' : 'Save Zoom settings'}
                 </button>
+                {activeSummary?.secret_set?.zoom_client_secret ? (
+                  <span className='pill p-cyan' style={{ marginLeft: 8 }}>
+                    Secret saved in database
+                  </span>
+                ) : null}
               </div>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Zoom API base URL (optional)</label>

@@ -852,11 +852,75 @@ export default function Integrations() {
     }))
   }
 
+  const hasTelnyxZoomUnsaved = (providerKey = 'telnyx') => {
+    if (providerKey !== 'telnyx') return false
+    const draft = providerDrafts.telnyx || {}
+    const summaryCfg = summaries.telnyx?.config || {}
+    if (String(draft.zoom_client_secret_draft || '').trim()) return true
+    const draftCfg = draft.config || {}
+    for (const key of ['zoom_account_id', 'zoom_client_id', 'zoom_base_url']) {
+      if (key in draftCfg && String(draftCfg[key] ?? '') !== String(summaryCfg[key] ?? '')) return true
+    }
+    return false
+  }
+
+  const saveTelnyxZoomOAuth = async () => {
+    setProviderSaving(true)
+    setProviderError('')
+    try {
+      const summary = summaries.telnyx || {}
+      const draft = providerDrafts.telnyx || {}
+      const config = { ...(summary.config || {}), ...(draft.config || {}) }
+      const accountId = String(config.zoom_account_id || '').trim()
+      const clientId = String(config.zoom_client_id || '').trim()
+      const secret = String(draft.zoom_client_secret_draft || '').trim()
+      const baseUrl = String(config.zoom_base_url || 'https://api.zoom.us/v2').trim()
+      if (!accountId || !clientId) {
+        setProviderError('Zoom Account ID and Client ID are required.')
+        return false
+      }
+      if (!secret && !summary?.secret_set?.zoom_client_secret) {
+        setProviderError('Zoom Client Secret is required on first save.')
+        return false
+      }
+      const body = { account_id: accountId, client_id: clientId, base_url: baseUrl }
+      if (secret) body.client_secret = secret
+      const updated = await apiFetch('/admin/integrations/telnyx/zoom-oauth', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      })
+      setSummaries((s) => ({ ...s, telnyx: updated }))
+      setProviderDrafts((s) => ({
+        ...s,
+        telnyx: {
+          ...(s.telnyx || {}),
+          zoom_client_secret_draft: '',
+          config: Object.fromEntries(
+            Object.entries(s.telnyx?.config || {}).filter(
+              ([k]) => !['zoom_account_id', 'zoom_client_id', 'zoom_base_url'].includes(k),
+            ),
+          ),
+        },
+      }))
+      return true
+    } catch (e) {
+      setProviderError(e?.message || 'Could not save Zoom OAuth settings')
+      return false
+    } finally {
+      setProviderSaving(false)
+    }
+  }
+
   const saveIntegrationProvider = async (providerKey) => {
     let savedOk = false
     setProviderSaving(true)
     setProviderError('')
     try {
+      if (providerKey === 'telnyx' && hasTelnyxZoomUnsaved('telnyx')) {
+        setProviderSaving(false)
+        if (!(await saveTelnyxZoomOAuth())) return false
+        setProviderSaving(true)
+      }
       const existing = summaries[providerKey] || {}
       const draft = providerDrafts[providerKey] || {}
       const config = { ...(existing.config || {}), ...(draft.config || {}) }
@@ -930,8 +994,7 @@ export default function Integrations() {
         }
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
-        const zoomSecret = String(draft.zoom_client_secret_draft || '').trim()
-        if (zoomSecret) config.zoom_client_secret = zoomSecret
+        delete config.zoom_client_secret
       }
       if (providerKey === 'azure_speech') {
         if (config.default_voice_id == null || String(config.default_voice_id).trim() === '') config.default_voice_id = 'en-GB-AbbiNeural'
@@ -1075,65 +1138,6 @@ export default function Integrations() {
       if (key.endsWith('_draft') && String(value || '').trim()) return true
     }
     return false
-  }
-
-  const hasTelnyxZoomUnsaved = (providerKey = 'telnyx') => {
-    if (providerKey !== 'telnyx') return false
-    const draft = providerDrafts.telnyx || {}
-    const summaryCfg = summaries.telnyx?.config || {}
-    if (String(draft.zoom_client_secret_draft || '').trim()) return true
-    const draftCfg = draft.config || {}
-    for (const key of ['zoom_account_id', 'zoom_client_id', 'zoom_base_url']) {
-      if (key in draftCfg && String(draftCfg[key] ?? '') !== String(summaryCfg[key] ?? '')) return true
-    }
-    return false
-  }
-
-  const saveTelnyxZoomOAuth = async () => {
-    setProviderSaving(true)
-    setProviderError('')
-    try {
-      const summary = summaries.telnyx || {}
-      const draft = providerDrafts.telnyx || {}
-      const config = { ...(summary.config || {}), ...(draft.config || {}) }
-      const accountId = String(config.zoom_account_id || '').trim()
-      const clientId = String(config.zoom_client_id || '').trim()
-      const secret = String(draft.zoom_client_secret_draft || '').trim()
-      const baseUrl = String(config.zoom_base_url || 'https://api.zoom.us/v2').trim()
-      if (!accountId || !clientId) {
-        setProviderError('Zoom Account ID and Client ID are required.')
-        return false
-      }
-      if (!secret && !summary?.secret_set?.zoom_client_secret) {
-        setProviderError('Zoom Client Secret is required on first save.')
-        return false
-      }
-      const body = { account_id: accountId, client_id: clientId, base_url: baseUrl }
-      if (secret) body.client_secret = secret
-      const updated = await apiFetch('/admin/integrations/telnyx/zoom-oauth', {
-        method: 'PUT',
-        body: JSON.stringify(body),
-      })
-      setSummaries((s) => ({ ...s, telnyx: updated }))
-      setProviderDrafts((s) => ({
-        ...s,
-        telnyx: {
-          ...(s.telnyx || {}),
-          zoom_client_secret_draft: '',
-          config: Object.fromEntries(
-            Object.entries(s.telnyx?.config || {}).filter(
-              ([k]) => !['zoom_account_id', 'zoom_client_id', 'zoom_base_url'].includes(k),
-            ),
-          ),
-        },
-      }))
-      return true
-    } catch (e) {
-      setProviderError(e?.message || 'Could not save Zoom OAuth settings')
-      return false
-    } finally {
-      setProviderSaving(false)
-    }
   }
 
   const ensureProviderSaved = async (providerKey) => {

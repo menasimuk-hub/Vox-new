@@ -214,9 +214,15 @@ def upsert_telnyx_zoom_oauth(
             client_secret=payload.get("client_secret") or payload.get("zoom_client_secret"),
             base_url=payload.get("base_url") or payload.get("zoom_base_url"),
         )
+        ProviderSettingsService.verify_telnyx_zoom_oauth_persisted(db)
         return ProviderSettingsService.get_platform_config_admin_view(db, provider="telnyx")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Zoom OAuth save verification failed: {e}",
+        ) from e
 
 
 @router.post("/integrations/azure_speech/test-tts")
@@ -319,13 +325,13 @@ def test_telnyx_zoom_integration(db: Session = Depends(get_db), _admin=Depends(r
 
 def _persist_telnyx_connection_metadata(db: Session, patch: dict[str, Any]) -> None:
     cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    current = ProviderSettingsService._validate_telnyx_config(cfg or {})
-    merged = {**current, **patch}
+    telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+    telnyx_is_enabled = bool(telnyx_obj.is_enabled) if telnyx_obj is not None else bool(enabled)
     ProviderSettingsService.upsert_platform_config(
         db,
         provider="telnyx",
-        is_enabled=bool(enabled),
-        config=merged,
+        is_enabled=telnyx_is_enabled,
+        config=patch,
     )
 
 

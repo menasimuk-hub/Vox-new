@@ -33,6 +33,11 @@ class ZoomService:
         telnyx_base_url = str(telnyx_cfg.get("zoom_base_url") or "").strip().rstrip("/")
         telnyx_complete = bool(telnyx_account_id and telnyx_client_id and telnyx_client_secret)
 
+        # If Telnyx row lost the secret but IDs remain, recover from mirrored zoom provider row.
+        if telnyx_enabled and telnyx_account_id and telnyx_client_id and not telnyx_client_secret and client_secret:
+            telnyx_client_secret = client_secret
+            telnyx_complete = True
+
         if telnyx_enabled and telnyx_complete:
             use_telnyx = True
             if enabled and zoom_complete:
@@ -71,6 +76,11 @@ class ZoomService:
         account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
         client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
         client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+        if not client_secret and account_id and client_id:
+            zoom_cfg, _zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+            mirror_secret = str((zoom_cfg or {}).get("client_secret") or "").strip()
+            if mirror_secret:
+                client_secret = mirror_secret
         if not account_id or not client_id or not client_secret:
             return None
         base_url = str(telnyx_cfg.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
