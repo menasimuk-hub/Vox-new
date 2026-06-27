@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus } from "lucide-react";
+import { ArrowLeft, Check, MessageSquarePlus, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   useFeedbackLocations,
+  useFeedbackMarketingSubscriberCount,
   useFeedbackSurveyTypes,
   useUpdateFeedbackLocation,
 } from "@/lib/queries";
@@ -30,7 +31,8 @@ function EditFeedbackSurvey() {
 
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
-  const marketingOptIn = false;
+  const [marketingOptIn, setMarketingOptIn] = React.useState(false);
+  const marketingCountQ = useFeedbackMarketingSubscriberCount();
   const initialized = React.useRef(false);
 
   React.useEffect(() => {
@@ -42,6 +44,7 @@ function EditFeedbackSurvey() {
         : [location.survey_type_id],
     );
     setOpenQuestion(location.open_question_enabled !== false);
+    setMarketingOptIn(Boolean(location.marketing_opt_in_enabled));
   }, [location]);
 
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
@@ -175,6 +178,34 @@ function EditFeedbackSurvey() {
               </div>
             </>
           )}
+
+          <div
+            className={cn(
+              "flex items-start gap-3 rounded-xl border p-4 transition",
+              marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
+            )}
+          >
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+              <Sparkles className="size-4" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">
+                  Promo opt-in after survey{" "}
+                  <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                </p>
+                <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ask customers on WhatsApp if they want occasional offers. STOP = this business only; STOP ALL = all businesses.
+              </p>
+              {marketingOptIn ? (
+                <p className="mt-2 text-xs font-medium text-primary">
+                  Current promo subscribers: {marketingCountQ.isLoading ? "…" : marketingCountQ.data ?? 0}
+                </p>
+              ) : null}
+            </div>
+          </div>
 
           <div
             className={cn(

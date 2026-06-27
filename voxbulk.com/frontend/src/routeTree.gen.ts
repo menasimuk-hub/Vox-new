@@ -25,6 +25,7 @@ import { Route as FeedbackRouteImport } from './routes/feedback'
 import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -106,6 +107,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SurveyTokenRoute = SurveyTokenRouteImport.update({
+  id: '/survey/$token',
+  path: '/survey/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
+  '/survey/$token': typeof SurveyTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
+  '/survey/$token': typeof SurveyTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
+  '/survey/$token': typeof SurveyTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/surveys'
     | '/terms'
+    | '/survey/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/surveys'
     | '/terms'
+    | '/survey/$token'
   id:
     | '__root__'
     | '/'
@@ -217,6 +228,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/surveys'
     | '/terms'
+    | '/survey/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,6 +248,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SurveysRoute: typeof SurveysRoute
   TermsRoute: typeof TermsRoute
+  SurveyTokenRoute: typeof SurveyTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/survey/$token': {
+      id: '/survey/$token'
+      path: '/survey/$token'
+      fullPath: '/survey/$token'
+      preLoaderRoute: typeof SurveyTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -372,6 +392,7 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SurveysRoute: SurveysRoute,
   TermsRoute: TermsRoute,
+  SurveyTokenRoute: SurveyTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
