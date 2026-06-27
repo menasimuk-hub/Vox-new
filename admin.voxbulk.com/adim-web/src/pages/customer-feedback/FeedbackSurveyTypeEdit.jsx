@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import '../../styles/admin-industries.css'
 
 const DEFAULT_BUTTONS = [
   { id: 'great', label: 'Great' },
@@ -8,11 +9,31 @@ const DEFAULT_BUTTONS = [
   { id: 'poor', label: 'Poor' },
 ]
 
-function syncPillClass(status) {
+const STEP_ROLE_OPTIONS = ['rating', 'yes_no', 'open_text', 'choice', 'nps']
+
+const WA_FOOTER = 'Reply STOP to opt out'
+
+function statusBadge(status) {
   const s = String(status || 'draft').toLowerCase()
-  if (['approved', 'synced', 'live'].includes(s)) return 'leadPill leadPillAdvance'
-  if (s === 'submitted') return 'leadPill leadPillNeutral'
-  return 'leadPill leadPillNeutral'
+  if (['approved', 'synced', 'live'].includes(s)) {
+    return <span className="badge-approved">✓ Approved</span>
+  }
+  if (s === 'submitted' || s === 'pending') {
+    return <span className="badge-draft">Pending</span>
+  }
+  return <span className="badge-draft">Draft</span>
+}
+
+function buttonLabel(b) {
+  if (!b) return ''
+  if (typeof b === 'string') return b
+  return b.label || b.text || b.title || ''
+}
+
+function detectVariables(body) {
+  const matches = String(body || '').match(/\{\{\s*\d+\s*\}\}/g)
+  if (!matches) return []
+  return Array.from(new Set(matches))
 }
 
 export default function FeedbackSurveyTypeEdit() {
@@ -82,9 +103,22 @@ export default function FeedbackSurveyTypeEdit() {
   }
 
   const openTemplate = (tpl) => {
+    const rawButtons = Array.isArray(tpl.buttons) && tpl.buttons.length ? tpl.buttons : DEFAULT_BUTTONS
     setEditing({
       ...tpl,
-      buttons: Array.isArray(tpl.buttons) && tpl.buttons.length ? tpl.buttons : DEFAULT_BUTTONS,
+      buttons: rawButtons.map((b) => buttonLabel(b)),
+    })
+    setMsg('')
+    setError('')
+  }
+
+  const setEditField = (key, value) => setEditing((f) => ({ ...f, [key]: value }))
+
+  const setButton = (idx, value) => {
+    setEditing((f) => {
+      const buttons = [...(f.buttons || ['', '', ''])]
+      buttons[idx] = value
+      return { ...f, buttons }
     })
   }
 
@@ -93,6 +127,10 @@ export default function FeedbackSurveyTypeEdit() {
     setBusy(`tpl-${editing.id || 'new'}`)
     setError('')
     try {
+      const buttons = (editing.buttons || [])
+        .map((label) => String(label || '').trim())
+        .filter(Boolean)
+        .map((label) => ({ id: label.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24) || 'btn', label }))
       await apiFetch('/admin/customer-feedback/wa-templates', {
         method: 'POST',
         body: JSON.stringify({
@@ -105,7 +143,7 @@ export default function FeedbackSurveyTypeEdit() {
           step_role: editing.step_role,
           language: editing.language,
           meta_category: editing.meta_category,
-          buttons: editing.buttons,
+          buttons,
           is_active: editing.is_active,
         }),
       })
@@ -139,8 +177,8 @@ export default function FeedbackSurveyTypeEdit() {
           is_active: true,
         }),
       })
-      openTemplate(data?.item || {})
       await load()
+      openTemplate(data?.item || {})
     } catch (e) {
       setError(e?.message || 'Could not create template')
     } finally {
@@ -148,69 +186,306 @@ export default function FeedbackSurveyTypeEdit() {
     }
   }
 
+  const visibleTemplates = useMemo(
+    () =>
+      (item?.templates || []).filter(
+        (tpl) =>
+          String(tpl.meta_category || '').toLowerCase() !== 'marketing' &&
+          String(tpl.template_key || '').toLowerCase() !== 'marketing_opt_in',
+      ),
+    [item],
+  )
+
   if (loading) {
-    return <div className="pageWrap"><div className="card"><div className="cardBody muted">Loading…</div></div></div>
+    return (
+      <div className="pageWrap indHub">
+        <div className="card"><div className="cardBody muted">Loading…</div></div>
+      </div>
+    )
   }
 
   if (!item) {
-    return <div className="pageWrap"><div className="alert error">{error || 'Survey type not found'}</div></div>
+    return (
+      <div className="pageWrap indHub">
+        <div className="alert error">{error || 'Survey type not found'}</div>
+      </div>
+    )
   }
 
-  return (
-    <div className="pageWrap">
-      <div className="breadcrumb muted" style={{ marginBottom: 12 }}>
-        <Link to="/customer-feedback/industries">Industries</Link>
-        {' / '}
-        <Link to={`/customer-feedback/industries/${item.industry_id}`}>{item.industry_name || 'Industry'}</Link>
-        {' / '}
-        {item.name}
-      </div>
+  // ── PAGE 3: template editor (two-column with live WhatsApp preview) ──
+  if (editing) {
+    const previewButtons = (editing.buttons || []).map((b) => String(b || '').trim()).filter(Boolean)
+    const variables = detectVariables(editing.body_text)
+    const bodyLen = String(editing.body_text || '').length
+    const isApproved = ['approved', 'synced', 'live'].includes(String(editing.telnyx_sync_status || '').toLowerCase())
+    const stepRoleOptions = editing.step_role && !STEP_ROLE_OPTIONS.includes(editing.step_role)
+      ? [editing.step_role, ...STEP_ROLE_OPTIONS]
+      : STEP_ROLE_OPTIONS
+    return (
+      <div className="pageWrap indHub">
+        <button type="button" className="ind-breadcrumb" onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+          ← <span>{item.name}</span>
+        </button>
 
-      <div className="pageHead">
-        <div>
-          <h1>{item.name}</h1>
-          <p className="muted">
-            English topic template for Customer Feedback WhatsApp surveys.
-            {' '}
-            {item.template_count ?? 0} template(s) · {item.approved_count ?? 0} approved
-          </p>
+        {error ? <div className="alert error">{error}</div> : null}
+
+        <div className="editor-page">
+          <div className="editor-left">
+            <div className="editor-topbar">
+              <div className="left">
+                <div className="editor-title">{editing.template_key || 'Template'} — Question</div>
+                <span className="btn-utility">{String(editing.meta_category || 'utility').toUpperCase()}</span>
+              </div>
+              <div className="right">
+                <button type="button" className="btn btn-save bsm" disabled={Boolean(busy)} onClick={saveTemplate}>
+                  ● {busy.startsWith('tpl-') ? 'Saving…' : 'Save'}
+                </button>
+                <button type="button" className="btn btn-close bsm" onClick={() => setEditing(null)}>✕ Close</button>
+              </div>
+            </div>
+
+            <div className={`meta-bar${isApproved ? ' ok' : ''}`}>
+              {isApproved
+                ? 'This template is approved on Meta. Editing the body will require re-approval.'
+                : 'Meta reviews this template. Sync to Telnyx checks for approval updates — it does not send content changes.'}
+            </div>
+
+            <div className="editor-fields">
+              <div className="fields-row">
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">1</div><span className="field-label">Survey step role</span></div>
+                  </div>
+                  <div className="field-block-body">
+                    <div className="sel">
+                      <select value={editing.step_role || ''} onChange={(e) => setEditField('step_role', e.target.value)}>
+                        {stepRoleOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="hint">Live modal steps: rating, yes/no, open text…</div>
+                  </div>
+                </div>
+
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">2</div><span className="field-label">Category</span></div>
+                    <span className="field-note">Required</span>
+                  </div>
+                  <div className="field-block-body">
+                    <div className="sel">
+                      <select value={editing.meta_category || 'utility'} onChange={(e) => setEditField('meta_category', e.target.value)}>
+                        <option value="utility">Utility</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">3</div><span className="field-label">Template language</span></div>
+                    <span className="field-note">Meta locale</span>
+                  </div>
+                  <div className="field-block-body">
+                    <input type="text" value={editing.language || 'en_GB'} onChange={(e) => setEditField('language', e.target.value)} />
+                    <div className="hint">UK accounts need en_GB.</div>
+                  </div>
+                </div>
+
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">4</div><span className="field-label">Step order</span></div>
+                  </div>
+                  <div className="field-block-body">
+                    <input type="text" inputMode="numeric" value={editing.step_order ?? 1} onChange={(e) => setEditField('step_order', Number(e.target.value) || 1)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="fields-row-2">
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">5</div><span className="field-label">Template key</span></div>
+                    <span className="field-note">Internal id</span>
+                  </div>
+                  <div className="field-block-body">
+                    <input type="text" value={editing.template_key || ''} onChange={(e) => setEditField('template_key', e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">6</div><span className="field-label">Body</span></div>
+                    <span className="field-note">Required · max 1024</span>
+                  </div>
+                  <div className="field-block-body">
+                    <textarea value={editing.body_text || ''} onChange={(e) => setEditField('body_text', e.target.value)} />
+                    <div className="char-count">{bodyLen}/1024</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="fields-row-2">
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">7</div><span className="field-label">Footer</span></div>
+                    <span className="field-note">Compliance · fixed</span>
+                  </div>
+                  <div className="field-block-body">
+                    <input type="text" value={WA_FOOTER} readOnly />
+                    <div className="hint">Opt-out footer is enforced by Telnyx.</div>
+                  </div>
+                </div>
+
+                <div className="field-block">
+                  <div className="field-block-head">
+                    <div className="left"><div className="step-num">8</div><span className="field-label">Variables</span></div>
+                    <span className="field-note">Auto-detected</span>
+                  </div>
+                  <div className="field-block-body">
+                    {variables.length
+                      ? <div className="hint">{variables.join('  ')}</div>
+                      : <div className="empty-note">No variables in this template body.</div>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="field-block">
+                <div className="field-block-head">
+                  <div className="left"><div className="step-num">9</div><span className="field-label">Buttons</span></div>
+                  <span className="field-note">Quick reply · max 10 chars each</span>
+                </div>
+                <div className="field-block-body">
+                  <div className="btn-list">
+                    {[0, 1, 2].map((i) => (
+                      <div className="btn-list-item" key={i}>
+                        <div className="idx">{i + 1}</div>
+                        <input
+                          type="text"
+                          maxLength={20}
+                          value={(editing.buttons && editing.buttons[i]) || ''}
+                          placeholder={i === 0 ? 'e.g. Excellent' : i === 1 ? 'e.g. Good' : 'e.g. Poor'}
+                          onChange={(e) => setButton(i, e.target.value)}
+                          style={{ maxWidth: 200 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: '#555' }}>
+                <span className="ind-toggle">
+                  <input type="checkbox" checked={Boolean(editing.is_active)} onChange={(e) => setEditField('is_active', e.target.checked)} />
+                  <span className="ind-toggle-track" aria-hidden />
+                </span>
+                {editing.is_active ? 'Active' : 'Inactive'}
+              </label>
+            </div>
+          </div>
+
+          {/* RIGHT: live WhatsApp preview */}
+          <div className="editor-right">
+            <div className="preview-topbar">
+              <div className="avatar">VB</div>
+              <div className="info">
+                <div className="name">VoxBulk Surveys</div>
+                <div className="sub">{item.industry_name || 'WhatsApp'}</div>
+              </div>
+              <div className="dots">⋮</div>
+            </div>
+
+            <div className="preview-chat">
+              <div className="preview-label">Preview · WhatsApp</div>
+              <div>
+                <div className="wa-bubble">
+                  <div className="wa-body">{editing.body_text || 'Your message will appear here…'}</div>
+                  <div className="wa-footer">{WA_FOOTER}</div>
+                  <div className="wa-time">12:34 ✓✓</div>
+                </div>
+                {previewButtons.length ? (
+                  <div className="wa-btn-wrap">
+                    {previewButtons.map((b, i) => <div className="wa-btn" key={i}>{b}</div>)}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="preview-input-bar">
+              <input placeholder="Reply…" disabled />
+              <div className="send-btn">
+                <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z" /></svg>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="pageHeadActions">
-          <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={syncTelnyx}>
-            {busy === 'sync' ? 'Syncing…' : 'Sync to Telnyx'}
-          </button>
-          <button type="button" className="btn primary bsm" disabled={busy === 'save-type'} onClick={saveSurveyType}>
-            Save type
-          </button>
-        </div>
+      </div>
+    )
+  }
+
+  // ── PAGE 2-equivalent: survey type details + templates list ──
+  return (
+    <div className="pageWrap indHub">
+      <div className="ind-breadcrumb">
+        <Link to="/customer-feedback/industries" style={{ color: 'inherit', textDecoration: 'none' }}>Industries</Link>
+        <span style={{ color: '#ccc' }}>/</span>
+        <Link to={`/customer-feedback/industries/${item.industry_id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+          {item.industry_name || 'Industry'}
+        </Link>
+        <span style={{ color: '#ccc' }}>/</span>
+        <span>{item.name}</span>
       </div>
 
       {error ? <div className="alert error">{error}</div> : null}
       {msg ? <div className="alert ok">{msg}</div> : null}
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardHead"><h3>Survey type details</h3></div>
-        <div className="cardBody runningSurveyEditGrid">
-          <label>Name<input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} /></label>
-          <label>Slug<input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} /></label>
-          <label>Sort order<input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} /></label>
-          <label>Description<textarea className="input" rows={2} value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} /></label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
-            Active
-          </label>
+      <div className="ind-strip">
+        <div className="ind-strip-head">
+          <div className="ind-strip-head-title">Survey type details</div>
+          <div className="ind-strip-actions">
+            <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={syncTelnyx}>
+              {busy === 'sync' ? 'Syncing…' : 'Sync to Telnyx'}
+            </button>
+            <button type="button" className="btn primary bsm" disabled={busy === 'save-type'} onClick={saveSurveyType}>
+              {busy === 'save-type' ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </div>
+        <div className="ind-fields">
+          <div className="fg">
+            <label>Name</label>
+            <input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="fg">
+            <label>Slug</label>
+            <input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
+          </div>
+          <div className="fg">
+            <label>Sort order</label>
+            <input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+          </div>
+          <div className="fg">
+            <label>Description</label>
+            <input className="input" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
+          </div>
+          <div className="toggle-row">
+            <label className="ind-toggle">
+              <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
+              <span className="ind-toggle-track" aria-hidden />
+            </label>
+            <span>{item.is_active ? 'Active' : 'Inactive'}</span>
+          </div>
         </div>
       </div>
 
       <div className="card">
-        <div className="cardHead">
-          <h3>WhatsApp templates</h3>
-          <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={createTemplate}>
-            Add English template
+        <div className="section-title">
+          <span>WhatsApp templates</span>
+          <button type="button" className="btn primary bsm" disabled={Boolean(busy)} onClick={createTemplate}>
+            {busy === 'create' ? 'Adding…' : '+ Add English template'}
           </button>
         </div>
         <div className="tableWrap">
-          <table className="table runningSurveyTable">
+          <table>
             <thead>
               <tr>
                 <th>Key</th>
@@ -223,76 +498,30 @@ export default function FeedbackSurveyTypeEdit() {
               </tr>
             </thead>
             <tbody>
-              {(item.templates || [])
-                .filter((tpl) => String(tpl.meta_category || '').toLowerCase() !== 'marketing'
-                  && String(tpl.template_key || '').toLowerCase() !== 'marketing_opt_in')
-                .map((tpl) => (
+              {visibleTemplates.map((tpl) => (
                 <tr key={tpl.id}>
                   <td><strong>{tpl.template_key}</strong></td>
                   <td>{tpl.step_role || '—'}</td>
-                  <td>{tpl.language}</td>
+                  <td><code>{tpl.language}</code></td>
                   <td>{tpl.meta_category}</td>
-                  <td><span className={syncPillClass(tpl.telnyx_sync_status)}>{tpl.telnyx_sync_status || 'draft'}</span></td>
+                  <td>{statusBadge(tpl.telnyx_sync_status)}</td>
                   <td>{tpl.is_active ? 'Yes' : 'No'}</td>
                   <td>
-                    <button type="button" className="btn soft bsm" onClick={() => openTemplate(tpl)}>Edit</button>
+                    <div className="actions-cell">
+                      <button type="button" className="icon-btn" data-tip="Edit" onClick={() => openTemplate(tpl)}>
+                        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
-              {!item.templates?.length ? (
+              {!visibleTemplates.length ? (
                 <tr><td colSpan={7} className="muted">No templates yet. Import from MD on Industries or add one here.</td></tr>
               ) : null}
             </tbody>
           </table>
         </div>
       </div>
-
-      {editing ? (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="cardHead">
-            <h3>Edit template — {editing.template_key}</h3>
-            <button type="button" className="btn soft bsm" onClick={() => setEditing(null)}>Close</button>
-          </div>
-          <div className="cardBody runningSurveyEditGrid">
-            <label>Template key<input className="input" value={editing.template_key || ''} onChange={(e) => setEditing((f) => ({ ...f, template_key: e.target.value }))} /></label>
-            <label>Step role<input className="input" value={editing.step_role || ''} onChange={(e) => setEditing((f) => ({ ...f, step_role: e.target.value }))} /></label>
-            <label>Step order<input className="input" type="number" value={editing.step_order ?? 1} onChange={(e) => setEditing((f) => ({ ...f, step_order: Number(e.target.value) }))} /></label>
-            <label>Language<input className="input" value={editing.language || 'en_GB'} onChange={(e) => setEditing((f) => ({ ...f, language: e.target.value }))} /></label>
-            <label>Meta category
-              <select className="input" value={editing.meta_category || 'utility'} onChange={(e) => setEditing((f) => ({ ...f, meta_category: e.target.value }))}>
-                <option value="utility">Utility</option>
-              </select>
-            </label>
-            <label style={{ gridColumn: '1 / -1' }}>Body text
-              <textarea className="input" rows={4} value={editing.body_text || ''} onChange={(e) => setEditing((f) => ({ ...f, body_text: e.target.value }))} />
-            </label>
-            <label style={{ gridColumn: '1 / -1' }}>Quick-reply buttons (JSON)
-              <textarea
-                className="input"
-                rows={4}
-                value={JSON.stringify(editing.buttons || [], null, 2)}
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value)
-                    if (Array.isArray(parsed)) setEditing((f) => ({ ...f, buttons: parsed }))
-                  } catch {
-                    /* allow invalid JSON while typing */
-                  }
-                }}
-              />
-            </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input type="checkbox" checked={Boolean(editing.is_active)} onChange={(e) => setEditing((f) => ({ ...f, is_active: e.target.checked }))} />
-              Active
-            </label>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <button type="button" className="btn primary bsm" disabled={Boolean(busy)} onClick={saveTemplate}>
-                {busy.startsWith('tpl-') ? 'Saving…' : 'Save template'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

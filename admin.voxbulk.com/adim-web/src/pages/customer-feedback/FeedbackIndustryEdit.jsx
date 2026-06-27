@@ -3,9 +3,15 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
 import '../../styles/admin-industries.css'
 
-function statusPill(label) {
-  if (label === 'live') return 'badge-active'
-  return 'leadPill leadPillNeutral'
+function statusBadge(label) {
+  const s = String(label || 'draft').toLowerCase()
+  if (['approved', 'synced', 'live', 'active'].includes(s)) {
+    return <span className="badge-approved">✓ Approved</span>
+  }
+  if (s === 'disabled' || s === 'inactive') {
+    return <span className="badge-disabled">Disabled</span>
+  }
+  return <span className="badge-draft">Draft</span>
 }
 
 export default function FeedbackIndustryEdit() {
@@ -164,14 +170,21 @@ export default function FeedbackIndustryEdit() {
               {(item.survey_types || []).map((row) => (
                 <tr key={row.id}>
                   <td><strong>{row.name}</strong></td>
-                  <td>{row.template_count ?? 0}</td>
+                  <td><span className="num-link">{row.template_count ?? 0}</span></td>
                   <td>{row.approved_count ?? 0}</td>
                   <td>{row.pending_count ?? 0}</td>
-                  <td><span className={statusPill(row.status)}>{row.status || 'draft'}</span></td>
+                  <td>{statusBadge(row.status)}</td>
                   <td>
-                    <button type="button" className="btn soft bsm" onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}>
-                      Open
-                    </button>
+                    <div className="actions-cell">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        data-tip="Open"
+                        onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}
+                      >
+                        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
