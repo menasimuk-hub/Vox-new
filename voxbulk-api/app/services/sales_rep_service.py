@@ -144,6 +144,36 @@ class SalesRepService:
         db.refresh(rep)
         return rep
 
+    @staticmethod
+    def reset_password(db: Session, *, rep: SalesRep, new_password: str) -> None:
+        if len(str(new_password or "")) < 6:
+            raise SalesRepError("Password must be at least 6 characters.")
+        user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
+        if user is None:
+            raise SalesRepError("Login user not found for this salesman.")
+        user.password_hash = hash_password(new_password)
+        user.is_active = True
+        db.commit()
+
+    @staticmethod
+    def delete_rep(db: Session, *, rep: SalesRep) -> None:
+        custs = db.execute(
+            select(SalesCustomer).where(SalesCustomer.sales_rep_id == rep.id)
+        ).scalars().all()
+        for c in custs:
+            db.delete(c)
+        comms = db.execute(
+            select(SalesCommission).where(SalesCommission.sales_rep_id == rep.id)
+        ).scalars().all()
+        for cm in comms:
+            db.delete(cm)
+        user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
+        db.delete(rep)
+        if user is not None:
+            # Block dashboard login but keep the user row to preserve any history.
+            user.is_active = False
+        db.commit()
+
     # ---- customers -----------------------------------------------------------
     @staticmethod
     def customer_to_dict(c: SalesCustomer) -> dict[str, Any]:

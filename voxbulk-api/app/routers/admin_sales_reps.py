@@ -58,6 +58,23 @@ def update_sales_rep(rep_id: str, payload: dict, db: Session = Depends(get_db), 
     return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
 
 
+@router.post("/{rep_id}/reset-password")
+def reset_sales_rep_password(rep_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    rep = _get_rep(db, rep_id)
+    try:
+        SalesRepService.reset_password(db, rep=rep, new_password=(payload or {}).get("password", ""))
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True}
+
+
+@router.delete("/{rep_id}")
+def delete_sales_rep(rep_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    rep = _get_rep(db, rep_id)
+    SalesRepService.delete_rep(db, rep=rep)
+    return {"ok": True}
+
+
 @router.get("/{rep_id}/customers")
 def list_rep_customers(rep_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rep = _get_rep(db, rep_id)

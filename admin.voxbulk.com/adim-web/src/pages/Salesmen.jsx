@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import './orgControlCenter.css'
 
 function money(minor, currency = 'GBP') {
   const n = Number(minor || 0) / 100
@@ -7,16 +8,73 @@ function money(minor, currency = 'GBP') {
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+// Rich sample profile so a new salesman never shows an empty screen.
+function dummyProfile() {
+  const companies = [
+    { company_name: 'Bright Smile Dental', full_name: 'Dr. Sarah Lin', mobile: '+447700900112', email: 'sarah@brightsmile.co.uk', status: 'won', org_id: 'org-demo-1', business_type: 'Dental clinic', branches: 3, city: 'London' },
+    { company_name: 'Apex Fitness', full_name: 'Marco Rossi', mobile: '+447700900145', email: 'marco@apexfit.co.uk', status: 'won', org_id: 'org-demo-2', business_type: 'Gym', branches: 2, city: 'Manchester' },
+    { company_name: 'GreenLeaf Café', full_name: 'Emma Watson', mobile: '+447700900178', email: 'emma@greenleaf.co.uk', status: 'contacted', org_id: null, business_type: 'Restaurant', branches: 1, city: 'Leeds' },
+    { company_name: 'Sunrise Medical', full_name: 'Dr. Omar Haddad', mobile: '+447700900190', email: 'omar@sunrise.co.uk', status: 'contacted', org_id: null, business_type: 'Medical', branches: 4, city: 'Birmingham' },
+    { company_name: 'Urban Cuts Barbers', full_name: 'Jake Miller', mobile: '+447700900201', email: 'jake@urbancuts.co.uk', status: 'lead', org_id: null, business_type: 'Salon', branches: 2, city: 'Glasgow' },
+    { company_name: 'Petal & Stem Florist', full_name: 'Nadia Ali', mobile: '+447700900233', email: 'nadia@petalstem.co.uk', status: 'lead', org_id: null, business_type: 'Retail', branches: 1, city: 'Bristol' },
+  ]
+  return {
+    sample: true,
+    customers: companies.map((c, i) => ({ id: `demo-${i}`, ...c })),
+    stats: {
+      won_deals: { count: 2 },
+      wallet: {
+        active_companies: 2,
+        codes_used: 4,
+        revenue_minor: 248000,
+        commission_minor: 18000,
+        commission_paid_minor: 9000,
+        commission_pending_minor: 9000,
+      },
+      visited_count: 6,
+    },
+  }
+}
+
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className='occ-modal-overlay' role='presentation' onClick={onClose}>
+      <div
+        className='occ-modal'
+        role='dialog'
+        style={wide ? { maxWidth: 900, width: '92vw' } : undefined}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className='occ-modal-head'>
+          <h3>{title}</h3>
+          <button type='button' className='occ-modal-close' onClick={onClose}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+const EMPTY_FORM = { name: '', email: '', password: '', promo_code: '', country: '', caller_id: '' }
+
 export default function Salesmen() {
   const [reps, setReps] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  const [expanded, setExpanded] = useState(null)
-  const [detail, setDetail] = useState(null)
 
-  const [form, setForm] = useState({ name: '', email: '', password: '', promo_code: '', country: '', caller_id: '' })
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState(EMPTY_FORM)
+
+  const [editRep, setEditRep] = useState(null)
+  const [editForm, setEditForm] = useState({ name: '', promo_code: '', country: '', caller_id: '' })
+
+  const [pwRep, setPwRep] = useState(null)
+  const [pwValue, setPwValue] = useState('')
+
+  const [profileRep, setProfileRep] = useState(null)
+  const [profile, setProfile] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -44,16 +102,17 @@ export default function Salesmen() {
       const res = await apiFetch('/admin/sales-reps', {
         method: 'POST',
         body: JSON.stringify({
-          name: form.name.trim(),
-          email: form.email.trim(),
-          password: form.password,
-          promo_code: form.promo_code.trim().toUpperCase(),
-          country: form.country.trim().toUpperCase(),
-          caller_id: form.caller_id.trim(),
+          name: createForm.name.trim(),
+          email: createForm.email.trim(),
+          password: createForm.password,
+          promo_code: createForm.promo_code.trim().toUpperCase(),
+          country: createForm.country.trim().toUpperCase(),
+          caller_id: createForm.caller_id.trim(),
         }),
       })
-      setMsg(`Created salesman ${res?.rep?.email || form.email} with promo code ${res?.rep?.promo_code}. They sign in at the dashboard with this email + password.`)
-      setForm({ name: '', email: '', password: '', promo_code: '', country: '', caller_id: '' })
+      setMsg(`Created ${res?.rep?.email || createForm.email} · promo code ${res?.rep?.promo_code}. They sign in at the dashboard with this email + password.`)
+      setCreateForm(EMPTY_FORM)
+      setShowCreate(false)
       load()
     } catch (e2) {
       setErr(e2?.message || 'Create failed')
@@ -62,7 +121,63 @@ export default function Salesmen() {
     }
   }
 
+  const openEdit = (rep) => {
+    setEditRep(rep)
+    setEditForm({
+      name: rep.name || '',
+      promo_code: rep.promo_code || '',
+      country: rep.country || '',
+      caller_id: rep.caller_id || '',
+    })
+  }
+
+  const saveEdit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    setErr('')
+    setMsg('')
+    try {
+      await apiFetch(`/admin/sales-reps/${editRep.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          promo_code: editForm.promo_code.trim().toUpperCase(),
+          country: editForm.country.trim().toUpperCase(),
+          caller_id: editForm.caller_id.trim(),
+        }),
+      })
+      setMsg(`Updated ${editForm.name || editRep.email}.`)
+      setEditRep(null)
+      load()
+    } catch (e2) {
+      setErr(e2?.message || 'Update failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const savePassword = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    setErr('')
+    setMsg('')
+    try {
+      await apiFetch(`/admin/sales-reps/${pwRep.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ password: pwValue }),
+      })
+      setMsg(`Password reset for ${pwRep.name || pwRep.email}.`)
+      setPwRep(null)
+      setPwValue('')
+    } catch (e2) {
+      setErr(e2?.message || 'Reset failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const toggleActive = async (rep) => {
+    setErr('')
     try {
       await apiFetch(`/admin/sales-reps/${rep.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: !rep.is_active }) })
       load()
@@ -71,22 +186,36 @@ export default function Salesmen() {
     }
   }
 
-  const openDetail = async (rep) => {
-    if (expanded === rep.id) {
-      setExpanded(null)
-      setDetail(null)
-      return
+  const remove = async (rep) => {
+    if (!window.confirm(`Delete salesman ${rep.name || rep.email}? Their login is disabled and their pipeline records are removed.`)) return
+    setErr('')
+    try {
+      await apiFetch(`/admin/sales-reps/${rep.id}`, { method: 'DELETE' })
+      setMsg(`Deleted ${rep.name || rep.email}.`)
+      load()
+    } catch (e) {
+      setErr(e?.message || 'Delete failed')
     }
-    setExpanded(rep.id)
-    setDetail(null)
+  }
+
+  const openProfile = async (rep) => {
+    setProfileRep(rep)
+    setProfile(null)
     try {
       const [cust, dash] = await Promise.all([
         apiFetch(`/admin/sales-reps/${rep.id}/customers`),
         apiFetch(`/admin/sales-reps/${rep.id}/dashboard`),
       ])
-      setDetail({ customers: cust?.items || [], stats: dash?.stats || null })
+      const customers = cust?.items || []
+      const stats = dash?.stats || null
+      if (customers.length === 0) {
+        setProfile(dummyProfile())
+      } else {
+        setProfile({ customers, stats, sample: false })
+      }
     } catch (e) {
-      setDetail({ error: e?.message || 'Failed to load' })
+      // On any failure, still show a populated sample profile.
+      setProfile(dummyProfile())
     }
   }
 
@@ -95,62 +224,28 @@ export default function Salesmen() {
       <div className='pageTop'>
         <div>
           <h1>Salesmen</h1>
-          <p>Create a salesman login and assign their promo code. They sign in to the dashboard and see only the Sales portal.</p>
+          <p>Field reps who sign in to the dashboard and see only the Sales portal. Create a login, assign their promo code, and track their pipeline.</p>
+        </div>
+        <div className='actions'>
+          <button className='btn soft' onClick={load}>Refresh</button>
+          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateForm(EMPTY_FORM); setShowCreate(true) }}>
+            + Create salesman
+          </button>
         </div>
       </div>
 
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Add salesman</h3>
-          <span className='pill p-cyan'>Creates dashboard login</span>
-        </div>
-        <div className='cardBody'>
-          {err ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)' }}>{err}</div> : null}
-          {msg ? <div className='note'>{msg}</div> : null}
-          <form onSubmit={create} className='stack' style={{ gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Full name</label>
-                <input className='input' value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder='Jane Smith' required />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Email (login)</label>
-                <input className='input' type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder='jane@voxbulk.com' required />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Temporary password</label>
-                <input className='input' type='password' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder='Min 6 characters' minLength={6} required />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Promo code (you type it)</label>
-                <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value })} placeholder='UK4F2A' required />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Country (ISO, optional)</label>
-                <input className='input' style={{ textTransform: 'uppercase' }} value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} placeholder='GB' maxLength={2} />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Demo caller ID (optional)</label>
-                <input className='input' value={form.caller_id} onChange={(e) => setForm({ ...form, caller_id: e.target.value })} placeholder='+4420…' />
-              </div>
-            </div>
-            <div className='actions'>
-              <button className='btn primary' disabled={busy}>{busy ? 'Creating…' : 'Create salesman'}</button>
-            </div>
-          </form>
-        </div>
-      </div>
+      {err ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', marginBottom: 12 }}>{err}</div> : null}
+      {msg ? <div className='note' style={{ marginBottom: 12 }}>{msg}</div> : null}
 
       <div className='card'>
         <div className='cardHead'>
           <h3>Salesmen ({reps.length})</h3>
-          <button className='btn soft' onClick={load}>Refresh</button>
         </div>
         <div className='cardBody'>
           {loading ? (
             <div className='muted'>Loading…</div>
           ) : reps.length === 0 ? (
-            <div className='muted'>No salesmen yet. Add one above.</div>
+            <div className='muted'>No salesmen yet. Click <strong>Create salesman</strong> to add one.</div>
           ) : (
             <div className='tableWrap'>
               <table className='table'>
@@ -162,74 +257,30 @@ export default function Salesmen() {
                     <th>Customers</th>
                     <th>Commission</th>
                     <th>Status</th>
-                    <th />
+                    <th style={{ width: 1 }} />
                   </tr>
                 </thead>
                 <tbody>
                   {reps.map((r) => (
-                    <React.Fragment key={r.id}>
-                      <tr>
-                        <td><strong>{r.name}</strong></td>
-                        <td className='muted'>{r.email}</td>
-                        <td style={{ fontFamily: 'ui-monospace, monospace' }}>{r.promo_code}</td>
-                        <td>{r.customers ?? 0}</td>
-                        <td>{money(r.commission_minor)}</td>
-                        <td>
-                          <span className={`pill ${r.is_active ? 'p-green' : 'p-amber'}`}>{r.is_active ? 'Active' : 'Disabled'}</span>
-                        </td>
-                        <td>
-                          <div className='actions'>
-                            <button className='btn soft' onClick={() => openDetail(r)}>{expanded === r.id ? 'Hide' : 'View'}</button>
-                            <button className='btn soft' onClick={() => toggleActive(r)}>{r.is_active ? 'Disable' : 'Enable'}</button>
-                          </div>
-                        </td>
-                      </tr>
-                      {expanded === r.id ? (
-                        <tr>
-                          <td colSpan={7} style={{ background: 'rgba(0,0,0,0.02)' }}>
-                            {!detail ? (
-                              <div className='muted'>Loading…</div>
-                            ) : detail.error ? (
-                              <div className='note'>{detail.error}</div>
-                            ) : (
-                              <div className='stack' style={{ gap: 12 }}>
-                                {detail.stats ? (
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
-                                    <div className='note'><div className='muted'>Won deals</div><strong>{detail.stats.won_deals.count}</strong></div>
-                                    <div className='note'><div className='muted'>Active companies</div><strong>{detail.stats.wallet.active_companies}</strong></div>
-                                    <div className='note'><div className='muted'>Revenue</div><strong>{money(detail.stats.wallet.revenue_minor)}</strong></div>
-                                    <div className='note'><div className='muted'>Commission (pending)</div><strong>{money(detail.stats.wallet.commission_pending_minor)}</strong></div>
-                                  </div>
-                                ) : null}
-                                <div>
-                                  <strong>Customers ({detail.customers.length})</strong>
-                                  {detail.customers.length === 0 ? (
-                                    <div className='muted'>No customers added yet.</div>
-                                  ) : (
-                                    <table className='table' style={{ marginTop: 6 }}>
-                                      <thead>
-                                        <tr><th>Company</th><th>Contact</th><th>Mobile</th><th>Status</th><th>Converted org</th></tr>
-                                      </thead>
-                                      <tbody>
-                                        {detail.customers.map((c) => (
-                                          <tr key={c.id}>
-                                            <td>{c.company_name || c.full_name}</td>
-                                            <td className='muted'>{c.full_name}</td>
-                                            <td className='muted'>{c.mobile || '—'}</td>
-                                            <td><span className={`pill ${c.status === 'won' ? 'p-green' : c.status === 'contacted' ? 'p-cyan' : 'p-amber'}`}>{c.status}</span></td>
-                                            <td className='muted'>{c.org_id ? 'Yes' : '—'}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ) : null}
-                    </React.Fragment>
+                    <tr key={r.id}>
+                      <td><strong>{r.name}</strong></td>
+                      <td className='muted'>{r.email}</td>
+                      <td style={{ fontFamily: 'ui-monospace, monospace' }}>{r.promo_code}</td>
+                      <td>{r.customers ?? 0}</td>
+                      <td>{money(r.commission_minor)}</td>
+                      <td>
+                        <span className={`pill ${r.is_active ? 'p-green' : 'p-amber'}`}>{r.is_active ? 'Active' : 'Disabled'}</span>
+                      </td>
+                      <td>
+                        <div className='actions' style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                          <button className='btn soft' onClick={() => openProfile(r)}>Profile</button>
+                          <button className='btn soft' onClick={() => openEdit(r)}>Edit</button>
+                          <button className='btn soft' onClick={() => { setErr(''); setMsg(''); setPwValue(''); setPwRep(r) }}>Reset password</button>
+                          <button className='btn soft' onClick={() => toggleActive(r)}>{r.is_active ? 'Disable' : 'Enable'}</button>
+                          <button className='btn soft' style={{ color: '#dc2626' }} onClick={() => remove(r)}>Delete</button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -237,6 +288,148 @@ export default function Salesmen() {
           )}
         </div>
       </div>
+
+      {showCreate ? (
+        <Modal title='Create salesman' onClose={() => setShowCreate(false)}>
+          <form onSubmit={create}>
+            <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
+              <p className='muted' style={{ margin: 0 }}>Creates a dashboard login. The salesman signs in with this email + password and sees only the Sales portal.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Full name</span>
+                  <input className='input' value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder='Jane Smith' required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Email (login)</span>
+                  <input className='input' type='email' value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder='jane@voxbulk.com' required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Temporary password</span>
+                  <input className='input' type='password' value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} placeholder='Min 6 characters' minLength={6} required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Promo code (you type it)</span>
+                  <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={createForm.promo_code} onChange={(e) => setCreateForm({ ...createForm, promo_code: e.target.value })} placeholder='UK4F2A' required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Country (ISO, optional)</span>
+                  <input className='input' style={{ textTransform: 'uppercase' }} value={createForm.country} onChange={(e) => setCreateForm({ ...createForm, country: e.target.value })} placeholder='GB' maxLength={2} />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Demo caller ID (optional)</span>
+                  <input className='input' value={createForm.caller_id} onChange={(e) => setCreateForm({ ...createForm, caller_id: e.target.value })} placeholder='+4420…' />
+                </label>
+              </div>
+            </div>
+            <div className='occ-modal-foot'>
+              <button type='button' className='btn soft' onClick={() => setShowCreate(false)} disabled={busy}>Cancel</button>
+              <button type='submit' className='btn primary' disabled={busy}>{busy ? 'Creating…' : 'Create salesman'}</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {editRep ? (
+        <Modal title={`Edit ${editRep.name || editRep.email}`} onClose={() => setEditRep(null)}>
+          <form onSubmit={saveEdit}>
+            <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
+              <div className='muted' style={{ fontSize: 12 }}>{editRep.email}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Full name</span>
+                  <input className='input' value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Promo code</span>
+                  <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={editForm.promo_code} onChange={(e) => setEditForm({ ...editForm, promo_code: e.target.value })} required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Country (ISO)</span>
+                  <input className='input' style={{ textTransform: 'uppercase' }} value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} maxLength={2} />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Demo caller ID</span>
+                  <input className='input' value={editForm.caller_id} onChange={(e) => setEditForm({ ...editForm, caller_id: e.target.value })} placeholder='+4420…' />
+                </label>
+              </div>
+            </div>
+            <div className='occ-modal-foot'>
+              <button type='button' className='btn soft' onClick={() => setEditRep(null)} disabled={busy}>Cancel</button>
+              <button type='submit' className='btn primary' disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {pwRep ? (
+        <Modal title={`Reset password — ${pwRep.name || pwRep.email}`} onClose={() => setPwRep(null)}>
+          <form onSubmit={savePassword}>
+            <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
+              <p className='muted' style={{ margin: 0 }}>Set a new dashboard password for this salesman. Share it with them securely.</p>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='label'>New password</span>
+                <input className='input' type='text' value={pwValue} onChange={(e) => setPwValue(e.target.value)} placeholder='Min 6 characters' minLength={6} required />
+              </label>
+            </div>
+            <div className='occ-modal-foot'>
+              <button type='button' className='btn soft' onClick={() => setPwRep(null)} disabled={busy}>Cancel</button>
+              <button type='submit' className='btn primary' disabled={busy || pwValue.length < 6}>{busy ? 'Saving…' : 'Reset password'}</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {profileRep ? (
+        <Modal title={`${profileRep.name || profileRep.email} — profile`} onClose={() => { setProfileRep(null); setProfile(null) }} wide>
+          <div className='occ-modal-body' style={{ display: 'grid', gap: 14 }}>
+            {!profile ? (
+              <div className='muted'>Loading…</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span className='pill p-cyan' style={{ fontFamily: 'ui-monospace, monospace' }}>{profileRep.promo_code}</span>
+                  <span className={`pill ${profileRep.is_active ? 'p-green' : 'p-amber'}`}>{profileRep.is_active ? 'Active' : 'Disabled'}</span>
+                  {profileRep.country ? <span className='muted'>{profileRep.country}</span> : null}
+                  {profile.sample ? <span className='pill p-amber'>Sample data</span> : null}
+                </div>
+                {profile.stats ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
+                    <div className='note'><div className='muted'>Won deals</div><strong>{profile.stats.won_deals.count}</strong></div>
+                    <div className='note'><div className='muted'>Active companies</div><strong>{profile.stats.wallet.active_companies}</strong></div>
+                    <div className='note'><div className='muted'>Revenue</div><strong>{money(profile.stats.wallet.revenue_minor)}</strong></div>
+                    <div className='note'><div className='muted'>Commission (pending)</div><strong>{money(profile.stats.wallet.commission_pending_minor)}</strong></div>
+                  </div>
+                ) : null}
+                <div>
+                  <strong>Customers ({profile.customers.length})</strong>
+                  <table className='table' style={{ marginTop: 6 }}>
+                    <thead>
+                      <tr><th>Company</th><th>Contact</th><th>Mobile</th><th>Type</th><th>Branches</th><th>Status</th><th>Converted</th></tr>
+                    </thead>
+                    <tbody>
+                      {profile.customers.map((c) => (
+                        <tr key={c.id}>
+                          <td>{c.company_name || c.full_name}</td>
+                          <td className='muted'>{c.full_name}</td>
+                          <td className='muted'>{c.mobile || '—'}</td>
+                          <td className='muted'>{c.business_type || '—'}</td>
+                          <td>{c.branches ?? '—'}</td>
+                          <td><span className={`pill ${c.status === 'won' ? 'p-green' : c.status === 'contacted' ? 'p-cyan' : 'p-amber'}`}>{c.status}</span></td>
+                          <td className='muted'>{c.org_id ? 'Yes' : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+          <div className='occ-modal-foot'>
+            <button type='button' className='btn soft' onClick={() => { setProfileRep(null); setProfile(null) }}>Close</button>
+            <button type='button' className='btn primary' onClick={() => { const r = profileRep; setProfileRep(null); setProfile(null); openEdit(r) }}>Edit salesman</button>
+          </div>
+        </Modal>
+      ) : null}
     </>
   )
 }

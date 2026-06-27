@@ -107,8 +107,8 @@
 
 .waTplGen-main {
   flex: 1;
-  margin: 0 auto;
-  max-width: 1300px;
+  margin: 0;
+  max-width: none;
   overflow-y: auto;
   padding: 2rem;
   width: 100%;
