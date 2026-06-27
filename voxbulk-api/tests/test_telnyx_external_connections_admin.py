@@ -50,6 +50,39 @@ def _save_telnyx_minimal(app_client, headers):
     assert res.status_code == 200
 
 
+def test_admin_telnyx_zoom_oauth_save_endpoint(app_client):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-zoom-test",
+            "client_id": "client-zoom-test",
+            "client_secret": "secret-zoom-test",
+            "base_url": "https://api.zoom.us/v2",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["config"]["zoom_account_id"] == "acct-zoom-test"
+    assert body["config"]["zoom_client_id"] == "client-zoom-test"
+    assert body["secret_set"]["zoom_client_secret"] is True
+
+    from app.core.database import get_sessionmaker
+    from app.services.provider_settings import ProviderSettingsService
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+        assert cfg["account_id"] == "acct-zoom-test"
+        assert cfg["client_id"] == "client-zoom-test"
+        zoom_cfg, zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+        assert zoom_enabled is True
+        assert zoom_cfg["client_id"] == "client-zoom-test"
+
+
 def test_admin_telnyx_zoom_external_connection_create_and_test(app_client, monkeypatch):
     headers = _admin_headers(app_client)
     _save_telnyx_minimal(app_client, headers)

@@ -247,6 +247,50 @@ class ProviderSettingsService:
         return obj
 
     @staticmethod
+    def upsert_telnyx_zoom_oauth(
+        db: Session,
+        *,
+        account_id: str,
+        client_id: str,
+        client_secret: str | None = None,
+        base_url: str | None = None,
+    ) -> ProviderConfig:
+        """Persist Zoom Server-to-Server OAuth creds on Telnyx (+ mirror to zoom provider)."""
+        account_id = str(account_id or "").strip()
+        client_id = str(client_id or "").strip()
+        if not account_id or not client_id:
+            raise ValueError("Zoom account_id and client_id are required")
+
+        cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        if not telnyx_enabled:
+            raise ValueError("Telnyx integration must be enabled before saving Zoom OAuth credentials")
+
+        current_secret = str((cfg or {}).get("zoom_client_secret") or "").strip()
+        incoming_secret = str(client_secret or "").strip()
+        resolved_secret = incoming_secret or current_secret
+        if not resolved_secret:
+            raise ValueError("Zoom client_secret is required")
+
+        patch: dict[str, Any] = {
+            "zoom_account_id": account_id,
+            "zoom_client_id": client_id,
+            "zoom_client_secret": resolved_secret,
+        }
+        base = str(base_url or (cfg or {}).get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
+        if base:
+            patch["zoom_base_url"] = base or "https://api.zoom.us/v2"
+
+        telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+        telnyx_is_enabled = bool(telnyx_obj.is_enabled) if telnyx_obj is not None else True
+
+        return ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="telnyx",
+            is_enabled=telnyx_is_enabled,
+            config=patch,
+        )
+
+    @staticmethod
     def _mirror_telnyx_zoom_to_zoom_provider(db: Session, telnyx_config: dict[str, Any]) -> None:
         """Keep standalone zoom provider in sync when admins save OAuth creds on Telnyx → Zoom."""
         account_id = str(telnyx_config.get("zoom_account_id") or "").strip()
@@ -255,12 +299,10 @@ class ProviderSettingsService:
         if not (account_id and client_id and client_secret):
             return
         base_url = str(telnyx_config.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/") or "https://api.zoom.us/v2"
-        zoom_existing = ProviderSettingsService.get_platform_config(db, provider="zoom")
-        zoom_enabled = bool(zoom_existing.is_enabled) if zoom_existing is not None else True
         ProviderSettingsService.upsert_platform_config(
             db,
             provider="zoom",
-            is_enabled=zoom_enabled,
+            is_enabled=True,
             config={
                 "account_id": account_id,
                 "client_id": client_id,

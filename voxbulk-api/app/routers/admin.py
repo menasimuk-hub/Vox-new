@@ -199,6 +199,26 @@ def upsert_provider_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.put("/integrations/telnyx/zoom-oauth")
+def upsert_telnyx_zoom_oauth(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Save Zoom OAuth fallback credentials from Telnyx → Zoom tab only."""
+    try:
+        ProviderSettingsService.upsert_telnyx_zoom_oauth(
+            db,
+            account_id=str(payload.get("account_id") or payload.get("zoom_account_id") or ""),
+            client_id=str(payload.get("client_id") or payload.get("zoom_client_id") or ""),
+            client_secret=payload.get("client_secret") or payload.get("zoom_client_secret"),
+            base_url=payload.get("base_url") or payload.get("zoom_base_url"),
+        )
+        return ProviderSettingsService.get_platform_config_admin_view(db, provider="telnyx")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/integrations/azure_speech/test-tts")
 def test_azure_speech_tts(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

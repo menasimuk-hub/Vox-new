@@ -252,6 +252,7 @@ export default function TelnyxIntegration({
   setProviderDrafts,
   applyTelnyxFromNumber,
   saveIntegrationProvider,
+  saveTelnyxZoomOAuth,
   testTelnyx,
   testTelnyxCall,
   hangupTelnyxCall,
@@ -1291,7 +1292,7 @@ export default function TelnyxIntegration({
                 <button
                   type='button'
                   className='btn primary'
-                  onClick={() => saveIntegrationProvider('telnyx')}
+                  onClick={() => saveTelnyxZoomOAuth()}
                   disabled={providerSaving}
                 >
                   {providerSaving ? 'Saving…' : 'Save Zoom settings'}
