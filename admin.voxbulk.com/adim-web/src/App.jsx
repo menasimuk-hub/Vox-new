@@ -73,6 +73,7 @@ export default function App() {
         <Route path='/marketing/lead-sales' element={<P.LeadSales />} />
         <Route path='/marketing/lead-sales/settings' element={<P.LeadSalesSettings />} />
         <Route path='/marketing/lead-sales/offer-templates' element={<P.SalesOfferTemplates />} />
+        <Route path='/marketing/salesmen' element={<P.Salesmen />} />
         <Route path='/marketing/lead-sales/:taskId' element={<P.LeadSalesEdit />} />
         <Route path='/marketing/ai-team' element={<P.AiTeam />} />
         <Route path='/marketing/promo-offers' element={<P.PromoOffers />} />

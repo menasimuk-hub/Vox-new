@@ -1,0 +1,185 @@
+/* Salesman portal (Task 8) — warm beige standalone theme, scoped under .salesPortal. */
+.salesPortal {
+  background: #f3efe6;
+  min-height: 100vh;
+  color: #2e2a24;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  padding: 24px 32px;
+}
+.salesPortal * { box-sizing: border-box; }
+.salesPortal .sp-app {
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+  background: #faf7f0;
+  border-radius: 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+  padding: 28px 32px 40px;
+  border: 1px solid #e5ddd0;
+}
+.salesPortal .sp-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.salesPortal .sp-brand { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
+.salesPortal .sp-logout {
+  background: transparent; border: 1px solid #d6ccbb; color: #5f5546;
+  padding: 6px 16px; border-radius: 30px; font-size: 13px; cursor: pointer;
+}
+.salesPortal .sp-menu {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  border-bottom: 1px solid #ded6c7; padding-bottom: 16px; margin-bottom: 28px;
+}
+.salesPortal .sp-tab {
+  font-size: 14px; font-weight: 500; color: #5f5546; padding: 6px 18px;
+  border-radius: 30px; cursor: pointer; background: transparent;
+  border: 1px solid transparent; display: inline-flex; align-items: center; gap: 8px;
+}
+.salesPortal .sp-tab:hover { background: #ede7db; color: #2e2a24; }
+.salesPortal .sp-tab.active {
+  background: #ede7db; color: #2e2a24; border-color: #b8aa96; box-shadow: 0 0 0 1px #b8aa96;
+}
+.salesPortal .sp-tab svg { color: #7a6b58; }
+.salesPortal .sp-tab.active svg { color: #6b5d4b; }
+
+.salesPortal .sp-form {
+  background: #f7f2e9; border-radius: 24px; padding: 32px 36px;
+  border: 1px solid #ddd4c4; max-width: 900px; margin: 0 auto;
+}
+.salesPortal .sp-form h2 {
+  font-size: 22px; font-weight: 600; margin-bottom: 24px; color: #2e2a24;
+  display: flex; align-items: center; gap: 10px;
+}
+.salesPortal .sp-form h2 svg, .salesPortal .sp-form h4 svg { color: #1a2332; }
+.salesPortal .sp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.salesPortal .sp-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.salesPortal .sp-group { margin-bottom: 18px; }
+.salesPortal .sp-group label {
+  display: block; font-size: 13px; font-weight: 500; color: #4d4338; margin-bottom: 4px;
+}
+.salesPortal .sp-group input, .salesPortal .sp-group select {
+  width: 100%; padding: 10px 14px; border: 1px solid #d6ccbb; border-radius: 14px;
+  font-size: 14px; background: #fcfaf5; color: #2e2a24;
+}
+.salesPortal .sp-group input:focus, .salesPortal .sp-group select:focus {
+  border-color: #1a2332; outline: none; box-shadow: 0 0 0 3px rgba(26, 35, 50, 0.15);
+}
+.salesPortal .sp-actions {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px;
+  padding-top: 18px; border-top: 1px solid #ded6c7;
+}
+.salesPortal .sp-btn {
+  padding: 10px 24px; border-radius: 40px; font-weight: 500; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; border: 1px solid #d6ccbb;
+  background: #ede7db; color: #2e2a24;
+}
+.salesPortal .sp-btn.primary, .salesPortal .sp-btn-send, .salesPortal .sp-btn-offer {
+  background: #1a2332; border-color: #1a2332; color: #fff;
+}
+.salesPortal .sp-btn:disabled { opacity: 0.55; cursor: default; }
+
+.salesPortal .sp-survey-actions {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+  margin-top: 20px; padding-top: 20px; border-top: 1px solid #ded6c7;
+}
+.salesPortal .sp-survey-card {
+  background: #fcfaf5; border-radius: 16px; padding: 18px 16px;
+  border: 1px solid #d6ccbb; text-align: center;
+}
+.salesPortal .sp-survey-card .sp-icon { color: #1a2332; margin-bottom: 8px; display: flex; justify-content: center; }
+.salesPortal .sp-survey-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.salesPortal .sp-field-group { display: flex; flex-direction: column; gap: 8px; }
+.salesPortal .sp-field-group input {
+  padding: 8px 12px; border: 1px solid #d6ccbb; border-radius: 30px;
+  font-size: 13px; background: #fff; width: 100%;
+}
+.salesPortal .sp-btn-send {
+  padding: 8px 16px; border-radius: 30px; font-weight: 500; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; cursor: pointer;
+}
+
+.salesPortal .sp-offer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #ded6c7; }
+.salesPortal .sp-offer h4 { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.salesPortal .sp-offer-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: end; }
+.salesPortal .sp-offer-row .sp-group { margin-bottom: 0; }
+.salesPortal .sp-offer-buttons { display: flex; gap: 8px; align-items: center; }
+.salesPortal .sp-btn-offer {
+  padding: 9px 14px; border-radius: 30px; font-weight: 500; font-size: 13px; flex: 1;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+}
+.salesPortal .sp-callerid {
+  margin-top: 16px; font-size: 13px; color: #6b5d4b; background: #ede7db;
+  padding: 8px 16px; border-radius: 40px; display: inline-flex; align-items: center; gap: 8px;
+}
+.salesPortal .sp-callerid svg { color: #1a2332; }
+
+.salesPortal .sp-table-wrap {
+  background: #f7f2e9; border-radius: 24px; border: 1px solid #ddd4c4;
+  padding: 6px 0 12px 0; overflow-x: auto;
+}
+.salesPortal .sp-table-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 24px 6px 24px; border-bottom: 1px solid #ded6c7;
+}
+.salesPortal .sp-table-head h3 { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.salesPortal .sp-table-head span { font-size: 13px; color: #7a6b58; }
+.salesPortal table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.salesPortal th {
+  text-align: left; padding: 14px 20px 10px 20px; font-weight: 500; color: #6b5d4b;
+  border-bottom: 1px solid #ded6c7; font-size: 12px; letter-spacing: 0.3px; text-transform: uppercase;
+}
+.salesPortal td { padding: 14px 20px; border-bottom: 1px solid #e5ddd0; color: #2e2a24; }
+.salesPortal td .sp-rowact { display: inline-flex; gap: 12px; }
+.salesPortal td .sp-rowact button { background: none; border: none; cursor: pointer; padding: 0; }
+.salesPortal .sp-badge {
+  background: #e5ddd0; padding: 2px 12px; border-radius: 30px; font-size: 11px; font-weight: 600; color: #4d4338;
+}
+
+.salesPortal .sp-simple {
+  background: #f7f2e9; border-radius: 24px; padding: 32px 28px; border: 1px solid #ddd4c4; min-height: 280px;
+}
+.salesPortal .sp-simple h2 { font-weight: 600; margin-bottom: 12px; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+.salesPortal .sp-simple h2 svg { color: #1a2332; }
+.salesPortal .sp-simple p { color: #5f5546; line-height: 1.6; }
+.salesPortal .sp-kpi-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin: 18px 0 24px; }
+.salesPortal .sp-kpi {
+  background: #ede7db; padding: 16px 20px; border-radius: 16px; border: 1px solid #d6ccbb;
+}
+.salesPortal .sp-kpi .label { font-size: 13px; color: #6b5d4b; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.salesPortal .sp-kpi .value { font-size: 26px; font-weight: 600; margin-top: 4px; }
+.salesPortal .sp-kpi .sub { font-size: 12px; color: #7a6b58; margin-top: 2px; }
+.salesPortal .sp-kpi svg { color: #1a2332; }
+.salesPortal .sp-company {
+  background: #ede7db; padding: 12px 16px; border-radius: 12px; margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;
+}
+.salesPortal .sp-company .name { font-weight: 600; }
+.salesPortal .sp-company .pkg { color: #1a2332; font-weight: 500; }
+
+.salesPortal .sp-toast {
+  margin-bottom: 16px; padding: 10px 16px; border-radius: 14px; font-size: 14px;
+  background: #ede7db; border: 1px solid #d6ccbb; color: #2e2a24;
+}
+.salesPortal .sp-toast.err { background: #f7e3df; border-color: #e0b9b0; color: #8a3b2c; }
+
+.salesPortal .sp-qr-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+  display: flex; justify-content: center; align-items: center; z-index: 999;
+}
+.salesPortal .sp-qr {
+  background: #faf7f0; padding: 40px 48px; border-radius: 28px; text-align: center;
+  max-width: 360px; border: 1px solid #e5ddd0; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.salesPortal .sp-qr .sp-qr-box {
+  color: #1a2332; background: #fff; padding: 20px; border-radius: 16px;
+  border: 2px dashed #b8aa96; margin-bottom: 16px; display: flex; justify-content: center;
+}
+.salesPortal .sp-qr h3 { font-size: 18px; margin-bottom: 6px; }
+.salesPortal .sp-qr p { color: #6b5d4b; font-size: 14px; margin-bottom: 16px; }
+
+@media (max-width: 1000px) {
+  .salesPortal .sp-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .salesPortal .sp-row, .salesPortal .sp-row-3, .salesPortal .sp-survey-actions, .salesPortal .sp-offer-row { grid-template-columns: 1fr; }
+}

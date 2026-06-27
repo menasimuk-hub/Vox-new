@@ -266,6 +266,8 @@ const NAV = [
 
       ['Lead sales', '/marketing/lead-sales'],
 
+      ['Salesmen', '/marketing/salesmen'],
+
       ['Promo offers', '/marketing/promo-offers'],
 
       ['Sales setup (AI + KB)', '/marketing/lead-sales/settings'],

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SalesRouteImport } from './routes/sales'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
@@ -66,6 +67,11 @@ import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.acco
 import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
 import { Route as AppAccountFeedbackPackagesRouteImport } from './routes/_app.account.feedback.packages'
 
+const SalesRoute = SalesRouteImport.update({
+  id: '/sales',
+  path: '/sales',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -356,6 +362,7 @@ const AppAccountFeedbackPackagesRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/sales': typeof SalesRoute
   '/appointments': typeof AppAppointmentsRouteWithChildren
   '/feedback': typeof AppFeedbackRouteWithChildren
   '/follow-up': typeof AppFollowUpRoute
@@ -412,6 +419,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/sales': typeof SalesRoute
   '/follow-up': typeof AppFollowUpRoute
   '/packages': typeof AppPackagesRoute
   '/book/$token': typeof BookTokenRoute
@@ -464,6 +472,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/sales': typeof SalesRoute
   '/_app/appointments': typeof AppAppointmentsRouteWithChildren
   '/_app/feedback': typeof AppFeedbackRouteWithChildren
   '/_app/follow-up': typeof AppFollowUpRoute
@@ -524,6 +533,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/sales'
     | '/appointments'
     | '/feedback'
     | '/follow-up'
@@ -580,6 +590,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
+    | '/sales'
     | '/follow-up'
     | '/packages'
     | '/book/$token'
@@ -631,6 +642,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/login'
+    | '/sales'
     | '/_app/appointments'
     | '/_app/feedback'
     | '/_app/follow-up'
@@ -690,11 +702,19 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  SalesRoute: typeof SalesRoute
   BookTokenRoute: typeof BookTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sales': {
+      id: '/sales'
+      path: '/sales'
+      fullPath: '/sales'
+      preLoaderRoute: typeof SalesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -1275,6 +1295,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  SalesRoute: SalesRoute,
   BookTokenRoute: BookTokenRoute,
 }
 export const routeTree = rootRouteImport

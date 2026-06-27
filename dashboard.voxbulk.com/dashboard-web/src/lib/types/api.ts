@@ -38,6 +38,8 @@ export type UserProfile = {
   role?: string;
   org_id?: string;
   phone?: UserPhoneStatus;
+  is_sales_rep?: boolean;
+  sales_rep_id?: string | null;
 };
 
 export type ServiceOrderReport = {
