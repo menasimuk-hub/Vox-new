@@ -281,6 +281,94 @@ class VoiceTranscriptionService:
             )
 
     @staticmethod
+    def _transcode_to_ogg(src_path: Path) -> Path:
+        """Best-effort transcode of a browser recording (webm/mp4/wav) to mono 16k Ogg/Opus.
+
+        Returns the transcoded file path, or the original path if ffmpeg is unavailable or fails.
+        """
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return src_path
+        out_path = src_path.with_suffix(".ogg")
+        if out_path == src_path:
+            out_path = src_path.with_name(f"{src_path.stem}-t.ogg")
+        try:
+            proc = subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(src_path),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-c:a",
+                    "libopus",
+                    str(out_path),
+                ],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            if proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 128:
+                return out_path
+        except (OSError, subprocess.SubprocessError):
+            logger.warning("voice_transcode_failed src=%s", src_path, exc_info=True)
+        return src_path
+
+    @staticmethod
+    def transcribe_uploaded_audio(
+        main_db: Session,
+        *,
+        audio_bytes: bytes,
+        filename: str = "voice.webm",
+        content_type: str = "audio/webm",
+        language: str | None = None,
+    ) -> VoiceTranscriptionResult:
+        """Transcode + transcribe an audio file uploaded directly by the browser (web survey)."""
+        if not audio_bytes:
+            return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error="empty_upload")
+
+        settings = get_settings()
+        max_bytes = max(1, int(settings.voice_note_max_file_size_mb)) * 1024 * 1024
+        if len(audio_bytes) > max_bytes:
+            return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error="file_too_large")
+
+        suffix = Path(str(filename or "voice.webm")).suffix.lower() or ".webm"
+        if suffix not in {".webm", ".ogg", ".oga", ".m4a", ".mp4", ".wav", ".mp3"}:
+            suffix = ".webm"
+        job_id = str(uuid.uuid4())
+        dest = _storage_root() / "web" / f"{job_id}{suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        stt_lang = _stt_language(language)
+        try:
+            dest.write_bytes(audio_bytes)
+            audio_path = VoiceTranscriptionService._transcode_to_ogg(dest)
+            duration_seconds = _duration_from_file(audio_path)
+            transcript = VoiceTranscriptionService._transcribe_file(
+                main_db, audio_path, language=stt_lang
+            ).strip()
+            confidence = _estimate_confidence(transcript)
+            ok = bool(transcript) and not is_low_quality_transcript(transcript)
+            logger.info(
+                "voice_web_transcription chars=%s confidence=%.2f ok=%s", len(transcript), confidence, ok
+            )
+            return VoiceTranscriptionResult(
+                ok=ok,
+                transcript=transcript,
+                confidence=confidence,
+                content_type=_audio_content_type(audio_path),
+                storage_path=str(audio_path),
+                error=None if ok else "low_confidence_or_empty",
+                file_size_bytes=len(audio_bytes),
+                duration_seconds=duration_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voice_web_transcription_failed err=%s", exc, exc_info=True)
+            return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error=str(exc))
+
+    @staticmethod
     def _transcribe_deepgram(main_db: Session, audio_path: Path, *, language: str | None) -> str:
         stt_lang = _stt_language(language)
         payload = DeepgramProviderService.transcribe_audio_result(

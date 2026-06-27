@@ -68,16 +68,27 @@ def build_trigger_text(*, company: str, branch: str, token: str) -> str:
     )
 
 
-def _build_qr_urls(*, phone: str, trigger_text: str) -> tuple[str, str]:
+def _qr_image_for(target_url: str) -> str:
+    return (
+        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&charset-source=UTF-8&charset-target=UTF-8&data="
+        + quote(str(target_url or ""), safe="", encoding="utf-8")
+    )
+
+
+def _build_qr_urls(*, phone: str, trigger_text: str, qr_target_url: str | None = None) -> tuple[str, str]:
+    """Return (wa_url, qr_image_url).
+
+    The scannable QR now points at the web survey landing page (Task 6 — feedback-flow),
+    where the visitor chooses WhatsApp or web. The wa.me deep link is still returned so the
+    landing page (and dashboard) can offer the WhatsApp option.
+    """
     digits = str(phone or "").strip().lstrip("+").replace(" ", "")
     if not digits:
         raise ValueError("WhatsApp business number is not configured for Customer Feedback.")
     encoded_text = quote(trigger_text, safe="", encoding="utf-8")
     wa_url = f"https://wa.me/{digits}?text={encoded_text}"
-    qr_image_url = (
-        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&charset-source=UTF-8&charset-target=UTF-8&data="
-        + quote(wa_url, safe="", encoding="utf-8")
-    )
+    # Default to the WhatsApp deep link only when no web landing URL is supplied (back-compat).
+    qr_image_url = _qr_image_for(qr_target_url or wa_url)
     return wa_url, qr_image_url
 
 
@@ -89,8 +100,9 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     branch_label = row.name or row.branch_code or row.id[:8]
     trigger_text = build_trigger_text(company=company, branch=branch_label, token=row.qr_token)
     phone = resolve_feedback_wa_phone_for_qr(db, row.wa_sender_country)
-    wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
     web_base = get_settings().public_site_base_url.rstrip("/")
+    web_survey_url = f"{web_base}/survey/{row.qr_token}"
+    wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text, qr_target_url=web_survey_url)
     selected_ids: list[str] = []
     if row.selected_survey_type_ids_json:
         try:
@@ -119,7 +131,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "wa_sender_phone": phone,
         "wa_url": wa_url,
         "qr_image_url": qr_image_url,
-        "web_survey_url": f"{web_base}/survey/{row.qr_token}",
+        "web_survey_url": web_survey_url,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -163,13 +175,18 @@ class FeedbackLocationService:
         branch = str(payload.get("name") or "Main branch").strip()
         token = build_location_qr_token(company=org.name, branch=branch)
         trigger_text = build_trigger_text(company=org.name, branch=branch, token=token)
-        wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
+        web_base = get_settings().public_site_base_url.rstrip("/")
+        web_survey_url = f"{web_base}/survey/{token}"
+        wa_url, qr_image_url = _build_qr_urls(
+            phone=phone, trigger_text=trigger_text, qr_target_url=web_survey_url
+        )
         return {
             "preview": True,
             "trigger_text": trigger_text,
             "wa_sender_phone": phone,
             "wa_url": wa_url,
             "qr_image_url": qr_image_url,
+            "web_survey_url": web_survey_url,
             "selected_survey_type_ids": selected_ids,
             "open_question_enabled": bool(payload.get("open_question_enabled", True)),
             "marketing_opt_in_enabled": bool(payload.get("marketing_opt_in_enabled", True)),

@@ -29,6 +29,19 @@ def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
     return [step for step in steps if not is_marketing_survey_step(step)]
 
 
+# Rating choices for topic questions (web survey). "Poor" is the low value that triggers
+# the "why did you rate poor?" follow-up screen on the web client.
+_RATING_OPTIONS = [
+    {"label": "😊 Excellent", "value": "Excellent"},
+    {"label": "🙂 Good", "value": "Good"},
+    {"label": "😞 Poor", "value": "Poor"},
+]
+_LOW_RATING_VALUES = ["Poor"]
+
+# Suggested reasons shown on the low-rating follow-up screen (English-only web survey).
+_LOW_RATING_REASONS = ["Service", "Speed", "Staff", "Price", "Cleanliness", "Quality"]
+
+
 def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, Any], *, language: str | None) -> dict[str, Any]:
     kind = str(step.get("kind") or "topic")
     tpl = template_for_step(db, location, step, language=language)
@@ -36,11 +49,6 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
     survey_type = db.get(FeedbackSurveyType, survey_type_id) if survey_type_id else None
     title = survey_type.name if survey_type else (tpl.template_key if tpl else kind)
     body = format_template_message(tpl) if tpl else title
-    options = [
-        {"label": "Excellent", "value": "Excellent"},
-        {"label": "Good", "value": "Good"},
-        {"label": "Poor", "value": "Poor"},
-    ]
     if kind == "open_question":
         return {
             "kind": kind,
@@ -49,6 +57,7 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
             "input": "text",
             "options": [],
             "allow_voice": True,
+            "is_rating": False,
         }
     if kind == "tell_us_more":
         return {
@@ -58,14 +67,19 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
             "input": "text",
             "options": [{"label": "Skip", "value": "skip"}],
             "allow_voice": True,
+            "is_rating": False,
         }
     return {
         "kind": kind,
         "title": title,
         "body": body,
         "input": "choice",
-        "options": options,
+        "options": list(_RATING_OPTIONS),
         "allow_voice": False,
+        "is_rating": True,
+        "low_values": list(_LOW_RATING_VALUES),
+        "reason_options": list(_LOW_RATING_REASONS),
+        "reason_prompt": "Sorry to hear that. What went wrong?",
     }
 
 
@@ -142,18 +156,59 @@ class FeedbackWebSurveyService:
         }
 
     @staticmethod
+    def get_active_web_session(db: Session, session_id: str) -> FeedbackSession:
+        session = db.get(FeedbackSession, session_id)
+        if session is None or session.status != "active":
+            raise ValueError("Session not found or expired")
+        if not str(session.visitor_phone or "").startswith("web:"):
+            raise ValueError("Not a web survey session")
+        return session
+
+    @staticmethod
+    def _save_low_rating_reason(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        location: FeedbackLocation,
+        step: dict[str, Any],
+        step_index: int,
+        reason: str,
+        reason_source: str = "text",
+    ) -> None:
+        """Record the 'why did you rate poor?' answer as its own response row."""
+        reason = str(reason or "").strip()
+        if not reason or reason.lower() == "skip":
+            return
+        tpl = template_for_step(db, location, step, language=session.detected_language)
+        survey_type_id = str(step.get("survey_type_id") or location.survey_type_id)
+        db.add(
+            FeedbackResponse(
+                id=str(uuid.uuid4()),
+                session_id=session.id,
+                org_id=session.org_id,
+                location_id=session.location_id,
+                survey_type_id=survey_type_id,
+                question_key=f"{(tpl.template_key if tpl else str(step.get('template_key') or step.get('kind')))}__low_reason",
+                answer_text=reason,
+                original_text=reason,
+                answer_text_en=reason,
+                step_order=step_index + 1,
+                answer_source=(reason_source or "text")[:16],
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    @staticmethod
     def submit_answer(
         db: Session,
         *,
         session_id: str,
         answer: str,
         answer_source: str = "text",
+        reason: str | None = None,
+        reason_source: str = "text",
     ) -> dict[str, Any]:
-        session = db.get(FeedbackSession, session_id)
-        if session is None or session.status != "active":
-            raise ValueError("Session not found or expired")
-        if not str(session.visitor_phone or "").startswith("web:"):
-            raise ValueError("Not a web survey session")
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
 
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
@@ -179,6 +234,18 @@ class FeedbackWebSurveyService:
                 answer_source=answer_source,
             )
 
+        # Capture an optional low-rating reason ("why did you rate poor?") alongside the rating.
+        if reason:
+            FeedbackWebSurveyService._save_low_rating_reason(
+                db,
+                session=session,
+                location=location,
+                step=current_step,
+                step_index=step_index,
+                reason=reason,
+                reason_source=reason_source,
+            )
+
         next_index = step_index + 1
         session.current_step = next_index
 
@@ -197,4 +264,65 @@ class FeedbackWebSurveyService:
             "step_index": next_index,
             "step_count": len(steps),
             "question": question,
+        }
+
+    @staticmethod
+    def submit_voice(
+        db: Session,
+        *,
+        session_id: str,
+        audio_bytes: bytes,
+        filename: str,
+        content_type: str,
+        mode: str = "answer",
+    ) -> dict[str, Any]:
+        """Transcode + transcribe an uploaded voice note for the current web step.
+
+        mode="answer": records the transcript as the current step answer and advances.
+        mode="reason": records a low-rating reason for the current step (no advance).
+        Returns the transcript plus, for mode="answer", the next question / completion.
+        """
+        from app.services.voice_transcription_service import VoiceTranscriptionService
+
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            raise ValueError("Location not found")
+        if not audio_bytes:
+            raise ValueError("Empty audio upload")
+
+        result = VoiceTranscriptionService.transcribe_uploaded_audio(
+            db,
+            audio_bytes=audio_bytes,
+            filename=filename or "voice.webm",
+            content_type=content_type or "audio/webm",
+            language="en",
+        )
+        transcript = str(getattr(result, "transcript", "") or "").strip()
+
+        if mode == "reason":
+            steps = _web_steps(db, location)
+            step_index = int(session.current_step or 0)
+            if step_index < len(steps) and transcript:
+                FeedbackWebSurveyService._save_low_rating_reason(
+                    db,
+                    session=session,
+                    location=location,
+                    step=steps[step_index],
+                    step_index=step_index,
+                    reason=transcript,
+                    reason_source="voice",
+                )
+                db.commit()
+            return {"transcript": transcript, "saved": bool(transcript)}
+
+        # mode == "answer": treat transcript as the step's text answer (advances the flow).
+        return {
+            "transcript": transcript,
+            **FeedbackWebSurveyService.submit_answer(
+                db,
+                session_id=session_id,
+                answer=transcript or "skip",
+                answer_source="voice",
+            ),
         }
