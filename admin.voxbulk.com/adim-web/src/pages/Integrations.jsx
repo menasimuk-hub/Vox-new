@@ -2033,6 +2033,7 @@ export default function Integrations() {
 
   return (
     <>
+      {activeProvider !== 'telnyx' ? (
       <div className='pageTop'>
         <div>
           <h1>
@@ -2042,9 +2043,7 @@ export default function Integrations() {
                 ? 'Integration KPI'
                 : isWebhooksRoute
                   ? 'Webhooks'
-                  : activeProvider === 'telnyx'
-                    ? 'Telnyx'
-                    : activeProvider
+                  : activeProvider
                       ? providerLabel(activeProvider)
                       : 'Integrations'}
           </h1>
@@ -2054,8 +2053,6 @@ export default function Integrations() {
             <p>Overview of every integration — green when enabled and connected, red when setup is incomplete.</p>
           ) : isWebhooksRoute ? (
             <p>Inbound webhook endpoints for Telnyx, GoCardless, and third-party callbacks.</p>
-          ) : activeProvider === 'telnyx' ? (
-            <p>Voice, SMS, and WhatsApp — credentials, phone numbers, webhooks, testing, and received messages.</p>
           ) : activeProvider ? (
             <p>Credentials, enable toggle, connection test, and status for {providerLabel(activeProvider)}.</p>
           ) : (
@@ -2073,6 +2070,7 @@ export default function Integrations() {
           </button>
         </div>
       </div>
+      ) : null}
 
       {isSocialLoginRoute ? (
         <div className='pageShell integrationPageShell'>

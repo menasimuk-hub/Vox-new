@@ -1,4 +1,19 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Inbox,
+  KeyRound,
+  MessageSquare,
+  Plug,
+  Save,
+  ShieldCheck,
+  Users,
+  Video,
+} from 'lucide-react'
+import '../styles/telnyx-settings-hub.css'
 
 const invalidInputStyle = { borderColor: 'rgba(220,38,38,0.85)' }
 
@@ -189,13 +204,20 @@ function csvToIntList(raw) {
 }
 
 const TELNYX_TABS = [
-  { id: 'api', label: 'Telnyx API' },
-  { id: 'whitelist', label: 'Allowlists' },
-  { id: 'whatsapp', label: 'WhatsApp' },
-  { id: 'messages', label: 'Messages' },
-  { id: 'zoom', label: 'Zoom' },
-  { id: 'microsoft_teams', label: 'Microsoft Teams' },
+  { id: 'api', label: 'Telnyx API', icon: KeyRound },
+  { id: 'whitelist', label: 'Allowlists', icon: ShieldCheck },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
+  { id: 'messages', label: 'Messages', icon: Inbox },
+  { id: 'zoom', label: 'Zoom', icon: Video },
+  { id: 'microsoft_teams', label: 'Teams', icon: Users },
 ]
+
+function hubPillTone(summary, pill) {
+  if (!summary || pill.cls === 'p-amber') return 'warning'
+  if (pill.cls === 'p-red') return 'danger'
+  if (pill.cls === 'p-green') return 'success'
+  return 'info'
+}
 
 export default function TelnyxIntegration({
   activeSummary,
@@ -270,6 +292,7 @@ export default function TelnyxIntegration({
   setTelnyxMessageFilters,
 }) {
   const pill = statusPill(activeSummary)
+  const pillTone = hubPillTone(activeSummary, pill)
   const [activeTab, setActiveTab] = React.useState('api')
   const allowlist = activeConfig.phone_allowlist || {}
   const allowlistEnabled = activeConfig.phone_allowlist_enabled || { GB: true, AU: true, CA: true, USA: true }
@@ -375,35 +398,85 @@ export default function TelnyxIntegration({
   }
 
   return (
-    <div className='telnyxIntegrationPage'>
-      <div className='card telnyxToolbar'>
-        <div className='cardBody telnyxToolbarBody'>
-          <div className='telnyxToolbarLeft'>
-            <label className='telnyxEnableRow'>
-              <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('telnyx', e.target.checked)} />
-              <span>Enable Telnyx (voice, SMS, WhatsApp)</span>
-            </label>
-            <span className={`pill ${pill.cls}`}>{pill.text}</span>
+    <div className='telnyxHub'>
+      <Link to='/integrations/kpi' className='tsh-back'>
+        <ArrowLeft size={14} aria-hidden />
+        Integration KPI
+      </Link>
+
+      <div className='tsh-header'>
+        <div className='tsh-header-left'>
+          <div className='tsh-icon' aria-hidden>
+            <Plug size={16} />
+          </div>
+          <div>
+            <h1 className='tsh-title'>Telnyx</h1>
+            <p className='tsh-subtitle'>Voice · SMS · WhatsApp · webhooks · external connections</p>
+          </div>
+          <div className='tsh-header-meta'>
+            <span className={`tsh-pill tsh-pill-${pillTone}`}>
+              {pillTone === 'success' ? <Check size={12} aria-hidden /> : null}
+              {pill.text}
+            </span>
             {activeSummary?.missing_fields?.length ? (
-              <span className='muted telnyxMissing'>Missing: {joinMissingFields(activeSummary.missing_fields)}</span>
+              <span className='tsh-missing'>Missing: {joinMissingFields(activeSummary.missing_fields)}</span>
             ) : null}
           </div>
-          <div className='actions'>
-            <button className='btn primary' onClick={() => saveIntegrationProvider('telnyx')} disabled={providerSaving}>
-              {providerSaving ? 'Saving…' : 'Save settings'}
-            </button>
-            <button className='btn soft' onClick={testTelnyx} disabled={providerSaving || !activeSummary?.exists}>
-              Test connection
-            </button>
-          </div>
+        </div>
+        <div className='tsh-header-actions'>
+          <label className='tsh-enable'>
+            <input
+              type='checkbox'
+              checked={activeEnabled}
+              onChange={(e) => setProviderEnabled('telnyx', e.target.checked)}
+            />
+            <span className='tsh-switch' aria-hidden />
+            <span className={activeEnabled ? 'tsh-enable-label-on' : 'tsh-enable-label-off'}>
+              {activeEnabled ? 'Enabled' : 'Disabled'}
+            </span>
+          </label>
+          <button
+            type='button'
+            className='tsh-btn tsh-btn-outline'
+            onClick={testTelnyx}
+            disabled={providerSaving || !activeSummary?.exists}
+          >
+            <Plug size={14} aria-hidden />
+            Test
+          </button>
+          <button
+            type='button'
+            className='tsh-btn tsh-btn-primary'
+            onClick={() => saveIntegrationProvider('telnyx')}
+            disabled={providerSaving}
+          >
+            <Save size={14} aria-hidden />
+            {providerSaving ? 'Saving…' : 'Save'}
+          </button>
         </div>
       </div>
 
-      {providerError ? <div className='note telnyxErrorNote'>{providerError}</div> : null}
-      {telnyxHasUnsavedDraft ? (
-        <div className='note telnyxDraftNote'>You have unsaved changes — save settings before testing new numbers.</div>
+      <div className='telnyxIntegrationPage'>
+      {(providerError || telnyxHasUnsavedDraft || telnyxTestResult) ? (
+        <div className='tsh-alerts'>
+          {providerError ? (
+            <div className='tsh-banner tsh-banner-error' role='alert'>
+              {providerError}
+            </div>
+          ) : null}
+          {telnyxHasUnsavedDraft ? (
+            <div className='tsh-banner tsh-banner-warning' role='status'>
+              <AlertTriangle size={14} aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>You have unsaved changes — save settings before testing new numbers.</span>
+            </div>
+          ) : null}
+          {telnyxTestResult ? (
+            <div className='tsh-banner tsh-banner-info' role='status'>
+              {telnyxTestResult}
+            </div>
+          ) : null}
+        </div>
       ) : null}
-      {telnyxTestResult ? <div className='note'>{telnyxTestResult}</div> : null}
       {telnyxNumberHealth?.configured_checks?.length ? (
         <div className='card telnyxNumberHealth'>
           <div className='cardHead'>
@@ -437,19 +510,27 @@ export default function TelnyxIntegration({
         </div>
       ) : null}
 
-      <div className='telnyxTabBar'>
-        {TELNYX_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type='button'
-            className={`btn soft telnyxTabBtn${activeTab === tab.id ? ' telnyxTabBtnActive' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className='tsh-tabs' role='tablist' aria-label='Telnyx settings'>
+        {TELNYX_TABS.map((tab) => {
+          const Icon = tab.icon
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              type='button'
+              role='tab'
+              aria-selected={isActive}
+              className={`tsh-tab${isActive ? ' tsh-tab-active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <Icon size={14} aria-hidden />
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
 
+      <div className='tsh-tab-panel'>
       {activeTab === 'api' ? (
       <>
       <div className='telnyxGrid3'>
@@ -1418,6 +1499,8 @@ export default function TelnyxIntegration({
           </div>
         </div>
       ) : null}
+      </div>
+      </div>
     </div>
   )
 }
