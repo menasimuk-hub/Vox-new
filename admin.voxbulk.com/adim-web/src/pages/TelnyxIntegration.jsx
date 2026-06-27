@@ -610,7 +610,7 @@ export default function TelnyxIntegration({
       <div className='tsh-tab-panel'>
       {activeTab === 'api' ? (
       <>
-      <div className='telnyxGrid3'>
+      <div className='telnyxGrid2'>
         <div className='card'>
           <div className='cardHead'>
             <div className='cardHeadText'>
@@ -781,60 +781,6 @@ export default function TelnyxIntegration({
         <div className='card'>
           <div className='cardHead'>
             <div className='cardHeadText'>
-              <h3>Webhooks</h3>
-              <p className='cardSub'>Public URLs — paste in Telnyx portal</p>
-            </div>
-            <span className='pill p-cyan'>Public URLs</span>
-          </div>
-          <div className='cardBody stack'>
-            <Field
-              label='Webhook base URL'
-              error={telnyxStatus.errors.webhook_base_url}
-              hint='Production API host or ngrok https URL (no path). Run: ngrok http 8000'
-            >
-              <input
-                className='input'
-                style={telnyxStatus.errors.webhook_base_url ? invalidInputStyle : undefined}
-                value={String(activeConfig.webhook_base_url || defaultWebhookBase)}
-                onChange={(e) => setProviderField('telnyx', 'webhook_base_url', e.target.value)}
-                placeholder='https://your-api-host.com'
-              />
-            </Field>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th style={{ width: '34%' }}>Endpoint</th>
-                    <th>URL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { name: 'Voice (Call Control)', url: telnyxWebhookUrl },
-                    { name: 'Messaging (SMS + WhatsApp inbound)', url: telnyxMessagingWebhookUrl },
-                    { name: 'Status callback', url: String(activeConfig.status_callback_url || `${defaultWebhookBase}/telnyx/webhooks/status`) },
-                    { name: 'Verified number', url: String(activeConfig.verified_number_webhook_url || `${defaultWebhookBase}/telnyx/webhooks/verified-numbers`) },
-                    { name: 'Media stream (WSS)', url: String(activeConfig.media_stream_url || telnyxMediaStreamUrl) },
-                  ].map((w) => (
-                    <tr key={w.name}>
-                      <td><strong style={{ fontWeight: 500 }}>{w.name}</strong></td>
-                      <td><CopyInline value={w.url} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className='muted telnyxFieldHint'>
-              Paste the messaging URL into Telnyx Messaging Profile <strong>and</strong> Messaging → WhatsApp → WABA webhook settings.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className='telnyxGrid2'>
-        <div className='card'>
-          <div className='cardHead'>
-            <div className='cardHeadText'>
               <h3>Test voice call</h3>
               <p className='cardSub'>Dial your mobile from a configured landline</p>
             </div>
@@ -907,20 +853,56 @@ export default function TelnyxIntegration({
             ) : null}
           </div>
         </div>
+      </div>
 
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Setup checklist</h3>
-            <span className='pill p-cyan'>Telnyx portal</span>
+      <div className='card'>
+        <div className='cardHead'>
+          <div className='cardHeadText'>
+            <h3>Webhooks</h3>
+            <p className='cardSub'>Public URLs — paste in Telnyx portal</p>
           </div>
-          <div className='cardBody'>
-            <ol className='telnyxChecklist'>
-              <li><strong>Landline</strong> → Call Control → voice webhook URL.</li>
-              <li><strong>SMS mobile</strong> → Messaging Profile → messaging webhook URL.</li>
-              <li><strong>WhatsApp number</strong> → Meta WABA in Telnyx → same messaging webhook + WABA webhooks.</li>
-              <li>Save voice, SMS, and WhatsApp numbers here (they can be different lines).</li>
-              <li>Save settings, then <strong>Test connection</strong>.</li>
-            </ol>
+          <span className='pill p-cyan'>Public URLs</span>
+        </div>
+        <div className='cardBody stack'>
+          <Field
+            label='Webhook base URL'
+            error={telnyxStatus.errors.webhook_base_url}
+            hint='Production API host or ngrok https URL (no path). Run: ngrok http 8000'
+          >
+            <input
+              className='input'
+              style={telnyxStatus.errors.webhook_base_url ? invalidInputStyle : undefined}
+              value={String(activeConfig.webhook_base_url || defaultWebhookBase)}
+              onChange={(e) => setProviderField('telnyx', 'webhook_base_url', e.target.value)}
+              placeholder='https://your-api-host.com'
+            />
+          </Field>
+          <div className='tableWrap'>
+            <table className='table'>
+              <thead>
+                <tr>
+                  <th style={{ width: '34%' }}>Endpoint</th>
+                  <th>URL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { name: 'Voice (Call Control)', url: telnyxWebhookUrl },
+                  { name: 'Messaging (SMS + WhatsApp inbound)', url: telnyxMessagingWebhookUrl },
+                  { name: 'Status callback', url: String(activeConfig.status_callback_url || `${defaultWebhookBase}/telnyx/webhooks/status`) },
+                  { name: 'Verified number', url: String(activeConfig.verified_number_webhook_url || `${defaultWebhookBase}/telnyx/webhooks/verified-numbers`) },
+                  { name: 'Media stream (WSS)', url: String(activeConfig.media_stream_url || telnyxMediaStreamUrl) },
+                ].map((w) => (
+                  <tr key={w.name}>
+                    <td><strong style={{ fontWeight: 500 }}>{w.name}</strong></td>
+                    <td><CopyInline value={w.url} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className='muted telnyxFieldHint'>
+            Paste the messaging URL into Telnyx Messaging Profile <strong>and</strong> Messaging → WhatsApp → WABA webhook settings.
           </div>
         </div>
       </div>
