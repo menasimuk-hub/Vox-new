@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SalesRouteImport } from './routes/sales'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
@@ -22,6 +21,7 @@ import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
 import { Route as AppFeedbackRouteImport } from './routes/_app.feedback'
 import { Route as AppAppointmentsRouteImport } from './routes/_app.appointments'
 import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
+import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
 import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
 import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
@@ -38,6 +38,8 @@ import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.p
 import { Route as AppSettingsOptOutRouteImport } from './routes/_app.settings.opt-out'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSalesWalletRouteImport } from './routes/_app.sales.wallet'
+import { Route as AppSalesDealsRouteImport } from './routes/_app.sales.deals'
 import { Route as AppRecoveryRecallRouteImport } from './routes/_app.recovery.recall'
 import { Route as AppRecoveryOffersRouteImport } from './routes/_app.recovery.offers'
 import { Route as AppRecoveryNoShowRouteImport } from './routes/_app.recovery.no-show'
@@ -67,11 +69,6 @@ import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.acco
 import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
 import { Route as AppAccountFeedbackPackagesRouteImport } from './routes/_app.account.feedback.packages'
 
-const SalesRoute = SalesRouteImport.update({
-  id: '/sales',
-  path: '/sales',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -130,6 +127,11 @@ const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
+  id: '/sales/',
+  path: '/sales/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
   id: '/',
@@ -209,6 +211,16 @@ const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
 const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   id: '/settings/audit',
   path: '/settings/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesWalletRoute = AppSalesWalletRouteImport.update({
+  id: '/sales/wallet',
+  path: '/sales/wallet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesDealsRoute = AppSalesDealsRouteImport.update({
+  id: '/sales/deals',
+  path: '/sales/deals',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRecoveryRecallRoute = AppRecoveryRecallRouteImport.update({
@@ -362,7 +374,6 @@ const AppAccountFeedbackPackagesRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
-  '/sales': typeof SalesRoute
   '/appointments': typeof AppAppointmentsRouteWithChildren
   '/feedback': typeof AppFeedbackRouteWithChildren
   '/follow-up': typeof AppFollowUpRoute
@@ -390,6 +401,8 @@ export interface FileRoutesByFullPath {
   '/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
+  '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/wallet': typeof AppSalesWalletRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -406,6 +419,7 @@ export interface FileRoutesByFullPath {
   '/feedback/': typeof AppFeedbackIndexRoute
   '/interviews/': typeof AppInterviewsIndexRoute
   '/recovery/': typeof AppRecoveryIndexRoute
+  '/sales/': typeof AppSalesIndexRoute
   '/surveys/': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -419,7 +433,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
-  '/sales': typeof SalesRoute
   '/follow-up': typeof AppFollowUpRoute
   '/packages': typeof AppPackagesRoute
   '/book/$token': typeof BookTokenRoute
@@ -441,6 +454,8 @@ export interface FileRoutesByTo {
   '/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
+  '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/wallet': typeof AppSalesWalletRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -457,6 +472,7 @@ export interface FileRoutesByTo {
   '/feedback': typeof AppFeedbackIndexRoute
   '/interviews': typeof AppInterviewsIndexRoute
   '/recovery': typeof AppRecoveryIndexRoute
+  '/sales': typeof AppSalesIndexRoute
   '/surveys': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -472,7 +488,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/sales': typeof SalesRoute
   '/_app/appointments': typeof AppAppointmentsRouteWithChildren
   '/_app/feedback': typeof AppFeedbackRouteWithChildren
   '/_app/follow-up': typeof AppFollowUpRoute
@@ -501,6 +516,8 @@ export interface FileRoutesById {
   '/_app/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/_app/recovery/offers': typeof AppRecoveryOffersRoute
   '/_app/recovery/recall': typeof AppRecoveryRecallRoute
+  '/_app/sales/deals': typeof AppSalesDealsRoute
+  '/_app/sales/wallet': typeof AppSalesWalletRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -517,6 +534,7 @@ export interface FileRoutesById {
   '/_app/feedback/': typeof AppFeedbackIndexRoute
   '/_app/interviews/': typeof AppInterviewsIndexRoute
   '/_app/recovery/': typeof AppRecoveryIndexRoute
+  '/_app/sales/': typeof AppSalesIndexRoute
   '/_app/surveys/': typeof AppSurveysIndexRoute
   '/_app/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/_app/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -533,7 +551,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
-    | '/sales'
     | '/appointments'
     | '/feedback'
     | '/follow-up'
@@ -561,6 +578,8 @@ export interface FileRouteTypes {
     | '/recovery/no-show'
     | '/recovery/offers'
     | '/recovery/recall'
+    | '/sales/deals'
+    | '/sales/wallet'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -577,6 +596,7 @@ export interface FileRouteTypes {
     | '/feedback/'
     | '/interviews/'
     | '/recovery/'
+    | '/sales/'
     | '/surveys/'
     | '/account/feedback/packages'
     | '/account/support/faq'
@@ -590,7 +610,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
-    | '/sales'
     | '/follow-up'
     | '/packages'
     | '/book/$token'
@@ -612,6 +631,8 @@ export interface FileRouteTypes {
     | '/recovery/no-show'
     | '/recovery/offers'
     | '/recovery/recall'
+    | '/sales/deals'
+    | '/sales/wallet'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -628,6 +649,7 @@ export interface FileRouteTypes {
     | '/feedback'
     | '/interviews'
     | '/recovery'
+    | '/sales'
     | '/surveys'
     | '/account/feedback/packages'
     | '/account/support/faq'
@@ -642,7 +664,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/login'
-    | '/sales'
     | '/_app/appointments'
     | '/_app/feedback'
     | '/_app/follow-up'
@@ -671,6 +692,8 @@ export interface FileRouteTypes {
     | '/_app/recovery/no-show'
     | '/_app/recovery/offers'
     | '/_app/recovery/recall'
+    | '/_app/sales/deals'
+    | '/_app/sales/wallet'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
     | '/_app/settings/opt-out'
@@ -687,6 +710,7 @@ export interface FileRouteTypes {
     | '/_app/feedback/'
     | '/_app/interviews/'
     | '/_app/recovery/'
+    | '/_app/sales/'
     | '/_app/surveys/'
     | '/_app/account/feedback/packages'
     | '/_app/account/support/faq'
@@ -702,19 +726,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  SalesRoute: typeof SalesRoute
   BookTokenRoute: typeof BookTokenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/sales': {
-      id: '/sales'
-      path: '/sales'
-      fullPath: '/sales'
-      preLoaderRoute: typeof SalesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -798,6 +814,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/surveys/'
       preLoaderRoute: typeof AppSurveysIndexRouteImport
       parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/sales/': {
+      id: '/_app/sales/'
+      path: '/sales'
+      fullPath: '/sales/'
+      preLoaderRoute: typeof AppSalesIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/recovery/': {
       id: '/_app/recovery/'
@@ -909,6 +932,20 @@ declare module '@tanstack/react-router' {
       path: '/settings/audit'
       fullPath: '/settings/audit'
       preLoaderRoute: typeof AppSettingsAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/wallet': {
+      id: '/_app/sales/wallet'
+      path: '/sales/wallet'
+      fullPath: '/sales/wallet'
+      preLoaderRoute: typeof AppSalesWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/deals': {
+      id: '/_app/sales/deals'
+      path: '/sales/deals'
+      fullPath: '/sales/deals'
+      preLoaderRoute: typeof AppSalesDealsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/recovery/recall': {
@@ -1253,6 +1290,8 @@ interface AppRouteChildren {
   AppAccountUsageRoute: typeof AppAccountUsageRoute
   AppCampaignsNewRoute: typeof AppCampaignsNewRoute
   AppCampaignsSendRoute: typeof AppCampaignsSendRoute
+  AppSalesDealsRoute: typeof AppSalesDealsRoute
+  AppSalesWalletRoute: typeof AppSalesWalletRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
@@ -1261,6 +1300,7 @@ interface AppRouteChildren {
   AppSettingsSystemRoute: typeof AppSettingsSystemRoute
   AppSettingsTeamRoute: typeof AppSettingsTeamRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
+  AppSalesIndexRoute: typeof AppSalesIndexRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
 }
 
@@ -1279,6 +1319,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountUsageRoute: AppAccountUsageRoute,
   AppCampaignsNewRoute: AppCampaignsNewRoute,
   AppCampaignsSendRoute: AppCampaignsSendRoute,
+  AppSalesDealsRoute: AppSalesDealsRoute,
+  AppSalesWalletRoute: AppSalesWalletRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,
@@ -1287,6 +1329,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsSystemRoute: AppSettingsSystemRoute,
   AppSettingsTeamRoute: AppSettingsTeamRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
+  AppSalesIndexRoute: AppSalesIndexRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
 }
 
@@ -1295,7 +1338,6 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  SalesRoute: SalesRoute,
   BookTokenRoute: BookTokenRoute,
 }
 export const routeTree = rootRouteImport

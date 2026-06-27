@@ -28,6 +28,16 @@ export async function requireBillingOnlyHome() {
   }
 }
 
+export async function requireSalesRep() {
+  try {
+    const me = await apiFetch<MeRole>("/auth/me");
+    if (!me?.is_sales_rep) throw redirect({ to: "/" });
+  } catch (e) {
+    if (e && typeof e === "object" && "to" in (e as Record<string, unknown>)) throw e;
+    throw redirect({ to: "/login" });
+  }
+}
+
 export async function requireNonBillingOnlySettings() {
   const me = await apiFetch<MeRole>("/auth/me");
   const role = me.role ?? me.tenant_role;

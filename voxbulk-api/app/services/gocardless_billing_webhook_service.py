@@ -417,6 +417,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                         payment_reference=payment_id,
                         payment_method="gocardless",
                         status="paid",
+                        kind="subscription" if subscription_id else None,
                         line_items=[
                             {
                                 "description": line_description,
@@ -426,6 +427,15 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                             }
                         ],
                     )
+                    if subscription_id and invoice is not None:
+                        try:
+                            from app.services.sales_rep_service import SalesRepService
+
+                            SalesRepService.accrue_commission_for_paid_invoice(
+                                db, invoice, force_subscription=True
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
                     if sub is not None and plan is not None and subscription_id:
                         BillingLifecycleService._advance_subscription_period(db, sub, plan)
                         if str(getattr(plan, "service_kind", "") or "") == "customer_feedback":

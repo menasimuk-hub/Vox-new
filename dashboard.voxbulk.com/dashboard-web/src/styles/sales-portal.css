@@ -6,6 +6,18 @@
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   padding: 24px 32px;
 }
+/* Embedded inside the dashboard shell: drop the full-bleed page chrome. */
+.salesPortal.salesPortal--embedded {
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+  width: 100%;
+}
+.salesPortal.salesPortal--embedded .sp-app {
+  box-shadow: none;
+  border-radius: 18px;
+  padding: 20px 24px 28px;
+}
 .salesPortal * { box-sizing: border-box; }
 .salesPortal .sp-app {
   max-width: 1440px;

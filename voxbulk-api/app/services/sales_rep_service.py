@@ -380,6 +380,145 @@ class SalesRepService:
         return org_ids
 
     @staticmethod
+    def get_rep_for_org(db: Session, *, org_id: str) -> SalesRep | None:
+        """Reverse of _linked_org_ids: find the salesman attributed to an org."""
+        org_id = str(org_id or "")
+        if not org_id:
+            return None
+        cust = db.execute(
+            select(SalesCustomer).where(SalesCustomer.org_id == org_id).order_by(SalesCustomer.created_at.asc())
+        ).scalars().first()
+        if cust is not None:
+            rep = db.get(SalesRep, cust.sales_rep_id)
+            if rep is not None:
+                return rep
+        try:
+            from app.models.org_usage_period import OrgUsagePeriod
+
+            code = db.execute(
+                select(OrgUsagePeriod.promo_code).where(
+                    OrgUsagePeriod.org_id == org_id, OrgUsagePeriod.promo_code.isnot(None)
+                )
+            ).scalars().first()
+            if code:
+                return db.execute(
+                    select(SalesRep).where(SalesRep.promo_code == SalesRepService.normalize_code(code))
+                ).scalar_one_or_none()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    @staticmethod
+    def accrue_commission_for_paid_invoice(
+        db: Session, invoice: BillingInvoice, *, force_subscription: bool = False
+    ) -> SalesCommission | None:
+        """Best-effort: accrue a salesman commission when a linked org pays a subscription invoice.
+
+        Rule (commission_kind="subscription"):
+          - Monthly plans: full 2nd month → commission equals the 2nd paid subscription invoice amount.
+          - Yearly plans: one month of a yearly plan → commission equals invoice amount / 12.
+        Idempotent: at most one subscription commission per (rep, org). Never raises.
+
+        Pass force_subscription=True for flows that are known subscription payments but where the
+        invoice row is not tagged kind="subscription" (e.g. GoCardless Direct Debit webhook).
+        """
+        try:
+            if str(getattr(invoice, "status", "") or "").lower() != "paid":
+                return None
+            if not force_subscription and str(getattr(invoice, "kind", "") or "").lower() != "subscription":
+                return None
+            org_id = str(getattr(invoice, "org_id", "") or "")
+            if not org_id:
+                return None
+            rep = SalesRepService.get_rep_for_org(db, org_id=org_id)
+            if rep is None or not rep.is_active:
+                return None
+
+            # Idempotency: one subscription commission per rep+org.
+            existing = db.execute(
+                select(SalesCommission).where(
+                    SalesCommission.sales_rep_id == rep.id,
+                    SalesCommission.org_id == org_id,
+                    SalesCommission.kind.in_(["monthly_2nd", "yearly_1mo"]),
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return None
+
+            interval = SalesRepService._org_plan_interval(db, org_id)
+            amount = int(getattr(invoice, "amount_gbp_pence", 0) or 0)
+            currency = str(getattr(invoice, "currency", "") or "GBP")
+
+            if interval == "yearly":
+                kind = "yearly_1mo"
+                commission_minor = max(0, round(amount / 12))
+                note = "One month of a yearly plan."
+            else:
+                # Monthly: only accrue once the 2nd subscription invoice is paid.
+                paid_count = db.execute(
+                    select(BillingInvoice).where(
+                        BillingInvoice.org_id == org_id,
+                        BillingInvoice.kind == "subscription",
+                        BillingInvoice.status == "paid",
+                    )
+                ).scalars().all()
+                if len(paid_count) < 2:
+                    return None
+                kind = "monthly_2nd"
+                commission_minor = amount
+                note = "Full 2nd month subscription."
+
+            if commission_minor <= 0:
+                return None
+
+            link_cust = db.execute(
+                select(SalesCustomer).where(
+                    SalesCustomer.sales_rep_id == rep.id, SalesCustomer.org_id == org_id
+                )
+            ).scalars().first()
+
+            comm = SalesCommission(
+                sales_rep_id=rep.id,
+                sales_customer_id=link_cust.id if link_cust is not None else None,
+                org_id=org_id,
+                invoice_id=getattr(invoice, "id", None),
+                amount_minor=commission_minor,
+                currency=currency,
+                kind=kind,
+                status="pending",
+                note=note,
+            )
+            db.add(comm)
+            db.commit()
+            db.refresh(comm)
+            return comm
+        except Exception:  # noqa: BLE001 — commission accrual must never break a payment
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+
+    @staticmethod
+    def _org_plan_interval(db: Session, org_id: str) -> str:
+        try:
+            from app.models.plan import Plan
+            from app.models.subscription import Subscription
+
+            sub = db.execute(
+                select(Subscription)
+                .where(Subscription.org_id == org_id)
+                .order_by(Subscription.created_at.desc())
+            ).scalars().first()
+            if sub is not None and sub.plan_id:
+                plan = db.get(Plan, sub.plan_id)
+                if plan is not None and getattr(plan, "interval", None):
+                    return "yearly" if str(plan.interval).lower().startswith(("year", "annual")) else "monthly"
+        except Exception:  # noqa: BLE001
+            pass
+        return "monthly"
+
+    @staticmethod
     def dashboard_stats(db: Session, rep: SalesRep) -> dict[str, Any]:
         customers = db.execute(
             select(SalesCustomer).where(SalesCustomer.sales_rep_id == rep.id)

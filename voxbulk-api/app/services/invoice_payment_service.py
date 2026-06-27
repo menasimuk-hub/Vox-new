@@ -221,6 +221,7 @@ class InvoicePaymentService:
         )
         db.commit()
         db.refresh(invoice)
+        InvoicePaymentService._accrue_sales_commission(db, invoice)
         logger.info("invoice_paid_card invoice_id=%s org_id=%s ref=%s", invoice.id, org.id, provider_reference)
         return {
             "ok": True,
@@ -230,6 +231,16 @@ class InvoicePaymentService:
             "invoice": InvoiceService.invoice_to_dict(db, invoice),
             "wallet": WalletService.wallet_dict(db, org),
         }
+
+    @staticmethod
+    def _accrue_sales_commission(db: Session, invoice: BillingInvoice) -> None:
+        """Best-effort salesman commission accrual; never breaks the payment flow."""
+        try:
+            from app.services.sales_rep_service import SalesRepService
+
+            SalesRepService.accrue_commission_for_paid_invoice(db, invoice)
+        except Exception:  # noqa: BLE001
+            logger.debug("sales commission accrual skipped", exc_info=True)
 
     @staticmethod
     def pay_with_wallet(
@@ -281,6 +292,7 @@ class InvoicePaymentService:
         db.commit()
         db.refresh(invoice)
         db.refresh(tx)
+        InvoicePaymentService._accrue_sales_commission(db, invoice)
         logger.info("invoice_paid_wallet invoice_id=%s org_id=%s amount=%s", invoice.id, org.id, amount)
         return {
             "ok": True,

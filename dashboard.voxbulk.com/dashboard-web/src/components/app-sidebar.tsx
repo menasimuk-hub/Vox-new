@@ -9,7 +9,7 @@ import {
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat, QrCode, GitCompare, Sparkles, Send,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
-  Package, CreditCard, LifeBuoy,
+  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase,
 } from "lucide-react";
 
 import {
@@ -35,7 +35,7 @@ type Item = {
   isActive?: (path: string) => boolean;
   addon?: boolean;
 };
-type GroupKey = ServiceKey | "settings" | "account" | "workspace";
+type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales";
 type Group = {
   key: GroupKey;
   label: string;
@@ -48,6 +48,16 @@ function normalizePath(value: string) {
   const trimmed = value.replace(/\/+$/, "");
   return trimmed || "/";
 }
+
+const salesGroup: Group = {
+  key: "sales",
+  label: "Sales",
+  items: [
+    { title: "My customers", url: "/sales", icon: Users },
+    { title: "Won deals", url: "/sales/deals", icon: Handshake },
+    { title: "Wallet & commission", url: "/sales/wallet", icon: Wallet },
+  ],
+};
 
 const groups: Group[] = [
   { key: "workspace", label: "Workspace", items: [{ title: "Dashboard", url: "/", icon: LayoutDashboard }] },
@@ -139,6 +149,48 @@ export function AppSidebar() {
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
   const role = normalizeOrgRole(session?.profile?.role);
   const billingOnly = isBillingOnlyRole(role);
+  const isSalesRep = Boolean(session?.profile?.is_sales_rep);
+
+  // Salesmen get a focused shell: their Sales workspace + profile settings only.
+  if (isSalesRep) {
+    const profileSettings: Group = {
+      key: "settings",
+      label: "Settings",
+      items: [{ title: "Profile settings", url: "/settings/profile", icon: User2 }],
+    };
+    const salesGroups = [salesGroup, profileSettings];
+    return (
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <BrandMark homeTo="/sales" />
+        </SidebarHeader>
+        <SidebarContent>
+          {salesGroups.map((g) => (
+            <NavGroup key={g.key} group={g} path={path} onNavigate={closeMobile} />
+          ))}
+        </SidebarContent>
+        <SidebarFooter>
+          <div className="flex items-center gap-3 rounded-lg p-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1">
+            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
+              <Briefcase className="size-4" />
+            </div>
+            <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-sm font-medium leading-tight">{session?.profile?.email || "Salesman"}</p>
+              <p className="truncate text-[11px] text-muted-foreground">Sales</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => logoutDashboard()}
+            className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground group-data-[collapsible=icon]:justify-center"
+          >
+            <LogOut className="size-3.5" />
+            <span className="group-data-[collapsible=icon]:hidden">Log out</span>
+          </button>
+        </SidebarFooter>
+      </Sidebar>
+    );
+  }
 
   const visibleGroups = groups
     .map((g) => {
@@ -326,6 +378,7 @@ function headIcon(key: GroupKey) {
     case "followup": return CalendarClock;
     case "settings": return SettingsIcon;
     case "account": return User2;
+    case "sales": return Briefcase;
     default: return LayoutDashboard;
   }
 }
