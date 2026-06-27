@@ -85,6 +85,9 @@ export const queryKeys = {
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
   feedbackMarketingSubscribers: ["customer-feedback", "marketing-subscribers", "count"] as const,
+  feedbackPromoCampaigns: ["customer-feedback", "promo-campaigns"] as const,
+  feedbackPromoDashboard: ["customer-feedback", "promo-campaigns", "dashboard"] as const,
+  feedbackPromoTemplates: ["customer-feedback", "promo-campaigns", "templates"] as const,
 };
 
 export type FeedbackLocation = {
@@ -164,12 +167,13 @@ export type FeedbackPackage = {
   market_zone?: string;
   max_locations: number;
   wa_units_included: number;
+  web_units_included?: number;
   admin_notes?: string | null;
   is_active?: boolean;
   is_featured?: boolean;
   display_order?: number;
   features?: string[];
-  prices?: Array<{ currency: string; monthly_price_minor: number }>;
+  prices?: Array<{ currency: string; monthly_price_minor: number; yearly_price_minor?: number | null }>;
 };
 
 export type FeedbackSubscription = {
@@ -182,6 +186,9 @@ export type FeedbackSubscription = {
   wa_units_included?: number;
   wa_units_used?: number;
   wa_units_remaining?: number;
+  web_units_included?: number;
+  web_units_used?: number;
+  web_units_remaining?: number;
   payment_provider?: string | null;
   current_period_end?: string | null;
   finance?: Record<string, unknown> | null;
@@ -2330,6 +2337,33 @@ export function useFeedbackMarketingSubscriberCount(enabled = true) {
       return Number(data?.count ?? 0);
     },
     enabled,
+    refetchOnMount: "always",
+  });
+}
+
+export function useFeedbackPromoTemplates() {
+  return useQuery({
+    queryKey: queryKeys.feedbackPromoTemplates,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; items?: Array<Record<string, unknown>> }>("/customer-feedback/promo-campaigns/templates");
+      return data?.items || [];
+    },
+    refetchOnMount: "always",
+  });
+}
+
+export function useFeedbackPromoDashboard() {
+  return useQuery({
+    queryKey: queryKeys.feedbackPromoDashboard,
+    queryFn: async () => {
+      return apiFetch<{
+        ok?: boolean;
+        totals?: { sent: number; coming: number; not_interested: number };
+        response_rate?: number;
+        positive_rate?: number;
+        campaigns?: Array<Record<string, unknown>>;
+      }>("/customer-feedback/promo-campaigns/dashboard");
+    },
     refetchOnMount: "always",
   });
 }

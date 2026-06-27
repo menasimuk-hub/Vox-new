@@ -97,48 +97,54 @@ INDUSTRY_SEEDS: list[dict] = [
 PACKAGE_TIERS: list[dict] = [
     {
         "tier": "starter",
-        "name": "Feedback Starter",
+        "name": "Starter",
         "locations": 1,
-        "units": 1000,
+        "wa_units": 150,
+        "web_units": 200,
         "order": 10,
         "featured": False,
-        "price_minor": 5900,
         "promo_cost_minor": 5,
+        "prices": {"GBP": 2500, "EUR": 2900, "USD": 3500, "CAD": 4900, "AUD": 4900},
         "features": [
             "1 location",
-            "1000 survey triggers/mo",
+            "150 WhatsApp surveys/mo",
+            "200 Web surveys/mo",
             "Monthly report",
             "Email support",
         ],
     },
     {
         "tier": "pro",
-        "name": "Feedback Pro",
-        "locations": 5,
-        "units": 3000,
+        "name": "Growth",
+        "locations": 3,
+        "wa_units": 450,
+        "web_units": 600,
         "order": 20,
         "featured": True,
-        "price_minor": 12900,
         "promo_cost_minor": 4,
+        "prices": {"GBP": 6500, "EUR": 7500, "USD": 8900, "CAD": 12500, "AUD": 12900},
         "features": [
-            "5 locations",
-            "3000 survey triggers/mo",
+            "3 locations",
+            "450 WhatsApp surveys/mo",
+            "600 Web surveys/mo",
             "Live dashboard",
             "Priority support",
         ],
     },
     {
         "tier": "business",
-        "name": "Feedback Business",
-        "locations": 20,
-        "units": 10000,
+        "name": "Business",
+        "locations": 10,
+        "wa_units": 1500,
+        "web_units": -1,
         "order": 30,
         "featured": False,
-        "price_minor": 24900,
         "promo_cost_minor": 3,
+        "prices": {"GBP": 17500, "EUR": 19900, "USD": 22900, "CAD": 32900, "AUD": 33500},
         "features": [
-            "20 locations",
-            "10000 survey triggers/mo",
+            "10 locations",
+            "1,500 WhatsApp surveys/mo",
+            "Unlimited Web surveys",
             "Real-time dashboard",
             "Branded PDF report",
             "Dedicated account manager",
@@ -161,8 +167,9 @@ PACKAGE_SEEDS: list[dict] = [
         "zone": zone["zone"],
         "currency": zone["currency"],
         "locations": tier["locations"],
-        "units": tier["units"],
-        "price_pence": tier["price_minor"],
+        "wa_units": tier["wa_units"],
+        "web_units": tier["web_units"],
+        "price_pence": tier["prices"][zone["currency"]],
         "promo_cost_minor": tier.get("promo_cost_minor", 5),
         "order": tier["order"],
         "featured": tier["featured"],
@@ -279,7 +286,8 @@ class FeedbackSeedService:
             features_json = json.dumps(pkg["features"])
             description = (
                 f"WhatsApp QR feedback — {pkg['name']} "
-                f"({pkg['locations']} location(s), {pkg['units']} surveys/month)"
+                f"({pkg['locations']} location(s), {pkg['wa_units']} WA + "
+                f"{'unlimited' if int(pkg['web_units']) < 0 else pkg['web_units']} web surveys/month)"
             )
 
             plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()
@@ -293,7 +301,7 @@ class FeedbackSeedService:
                     description=description,
                     features_json=features_json,
                     calls_included=0,
-                    whatsapp_included=int(pkg["units"]),
+                    whatsapp_included=int(pkg["wa_units"]),
                     service_kind=FEEDBACK_SERVICE_CODE,
                     is_active=True,
                     is_featured=bool(pkg.get("featured")),
@@ -307,6 +315,9 @@ class FeedbackSeedService:
                 continue
             else:
                 plan.service_kind = FEEDBACK_SERVICE_CODE
+                plan.description = description
+                plan.features_json = features_json
+                plan.whatsapp_included = int(pkg["wa_units"])
                 plan.is_active = True
                 plan.updated_at = now
                 db.add(plan)
@@ -327,7 +338,10 @@ class FeedbackSeedService:
                     )
                 )
             elif not bool(plan.is_frozen):
-                pass
+                price_row.monthly_price_minor = int(pkg["price_pence"])
+                price_row.yearly_price_minor = int(pkg["price_pence"]) * 10
+                price_row.updated_at = now
+                db.add(price_row)
 
             fb_pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()
             if fb_pkg is None:
@@ -337,7 +351,8 @@ class FeedbackSeedService:
                         plan_id=plan.id,
                         market_zone=pkg["zone"],
                         max_locations=int(pkg["locations"]),
-                        wa_units_included=int(pkg["units"]),
+                        wa_units_included=int(pkg["wa_units"]),
+                        web_units_included=int(pkg["web_units"]),
                         promo_message_cost_minor=int(pkg.get("promo_cost_minor") or 5),
                         display_order=int(pkg["order"]),
                         created_at=now,
@@ -345,6 +360,11 @@ class FeedbackSeedService:
                     )
                 )
             elif not bool(plan.is_frozen):
+                fb_pkg.max_locations = int(pkg["locations"])
+                fb_pkg.wa_units_included = int(pkg["wa_units"])
+                fb_pkg.web_units_included = int(pkg["web_units"])
+                fb_pkg.promo_message_cost_minor = int(pkg.get("promo_cost_minor") or 5)
                 fb_pkg.is_active = True
                 fb_pkg.updated_at = now
+                db.add(fb_pkg)
         db.commit()

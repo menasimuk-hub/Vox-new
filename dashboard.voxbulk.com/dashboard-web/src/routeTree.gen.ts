@@ -57,8 +57,10 @@ import { Route as AppAccountSupportRouteImport } from './routes/_app.account.sup
 import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
 import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
 import { Route as AppInterviewsResultsIndexRouteImport } from './routes/_app.interviews.results.index'
+import { Route as AppFeedbackCampaignsIndexRouteImport } from './routes/_app.feedback.campaigns.index'
 import { Route as AppAccountSupportIndexRouteImport } from './routes/_app.account.support.index'
 import { Route as AppInterviewsResultsOrderIdRouteImport } from './routes/_app.interviews.results.$orderId'
+import { Route as AppFeedbackCampaignsSendRouteImport } from './routes/_app.feedback.campaigns.send'
 import { Route as AppFeedbackLocationIdEditRouteImport } from './routes/_app.feedback.$locationId.edit'
 import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.account.support.tickets'
 import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
@@ -304,6 +306,12 @@ const AppInterviewsResultsIndexRoute =
     path: '/',
     getParentRoute: () => AppInterviewsResultsRoute,
   } as any)
+const AppFeedbackCampaignsIndexRoute =
+  AppFeedbackCampaignsIndexRouteImport.update({
+    id: '/campaigns/',
+    path: '/campaigns/',
+    getParentRoute: () => AppFeedbackRoute,
+  } as any)
 const AppAccountSupportIndexRoute = AppAccountSupportIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -314,6 +322,12 @@ const AppInterviewsResultsOrderIdRoute =
     id: '/$orderId',
     path: '/$orderId',
     getParentRoute: () => AppInterviewsResultsRoute,
+  } as any)
+const AppFeedbackCampaignsSendRoute =
+  AppFeedbackCampaignsSendRouteImport.update({
+    id: '/campaigns/send',
+    path: '/campaigns/send',
+    getParentRoute: () => AppFeedbackRoute,
   } as any)
 const AppFeedbackLocationIdEditRoute =
   AppFeedbackLocationIdEditRouteImport.update({
@@ -390,8 +404,10 @@ export interface FileRoutesByFullPath {
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
+  '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/account/support/': typeof AppAccountSupportIndexRoute
+  '/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results/': typeof AppInterviewsResultsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -438,8 +454,10 @@ export interface FileRoutesByTo {
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
+  '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/account/support': typeof AppAccountSupportIndexRoute
+  '/feedback/campaigns': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results': typeof AppInterviewsResultsIndexRoute
 }
 export interface FileRoutesById {
@@ -495,8 +513,10 @@ export interface FileRoutesById {
   '/_app/account/support/faq': typeof AppAccountSupportFaqRoute
   '/_app/account/support/tickets': typeof AppAccountSupportTicketsRoute
   '/_app/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
+  '/_app/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/_app/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/_app/account/support/': typeof AppAccountSupportIndexRoute
+  '/_app/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/_app/interviews/results/': typeof AppInterviewsResultsIndexRoute
 }
 export interface FileRouteTypes {
@@ -552,8 +572,10 @@ export interface FileRouteTypes {
     | '/account/support/faq'
     | '/account/support/tickets'
     | '/feedback/$locationId/edit'
+    | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
     | '/account/support/'
+    | '/feedback/campaigns/'
     | '/interviews/results/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -600,8 +622,10 @@ export interface FileRouteTypes {
     | '/account/support/faq'
     | '/account/support/tickets'
     | '/feedback/$locationId/edit'
+    | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
     | '/account/support'
+    | '/feedback/campaigns'
     | '/interviews/results'
   id:
     | '__root__'
@@ -656,8 +680,10 @@ export interface FileRouteTypes {
     | '/_app/account/support/faq'
     | '/_app/account/support/tickets'
     | '/_app/feedback/$locationId/edit'
+    | '/_app/feedback/campaigns/send'
     | '/_app/interviews/results/$orderId'
     | '/_app/account/support/'
+    | '/_app/feedback/campaigns/'
     | '/_app/interviews/results/'
   fileRoutesById: FileRoutesById
 }
@@ -1005,6 +1031,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInterviewsResultsIndexRouteImport
       parentRoute: typeof AppInterviewsResultsRoute
     }
+    '/_app/feedback/campaigns/': {
+      id: '/_app/feedback/campaigns/'
+      path: '/campaigns'
+      fullPath: '/feedback/campaigns/'
+      preLoaderRoute: typeof AppFeedbackCampaignsIndexRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
     '/_app/account/support/': {
       id: '/_app/account/support/'
       path: '/'
@@ -1018,6 +1051,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/interviews/results/$orderId'
       preLoaderRoute: typeof AppInterviewsResultsOrderIdRouteImport
       parentRoute: typeof AppInterviewsResultsRoute
+    }
+    '/_app/feedback/campaigns/send': {
+      id: '/_app/feedback/campaigns/send'
+      path: '/campaigns/send'
+      fullPath: '/feedback/campaigns/send'
+      preLoaderRoute: typeof AppFeedbackCampaignsSendRouteImport
+      parentRoute: typeof AppFeedbackRoute
     }
     '/_app/feedback/$locationId/edit': {
       id: '/_app/feedback/$locationId/edit'
@@ -1072,6 +1112,8 @@ interface AppFeedbackRouteChildren {
   AppFeedbackResultsRoute: typeof AppFeedbackResultsRoute
   AppFeedbackIndexRoute: typeof AppFeedbackIndexRoute
   AppFeedbackLocationIdEditRoute: typeof AppFeedbackLocationIdEditRoute
+  AppFeedbackCampaignsSendRoute: typeof AppFeedbackCampaignsSendRoute
+  AppFeedbackCampaignsIndexRoute: typeof AppFeedbackCampaignsIndexRoute
 }
 
 const AppFeedbackRouteChildren: AppFeedbackRouteChildren = {
@@ -1080,6 +1122,8 @@ const AppFeedbackRouteChildren: AppFeedbackRouteChildren = {
   AppFeedbackResultsRoute: AppFeedbackResultsRoute,
   AppFeedbackIndexRoute: AppFeedbackIndexRoute,
   AppFeedbackLocationIdEditRoute: AppFeedbackLocationIdEditRoute,
+  AppFeedbackCampaignsSendRoute: AppFeedbackCampaignsSendRoute,
+  AppFeedbackCampaignsIndexRoute: AppFeedbackCampaignsIndexRoute,
 }
 
 const AppFeedbackRouteWithChildren = AppFeedbackRoute._addFileChildren(

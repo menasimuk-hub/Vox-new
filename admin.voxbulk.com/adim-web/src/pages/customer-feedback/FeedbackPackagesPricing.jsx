@@ -103,14 +103,16 @@ export default function FeedbackPackagesPricing() {
                 <th />
                 <th>Feedback plan name</th>
                 <th>Price / mo ({currency})</th>
-                <th>Survey triggers / mo</th>
+                <th>Price / yr ({currency})</th>
+                <th>WA surveys / mo</th>
+                <th>Web surveys / mo</th>
                 <th>Locations</th>
                 <th>Cost per promo msg</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="muted">Loading…</td></tr>
+                <tr><td colSpan={8} className="muted">Loading…</td></tr>
               ) : items.map((row) => (
                 <tr key={row.plan_id} className={row.is_frozen ? 'muted' : ''}>
                   <td>
@@ -148,8 +150,25 @@ export default function FeedbackPackagesPricing() {
                     <input
                       className="input"
                       disabled={row.is_frozen}
+                      value={String((row.yearly_price_minor || row.price_minor * 10 || 0) / 100)}
+                      onChange={(e) => updateRow(row.plan_id, 'yearly_price_minor', Math.round(Number(e.target.value || 0) * 100))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="input"
+                      disabled={row.is_frozen}
                       value={row.wa_units_included ?? 0}
                       onChange={(e) => updateRow(row.plan_id, 'wa_units_included', Number(e.target.value || 0))}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="input"
+                      disabled={row.is_frozen}
+                      value={row.web_units_included ?? 0}
+                      placeholder="-1 = unlimited"
+                      onChange={(e) => updateRow(row.plan_id, 'web_units_included', Number(e.target.value || 0))}
                     />
                   </td>
                   <td>

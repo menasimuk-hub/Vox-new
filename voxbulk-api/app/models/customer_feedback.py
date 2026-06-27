@@ -53,6 +53,7 @@ class FeedbackPackage(Base):
     market_zone: Mapped[str] = mapped_column(String(8), nullable=False, default="gb", index=True)
     max_locations: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     wa_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    web_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     promo_message_cost_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -71,6 +72,8 @@ class FeedbackUsagePeriod(Base):
     period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     wa_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wa_units_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    web_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    web_units_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -212,3 +215,29 @@ class FeedbackPromoSend(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
     sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackPromoCampaign(Base):
+    __tablename__ = "feedback_promo_campaigns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    template_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    message_body: Mapped[str] = mapped_column(Text, nullable=False)
+    variables_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    use_opt_in_audience: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    manual_recipients_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opt_in_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manual_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recipient_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="GBP")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    invoice_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("billing_invoices.id"), nullable=True, index=True)
+    sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    yes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    no_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    launched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

@@ -7,7 +7,7 @@ import {
   PhoneCall, FilePlus2, FolderOpen, BarChart3,
   ClipboardList, MessageSquareText, ListChecks,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
-  CalendarClock, Repeat, QrCode, GitCompare, Sparkles,
+  CalendarClock, Repeat, QrCode, GitCompare, Sparkles, Send,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy,
 } from "lucide-react";
@@ -87,6 +87,8 @@ const groups: Group[] = [
     { title: "Create QR survey", url: "/feedback/new", icon: QrCode },
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
+    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send },
+    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3 },
   ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },

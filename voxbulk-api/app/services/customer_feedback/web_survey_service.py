@@ -99,7 +99,7 @@ class FeedbackWebSurveyService:
         location = FeedbackLocationService.resolve_by_token(db, token)
         if location is None:
             raise ValueError("Survey not found")
-        ok, reason = FeedbackBillingService.ensure_units_available(db, location.org_id)
+        ok, reason = FeedbackBillingService.ensure_web_units_available(db, location.org_id)
         if not ok:
             raise ValueError(reason or "Customer feedback is unavailable right now.")
         steps = _web_steps(db, location)
@@ -128,7 +128,7 @@ class FeedbackWebSurveyService:
         db.commit()
         db.refresh(session)
 
-        FeedbackBillingService.consume_unit(db, location.org_id)
+        FeedbackBillingService.consume_web_unit(db, location.org_id)
         session.units_charged = True
         db.add(session)
         db.commit()

@@ -72,6 +72,7 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
         "market_zone": row.market_zone,
         "max_locations": row.max_locations,
         "wa_units_included": row.wa_units_included,
+        "web_units_included": row.web_units_included,
         "promo_message_cost_minor": row.promo_message_cost_minor,
         "admin_notes": row.admin_notes,
         "is_active": row.is_active,
@@ -82,6 +83,7 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
             {
                 "currency": p.currency,
                 "monthly_price_minor": p.monthly_price_minor,
+                "yearly_price_minor": p.yearly_price_minor,
             }
             for p in prices
         ],
@@ -336,6 +338,8 @@ class FeedbackCatalogService:
         row.market_zone = normalize_zone(payload.get("market_zone")) or row.market_zone or "gb"
         row.max_locations = int(payload.get("max_locations", row.max_locations or 1))
         row.wa_units_included = int(payload.get("wa_units_included", row.wa_units_included or 100))
+        if "web_units_included" in payload:
+            row.web_units_included = int(payload.get("web_units_included", row.web_units_included or 0))
         row.promo_message_cost_minor = int(payload.get("promo_message_cost_minor", row.promo_message_cost_minor or 5))
         row.admin_notes = payload.get("admin_notes")
         row.is_active = bool(payload.get("is_active", row.is_active))

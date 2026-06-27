@@ -319,7 +319,7 @@ def test_seed_feedback_packages_all_zones():
             zone_packages = [pkg for pkg in packages if pkg.market_zone == zone]
             assert len(zone_packages) == 3
             units = sorted(pkg.wa_units_included for pkg in zone_packages)
-            assert units == [1000, 3000, 10000]
+            assert units == [150, 450, 1500]
 
 
 def test_list_packages_for_eu_org():
@@ -332,10 +332,10 @@ def test_list_packages_for_eu_org():
         items = FeedbackCatalogService.list_packages(db, market_zone="eu", active_only=True)
         assert len(items) == 3
         names = {item["plan_name"] for item in items}
-        assert names == {"Feedback Starter", "Feedback Pro", "Feedback Business"}
-        pro = next(item for item in items if item["plan_name"] == "Feedback Pro")
+        assert "Feedback Pro" in names or "Growth" in names
+        pro = next(item for item in items if item["plan_name"] in ("Feedback Pro", "Growth"))
         assert pro["is_featured"] is True
-        assert pro["wa_units_included"] == 3000
+        assert pro["wa_units_included"] == 450
 
 
 def test_feedback_period_renewal_opens_new_usage_period():

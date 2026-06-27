@@ -154,8 +154,10 @@ def list_pricing_rows(
                 "code": plan.code,
                 "price_minor": price.monthly_price_minor,
                 "wa_units_included": pkg.wa_units_included,
+                "web_units_included": pkg.web_units_included,
                 "max_locations": pkg.max_locations,
                 "promo_message_cost_minor": pkg.promo_message_cost_minor,
+                "yearly_price_minor": price.yearly_price_minor,
                 "is_frozen": bool(plan.is_frozen),
                 "is_active": bool(plan.is_active and pkg.is_active),
                 "currency": currency,
@@ -189,6 +191,8 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
         plan.updated_at = now
         pkg.max_locations = int(row.get("max_locations") or pkg.max_locations or 1)
         pkg.wa_units_included = int(row.get("wa_units_included") or pkg.wa_units_included or 0)
+        if "web_units_included" in row:
+            pkg.web_units_included = int(row.get("web_units_included") or pkg.web_units_included or 0)
         pkg.promo_message_cost_minor = int(row.get("promo_message_cost_minor") or pkg.promo_message_cost_minor or 5)
         pkg.updated_at = now
         price = db.execute(
@@ -198,6 +202,10 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
             price = PlanPrice(id=str(uuid.uuid4()), plan_id=plan.id, currency=currency, created_at=now, updated_at=now)
             db.add(price)
         price.monthly_price_minor = int(row.get("price_minor") or price.monthly_price_minor or 0)
+        if "yearly_price_minor" in row:
+            price.yearly_price_minor = int(row.get("yearly_price_minor") or price.yearly_price_minor or 0)
+        elif price.monthly_price_minor:
+            price.yearly_price_minor = int(price.monthly_price_minor) * 10
         price.updated_at = now
         db.add(plan)
         db.add(pkg)

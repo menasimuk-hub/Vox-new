@@ -33,17 +33,19 @@ const CURRENCY_SYMBOL: Record<string, string> = {
   AUD: "A$",
 };
 
-function formatPackagePrice(pkg: FeedbackPackage, orgCurrency?: string) {
+function formatPackagePrice(pkg: FeedbackPackage, orgCurrency?: string, yearly = false) {
   const prices = pkg.prices || [];
   const preferred = orgCurrency?.toUpperCase();
   const match = prices.find((p) => p.currency.toUpperCase() === preferred) || prices[0];
   if (!match) return "—";
   const sym = CURRENCY_SYMBOL[match.currency.toUpperCase()] || `${match.currency} `;
-  return `${sym}${(match.monthly_price_minor / 100).toFixed(0)}/mo`;
+  const minor = yearly ? (match.yearly_price_minor ?? match.monthly_price_minor * 10) : match.monthly_price_minor;
+  return `${sym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
 }
 
 function FeedbackPackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
+  const [billingInterval, setBillingInterval] = React.useState<"monthly" | "yearly">("monthly");
   const qc = useQueryClient();
   const orgQ = useOrganisation();
   const packagesQ = useFeedbackPackages();
@@ -124,7 +126,7 @@ function FeedbackPackagesPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-lg border border-border bg-background/40 p-3">
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Locations allowed</p>
                 <p className="mt-1 text-xl font-semibold">{subscription.max_locations ?? 0}</p>
@@ -132,6 +134,14 @@ function FeedbackPackagesPage() {
               <div className="rounded-lg border border-border bg-background/40 p-3">
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground">WA units remaining</p>
                 <p className="mt-1 text-xl font-semibold tabular-nums">{subscription.wa_units_remaining ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-background/40 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Web surveys remaining</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums">
+                  {(subscription.web_units_included ?? 0) < 0
+                    ? "Unlimited"
+                    : (subscription.web_units_remaining ?? 0)}
+                </p>
               </div>
               <div className="rounded-lg border border-border bg-background/40 p-3">
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Period ends</p>
@@ -168,7 +178,26 @@ function FeedbackPackagesPage() {
       )}
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Packages</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Packages</h2>
+          <div className="flex rounded-lg border border-border p-0.5 text-xs">
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 ${billingInterval === "monthly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+              onClick={() => setBillingInterval("monthly")}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 ${billingInterval === "yearly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+              onClick={() => setBillingInterval("yearly")}
+            >
+              Yearly (2 months free)
+            </button>
+          </div>
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">Prices shown ex-VAT. VAT is added at checkout when applicable.</p>
         {packagesQ.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -214,7 +243,7 @@ function FeedbackPackagesPage() {
                       ) : null}
                     </div>
                     <CardDescription className="text-xl font-semibold text-foreground">
-                      {formatPackagePrice(pkg, orgCurrency)}
+                      {formatPackagePrice(pkg, orgCurrency, billingInterval === "yearly")}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-1 flex-col space-y-3 text-sm">

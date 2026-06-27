@@ -13,6 +13,10 @@ from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingError, FeedbackBillingService
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.location_service import FeedbackLocationService
+from app.services.customer_feedback.feedback_promo_campaign_service import (
+    FeedbackPromoCampaignError,
+    FeedbackPromoCampaignService,
+)
 from app.services.customer_feedback.results_service import FeedbackResultsService
 from app.schemas.dashboard import SubscriptionCancellationOut, SubscriptionCancellationRequestIn
 from app.services.gocardless_service import GoCardlessConfigError, GoCardlessProviderError
@@ -300,3 +304,67 @@ def export_results_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="feedback-results-{suffix}.pdf"'},
     )
+
+
+@router.get("/promo-campaigns/templates")
+def list_promo_templates(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    return {"ok": True, "items": FeedbackPromoCampaignService.list_templates()}
+
+
+@router.post("/promo-campaigns/quote")
+def quote_promo_campaign(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        return {
+            "ok": True,
+            "quote": FeedbackPromoCampaignService.quote(
+                db,
+                org_id=principal.org_id,
+                template_id=str(payload.get("template_id") or ""),
+                variables=dict(payload.get("variables") or {}),
+                use_opt_in=bool(payload.get("use_opt_in_audience", True)),
+                manual_phones=list(payload.get("manual_phones") or []),
+            ),
+        }
+    except FeedbackPromoCampaignError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/promo-campaigns")
+def list_promo_campaigns(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    return {"ok": True, "items": FeedbackPromoCampaignService.list_campaigns(db, org_id=principal.org_id)}
+
+
+@router.get("/promo-campaigns/dashboard")
+def promo_campaign_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    return {"ok": True, **FeedbackPromoCampaignService.dashboard_stats(db, org_id=principal.org_id)}
+
+
+@router.post("/promo-campaigns")
+def create_promo_campaign(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        return {"ok": True, "item": FeedbackPromoCampaignService.create_campaign(db, org_id=principal.org_id, payload=payload)}
+    except FeedbackPromoCampaignError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/promo-campaigns/{campaign_id}/checkout")
+def checkout_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        return FeedbackPromoCampaignService.checkout(db, org_id=principal.org_id, campaign_id=campaign_id)
+    except FeedbackPromoCampaignError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/promo-campaigns/{campaign_id}/launch")
+def launch_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        return FeedbackPromoCampaignService.launch(db, org_id=principal.org_id, campaign_id=campaign_id)
+    except FeedbackPromoCampaignError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

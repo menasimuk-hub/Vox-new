@@ -23,6 +23,7 @@ class PlanPrice(Base):
 
     # None = price on application (enterprise)
     monthly_price_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yearly_price_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
     per_min_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     extra_per_min_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

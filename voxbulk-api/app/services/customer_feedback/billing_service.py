@@ -78,6 +78,9 @@ class FeedbackBillingService:
             "wa_units_included": usage.get("wa_units_included", 0),
             "wa_units_used": usage.get("wa_units_used", 0),
             "wa_units_remaining": usage.get("wa_units_remaining", 0),
+            "web_units_included": usage.get("web_units_included", 0),
+            "web_units_used": usage.get("web_units_used", 0),
+            "web_units_remaining": usage.get("web_units_remaining", 0),
             "payment_provider": sub.payment_provider,
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
             "finance": finance,
@@ -96,13 +99,26 @@ class FeedbackBillingService:
             .first()
         )
         if row is None:
-            return {"wa_units_included": 0, "wa_units_used": 0, "wa_units_remaining": 0}
-        included = int(row.wa_units_included or 0)
-        used = int(row.wa_units_used or 0)
+            return {
+                "wa_units_included": 0,
+                "wa_units_used": 0,
+                "wa_units_remaining": 0,
+                "web_units_included": 0,
+                "web_units_used": 0,
+                "web_units_remaining": 0,
+            }
+        wa_included = int(row.wa_units_included or 0)
+        wa_used = int(row.wa_units_used or 0)
+        web_included = int(row.web_units_included or 0)
+        web_used = int(row.web_units_used or 0)
+        web_remaining = 999_999 if web_included < 0 else max(0, web_included - web_used)
         return {
-            "wa_units_included": included,
-            "wa_units_used": used,
-            "wa_units_remaining": max(0, included - used),
+            "wa_units_included": wa_included,
+            "wa_units_used": wa_used,
+            "wa_units_remaining": max(0, wa_included - wa_used),
+            "web_units_included": web_included,
+            "web_units_used": web_used,
+            "web_units_remaining": web_remaining,
         }
 
     @staticmethod
@@ -116,6 +132,8 @@ class FeedbackBillingService:
             period_end=subscription.current_period_end,
             wa_units_included=int(pkg.wa_units_included or 0),
             wa_units_used=0,
+            web_units_included=int(pkg.web_units_included or 0),
+            web_units_used=0,
             created_at=now,
             updated_at=now,
         )
@@ -170,6 +188,8 @@ class FeedbackBillingService:
                 period_end=subscription.current_period_end,
                 wa_units_included=int(pkg.wa_units_included or 0),
                 wa_units_used=0,
+                web_units_included=int(pkg.web_units_included or 0),
+                web_units_used=0,
                 created_at=now,
                 updated_at=now,
             )
@@ -257,6 +277,19 @@ class FeedbackBillingService:
         return True, None
 
     @staticmethod
+    def ensure_web_units_available(db: Session, org_id: str) -> tuple[bool, str | None]:
+        sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        if sub is None:
+            return False, "Subscribe to a Customer feedback package to run web surveys."
+        usage = FeedbackBillingService.get_current_usage(db, org_id)
+        web_included = int(usage.get("web_units_included") or 0)
+        if web_included < 0:
+            return True, None
+        if int(usage.get("web_units_remaining") or 0) <= 0:
+            return False, "Your included web survey units are used up. Upgrade your Customer feedback package to continue."
+        return True, None
+
+    @staticmethod
     def consume_unit(db: Session, org_id: str) -> None:
         row = (
             db.execute(
@@ -276,6 +309,29 @@ class FeedbackBillingService:
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()
+
+    @staticmethod
+    def consume_web_unit(db: Session, org_id: str) -> None:
+        row = (
+            db.execute(
+                select(FeedbackUsagePeriod)
+                .where(FeedbackUsagePeriod.org_id == org_id)
+                .order_by(FeedbackUsagePeriod.period_start.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            raise FeedbackBillingError("No active usage period")
+        web_included = int(row.web_units_included or 0)
+        if web_included >= 0 and int(row.web_units_used or 0) >= web_included:
+            raise FeedbackBillingError("No web survey units remaining")
+        if web_included >= 0:
+            row.web_units_used = int(row.web_units_used or 0) + 1
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
 
     @staticmethod
     def max_locations(db: Session, org_id: str) -> int:
@@ -404,9 +460,16 @@ class FeedbackBillingService:
                 .first()
             )
             if row is not None and old_pkg is not None:
-                unit_delta = int(new_pkg.wa_units_included or 0) - int(old_pkg.wa_units_included or 0)
-                if unit_delta > 0:
-                    row.wa_units_included = int(row.wa_units_included or 0) + unit_delta
+                wa_delta = int(new_pkg.wa_units_included or 0) - int(old_pkg.wa_units_included or 0)
+                web_delta = int(new_pkg.web_units_included or 0) - int(old_pkg.web_units_included or 0)
+                changed = False
+                if wa_delta > 0:
+                    row.wa_units_included = int(row.wa_units_included or 0) + wa_delta
+                    changed = True
+                if web_delta > 0:
+                    row.web_units_included = int(row.web_units_included or 0) + web_delta
+                    changed = True
+                if changed:
                     row.updated_at = datetime.utcnow()
                     db.add(row)
                     db.commit()
