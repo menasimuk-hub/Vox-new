@@ -36,8 +36,26 @@ from app.services.customer_feedback.survey_config_service import (
 
 logger = logging.getLogger(__name__)
 
-STOP_WORDS = frozenset({"stop", "unsubscribe", "opt out", "opt-out", "إيقاف", "الغاء"})
-STOP_ALL_WORDS = frozenset({"stop all", "stopall", "unsubscribe all", "opt out all", "opt-out all"})
+# Mirror Telnyx's profile-level opt-out keywords. Telnyx blocks the whole platform
+# number for any of these; we deactivate the phone's promo subscriptions to match.
+STOP_WORDS = frozenset(
+    {
+        "stop",
+        "stop all",
+        "stopall",
+        "unsubscribe",
+        "unsubscribe all",
+        "opt out",
+        "opt-out",
+        "opt out all",
+        "opt-out all",
+        "cancel",
+        "end",
+        "quit",
+        "إيقاف",
+        "الغاء",
+    }
+)
 
 
 class FeedbackWhatsappService:
@@ -110,10 +128,12 @@ class FeedbackWhatsappService:
                     return {"handled": False, "reason": "voice_no_session"}
 
         body_lower = normalized_body.lower().strip()
-        if body_lower in STOP_ALL_WORDS:
-            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=None, all_orgs=True)
         if body_lower in STOP_WORDS:
-            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=org_id, all_orgs=False)
+            # Telnyx applies its own block rule at the messaging-profile level for
+            # STOP-family keywords, which blocks this number across every business
+            # sharing the platform sender. We mirror that here: opt the phone out of
+            # all promo subscriptions so our records match Telnyx's behaviour.
+            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone)
 
         token = FeedbackLocationService.parse_trigger_ref(normalized_body)
         if token:
@@ -148,36 +168,19 @@ class FeedbackWhatsappService:
         )
 
     @staticmethod
-    def _handle_stop(db: Session, *, from_phone: str, org_id: str | None, all_orgs: bool = False) -> dict[str, Any]:
-        q = select(FeedbackMarketingSubscriber).where(
-            FeedbackMarketingSubscriber.phone_e164 == from_phone,
-            FeedbackMarketingSubscriber.is_active.is_(True),
-        )
-        if all_orgs:
-            pass
-        elif org_id:
-            q = q.where(FeedbackMarketingSubscriber.org_id == org_id)
-        else:
-            latest = db.execute(
-                q.order_by(FeedbackMarketingSubscriber.opted_in_at.desc()).limit(1)
-            ).scalar_one_or_none()
-            rows = [latest] if latest else []
-            now = datetime.utcnow()
-            for row in rows:
-                row.is_active = False
-                row.opted_out_at = now
-                db.add(row)
-            if rows:
-                db.commit()
-                FeedbackWhatsappService._send_wa(
-                    db,
-                    to_number=from_phone,
-                    body="You have been unsubscribed from promotional messages from this business.",
-                    org_id=rows[0].org_id,
+    def _handle_stop(db: Session, *, from_phone: str) -> dict[str, Any]:
+        # Telnyx already blocks this number profile-wide for STOP keywords, so we
+        # deactivate every active promo subscription for the phone to stay in sync.
+        rows = list(
+            db.execute(
+                select(FeedbackMarketingSubscriber).where(
+                    FeedbackMarketingSubscriber.phone_e164 == from_phone,
+                    FeedbackMarketingSubscriber.is_active.is_(True),
                 )
-                return {"handled": True, "opted_out": True, "scope": "latest_org"}
-            return {"handled": False, "reason": "no_subscriber"}
-        rows = list(db.execute(q).scalars().all())
+            )
+            .scalars()
+            .all()
+        )
         now = datetime.utcnow()
         for row in rows:
             row.is_active = False
@@ -185,18 +188,13 @@ class FeedbackWhatsappService:
             db.add(row)
         if rows:
             db.commit()
-            msg = (
-                "You have been unsubscribed from promotional messages from all businesses."
-                if all_orgs
-                else "You have been unsubscribed from promotional messages."
-            )
             FeedbackWhatsappService._send_wa(
                 db,
                 to_number=from_phone,
-                body=msg,
-                org_id=org_id or rows[0].org_id,
+                body="You have been unsubscribed from promotional messages.",
+                org_id=rows[0].org_id,
             )
-            return {"handled": True, "opted_out": True, "scope": "all" if all_orgs else "org"}
+            return {"handled": True, "opted_out": True}
         return {"handled": False, "reason": "no_subscriber"}
 
     @staticmethod

@@ -437,7 +437,7 @@ function CreateFeedback() {
                     <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Ask customers on WhatsApp if they want occasional offers from your business. Reply STOP opts out from your business only; STOP ALL opts out everywhere.
+                    Ask customers on WhatsApp if they want occasional offers. Replying STOP unsubscribes them from the VoxBulk feedback number (handled by WhatsApp/Telnyx) and removes them from your promo list.
                   </p>
                   {marketingOptIn ? (
                     <p className="mt-2 text-xs font-medium text-primary">
