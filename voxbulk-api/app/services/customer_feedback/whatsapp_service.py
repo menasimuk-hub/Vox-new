@@ -37,6 +37,7 @@ from app.services.customer_feedback.survey_config_service import (
 logger = logging.getLogger(__name__)
 
 STOP_WORDS = frozenset({"stop", "unsubscribe", "opt out", "opt-out", "إيقاف", "الغاء"})
+STOP_ALL_WORDS = frozenset({"stop all", "stopall", "unsubscribe all", "opt out all", "opt-out all"})
 
 
 class FeedbackWhatsappService:
@@ -108,8 +109,11 @@ class FeedbackWhatsappService:
                 else:
                     return {"handled": False, "reason": "voice_no_session"}
 
-        if normalized_body.lower() in STOP_WORDS:
-            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=org_id)
+        body_lower = normalized_body.lower().strip()
+        if body_lower in STOP_ALL_WORDS:
+            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=None, all_orgs=True)
+        if body_lower in STOP_WORDS:
+            return FeedbackWhatsappService._handle_stop(db, from_phone=from_phone, org_id=org_id, all_orgs=False)
 
         token = FeedbackLocationService.parse_trigger_ref(normalized_body)
         if token:
@@ -144,13 +148,35 @@ class FeedbackWhatsappService:
         )
 
     @staticmethod
-    def _handle_stop(db: Session, *, from_phone: str, org_id: str | None) -> dict[str, Any]:
+    def _handle_stop(db: Session, *, from_phone: str, org_id: str | None, all_orgs: bool = False) -> dict[str, Any]:
         q = select(FeedbackMarketingSubscriber).where(
             FeedbackMarketingSubscriber.phone_e164 == from_phone,
             FeedbackMarketingSubscriber.is_active.is_(True),
         )
-        if org_id:
+        if all_orgs:
+            pass
+        elif org_id:
             q = q.where(FeedbackMarketingSubscriber.org_id == org_id)
+        else:
+            latest = db.execute(
+                q.order_by(FeedbackMarketingSubscriber.opted_in_at.desc()).limit(1)
+            ).scalar_one_or_none()
+            rows = [latest] if latest else []
+            now = datetime.utcnow()
+            for row in rows:
+                row.is_active = False
+                row.opted_out_at = now
+                db.add(row)
+            if rows:
+                db.commit()
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=from_phone,
+                    body="You have been unsubscribed from promotional messages from this business.",
+                    org_id=rows[0].org_id,
+                )
+                return {"handled": True, "opted_out": True, "scope": "latest_org"}
+            return {"handled": False, "reason": "no_subscriber"}
         rows = list(db.execute(q).scalars().all())
         now = datetime.utcnow()
         for row in rows:
@@ -159,13 +185,18 @@ class FeedbackWhatsappService:
             db.add(row)
         if rows:
             db.commit()
+            msg = (
+                "You have been unsubscribed from promotional messages from all businesses."
+                if all_orgs
+                else "You have been unsubscribed from promotional messages."
+            )
             FeedbackWhatsappService._send_wa(
                 db,
                 to_number=from_phone,
-                body="You have been unsubscribed from promotional messages.",
+                body=msg,
                 org_id=org_id or rows[0].org_id,
             )
-            return {"handled": True, "opted_out": True}
+            return {"handled": True, "opted_out": True, "scope": "all" if all_orgs else "org"}
         return {"handled": False, "reason": "no_subscriber"}
 
     @staticmethod

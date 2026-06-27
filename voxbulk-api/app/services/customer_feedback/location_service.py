@@ -13,6 +13,7 @@ from urllib.parse import quote
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
@@ -89,6 +90,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     trigger_text = build_trigger_text(company=company, branch=branch_label, token=row.qr_token)
     phone = resolve_feedback_wa_phone_for_qr(db, row.wa_sender_country)
     wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text)
+    web_base = get_settings().public_site_base_url.rstrip("/")
     selected_ids: list[str] = []
     if row.selected_survey_type_ids_json:
         try:
@@ -117,6 +119,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "wa_sender_phone": phone,
         "wa_url": wa_url,
         "qr_image_url": qr_image_url,
+        "web_survey_url": f"{web_base}/survey/{row.qr_token}",
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 

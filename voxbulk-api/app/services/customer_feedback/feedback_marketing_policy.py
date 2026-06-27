@@ -1,15 +1,14 @@
-"""Marketing-category WA templates are disabled platform-wide (billing / Meta category)."""
+"""Marketing-category WA templates — gated by FEEDBACK_MARKETING_OPT_IN_ENABLED."""
 
 from __future__ import annotations
 
 from typing import Any
 
-# When True, marketing opt-in steps and marketing-category templates are excluded everywhere.
-MARKETING_WA_TEMPLATES_DISABLED = True
+from app.core.config import get_settings
 
 
 def marketing_wa_enabled() -> bool:
-    return not MARKETING_WA_TEMPLATES_DISABLED
+    return bool(get_settings().feedback_marketing_opt_in_enabled)
 
 
 def is_marketing_wa_template(row: Any) -> bool:

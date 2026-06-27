@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import '../../styles/admin-industries.css'
 
 function statusPill(active) {
-  return active ? 'leadPill leadPillAdvance' : 'leadPill leadPillNeutral'
+  return active ? 'badge-active' : 'leadPill leadPillNeutral'
 }
 
 export default function FeedbackIndustriesList() {
@@ -44,11 +45,11 @@ export default function FeedbackIndustriesList() {
   }
 
   return (
-    <div className="pageWrap">
+    <div className="pageWrap indHub">
       <div className="pageHead">
         <div>
           <h1>Industries</h1>
-          <p className="muted">Manage feedback industries, survey types and template approval status.</p>
+          <p>Manage feedback industries, survey types and template approval status.</p>
         </div>
         <div className="pageHeadActions">
           <button type="button" className="btn soft bsm" onClick={async () => {
@@ -92,7 +93,7 @@ export default function FeedbackIndustriesList() {
                   <td><code>{row.slug}</code></td>
                   <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
                   <td>{row.survey_type_count ?? '—'}</td>
-                  <td>{row.template_count ?? '—'}</td>
+                  <td className="num-link">{row.template_count ?? '—'}</td>
                   <td>{row.approved_count ?? 0}</td>
                   <td>{row.pending_count ?? 0}</td>
                   <td>

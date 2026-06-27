@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
+import '../styles/admin-industries.css'
 
 export default function WaSurveyIndustrySection() {
   const [kpis, setKpis] = useState(null)
@@ -197,6 +198,7 @@ export default function WaSurveyIndustrySection() {
   const visibleRows = showInactive ? rows : rows.filter((row) => row.is_active)
 
   return (
+    <div className="indHub">
     <>
       <div className="agentsKpis waSurveyKpis">
         <div className="agentsKpi">
@@ -505,5 +507,6 @@ export default function WaSurveyIndustrySection() {
         </div>
       ) : null}
     </>
+    </div>
   )
 }

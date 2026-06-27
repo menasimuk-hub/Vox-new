@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal, require_billing_access
+from app.models.customer_feedback import FeedbackMarketingSubscriber
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingError, FeedbackBillingService
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
@@ -239,6 +241,23 @@ def get_results_insights(
         survey_type_id=survey_type_id,
         force=force,
     )
+
+
+@router.get("/marketing-subscribers/count")
+def marketing_subscriber_count(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    count = int(
+        db.execute(
+            select(func.count())
+            .select_from(FeedbackMarketingSubscriber)
+            .where(
+                FeedbackMarketingSubscriber.org_id == principal.org_id,
+                FeedbackMarketingSubscriber.is_active.is_(True),
+            )
+        ).scalar_one()
+        or 0
+    )
+    return {"ok": True, "count": count}
 
 
 @router.get("/results/export.csv")

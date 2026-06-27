@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import '../../styles/admin-industries.css'
 
 function statusPill(label) {
-  if (label === 'live') return 'leadPill leadPillAdvance'
+  if (label === 'live') return 'badge-active'
   return 'leadPill leadPillNeutral'
 }
 
@@ -93,51 +94,59 @@ export default function FeedbackIndustryEdit() {
   }
 
   if (loading) {
-    return <div className="pageWrap"><div className="card"><div className="cardBody muted">Loading…</div></div></div>
+    return <div className="pageWrap indHub"><div className="card"><div className="cardBody muted">Loading…</div></div></div>
   }
 
   if (!item) {
-    return <div className="pageWrap"><div className="alert error">{error || 'Industry not found'}</div></div>
+    return <div className="pageWrap indHub"><div className="alert error">{error || 'Industry not found'}</div></div>
   }
 
   return (
-    <div className="pageWrap">
-      <div className="breadcrumb muted" style={{ marginBottom: 12 }}>
-        <Link to="/customer-feedback/industries">Industries</Link> / {item.name}
-      </div>
-
-      <div className="pageHead">
-        <div>
-          <h1>{item.name}</h1>
-          <p className="muted">Edit industry details and linked survey types.</p>
-        </div>
-        <div className="pageHeadActions">
-          <button type="button" className="btn soft bsm" disabled={busy} onClick={syncTelnyx}>Sync all templates (Telnyx)</button>
-          <button type="button" className="btn primary bsm" disabled={busy} onClick={save}>Save changes</button>
-        </div>
-      </div>
+    <div className="pageWrap indHub">
+      <Link to="/customer-feedback/industries" className="ind-breadcrumb">← <span>Industries</span></Link>
 
       {error ? <div className="alert error">{error}</div> : null}
       {msg ? <div className="alert ok">{msg}</div> : null}
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardHead"><h3>Industry details</h3></div>
-        <div className="cardBody runningSurveyEditGrid">
-          <label>Name<input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} /></label>
-          <label>Slug<input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} /></label>
-          <label>Sort order<input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} /></label>
-          <label>Description<textarea className="input" rows={3} value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} /></label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
-            Active
-          </label>
+      <div className="ind-strip">
+        <div className="ind-strip-head">
+          <div className="ind-strip-head-title">Industry details</div>
+          <div className="ind-strip-actions">
+            <button type="button" className="btn soft bsm" disabled={busy} onClick={syncTelnyx}>Sync all templates (Telnyx)</button>
+            <button type="button" className="btn primary bsm" disabled={busy} onClick={save}>Save changes</button>
+          </div>
+        </div>
+        <div className="ind-fields">
+          <div className="fg">
+            <label>Name</label>
+            <input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="fg">
+            <label>Slug</label>
+            <input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
+          </div>
+          <div className="fg">
+            <label>Sort order</label>
+            <input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+          </div>
+          <div className="fg">
+            <label>Description</label>
+            <input className="input" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
+          </div>
+          <div className="toggle-row">
+            <label className="ind-toggle">
+              <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
+              <span className="ind-toggle-track" aria-hidden />
+            </label>
+            <span>{item.is_active ? 'Active' : 'Inactive'}</span>
+          </div>
         </div>
       </div>
 
       <div className="card">
-        <div className="cardHead">
-          <h3>Survey types</h3>
-          <button type="button" className="btn soft bsm" onClick={addType}>Add type</button>
+        <div className="section-title">
+          <span>Survey types</span>
+          <button type="button" className="btn primary bsm" onClick={addType}>+ Add type</button>
         </div>
         <div className="tableWrap">
           <table className="table runningSurveyTable">

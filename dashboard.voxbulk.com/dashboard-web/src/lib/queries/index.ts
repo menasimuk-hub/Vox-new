@@ -84,6 +84,7 @@ export const queryKeys = {
   feedbackPackages: ["customer-feedback", "packages"] as const,
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
+  feedbackMarketingSubscribers: ["customer-feedback", "marketing-subscribers", "count"] as const,
 };
 
 export type FeedbackLocation = {
@@ -2317,6 +2318,18 @@ export function useFeedbackSubscription() {
       const data = await apiFetch<{ ok?: boolean } & FeedbackSubscription>("/customer-feedback/subscription");
       return data;
     },
+    refetchOnMount: "always",
+  });
+}
+
+export function useFeedbackMarketingSubscriberCount(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.feedbackMarketingSubscribers,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean; count?: number }>("/customer-feedback/marketing-subscribers/count");
+      return Number(data?.count ?? 0);
+    },
+    enabled,
     refetchOnMount: "always",
   });
 }
