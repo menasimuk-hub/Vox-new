@@ -881,3 +881,160 @@ def test_update_location_rebuilds_survey_config():
         assert "open_question" in kinds
         assert "marketing_opt_in" in kinds
         assert row.qr_token == qr_token
+
+
+def _seed_web_survey_location(db, *, org_id: str, open_question: bool = False) -> tuple:
+    """Return (location, survey_type) with active subscription and en_GB template."""
+    from app.models.customer_feedback import FeedbackLocation, FeedbackWaTemplate
+
+    FeedbackSeedService.ensure_seeded(db)
+    plan = db.execute(
+        select(Plan).where(Plan.code == "cf_business_gb", Plan.service_kind == FEEDBACK_SERVICE_CODE)
+    ).scalar_one()
+    sub = Subscription(
+        org_id=org_id,
+        service_code=FEEDBACK_SERVICE_CODE,
+        plan_id=plan.id,
+        status="active",
+        payment_provider="gocardless",
+        current_period_end=datetime.utcnow(),
+    )
+    db.add(sub)
+    db.commit()
+    FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
+    period = db.execute(
+        select(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org_id)
+    ).scalar_one()
+    period.web_units_included = -1
+    db.add(period)
+    db.commit()
+
+    industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "restaurant")).scalar_one()
+    survey_type = db.execute(
+        select(FeedbackSurveyType).where(
+            FeedbackSurveyType.industry_id == industry.id,
+            FeedbackSurveyType.slug == "food-quality",
+        )
+    ).scalar_one()
+    token = f"web-test-{uuid.uuid4().hex[:10]}"
+    location = FeedbackLocation(
+        org_id=org_id,
+        industry_id=industry.id,
+        survey_type_id=survey_type.id,
+        selected_survey_type_ids_json=json.dumps([survey_type.id]),
+        open_question_enabled=open_question,
+        marketing_opt_in_enabled=False,
+        name="Web Test",
+        qr_token=token,
+        wa_sender_country="gb",
+        status="active",
+    )
+    db.add(location)
+    db.flush()
+    db.add(
+        FeedbackWaTemplate(
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            template_key="food_quality",
+            language="en_GB",
+            body_text="How was the food?",
+            buttons_json=json.dumps(["Excellent", "Good", "Poor"]),
+            step_role="rating",
+            is_active=True,
+            telnyx_sync_status="approved",
+        )
+    )
+    if open_question:
+        db.add(
+            FeedbackWaTemplate(
+                industry_id=industry.id,
+                survey_type_id=survey_type.id,
+                template_key="open_question",
+                language="en_GB",
+                body_text="Tell us more",
+                step_role="open",
+                is_active=True,
+                telnyx_sync_status="approved",
+            )
+        )
+    db.commit()
+    return location, survey_type
+
+
+def test_web_survey_submit_poor_rating_with_reason():
+    from app.models.customer_feedback import FeedbackResponse, FeedbackSession
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, _survey_type = _seed_web_survey_location(db, org_id=org_id)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        session_id = started["session_id"]
+        result = FeedbackWebSurveyService.submit_answer(
+            db,
+            session_id=session_id,
+            answer="Poor",
+            reason="Service was slow",
+            reason_source="text",
+        )
+        assert result.get("completed") is True
+        responses = list(
+            db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
+        )
+        assert len(responses) == 2
+        keys = {r.question_key for r in responses}
+        assert any(k.endswith("__low_reason") for k in keys)
+        session = db.get(FeedbackSession, session_id)
+        assert session is not None
+        assert session.status == "completed"
+        assert session.visitor_phone.startswith("web:")
+
+
+def test_web_survey_voice_answer_advances_flow():
+    from unittest.mock import patch
+
+    from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+    from app.services.voice_transcription_service import VoiceTranscriptionResult
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        session_id = started["session_id"]
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        with patch(
+            "app.services.voice_transcription_service.VoiceTranscriptionService.transcribe_uploaded_audio",
+            return_value=VoiceTranscriptionResult(ok=True, transcript="Great atmosphere", confidence=0.9),
+        ):
+            result = FeedbackWebSurveyService.submit_voice(
+                db,
+                session_id=session_id,
+                audio_bytes=b"fake-audio",
+                filename="voice.webm",
+                content_type="audio/webm",
+                mode="answer",
+            )
+        assert result.get("completed") is True
+        assert result.get("transcript") == "Great atmosphere"
+        responses = list(
+            db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
+        )
+        assert any(r.answer_source == "voice" for r in responses)
+        assert any("Great atmosphere" in (r.answer_text or "") for r in responses)
+
+
+def test_web_survey_results_visible_in_dashboard():
+    from app.services.customer_feedback.results_service import FeedbackResultsService
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, survey_type = _seed_web_survey_location(db, org_id=org_id)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        FeedbackWebSurveyService.submit_answer(db, session_id=started["session_id"], answer="Good")
+        payload = FeedbackResultsService.customer_results(db, org_id, location_id=location.id)
+        rows = payload.get("rows") or []
+        assert rows
+        assert rows[0].get("survey_type_id") == survey_type.id
+        assert rows[0].get("answer_text")

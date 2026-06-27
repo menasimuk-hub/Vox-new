@@ -152,13 +152,16 @@ function PublicFeedbackSurvey() {
         `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`,
         form,
       );
+      if (data.transcript && mode === "reason") {
+        setTextAnswer((prev) => (prev.trim() ? `${prev.trim()} — ${data.transcript}` : String(data.transcript)));
+      }
       if (mode === "answer") {
         applyAdvance(data);
       }
       return data;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save voice note");
-      return undefined;
+      throw e;
     } finally {
       setBusy(false);
     }
@@ -394,8 +397,12 @@ function ReasonScreen({
       <VoiceRecorder
         busy={busy}
         onRecorded={async (blob) => {
-          const res = await onUploadVoice(blob);
-          if (res) setVoiceSaved(true);
+          try {
+            const res = await onUploadVoice(blob);
+            if (res) setVoiceSaved(true);
+          } catch {
+            setVoiceSaved(false);
+          }
         }}
       />
       {voiceSaved ? <p className="fb-voice-saved">Voice note saved ✓</p> : null}
@@ -483,8 +490,13 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         setRecState("uploading");
-        await onRecorded(blob);
-        setRecState("recorded");
+        try {
+          await onRecorded(blob);
+          setRecState("recorded");
+        } catch {
+          setRecState("idle");
+          setElapsed(0);
+        }
       };
       recorderRef.current = rec;
       rec.start();

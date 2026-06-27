@@ -10,7 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSession, FeedbackSurveyType
+from app.models.customer_feedback import (
+    FeedbackIndustry,
+    FeedbackLocation,
+    FeedbackResponse,
+    FeedbackSession,
+    FeedbackSurveyType,
+)
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
 from app.services.customer_feedback.feedback_marketing_policy import is_marketing_survey_step
@@ -299,6 +305,11 @@ class FeedbackWebSurveyService:
             language="en",
         )
         transcript = str(getattr(result, "transcript", "") or "").strip()
+        if not transcript or not getattr(result, "ok", False):
+            err = str(getattr(result, "error", "") or "").strip()
+            raise ValueError(
+                err or "Could not transcribe your voice note. Please type your answer instead."
+            )
 
         if mode == "reason":
             steps = _web_steps(db, location)
@@ -322,7 +333,7 @@ class FeedbackWebSurveyService:
             **FeedbackWebSurveyService.submit_answer(
                 db,
                 session_id=session_id,
-                answer=transcript or "skip",
+                answer=transcript,
                 answer_source="voice",
             ),
         }
