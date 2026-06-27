@@ -150,7 +150,7 @@ class ProviderSettingsService:
                 merged = {**current, **config}
                 for secret_key in ProviderSettingsService._secret_keys(provider):
                     incoming = config.get(secret_key)
-                    if incoming is None and current.get(secret_key):
+                    if (incoming is None or incoming == "") and current.get(secret_key):
                         merged[secret_key] = current[secret_key]
                 config = merged
 
@@ -242,7 +242,32 @@ class ProviderSettingsService:
         db.add(obj)
         db.commit()
         db.refresh(obj)
+        if provider == "telnyx":
+            ProviderSettingsService._mirror_telnyx_zoom_to_zoom_provider(db, config)
         return obj
+
+    @staticmethod
+    def _mirror_telnyx_zoom_to_zoom_provider(db: Session, telnyx_config: dict[str, Any]) -> None:
+        """Keep standalone zoom provider in sync when admins save OAuth creds on Telnyx → Zoom."""
+        account_id = str(telnyx_config.get("zoom_account_id") or "").strip()
+        client_id = str(telnyx_config.get("zoom_client_id") or "").strip()
+        client_secret = str(telnyx_config.get("zoom_client_secret") or "").strip()
+        if not (account_id and client_id and client_secret):
+            return
+        base_url = str(telnyx_config.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/") or "https://api.zoom.us/v2"
+        zoom_existing = ProviderSettingsService.get_platform_config(db, provider="zoom")
+        zoom_enabled = bool(zoom_existing.is_enabled) if zoom_existing is not None else True
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="zoom",
+            is_enabled=zoom_enabled,
+            config={
+                "account_id": account_id,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "base_url": base_url,
+            },
+        )
 
     @staticmethod
     def get_platform_config(db: Session, *, provider: str) -> ProviderConfig | None:

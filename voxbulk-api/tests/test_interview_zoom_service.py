@@ -167,7 +167,7 @@ def test_zoom_service_reads_telnyx_fallback_credentials(mock_cfg, app_client):  
 
 @patch("app.services.provider_settings.ProviderSettingsService.get_platform_config")
 @patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
-def test_zoom_service_prefers_telnyx_when_it_was_updated_more_recently(mock_cfg, mock_get_config, app_client):  # noqa: ARG001
+def test_zoom_service_prefers_telnyx_by_default_when_both_complete(mock_cfg, mock_get_config, app_client):  # noqa: ARG001
     class _Obj:
         def __init__(self, updated_at):
             self.updated_at = updated_at
@@ -214,9 +214,67 @@ def test_zoom_service_prefers_telnyx_when_it_was_updated_more_recently(mock_cfg,
     assert cfg["client_secret"] == "zoom-new-secret"
 
 
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config")
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
+def test_zoom_service_prefers_standalone_when_it_was_updated_more_recently(mock_cfg, mock_get_config, app_client):  # noqa: ARG001
+    class _Obj:
+        def __init__(self, updated_at):
+            self.updated_at = updated_at
+
+    now = datetime.utcnow()
+
+    def _fake(db, *, provider: str):
+        if provider == "zoom":
+            return (
+                {
+                    "account_id": "zoom-new-acct",
+                    "client_id": "zoom-new-client",
+                    "client_secret": "zoom-new-secret",
+                    "base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        if provider == "telnyx":
+            return (
+                {
+                    "zoom_account_id": "zoom-old-acct",
+                    "zoom_client_id": "zoom-old-client",
+                    "zoom_client_secret": "zoom-old-secret",
+                    "zoom_base_url": "https://api.zoom.us/v2",
+                },
+                True,
+            )
+        return ({}, False)
+
+    def _fake_obj(db, *, provider: str):
+        if provider == "zoom":
+            return _Obj(now)
+        if provider == "telnyx":
+            return _Obj(now - timedelta(minutes=10))
+        return None
+
+    mock_cfg.side_effect = _fake
+    mock_get_config.side_effect = _fake_obj
+
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+    assert cfg["account_id"] == "zoom-new-acct"
+    assert cfg["client_id"] == "zoom-new-client"
+    assert cfg["client_secret"] == "zoom-new-secret"
+
+
+@patch("app.services.provider_settings.ProviderSettingsService.get_platform_config")
 @patch("app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted")
 @patch("app.services.zoom_service.httpx.Client")
-def test_zoom_service_retries_token_with_telnyx_when_zoom_invalid_client(mock_http_client, mock_cfg, app_client):  # noqa: ARG001
+def test_zoom_service_retries_token_with_telnyx_when_zoom_invalid_client(
+    mock_http_client, mock_cfg, mock_get_config, app_client
+):  # noqa: ARG001
+    class _Obj:
+        def __init__(self, updated_at):
+            self.updated_at = updated_at
+
+    now = datetime.utcnow()
+
     class _Resp:
         def __init__(self, status_code: int, payload: dict):
             self.status_code = status_code
@@ -271,7 +329,15 @@ def test_zoom_service_retries_token_with_telnyx_when_zoom_invalid_client(mock_ht
             )
         return ({}, False)
 
+    def _fake_obj(db, *, provider: str):
+        if provider == "zoom":
+            return _Obj(now)
+        if provider == "telnyx":
+            return _Obj(now - timedelta(minutes=10))
+        return None
+
     mock_cfg.side_effect = _fake
+    mock_get_config.side_effect = _fake_obj
 
     with get_sessionmaker()() as db:
         token = ZoomService.get_access_token(db)

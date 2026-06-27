@@ -34,16 +34,14 @@ class ZoomService:
         telnyx_complete = bool(telnyx_account_id and telnyx_client_id and telnyx_client_secret)
 
         if telnyx_enabled and telnyx_complete:
-            use_telnyx = False
-            if not enabled or not zoom_complete:
-                use_telnyx = True
-            else:
+            use_telnyx = True
+            if enabled and zoom_complete:
                 zoom_obj = ProviderSettingsService.get_platform_config(db, provider="zoom")
                 telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
                 zoom_updated = getattr(zoom_obj, "updated_at", None)
                 telnyx_updated = getattr(telnyx_obj, "updated_at", None)
-                if zoom_updated is not None and telnyx_updated is not None and telnyx_updated > zoom_updated:
-                    use_telnyx = True
+                if zoom_updated is not None and telnyx_updated is not None and zoom_updated > telnyx_updated:
+                    use_telnyx = False
             if use_telnyx:
                 account_id = telnyx_account_id
                 client_id = telnyx_client_id

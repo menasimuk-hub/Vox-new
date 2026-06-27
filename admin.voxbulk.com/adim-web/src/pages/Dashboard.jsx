@@ -183,15 +183,19 @@ export default function Dashboard() {
     setIntegrationsLoading(true)
     try {
       const next = {}
-      await Promise.all(
-        INTEGRATION_PROVIDERS.map(async (p) => {
-          try {
-            next[p.key] = await apiFetch(`/admin/integrations/${p.key}`)
-          } catch {
-            next[p.key] = { error: true }
-          }
-        }),
-      )
+      const providers = INTEGRATION_PROVIDERS
+      for (let i = 0; i < providers.length; i += 3) {
+        const chunk = providers.slice(i, i + 3)
+        await Promise.all(
+          chunk.map(async (p) => {
+            try {
+              next[p.key] = await apiFetch(`/admin/integrations/${p.key}`, { timeoutMs: 45000 })
+            } catch {
+              next[p.key] = { error: true }
+            }
+          }),
+        )
+      }
       setHealth(next)
     } finally {
       setIntegrationsLoading(false)

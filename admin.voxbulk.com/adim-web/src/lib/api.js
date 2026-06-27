@@ -589,17 +589,21 @@ export async function apiFetch(path, options = {}) {
   }
 
   let res
+  const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 90000
+  const quietNetworkHint = Boolean(options.quietNetworkHint)
   try {
-    res = await fetch(joined, { ...options, headers })
+    res = await fetchWithTimeout(joined, { ...options, headers }, timeoutMs)
   } catch (e) {
     const msg = e?.message || String(e)
     const isNet =
       /failed to fetch|networkerror|network request failed|load failed|aborted/i.test(msg) ||
-      (typeof e?.name === 'string' && e.name === 'TypeError')
+      (typeof e?.name === 'string' && (e.name === 'TypeError' || e.name === 'AbortError'))
     const m = (options.method || 'GET').toString().toUpperCase()
-    const hint = isNet
+    const hint = isNet && !quietNetworkHint
       ? `\n${networkFailureHelp()}\n(Request was ${m} ${joined})`
-      : `\n(Request was ${m} ${joined})`
+      : isNet
+        ? `\n(Request timed out or could not reach the API. Try again in a moment.)`
+        : `\n(Request was ${m} ${joined})`
     const err = new Error(`${msg}.${hint}`)
     err.cause = e
     throw err

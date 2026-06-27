@@ -94,6 +94,11 @@ class TelnyxMessagingService:
             json.dumps(safe_payload, default=str)[:8000],
         )
 
+        if str(channel or "").lower() == "whatsapp":
+            from app.services.wa_send_rate_limit import acquire_whatsapp_send_slot
+
+            acquire_whatsapp_send_slot(block=True)
+
         try:
             with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
                 response = client.post(url, json=payload, headers=_telnyx_headers(api_key))

@@ -371,10 +371,15 @@ export default function OrgControlCenter() {
     setError('')
     setLoading(true)
     try {
-      const res = await apiFetch(`/admin/organisations/control-center?${buildQuery()}`)
+      const res = await apiFetch(`/admin/organisations/control-center?${buildQuery()}`, {
+        timeoutMs: 90000,
+        quietNetworkHint: true,
+      })
       setItems(Array.isArray(res?.items) ? res.items : [])
     } catch (e) {
-      setError(e?.message || 'Could not load organisations')
+      const raw = e?.message || 'Could not load organisations'
+      const short = raw.split('\n')[0].replace(/\.$/, '')
+      setError(short || 'Could not load organisations')
       setItems([])
     } finally {
       setLoading(false)
@@ -1173,6 +1178,11 @@ export default function OrgControlCenter() {
       {error ? (
         <div className="card alertCard" style={{ marginBottom: 16 }}>
           <div className="cardBody alertText">{error}</div>
+          <div className="cardBody" style={{ paddingTop: 0 }}>
+            <button type="button" className="btn soft" onClick={loadList} disabled={loading}>
+              {loading ? 'Retrying…' : 'Retry'}
+            </button>
+          </div>
         </div>
       ) : null}
 

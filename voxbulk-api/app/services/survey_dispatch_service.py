@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_builder_runtime_service import has_builder_runtime
@@ -81,8 +83,13 @@ class SurveyDispatchService:
         recipients = ServiceOrderService.get_recipients(db, order.id)
         sent = failed = skipped = 0
         rows: list[dict[str, Any]] = []
+        settings = get_settings()
+        chunk_size = max(1, int(getattr(settings, "wa_dispatch_chunk_size", 25) or 25))
+        chunk_pause = max(0.0, float(getattr(settings, "wa_dispatch_chunk_pause_seconds", 1.0) or 1.0))
 
-        for recipient in recipients:
+        for idx, recipient in enumerate(recipients):
+            if prefer_whatsapp and idx > 0 and idx % chunk_size == 0 and chunk_pause > 0:
+                time.sleep(chunk_pause)
             row_result = SurveyDispatchService._dispatch_one(
                 db,
                 order=order,

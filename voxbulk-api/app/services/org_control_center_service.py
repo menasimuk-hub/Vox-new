@@ -9,6 +9,8 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.billing_invoice import BillingInvoice
+from app.models.org_usage_period import OrgUsagePeriod
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
@@ -19,6 +21,7 @@ from app.services.billing_access_service import BillingAccessService
 from app.services.invoice_service import InvoiceService
 from app.services.market_zone import country_column_matches_zone, country_to_zone, normalize_zone, zone_label
 from app.services.org_audit_service import OrgAuditService
+from app.services.country_vat_service import CountryVatService
 from app.services.org_billing_profile_service import money_for_org, resolve_org_billing_profile, sync_org_country_code
 from app.services.org_control_center_actions_service import OrgControlCenterActionsService
 from app.services.platform_catalog_service import ServiceOrderService
@@ -26,6 +29,8 @@ from app.services.usage_wallet_service import UsageWalletService
 
 _COMPLETED_RECIPIENT = frozenset({"completed", "done", "answered", "finished"})
 _FAILED_RECIPIENT = frozenset({"failed", "error", "cancelled", "rejected", "no_answer", "busy"})
+_OPEN_INVOICE_STATUSES = frozenset({"due", "open", "sent", "pending", "unpaid", "overdue", "collecting", "issued"})
+_RUNNING_CAMPAIGN_STATUSES = ("running", "paused", "scheduled", "paid")
 
 
 def _payment_status_from_invoices(invoices: list) -> str:
@@ -40,8 +45,8 @@ def _payment_status_from_invoices(invoices: list) -> str:
     return "paid"
 
 
-def _usage_metrics(db: Session, org: Organisation, usage_row) -> dict[str, Any]:
-    profile = resolve_org_billing_profile(db, org)
+def _usage_metrics(db: Session, org: Organisation, usage_row, *, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    profile = profile or resolve_org_billing_profile(db, org)
     from app.services.billing_monitor_service import BillingMonitorService
 
     if usage_row is None:
@@ -189,6 +194,172 @@ def _search_org_ids(db: Session, term: str) -> set[str] | None:
     return org_ids
 
 
+def _batch_usage_rows(db: Session, org_ids: list[str]) -> dict[str, OrgUsagePeriod]:
+    if not org_ids:
+        return {}
+    now = datetime.utcnow()
+    rows = list(
+        db.execute(
+            select(OrgUsagePeriod)
+            .where(OrgUsagePeriod.org_id.in_(org_ids), OrgUsagePeriod.period_end >= now)
+            .order_by(
+                OrgUsagePeriod.org_id.asc(),
+                OrgUsagePeriod.period_end.desc(),
+                OrgUsagePeriod.updated_at.desc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    out: dict[str, OrgUsagePeriod] = {}
+    for row in rows:
+        if row.org_id not in out:
+            out[row.org_id] = row
+    return out
+
+
+def _batch_invoices_by_org(db: Session, org_ids: list[str]) -> dict[str, list[BillingInvoice]]:
+    if not org_ids:
+        return {}
+    rows = list(
+        db.execute(
+            select(BillingInvoice)
+            .where(BillingInvoice.org_id.in_(org_ids))
+            .order_by(BillingInvoice.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    out: dict[str, list[BillingInvoice]] = {oid: [] for oid in org_ids}
+    for inv in rows:
+        bucket = out.get(inv.org_id)
+        if bucket is not None:
+            bucket.append(inv)
+    return out
+
+
+def _batch_running_campaign_counts(db: Session, org_ids: list[str]) -> dict[str, int]:
+    if not org_ids:
+        return {}
+    rows = db.execute(
+        select(ServiceOrder.org_id, func.count())
+        .select_from(ServiceOrder)
+        .where(
+            ServiceOrder.org_id.in_(org_ids),
+            ServiceOrder.status.in_(_RUNNING_CAMPAIGN_STATUSES),
+        )
+        .group_by(ServiceOrder.org_id)
+    ).all()
+    return {str(oid): int(count or 0) for oid, count in rows}
+
+
+def _batch_orgs_with_campaign_status(db: Session, org_ids: list[str], campaign_status: str) -> set[str]:
+    if not org_ids or not campaign_status:
+        return set()
+    rows = db.execute(
+        select(ServiceOrder.org_id.distinct()).where(
+            ServiceOrder.org_id.in_(org_ids),
+            ServiceOrder.status == campaign_status,
+        )
+    ).all()
+    return {str(row[0]) for row in rows}
+
+
+def _batch_orgs_with_channel(db: Session, org_ids: list[str], channel: str, *, per_org_limit: int = 30) -> set[str]:
+    if not org_ids or not channel:
+        return set()
+    orders = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(ServiceOrder.org_id.in_(org_ids))
+            .order_by(ServiceOrder.org_id.asc(), ServiceOrder.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    seen: dict[str, int] = {}
+    matched: set[str] = set()
+    for order in orders:
+        oid = str(order.org_id)
+        count = seen.get(oid, 0)
+        if count >= per_org_limit:
+            continue
+        seen[oid] = count + 1
+        if _order_channel(order) == channel:
+            matched.add(oid)
+    return matched
+
+
+def _batch_plan_fields(
+    db: Session,
+    org_ids: list[str],
+    subs_by_org: dict[str, dict[str, Subscription]],
+) -> dict[str, dict[str, Any]]:
+    plan_ids: set[str] = set()
+    for bucket in subs_by_org.values():
+        for sub in bucket.values():
+            if sub and sub.plan_id:
+                plan_ids.add(str(sub.plan_id))
+
+    plans: dict[str, Plan] = {}
+    if plan_ids:
+        plans = {
+            str(p.id): p
+            for p in db.execute(select(Plan).where(Plan.id.in_(list(plan_ids)))).scalars().all()
+        }
+
+    out: dict[str, dict[str, Any]] = {}
+    for org_id in org_ids:
+        org_subs = subs_by_org.get(org_id, {})
+        core_sub = org_subs.get("voxbulk")
+        core_plan = plans.get(str(core_sub.plan_id)) if core_sub and core_sub.plan_id else None
+        if core_sub is not None and core_plan is not None and not BillingAccessService.is_valid_core_plan(db, core_plan):
+            core_sub = None
+            core_plan = None
+
+        feedback_sub = org_subs.get("customer_feedback")
+        if feedback_sub is not None and str(feedback_sub.status or "").lower() in {"cancelled", "inactive"}:
+            feedback_sub = None
+        feedback_plan = plans.get(str(feedback_sub.plan_id)) if feedback_sub and feedback_sub.plan_id else None
+
+        out[org_id] = {
+            "subscription_status": core_sub.status if core_sub else None,
+            "plan_code": core_plan.code if core_plan else None,
+            "plan_name": core_plan.name if core_plan else None,
+            "core_plan_code": core_plan.code if core_plan else None,
+            "core_plan_name": core_plan.name if core_plan else None,
+            "core_subscription_status": core_sub.status if core_sub else None,
+            "feedback_plan_code": feedback_plan.code if feedback_plan else None,
+            "feedback_plan_name": feedback_plan.name if feedback_plan else None,
+            "feedback_subscription_status": feedback_sub.status if feedback_sub else None,
+        }
+    return out
+
+
+def _light_billing_profile(db: Session, org: Organisation, core_sub: Subscription | None) -> dict[str, Any]:
+    country_code = str(getattr(org, "country_code", None) or CountryVatService.resolve_org_country_code(db, org)).upper()[:2]
+    market_zone = country_to_zone(org.country or country_code)
+    from app.services.billing_currency import currency_symbol, resolve_org_currency
+
+    currency = resolve_org_currency(db, org)
+    sub_payment = None
+    if core_sub is not None:
+        sub_payment = getattr(core_sub, "payment_provider", None) or getattr(core_sub, "provider", None)
+    return {
+        "country": org.country,
+        "country_code": country_code,
+        "market_zone": market_zone,
+        "market_label": zone_label(market_zone),
+        "billing_currency": currency,
+        "currency_symbol": currency_symbol(currency),
+        "wallet_display": money_for_org(db, org, int(org.wallet_balance_pence or 0)),
+        "billing_email": org.contact_email,
+        "contact_email": org.contact_email,
+        "allow_overage": bool(getattr(org, "allow_overage", True)),
+        "payment_method": sub_payment,
+    }
+
+
 def _filter_invoice_dicts(invoices: list[dict[str, Any]], *, search: str | None = None) -> list[dict[str, Any]]:
     term = str(search or "").strip().lower()
     if not term:
@@ -236,42 +407,42 @@ class OrgControlCenterService:
             org_query = org_query.where(Organisation.id.in_(list(search_ids)))
 
         org_rows = list(db.execute(org_query.limit(max(1, min(limit, 500))).offset(max(0, offset))).scalars().all())
+        if not org_rows:
+            return {"items": [], "count": 0}
+
+        org_ids = [org.id for org in org_rows]
+        subs_by_org = AdminOrganisationService._subs_by_org_service(db, org_ids)
+        plan_fields_by_org = _batch_plan_fields(db, org_ids, subs_by_org)
+        usage_by_org = _batch_usage_rows(db, org_ids)
+        invoices_by_org = _batch_invoices_by_org(db, org_ids)
+        running_campaigns_by_org = _batch_running_campaign_counts(db, org_ids)
+
+        campaign_status_orgs: set[str] | None = None
+        if campaign_status:
+            campaign_status_orgs = _batch_orgs_with_campaign_status(db, org_ids, campaign_status)
+
+        channel_orgs: set[str] | None = None
+        if channel:
+            channel_orgs = _batch_orgs_with_channel(db, org_ids, channel)
+
         items: list[dict[str, Any]] = []
 
         for org in org_rows:
-            sync_org_country_code(db, org, commit=False)
-            o = AdminOrganisationService.get_org_summary(db, org_id=org.id)
-            if o is None:
-                continue
+            o = plan_fields_by_org.get(org.id, {})
+            org_subs = subs_by_org.get(org.id, {})
+            core_sub = org_subs.get("voxbulk")
 
-            usage_row = UsageWalletService.get_current(db, org.id)
-            if usage_row is None:
-                core_sub = BillingAccessService.get_valid_core_subscription(db, org.id)
-                if core_sub is not None:
-                    usage_row = UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=core_sub)
-
-            profile = resolve_org_billing_profile(db, org)
-            usage = _usage_metrics(db, org, usage_row)
-            invoices = InvoiceService.list_for_org(db, org_id=org.id, limit=50)
+            usage_row = usage_by_org.get(org.id)
+            profile = _light_billing_profile(db, org, core_sub)
+            usage = _usage_metrics(db, org, usage_row, profile=profile)
+            invoices = invoices_by_org.get(org.id, [])
             open_invoices = [
                 inv
                 for inv in invoices
-                if str(getattr(inv, "status", "") or "").lower()
-                in {"due", "open", "sent", "pending", "unpaid", "overdue", "collecting", "issued"}
+                if str(getattr(inv, "status", "") or "").lower() in _OPEN_INVOICE_STATUSES
             ]
             pay_status = _payment_status_from_invoices(invoices)
-
-            running_campaigns = int(
-                db.execute(
-                    select(func.count())
-                    .select_from(ServiceOrder)
-                    .where(
-                        ServiceOrder.org_id == org.id,
-                        ServiceOrder.status.in_(("running", "paused", "scheduled", "paid")),
-                    )
-                ).scalar_one()
-                or 0
-            )
+            running_campaigns = running_campaigns_by_org.get(org.id, 0)
 
             row_status = "frozen" if org.is_suspended else "active"
             wallet_pence = int(org.wallet_balance_pence or 0)
@@ -281,22 +452,22 @@ class OrgControlCenterService:
                 "name": org.name,
                 "company": org.name,
                 "status": row_status,
-                "plan": o.core_plan_name or o.core_plan_code or "—",
-                "plan_code": o.core_plan_code,
-                "core_plan": o.core_plan_name or o.core_plan_code or "—",
-                "core_plan_code": o.core_plan_code,
-                "core_plan_name": o.core_plan_name,
-                "core_subscription_status": o.core_subscription_status,
-                "feedback_plan": o.feedback_plan_name or o.feedback_plan_code or "—",
-                "feedback_plan_code": o.feedback_plan_code,
-                "feedback_plan_name": o.feedback_plan_name,
-                "feedback_subscription_status": o.feedback_subscription_status,
+                "plan": o.get("core_plan_name") or o.get("core_plan_code") or "—",
+                "plan_code": o.get("core_plan_code"),
+                "core_plan": o.get("core_plan_name") or o.get("core_plan_code") or "—",
+                "core_plan_code": o.get("core_plan_code"),
+                "core_plan_name": o.get("core_plan_name"),
+                "core_subscription_status": o.get("core_subscription_status"),
+                "feedback_plan": o.get("feedback_plan_name") or o.get("feedback_plan_code") or "—",
+                "feedback_plan_code": o.get("feedback_plan_code"),
+                "feedback_plan_name": o.get("feedback_plan_name"),
+                "feedback_subscription_status": o.get("feedback_subscription_status"),
                 "wallet_pence": wallet_pence,
                 "wallet_display": profile.get("wallet_display") or money_for_org(db, org, wallet_pence),
                 "survey_credits": int(org.survey_credits_balance or 0),
                 "interview_credits": int(org.interview_credits_balance or 0),
                 "payment_status": pay_status,
-                "subscription_status": o.subscription_status,
+                "subscription_status": o.get("subscription_status"),
                 "campaigns": running_campaigns,
                 "invoices": len(open_invoices),
                 "contact_email": org.contact_email,
@@ -313,7 +484,7 @@ class OrgControlCenterService:
 
             if status and item["status"] != status:
                 continue
-            if plan_code and str(o.plan_code or "").lower() != plan_code.lower():
+            if plan_code and str(o.get("plan_code") or "").lower() != plan_code.lower():
                 continue
             if payment_status and item["payment_status"] != payment_status:
                 continue
@@ -323,24 +494,13 @@ class OrgControlCenterService:
                 continue
             if running_campaigns_only and item["campaigns"] <= 0:
                 continue
-            if campaign_status:
-                has_status = bool(
-                    db.execute(
-                        select(func.count())
-                        .select_from(ServiceOrder)
-                        .where(ServiceOrder.org_id == org.id, ServiceOrder.status == campaign_status)
-                    ).scalar_one()
-                )
-                if not has_status:
-                    continue
-            if channel:
-                orders = ServiceOrderService.list_orders(db, org_id=org.id, limit=30)
-                if not any(_order_channel(o_) == channel for o_ in orders):
-                    continue
+            if campaign_status_orgs is not None and org.id not in campaign_status_orgs:
+                continue
+            if channel_orgs is not None and org.id not in channel_orgs:
+                continue
 
             items.append(item)
 
-        db.commit()
         return {"items": items, "count": len(items)}
 
     @staticmethod

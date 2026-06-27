@@ -65,6 +65,24 @@ const PROVIDERS = [
 
 const VISIBLE_TO_ORGS_PROVIDERS = ['calendly', 'cal_com', 'google_calendar', 'microsoft_calendar', 'hubspot', 'pipedrive', 'zoho_crm', 'zoho_bookings']
 
+async function fetchProviderSummaries(providers, { concurrency = 3 } = {}) {
+  const next = {}
+  const list = Array.isArray(providers) ? providers : []
+  for (let i = 0; i < list.length; i += concurrency) {
+    const chunk = list.slice(i, i + concurrency)
+    await Promise.all(
+      chunk.map(async (p) => {
+        try {
+          next[p.key] = await apiFetch(`/admin/integrations/${p.key}`, { timeoutMs: 45000 })
+        } catch (e) {
+          next[p.key] = { error: true, message: e?.message || 'Error' }
+        }
+      }),
+    )
+  }
+  return next
+}
+
 const DEFAULT_WEBHOOK_BASE = 'https://localhost'
 
 function joinMissingFields(x) {
@@ -720,20 +738,14 @@ export default function Integrations() {
 
   const reloadSummaries = useCallback(async () => {
     setSummariesRefreshing(true)
-    const next = {}
-    await Promise.all(
-      PROVIDERS.map(async (p) => {
-        try {
-          const data = await apiFetch(`/admin/integrations/${p.key}`)
-          next[p.key] = data
-        } catch (e) {
-          next[p.key] = { error: true, message: e?.message || 'Error' }
-        }
-      })
-    )
-    setSummaries((s) => ({ ...s, ...next }))
-    setSummariesRefreshing(false)
-  }, [])
+    try {
+      const targets = activeProvider ? PROVIDERS.filter((p) => p.key === activeProvider) : PROVIDERS
+      const next = await fetchProviderSummaries(targets, { concurrency: activeProvider ? 1 : 3 })
+      setSummaries((s) => ({ ...s, ...next }))
+    } finally {
+      setSummariesRefreshing(false)
+    }
+  }, [activeProvider])
 
   function formatTelnyxApiError(e) {
     const d = e?.data?.detail
@@ -789,24 +801,28 @@ export default function Integrations() {
   useEffect(() => {
     let cancelled = false
     async function run() {
-      const next = {}
-      await Promise.all(
-        PROVIDERS.map(async (p) => {
-          try {
-            const data = await apiFetch(`/admin/integrations/${p.key}`)
-            next[p.key] = data
-          } catch (e) {
-            next[p.key] = { error: true, message: e?.message || 'Error' }
+      if (activeProvider) {
+        const provider = PROVIDERS.find((p) => p.key === activeProvider)
+        if (!provider) return
+        try {
+          const data = await apiFetch(`/admin/integrations/${provider.key}`, { timeoutMs: 45000 })
+          if (!cancelled) setSummaries((s) => ({ ...s, [provider.key]: data }))
+        } catch (e) {
+          if (!cancelled) {
+            setSummaries((s) => ({ ...s, [provider.key]: { error: true, message: e?.message || 'Error' } }))
           }
-        })
-      )
+        }
+        return
+      }
+      if (!isKpiRoute) return
+      const next = await fetchProviderSummaries(PROVIDERS, { concurrency: 3 })
       if (!cancelled) setSummaries((s) => ({ ...s, ...next }))
     }
     run()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeProvider, isKpiRoute])
 
   const setProviderField = (providerKey, field, value) => {
     setProviderDrafts((s) => ({
@@ -914,6 +930,8 @@ export default function Integrations() {
         }
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
+        const zoomSecret = String(draft.zoom_client_secret_draft || '').trim()
+        if (zoomSecret) config.zoom_client_secret = zoomSecret
       }
       if (providerKey === 'azure_speech') {
         if (config.default_voice_id == null || String(config.default_voice_id).trim() === '') config.default_voice_id = 'en-GB-AbbiNeural'

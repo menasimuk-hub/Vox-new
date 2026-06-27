@@ -1273,10 +1273,29 @@ export default function TelnyxIntegration({
                 <input
                   className='input'
                   type='password'
-                  value={String(activeConfig.zoom_client_secret || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_client_secret', e.target.value)}
-                  placeholder='Leave blank to keep current secret'
+                  value={String(activeDraft.zoom_client_secret_draft || '')}
+                  onChange={(e) =>
+                    setProviderDrafts((s) => ({
+                      ...s,
+                      telnyx: { ...(s.telnyx || {}), zoom_client_secret_draft: e.target.value },
+                    }))
+                  }
+                  placeholder={
+                    activeSummary?.secret_set?.zoom_client_secret
+                      ? 'Leave blank to keep current secret'
+                      : 'Zoom Server-to-Server client_secret'
+                  }
                 />
+              </div>
+              <div className='actions' style={{ marginTop: 4 }}>
+                <button
+                  type='button'
+                  className='btn primary'
+                  onClick={() => saveIntegrationProvider('telnyx')}
+                  disabled={providerSaving}
+                >
+                  {providerSaving ? 'Saving…' : 'Save Zoom settings'}
+                </button>
               </div>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Zoom API base URL (optional)</label>
