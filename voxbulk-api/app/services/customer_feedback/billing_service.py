@@ -461,14 +461,19 @@ class FeedbackBillingService:
             )
             if row is not None and old_pkg is not None:
                 wa_delta = int(new_pkg.wa_units_included or 0) - int(old_pkg.wa_units_included or 0)
-                web_delta = int(new_pkg.web_units_included or 0) - int(old_pkg.web_units_included or 0)
                 changed = False
                 if wa_delta > 0:
                     row.wa_units_included = int(row.wa_units_included or 0) + wa_delta
                     changed = True
-                if web_delta > 0:
-                    row.web_units_included = int(row.web_units_included or 0) + web_delta
-                    changed = True
+                if int(new_pkg.web_units_included or 0) < 0:
+                    if int(row.web_units_included or 0) != -1:
+                        row.web_units_included = -1
+                        changed = True
+                else:
+                    web_delta = int(new_pkg.web_units_included or 0) - int(old_pkg.web_units_included or 0)
+                    if web_delta > 0:
+                        row.web_units_included = int(row.web_units_included or 0) + web_delta
+                        changed = True
                 if changed:
                     row.updated_at = datetime.utcnow()
                     db.add(row)

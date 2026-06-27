@@ -372,6 +372,8 @@ const NAV = [
 
       ['VoxBulk pricing', '/pricing/plans'],
 
+      ['Customer feedback pricing', '/customer-feedback/packages'],
+
       ['Service orders (cash)', '/billing/service-orders'],
 
     ],

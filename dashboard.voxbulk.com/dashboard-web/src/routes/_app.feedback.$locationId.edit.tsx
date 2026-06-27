@@ -106,7 +106,7 @@ function EditFeedbackSurvey() {
   }
 
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Customer feedback"
         title={`Edit survey — ${location.name}`}
