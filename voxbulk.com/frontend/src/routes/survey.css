@@ -349,12 +349,14 @@
   transform: translateY(-2px);
 }
 .fb-choice-badge {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 999px;
   flex-shrink: 0;
+  line-height: 0;
 }
 .fb-choice-badge-wa {
   background: rgba(255, 255, 255, 0.18);
@@ -674,7 +676,13 @@
   width: auto;
   max-width: 9rem;
   object-fit: contain;
-  margin: 0 auto 1rem;
+  margin: 0 auto 0.5rem;
+}
+.fb-thanks-company {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1a1814;
+  margin: 0 0 1rem;
 }
 .fb-tick {
   margin: 0 auto 1.25rem;
@@ -697,7 +705,31 @@
   100% { transform: scale(1); opacity: 1; }
 }
 .fb-thanks-btn {
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  min-width: 13rem;
+  height: 3rem;
+  padding: 0 1.75rem;
+  border-radius: 999px;
+  background: #1a1814;
+  color: #fbf9f4;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  box-shadow: 0 12px 26px -12px rgba(26, 24, 20, 0.6);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.fb-thanks-btn:hover {
+  transform: translateY(-2px);
+  background: #2a2620;
+  box-shadow: 0 16px 32px -12px rgba(26, 24, 20, 0.65);
+}
+.fb-thanks-btn:active {
+  transform: translateY(0);
 }
 
 /* Rise-in animation for step transitions */

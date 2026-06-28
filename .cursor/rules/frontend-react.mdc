@@ -1,0 +1,25 @@
+---
+description: VoxBulk React frontend conventions (dashboard + public site)
+globs: dashboard.voxbulk.com/dashboard-web/src/**/*.{ts,tsx},voxbulk.com/frontend/src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# VoxBulk frontends (dashboard + public site)
+
+Stack: React 19, TanStack Start/Router/Query, Vite, Tailwind, Radix.
+
+## Conventions
+- **Routing is file-based** (TanStack Router) under `src/routes/`. Add a route file; don't hand-wire a router.
+- **Data fetching** goes through TanStack Query. Reuse the existing API client helpers in `src/lib/` — don't scatter raw `fetch` calls.
+- **UI:** reuse components in `src/components/` (Radix primitives + Tailwind) before creating new ones. Style with Tailwind classes + `clsx`/`tailwind-merge`; no ad-hoc CSS files.
+- **Forms:** use `react-hook-form` + `zod` (`@hookform/resolvers`), matching existing forms.
+- **Org roles** in UI come from `src/lib/org-roles.ts` (`owner`, `manager`, `accountant`, `member`). Gate billing/team actions accordingly.
+
+## Don't
+- Don't edit generated/synced files: `public/brand/*`, build-info, integration logos (handled by `predev`/`prebuild`).
+- Don't touch the `Interview-reports/` sub-app unless the task is about it.
+
+## Verify
+Dashboard: `npm run lint` and `npm run test` (vitest) after changes.
+
+> Note: the admin app (`admin.voxbulk.com/adim-web`) is the older React 18 + `react-router-dom` stack — match its own patterns, not these.

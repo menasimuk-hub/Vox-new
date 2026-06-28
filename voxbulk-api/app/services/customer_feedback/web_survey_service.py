@@ -364,10 +364,11 @@ class FeedbackWebSurveyService:
             language="en",
         )
         transcript = str(getattr(result, "transcript", "") or "").strip()
-        if not transcript or not getattr(result, "ok", False):
-            err = str(getattr(result, "error", "") or "").strip()
+        if not transcript:
+            # Accept low-confidence transcripts (the visitor can edit the text box);
+            # only reject when nothing was heard at all.
             raise ValueError(
-                err or "Could not transcribe your voice note. Please type your answer instead."
+                "We couldn't hear that clearly — please try again or type your answer."
             )
 
         if mode == "transcribe":

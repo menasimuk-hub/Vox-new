@@ -1,0 +1,30 @@
+---
+description: VoxBulk FastAPI backend conventions (voxbulk-api)
+globs: voxbulk-api/**/*.py
+alwaysApply: false
+---
+
+# VoxBulk backend (FastAPI)
+
+Layered architecture: **router → service → model**. Keep endpoints thin.
+
+## Where code goes
+- `app/routers/*.py` — endpoints only: validate input, call a service, return a schema. Register new routers in `main.py` via `app.include_router(...)`.
+- `app/services/*_service.py` — all business logic. Match existing naming (e.g. `survey_results_service.py`).
+- `app/models/*.py` — SQLAlchemy ORM, one concern per file.
+- `app/schemas/*.py` — Pydantic request/response models.
+- `app/workers/` — Celery tasks. `app/core/` — config, db, security, logging.
+
+## Non-negotiables
+- **Auth/tenancy:** get the caller via `Depends(get_current_principal)` (`from app.core.dependencies import CurrentPrincipal, get_current_principal`). Scope every tenant query by the principal's organisation. Never trust a tenant header.
+- **DB session:** inject with `db: Session = Depends(get_db)`. Don't open ad-hoc sessions in routers.
+- **Schema changes need a migration.** After editing a model, add an Alembic revision and run `alembic upgrade head`. Never alter the DB by hand.
+- **Secrets** are Fernet-encrypted via `app/core/security.py`. Never log or return decrypted credentials.
+- **Webhooks** verify HMAC signatures — keep the signature check when editing webhook handlers (e.g. Telnyx).
+- **Timezone:** UK logic uses `zoneinfo` `Europe/London`. **Hashing:** stay on `pbkdf2_sha256` (Passlib) unless asked.
+
+## RBAC
+Roles per org: `owner`, `manager`, `accountant`, `member` (legacy `receptionist` = `member`). Source: `app/services/org_rbac.py` (use `effective_role` / `OrgRbacService`).
+
+## Verify
+Run `pytest` from `voxbulk-api/` after behaviour changes.
