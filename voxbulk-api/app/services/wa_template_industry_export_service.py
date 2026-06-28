@@ -23,6 +23,15 @@ _SURVEY_PACK_SUFFIX_RE = re.compile(r"^(voxbulk_survey_.+)_(abc|utu)_([a-f0-9]{6
 _CF_ANCHOR_RE = re.compile(r"^[a-f0-9]{6,8}$", re.I)
 
 
+def _slug_prefixes(slug: str) -> list[str]:
+    """Template names use underscores; catalog slugs often use hyphens — try both."""
+    base = str(slug or "").strip().lower()
+    if not base:
+        return []
+    variants = {base, base.replace("-", "_"), base.replace("_", "-")}
+    return [f"{v}_" for v in variants if v]
+
+
 @dataclass
 class ExportResolverContext:
     survey_slugs: list[str] = field(default_factory=list)
@@ -31,7 +40,47 @@ class ExportResolverContext:
     feedback_industry_by_slug: dict[str, FeedbackIndustry] = field(default_factory=dict)
     feedback_survey_by_slug: dict[tuple[str, str], FeedbackSurveyType] = field(default_factory=dict)
     feedback_survey_slugs_by_industry: dict[str, list[str]] = field(default_factory=dict)
+    feedback_survey_ids_by_slug_token: dict[str, list[str]] = field(default_factory=dict)
     cf_meta_index: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _slug_token_variants(token: str) -> set[str]:
+    base = str(token or "").strip().lower()
+    if not base:
+        return set()
+    return {base, base.replace("-", "_"), base.replace("_", "-")}
+
+
+def _extract_voxbulk_survey_slug(name: str) -> str | None:
+    lower = str(name or "").strip().lower()
+    if not lower.startswith("voxbulk_survey_"):
+        return None
+    rest = lower[len("voxbulk_survey_") :]
+    match = re.match(r"^(.+?)_(abc|utu|standard|anonymous)_([a-f0-9]{6})$", rest)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _attach_feedback_survey_matches(base: dict[str, Any], ctx: ExportResolverContext) -> None:
+    """Map platform survey template slugs to customer-feedback survey type ids (user dashboard topics)."""
+    if base.get("feedback_survey_type_id"):
+        return
+    tokens: set[str] = set()
+    st_slug = str(base.get("survey_type_slug") or "").strip().lower()
+    if st_slug:
+        tokens.update(_slug_token_variants(st_slug))
+    extracted = _extract_voxbulk_survey_slug(str(base.get("template_name") or ""))
+    if extracted:
+        tokens.update(_slug_token_variants(extracted))
+    ids: list[str] = []
+    for tok in tokens:
+        for sid in ctx.feedback_survey_ids_by_slug_token.get(tok, []):
+            if sid not in ids:
+                ids.append(sid)
+    if ids:
+        base["feedback_survey_type_id"] = ids[0]
+        base["feedback_survey_type_ids"] = ids
 
 
 def build_export_resolver_context(db: Session) -> ExportResolverContext:
@@ -54,6 +103,8 @@ def build_export_resolver_context(db: Session) -> ExportResolverContext:
             continue
         ctx.feedback_survey_by_slug[(fb_ind.slug, row.slug)] = row
         ctx.feedback_survey_slugs_by_industry.setdefault(fb_ind.slug, []).append(row.slug)
+        for variant in _slug_token_variants(row.slug):
+            ctx.feedback_survey_ids_by_slug_token.setdefault(variant, []).append(row.id)
 
     feedback_templates = list(
         db.execute(
@@ -138,15 +189,25 @@ def parse_feedback_template_name(name: str, ctx: ExportResolverContext) -> dict[
 
     rest = lower[len("voxbulk_cf_") :]
     for ind_slug in sorted(ctx.feedback_survey_slugs_by_industry.keys(), key=len, reverse=True):
-        prefix = f"{ind_slug}_"
-        if not rest.startswith(prefix):
+        ind_matched = False
+        tail = rest
+        for ind_prefix in _slug_prefixes(ind_slug):
+            if rest.startswith(ind_prefix):
+                tail = rest[len(ind_prefix) :]
+                ind_matched = True
+                break
+        if not ind_matched:
             continue
-        tail = rest[len(prefix) :]
         for st_slug in sorted(ctx.feedback_survey_slugs_by_industry.get(ind_slug, []), key=len, reverse=True):
-            st_prefix = f"{st_slug}_"
-            if not tail.startswith(st_prefix):
+            st_matched = False
+            remainder = tail
+            for st_prefix in _slug_prefixes(st_slug):
+                if tail.startswith(st_prefix):
+                    remainder = tail[len(st_prefix) :]
+                    st_matched = True
+                    break
+            if not st_matched:
                 continue
-            remainder = tail[len(st_prefix) :]
             anchor_parts = remainder.rsplit("_", 1)
             if len(anchor_parts) != 2 or not _CF_ANCHOR_RE.match(anchor_parts[1]):
                 continue
@@ -226,6 +287,7 @@ def resolve_template_export_row(
             base.update(cf)
             base["telnyx_status"] = cf.get("telnyx_sync_status") or ""
             base["db_found"] = "yes" if cf.get("source") == "feedback_db" else "parsed"
+        _attach_feedback_survey_matches(base, ctx)
         return base
 
     row = platform_rows.get(lower)
@@ -262,11 +324,13 @@ def resolve_template_export_row(
                 "platform_survey_type_id": survey_type.id if survey_type else None,
             }
         )
+        _attach_feedback_survey_matches(base, ctx)
         return base
 
     parsed = parse_platform_survey_template_name(raw, ctx)
     base.update(parsed)
     base["db_found"] = "parsed"
+    _attach_feedback_survey_matches(base, ctx)
     return base
 
 

@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.customer_feedback import FeedbackWaTemplate
+from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
 from app.models.disabled_wa_template import DisabledWaTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.wa_template_industry_export_service import resolve_template_export_rows
@@ -61,6 +61,64 @@ def _resolve_survey_type(resolved: dict[str, Any]) -> tuple[str | None, str | No
     if plat_st:
         return str(plat_st), "platform"
     return None, None
+
+
+def _collect_feedback_survey_type_ids(db: Session, row: DisabledWaTemplate) -> set[str]:
+    """Resolve which customer-feedback survey type ids a disabled template row should hide."""
+    ids: set[str] = set()
+    if row.survey_type_id and row.survey_type_kind in (None, "feedback"):
+        ids.add(str(row.survey_type_id))
+
+    resolved = resolve_template_export_rows(db, [row.raw_name])
+    if not resolved:
+        return ids
+    info = resolved[0]
+    primary = info.get("feedback_survey_type_id")
+    if primary:
+        ids.add(str(primary))
+    for sid in info.get("feedback_survey_type_ids") or []:
+        ids.add(str(sid))
+
+    ind_slug = str(info.get("industry_slug") or "").strip()
+    st_slug = str(info.get("survey_type_slug") or "").strip()
+    if ind_slug and st_slug:
+        fb_ind = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == ind_slug)).scalar_one_or_none()
+        if fb_ind:
+            for variant in {st_slug, st_slug.replace("-", "_"), st_slug.replace("_", "-")}:
+                fb_st = db.execute(
+                    select(FeedbackSurveyType).where(
+                        FeedbackSurveyType.industry_id == fb_ind.id,
+                        FeedbackSurveyType.slug == variant,
+                    )
+                ).scalar_one_or_none()
+                if fb_st:
+                    ids.add(fb_st.id)
+                    break
+
+    ind_name = str(info.get("industry_name") or row.industry_name or "").strip()
+    st_name = str(info.get("survey_type_name") or row.survey_type_name or "").strip()
+    if ind_name and st_name and ind_name not in {"Unknown", ""} and st_name not in {"Unknown", ""}:
+        from sqlalchemy import func
+
+        fb_st = db.execute(
+            select(FeedbackSurveyType)
+            .join(FeedbackIndustry, FeedbackIndustry.id == FeedbackSurveyType.industry_id)
+            .where(func.lower(FeedbackIndustry.name) == ind_name.lower())
+            .where(func.lower(FeedbackSurveyType.name) == st_name.lower())
+        ).scalar_one_or_none()
+        if fb_st:
+            ids.add(fb_st.id)
+    return ids
+
+
+def _persist_survey_type_on_row(db: Session, row: DisabledWaTemplate) -> None:
+    ids = _collect_feedback_survey_type_ids(db, row)
+    if ids:
+        row.survey_type_id = next(iter(ids))
+        row.survey_type_kind = "feedback"
+    elif not row.survey_type_kind:
+        row.survey_type_kind = "none"
+    row.updated_at = datetime.utcnow()
 
 
 def _capture_platform_flags(row: TelnyxWhatsappTemplate) -> dict[str, bool]:
@@ -114,6 +172,7 @@ def _load_prior_flags_json(raw: str | None) -> dict[str, bool] | None:
 
 
 def _apply_disable(db: Session, row: DisabledWaTemplate) -> None:
+    _persist_survey_type_on_row(db, row)
     if row.target_kind == "platform" and row.target_id:
         tpl = db.get(TelnyxWhatsappTemplate, int(row.target_id))
         if tpl is not None:
@@ -143,19 +202,16 @@ def _apply_enable(db: Session, row: DisabledWaTemplate) -> None:
 
 
 def _backfill_survey_types(db: Session, rows: list[DisabledWaTemplate]) -> bool:
-    """Resolve and persist survey_type_id/kind for legacy rows that predate the column.
-    Returns True if anything was updated."""
-    pending = [r for r in rows if not r.survey_type_kind]
+    """Resolve and persist survey_type_id/kind for rows missing a resolved topic id."""
+    pending = [r for r in rows if not r.survey_type_id or not r.survey_type_kind]
     if not pending:
         return False
-    resolved_rows = resolve_template_export_rows(db, [r.raw_name for r in pending])
     changed = False
-    for row, resolved in zip(pending, resolved_rows):
-        survey_type_id, survey_type_kind = _resolve_survey_type(resolved)
-        # Mark as processed even when unresolved so we don't re-run the resolver each request.
-        row.survey_type_id = survey_type_id
-        row.survey_type_kind = survey_type_kind or "none"
-        changed = True
+    for row in pending:
+        before_id = row.survey_type_id
+        _persist_survey_type_on_row(db, row)
+        if row.survey_type_id != before_id or row.survey_type_kind:
+            changed = True
     if changed:
         db.commit()
     return changed
@@ -172,11 +228,10 @@ class DisabledWaTemplateService:
         if not disabled_rows:
             return set()
         _backfill_survey_types(db, disabled_rows)
-        return {
-            r.survey_type_id
-            for r in disabled_rows
-            if r.survey_type_kind == "feedback" and r.survey_type_id
-        }
+        hidden: set[str] = set()
+        for row in disabled_rows:
+            hidden.update(_collect_feedback_survey_type_ids(db, row))
+        return hidden
 
     @staticmethod
     def hidden_platform_survey_type_ids(db: Session) -> set[str]:

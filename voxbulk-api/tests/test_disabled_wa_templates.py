@@ -166,3 +166,35 @@ def test_disabled_template_hides_survey_type_from_user_picker():
         assert any(t["id"] == survey_type.id for t in restored)
     finally:
         db.close()
+
+
+def test_real_cf_template_name_hides_topic():
+    """Regression: voxbulk_cf names use underscores but catalog slugs use hyphens."""
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+    db = _session()
+    try:
+        industry = db.execute(
+            __import__("sqlalchemy").select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")
+        ).scalar_one_or_none()
+        assert industry is not None
+        survey_type = db.execute(
+            __import__("sqlalchemy")
+            .select(FeedbackSurveyType)
+            .where(FeedbackSurveyType.industry_id == industry.id, FeedbackSurveyType.slug == "would-recommend")
+        ).scalar_one_or_none()
+        assert survey_type is not None
+
+        template_name = "voxbulk_cf_fitness_would_recommend_would_recommend_aa247a14"
+        result = DisabledWaTemplateService.add_names(db, [template_name])
+        row_id = result["items"][0]["id"]
+        DisabledWaTemplateService.set_disabled(db, row_id, True)
+
+        visible = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert all(t["id"] != survey_type.id for t in visible)
+
+        DisabledWaTemplateService.set_disabled(db, row_id, False)
+        visible_again = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert any(t["id"] == survey_type.id for t in visible_again)
+    finally:
+        db.close()
