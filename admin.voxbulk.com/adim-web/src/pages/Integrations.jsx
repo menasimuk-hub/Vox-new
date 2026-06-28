@@ -1797,11 +1797,10 @@ export default function Integrations() {
         return
       }
     } else if (
-      !activeSummary?.secret_set?.zoom_client_secret ||
       !String(activeConfig.zoom_account_id || '').trim() ||
       !String(activeConfig.zoom_client_id || '').trim()
     ) {
-      setProviderError('Enter Zoom Account ID, Client ID, and Secret, then click Save Zoom settings.')
+      setProviderError('Enter Zoom Account ID and Client ID, then click Save Zoom settings.')
       setTelnyxZoomTestResult('')
       return
     }

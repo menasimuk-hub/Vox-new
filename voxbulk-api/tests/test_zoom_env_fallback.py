@@ -1,4 +1,4 @@
-"""Zoom credentials .env fallback applies only when DB provider rows are empty."""
+"""Zoom credentials .env fallback applies only when the Telnyx provider row has no Zoom fields."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.services.provider_settings import ProviderSettingsService
 from app.services.zoom_service import ZoomService
 
 
-def test_zoom_config_uses_env_when_db_empty(monkeypatch):
+def test_zoom_config_uses_env_when_telnyx_empty(monkeypatch):
     monkeypatch.setenv("ZOOM_ACCOUNT_ID", "acc-env")
     monkeypatch.setenv("ZOOM_CLIENT_ID", "cid-env")
     monkeypatch.setenv("ZOOM_CLIENT_SECRET", "sec-env")
@@ -32,7 +32,7 @@ def test_zoom_config_uses_env_when_db_empty(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_zoom_config_prefers_db_over_env(monkeypatch):
+def test_zoom_config_prefers_telnyx_db_over_env(monkeypatch):
     monkeypatch.setenv("ZOOM_ACCOUNT_ID", "acc-env")
     monkeypatch.setenv("ZOOM_CLIENT_ID", "cid-env")
     monkeypatch.setenv("ZOOM_CLIENT_SECRET", "sec-env")
@@ -42,14 +42,18 @@ def test_zoom_config_prefers_db_over_env(monkeypatch):
     try:
         ProviderSettingsService.upsert_platform_config(
             db,
-            provider="zoom",
+            provider="telnyx",
             is_enabled=True,
             config={
-                "account_id": "acc-db",
-                "client_id": "cid-db",
-                "client_secret": "sec-db",
-                "base_url": "https://api.zoom.us/v2",
+                "api_key": "KEY" + "a" * 55,
+                "connection_id": "conn-1",
+                "default_outbound_number": "+15550001111",
+                "zoom_account_id": "acc-db",
+                "zoom_client_id": "cid-db",
+                "zoom_client_secret": "sec-db",
+                "zoom_base_url": "https://api.zoom.us/v2",
             },
+            zoom_oauth_save=True,
         )
         cfg = ZoomService._config(db)
         assert cfg["account_id"] == "acc-db"

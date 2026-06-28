@@ -1519,6 +1519,11 @@ export default function TelnyxIntegration({
                     Secret saved in database
                   </span>
                 ) : null}
+                {String(activeConfig.zoom_oauth_updated_at || '').trim() ? (
+                  <span className='muted' style={{ marginLeft: 8, fontSize: 12 }}>
+                    Last saved {String(activeConfig.zoom_oauth_updated_at).replace('T', ' ').replace('Z', ' UTC')}
+                  </span>
+                ) : null}
               </div>
               <div style={{ display: 'grid', gap: 6 }}>
                 <label className='label'>Zoom API base URL (optional)</label>

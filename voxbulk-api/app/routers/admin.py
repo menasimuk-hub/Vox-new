@@ -192,8 +192,6 @@ def upsert_provider_settings(
             config=config,
             visible_to_orgs=visible_to_orgs,
         )
-        if provider.lower() == "zoom":
-            ProviderSettingsService.verify_zoom_oauth_persisted(db)
         return ProviderSettingsService.get_platform_config_admin_view(db, provider=provider.lower())
     except ProviderUnknown:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider")

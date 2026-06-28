@@ -78,9 +78,31 @@ def test_admin_telnyx_zoom_oauth_save_endpoint(app_client):
         cfg = ZoomService._config(db)
         assert cfg["account_id"] == "acct-zoom-test"
         assert cfg["client_id"] == "client-zoom-test"
-        zoom_cfg, zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-        assert zoom_enabled is True
-        assert zoom_cfg["client_id"] == "client-zoom-test"
+        telnyx_cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        assert str(telnyx_cfg.get("zoom_client_secret") or "") == "secret-zoom-test"
+
+
+def test_zoom_secret_set_on_get_after_save(app_client):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-get-test",
+            "client_id": "client-get-test",
+            "client_secret": "secret-get-test",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
+    get_res = app_client.get("/admin/integrations/telnyx", headers=headers)
+    assert get_res.status_code == 200, get_res.text
+    body = get_res.json()
+    assert body["secret_set"]["zoom_client_secret"] is True
+    assert body["config"]["zoom_account_id"] == "acct-get-test"
+    assert body["config"]["zoom_client_id"] == "client-get-test"
 
 
 def test_zoom_secret_survives_main_telnyx_resave(app_client):
@@ -198,8 +220,8 @@ def test_zoom_survives_main_telnyx_resave_and_restart_session(app_client):
         assert cfg["client_secret"] == "secret-after-resave"
 
 
-def test_main_telnyx_resave_does_not_prefer_stale_zoom_creds(app_client):
-    """Canonical provider=zoom row must win even when telnyx.updated_at is newer with stale zoom_*."""
+def test_telnyx_zoom_row_wins_over_legacy_standalone_zoom_row(app_client):
+    """Runtime reads Telnyx zoom_* only; legacy provider=zoom row must not override."""
     headers = _admin_headers(app_client)
     _save_telnyx_minimal(app_client, headers)
 
@@ -209,14 +231,13 @@ def test_main_telnyx_resave_does_not_prefer_stale_zoom_creds(app_client):
     with get_sessionmaker()() as db:
         ProviderSettingsService.upsert_platform_config(
             db,
-            provider="telnyx",
+            provider="zoom",
             is_enabled=True,
             config={
-                "zoom_account_id": "stale-acct",
-                "zoom_client_id": "stale-client",
-                "zoom_client_secret": "stale-secret",
+                "account_id": "legacy-acct",
+                "client_id": "legacy-client",
+                "client_secret": "legacy-secret",
             },
-            zoom_oauth_save=True,
         )
 
     fresh = app_client.put(
@@ -230,23 +251,6 @@ def test_main_telnyx_resave_does_not_prefer_stale_zoom_creds(app_client):
     )
     assert fresh.status_code == 200, fresh.text
 
-    telnyx_res = app_client.put(
-        "/admin/integrations/telnyx",
-        json={
-            "is_enabled": True,
-            "config": {
-                "connection_id": "conn-stale-test",
-                "voice_api_application_id": "conn-stale-test",
-                "default_outbound_number": "+15550001111",
-                "voice_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/voice",
-                "status_callback_url": "https://api.voxbulk.com/telnyx/webhooks/status",
-                "messaging_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/messages",
-            },
-        },
-        headers=headers,
-    )
-    assert telnyx_res.status_code == 200, telnyx_res.text
-
     with get_sessionmaker()() as db:
         from app.services.zoom_service import ZoomService
 
@@ -256,8 +260,8 @@ def test_main_telnyx_resave_does_not_prefer_stale_zoom_creds(app_client):
         assert cfg["client_secret"] == "fresh-secret"
 
 
-def test_env_fallback_not_used_when_db_has_zoom_row(app_client, monkeypatch):
-    """DB credentials must win over .env when provider=zoom row is populated."""
+def test_env_fallback_not_used_when_telnyx_has_zoom(app_client, monkeypatch):
+    """Telnyx DB credentials must win over .env when telnyx.zoom_* is populated."""
     monkeypatch.setenv("ZOOM_ACCOUNT_ID", "env-acct")
     monkeypatch.setenv("ZOOM_CLIENT_ID", "env-client")
     monkeypatch.setenv("ZOOM_CLIENT_SECRET", "env-secret")
@@ -294,6 +298,17 @@ def test_env_fallback_not_used_when_db_has_zoom_row(app_client, monkeypatch):
 def test_admin_telnyx_zoom_external_connection_create_and_test(app_client, monkeypatch):
     headers = _admin_headers(app_client)
     _save_telnyx_minimal(app_client, headers)
+
+    zoom_res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-meta-patch",
+            "client_id": "client-meta-patch",
+            "client_secret": "secret-meta-patch",
+        },
+        headers=headers,
+    )
+    assert zoom_res.status_code == 200, zoom_res.text
 
     def fake_telnyx_request(_db, method, path, *, json_body=None, params=None, timeout=30.0):
         _ = timeout
@@ -358,6 +373,71 @@ def test_admin_telnyx_zoom_external_connection_create_and_test(app_client, monke
     data = cfg.json()
     assert data["config"]["zoom_external_connection_id"] == "zoom-conn-1"
     assert data["config"]["zoom_outbound_voice_profile_id"] == "1911630617284445511"
+    assert data["secret_set"]["zoom_client_secret"] is True
+
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        resolved = ZoomService._config(db)
+        assert resolved["client_secret"] == "secret-meta-patch"
+
+
+def test_zoom_secret_survives_connection_metadata_patch(app_client, monkeypatch):
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    zoom_res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-conn-patch",
+            "client_id": "client-conn-patch",
+            "client_secret": "secret-conn-patch",
+        },
+        headers=headers,
+    )
+    assert zoom_res.status_code == 200, zoom_res.text
+
+    def fake_telnyx_request(_db, method, path, *, json_body=None, params=None, timeout=30.0):
+        _ = timeout
+        m = str(method).upper()
+        if m == "POST" and path == "/external_connections":
+            return (
+                201,
+                {
+                    "data": {
+                        "id": "zoom-conn-patch",
+                        "external_sip_connection": "zoom",
+                        "active": True,
+                        "credential_active": True,
+                    }
+                },
+                "",
+            )
+        raise AssertionError(f"Unexpected Telnyx call: {m} {path}")
+
+    monkeypatch.setattr(
+        "app.services.telnyx_external_connection_service._telnyx_request",
+        fake_telnyx_request,
+    )
+
+    created = app_client.post(
+        "/admin/integrations/telnyx/zoom/create-connection",
+        json={"outbound_voice_profile_id": "1911630617284445511"},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+
+    get_res = app_client.get("/admin/integrations/telnyx", headers=headers)
+    assert get_res.status_code == 200
+    body = get_res.json()
+    assert body["secret_set"]["zoom_client_secret"] is True
+
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        resolved = ZoomService._config(db)
+        assert resolved["account_id"] == "acct-conn-patch"
+        assert resolved["client_secret"] == "secret-conn-patch"
 
 
 def test_admin_telnyx_microsoft_teams_create_and_test(app_client, monkeypatch):

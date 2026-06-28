@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VPS diagnostic: confirm Zoom OAuth credentials are stored and decryptable in DB.
+"""VPS diagnostic: confirm Zoom OAuth credentials are stored on the Telnyx provider row.
 
 Usage (on VPS after saving Zoom in admin):
     cd /www/voxbulk/voxbulk-api
@@ -39,26 +39,17 @@ def _row_meta(db, provider: str) -> dict:
 def main() -> int:
     db = get_sessionmaker()()
     try:
-        print("=== provider_configs rows (zoom / telnyx) ===")
-        for provider in ("zoom", "telnyx"):
+        print("=== provider_configs rows (telnyx — canonical for Zoom via Telnyx) ===")
+        for provider in ("telnyx", "zoom"):
             meta = _row_meta(db, provider)
             print(json.dumps({"provider": provider, **meta}, default=str))
 
         print("\n=== decrypted probe (secrets redacted) ===")
-        zoom_cfg, zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
         telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-        zoom_cfg = zoom_cfg or {}
         telnyx_cfg = telnyx_cfg or {}
 
+        admin_view = ProviderSettingsService.get_platform_config_admin_view(db, provider="telnyx")
         print(json.dumps({
-            "zoom": {
-                "is_enabled": zoom_enabled,
-                "account_id": str(zoom_cfg.get("account_id") or ""),
-                "client_id": str(zoom_cfg.get("client_id") or ""),
-                "base_url": str(zoom_cfg.get("base_url") or ""),
-                "secret_set": bool(str(zoom_cfg.get("client_secret") or "").strip()),
-                "zoom_oauth_updated_at": str(zoom_cfg.get("zoom_oauth_updated_at") or ""),
-            },
             "telnyx_zoom": {
                 "is_enabled": telnyx_enabled,
                 "zoom_account_id": str(telnyx_cfg.get("zoom_account_id") or ""),
@@ -67,9 +58,10 @@ def main() -> int:
                 "secret_set": bool(str(telnyx_cfg.get("zoom_client_secret") or "").strip()),
                 "zoom_oauth_updated_at": str(telnyx_cfg.get("zoom_oauth_updated_at") or ""),
             },
+            "admin_get_secret_set": admin_view.get("secret_set", {}).get("zoom_client_secret"),
         }, indent=2))
 
-        print("\n=== ZoomService._config (runtime resolver) ===")
+        print("\n=== ZoomService._config (runtime resolver — Telnyx row only) ===")
         try:
             resolved = ZoomService._config(db)
             print(json.dumps({
