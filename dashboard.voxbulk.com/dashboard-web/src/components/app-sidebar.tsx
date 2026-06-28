@@ -9,7 +9,7 @@ import {
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat, QrCode, GitCompare, Sparkles, Send,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
-  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase,
+  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus,
 } from "lucide-react";
 
 import {
@@ -53,7 +53,16 @@ const salesGroup: Group = {
   key: "sales",
   label: "Sales",
   items: [
-    { title: "My customers", url: "/sales", icon: Users },
+    { title: "Add new customer", url: "/sales/new", icon: UserPlus },
+    {
+      title: "My customers",
+      url: "/sales",
+      icon: Users,
+      isActive: (path) => {
+        const p = normalizePath(path);
+        return p === "/sales" || p.startsWith("/sales/customers");
+      },
+    },
     { title: "Won deals", url: "/sales/deals", icon: Handshake },
     { title: "Wallet & commission", url: "/sales/wallet", icon: Wallet },
   ],

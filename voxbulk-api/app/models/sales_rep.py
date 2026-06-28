@@ -44,12 +44,18 @@ class SalesCustomer(Base):
     business_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     branches: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     contact_person: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Funnel stage timestamps
+    demo_wa_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    demo_call_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    interested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    interested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Provenance / conversion
     org_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=True, index=True)
     offer_details: Mapped[str | None] = mapped_column(String(255), nullable=True)
     offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     offer_log_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="lead")  # lead | contacted | won
+    # lead | contacted | demoed | interested | won
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="lead")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

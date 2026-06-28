@@ -191,7 +191,48 @@
 .salesPortal .sp-qr h3 { font-size: 18px; margin-bottom: 6px; }
 .salesPortal .sp-qr p { color: #6b5d4b; font-size: 14px; margin-bottom: 16px; }
 
+/* Funnel stage badge + interested flag (My customers + Track) */
+.salesPortal .sp-stage {
+  display: inline-flex; align-items: center; padding: 2px 12px; border-radius: 30px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.2px; text-transform: capitalize;
+  background: #e5ddd0; color: #4d4338;
+}
+.salesPortal .sp-stage.stage-demoed { background: #dfe7f1; color: #2c4a73; }
+.salesPortal .sp-stage.stage-interested { background: #efe0c8; color: #8a5a18; }
+.salesPortal .sp-stage.stage-won { background: #d8ecd9; color: #2c6b3a; }
+.salesPortal .sp-flag {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;
+  padding: 2px 10px; border-radius: 30px; font-size: 11px; font-weight: 600;
+  background: #efe0c8; color: #8a5a18;
+}
+.salesPortal .sp-flag svg { color: #8a5a18; }
+.salesPortal td .sp-rowact a { display: inline-flex; align-items: center; }
+
+/* Track page header + funnel timeline */
+.salesPortal .sp-track-head { margin-bottom: 18px; }
+.salesPortal .sp-back {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500;
+  color: #5f5546; text-decoration: none; padding: 6px 14px; border-radius: 30px;
+  border: 1px solid #d6ccbb; background: #ede7db;
+}
+.salesPortal .sp-back:hover { color: #2e2a24; }
+.salesPortal .sp-track-title { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.salesPortal .sp-track-title h2 { font-size: 22px; font-weight: 600; color: #2e2a24; }
+
+.salesPortal .sp-funnel {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  background: #f7f2e9; border: 1px solid #ddd4c4; border-radius: 20px;
+  padding: 20px 22px; margin-bottom: 24px;
+}
+.salesPortal .sp-funnel-step { display: flex; align-items: flex-start; gap: 10px; opacity: 0.55; }
+.salesPortal .sp-funnel-step.done { opacity: 1; }
+.salesPortal .sp-funnel-ico { color: #9a8d78; margin-top: 1px; }
+.salesPortal .sp-funnel-step.done .sp-funnel-ico { color: #2c6b3a; }
+.salesPortal .sp-funnel-label { font-size: 13px; font-weight: 600; color: #2e2a24; }
+.salesPortal .sp-funnel-at { font-size: 12px; color: #7a6b58; margin-top: 2px; }
+
 @media (max-width: 1000px) {
   .salesPortal .sp-kpi-grid { grid-template-columns: 1fr 1fr; }
   .salesPortal .sp-row, .salesPortal .sp-row-3, .salesPortal .sp-survey-actions, .salesPortal .sp-offer-row { grid-template-columns: 1fr; }
+  .salesPortal .sp-funnel { grid-template-columns: 1fr 1fr; }
 }

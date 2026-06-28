@@ -40,6 +40,7 @@ import { Route as AppSettingsOptOutRouteImport } from './routes/_app.settings.op
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
 import { Route as AppSalesWalletRouteImport } from './routes/_app.sales.wallet'
+import { Route as AppSalesNewRouteImport } from './routes/_app.sales.new'
 import { Route as AppSalesDealsRouteImport } from './routes/_app.sales.deals'
 import { Route as AppRecoveryRecallRouteImport } from './routes/_app.recovery.recall'
 import { Route as AppRecoveryOffersRouteImport } from './routes/_app.recovery.offers'
@@ -63,6 +64,7 @@ import { Route as AppAccountBillingRouteImport } from './routes/_app.account.bil
 import { Route as AppInterviewsResultsIndexRouteImport } from './routes/_app.interviews.results.index'
 import { Route as AppFeedbackCampaignsIndexRouteImport } from './routes/_app.feedback.campaigns.index'
 import { Route as AppAccountSupportIndexRouteImport } from './routes/_app.account.support.index'
+import { Route as AppSalesCustomersIdRouteImport } from './routes/_app.sales.customers.$id'
 import { Route as AppInterviewsResultsOrderIdRouteImport } from './routes/_app.interviews.results.$orderId'
 import { Route as AppFeedbackCampaignsSendRouteImport } from './routes/_app.feedback.campaigns.send'
 import { Route as AppFeedbackLocationIdEditRouteImport } from './routes/_app.feedback.$locationId.edit'
@@ -224,6 +226,11 @@ const AppSalesWalletRoute = AppSalesWalletRouteImport.update({
   path: '/sales/wallet',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSalesNewRoute = AppSalesNewRouteImport.update({
+  id: '/sales/new',
+  path: '/sales/new',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSalesDealsRoute = AppSalesDealsRouteImport.update({
   id: '/sales/deals',
   path: '/sales/deals',
@@ -341,6 +348,11 @@ const AppAccountSupportIndexRoute = AppAccountSupportIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppAccountSupportRoute,
 } as any)
+const AppSalesCustomersIdRoute = AppSalesCustomersIdRouteImport.update({
+  id: '/sales/customers/$id',
+  path: '/sales/customers/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInterviewsResultsOrderIdRoute =
   AppInterviewsResultsOrderIdRouteImport.update({
     id: '/$orderId',
@@ -409,6 +421,7 @@ export interface FileRoutesByFullPath {
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -434,6 +447,7 @@ export interface FileRoutesByFullPath {
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
+  '/sales/customers/$id': typeof AppSalesCustomersIdRoute
   '/account/support/': typeof AppAccountSupportIndexRoute
   '/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results/': typeof AppInterviewsResultsIndexRoute
@@ -463,6 +477,7 @@ export interface FileRoutesByTo {
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -488,6 +503,7 @@ export interface FileRoutesByTo {
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
+  '/sales/customers/$id': typeof AppSalesCustomersIdRoute
   '/account/support': typeof AppAccountSupportIndexRoute
   '/feedback/campaigns': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results': typeof AppInterviewsResultsIndexRoute
@@ -526,6 +542,7 @@ export interface FileRoutesById {
   '/_app/recovery/offers': typeof AppRecoveryOffersRoute
   '/_app/recovery/recall': typeof AppRecoveryRecallRoute
   '/_app/sales/deals': typeof AppSalesDealsRoute
+  '/_app/sales/new': typeof AppSalesNewRoute
   '/_app/sales/wallet': typeof AppSalesWalletRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
@@ -551,6 +568,7 @@ export interface FileRoutesById {
   '/_app/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/_app/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/_app/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
+  '/_app/sales/customers/$id': typeof AppSalesCustomersIdRoute
   '/_app/account/support/': typeof AppAccountSupportIndexRoute
   '/_app/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/_app/interviews/results/': typeof AppInterviewsResultsIndexRoute
@@ -589,6 +607,7 @@ export interface FileRouteTypes {
     | '/recovery/offers'
     | '/recovery/recall'
     | '/sales/deals'
+    | '/sales/new'
     | '/sales/wallet'
     | '/settings/audit'
     | '/settings/integrations'
@@ -614,6 +633,7 @@ export interface FileRouteTypes {
     | '/feedback/$locationId/edit'
     | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
+    | '/sales/customers/$id'
     | '/account/support/'
     | '/feedback/campaigns/'
     | '/interviews/results/'
@@ -643,6 +663,7 @@ export interface FileRouteTypes {
     | '/recovery/offers'
     | '/recovery/recall'
     | '/sales/deals'
+    | '/sales/new'
     | '/sales/wallet'
     | '/settings/audit'
     | '/settings/integrations'
@@ -668,6 +689,7 @@ export interface FileRouteTypes {
     | '/feedback/$locationId/edit'
     | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
+    | '/sales/customers/$id'
     | '/account/support'
     | '/feedback/campaigns'
     | '/interviews/results'
@@ -705,6 +727,7 @@ export interface FileRouteTypes {
     | '/_app/recovery/offers'
     | '/_app/recovery/recall'
     | '/_app/sales/deals'
+    | '/_app/sales/new'
     | '/_app/sales/wallet'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
@@ -730,6 +753,7 @@ export interface FileRouteTypes {
     | '/_app/feedback/$locationId/edit'
     | '/_app/feedback/campaigns/send'
     | '/_app/interviews/results/$orderId'
+    | '/_app/sales/customers/$id'
     | '/_app/account/support/'
     | '/_app/feedback/campaigns/'
     | '/_app/interviews/results/'
@@ -961,6 +985,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSalesWalletRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/sales/new': {
+      id: '/_app/sales/new'
+      path: '/sales/new'
+      fullPath: '/sales/new'
+      preLoaderRoute: typeof AppSalesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/sales/deals': {
       id: '/_app/sales/deals'
       path: '/sales/deals'
@@ -1121,6 +1152,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/account/support/'
       preLoaderRoute: typeof AppAccountSupportIndexRouteImport
       parentRoute: typeof AppAccountSupportRoute
+    }
+    '/_app/sales/customers/$id': {
+      id: '/_app/sales/customers/$id'
+      path: '/sales/customers/$id'
+      fullPath: '/sales/customers/$id'
+      preLoaderRoute: typeof AppSalesCustomersIdRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/interviews/results/$orderId': {
       id: '/_app/interviews/results/$orderId'
@@ -1311,6 +1349,7 @@ interface AppRouteChildren {
   AppCampaignsNewRoute: typeof AppCampaignsNewRoute
   AppCampaignsSendRoute: typeof AppCampaignsSendRoute
   AppSalesDealsRoute: typeof AppSalesDealsRoute
+  AppSalesNewRoute: typeof AppSalesNewRoute
   AppSalesWalletRoute: typeof AppSalesWalletRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
@@ -1322,6 +1361,7 @@ interface AppRouteChildren {
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppSalesIndexRoute: typeof AppSalesIndexRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
+  AppSalesCustomersIdRoute: typeof AppSalesCustomersIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1340,6 +1380,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCampaignsNewRoute: AppCampaignsNewRoute,
   AppCampaignsSendRoute: AppCampaignsSendRoute,
   AppSalesDealsRoute: AppSalesDealsRoute,
+  AppSalesNewRoute: AppSalesNewRoute,
   AppSalesWalletRoute: AppSalesWalletRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
@@ -1351,6 +1392,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppSalesIndexRoute: AppSalesIndexRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
+  AppSalesCustomersIdRoute: AppSalesCustomersIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

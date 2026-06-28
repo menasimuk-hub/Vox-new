@@ -42,6 +42,15 @@ def upsert_customer(payload: dict, db: Session = Depends(get_db), principal=Depe
     return {"ok": True, "customer": SalesRepService.customer_to_dict(cust)}
 
 
+@router.get("/customers/{customer_id}")
+def get_customer(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    rep = _require_rep(db, principal)
+    detail = SalesRepService.get_customer_detail(db, rep_id=rep.id, customer_id=customer_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return {"ok": True, "customer": detail}
+
+
 @router.delete("/customers/{customer_id}")
 def delete_customer(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     rep = _require_rep(db, principal)

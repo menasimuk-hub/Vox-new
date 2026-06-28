@@ -176,6 +176,32 @@ class SalesRepService:
 
     # ---- customers -----------------------------------------------------------
     @staticmethod
+    def _derive_stage(c: SalesCustomer) -> str:
+        """Funnel stage derived from the customer's timestamps/flags (most-advanced wins)."""
+        if c.status == "won" or c.org_id:
+            return "won"
+        if c.interested or c.offer_sent_at:
+            return "interested"
+        if c.demo_wa_sent_at or c.demo_call_sent_at:
+            return "demoed"
+        return "lead"
+
+    @staticmethod
+    def _timeline(c: SalesCustomer) -> list[dict[str, Any]]:
+        """Ordered funnel events with timestamps (None = not reached yet)."""
+
+        def iso(dt: datetime | None) -> str | None:
+            return dt.isoformat() if dt else None
+
+        demo_at = c.demo_wa_sent_at or c.demo_call_sent_at
+        return [
+            {"key": "added", "label": "Added / visited", "at": iso(c.created_at)},
+            {"key": "demoed", "label": "Demoed", "at": iso(demo_at)},
+            {"key": "interested", "label": "Interested (offer sent)", "at": iso(c.interested_at or c.offer_sent_at)},
+            {"key": "won", "label": "Signed up / won", "at": iso(c.updated_at) if (c.status == "won" or c.org_id) else None},
+        ]
+
+    @staticmethod
     def customer_to_dict(c: SalesCustomer) -> dict[str, Any]:
         return {
             "id": c.id,
@@ -192,9 +218,23 @@ class SalesRepService:
             "org_id": c.org_id,
             "offer_details": c.offer_details,
             "offer_sent_at": c.offer_sent_at.isoformat() if c.offer_sent_at else None,
+            "demo_wa_sent_at": c.demo_wa_sent_at.isoformat() if c.demo_wa_sent_at else None,
+            "demo_call_sent_at": c.demo_call_sent_at.isoformat() if c.demo_call_sent_at else None,
+            "interested": bool(c.interested),
+            "interested_at": c.interested_at.isoformat() if c.interested_at else None,
             "status": c.status,
+            "stage": SalesRepService._derive_stage(c),
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
+
+    @staticmethod
+    def get_customer_detail(db: Session, *, rep_id: str, customer_id: str) -> dict[str, Any] | None:
+        cust = SalesRepService.get_customer(db, rep_id=rep_id, customer_id=customer_id)
+        if cust is None:
+            return None
+        data = SalesRepService.customer_to_dict(cust)
+        data["timeline"] = SalesRepService._timeline(cust)
+        return data
 
     @staticmethod
     def list_customers(db: Session, *, rep_id: str) -> list[dict[str, Any]]:
@@ -312,13 +352,31 @@ class SalesRepService:
             return {"ok": False, "message": "Unknown channel."}
 
         if ok:
-            customer.offer_sent_at = datetime.utcnow()
-            if customer.status == "lead":
-                customer.status = "contacted"
+            now = datetime.utcnow()
+            customer.offer_sent_at = now
+            # Sending an offer means the customer is interested.
+            customer.interested = True
+            if customer.interested_at is None:
+                customer.interested_at = now
+            if customer.status not in ("won", "interested"):
+                customer.status = "interested"
         customer.offer_log_json = json.dumps(log)
         customer.updated_at = datetime.utcnow()
         db.commit()
         return {"ok": ok, "message": "Sent." if ok else f"Send failed: {log.get('error') or 'unknown error'}"}
+
+    @staticmethod
+    def _mark_demoed(db: Session, customer: SalesCustomer, *, channel: str) -> None:
+        """Record a demo send on the customer and advance the funnel stage."""
+        now = datetime.utcnow()
+        if channel == "wa":
+            customer.demo_wa_sent_at = now
+        elif channel == "call":
+            customer.demo_call_sent_at = now
+        if customer.status == "lead":
+            customer.status = "demoed"
+        customer.updated_at = now
+        db.commit()
 
     @staticmethod
     def send_demo_wa(db: Session, *, customer: SalesCustomer) -> dict[str, Any]:
@@ -329,7 +387,10 @@ class SalesRepService:
 
             body = "Hi! This is a quick VoxBulk demo survey — how would you rate your last visit? Reply 1-5."
             res = TelnyxMessagingService.send_whatsapp(db, to_number=customer.mobile, body=body)
-            return {"ok": bool(getattr(res, "ok", True)), "message": "Demo WhatsApp survey sent."}
+            ok = bool(getattr(res, "ok", True))
+            if ok:
+                SalesRepService._mark_demoed(db, customer, channel="wa")
+            return {"ok": ok, "message": "Demo WhatsApp survey sent."}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": f"WhatsApp not available: {e}"}
 
@@ -353,7 +414,10 @@ class SalesRepService:
                 config=config,
                 client_state={"sales_demo": True},
             )
-            return {"ok": bool(getattr(res, "ok", False)), "message": getattr(res, "detail", None) or "Demo call started."}
+            ok = bool(getattr(res, "ok", False))
+            if ok:
+                SalesRepService._mark_demoed(db, customer, channel="call")
+            return {"ok": ok, "message": getattr(res, "detail", None) or "Demo call started."}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": f"Voice not available: {e}"}
 
