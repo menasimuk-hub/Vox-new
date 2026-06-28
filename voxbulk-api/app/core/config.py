@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Encryption
     encryption_key: str = Field(default="change-me", alias="ENCRYPTION_KEY")
 
+    # Zoom Server-to-Server OAuth (optional .env fallback when DB config is missing).
+    # Lets the platform Zoom integration survive restarts/deploys even if the encrypted
+    # DB provider row is empty or unreadable.
+    zoom_account_id: str = Field(default="", alias="ZOOM_ACCOUNT_ID")
+    zoom_client_id: str = Field(default="", alias="ZOOM_CLIENT_ID")
+    zoom_client_secret: str = Field(default="", alias="ZOOM_CLIENT_SECRET")
+    zoom_base_url: str = Field(default="", alias="ZOOM_BASE_URL")
+
     # Database
     database_url: str = Field(
         default="sqlite:///./retover.local.db",
