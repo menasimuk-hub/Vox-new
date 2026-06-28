@@ -222,8 +222,12 @@ class BillingService:
         org_id: str,
         plan_id: str | None = None,
         plan_code: str | None = None,
+        billing_interval: str | None = None,
     ) -> tuple[Subscription, Plan, str]:
         """Change subscription plan. Returns (subscription, new_plan, direction)."""
+        from app.services.plan_price_service import PlanPriceService
+
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
         BillingService.ensure_default_plans(db)
         sub = BillingService.get_subscription(db, org_id)
         old_plan = None
@@ -250,6 +254,12 @@ class BillingService:
             direction = "same"
 
         sub = BillingService.request_cash_plan_pending(db, org_id=org_id, plan_id=new_plan.id)
+        if sub is not None:
+            sub.billing_interval = interval
+            sub.updated_at = datetime.utcnow()
+            db.add(sub)
+            db.commit()
+            db.refresh(sub)
         return sub, new_plan, direction
 
     @staticmethod
@@ -789,22 +799,31 @@ class BillingService:
         plan: Plan,
         mandate_id: str,
         client_email: str,
+        billing_interval: str | None = None,
     ) -> str | None:
-        currency, monthly_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
-        if monthly_minor <= 0:
+        from app.models.organisation import Organisation
+        from app.services.plan_price_service import PlanPriceService
+
+        org = db.get(Organisation, org_id)
+        currency, amount_minor, interval = PlanPriceService.billing_amount_for_org(
+            db, org, plan, billing_interval
+        )
+        if amount_minor <= 0:
             return None
+        gc_interval = "yearly" if interval == "yearly" else "monthly"
         config = BillingService._get_gocardless_config(db)
         subscription_payload = {
             "subscriptions": {
-                "amount": monthly_minor,
+                "amount": amount_minor,
                 "currency": currency,
                 "name": f"VOXBULK.COM {plan.name}",
-                "interval_unit": "monthly" if plan.interval == "monthly" else str(plan.interval or "monthly"),
+                "interval_unit": gc_interval,
                 "links": {"mandate": mandate_id},
                 "metadata": BillingService._gocardless_metadata(
                     org_id=org_id,
                     plan_id=plan.id,
                     client_email=client_email,
+                    billing_interval=interval,
                 ),
             }
         }
@@ -900,8 +919,12 @@ class BillingService:
         plan_id: str | None = None,
         plan_code: str | None = None,
         flow_purpose: str | None = None,
+        billing_interval: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.plan_price_service import PlanPriceService
+
         BillingService.ensure_default_plans(db)
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
         plan = None
         if plan_id:
             plan = db.execute(select(Plan).where(Plan.id == plan_id)).scalar_one_or_none()
@@ -965,6 +988,7 @@ class BillingService:
             status="created",
             authorization_url=authorization_url,
             flow_purpose=str(flow_purpose or "").strip() or None,
+            billing_interval=interval,
         )
         db.add(row)
         db.commit()
@@ -1097,13 +1121,19 @@ class BillingService:
         prefilled_email = str((completed_flow.get("prefilled_customer") or {}).get("email") or "").strip()
         client_email = prefilled_email or (user.email if user else "")
 
-        currency, monthly_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
+        from app.models.organisation import Organisation
+        from app.services.plan_price_service import PlanPriceService
+
+        org = db.get(Organisation, org_id)
+        flow_interval = PlanPriceService.normalize_billing_interval(getattr(row, "billing_interval", None))
+        currency, charge_minor, interval = PlanPriceService.billing_amount_for_org(db, org, plan, flow_interval)
         external_subscription_id = BillingService._create_gocardless_subscription_on_mandate(
             db,
             org_id=org_id,
             plan=plan,
             mandate_id=mandate_id,
             client_email=client_email,
+            billing_interval=flow_interval,
         )
         if not external_subscription_id:
             raise GoCardlessProviderError("GoCardless did not return a subscription id")
@@ -1132,10 +1162,14 @@ class BillingService:
         now = datetime.utcnow()
         service_code = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
         sub = BillingAccessService.get_subscription(db, org_id, service_code=service_code)
+        period_days = 365 if interval == "yearly" else 30
         if sub is None:
             sub = Subscription(org_id=org_id, plan_id=plan.id, service_code=service_code)
         sub.plan_id = plan.id
-        sub.current_period_end = now + timedelta(days=30)
+        sub.current_period_end = now + timedelta(days=period_days)
+        sub.billing_interval = interval
+        sub.billing_currency = currency
+        sub.amount_next_payment_minor = charge_minor
         sub.payment_provider = "gocardless"
         sub.payment_mode = str(config["environment"])
         sub.external_customer_id = customer_id or None
@@ -1185,7 +1219,10 @@ class BillingService:
             )
         else:
             try:
-                act_currency, act_minor = BillingService._org_plan_billing_amount(db, org_id, plan)
+                act_currency, act_minor, act_interval = PlanPriceService.billing_amount_for_org(
+                    db, org, plan, flow_interval
+                )
+                interval_label = "yearly" if act_interval == "yearly" else "monthly"
                 invoice, created, emailed = InvoiceService.issue_from_payment(
                     db,
                     org_id=org_id,
@@ -1200,7 +1237,7 @@ class BillingService:
                     status="paid",
                     line_items=[
                         {
-                            "description": f"{plan.name} — monthly subscription",
+                            "description": f"{plan.name} — {interval_label} subscription",
                             "quantity": 1,
                             "unit_pence": act_minor,
                             "total_pence": act_minor,

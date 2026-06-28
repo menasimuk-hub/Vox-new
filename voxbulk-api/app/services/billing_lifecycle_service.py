@@ -680,8 +680,12 @@ class BillingLifecycleService:
         org_id: str,
         plan_id: str | None = None,
         plan_code: str | None = None,
+        billing_interval: str | None = None,
     ) -> tuple[Subscription, Plan, str, dict[str, Any] | None]:
         from app.services.gocardless_service import BillingService
+        from app.services.plan_price_service import PlanPriceService
+
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
 
         sub = BillingService.get_subscription(db, org_id)
         old_plan = None
@@ -697,7 +701,6 @@ class BillingLifecycleService:
             raise ValueError("Unknown plan")
 
         from app.models.organisation import Organisation
-        from app.services.plan_price_service import PlanPriceService
 
         org = db.get(Organisation, org_id)
         old_price = PlanPriceService.monthly_minor_for_org(db, org, old_plan)[1] if old_plan else 0
@@ -715,15 +718,32 @@ class BillingLifecycleService:
                 extra = BillingLifecycleService.apply_upgrade_with_pro_rata(
                     db, org_id=org_id, new_plan=new_plan, old_plan=old_plan, sub=sub
                 )
+                sub.billing_interval = interval
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
+                sub.updated_at = datetime.utcnow()
+                db.add(sub)
+                db.commit()
                 db.refresh(sub)
                 return sub, new_plan, direction, extra
             if direction == "downgrade":
                 sub.pending_plan_id = new_plan.id
+                sub.billing_interval = interval
                 sub.updated_at = datetime.utcnow()
                 db.add(sub)
                 db.commit()
                 db.refresh(sub)
                 return sub, new_plan, direction, {"pending_plan_id": new_plan.id}
 
-        sub, plan, dir2 = BillingService.change_plan(db, org_id=org_id, plan_id=plan_id, plan_code=plan_code)
+        sub, plan, dir2 = BillingService.change_plan(
+            db, org_id=org_id, plan_id=plan_id, plan_code=plan_code, billing_interval=interval
+        )
+        if sub is not None:
+            sub.billing_interval = interval
+            _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, plan, interval)
+            sub.amount_next_payment_minor = next_minor
+            sub.updated_at = datetime.utcnow()
+            db.add(sub)
+            db.commit()
+            db.refresh(sub)
         return sub, plan, dir2, extra

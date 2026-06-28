@@ -45,6 +45,7 @@ class Subscription(Base):
     next_billing_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     amount_next_payment_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
     billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    billing_interval: Mapped[str] = mapped_column(String(10), nullable=False, default="monthly")
     tax_rate_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     tax_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
 

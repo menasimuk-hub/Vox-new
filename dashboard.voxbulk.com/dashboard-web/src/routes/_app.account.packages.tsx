@@ -80,6 +80,62 @@ const CAMPAIGN_CREDIT_PACKS = [
   { name: "Campaign 25k", sends: 25000, featured: false },
 ];
 
+type BillingInterval = "monthly" | "yearly";
+
+function BillingIntervalToggle({
+  value,
+  onChange,
+}: {
+  value: BillingInterval;
+  onChange: (v: BillingInterval) => void;
+}) {
+  return (
+    <div className="flex rounded-lg border border-border p-0.5 text-xs">
+      <button
+        type="button"
+        className={`rounded-md px-3 py-1.5 ${value === "monthly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        onClick={() => onChange("monthly")}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        className={`rounded-md px-3 py-1.5 ${value === "yearly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        onClick={() => onChange("yearly")}
+      >
+        Yearly (2 months free)
+      </button>
+    </div>
+  );
+}
+
+function formatCorePlanPrice(p: PlanRow, currencySym: string, yearly: boolean) {
+  if (p.is_enterprise) return "Let's talk";
+  if (isPaygPlan(p)) return "No monthly fee";
+  const monthlyMinor = Number(p.price_display_pence ?? p.monthly_price_minor ?? p.price_gbp_pence ?? 0);
+  const minor = yearly ? monthlyMinor * 10 : monthlyMinor;
+  return `${currencySym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
+}
+
+function formatFeedbackPackagePrice(pkg: FeedbackPackage, orgCurrency: string, yearly: boolean) {
+  const prices = pkg.prices || [];
+  const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
+  if (!match) return "—";
+  const sym = CURRENCY_SYMBOL[match.currency.toUpperCase()] || `${match.currency} `;
+  const minor = yearly ? (match.yearly_price_minor ?? match.monthly_price_minor * 10) : match.monthly_price_minor;
+  return `${sym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
+}
+
+function feedbackWebSurveyLine(webIncluded: number) {
+  if (webIncluded < 0) return "Unlimited web surveys/mo";
+  return `${webIncluded.toLocaleString()} web surveys/mo`;
+}
+
+function feedbackTotalResponsesLine(waIncluded: number, webIncluded: number) {
+  if (webIncluded < 0) return "Unlimited total responses/mo";
+  return `${(waIncluded + webIncluded).toLocaleString()} total responses/mo`;
+}
+
 function isPaygPlan(plan: PlanRow) {
   return String(plan.code || "").toLowerCase() === "payg" || Boolean(plan.is_payg);
 }
@@ -111,6 +167,8 @@ function PackagesPage() {
   const [topupOpen, setTopupOpen] = React.useState(false);
   const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(tabFromUrl || "core");
   const [busyFeedbackPlanId, setBusyFeedbackPlanId] = React.useState<string | null>(null);
+  const [coreBillingInterval, setCoreBillingInterval] = React.useState<BillingInterval>("monthly");
+  const [feedbackBillingInterval, setFeedbackBillingInterval] = React.useState<BillingInterval>("monthly");
   const [enterpriseOpen, setEnterpriseOpen] = React.useState(false);
   const [enterpriseScreenings, setEnterpriseScreenings] = React.useState("");
   const [enterpriseWaSurveys, setEnterpriseWaSurveys] = React.useState("");
@@ -206,7 +264,7 @@ function PackagesPage() {
     setBusyPlanId(String(plan.id));
     try {
       if (hasActiveCoreGcSub) {
-        const result = await changeCorePlan(String(plan.id));
+        const result = await changeCorePlan(String(plan.id), coreBillingInterval);
         const planName = String(result.plan?.name || plan.name || "plan");
         toast.success(
           planChangeToast(result.direction, planName, { awaitingAdmin: result.awaiting_admin_approval }),
@@ -215,7 +273,7 @@ function PackagesPage() {
         await invalidateBilling();
         return;
       }
-      await startGoCardlessSubscription(String(plan.id));
+      await startGoCardlessSubscription(String(plan.id), coreBillingInterval);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start checkout");
       setBusyPlanId(null);
@@ -276,20 +334,15 @@ function PackagesPage() {
     }
   }, [tabFromUrl, feedbackSubQ.isLoading, pricingQ.isLoading, hasActiveFeedbackSub, hasActiveCorePlan]);
 
-  const formatFeedbackPrice = (pkg: FeedbackPackage) => {
-    const prices = pkg.prices || [];
-    const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
-    if (!match) return "—";
-    const sym = CURRENCY_SYMBOL[match.currency.toUpperCase()] || `${match.currency} `;
-    return `${sym}${(match.monthly_price_minor / 100).toFixed(0)}/mo`;
-  };
+  const formatFeedbackPrice = (pkg: FeedbackPackage) =>
+    formatFeedbackPackagePrice(pkg, orgCurrency, feedbackBillingInterval === "yearly");
 
   const onFeedbackSubscribe = async (pkg: FeedbackPackage) => {
     if (!pkg.plan_id || currentFeedbackPlanId === pkg.plan_id) return;
     setBusyFeedbackPlanId(pkg.plan_id);
     try {
       if (feedbackSub?.active) {
-        const result = await changeFeedbackPlan(pkg.plan_id);
+        const result = await changeFeedbackPlan(pkg.plan_id, feedbackBillingInterval);
         const planName = pkg.plan_name || pkg.plan_code || "plan";
         toast.success(planChangeToast(result.direction, planName));
         setBusyFeedbackPlanId(null);
@@ -299,7 +352,7 @@ function PackagesPage() {
         ]);
         return;
       }
-      await startFeedbackGoCardlessSubscription(pkg.plan_id);
+      await startFeedbackGoCardlessSubscription(pkg.plan_id, feedbackBillingInterval);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
       setBusyFeedbackPlanId(null);
@@ -483,7 +536,10 @@ function PackagesPage() {
       </p>
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
+          <BillingIntervalToggle value={coreBillingInterval} onChange={setCoreBillingInterval} />
+        </div>
         {pricingQ.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-72" />)}</div>
         ) : (
@@ -517,7 +573,7 @@ function PackagesPage() {
                       <Badge variant="outline" className="mb-2 w-fit border-primary/40 text-primary">Core platform</Badge>
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>
                       <CardDescription className="text-xl font-semibold text-foreground">
-                        {ent ? "Let's talk" : payg ? "No monthly fee" : `${String(p.price_display || p.price_display_pence)}/mo`}
+                        {ent ? "Let's talk" : payg ? "No monthly fee" : formatCorePlanPrice(p, sym(data), coreBillingInterval === "yearly")}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col space-y-2 text-xs">
@@ -681,7 +737,11 @@ function PackagesPage() {
                           <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">Open feedback plans</Link>
                         </p>
                       ) : (
-                        <div className="grid gap-3 md:grid-cols-3">
+                        <>
+                          <div className="mb-3 flex justify-end">
+                            <BillingIntervalToggle value={feedbackBillingInterval} onChange={setFeedbackBillingInterval} />
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
                           {feedbackPackages.map((pkg) => {
                             const featured = Boolean(pkg.is_featured);
                             const isCurrent = currentFeedbackPlanId === pkg.plan_id;
@@ -702,7 +762,9 @@ function PackagesPage() {
                                   </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm">
-                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.wa_units_included.toLocaleString()} responses / month</p>
+                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.wa_units_included.toLocaleString()} WhatsApp surveys/mo</p>
+                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {feedbackWebSurveyLine(pkg.web_units_included ?? 0)}</p>
+                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {feedbackTotalResponsesLine(pkg.wa_units_included, pkg.web_units_included ?? 0)}</p>
                                   <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.max_locations} location{pkg.max_locations === 1 ? "" : "s"} & QR codes</p>
                                   {(pkg.features || []).slice(0, 2).map((f) => (
                                     <p key={f} className="flex items-center gap-2"><Check className="size-4 text-success" /> {f}</p>
@@ -719,7 +781,8 @@ function PackagesPage() {
                               </Card>
                             );
                           })}
-                        </div>
+                          </div>
+                        </>
                       )}
                       <p className="text-xs text-muted-foreground">
                         Subscription only — no top-ups.{" "}

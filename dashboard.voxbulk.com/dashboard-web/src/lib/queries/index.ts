@@ -2391,7 +2391,7 @@ export function useSetBillingOverage() {
   });
 }
 
-export async function changeFeedbackPlan(planId: string) {
+export async function changeFeedbackPlan(planId: string, billingInterval: "monthly" | "yearly" = "monthly") {
   return apiFetch<{
     ok?: boolean;
     direction?: string;
@@ -2399,11 +2399,11 @@ export async function changeFeedbackPlan(planId: string) {
     pending_plan_id?: string | null;
   }>("/customer-feedback/subscription/change-plan", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, billing_interval: billingInterval }),
   });
 }
 
-export async function changeCorePlan(planId: string) {
+export async function changeCorePlan(planId: string, billingInterval: "monthly" | "yearly" = "monthly") {
   return apiFetch<{
     ok?: boolean;
     direction?: string;
@@ -2414,7 +2414,7 @@ export async function changeCorePlan(planId: string) {
     billing?: { pro_rata_minor?: number; invoice_id?: string | null };
   }>("/billing/subscription/change-plan", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, billing_interval: billingInterval }),
   });
 }
 

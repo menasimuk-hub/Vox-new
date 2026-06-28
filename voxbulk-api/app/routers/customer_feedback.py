@@ -69,9 +69,10 @@ def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Dep
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
         raise HTTPException(status_code=400, detail="plan_id required")
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
     try:
         res = FeedbackBillingService.start_gocardless_signup(
-            db, org_id=principal.org_id, user_id=principal.user_id, plan_id=plan_id
+            db, org_id=principal.org_id, user_id=principal.user_id, plan_id=plan_id, billing_interval=billing_interval
         )
     except FeedbackBillingError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -104,8 +105,11 @@ def change_feedback_plan(payload: dict, db: Session = Depends(get_db), principal
     plan_id = str(payload.get("plan_id") or "").strip()
     if not plan_id:
         raise HTTPException(status_code=400, detail="plan_id required")
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
     try:
-        result = FeedbackBillingService.change_plan(db, org_id=principal.org_id, plan_id=plan_id)
+        result = FeedbackBillingService.change_plan(
+            db, org_id=principal.org_id, plan_id=plan_id, billing_interval=billing_interval
+        )
     except FeedbackBillingError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, **result, "subscription": FeedbackBillingService.subscription_payload(db, principal.org_id)}

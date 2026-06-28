@@ -45,18 +45,26 @@ function formatPackagePrice(pkg: FeedbackPackage, orgCurrency?: string, yearly =
 
 function buildPackageFeatures(pkg: FeedbackPackage): string[] {
   const webIncluded = pkg.web_units_included ?? 0;
+  const waIncluded = pkg.wa_units_included ?? 0;
   const webLine =
     webIncluded < 0
       ? "Unlimited web surveys/mo"
       : `${webIncluded.toLocaleString()} web surveys/mo`;
+  const totalLine =
+    webIncluded < 0
+      ? "Unlimited total responses/mo"
+      : `${(waIncluded + webIncluded).toLocaleString()} total responses/mo`;
   const defaults = [
     `${pkg.max_locations} location${pkg.max_locations === 1 ? "" : "s"}`,
-    `${pkg.wa_units_included.toLocaleString()} WhatsApp surveys/mo`,
+    `${waIncluded.toLocaleString()} WhatsApp surveys/mo`,
     webLine,
+    totalLine,
   ];
   const fromApi = pkg.features?.length ? [...pkg.features] : defaults;
   const hasWeb = fromApi.some((f) => /web survey/i.test(f));
+  const hasTotal = fromApi.some((f) => /total responses/i.test(f));
   if (!hasWeb) fromApi.push(webLine);
+  if (!hasTotal) fromApi.push(totalLine);
   return fromApi;
 }
 
@@ -80,7 +88,7 @@ function FeedbackPackagesPage() {
     setBusyPlanId(pkg.plan_id);
     try {
       if (subscription?.active) {
-        const result = await changeFeedbackPlan(pkg.plan_id);
+        const result = await changeFeedbackPlan(pkg.plan_id, billingInterval);
         const planName = pkg.plan_name || pkg.plan_code || "plan";
         toast.success(planChangeToast(result.direction, planName));
         setBusyPlanId(null);
@@ -90,7 +98,7 @@ function FeedbackPackagesPage() {
         ]);
         return;
       }
-      await startFeedbackGoCardlessSubscription(pkg.plan_id);
+      await startFeedbackGoCardlessSubscription(pkg.plan_id, billingInterval);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update subscription");
       setBusyPlanId(null);

@@ -82,6 +82,7 @@ class FeedbackBillingService:
             "web_units_used": usage.get("web_units_used", 0),
             "web_units_remaining": usage.get("web_units_remaining", 0),
             "payment_provider": sub.payment_provider,
+            "billing_interval": getattr(sub, "billing_interval", None) or "monthly",
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
             "finance": finance,
         }
@@ -203,6 +204,7 @@ class FeedbackBillingService:
         org_id: str,
         user_id: str,
         plan_id: str,
+        billing_interval: str | None = None,
     ) -> dict[str, Any]:
         plan = db.get(Plan, plan_id)
         if plan is None:
@@ -218,6 +220,7 @@ class FeedbackBillingService:
                 user_id=user_id,
                 plan_id=plan.id,
                 flow_purpose=FEEDBACK_SERVICE_CODE,
+                billing_interval=billing_interval,
             )
         except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
             raise FeedbackBillingError(str(exc)) from exc
@@ -354,7 +357,11 @@ class FeedbackBillingService:
         *,
         org_id: str,
         plan_id: str,
+        billing_interval: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.plan_price_service import PlanPriceService
+
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
         sub = BillingAccessService.get_feedback_subscription(db, org_id)
         if sub is None or str(sub.status or "").lower() not in {"active", "trial", "pending_first_payment"}:
             raise FeedbackBillingError("No active Customer feedback subscription")
@@ -444,6 +451,9 @@ class FeedbackBillingService:
 
             sub.plan_id = new_plan.id
             sub.pending_plan_id = None
+            sub.billing_interval = interval
+            _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+            sub.amount_next_payment_minor = next_minor
             sub.updated_at = datetime.utcnow()
             db.add(sub)
             db.commit()
@@ -488,6 +498,7 @@ class FeedbackBillingService:
 
         if new_monthly < old_monthly:
             sub.pending_plan_id = new_plan.id
+            sub.billing_interval = interval
             sub.updated_at = datetime.utcnow()
             db.add(sub)
             db.commit()
@@ -495,6 +506,9 @@ class FeedbackBillingService:
 
         sub.plan_id = new_plan.id
         sub.pending_plan_id = None
+        sub.billing_interval = interval
+        _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+        sub.amount_next_payment_minor = next_minor
         sub.updated_at = datetime.utcnow()
         db.add(sub)
         db.commit()

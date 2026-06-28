@@ -262,6 +262,7 @@ def change_subscription_plan(
             org_id=principal.org_id,
             plan_id=(payload.plan_id or "").strip() or None,
             plan_code=(payload.plan_code or "").strip() or None,
+            billing_interval=payload.billing_interval,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -479,6 +480,7 @@ def start_gocardless_checkout(
             user_id=principal.user_id,
             plan_id=(payload.plan_id or "").strip() or None,
             plan_code=(payload.plan_code or "").strip() or None,
+            billing_interval=payload.billing_interval,
         )
         return BillingRedirectStartOut(
             ok=True,

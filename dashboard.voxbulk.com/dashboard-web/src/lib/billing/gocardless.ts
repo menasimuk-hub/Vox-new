@@ -106,14 +106,14 @@ export function clearBillingQuery() {
   }
 }
 
-export async function startGoCardlessSubscription(planId: string) {
+export async function startGoCardlessSubscription(planId: string, billingInterval: "monthly" | "yearly" = "monthly") {
   const result = await apiFetch<{
     redirect_flow_id?: string;
     authorization_url?: string;
     environment?: string;
   }>("/billing/subscription/gocardless/start", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, billing_interval: billingInterval }),
   });
   const redirectFlowId = result?.redirect_flow_id;
   const authorizationUrl = result?.authorization_url;
@@ -131,13 +131,16 @@ export async function completeGoCardlessSubscription(redirectFlowId: string) {
   });
 }
 
-export async function startFeedbackGoCardlessSubscription(planId: string) {
+export async function startFeedbackGoCardlessSubscription(
+  planId: string,
+  billingInterval: "monthly" | "yearly" = "monthly",
+) {
   const result = await apiFetch<{
     redirect_flow_id?: string;
     authorization_url?: string;
   }>("/customer-feedback/subscription/gocardless/start", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, billing_interval: billingInterval }),
   });
   const redirectFlowId = result?.redirect_flow_id;
   const authorizationUrl = result?.authorization_url;

@@ -46,6 +46,7 @@ class SubscriptionOut(BaseModel):
     external_subscription_id: str | None = None
     mandate_id: str | None = None
     mandate_status: str | None = None
+    billing_interval: str | None = "monthly"
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -90,6 +91,13 @@ class BillingRedirectCompleteOut(BaseModel):
 class CashPlanSelectIn(BaseModel):
     plan_id: str | None = None
     plan_code: str | None = None
+    billing_interval: str = "monthly"
+
+    @model_validator(mode="after")
+    def normalize_interval(self):
+        raw = str(self.billing_interval or "monthly").strip().lower()
+        self.billing_interval = "yearly" if raw == "yearly" else "monthly"
+        return self
 
     @model_validator(mode="after")
     def require_plan_ref(self):

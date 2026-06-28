@@ -231,6 +231,28 @@ class PlanPriceService:
     # ------------------------------------------------------------------ rate resolution
 
     @staticmethod
+    def normalize_billing_interval(value: str | None) -> str:
+        return "yearly" if str(value or "").strip().lower() == "yearly" else "monthly"
+
+    @staticmethod
+    def billing_amount_for_org(
+        db: Session,
+        org: Organisation | None,
+        plan: Plan,
+        billing_interval: str | None = None,
+    ) -> tuple[str, int, str]:
+        """Return (currency, amount_minor, interval) for checkout / GoCardless."""
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
+        currency, monthly = PlanPriceService.monthly_minor_for_org(db, org, plan)
+        if interval == "yearly":
+            price_row = PlanPriceService.get_price(db, plan.id, currency)
+            yearly = int(price_row.yearly_price_minor or 0) if price_row else 0
+            if yearly <= 0:
+                yearly = int(monthly or 0) * 10
+            return currency, yearly, "yearly"
+        return currency, int(monthly or 0), "monthly"
+
+    @staticmethod
     def monthly_minor_for_org(db: Session, org: Organisation | None, plan: Plan) -> tuple[str, int]:
         """Resolve billing currency and monthly plan amount without cross-currency GBP fallback."""
         rates = PlanPriceService.rates_for_org(db, org, plan=plan)

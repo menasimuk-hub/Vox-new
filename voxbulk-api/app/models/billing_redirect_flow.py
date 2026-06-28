@@ -23,6 +23,7 @@ class BillingRedirectFlow(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="created")
     authorization_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     flow_purpose: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    billing_interval: Mapped[str | None] = mapped_column(String(10), nullable=True)
     previous_mandate_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
