@@ -76,6 +76,28 @@ def main() -> int:
 
         ProviderSettingsService.verify_zoom_oauth_persisted(db)
         print("\nverify_zoom_oauth_persisted: OK")
+
+        print("\n=== LIVE Zoom token + /users/me test (uses stored secret) ===")
+        try:
+            result = ZoomService.test_connection(db)
+            if result.get("ok"):
+                print(json.dumps({
+                    "live_zoom_auth": "OK",
+                    "email": result.get("email"),
+                    "account_id": result.get("account_id"),
+                    "type": result.get("type"),
+                }, indent=2))
+                print("\nThe stored Zoom secret is VALID. If the admin UI still fails after "
+                      "refresh, the browser is running an OLD admin bundle — hard refresh "
+                      "(Ctrl+Shift+R) and confirm admin build-info git_sha == deployed commit.")
+            else:
+                print(json.dumps({"live_zoom_auth": "FAILED", "detail": result.get("detail")}, indent=2))
+                print("\nThe stored secret is PRESENT but Zoom REJECTED it. Re-enter the "
+                      "Zoom client_secret in admin and Save — the value on file is wrong/expired.")
+                return 2
+        except ValueError as exc:
+            print(json.dumps({"live_zoom_auth": "ERROR", "detail": str(exc)}, indent=2))
+            return 2
         return 0
     finally:
         db.close()
