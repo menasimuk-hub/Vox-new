@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 MEETING_CHANNEL = "meeting"
 PHONE_CHANNEL = "phone"
 
+# Candidate can connect to the paid Telnyx room at most this many seconds before
+# the booked slot. Before that they sit in the (free) waiting area.
+MEETING_EARLY_JOIN_SECONDS = 60
+
 
 def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     try:
@@ -90,7 +94,10 @@ def _assert_meeting_slot_window(
     )
     if not eligible:
         if reason == "slot_not_due":
-            raise ValueError("Your interview slot has not started yet — please join at your booked time")
+            slot_start = row.booked_start_at
+            if slot_start is not None and now >= slot_start - timedelta(seconds=MEETING_EARLY_JOIN_SECONDS):
+                return
+            raise ValueError("Your interview room opens 1 minute before your booked time — please wait")
         if reason == "slot_missed":
             raise ValueError("Your booked interview slot has passed — contact the employer to reschedule")
         if reason == "not_booked":

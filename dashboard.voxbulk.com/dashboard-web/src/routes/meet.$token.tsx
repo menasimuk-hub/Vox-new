@@ -38,6 +38,44 @@ function InterviewMeetingRoomPage() {
   const [meta, setMeta] = React.useState<MeetingStartResponse | null>(null);
   const [muted, setMuted] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
+  const [booking, setBooking] = React.useState<{
+    candidate_name?: string;
+    role?: string;
+    booked_start_at?: string | null;
+    channel?: string | null;
+  } | null>(null);
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+
+  // Room opens 1 minute before the booked slot (matches backend early-join window).
+  const EARLY_JOIN_MS = 60_000;
+  const slotMs = booking?.booked_start_at ? new Date(booking.booked_start_at).getTime() : null;
+  const msUntilOpen = slotMs != null ? slotMs - EARLY_JOIN_MS - nowMs : 0;
+  const canJoin = slotMs == null || msUntilOpen <= 0;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void publicApiFetch<{
+      candidate_name?: string;
+      role?: string;
+      booked_start_at?: string | null;
+      channel?: string | null;
+    }>(`/public/interview-booking/${encodeURIComponent(token)}`)
+      .then((res) => {
+        if (!cancelled) setBooking(res);
+      })
+      .catch(() => {
+        /* waiting area still works; join will surface any error */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  React.useEffect(() => {
+    if (phase !== "idle" || canJoin) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [phase, canJoin]);
 
   const cleanupRtc = React.useCallback(() => {
     try {
@@ -161,8 +199,13 @@ function InterviewMeetingRoomPage() {
 
   const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const secs = String(elapsed % 60).padStart(2, "0");
-  const role = meta?.role || "Interview";
-  const name = meta?.candidate_name || "Candidate";
+  const role = meta?.role || booking?.role || "Interview";
+  const name = meta?.candidate_name || booking?.candidate_name || "Candidate";
+
+  const waitTotal = Math.max(0, Math.ceil(msUntilOpen / 1000));
+  const waitMins = String(Math.floor(waitTotal / 60)).padStart(2, "0");
+  const waitSecs = String(waitTotal % 60).padStart(2, "0");
+  const slotTimeLabel = slotMs != null ? new Date(slotMs).toLocaleString() : "";
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-[#eef2f6]">
@@ -195,12 +238,24 @@ function InterviewMeetingRoomPage() {
                   <ShieldCheck className="size-4 text-violet-400" />
                   No camera required · secure browser audio
                 </div>
+                {!canJoin ? (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-5">
+                    <p className="text-xs uppercase tracking-wider text-slate-400">Waiting room</p>
+                    <p className="mt-2 text-3xl font-semibold tabular-nums text-white">
+                      {waitMins}:{waitSecs}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Your interview starts at {slotTimeLabel}. The room opens 1 minute before — keep this page open.
+                    </p>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void joinMeeting()}
-                  className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500"
+                  disabled={!canJoin}
+                  className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400"
                 >
-                  Join interview room
+                  {canJoin ? "Join interview room" : "Room opens soon…"}
                 </button>
                 <p className="text-xs text-slate-500">Use headphones if possible for the clearest conversation.</p>
               </div>

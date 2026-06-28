@@ -21,13 +21,21 @@ from app.services.interview_booking_service import (
     _recipient_outreach_email,
     _recipient_result,
     interview_slot_minutes,
+    meeting_url_for_token,
 )
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
 
 REMINDER_MINUTES = 30
+# Online-meeting candidates get a shorter, link-carrying reminder so they are not
+# sitting waiting too long (the room itself is only billable once they connect).
+MEETING_REMINDER_MINUTES = 10
 REMINDER_WINDOW_MINUTES = 2
+
+
+def _reminder_target_minutes(channel: str | None) -> int:
+    return MEETING_REMINDER_MINUTES if str(channel or "").strip().lower() == "meeting" else REMINDER_MINUTES
 
 
 def _order_config(order: ServiceOrder) -> dict[str, Any]:
@@ -46,7 +54,9 @@ class InterviewBookingReminderService:
         when booked_start_at is about 30 minutes from now (±2 min).
         """
         now = datetime.utcnow()
-        window_start = now + timedelta(minutes=REMINDER_MINUTES - REMINDER_WINDOW_MINUTES)
+        # Broad window covers both the 10-min meeting reminder and the 30-min phone reminder;
+        # the exact target is decided per-row by channel below.
+        window_start = now + timedelta(minutes=MEETING_REMINDER_MINUTES - REMINDER_WINDOW_MINUTES)
         window_end = now + timedelta(minutes=REMINDER_MINUTES + REMINDER_WINDOW_MINUTES)
 
         rows = list(
@@ -79,6 +89,11 @@ class InterviewBookingReminderService:
                 continue
             status = str(recipient.status or "pending").lower()
             if status in {"completed", "done", "calling", "in_progress", "ringing"}:
+                skipped += 1
+                continue
+            target = _reminder_target_minutes(token_row.channel)
+            minutes_until = (token_row.booked_start_at - now).total_seconds() / 60.0
+            if abs(minutes_until - target) > REMINDER_WINDOW_MINUTES:
                 skipped += 1
                 continue
             try:
@@ -141,12 +156,29 @@ class InterviewBookingReminderService:
                     extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
                 )
 
+        is_meeting = str(token_row.channel or "").strip().lower() == "meeting"
+        meeting_url = meeting_url_for_token(token) if (is_meeting and token) else ""
+        if is_meeting:
+            channel_note = "Join the online meeting room using the link below — it opens 1 minute before your time."
+            meeting_link_html = (
+                f'<p style="margin:16px 0;"><a href="{meeting_url}" style="display:inline-block;padding:12px 18px;background:#1a2d5c;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Join online meeting</a></p>'
+                f'<p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{meeting_url}" style="color:#1a2d5c;">{meeting_url}</a></p>'
+                if meeting_url
+                else ""
+            )
+        else:
+            channel_note = "Please keep your phone nearby — we will call you at the booked time."
+            meeting_link_html = ""
+
         variables = {
             "candidate_name": recipient.name or "there",
             "role": role,
             "company_name": company_name,
             "interview_date": date_line,
             "interview_time": time_line,
+            "interview_channel_note": channel_note,
+            "meeting_link_html": meeting_link_html,
+            "meeting_url": meeting_url,
             **calendar_vars,
         }
 
@@ -177,10 +209,17 @@ class InterviewBookingReminderService:
             err_notes.append("email:no_recipient_email")
 
         if recipient.phone:
-            body = (
-                f"Hi {first}, reminder: your {role} interview with {company_name} "
-                f"is in about 30 minutes ({date_line} at {time_line}). We will call you on this number."
-            )
+            if is_meeting:
+                body = (
+                    f"Hi {first}, reminder: your {role} interview with {company_name} "
+                    f"starts at {time_line} on {date_line}. Join the online room: {meeting_url}"
+                )
+            else:
+                body = (
+                    f"Hi {first}, reminder: your {role} interview with {company_name} "
+                    f"is in about {MEETING_REMINDER_MINUTES if is_meeting else REMINDER_MINUTES} minutes "
+                    f"({date_line} at {time_line}). We will call you on this number."
+                )
             try:
                 from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 

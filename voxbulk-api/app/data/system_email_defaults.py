@@ -190,13 +190,14 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
         "body": wrap_interview_email(
             title="Interview starting soon",
             inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
-  <p>This is a reminder that your <strong>{{role}}</strong> phone interview with <strong>{{company_name}}</strong> starts in about 30 minutes.</p>
+  <p>This is a reminder that your <strong>{{role}}</strong> interview with <strong>{{company_name}}</strong> starts soon.</p>
   <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">
     <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
     <p style="margin:0;"><strong>Time:</strong> {{interview_time}}</p>
   </div>
+  {{meeting_link_html}}
   {{calendar_links_html}}
-  <p style="font-size:13px;color:#6b6560;">Please keep your phone nearby — we will call you at the booked time.</p>""",
+  <p style="font-size:13px;color:#6b6560;">{{interview_channel_note}}</p>""",
         ),
     },
     "interview_booking_reschedule_link": {
