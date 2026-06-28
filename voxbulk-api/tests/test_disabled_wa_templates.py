@@ -19,10 +19,11 @@ def _session():
 def test_add_names_dedup_and_disable_platform():
     db = _session()
     try:
+        tpl_name = f"voxbulk_survey_test_disable_{uuid.uuid4().hex[:8]}"
         tpl = TelnyxWhatsappTemplate(
             telnyx_record_id=f"rec-{uuid.uuid4().hex[:8]}",
             template_id=f"tpl-{uuid.uuid4().hex[:8]}",
-            name="voxbulk_survey_test_disable_me",
+            name=tpl_name,
             language="en_US",
             status="APPROVED",
             active_for_survey=True,
@@ -33,7 +34,7 @@ def test_add_names_dedup_and_disable_platform():
         db.commit()
         db.refresh(tpl)
 
-        first = DisabledWaTemplateService.add_names(db, ["voxbulk_survey_test_disable_me", "voxbulk_survey_test_disable_me"])
+        first = DisabledWaTemplateService.add_names(db, [tpl_name, tpl_name])
         assert first["added"] == 1
         assert first["duplicates"] == 1
         assert len(first["items"]) == 1
@@ -60,14 +61,14 @@ def test_disable_feedback_template():
     try:
         industry = FeedbackIndustry(
             id=str(uuid.uuid4()),
-            slug="test-ind",
+            slug=f"test-ind-{uuid.uuid4().hex[:6]}",
             name="Test Industry",
             is_active=True,
         )
         survey_type = FeedbackSurveyType(
             id=str(uuid.uuid4()),
             industry_id=industry.id,
-            slug="overall",
+            slug=f"overall-{uuid.uuid4().hex[:6]}",
             name="Overall experience",
             is_active=True,
         )
@@ -108,5 +109,60 @@ def test_disable_feedback_template():
         db.refresh(fb_tpl)
         assert fb_tpl.is_active is True
         assert db.get(DisabledWaTemplate, row_id) is None
+    finally:
+        db.close()
+
+
+def test_disabled_template_hides_survey_type_from_user_picker():
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+    from app.services.customer_feedback.feedback_telnyx_push_service import feedback_meta_template_name
+
+    db = _session()
+    try:
+        industry = FeedbackIndustry(
+            id=str(uuid.uuid4()), slug=f"ind-{uuid.uuid4().hex[:6]}", name="Hide Test Industry", is_active=True
+        )
+        survey_type = FeedbackSurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug=f"hidden-topic-{uuid.uuid4().hex[:6]}",
+            name="Hidden Topic",
+            is_active=True,
+        )
+        db.add(industry)
+        db.add(survey_type)
+        db.flush()
+        fb_tpl = FeedbackWaTemplate(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            template_key="welcome",
+            body_text="Hi",
+            is_active=True,
+        )
+        db.add(fb_tpl)
+        db.commit()
+
+        meta_name = feedback_meta_template_name(
+            fb_tpl, industry_slug=industry.slug, survey_type_slug=survey_type.slug, name_anchor_id=fb_tpl.id
+        )
+
+        # Visible to the user before disabling.
+        before = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert any(t["id"] == survey_type.id for t in before)
+
+        result = DisabledWaTemplateService.add_names(db, [meta_name])
+        DisabledWaTemplateService.set_disabled(db, result["items"][0]["id"], True)
+
+        # Hidden from the user picker, still present for admin (exclude_disabled=False).
+        after_user = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert all(t["id"] != survey_type.id for t in after_user)
+        after_admin = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id)
+        assert any(t["id"] == survey_type.id for t in after_admin)
+
+        # Re-enabling brings it back for the user.
+        DisabledWaTemplateService.set_disabled(db, result["items"][0]["id"], False)
+        restored = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert any(t["id"] == survey_type.id for t in restored)
     finally:
         db.close()

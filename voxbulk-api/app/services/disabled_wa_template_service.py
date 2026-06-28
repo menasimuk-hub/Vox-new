@@ -133,6 +133,44 @@ def _apply_enable(db: Session, row: DisabledWaTemplate) -> None:
 
 class DisabledWaTemplateService:
     @staticmethod
+    def hidden_feedback_survey_type_ids(db: Session) -> set[str]:
+        """Customer-feedback survey type ids that must be hidden from the user dashboard
+        because a WA template tied to them is currently disabled."""
+        ids: set[str] = set()
+        rows = db.execute(
+            select(DisabledWaTemplate).where(
+                DisabledWaTemplate.disabled.is_(True),
+                DisabledWaTemplate.target_kind == "feedback",
+                DisabledWaTemplate.target_id.is_not(None),
+            )
+        ).scalars()
+        for row in rows:
+            tpl = db.get(FeedbackWaTemplate, row.target_id)
+            if tpl is not None and tpl.survey_type_id:
+                ids.add(tpl.survey_type_id)
+        return ids
+
+    @staticmethod
+    def hidden_platform_survey_type_ids(db: Session) -> set[str]:
+        """Platform WA survey type ids hidden because a tied template is disabled."""
+        ids: set[str] = set()
+        rows = db.execute(
+            select(DisabledWaTemplate).where(
+                DisabledWaTemplate.disabled.is_(True),
+                DisabledWaTemplate.target_kind == "platform",
+                DisabledWaTemplate.target_id.is_not(None),
+            )
+        ).scalars()
+        for row in rows:
+            try:
+                tpl = db.get(TelnyxWhatsappTemplate, int(row.target_id))
+            except (TypeError, ValueError):
+                tpl = None
+            if tpl is not None and tpl.survey_type_id:
+                ids.add(tpl.survey_type_id)
+        return ids
+
+    @staticmethod
     def list_rows(db: Session) -> list[dict[str, Any]]:
         rows = list(
             db.execute(

@@ -206,7 +206,13 @@ class FeedbackCatalogService:
         }
 
     @staticmethod
-    def list_survey_types(db: Session, *, industry_id: str | None = None, include_archived: bool = False) -> list[dict[str, Any]]:
+    def list_survey_types(
+        db: Session,
+        *,
+        industry_id: str | None = None,
+        include_archived: bool = False,
+        exclude_disabled: bool = False,
+    ) -> list[dict[str, Any]]:
         FeedbackCatalogService.ensure_ready(db)
         q = select(FeedbackSurveyType).order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
         if industry_id:
@@ -214,6 +220,12 @@ class FeedbackCatalogService:
         if not include_archived:
             q = q.where(FeedbackSurveyType.archived_at.is_(None), FeedbackSurveyType.is_active.is_(True))
         rows = list(db.execute(q).scalars().all())
+        if exclude_disabled:
+            from app.services.disabled_wa_template_service import DisabledWaTemplateService
+
+            hidden = DisabledWaTemplateService.hidden_feedback_survey_type_ids(db)
+            if hidden:
+                rows = [r for r in rows if r.id not in hidden]
         return [survey_type_to_dict(r) for r in rows]
 
     @staticmethod
