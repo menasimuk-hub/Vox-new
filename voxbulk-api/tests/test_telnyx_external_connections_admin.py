@@ -155,6 +155,142 @@ def test_zoom_secret_readable_after_new_db_session(app_client):
         assert zoom_cfg["account_id"] == "acct-restart-test"
 
 
+def test_zoom_survives_main_telnyx_resave_and_restart_session(app_client):
+    """Zoom creds from /telnyx/zoom-oauth must survive main Telnyx save + fresh DB session."""
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "acct-after-resave",
+            "client_id": "client-after-resave",
+            "client_secret": "secret-after-resave",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
+    telnyx_res = app_client.put(
+        "/admin/integrations/telnyx",
+        json={
+            "is_enabled": True,
+            "config": {
+                "connection_id": "conn-resave-777",
+                "voice_api_application_id": "conn-resave-777",
+                "default_outbound_number": "+15550001111",
+                "voice_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/voice",
+                "status_callback_url": "https://api.voxbulk.com/telnyx/webhooks/status",
+                "messaging_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/messages",
+            },
+        },
+        headers=headers,
+    )
+    assert telnyx_res.status_code == 200, telnyx_res.text
+
+    from app.core.database import get_sessionmaker
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+        assert cfg["account_id"] == "acct-after-resave"
+        assert cfg["client_id"] == "client-after-resave"
+        assert cfg["client_secret"] == "secret-after-resave"
+
+
+def test_main_telnyx_resave_does_not_prefer_stale_zoom_creds(app_client):
+    """Canonical provider=zoom row must win even when telnyx.updated_at is newer with stale zoom_*."""
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    from app.core.database import get_sessionmaker
+    from app.services.provider_settings import ProviderSettingsService
+
+    with get_sessionmaker()() as db:
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="telnyx",
+            is_enabled=True,
+            config={
+                "zoom_account_id": "stale-acct",
+                "zoom_client_id": "stale-client",
+                "zoom_client_secret": "stale-secret",
+            },
+            zoom_oauth_save=True,
+        )
+
+    fresh = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "fresh-acct",
+            "client_id": "fresh-client",
+            "client_secret": "fresh-secret",
+        },
+        headers=headers,
+    )
+    assert fresh.status_code == 200, fresh.text
+
+    telnyx_res = app_client.put(
+        "/admin/integrations/telnyx",
+        json={
+            "is_enabled": True,
+            "config": {
+                "connection_id": "conn-stale-test",
+                "voice_api_application_id": "conn-stale-test",
+                "default_outbound_number": "+15550001111",
+                "voice_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/voice",
+                "status_callback_url": "https://api.voxbulk.com/telnyx/webhooks/status",
+                "messaging_webhook_url": "https://api.voxbulk.com/telnyx/webhooks/messages",
+            },
+        },
+        headers=headers,
+    )
+    assert telnyx_res.status_code == 200, telnyx_res.text
+
+    with get_sessionmaker()() as db:
+        from app.services.zoom_service import ZoomService
+
+        cfg = ZoomService._config(db)
+        assert cfg["account_id"] == "fresh-acct"
+        assert cfg["client_id"] == "fresh-client"
+        assert cfg["client_secret"] == "fresh-secret"
+
+
+def test_env_fallback_not_used_when_db_has_zoom_row(app_client, monkeypatch):
+    """DB credentials must win over .env when provider=zoom row is populated."""
+    monkeypatch.setenv("ZOOM_ACCOUNT_ID", "env-acct")
+    monkeypatch.setenv("ZOOM_CLIENT_ID", "env-client")
+    monkeypatch.setenv("ZOOM_CLIENT_SECRET", "env-secret")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    headers = _admin_headers(app_client)
+    _save_telnyx_minimal(app_client, headers)
+
+    res = app_client.put(
+        "/admin/integrations/telnyx/zoom-oauth",
+        json={
+            "account_id": "db-acct",
+            "client_id": "db-client",
+            "client_secret": "db-secret",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
+    from app.core.database import get_sessionmaker
+    from app.services.zoom_service import ZoomService
+
+    with get_sessionmaker()() as db:
+        cfg = ZoomService._config(db)
+        assert cfg["account_id"] == "db-acct"
+        assert cfg["client_id"] == "db-client"
+        assert cfg["client_secret"] == "db-secret"
+
+    get_settings.cache_clear()
+
+
 def test_admin_telnyx_zoom_external_connection_create_and_test(app_client, monkeypatch):
     headers = _admin_headers(app_client)
     _save_telnyx_minimal(app_client, headers)

@@ -18,6 +18,15 @@ _MESSAGING_PROFILE_UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
+# Zoom OAuth fields stored on the telnyx provider row (mirrored to provider=zoom).
+_TELNYX_ZOOM_KEYS = (
+    "zoom_account_id",
+    "zoom_client_id",
+    "zoom_client_secret",
+    "zoom_base_url",
+    "zoom_oauth_updated_at",
+)
+
 
 class ProviderUnknown(ValueError):
     pass
@@ -159,24 +168,40 @@ class ProviderSettingsService:
         is_enabled: bool,
         config: dict[str, Any],
         visible_to_orgs: bool | None = None,
+        zoom_oauth_save: bool = False,
+        mirror_direction: str | None = None,
     ) -> ProviderConfig:
         provider = provider.lower()
         ProviderSettingsService._assert_provider(provider)
+        incoming_patch = dict(config)
         enc = get_encryptor()
         existing = ProviderSettingsService.get_platform_config(db, provider=provider)
+        current: dict[str, Any] = {}
         if existing is not None:
             try:
-                current = json.loads(enc.decrypt_str(existing.encrypted_json))
+                decrypted = json.loads(enc.decrypt_str(existing.encrypted_json))
             except Exception as exc:
                 logger.error("provider_config_decrypt_failed provider=%s", provider, exc_info=exc)
                 raise ValueError(
                     "Could not decrypt existing provider settings. "
                     "Check ENCRYPTION_KEY in voxbulk-api/.env has not changed."
                 ) from exc
-            if isinstance(current, dict):
+            if isinstance(decrypted, dict):
+                current = decrypted
                 config = ProviderSettingsService._merge_preserving_secrets(current, config, provider)
             else:
                 raise ValueError(f"Stored settings for {provider} are invalid; contact support.")
+
+        # Main Telnyx save must not touch Zoom OAuth fields unless this is an explicit zoom-oauth save.
+        if provider == "telnyx" and current and not zoom_oauth_save:
+            incoming_has_zoom_secret = "zoom_client_secret" in incoming_patch
+            incoming_has_any_zoom = any(k in incoming_patch for k in _TELNYX_ZOOM_KEYS)
+            if not incoming_has_zoom_secret and not incoming_has_any_zoom:
+                for key in _TELNYX_ZOOM_KEYS:
+                    if key in current:
+                        config[key] = current[key]
+            elif not incoming_has_zoom_secret and "zoom_client_secret" in current:
+                config["zoom_client_secret"] = current["zoom_client_secret"]
 
         if provider == "openai":
             config = ProviderSettingsService._validate_openai_config(config)
@@ -220,6 +245,7 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_gocardless_config(config)
         if provider == "zoom":
             config = ProviderSettingsService._validate_zoom_config(config)
+            config["zoom_oauth_updated_at"] = datetime.utcnow().isoformat() + "Z"
         if provider == "calendly":
             config = ProviderSettingsService._validate_calendly_config(config)
         if provider == "cal_com":
@@ -269,7 +295,12 @@ class ProviderSettingsService:
         db.commit()
         db.refresh(obj)
         if provider == "telnyx":
-            ProviderSettingsService._mirror_telnyx_zoom_to_zoom_provider(db, config)
+            if zoom_oauth_save and mirror_direction != "from_zoom":
+                ProviderSettingsService._mirror_telnyx_zoom_to_zoom_provider(db, config)
+            elif not zoom_oauth_save:
+                ProviderSettingsService._reconcile_telnyx_zoom_from_canonical(db)
+        elif provider == "zoom" and mirror_direction != "from_telnyx":
+            ProviderSettingsService._mirror_zoom_to_telnyx_provider(db, config)
         return obj
 
     @staticmethod
@@ -301,6 +332,7 @@ class ProviderSettingsService:
             "zoom_account_id": account_id,
             "zoom_client_id": client_id,
             "zoom_client_secret": resolved_secret,
+            "zoom_oauth_updated_at": datetime.utcnow().isoformat() + "Z",
         }
         base = str(base_url or (cfg or {}).get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
         if base:
@@ -314,19 +346,36 @@ class ProviderSettingsService:
             provider="telnyx",
             is_enabled=telnyx_is_enabled,
             config=patch,
+            zoom_oauth_save=True,
         )
 
     @staticmethod
-    def verify_telnyx_zoom_oauth_persisted(db: Session) -> None:
-        """Raise if Zoom OAuth credentials did not persist to telnyx + zoom provider rows."""
-        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-        secret = str((cfg or {}).get("zoom_client_secret") or "").strip()
-        if not secret:
-            raise ValueError("Zoom client_secret was not saved to the database")
+    def verify_zoom_oauth_persisted(db: Session) -> None:
+        """Raise if Zoom OAuth credentials did not persist to zoom (+ telnyx when enabled)."""
         zoom_cfg, _zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-        mirror_secret = str((zoom_cfg or {}).get("client_secret") or "").strip()
-        if not mirror_secret:
-            raise ValueError("Zoom client_secret mirror was not saved to the database")
+        zoom_secret = str((zoom_cfg or {}).get("client_secret") or "").strip()
+        if not zoom_secret:
+            raise ValueError("Zoom client_secret was not saved to the database (provider=zoom)")
+        zoom_account = str((zoom_cfg or {}).get("account_id") or "").strip()
+        zoom_client = str((zoom_cfg or {}).get("client_id") or "").strip()
+        if not zoom_account or not zoom_client:
+            raise ValueError("Zoom account_id/client_id were not saved to the database (provider=zoom)")
+        telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+        if telnyx_obj is None or not telnyx_obj.is_enabled:
+            return
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        telnyx_secret = str((cfg or {}).get("zoom_client_secret") or "").strip()
+        if not telnyx_secret:
+            raise ValueError("Zoom client_secret was not saved to the database (provider=telnyx)")
+        telnyx_account = str((cfg or {}).get("zoom_account_id") or "").strip()
+        telnyx_client = str((cfg or {}).get("zoom_client_id") or "").strip()
+        if not telnyx_account or not telnyx_client:
+            raise ValueError("Zoom account_id/client_id were not saved to the database (provider=telnyx)")
+
+    @staticmethod
+    def verify_telnyx_zoom_oauth_persisted(db: Session) -> None:
+        """Backward-compatible alias — delegates to verify_zoom_oauth_persisted."""
+        ProviderSettingsService.verify_zoom_oauth_persisted(db)
 
     @staticmethod
     def _mirror_telnyx_zoom_to_zoom_provider(db: Session, telnyx_config: dict[str, Any]) -> None:
@@ -337,6 +386,7 @@ class ProviderSettingsService:
         if not (account_id and client_id and client_secret):
             return
         base_url = str(telnyx_config.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/") or "https://api.zoom.us/v2"
+        oauth_updated = str(telnyx_config.get("zoom_oauth_updated_at") or datetime.utcnow().isoformat() + "Z")
         ProviderSettingsService.upsert_platform_config(
             db,
             provider="zoom",
@@ -346,7 +396,77 @@ class ProviderSettingsService:
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "base_url": base_url,
+                "zoom_oauth_updated_at": oauth_updated,
             },
+            zoom_oauth_save=True,
+            mirror_direction="from_telnyx",
+        )
+
+    @staticmethod
+    def _mirror_zoom_to_telnyx_provider(db: Session, zoom_config: dict[str, Any]) -> None:
+        """Keep telnyx.zoom_* in sync when admins save on Integrations → Zoom."""
+        account_id = str(zoom_config.get("account_id") or "").strip()
+        client_id = str(zoom_config.get("client_id") or "").strip()
+        client_secret = str(zoom_config.get("client_secret") or "").strip()
+        if not (account_id and client_id and client_secret):
+            return
+        telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+        if telnyx_obj is None:
+            return
+        base_url = str(zoom_config.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/") or "https://api.zoom.us/v2"
+        oauth_updated = str(zoom_config.get("zoom_oauth_updated_at") or datetime.utcnow().isoformat() + "Z")
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="telnyx",
+            is_enabled=bool(telnyx_obj.is_enabled),
+            config={
+                "zoom_account_id": account_id,
+                "zoom_client_id": client_id,
+                "zoom_client_secret": client_secret,
+                "zoom_base_url": base_url,
+                "zoom_oauth_updated_at": oauth_updated,
+            },
+            zoom_oauth_save=True,
+            mirror_direction="from_zoom",
+        )
+
+    @staticmethod
+    def _reconcile_telnyx_zoom_from_canonical(db: Session) -> None:
+        """After a main Telnyx save, copy canonical zoom-row creds onto telnyx.zoom_* if complete."""
+        zoom_cfg, _zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+        if not zoom_cfg:
+            return
+        account_id = str(zoom_cfg.get("account_id") or "").strip()
+        client_id = str(zoom_cfg.get("client_id") or "").strip()
+        client_secret = str(zoom_cfg.get("client_secret") or "").strip()
+        if not (account_id and client_id and client_secret):
+            return
+        telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
+        if telnyx_obj is None:
+            return
+        telnyx_cfg, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        telnyx_cfg = telnyx_cfg or {}
+        if (
+            str(telnyx_cfg.get("zoom_account_id") or "").strip() == account_id
+            and str(telnyx_cfg.get("zoom_client_id") or "").strip() == client_id
+            and str(telnyx_cfg.get("zoom_client_secret") or "").strip() == client_secret
+        ):
+            return
+        base_url = str(zoom_cfg.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/") or "https://api.zoom.us/v2"
+        oauth_updated = str(zoom_cfg.get("zoom_oauth_updated_at") or datetime.utcnow().isoformat() + "Z")
+        ProviderSettingsService.upsert_platform_config(
+            db,
+            provider="telnyx",
+            is_enabled=bool(telnyx_obj.is_enabled),
+            config={
+                "zoom_account_id": account_id,
+                "zoom_client_id": client_id,
+                "zoom_client_secret": client_secret,
+                "zoom_base_url": base_url,
+                "zoom_oauth_updated_at": oauth_updated,
+            },
+            zoom_oauth_save=True,
+            mirror_direction="from_zoom",
         )
 
     @staticmethod
@@ -854,8 +974,6 @@ class ProviderSettingsService:
         zoom_client_secret = str(cfg.get("zoom_client_secret") or "").strip()
         if zoom_client_secret:
             cfg["zoom_client_secret"] = zoom_client_secret
-        else:
-            cfg.pop("zoom_client_secret", None)
         zoom_base_url = str(cfg.get("zoom_base_url") or "").strip().rstrip("/")
         if zoom_base_url:
             cfg["zoom_base_url"] = zoom_base_url

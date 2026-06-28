@@ -13,70 +13,6 @@ class ZoomService:
     TOKEN_URL = "https://zoom.us/oauth/token"
 
     @staticmethod
-    def _config(db: Session) -> dict[str, Any]:
-        cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
-        cfg = cfg or {}
-        account_id = str(cfg.get("account_id") or "").strip()
-        client_id = str(cfg.get("client_id") or "").strip()
-        client_secret = str(cfg.get("client_secret") or "").strip()
-        base_url = str(cfg.get("base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
-        zoom_complete = bool(account_id and client_id and client_secret)
-
-        # UX fallback: admins often manage Zoom credentials from Telnyx -> Zoom.
-        # Prefer explicit Zoom config unless it is missing/disabled, or Telnyx Zoom
-        # credentials were updated more recently than Zoom credentials.
-        telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-        telnyx_cfg = telnyx_cfg or {}
-        telnyx_account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
-        telnyx_client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
-        telnyx_client_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
-        telnyx_base_url = str(telnyx_cfg.get("zoom_base_url") or "").strip().rstrip("/")
-        telnyx_complete = bool(telnyx_account_id and telnyx_client_id and telnyx_client_secret)
-
-        # If Telnyx row lost the secret but IDs remain, recover from mirrored zoom provider row.
-        if telnyx_enabled and telnyx_account_id and telnyx_client_id and not telnyx_client_secret and client_secret:
-            telnyx_client_secret = client_secret
-            telnyx_complete = True
-
-        if telnyx_enabled and telnyx_complete:
-            use_telnyx = True
-            if enabled and zoom_complete:
-                zoom_obj = ProviderSettingsService.get_platform_config(db, provider="zoom")
-                telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
-                zoom_updated = getattr(zoom_obj, "updated_at", None)
-                telnyx_updated = getattr(telnyx_obj, "updated_at", None)
-                if zoom_updated is not None and telnyx_updated is not None and zoom_updated > telnyx_updated:
-                    use_telnyx = False
-            if use_telnyx:
-                account_id = telnyx_account_id
-                client_id = telnyx_client_id
-                client_secret = telnyx_client_secret
-                base_url = telnyx_base_url or base_url or "https://api.zoom.us/v2"
-        elif telnyx_enabled and (not enabled or not zoom_complete):
-            account_id = account_id or telnyx_account_id
-            client_id = client_id or telnyx_client_id
-            client_secret = client_secret or telnyx_client_secret
-            base_url = telnyx_base_url or base_url or "https://api.zoom.us/v2"
-
-        # Final fallback: .env credentials. Guarantees the platform Zoom integration
-        # keeps working across restarts/deploys even if the encrypted DB row is empty
-        # or unreadable. DB values always take precedence when present.
-        env_account_id, env_client_id, env_client_secret, env_base_url = ZoomService._env_credentials()
-        account_id = account_id or env_account_id
-        client_id = client_id or env_client_id
-        client_secret = client_secret or env_client_secret
-        base_url = base_url or env_base_url or "https://api.zoom.us/v2"
-
-        if not account_id or not client_id or not client_secret:
-            raise ValueError("Zoom account_id, client_id and client_secret are required")
-        return {
-            "account_id": account_id,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "base_url": base_url,
-        }
-
-    @staticmethod
     def _env_credentials() -> tuple[str, str, str, str]:
         from app.core.config import get_settings
 
@@ -89,8 +25,79 @@ class ZoomService:
         )
 
     @staticmethod
+    def _db_has_any_zoom_data(
+        zoom_cfg: dict[str, Any],
+        telnyx_cfg: dict[str, Any],
+    ) -> bool:
+        """True when either provider row has any Zoom credential field stored."""
+        for key in ("account_id", "client_id", "client_secret", "base_url"):
+            if str(zoom_cfg.get(key) or "").strip():
+                return True
+        for key in ("zoom_account_id", "zoom_client_id", "zoom_client_secret", "zoom_base_url"):
+            if str(telnyx_cfg.get(key) or "").strip():
+                return True
+        return False
+
+    @staticmethod
+    def _config(db: Session) -> dict[str, Any]:
+        """Resolve Zoom OAuth credentials — DB-first, provider=zoom row is canonical."""
+        zoom_cfg, _zoom_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="zoom")
+        zoom_cfg = zoom_cfg or {}
+        zoom_account = str(zoom_cfg.get("account_id") or "").strip()
+        zoom_client = str(zoom_cfg.get("client_id") or "").strip()
+        zoom_secret = str(zoom_cfg.get("client_secret") or "").strip()
+        zoom_base = str(zoom_cfg.get("base_url") or "").strip().rstrip("/")
+        zoom_complete = bool(zoom_account and zoom_client and zoom_secret)
+
+        telnyx_cfg, _telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        telnyx_cfg = telnyx_cfg or {}
+        telnyx_account = str(telnyx_cfg.get("zoom_account_id") or "").strip()
+        telnyx_client = str(telnyx_cfg.get("zoom_client_id") or "").strip()
+        telnyx_secret = str(telnyx_cfg.get("zoom_client_secret") or "").strip()
+        telnyx_base = str(telnyx_cfg.get("zoom_base_url") or "").strip().rstrip("/")
+        telnyx_complete = bool(telnyx_account and telnyx_client and telnyx_secret)
+
+        default_base = "https://api.zoom.us/v2"
+
+        # Single source of truth: prefer the standalone zoom provider row when complete.
+        if zoom_complete:
+            account_id = zoom_account
+            client_id = zoom_client
+            client_secret = zoom_secret
+            base_url = zoom_base or default_base
+        elif telnyx_complete:
+            account_id = telnyx_account
+            client_id = telnyx_client
+            client_secret = telnyx_secret
+            base_url = telnyx_base or default_base
+        else:
+            # Partial merge from both DB rows (no .env yet).
+            account_id = zoom_account or telnyx_account
+            client_id = zoom_client or telnyx_client
+            client_secret = zoom_secret or telnyx_secret
+            base_url = zoom_base or telnyx_base or default_base
+
+        # .env bootstrap only when both DB sources are completely empty.
+        if not ZoomService._db_has_any_zoom_data(zoom_cfg, telnyx_cfg):
+            env_account, env_client, env_secret, env_base = ZoomService._env_credentials()
+            account_id = account_id or env_account
+            client_id = client_id or env_client
+            client_secret = client_secret or env_secret
+            base_url = base_url or env_base or default_base
+
+        if not account_id or not client_id or not client_secret:
+            raise ValueError("Zoom account_id, client_id and client_secret are required")
+        return {
+            "account_id": account_id,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "base_url": base_url or default_base,
+        }
+
+    @staticmethod
     def _telnyx_zoom_config(db: Session) -> dict[str, Any] | None:
-        telnyx_cfg, telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        """Secondary credential candidate for token retry (telnyx.zoom_* row)."""
+        telnyx_cfg, _telnyx_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
         telnyx_cfg = telnyx_cfg or {}
         account_id = str(telnyx_cfg.get("zoom_account_id") or "").strip()
         client_id = str(telnyx_cfg.get("zoom_client_id") or "").strip()
@@ -100,14 +107,9 @@ class ZoomService:
             mirror_secret = str((zoom_cfg or {}).get("client_secret") or "").strip()
             if mirror_secret:
                 client_secret = mirror_secret
-        # .env fallback so this candidate is usable even when Telnyx-stored Zoom creds are gone.
-        env_account_id, env_client_id, env_client_secret, env_base_url = ZoomService._env_credentials()
-        account_id = account_id or env_account_id
-        client_id = client_id or env_client_id
-        client_secret = client_secret or env_client_secret
         if not account_id or not client_id or not client_secret:
             return None
-        base_url = str(telnyx_cfg.get("zoom_base_url") or env_base_url or "https://api.zoom.us/v2").strip().rstrip("/")
+        base_url = str(telnyx_cfg.get("zoom_base_url") or "https://api.zoom.us/v2").strip().rstrip("/")
         return {
             "account_id": account_id,
             "client_id": client_id,
