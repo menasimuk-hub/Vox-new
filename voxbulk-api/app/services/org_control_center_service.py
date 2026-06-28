@@ -135,9 +135,9 @@ def _campaign_stats(db: Session, order: ServiceOrder) -> dict[str, int]:
 def _order_channel(order: ServiceOrder) -> str:
     config = _load_order_config(order)
     if order.service_code == "interview":
-        mode = str(config.get("delivery_mode") or config.get("channel") or "ai_call").lower()
-        if "zoom" in mode:
-            return "zoom"
+        mode = str(config.get("delivery_mode") or config.get("delivery") or config.get("channel") or "ai_call").lower()
+        if mode in {"ai_meeting", "meeting"}:
+            return "meeting"
         return "ai_call"
     ch = str(config.get("survey_channel") or config.get("channel") or "call").lower()
     if ch in {"whatsapp", "wa"}:
@@ -150,7 +150,7 @@ def _order_channel(order: ServiceOrder) -> str:
 def _service_label(order: ServiceOrder) -> str:
     if order.service_code == "interview":
         ch = _order_channel(order)
-        return "Zoom Interview" if ch == "zoom" else "AI Interview"
+        return "Online meeting interview" if ch == "meeting" else "AI Interview"
     ch = _order_channel(order)
     if ch == "whatsapp":
         return "WhatsApp Survey"

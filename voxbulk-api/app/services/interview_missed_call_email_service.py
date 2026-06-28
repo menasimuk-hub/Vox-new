@@ -344,3 +344,48 @@ def missed_call_email_report_payload(
         "missed_call_email": email_block,
         "experience_notes": str(parsed.get("missed_call_experience_notes") or resolve_missed_call_experience_notes(agent)).strip(),
     }
+
+
+def maybe_send_interview_meeting_missed_email(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+) -> dict[str, Any]:
+    """Email when a candidate misses a booked online meeting slot (not PSTN missed-call flow)."""
+    outreach = str(recipient.email or "").strip()
+    if not outreach:
+        return {"skipped": True, "reason": "no_email"}
+
+    existing = _loads(recipient.result_json)
+    if existing.get("meeting_missed_email_sent_at"):
+        return {"skipped": True, "reason": "already_sent"}
+
+    config = _order_config(order)
+    role = str(config.get("role") or order.title or "the role").strip()
+    company_name = resolve_voice_call_company_name(db, config=config, org_id=order.org_id, order=order)
+    booking_url = _resolve_recipient_booking_url(db, order, recipient)
+    if not booking_url:
+        return {"skipped": True, "reason": "booking_url_missing"}
+
+    sent_ok, err = CareerEmailService.send_templated_optional(
+        db,
+        template_key="interview_meeting_missed",
+        to_email=outreach,
+        variables={
+            "candidate_name": recipient.name or "there",
+            "role": role,
+            "company_name": company_name,
+            "booking_url": booking_url,
+        },
+    )
+    merged = dict(existing)
+    if sent_ok:
+        merged["meeting_missed_email_sent_at"] = datetime.utcnow().isoformat()
+        merged.pop("meeting_missed_email_failed", None)
+    else:
+        merged["meeting_missed_email_failed"] = err or "send_failed"
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    return {"ok": sent_ok, "error": err}

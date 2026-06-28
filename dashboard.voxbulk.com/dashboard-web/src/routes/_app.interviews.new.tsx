@@ -328,6 +328,7 @@ function CreateInterview() {
   const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>();
   const [scriptApproved, setScriptApproved] = React.useState(false);
   const [agentId, setAgentId] = React.useState("");
+  const [delivery, setDelivery] = React.useState<"ai_call" | "ai_meeting">("ai_call");
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxCvCount, setMaxCvCount] = React.useState<number | "">("");
   const [autoCloseOnLimit, setAutoCloseOnLimit] = React.useState(true);
@@ -409,6 +410,8 @@ function CreateInterview() {
   }, [draftOrderId]);
 
   const agents = agentsQ.data || [];
+  const interviewDeliveryOptions = draftQ.data?.interview_delivery_options || ["ai_call"];
+  const meetingDeliveryEnabled = Boolean(draftQ.data?.interview_meeting_enabled) || interviewDeliveryOptions.includes("ai_meeting");
   const defaultAgent = pickDefaultInterviewAgent(agents);
   const resolvedAgentId = agentId || defaultAgent?.id || "";
   const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
@@ -494,6 +497,8 @@ function CreateInterview() {
         : undefined,
     );
     setScriptApproved(Boolean(config.script_approved));
+    const savedDelivery = String(config.delivery || "ai_call").toLowerCase();
+    setDelivery(savedDelivery === "ai_meeting" && meetingDeliveryEnabled ? "ai_meeting" : "ai_call");
     const savedAgentId = String(config.agent_id || "").trim();
     setAgentId(savedAgentId || pickDefaultInterviewAgent(agents)?.id || "");
     setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
@@ -913,7 +918,7 @@ function CreateInterview() {
       screening_criteria: criteria,
       report_notes: reportNotes.trim() || undefined,
       agent_id: resolvedAgentId,
-      delivery: "ai_call",
+      delivery,
       cv_email_enabled: cvEmailOn,
       cv_collection_start_at: cvEmailOn ? collectionStartIso || null : null,
       cv_email_start_at: cvEmailOn ? collectionStartIso || null : null,
@@ -1021,7 +1026,7 @@ function CreateInterview() {
         role: role || position,
         position,
         criteria,
-        delivery: "ai_call",
+        delivery,
         agent_id: resolvedAgentId,
         client_context: { agent_id: resolvedAgentId },
       });
@@ -1826,6 +1831,20 @@ function CreateInterview() {
               </Select>
             )}
           </Field>
+          {meetingDeliveryEnabled ? (
+            <Field label="Interview format">
+              <Select value={delivery} onValueChange={(v) => setDelivery(v === "ai_meeting" ? "ai_meeting" : "ai_call")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ai_call">AI phone call</SelectItem>
+                  <SelectItem value="ai_meeting">Online meeting (browser audio)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Phone calls dial candidates at their slot. Online meetings send a browser room link — ideal for high-cost mobile regions.
+              </p>
+            </Field>
+          ) : null}
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${showCriteriaError ? "text-destructive" : ""}`}>Screening criteria</Label>
             <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(showCriteriaError)} />

@@ -34,11 +34,11 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
         return {}
 
 
-def is_zoom_interview_order(order: ServiceOrder) -> bool:
+def is_meeting_interview_order(order: ServiceOrder) -> bool:
     if order.service_code != "interview":
         return False
     config = _order_config(order)
-    return str(config.get("delivery") or "").strip().lower() == "zoom"
+    return str(config.get("delivery") or "").strip().lower() == "ai_meeting"
 
 
 def is_ai_call_interview_order(order: ServiceOrder) -> bool:
@@ -53,6 +53,14 @@ def resolve_interview_agent_for_order(db: Session, order: ServiceOrder, config: 
     agent_id = str(config.get("agent_id") or config.get("interview_agent_id") or "").strip()
     if agent_id:
         agent = db.get(AgentDefinition, agent_id)
+        if agent and agent.is_active and agent.supports_interview:
+            return agent
+
+    from app.services.meeting_room_settings_service import MeetingRoomSettingsService
+
+    meeting_agent_id = MeetingRoomSettingsService.get_settings(db).get("agent_id")
+    if meeting_agent_id:
+        agent = db.get(AgentDefinition, meeting_agent_id)
         if agent and agent.is_active and agent.supports_interview:
             return agent
 

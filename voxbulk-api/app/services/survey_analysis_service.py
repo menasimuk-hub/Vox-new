@@ -308,6 +308,57 @@ def fetch_survey_transcript_from_telnyx(
     return payload
 
 
+def fetch_transcript_from_telnyx_conversation(db: Session, *, conversation_id: str) -> dict[str, Any]:
+    """Fetch transcript + recording from a known Telnyx conversation id (WebRTC meetings)."""
+    conv_id = str(conversation_id or "").strip()
+    if not conv_id:
+        return {"transcript_fetch_error": "missing_conversation_id"}
+
+    conversation = fetch_conversation_by_id(db, conv_id)
+    if not conversation:
+        return {"telnyx_conversation_id": conv_id, "transcript_fetch_error": "conversation_not_found"}
+
+    messages: list[dict[str, Any]] = []
+    for attempt in range(3):
+        messages, err = fetch_conversation_messages(db, conv_id)
+        if messages:
+            break
+        if attempt < 2:
+            time.sleep(3)
+        elif err:
+            return {"telnyx_conversation_id": conv_id, "transcript_fetch_error": err}
+
+    entries = transcript_entries_from_messages(messages)
+    transcript = transcript_from_entries(entries)
+    call_summary = _telnyx_call_summary(db, conv_id)
+    ids = _extract_call_ids_from_conversation(conversation)
+
+    payload: dict[str, Any] = {
+        "telnyx_conversation_id": conv_id,
+        "transcript_source": "telnyx_conversation",
+    }
+    if ids.get("call_session_id"):
+        payload["call_session_id"] = ids["call_session_id"]
+    if transcript:
+        payload["transcript"] = transcript
+        payload["transcript_saved_at"] = datetime.utcnow().isoformat()
+    else:
+        payload["transcript_fetch_error"] = "empty_transcript"
+    if call_summary:
+        payload["call_summary"] = call_summary
+    try:
+        from app.services.telnyx_conversation_service import resolve_telnyx_recording
+
+        rec = resolve_telnyx_recording(db, conversation)
+        if rec and rec.get("download_url"):
+            payload["telnyx_recording_download_url"] = str(rec["download_url"])
+            payload["telnyx_recording_id"] = rec.get("id")
+            payload["recording_saved_at"] = datetime.utcnow().isoformat()
+    except Exception:
+        pass
+    return payload
+
+
 def ensure_survey_transcript(
     db: Session,
     *,
@@ -347,6 +398,29 @@ def ensure_survey_transcript(
         fetched = str(telnyx_data.get("transcript") or "").strip()
         if len(fetched) >= len(transcript):
             transcript = fetched
+
+    conversation_id = str(
+        existing.get("telnyx_conversation_id") or existing.get("provider_call_id") or ""
+    ).strip()
+    if len(transcript) < MIN_TRANSCRIPT_CHARS and conversation_id:
+        telnyx_data = fetch_transcript_from_telnyx_conversation(db, conversation_id=conversation_id)
+        updates.update({k: v for k, v in telnyx_data.items() if k != "transcript_fetch_error"})
+        fetched = str(telnyx_data.get("transcript") or "").strip()
+        if len(fetched) >= len(transcript):
+            transcript = fetched
+
+    if len(transcript) < MIN_TRANSCRIPT_CHARS and order.service_code == "interview":
+        from app.services.telnyx_conversation_service import find_conversation_for_interview_recipient
+
+        conv, _err = find_conversation_for_interview_recipient(db, recipient_id=recipient.id)
+        if conv:
+            telnyx_data = fetch_transcript_from_telnyx_conversation(
+                db, conversation_id=str(conv.get("id") or "")
+            )
+            updates.update({k: v for k, v in telnyx_data.items() if k != "transcript_fetch_error"})
+            fetched = str(telnyx_data.get("transcript") or "").strip()
+            if len(fetched) >= len(transcript):
+                transcript = fetched
 
     if transcript and not existing.get("transcript_saved_at"):
         updates["transcript"] = transcript

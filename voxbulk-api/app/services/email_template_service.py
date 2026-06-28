@@ -38,7 +38,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_booking_reminder",
     "interview_booking_cancel",
     "interview_campaign_cancelled",
-    "interview_zoom_invite",
+    "interview_meeting_missed",
     "interview_missed_call_followup",
     "billing_cancellation_requested",
     "billing_cancellation_reversed",

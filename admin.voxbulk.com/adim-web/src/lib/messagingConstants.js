@@ -11,7 +11,6 @@ export const SYSTEM_EMAIL_META = {
   interview_booking_invite: { title: 'Interview booking invite', description: 'Pre-call slot booking link sent from careers@voxbulk.com at launch' },
   interview_booking_confirm: { title: 'Interview booking confirmation', description: 'Sent when candidate books their AI interview slot' },
   interview_booking_cancel: { title: 'Interview booking cancellation', description: 'Sent when a candidate cancels their booked interview slot' },
-  interview_zoom_invite: { title: 'Interview Zoom invite', description: 'Sent when interview delivery is Zoom with join URL' },
   interview_missed_call_followup: { title: 'Interview missed call follow-up', description: 'Sent after no-answer when agent policy is Hang up for now' },
   billing_subscription_ended: { title: 'Subscription ended', description: 'Sent when a Core or Feedback subscription ends' },
   billing_renewal_reminder: { title: 'Renewal reminder', description: '14/7/1 days before subscription renewal (Celery beat)' },
@@ -108,7 +107,6 @@ export const DEFAULT_SUBJECT_BY_KEY = {
   sales_offer: 'Your VOXBULK offer is ready',
   usage_warning: 'VOXBULK usage alert',
   interview_scheduling_invite: 'Next step — {{role}}',
-  interview_zoom_invite: 'Your Zoom interview — {{role}}',
   interview_missed_call_followup: 'We tried to reach you — {{role}} at {{company_name}}',
 }
 
@@ -138,12 +136,6 @@ export const DEMO_HTML_BY_KEY = {
   <p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>Thank you for completing your screening call for <strong>{{role}}</strong>.</p>
   <p><a href="{{scheduling_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Book interview</a></p>
-  <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
-</body></html>`,
-  interview_zoom_invite: `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:24px auto;color:#0f172a;line-height:1.6;">
-  <p>Hi <strong>{{candidate_name}}</strong>,</p>
-  <p>Your Zoom interview for <strong>{{role}}</strong> is ready.</p>
-  <p><a href="{{join_url}}" style="display:inline-block;background:#00C896;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Join Zoom meeting</a></p>
   <p style="font-size:12px;color:#64748b;">— VOXBULK</p>
 </body></html>`,
 }
@@ -195,11 +187,6 @@ export const TEST_VARS_BY_KEY = {
     candidate_name: 'Alex Demo',
     role: 'Senior Software Engineer',
     scheduling_url: 'https://calendly.com/example/interview',
-  },
-  interview_zoom_invite: {
-    candidate_name: 'Alex Demo',
-    role: 'Senior Software Engineer',
-    join_url: 'https://zoom.us/j/123456789',
   },
   interview_missed_call_followup: {
     candidate_name: 'Alex Demo',

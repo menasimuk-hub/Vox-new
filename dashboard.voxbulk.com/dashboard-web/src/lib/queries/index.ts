@@ -752,7 +752,7 @@ export type InterviewDraftPayload = {
   recipients?: Record<string, unknown>[];
   summary?: Record<string, unknown>;
   billing_context?: Record<string, unknown>;
-  interview_zoom_enabled?: boolean;
+  interview_meeting_enabled?: boolean;
   interview_delivery_options?: string[];
 };
 

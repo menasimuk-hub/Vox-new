@@ -70,6 +70,20 @@ type BookingPage = {
 
   calling_hours_label?: string;
 
+  channel?: string | null;
+
+  channel_options?: {
+
+    phone_available?: boolean;
+
+    meeting_available?: boolean;
+
+    default_channel?: string;
+
+  };
+
+  meeting_url?: string | null;
+
 };
 
 /** Interview slots are always scheduled and displayed in UK time (GMT/BST). */
@@ -535,6 +549,8 @@ function PublicBookingPage() {
 
   const [picked, setPicked] = React.useState<string | null>(null);
 
+  const [channelChoice, setChannelChoice] = React.useState<"phone" | "meeting">("phone");
+
   const [mode, setMode] = React.useState<"book" | "reschedule">("book");
 
 
@@ -563,7 +579,7 @@ function PublicBookingPage() {
 
         method: "POST",
 
-        body: JSON.stringify({ slot_start_at: slot }),
+        body: JSON.stringify({ slot_start_at: slot, channel: channelChoice }),
 
       }),
 
@@ -641,6 +657,18 @@ function PublicBookingPage() {
 
 
   const data = pageQ.data;
+
+
+
+  React.useEffect(() => {
+
+    if (!data?.channel_options) return;
+
+    const defaultChannel = String(data.channel_options.default_channel || "phone").toLowerCase();
+
+    setChannelChoice(defaultChannel === "meeting" ? "meeting" : "phone");
+
+  }, [data?.channel_options, data?.token]);
 
 
 
@@ -869,6 +897,17 @@ function PublicBookingPage() {
 
               {data.organisation_name ? <p className="text-muted-foreground">{data.organisation_name}</p> : null}
 
+              {data.channel === "meeting" && data.meeting_url ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Online meeting</p>
+                  <a href={data.meeting_url} className="mt-1 block font-medium text-primary underline-offset-2 hover:underline">
+                    Join your interview room at the booked time
+                  </a>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">We will call you on the number you provided.</p>
+              )}
+
             </div>
 
 
@@ -1053,6 +1092,44 @@ function PublicBookingPage() {
 
             </div>
 
+          ) : null}
+
+
+
+          {data.channel_options?.phone_available && data.channel_options?.meeting_available ? (
+            <div className="rounded-lg border border-border bg-muted/20 px-4 py-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">How would you like to interview?</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setChannelChoice("phone")}
+                  className={`rounded-xl border-2 px-4 py-3 text-left transition ${
+                    channelChoice === "phone"
+                      ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <p className="font-medium">Phone call</p>
+                  <p className="mt-1 text-xs text-muted-foreground">We call your mobile at the booked time.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChannelChoice("meeting")}
+                  className={`rounded-xl border-2 px-4 py-3 text-left transition ${
+                    channelChoice === "meeting"
+                      ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <p className="font-medium">Online meeting</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Join a browser audio room — no app required.</p>
+                </button>
+              </div>
+            </div>
+          ) : data.channel_options?.meeting_available && !data.channel_options?.phone_available ? (
+            <p className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              Your interview will be an online audio meeting in your browser.
+            </p>
           ) : null}
 
 

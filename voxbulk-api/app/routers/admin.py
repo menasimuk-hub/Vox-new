@@ -199,32 +199,6 @@ def upsert_provider_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.put("/integrations/telnyx/zoom-oauth")
-def upsert_telnyx_zoom_oauth(
-    payload: dict,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    """Save Zoom OAuth fallback credentials from Telnyx → Zoom tab only."""
-    try:
-        ProviderSettingsService.upsert_telnyx_zoom_oauth(
-            db,
-            account_id=str(payload.get("account_id") or payload.get("zoom_account_id") or ""),
-            client_id=str(payload.get("client_id") or payload.get("zoom_client_id") or ""),
-            client_secret=payload.get("client_secret") or payload.get("zoom_client_secret"),
-            base_url=payload.get("base_url") or payload.get("zoom_base_url"),
-        )
-        ProviderSettingsService.verify_zoom_oauth_persisted(db)
-        return ProviderSettingsService.get_platform_config_admin_view(db, provider="telnyx")
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Zoom OAuth save verification failed: {e}",
-        ) from e
-
-
 @router.post("/integrations/azure_speech/test-tts")
 def test_azure_speech_tts(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:
@@ -283,46 +257,6 @@ def test_deepseek_completion(db: Session = Depends(get_db), _admin=Depends(requi
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"DeepSeek test failed: {e}") from e
 
 
-@router.post("/integrations/zoom/test")
-def test_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.zoom_service import ZoomService
-
-    try:
-        return ZoomService.test_connection(db)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Zoom test failed: {e}") from e
-
-
-@router.post("/integrations/telnyx/test-zoom")
-def test_telnyx_zoom_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    """Test Zoom connection via Telnyx for interview campaigns."""
-    from app.services.interview_zoom_service import InterviewZoomService
-
-    try:
-        # Test by attempting to create a test meeting
-        meeting = InterviewZoomService.create_zoom_meeting_via_telnyx(db, topic="VoxBulk Zoom Connection Test")
-        if not meeting.get("id") or not meeting.get("join_url"):
-            raise ValueError("Meeting created but missing ID or join URL")
-        return {
-            "ok": True,
-            "message": (
-                "Zoom meeting created via Telnyx"
-                if meeting.get("meeting_provider") == "telnyx_zoom"
-                else "Zoom meeting created via Zoom OAuth (Telnyx /zoom/meetings not available on this account)"
-            ),
-            "meeting_id": meeting.get("id"),
-            "join_url": meeting.get("join_url"),
-            "meeting_provider": meeting.get("meeting_provider"),
-            "note": meeting.get("telnyx_zoom_note"),
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom test failed: {str(e)[:300]}") from e
-
-
 def _persist_telnyx_connection_metadata(db: Session, patch: dict[str, Any]) -> None:
     cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
     telnyx_obj = ProviderSettingsService.get_platform_config(db, provider="telnyx")
@@ -333,106 +267,6 @@ def _persist_telnyx_connection_metadata(db: Session, patch: dict[str, Any]) -> N
         is_enabled=telnyx_is_enabled,
         config=patch,
     )
-
-
-@router.post("/integrations/telnyx/zoom/create-connection")
-def create_telnyx_zoom_connection(
-    payload: dict | None = None,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    payload = payload or {}
-    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
-    outbound_voice_profile_id = str(
-        payload.get("outbound_voice_profile_id")
-        or config.get("zoom_outbound_voice_profile_id")
-        or config.get("connection_id")
-        or config.get("voice_api_application_id")
-        or ""
-    ).strip()
-    webhook_event_url = str(payload.get("webhook_event_url") or config.get("zoom_webhook_event_url") or "").strip()
-    if not webhook_event_url:
-        webhook_base = str(config.get("webhook_base_url") or "").strip().rstrip("/")
-        if webhook_base:
-            webhook_event_url = f"{webhook_base}/telnyx/webhooks/zoom"
-    try:
-        connection = TelnyxExternalConnectionService.create_zoom_connection(
-            db,
-            outbound_voice_profile_id=outbound_voice_profile_id,
-            webhook_event_url=webhook_event_url or None,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom connection create failed: {e}") from e
-    _persist_telnyx_connection_metadata(
-        db,
-        {
-            "zoom_external_connection_id": connection.get("id"),
-            "zoom_outbound_voice_profile_id": outbound_voice_profile_id,
-            "zoom_webhook_event_url": webhook_event_url or "",
-        },
-    )
-    return {
-        "ok": True,
-        "message": "Telnyx Zoom external connection created.",
-        "connection": connection,
-    }
-
-
-@router.get("/integrations/telnyx/zoom/outbound-voice-profiles")
-def list_telnyx_zoom_outbound_voice_profiles(
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
-    selected_id = str(
-        config.get("zoom_outbound_voice_profile_id")
-        or config.get("connection_id")
-        or config.get("voice_api_application_id")
-        or ""
-    ).strip()
-    try:
-        profiles = TelnyxExternalConnectionService.list_outbound_voice_profiles(db)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx voice profiles fetch failed: {e}") from e
-    return {
-        "ok": True,
-        "profiles": profiles,
-        "selected_outbound_voice_profile_id": selected_id or None,
-    }
-
-
-@router.post("/integrations/telnyx/zoom/test-connection")
-def test_telnyx_zoom_connection(
-    payload: dict | None = None,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_INTEGRATION)),
-):
-    payload = payload or {}
-    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-    config = ProviderSettingsService._validate_telnyx_config(cfg or {})
-    connection_id = str(payload.get("connection_id") or config.get("zoom_external_connection_id") or "").strip() or None
-    try:
-        result = TelnyxExternalConnectionService.test_zoom_connection(
-            db,
-            connection_id=connection_id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Telnyx Zoom connection test failed: {e}") from e
-    connection = result.get("connection") if isinstance(result, dict) else None
-    if isinstance(connection, dict) and connection.get("id"):
-        _persist_telnyx_connection_metadata(
-            db,
-            {"zoom_external_connection_id": str(connection.get("id"))},
-        )
-    return result
 
 
 @router.post("/integrations/telnyx/microsoft-teams/create-connection")

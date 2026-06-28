@@ -13,7 +13,6 @@ export const INTEGRATION_PROVIDERS = [
   { key: 'gocardless', label: 'GoCardless', icon: 'ti-credit-card', blurb: 'Direct Debit mandates for subscriptions and campaign extras.' },
   { key: 'stripe', label: 'Stripe', icon: 'ti-brand-stripe', blurb: 'Card payments for wallet top-ups.' },
   { key: 'airwallex', label: 'Airwallex', icon: 'ti-world-dollar', blurb: 'Card payments for wallet top-ups.' },
-  { key: 'zoom', label: 'Zoom', icon: 'ti-brand-zoom', blurb: 'Interview campaigns via Zoom.' },
   { key: 'calendly', label: 'Calendly', icon: 'ti-calendar', blurb: 'OAuth + scheduling links for interview shortlist.' },
   { key: 'cal_com', label: 'Cal.com', icon: 'ti-calendar-event', blurb: 'OAuth + Cal.com booking links for interview shortlist.' },
   { key: 'google_calendar', label: 'Google Calendar', icon: 'ti-calendar-stats', blurb: 'OAuth + appointment schedule URLs for interview shortlist.' },

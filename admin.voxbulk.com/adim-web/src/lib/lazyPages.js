@@ -28,6 +28,7 @@ export const ComplianceSettings = lazy(() => import('../pages/ComplianceSettings
 export const ComplianceAudit = lazy(() => import('../pages/ComplianceAudit'))
 export const AccountDeletionsAdmin = lazy(() => import('../pages/AccountDeletionsAdmin'))
 export const EmailSettings = lazy(() => import('../pages/EmailSettings'))
+export const MeetingRoomSettings = lazy(() => import('../pages/MeetingRoomSettings'))
 export const WaSurveySystemTemplates = lazy(() => import('../pages/WaSurveySystemTemplates'))
 export const WaInterviewTemplates = lazy(() => import('../pages/WaInterviewTemplates'))
 export const WaSurveyTypes = lazy(() => import('../pages/WaSurveyTypes'))

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as MeetTokenRouteImport } from './routes/meet.$token'
 import { Route as BookTokenRouteImport } from './routes/book.$token'
 import { Route as AppSurveysRouteImport } from './routes/_app.surveys'
 import { Route as AppRecoveryRouteImport } from './routes/_app.recovery'
@@ -82,6 +83,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRoute,
+} as any)
+const MeetTokenRoute = MeetTokenRouteImport.update({
+  id: '/meet/$token',
+  path: '/meet/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const BookTokenRoute = BookTokenRouteImport.update({
   id: '/book/$token',
@@ -382,6 +388,7 @@ export interface FileRoutesByFullPath {
   '/recovery': typeof AppRecoveryRouteWithChildren
   '/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
+  '/meet/$token': typeof MeetTokenRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
   '/account/support': typeof AppAccountSupportRouteWithChildren
@@ -436,6 +443,7 @@ export interface FileRoutesByTo {
   '/follow-up': typeof AppFollowUpRoute
   '/packages': typeof AppPackagesRoute
   '/book/$token': typeof BookTokenRoute
+  '/meet/$token': typeof MeetTokenRoute
   '/': typeof AppIndexRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
@@ -496,6 +504,7 @@ export interface FileRoutesById {
   '/_app/recovery': typeof AppRecoveryRouteWithChildren
   '/_app/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
+  '/meet/$token': typeof MeetTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_app/account/billing': typeof AppAccountBillingRoute
   '/_app/account/packages': typeof AppAccountPackagesRoute
@@ -559,6 +568,7 @@ export interface FileRouteTypes {
     | '/recovery'
     | '/surveys'
     | '/book/$token'
+    | '/meet/$token'
     | '/account/billing'
     | '/account/packages'
     | '/account/support'
@@ -613,6 +623,7 @@ export interface FileRouteTypes {
     | '/follow-up'
     | '/packages'
     | '/book/$token'
+    | '/meet/$token'
     | '/'
     | '/account/billing'
     | '/account/packages'
@@ -672,6 +683,7 @@ export interface FileRouteTypes {
     | '/_app/recovery'
     | '/_app/surveys'
     | '/book/$token'
+    | '/meet/$token'
     | '/_app/'
     | '/_app/account/billing'
     | '/_app/account/packages'
@@ -727,6 +739,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
   BookTokenRoute: typeof BookTokenRoute
+  MeetTokenRoute: typeof MeetTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -751,6 +764,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/meet/$token': {
+      id: '/meet/$token'
+      path: '/meet/$token'
+      fullPath: '/meet/$token'
+      preLoaderRoute: typeof MeetTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/book/$token': {
       id: '/book/$token'
@@ -1339,6 +1359,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   BookTokenRoute: BookTokenRoute,
+  MeetTokenRoute: MeetTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

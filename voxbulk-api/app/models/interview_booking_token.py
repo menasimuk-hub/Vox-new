@@ -21,6 +21,7 @@ class InterviewBookingToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     booked_start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     booked_end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    channel: Mapped[str | None] = mapped_column(String(16), nullable=True)
     wa_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     wa_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

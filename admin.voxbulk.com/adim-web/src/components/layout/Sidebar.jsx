@@ -316,8 +316,6 @@ const NAV = [
 
       ['Airwallex', '/integrations/airwallex'],
 
-      ['Zoom', '/integrations/zoom'],
-
       ['Calendly', '/integrations/calendly'],
 
       ['Cal.com', '/integrations/cal_com'],
@@ -477,6 +475,8 @@ const NAV = [
     [
 
       ['Email / notification settings', '/settings/email'],
+
+      ['Meeting room', '/settings/meeting-room'],
 
       ['Legal pages', '/settings/legal'],
 

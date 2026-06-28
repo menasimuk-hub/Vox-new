@@ -36,7 +36,7 @@ LAUNCH_OUTBOUND_EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_booking_reminder",
     "interview_booking_cancel",
     "interview_campaign_cancelled",
-    "interview_zoom_invite",
+    "interview_meeting_missed",
     "interview_missed_call_followup",
     "general_notification",
     "sales_offer",

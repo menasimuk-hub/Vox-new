@@ -39,7 +39,8 @@ def confirm_booking(token: str, payload: dict, db: Session = Depends(get_db)):
     if not slot:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="slot_start_at is required")
     try:
-        return InterviewBookingService.confirm_booking(db, token, str(slot))
+        channel = payload.get("channel")
+        return InterviewBookingService.confirm_booking(db, token, str(slot), channel=channel)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -60,4 +61,33 @@ def reschedule_booking(token: str, payload: dict, db: Session = Depends(get_db))
     try:
         return InterviewBookingService.reschedule_booking(db, token, str(slot))
     except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{token}/meeting/start")
+def start_meeting(token: str, db: Session = Depends(get_db)):
+    from app.services.interview_meeting_service import InterviewMeetingService
+
+    try:
+        return InterviewMeetingService.start_meeting(db, token)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/{token}/meeting/complete")
+def complete_meeting(token: str, payload: dict | None = None, db: Session = Depends(get_db)):
+    from app.services.interview_meeting_service import InterviewMeetingService
+
+    payload = payload or {}
+    try:
+        duration = payload.get("duration_seconds")
+        provider_call_id = payload.get("provider_call_id") or payload.get("conversation_id")
+        secs = int(duration) if duration is not None else None
+        return InterviewMeetingService.complete_meeting(
+            db,
+            token,
+            duration_seconds=secs,
+            provider_call_id=str(provider_call_id or "").strip() or None,
+        )
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

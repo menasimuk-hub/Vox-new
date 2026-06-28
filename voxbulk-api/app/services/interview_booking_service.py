@@ -331,6 +331,26 @@ def booking_url_for_token(token: str) -> str:
     return f"{booking_public_origin()}/book/{quote(str(token).strip(), safe='')}"
 
 
+def meeting_url_for_token(token: str) -> str:
+    return f"{booking_public_origin()}/meet/{quote(str(token).strip(), safe='')}"
+
+
+def resolve_booking_channel_options(db: Session, phone: str) -> dict[str, Any]:
+    from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+    check = TelnyxPhoneAllowlistService.validate_phone_db(db, phone)
+    phone_available = bool(check.get("allowed"))
+    return {
+        "phone_available": phone_available,
+        "meeting_available": True,
+        "default_channel": PHONE_CHANNEL if phone_available else MEETING_CHANNEL,
+    }
+
+
+PHONE_CHANNEL = "phone"
+MEETING_CHANNEL = "meeting"
+
+
 def resolve_booking_url(
     recipient: ServiceOrderRecipient | None,
     token: str,
@@ -1113,6 +1133,8 @@ class InterviewBookingService:
             if start not in booked or (row.booked_start_at and start == row.booked_start_at)
         ]
 
+        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""))
+
         return {
             "token": row.token,
             "candidate_name": recipient.name or "Candidate",
@@ -1130,11 +1152,14 @@ class InterviewBookingService:
             "cancelled_at": str(cancelled_at) if cancelled_at else None,
             "can_reschedule": row.booked_start_at is not None,
             "can_cancel": row.booked_start_at is not None,
+            "channel": row.channel,
+            "channel_options": channel_options,
+            "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
             **_booking_display_meta(),
         }
 
     @staticmethod
-    def confirm_booking(db: Session, token: str, slot_start_iso: str) -> dict[str, Any]:
+    def confirm_booking(db: Session, token: str, slot_start_iso: str, channel: str | None = None) -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
         ).scalar_one_or_none()
@@ -1193,8 +1218,18 @@ class InterviewBookingService:
         if slot_start in booked:
             raise ValueError("That slot was just taken — pick another time")
 
+        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""))
+        chosen = str(channel or channel_options.get("default_channel") or PHONE_CHANNEL).strip().lower()
+        if chosen == PHONE_CHANNEL and not channel_options.get("phone_available"):
+            chosen = MEETING_CHANNEL
+        if chosen not in {PHONE_CHANNEL, MEETING_CHANNEL}:
+            raise ValueError("Invalid interview channel")
+        if chosen == PHONE_CHANNEL and not channel_options.get("phone_available"):
+            raise ValueError("Phone interviews are not available for your number — choose online meeting")
+
         row.booked_start_at = slot_start
         row.booked_end_at = slot_end
+        row.channel = chosen
         row.updated_at = now
         db.add(row)
 
@@ -1205,6 +1240,8 @@ class InterviewBookingService:
             {
                 "booking_token": row.token,
                 "booking_url": booking_url_for_token(row.token),
+                "meeting_url": meeting_url_for_token(row.token) if chosen == MEETING_CHANNEL else None,
+                "channel": chosen,
                 "booked_start_at": _iso_utc(slot_start),
                 "booked_end_at": _iso_utc(slot_end),
                 "booking_confirmed_at": _iso_utc(now),
@@ -1241,6 +1278,8 @@ class InterviewBookingService:
             "ok": True,
             "booked_start_at": _iso_utc(slot_start),
             "booked_end_at": _iso_utc(slot_end),
+            "channel": chosen,
+            "meeting_url": meeting_url_for_token(row.token) if chosen == MEETING_CHANNEL else None,
             "candidate_name": recipient.name,
             "confirmation_email_sent": email_ok,
             "confirmation_email_error": email_err,
@@ -1320,6 +1359,10 @@ class InterviewBookingService:
         time_line = _format_slot_time(slot_start)
         first = _first_name(recipient.name)
         token = InterviewBookingService._booking_token_for_recipient(db, order, recipient)
+        channel = str(token.channel or "").strip().lower() if token else ""
+        meeting_url = ""
+        if token and channel == "meeting":
+            meeting_url = meeting_url_for_token(token.token)
         calendar_vars: dict[str, str] = {"calendar_links_html": ""}
         if token:
             try:
@@ -1338,12 +1381,27 @@ class InterviewBookingService:
                     extra={"order_id": order.id, "recipient_id": recipient.id, "error": str(exc)},
                 )
 
+        if channel == "meeting":
+            channel_note = "Join the online meeting room at your booked time using the link below."
+            meeting_link_html = (
+                f'<p style="margin:16px 0;"><a href="{meeting_url}" style="display:inline-block;padding:12px 18px;background:#1a2d5c;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Join online meeting</a></p>'
+                f'<p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{meeting_url}" style="color:#1a2d5c;">{meeting_url}</a></p>'
+                if meeting_url
+                else ""
+            )
+        else:
+            channel_note = "We will call you on the number you provided."
+            meeting_link_html = ""
+
         base_variables = {
             "candidate_name": recipient.name or "there",
             "role": role,
             "company_name": company_name,
             "interview_date": date_line,
             "interview_time": time_line,
+            "interview_channel_note": channel_note,
+            "meeting_link_html": meeting_link_html,
+            "meeting_url": meeting_url,
             **calendar_vars,
         }
 

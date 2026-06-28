@@ -119,7 +119,6 @@ function channelLabel(channel) {
   const ch = String(channel || '').toLowerCase()
   if (ch === 'whatsapp') return 'WhatsApp'
   if (ch === 'sms') return 'SMS'
-  if (ch === 'zoom') return 'Zoom'
   if (ch === 'ai_call') return 'AI call'
   if (ch === 'call') return 'Call'
   return ch || '—'

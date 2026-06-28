@@ -35,7 +35,7 @@ class PlatformCatalogService:
         {
             "code": "interview",
             "name": "Interview",
-            "description": "AI phone or Zoom interview screening campaigns.",
+            "description": "AI phone or web meeting interview screening campaigns.",
             "service_kind": "order",
             "sort_order": 20,
         },
@@ -62,30 +62,23 @@ class PlatformCatalogService:
 
     @staticmethod
     def interview_delivery_options(db: Session) -> list[str]:
-        from app.services.zoom_service import ZoomService
-
-        options = ["ai_call"]
-        if ZoomService.is_interview_delivery_enabled(db):
-            options.append("zoom")
-        return options
+        return ["ai_call", "ai_meeting"]
 
     @staticmethod
     def interview_platform_capabilities(db: Session) -> dict[str, Any]:
         options = PlatformCatalogService.interview_delivery_options(db)
         return {
-            "interview_zoom_enabled": "zoom" in options,
+            "interview_meeting_enabled": "ai_meeting" in options,
             "interview_delivery_options": options,
         }
 
     @staticmethod
     def normalize_interview_delivery(db: Session, raw: str | None) -> str:
         delivery = PlatformCatalogService.normalize_survey_channel(str(raw or "ai_call"))
-        if delivery not in {"ai_call", "zoom"}:
-            raise ValueError("Interview delivery must be ai_call or zoom")
-        if delivery == "zoom" and delivery not in PlatformCatalogService.interview_delivery_options(db):
-            raise ValueError(
-                "Zoom interviews are not available — ask your admin to enable Zoom under Integrations"
-            )
+        if delivery not in {"ai_call", "ai_meeting"}:
+            raise ValueError("Interview delivery must be ai_call or ai_meeting")
+        if delivery not in PlatformCatalogService.interview_delivery_options(db):
+            raise ValueError("Interview delivery mode is not available")
         return delivery
 
     @staticmethod
@@ -267,7 +260,7 @@ class PlatformCatalogService:
             payload["delivery"] = delivery
             duration = max(int(options.get("duration_minutes") or 12), 1)
             per_min = int(rates["interview_per_min_minor"] or 0)
-            conn = int(rates["connection_fee_minor"] or 0) if delivery == "ai_call" else 0
+            conn = int(rates["connection_fee_minor"] or 0) if delivery in {"ai_call", "ai_meeting"} else 0
             per_call = conn + per_min * duration
             total = per_call * count
             if conn > 0:
@@ -1592,12 +1585,8 @@ class ServiceOrderService:
             delivery = PlatformCatalogService.normalize_interview_delivery(
                 db, str(config_iv.get("delivery") or "ai_call")
             )
-            if delivery == "zoom":
-                from app.services.interview_zoom_service import InterviewZoomService
-
-                InterviewZoomService.start_campaign(db, order)
-                db.refresh(order)
-                return order
+            if delivery == "ai_meeting":
+                pass
         now = datetime.utcnow()
         if order.run_mode == "scheduled":
             if order.scheduled_start_at and now < order.scheduled_start_at:

@@ -156,37 +156,6 @@ class TelnyxExternalConnectionService:
         return [_serialize_connection(r) for r in rows]
 
     @staticmethod
-    def create_zoom_connection(
-        db: Session,
-        *,
-        outbound_voice_profile_id: str,
-        webhook_event_url: str | None = None,
-    ) -> dict[str, Any]:
-        ovp = str(outbound_voice_profile_id or "").strip()
-        if not ovp:
-            raise ValueError(
-                "Outbound voice profile ID is required for Telnyx Zoom external connection. "
-                "Choose it in Admin -> Integrations -> Telnyx -> Zoom."
-            )
-        body: dict[str, Any] = {
-            "external_sip_connection": "zoom",
-            "active": True,
-            "outbound": {"outbound_voice_profile_id": ovp},
-        }
-        webhook = str(webhook_event_url or "").strip()
-        if webhook:
-            body["webhook_event_url"] = webhook
-        status, parsed, raw = _telnyx_request(db, "POST", "/external_connections", json_body=body)
-        if status >= 400:
-            raise ValueError(_first_error(status, parsed, raw))
-        row = _connection_from_payload(parsed)
-        payload = _serialize_connection(row)
-        if not payload.get("id"):
-            raise ValueError("Telnyx created the Zoom connection but did not return an ID.")
-        payload["outbound_voice_profile_id"] = ovp
-        return payload
-
-    @staticmethod
     def get_connection(db: Session, connection_id: str) -> dict[str, Any]:
         cid = str(connection_id or "").strip()
         if not cid:
@@ -201,39 +170,6 @@ class TelnyxExternalConnectionService:
         if not payload.get("id"):
             raise ValueError("Telnyx returned an empty external connection response.")
         return payload
-
-    @staticmethod
-    def test_zoom_connection(db: Session, *, connection_id: str | None = None) -> dict[str, Any]:
-        cid = str(connection_id or "").strip()
-        if cid:
-            row = TelnyxExternalConnectionService.get_connection(db, cid)
-        else:
-            rows = TelnyxExternalConnectionService.list_connections(
-                db,
-                external_sip_connection="zoom",
-                limit=20,
-            )
-            row = rows[0] if rows else {}
-        if not row:
-            return {
-                "ok": False,
-                "message": "No Telnyx Zoom external connection found. Click Create Zoom connection first.",
-            }
-        if row.get("external_sip_connection") != "zoom":
-            return {
-                "ok": False,
-                "message": f"Connection {row.get('id')} is not a Zoom external connection.",
-                "connection": row,
-            }
-        active = bool(row.get("active"))
-        credential_active = row.get("credential_active")
-        ok = active and credential_active is not False
-        message = (
-            "Zoom external connection is active on Telnyx."
-            if ok
-            else "Zoom external connection exists but is not fully active yet."
-        )
-        return {"ok": ok, "message": message, "connection": row}
 
     @staticmethod
     def refresh_operator_connect(db: Session) -> dict[str, Any]:

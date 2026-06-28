@@ -192,6 +192,76 @@ def find_conversation_for_lead(db: Session, row) -> tuple[dict[str, Any] | None,
     return _pick_conversation_for_lead(row, conversations), None
 
 
+def find_conversation_for_interview_recipient(
+    db: Session,
+    *,
+    recipient_id: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    from app.models.service_order import ServiceOrderRecipient
+
+    recipient = db.get(ServiceOrderRecipient, str(recipient_id or "").strip())
+    if recipient is None:
+        return None, "Recipient not found"
+
+    try:
+        merged = json.loads(recipient.result_json or "{}")
+        if not isinstance(merged, dict):
+            merged = {}
+    except Exception:
+        merged = {}
+
+    stored = str(
+        merged.get("telnyx_conversation_id") or merged.get("provider_call_id") or ""
+    ).strip()
+    if stored and _looks_like_conversation_id(stored):
+        full = fetch_conversation_by_id(db, stored)
+        if full:
+            return full, None
+
+    order = db.get(ServiceOrder, recipient.order_id)
+    assistant_id = str(merged.get("telnyx_assistant_id") or "").strip()
+    if not assistant_id and order is not None:
+        from app.services.interview_voice_agent_service import resolve_interview_telnyx_assistant_id
+
+        config = {}
+        try:
+            config = json.loads(order.config_json or "{}")
+            if not isinstance(config, dict):
+                config = {}
+        except Exception:
+            config = {}
+        assistant_id, _agent = resolve_interview_telnyx_assistant_id(db, order, config)
+
+    started_raw = merged.get("meeting_started_at") or merged.get("booking_confirmed_at")
+    started = None
+    if started_raw:
+        started = _to_utc_naive(str(started_raw))
+    if started is None and order is not None:
+        started = order.started_at or order.created_at
+    if started is None:
+        return None, "Missing meeting start time for Telnyx lookup"
+
+    window_start = started - timedelta(minutes=10)
+    params: dict[str, Any] = {
+        "created_at": f"gte.{window_start.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        "order": "created_at.desc",
+        "limit": 25,
+    }
+    if assistant_id:
+        params["metadata->assistant_id"] = f"eq.{assistant_id}"
+    conversations = _conversation_list(db, params=params)
+    if not conversations:
+        return None, "Telnyx conversation not found yet — try again in a minute"
+
+    class _PickRow:
+        def __init__(self, when: datetime | None):
+            self.completed_at = when
+            self.started_at = when
+            self.created_at = when
+
+    return _pick_conversation_for_lead(_PickRow(started), conversations), None
+
+
 def fetch_conversation_messages(db: Session, conversation_id: str) -> tuple[list[dict[str, Any]], str | None]:
     conv_id = str(conversation_id or "").strip()
     if not conv_id:

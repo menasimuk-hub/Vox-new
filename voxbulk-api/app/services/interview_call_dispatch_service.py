@@ -121,6 +121,8 @@ def _recipient_eligible_for_dial(
         return False, "booking_cancelled"
     if token.booked_start_at is None:
         return False, "not_booked"
+    if str(token.channel or "").strip().lower() == "meeting":
+        return False, "meeting_channel"
     slot_start = token.booked_start_at
     slot_mins = interview_slot_minutes()
     slot_end = slot_start + timedelta(minutes=slot_mins)
@@ -156,15 +158,21 @@ def _mark_missed_booking_slots(
         if now <= grace_end:
             continue
         recipient.status = "skipped"
-        _set_recipient_result(
-            db,
-            recipient,
-            {
-                "error": "Missed booked interview slot",
-                "skipped_at": now.isoformat(),
-                "booked_start_at": token.booked_start_at.isoformat(),
-            },
-        )
+        merged_patch = {
+            "error": "Missed booked interview slot",
+            "skipped_at": now.isoformat(),
+            "booked_start_at": token.booked_start_at.isoformat(),
+        }
+        if str(token.channel or "").strip().lower() == "meeting":
+            merged_patch["channel"] = "meeting"
+        _set_recipient_result(db, recipient, merged_patch)
+        if str(token.channel or "").strip().lower() == "meeting":
+            try:
+                from app.services.interview_missed_call_email_service import maybe_send_interview_meeting_missed_email
+
+                maybe_send_interview_meeting_missed_email(db, order=order, recipient=recipient)
+            except Exception:
+                logger.exception("interview_meeting_missed_email_failed")
 
 
 def _cancel_unbooked_at_window_end(
@@ -1162,11 +1170,6 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                 count = process_due_interview_call_orders(db)
                 if count:
                     logger.info("interview_call_campaigns_started", extra={"count": count})
-                from app.services.interview_zoom_service import InterviewZoomService
-
-                zoom_synced = InterviewZoomService.process_pending_sync(db)
-                if zoom_synced:
-                    logger.info("interview_zoom_artifacts_synced", extra={"count": zoom_synced})
                 InterviewAnalysisService.process_pending_analysis(db)
                 from app.services.interview_booking_reminder_service import InterviewBookingReminderService
 

@@ -731,7 +731,7 @@ def generate_interview_script(
 
     role_text = str(role or "").strip() or "Open role"
     criteria_text = str(criteria or "").strip() or "General screening"
-    channel = "Zoom video interview with AI" if str(delivery).lower() == "zoom" else "AI phone call"
+    channel = "Online meeting interview with AI" if str(delivery).lower() in {"ai_meeting", "meeting"} else "AI phone call"
     brand = _brand_context_block(
         organisation_name=organisation_name,
         assistant_name=assistant_name,

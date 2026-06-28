@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.frontpage_lead_call import FrontpageLeadCall
 from app.models.lead_sales_task import LeadSalesTask
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.telnyx_conversation_service import _telnyx_request, fetch_conversation_by_id
 
 SUPPORTED_DATE_RANGES = {
@@ -253,6 +255,41 @@ def _local_source_links(db: Session, conversation_id: str, call_control_id: str)
                 "source_id": task.id,
                 "contact_name": task.contact_name or task.company_name,
             }
+
+    if conv or control:
+        rows = db.execute(
+            select(ServiceOrderRecipient, ServiceOrder)
+            .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+            .where(ServiceOrder.service_code == "interview")
+            .order_by(ServiceOrderRecipient.updated_at.desc())
+            .limit(300)
+        ).all()
+        for recipient, order in rows:
+            try:
+                data = json.loads(recipient.result_json or "{}")
+                if not isinstance(data, dict):
+                    data = {}
+            except Exception:
+                data = {}
+            stored_conv = str(data.get("telnyx_conversation_id") or data.get("provider_call_id") or "").strip()
+            stored_control = str(data.get("call_control_id") or "").strip()
+            if conv and stored_conv == conv:
+                label = str(order.title or order.reference_id or "Interview campaign").strip()
+                return {
+                    "source_type": "interview",
+                    "source_label": label,
+                    "source_id": order.id,
+                    "contact_name": recipient.name,
+                }
+            if control and stored_control == control:
+                label = str(order.title or order.reference_id or "Interview campaign").strip()
+                return {
+                    "source_type": "interview",
+                    "source_label": label,
+                    "source_id": order.id,
+                    "contact_name": recipient.name,
+                }
+
     return {"source_type": None, "source_label": None, "source_id": None, "contact_name": None}
 
 

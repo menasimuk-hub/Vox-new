@@ -21,6 +21,7 @@ from app.models.organisation import Organisation
 from app.models.user import User
 from app.services.provider_settings import ProviderSettingsService
 
+from app.routers.admin_meeting_room import router as admin_meeting_room_router
 from app.routers.admin import router as admin_router
 from app.routers.admin_email import router as admin_email_router
 from app.routers.admin_email_legal import router as admin_email_legal_router
@@ -564,6 +565,8 @@ app.include_router(admin_frontpage_router, prefix="/api")
 app.include_router(notifications_router)
 app.include_router(onboarding_router)
 app.include_router(admin_router)
+app.include_router(admin_meeting_room_router)
+app.include_router(admin_meeting_room_router, prefix="/api")
 app.include_router(agents_router)
 app.include_router(knowledge_base_router)
 app.include_router(knowledge_base_router, prefix="/api")

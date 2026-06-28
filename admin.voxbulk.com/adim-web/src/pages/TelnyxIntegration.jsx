@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   Trash2,
   Users,
-  Video,
   X,
 } from 'lucide-react'
 import '../styles/telnyx-settings-hub.css'
@@ -265,7 +264,6 @@ const TELNYX_TABS = [
   { id: 'whitelist', label: 'Allowlists', icon: ShieldCheck },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
   { id: 'messages', label: 'Messages', icon: Inbox },
-  { id: 'zoom', label: 'Zoom', icon: Video },
   { id: 'microsoft_teams', label: 'Teams', icon: Users },
 ]
 
@@ -300,12 +298,7 @@ export default function TelnyxIntegration({
   telnyxTestResult,
   telnyxSmsTestResult,
   telnyxMessagingSyncResult,
-  telnyxZoomTestResult,
-  telnyxZoomJoinUrl,
-  telnyxZoomConnectionResult,
   telnyxTeamsTestResult,
-  telnyxZoomVoiceProfiles,
-  telnyxZoomVoiceProfilesBusy,
   telnyxInboundMessages,
   telnyxMessageDetailBusy,
   fetchTelnyxMessageDetail,
@@ -331,19 +324,14 @@ export default function TelnyxIntegration({
   setProviderDrafts,
   applyTelnyxFromNumber,
   saveIntegrationProvider,
-  saveTelnyxZoomOAuth,
   testTelnyx,
   testTelnyxCall,
   hangupTelnyxCall,
   testTelnyxSms,
   syncTelnyxMessagingDestinations,
   testTelnyxWhatsApp,
-  testTelnyxZoom,
-  createTelnyxZoomConnection,
-  testTelnyxZoomConnection,
   createTelnyxTeamsConnection,
   testTelnyxTeamsConnection,
-  loadTelnyxZoomVoiceProfiles,
   loadTelnyxInboundMessages,
   telnyxMessageFilters,
   setTelnyxMessageFilters,
@@ -1438,188 +1426,6 @@ export default function TelnyxIntegration({
           ) : null}
         </div>
       </div>
-      ) : null}
-
-      {activeTab === 'zoom' ? (
-        <div className='card'>
-          <div className='cardHead'>
-            <div className='cardHeadText'>
-              <h3>Zoom external connection</h3>
-              <p className='cardSub'>Telnyx-native first, OAuth fallback</p>
-            </div>
-            <div className='actions'>
-              <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => loadTelnyxZoomVoiceProfiles(false)} disabled={providerSaving || telnyxZoomVoiceProfilesBusy}>
-                <RefreshCw size={14} aria-hidden /> Refresh
-              </button>
-              <button type='button' className='tsh-btn tsh-btn-primary' onClick={createTelnyxZoomConnection} disabled={providerSaving}>
-                Create
-              </button>
-              <button type='button' className='tsh-btn tsh-btn-outline' onClick={testTelnyxZoomConnection} disabled={providerSaving}>
-                Test
-              </button>
-            </div>
-          </div>
-          <div className='cardBody'>
-            <div className='stack' style={{ gap: 12 }}>
-              <p className='muted' style={{ fontSize: 14, marginBottom: 6 }}>
-                Create and validate a real Telnyx Zoom external connection first, then run an interview meeting test.
-              </p>
-              <div className='note'>
-                If your Telnyx account does not expose <code>/zoom/meetings</code>, VoxBulk falls back to Zoom OAuth.
-                Add Zoom OAuth credentials here and save Telnyx settings.
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Zoom Account ID (OAuth fallback)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_account_id || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_account_id', e.target.value)}
-                  placeholder='Zoom Server-to-Server account_id'
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Zoom Client ID (OAuth fallback)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_client_id || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_client_id', e.target.value)}
-                  placeholder='Zoom Server-to-Server client_id'
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Zoom Client Secret (OAuth fallback)</label>
-                <input
-                  className='input'
-                  type='password'
-                  value={String(activeDraft.zoom_client_secret_draft || '')}
-                  onChange={(e) =>
-                    setProviderDrafts((s) => ({
-                      ...s,
-                      telnyx: { ...(s.telnyx || {}), zoom_client_secret_draft: e.target.value },
-                    }))
-                  }
-                  placeholder={
-                    activeSummary?.secret_set?.zoom_client_secret
-                      ? 'Leave blank to keep current secret'
-                      : 'Zoom Server-to-Server client_secret'
-                  }
-                />
-              </div>
-              <div className='actions' style={{ marginTop: 4 }}>
-                <button
-                  type='button'
-                  className='btn primary'
-                  onClick={() => saveTelnyxZoomOAuth()}
-                  disabled={providerSaving}
-                >
-                  {providerSaving ? 'Saving…' : 'Save Zoom settings'}
-                </button>
-                {activeSummary?.secret_set?.zoom_client_secret ? (
-                  <span className='pill p-cyan' style={{ marginLeft: 8 }}>
-                    Secret saved in database
-                  </span>
-                ) : null}
-                {String(activeConfig.zoom_oauth_updated_at || '').trim() ? (
-                  <span className='muted' style={{ marginLeft: 8, fontSize: 12 }}>
-                    Last saved {String(activeConfig.zoom_oauth_updated_at).replace('T', ' ').replace('Z', ' UTC')}
-                  </span>
-                ) : null}
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Zoom API base URL (optional)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_base_url || 'https://api.zoom.us/v2')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_base_url', e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Outbound voice profile ID (required by Telnyx)</label>
-                <div className='actions' style={{ gap: 8 }}>
-                  <select
-                    className='input'
-                    value={String(activeConfig.zoom_outbound_voice_profile_id || '')}
-                    onChange={(e) => setProviderField('telnyx', 'zoom_outbound_voice_profile_id', e.target.value)}
-                  >
-                    <option value=''>
-                      {telnyxZoomVoiceProfilesBusy ? 'Loading Telnyx profiles…' : 'Auto-select from Telnyx'}
-                    </option>
-                    {Array.isArray(telnyxZoomVoiceProfiles)
-                      ? telnyxZoomVoiceProfiles.map((row) => (
-                          <option key={row.id} value={row.id}>
-                            {row.name || row.id} ({row.id})
-                          </option>
-                        ))
-                      : null}
-                  </select>
-                  <button type='button' className='btn soft' onClick={() => loadTelnyxZoomVoiceProfiles(false)} disabled={providerSaving || telnyxZoomVoiceProfilesBusy}>
-                    {telnyxZoomVoiceProfilesBusy ? 'Loading…' : 'Refresh profiles'}
-                  </button>
-                </div>
-                <div className='muted telnyxFieldHint'>
-                  Leave it on auto if unsure. VoxBulk will use the first available Telnyx outbound profile.
-                </div>
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Webhook event URL (optional)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_webhook_event_url || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_webhook_event_url', e.target.value)}
-                  placeholder={`${String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom`}
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Zoom external connection ID (optional for test)</label>
-                <input
-                  className='input'
-                  value={String(activeConfig.zoom_external_connection_id || '')}
-                  onChange={(e) => setProviderField('telnyx', 'zoom_external_connection_id', e.target.value)}
-                  placeholder='Auto-filled after create'
-                />
-              </div>
-              <div className='actions telnyxTestActions'>
-                <button type='button' className='btn soft' onClick={createTelnyxZoomConnection} disabled={providerSaving}>
-                  Create Zoom Connection
-                </button>
-                <button type='button' className='btn soft' onClick={testTelnyxZoomConnection} disabled={providerSaving}>
-                  Test Zoom Connection
-                </button>
-              </div>
-              {telnyxZoomConnectionResult ? <div className='note'>{telnyxZoomConnectionResult}</div> : null}
-              <p className='muted' style={{ fontSize: 12, marginBottom: 6 }}>
-                After interviews, point Telnyx Zoom webhooks to{' '}
-                <code>{String(activeConfig.webhook_base_url || 'https://api.voxbulk.com').replace(/\/+$/, '')}/telnyx/webhooks/zoom</code>{' '}
-                (or your API host + <code>/telnyx/webhooks/zoom</code>) so recordings and transcripts sync automatically.
-              </p>
-              <div className='note'>
-                Interview delivery test (below) verifies meeting creation flow used by campaigns.
-              </div>
-              <div className='actions telnyxTestActions'>
-                <button type='button' className='btn soft' onClick={testTelnyxZoom} disabled={providerSaving}>
-                  Test Interview Meeting
-                </button>
-              </div>
-              {telnyxZoomTestResult ? <div className='note'>{telnyxZoomTestResult}</div> : null}
-              {telnyxZoomJoinUrl ? (
-                <div className='note'>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Meeting link ready</strong>
-                  </div>
-                  <div className='telnyxCopyRow'>
-                    <input className='input' value={telnyxZoomJoinUrl} readOnly />
-                    <button type='button' className='btn soft' onClick={() => copyText(telnyxZoomJoinUrl)}>
-                      Copy
-                    </button>
-                    <a className='btn soft' href={telnyxZoomJoinUrl} target='_blank' rel='noreferrer'>
-                      Open
-                    </a>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
       ) : null}
 
       {activeTab === 'microsoft_teams' ? (

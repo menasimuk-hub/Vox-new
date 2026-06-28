@@ -159,7 +159,7 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             title="Book your interview",
             inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>You have been shortlisted for the <strong>{{role}}</strong> position at <strong>{{company_name}}</strong>.</p>
-  <p>Please choose a time for your AI phone interview within our calling window.</p>
+  <p>Please choose a time for your AI interview. You can take it by phone call or in a browser audio meeting, depending on your number.</p>
   """ + cta_button(href="{{booking_url}}", label="Book my interview slot") + """
   <p style="font-size:13px;color:#6b6560;">If the button does not work, copy this link:<br />
   <a href="{{booking_url}}" style="color:#1a2d5c;word-break:break-all;">{{booking_url}}</a></p>
@@ -176,8 +176,9 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:10px;border:1px solid #e5e0d8;">
     <p style="margin:0 0 6px;"><strong>Date:</strong> {{interview_date}}</p>
     <p style="margin:0 0 6px;"><strong>Time:</strong> {{interview_time}} UK time (GMT/BST)</p>
-    <p style="margin:0;font-size:13px;color:#6b6560;">We will call you on the number you provided.</p>
+    <p style="margin:0;font-size:13px;color:#6b6560;">{{interview_channel_note}}</p>
   </div>
+  {{meeting_link_html}}
   {{calendar_links_html}}
   <p style="font-size:13px;color:#6b6560;">Need to change your time? Reply to this email or use the reschedule link from your original booking message.</p>
   <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
@@ -237,15 +238,16 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">Your booking link is now closed. You will not receive any further messages about this job.</p>""",
         ),
     },
-    "interview_zoom_invite": {
-        "title": "Interview Zoom invite",
-        "subject": "Your Zoom interview — {{role}}",
-        "body": wrap_brand_email(
-            title="Zoom interview",
+    "interview_meeting_missed": {
+        "title": "Missed online interview",
+        "subject": "Missed interview — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="We missed you in the meeting room",
             inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
-  <p>Your Zoom interview for <strong>{{role}}</strong> is ready.</p>
-  """ + cta_button(href="{{join_url}}", label="Join Zoom meeting") + """
-  <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{join_url}}" style="color:#1a2d5c;">{{join_url}}</a></p>""",
+  <p>Your booked <strong>{{role}}</strong> online interview at <strong>{{company_name}}</strong> has passed and we did not see you join.</p>
+  <p>Please pick a new time using your booking link:</p>
+  """ + cta_button(href="{{booking_url}}", label="Book again") + """
+  <p style="font-size:13px;color:#6b6560;">If you still want to interview, join the online meeting room at your new booked time.</p>""",
         ),
     },
     "interview_missed_call_followup": {

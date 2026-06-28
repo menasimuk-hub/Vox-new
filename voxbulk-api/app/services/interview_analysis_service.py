@@ -313,11 +313,11 @@ def build_order_interview_report(order: ServiceOrder, recipients: list[ServiceOr
 
     config = _order_config(order)
     delivery = str(config.get("delivery") or "ai_call").strip().lower()
-    is_zoom = delivery == "zoom"
+    is_meeting = delivery == "ai_meeting"
     return {
         "dispatch_at": datetime.utcnow().isoformat(),
-        "provider": "telnyx_zoom" if is_zoom else "telnyx_voice",
-        "channel": "zoom" if is_zoom else "ai_call",
+        "provider": "telnyx_voice",
+        "channel": "ai_meeting" if is_meeting else "ai_call",
         "total": len(recipients),
         "counts": counts,
         "completed": counts.get("completed", 0),

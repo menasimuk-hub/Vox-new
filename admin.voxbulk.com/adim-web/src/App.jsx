@@ -107,7 +107,6 @@ export default function App() {
         <Route path='/integrations/gocardless' element={<P.Integrations />} />
         <Route path='/integrations/stripe' element={<P.Integrations />} />
         <Route path='/integrations/airwallex' element={<P.Integrations />} />
-        <Route path='/integrations/zoom' element={<P.Integrations />} />
         <Route path='/integrations/calendly' element={<P.Integrations />} />
         <Route path='/integrations/cal_com' element={<P.Integrations />} />
         <Route path='/integrations/google_calendar' element={<P.Integrations />} />
@@ -213,6 +212,7 @@ export default function App() {
         <Route path='/settings/wa-survey/:typeId/flows' element={<P.WaSurveyFlows />} />
         <Route path='/settings/wa-survey/:typeId' element={<P.WaSurveyTypeEdit />} />
         <Route path='/settings/legal' element={<P.LegalPages />} />
+        <Route path='/settings/meeting-room' element={<P.MeetingRoomSettings />} />
         <Route path='/settings/legal/:slug/edit' element={<P.LegalPageEdit />} />
         <Route path='/settings/disabled-wa-templates' element={<P.DisabledWaTemplates />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />

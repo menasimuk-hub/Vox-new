@@ -11,7 +11,6 @@ from app.core.database import get_db
 from app.models.platform_service import PlatformService
 from app.models.service_order import ServiceOrder
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
-from app.services.zoom_service import ZoomService
 
 router = APIRouter(prefix="/admin/platform-services", tags=["admin-platform-services"])
 
@@ -634,10 +633,3 @@ def admin_reject_script_moderation(
     )
     return ServiceOrderService.order_to_admin_dict(db, order)
 
-
-@router.post("/integrations/zoom/test")
-def admin_test_zoom(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
-    try:
-        return ZoomService.test_connection(db)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

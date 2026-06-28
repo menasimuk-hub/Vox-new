@@ -52,7 +52,6 @@ const PROVIDERS = [
   { key: 'gocardless', label: 'GoCardless' },
   { key: 'stripe', label: 'Stripe' },
   { key: 'airwallex', label: 'Airwallex' },
-  { key: 'zoom', label: 'Zoom' },
   { key: 'calendly', label: 'Calendly' },
   { key: 'cal_com', label: 'Cal.com' },
   { key: 'google_calendar', label: 'Google Calendar' },
@@ -170,15 +169,6 @@ function deepSeekValidation(config, draft, summary) {
   if (!hasApiKey) errors.api_key = 'API key is required.'
   if (!String(config?.base_url || '').trim()) errors.base_url = 'Base URL is required.'
   if (!String(config?.model || config?.default_model || '').trim()) errors.model = 'Model is required.'
-  return { errors, valid: Object.keys(errors).length === 0 }
-}
-
-function zoomValidation(config, draft, summary) {
-  const errors = {}
-  const hasSecret = Boolean(summary?.secret_set?.client_secret) || Boolean(String(draft?.client_secret_draft || '').trim())
-  if (!String(config?.account_id || '').trim()) errors.account_id = 'Account ID is required.'
-  if (!String(config?.client_id || '').trim()) errors.client_id = 'Client ID is required.'
-  if (!hasSecret) errors.client_secret = 'Client secret is required.'
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
@@ -674,7 +664,6 @@ export default function Integrations() {
   const [azureTestResult, setAzureTestResult] = useState('')
   const [openAITestResult, setOpenAITestResult] = useState('')
   const [deepSeekTestResult, setDeepSeekTestResult] = useState('')
-  const [zoomTestResult, setZoomTestResult] = useState('')
   const [calendlyTestResult, setCalendlyTestResult] = useState(null)
   const [calComTestResult, setCalComTestResult] = useState(null)
   const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState(null)
@@ -704,12 +693,7 @@ export default function Integrations() {
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
   const [telnyxSmsTestResult, setTelnyxSmsTestResult] = useState('')
   const [telnyxMessagingSyncResult, setTelnyxMessagingSyncResult] = useState('')
-  const [telnyxZoomTestResult, setTelnyxZoomTestResult] = useState('')
-  const [telnyxZoomJoinUrl, setTelnyxZoomJoinUrl] = useState('')
-  const [telnyxZoomConnectionResult, setTelnyxZoomConnectionResult] = useState('')
   const [telnyxTeamsTestResult, setTelnyxTeamsTestResult] = useState('')
-  const [telnyxZoomVoiceProfiles, setTelnyxZoomVoiceProfiles] = useState([])
-  const [telnyxZoomVoiceProfilesBusy, setTelnyxZoomVoiceProfilesBusy] = useState(false)
   const [telnyxInboundMessages, setTelnyxInboundMessages] = useState([])
   const [telnyxMessageDetailBusy, setTelnyxMessageDetailBusy] = useState('')
   const [telnyxMessageFilters, setTelnyxMessageFilters] = useState({
@@ -852,75 +836,11 @@ export default function Integrations() {
     }))
   }
 
-  const hasTelnyxZoomUnsaved = (providerKey = 'telnyx') => {
-    if (providerKey !== 'telnyx') return false
-    const draft = providerDrafts.telnyx || {}
-    const summaryCfg = summaries.telnyx?.config || {}
-    if (String(draft.zoom_client_secret_draft || '').trim()) return true
-    const draftCfg = draft.config || {}
-    for (const key of ['zoom_account_id', 'zoom_client_id', 'zoom_base_url']) {
-      if (key in draftCfg && String(draftCfg[key] ?? '') !== String(summaryCfg[key] ?? '')) return true
-    }
-    return false
-  }
-
-  const saveTelnyxZoomOAuth = async () => {
-    setProviderSaving(true)
-    setProviderError('')
-    try {
-      const summary = summaries.telnyx || {}
-      const draft = providerDrafts.telnyx || {}
-      const config = { ...(summary.config || {}), ...(draft.config || {}) }
-      const accountId = String(config.zoom_account_id || '').trim()
-      const clientId = String(config.zoom_client_id || '').trim()
-      const secret = String(draft.zoom_client_secret_draft || '').trim()
-      const baseUrl = String(config.zoom_base_url || 'https://api.zoom.us/v2').trim()
-      if (!accountId || !clientId) {
-        setProviderError('Zoom Account ID and Client ID are required.')
-        return false
-      }
-      if (!secret && !summary?.secret_set?.zoom_client_secret) {
-        setProviderError('Zoom Client Secret is required on first save.')
-        return false
-      }
-      const body = { account_id: accountId, client_id: clientId, base_url: baseUrl }
-      if (secret) body.client_secret = secret
-      const updated = await apiFetch('/admin/integrations/telnyx/zoom-oauth', {
-        method: 'PUT',
-        body: JSON.stringify(body),
-      })
-      setSummaries((s) => ({ ...s, telnyx: updated }))
-      setProviderDrafts((s) => ({
-        ...s,
-        telnyx: {
-          ...(s.telnyx || {}),
-          zoom_client_secret_draft: '',
-          config: Object.fromEntries(
-            Object.entries(s.telnyx?.config || {}).filter(
-              ([k]) => !['zoom_account_id', 'zoom_client_id', 'zoom_base_url'].includes(k),
-            ),
-          ),
-        },
-      }))
-      return true
-    } catch (e) {
-      setProviderError(e?.message || 'Could not save Zoom OAuth settings')
-      return false
-    } finally {
-      setProviderSaving(false)
-    }
-  }
-
   const saveIntegrationProvider = async (providerKey) => {
     let savedOk = false
     setProviderSaving(true)
     setProviderError('')
     try {
-      if (providerKey === 'telnyx' && hasTelnyxZoomUnsaved('telnyx')) {
-        setProviderSaving(false)
-        if (!(await saveTelnyxZoomOAuth())) return false
-        setProviderSaving(true)
-      }
       const existing = summaries[providerKey] || {}
       const draft = providerDrafts[providerKey] || {}
       const config = { ...(existing.config || {}), ...(draft.config || {}) }
@@ -994,7 +914,6 @@ export default function Integrations() {
         }
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
-        delete config.zoom_client_secret
       }
       if (providerKey === 'azure_speech') {
         if (config.default_voice_id == null || String(config.default_voice_id).trim() === '') config.default_voice_id = 'en-GB-AbbiNeural'
@@ -1069,11 +988,6 @@ export default function Integrations() {
         if (!config.default_voice_id && config.voice_id) config.default_voice_id = config.voice_id
         if (!config.voice_id && config.default_voice_id) config.voice_id = config.default_voice_id
       }
-      if (providerKey === 'zoom') {
-        if (!config.base_url) config.base_url = 'https://api.zoom.us/v2'
-        const secret = String(draft.client_secret_draft || '').trim()
-        if (secret) config.client_secret = secret
-      }
       if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
@@ -1116,10 +1030,8 @@ export default function Integrations() {
       if (providerKey === 'elevenlabs') setElevenLabsTestResult('')
       if (providerKey === 'telnyx') {
         setTelnyxTestResult('')
-        setTelnyxZoomConnectionResult('')
         setTelnyxTeamsTestResult('')
       }
-      if (providerKey === 'zoom') setZoomTestResult('')
       savedOk = true
     } catch (e) {
       setProviderError(e?.message || 'Could not save provider')
@@ -1154,7 +1066,6 @@ export default function Integrations() {
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const zoomStatus = activeProvider === 'zoom' ? zoomValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calComStatus = activeProvider === 'cal_com' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1217,26 +1128,6 @@ export default function Integrations() {
     } catch (e) {
       setDeepSeekTestResult('')
       setProviderError(e?.message || 'DeepSeek test failed')
-    }
-  }
-
-  const testZoom = async () => {
-    setProviderError('')
-    if (!(await ensureProviderSaved('zoom'))) {
-      setZoomTestResult('')
-      return
-    }
-    setZoomTestResult('Testing Zoom…')
-    try {
-      const result = await apiFetch('/admin/integrations/zoom/test', { method: 'POST' })
-      if (!result.ok) {
-        setZoomTestResult(`Zoom failed: ${result.detail || 'Unknown error'}`)
-        return
-      }
-      setZoomTestResult(`Zoom OK: ${result.email || 'connected'}`)
-    } catch (e) {
-      setZoomTestResult('')
-      setProviderError(e?.message || 'Zoom test failed')
     }
   }
 
@@ -1789,130 +1680,6 @@ export default function Integrations() {
     }
   }
 
-  const testTelnyxZoom = async () => {
-    setProviderError('')
-    if (hasTelnyxZoomUnsaved('telnyx')) {
-      if (!(await saveTelnyxZoomOAuth())) {
-        setTelnyxZoomTestResult('Save Zoom OAuth settings first (see error above).')
-        return
-      }
-    } else if (
-      !String(activeConfig.zoom_account_id || '').trim() ||
-      !String(activeConfig.zoom_client_id || '').trim()
-    ) {
-      setProviderError('Enter Zoom Account ID and Client ID, then click Save Zoom settings.')
-      setTelnyxZoomTestResult('')
-      return
-    }
-    setTelnyxZoomJoinUrl('')
-    setTelnyxZoomTestResult('Testing Zoom connection via Telnyx…')
-    try {
-      const result = await apiFetch('/admin/integrations/telnyx/test-zoom', { method: 'POST' })
-      if (result.ok) {
-        const provider = result.meeting_provider === 'telnyx_zoom' ? 'Telnyx' : 'Zoom OAuth'
-        const joinUrl = String(result.join_url || '').trim()
-        setTelnyxZoomJoinUrl(joinUrl)
-        setTelnyxZoomTestResult(
-          `✓ ${provider} · Meeting ID: ${result.meeting_id || '—'} · ${result.message || 'Connection verified'}${joinUrl ? ' · Join URL ready' : ''}`,
-        )
-      } else {
-        setTelnyxZoomJoinUrl('')
-        setTelnyxZoomTestResult(`✗ Zoom failed: ${result.detail || 'Unknown error'}`)
-      }
-    } catch (e) {
-      setTelnyxZoomJoinUrl('')
-      setTelnyxZoomTestResult('')
-      setProviderError(e?.message || 'Telnyx Zoom test failed')
-    }
-  }
-
-  const loadTelnyxZoomVoiceProfiles = async (silent = false) => {
-    if (!silent) setProviderError('')
-    setTelnyxZoomVoiceProfilesBusy(true)
-    try {
-      const result = await apiFetch('/admin/integrations/telnyx/zoom/outbound-voice-profiles')
-      const rows = Array.isArray(result?.profiles) ? result.profiles : []
-      setTelnyxZoomVoiceProfiles(rows)
-      const selected = String(result?.selected_outbound_voice_profile_id || '').trim()
-      if (selected && !String(activeConfig.zoom_outbound_voice_profile_id || '').trim()) {
-        setProviderField('telnyx', 'zoom_outbound_voice_profile_id', selected)
-      }
-      return rows
-    } catch (e) {
-      if (!silent) setProviderError(formatTelnyxApiError(e))
-      return []
-    } finally {
-      setTelnyxZoomVoiceProfilesBusy(false)
-    }
-  }
-
-  const createTelnyxZoomConnection = async () => {
-    setProviderError('')
-    if (!(await ensureProviderSaved('telnyx'))) {
-      setTelnyxZoomConnectionResult('')
-      return
-    }
-    setTelnyxZoomConnectionResult('Creating Zoom external connection in Telnyx…')
-    try {
-      let outboundVoiceProfileId = String(activeConfig.zoom_outbound_voice_profile_id || '').trim()
-      if (!outboundVoiceProfileId) {
-        const profiles = await loadTelnyxZoomVoiceProfiles(true)
-        outboundVoiceProfileId = String(profiles?.[0]?.id || '').trim()
-        if (outboundVoiceProfileId) {
-          setProviderField('telnyx', 'zoom_outbound_voice_profile_id', outboundVoiceProfileId)
-        }
-      }
-      const payload = {
-        outbound_voice_profile_id: outboundVoiceProfileId,
-        webhook_event_url: String(activeConfig.zoom_webhook_event_url || '').trim(),
-      }
-      const result = await apiFetch('/admin/integrations/telnyx/zoom/create-connection', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      const connection = result?.connection || {}
-      if (connection?.id) {
-        setProviderField('telnyx', 'zoom_external_connection_id', connection.id)
-      }
-      setTelnyxZoomConnectionResult(
-        `✓ ${result?.message || 'Zoom connection created'} · ID: ${connection?.id || '—'} · active: ${connection?.active ? 'yes' : 'no'}`,
-      )
-      await reloadSummaries()
-    } catch (e) {
-      setTelnyxZoomConnectionResult('')
-      setProviderError(formatTelnyxApiError(e))
-    }
-  }
-
-  const testTelnyxZoomConnection = async () => {
-    setProviderError('')
-    if (!(await ensureProviderSaved('telnyx'))) {
-      setTelnyxZoomConnectionResult('')
-      return
-    }
-    setTelnyxZoomConnectionResult('Testing Zoom external connection in Telnyx…')
-    try {
-      const payload = {
-        connection_id: String(activeConfig.zoom_external_connection_id || '').trim(),
-      }
-      const result = await apiFetch('/admin/integrations/telnyx/zoom/test-connection', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      const connection = result?.connection || {}
-      if (connection?.id) {
-        setProviderField('telnyx', 'zoom_external_connection_id', connection.id)
-      }
-      const prefix = result?.ok ? '✓' : '⚠'
-      setTelnyxZoomConnectionResult(
-        `${prefix} ${result?.message || 'Zoom test complete'} · ID: ${connection?.id || '—'} · credential_active: ${connection?.credential_active === false ? 'no' : 'yes'}`,
-      )
-    } catch (e) {
-      setTelnyxZoomConnectionResult('')
-      setProviderError(formatTelnyxApiError(e))
-    }
-  }
-
   const createTelnyxTeamsConnection = async () => {
     setProviderError('')
     setTelnyxTeamsTestResult('Requesting Microsoft Teams Operator Connect refresh…')
@@ -2027,13 +1794,6 @@ export default function Integrations() {
     loadTelnyxWaTemplates(true)
   }, [activeProvider, summaries.telnyx?.exists])
 
-  useEffect(() => {
-    if (activeProvider !== 'telnyx') return
-    if (!summaries.telnyx?.exists) return
-    if (String(activeConfig.zoom_outbound_voice_profile_id || '').trim()) return
-    loadTelnyxZoomVoiceProfiles(true)
-  }, [activeProvider, summaries.telnyx?.exists, activeConfig.zoom_outbound_voice_profile_id])
-
   return (
     <>
       {activeProvider !== 'telnyx' ? (
@@ -2121,12 +1881,7 @@ export default function Integrations() {
           telnyxTestResult={telnyxTestResult}
           telnyxSmsTestResult={telnyxSmsTestResult}
           telnyxMessagingSyncResult={telnyxMessagingSyncResult}
-          telnyxZoomTestResult={telnyxZoomTestResult}
-          telnyxZoomJoinUrl={telnyxZoomJoinUrl}
-          telnyxZoomConnectionResult={telnyxZoomConnectionResult}
           telnyxTeamsTestResult={telnyxTeamsTestResult}
-          telnyxZoomVoiceProfiles={telnyxZoomVoiceProfiles}
-          telnyxZoomVoiceProfilesBusy={telnyxZoomVoiceProfilesBusy}
           telnyxInboundMessages={telnyxInboundMessages}
           telnyxMessageDetailBusy={telnyxMessageDetailBusy}
           fetchTelnyxMessageDetail={fetchTelnyxMessageDetail}
@@ -2152,16 +1907,11 @@ export default function Integrations() {
           setProviderDrafts={setProviderDrafts}
           applyTelnyxFromNumber={applyTelnyxFromNumber}
           saveIntegrationProvider={saveIntegrationProvider}
-          saveTelnyxZoomOAuth={saveTelnyxZoomOAuth}
           testTelnyx={testTelnyx}
           testTelnyxCall={testTelnyxCall}
           hangupTelnyxCall={hangupTelnyxCall}
-          testTelnyxZoom={testTelnyxZoom}
-          createTelnyxZoomConnection={createTelnyxZoomConnection}
-          testTelnyxZoomConnection={testTelnyxZoomConnection}
           createTelnyxTeamsConnection={createTelnyxTeamsConnection}
           testTelnyxTeamsConnection={testTelnyxTeamsConnection}
-          loadTelnyxZoomVoiceProfiles={loadTelnyxZoomVoiceProfiles}
           testTelnyxSms={testTelnyxSms}
           syncTelnyxMessagingDestinations={syncTelnyxMessagingDestinations}
           testTelnyxWhatsApp={testTelnyxWhatsApp}
@@ -2654,52 +2404,6 @@ export default function Integrations() {
                       </button>
                     </div>
                     <div className='note'>Use this from `/ai/agent-demo` by choosing ElevenLabs in the Text-to-speech card. You can override the voice ID per test.</div>
-                  </div>
-                </div>
-              </div>
-            ) : activeProvider === 'zoom' ? (
-              <div className='card'>
-                <div className='cardHead'>
-                  <h3>Zoom Server-to-Server OAuth</h3>
-                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
-                </div>
-                <div className='cardBody'>
-                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
-                  <div className='stack' style={{ gap: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('zoom', e.target.checked)} />
-                      <span>Enable Zoom for interview campaigns</span>
-                    </label>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Account ID</label>
-                      <input className='input' style={zoomStatus.errors.account_id ? invalidInputStyle : undefined} value={String(activeConfig.account_id || '')} onChange={(e) => setProviderField('zoom', 'account_id', e.target.value)} />
-                      {zoomStatus.errors.account_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.account_id}</div> : null}
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Client ID</label>
-                      <input className='input' style={zoomStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('zoom', 'client_id', e.target.value)} />
-                      {zoomStatus.errors.client_id ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.client_id}</div> : null}
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Client secret</label>
-                      <input className='input' style={zoomStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, zoom: { ...(s.zoom || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Zoom client secret'} />
-                      {zoomStatus.errors.client_secret ? <div className='muted' style={{ fontSize: 12, color: '#dc2626' }}>{zoomStatus.errors.client_secret}</div> : null}
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>API base URL</label>
-                      <input className='input' value={String(activeConfig.base_url || 'https://api.zoom.us/v2')} onChange={(e) => setProviderField('zoom', 'base_url', e.target.value)} />
-                    </div>
-                    {!zoomStatus.valid ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>Complete the required Zoom fields before saving.</div> : null}
-                    {zoomTestResult ? <div className='note'>{zoomTestResult}</div> : null}
-                    <div className='actions'>
-                      <button className='btn primary' onClick={() => saveIntegrationProvider('zoom')} disabled={providerSaving || !zoomStatus.valid}>
-                        {providerSaving ? 'Saving…' : 'Save Zoom'}
-                      </button>
-                      <button className='btn soft' onClick={testZoom} disabled={providerSaving || !activeSummary.configured}>
-                        Test Zoom
-                      </button>
-                    </div>
-                    <div className='note'>Used when customers choose Zoom delivery on interview orders.</div>
                   </div>
                 </div>
               </div>

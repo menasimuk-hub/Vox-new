@@ -1,0 +1,281 @@
+"""Browser meeting room (Telnyx WebRTC + AI assistant) for interview candidates."""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.constants.meeting_room_languages import meeting_room_language_label
+from app.models.interview_booking_token import InterviewBookingToken
+from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+from app.services.interview_booking_service import (
+    interview_slot_minutes,
+    meeting_url_for_token,
+)
+from app.services.interview_call_dispatch_service import _recipient_eligible_for_dial
+from app.services.interview_voice_agent_service import (
+    build_interview_opening_greeting,
+    build_interview_runtime_instructions,
+    resolve_interview_telnyx_assistant_id,
+)
+from app.services.meeting_room_settings_service import MeetingRoomSettingsService
+from app.services.platform_catalog_service import ServiceOrderService
+from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
+
+logger = logging.getLogger(__name__)
+
+MEETING_CHANNEL = "meeting"
+PHONE_CHANNEL = "phone"
+
+
+def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    try:
+        data = json.loads(recipient.result_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _set_recipient_result(db: Session, recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> dict[str, Any]:
+    merged = _recipient_result(recipient)
+    merged.update(payload)
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+    return merged
+
+
+def _booking_row(db: Session, token: str) -> tuple[InterviewBookingToken, ServiceOrder, ServiceOrderRecipient]:
+    row = db.execute(
+        select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("Meeting link not found or expired")
+    order = db.get(ServiceOrder, row.order_id)
+    recipient = db.get(ServiceOrderRecipient, row.recipient_id)
+    if order is None or recipient is None:
+        raise ValueError("Meeting link is no longer valid")
+    return row, order, recipient
+
+
+def _assert_meeting_slot_window(
+    db: Session,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    row: InterviewBookingToken,
+    *,
+    now: datetime | None = None,
+) -> None:
+    now = now or datetime.utcnow()
+    config = {}
+    try:
+        config = json.loads(order.config_json or "{}")
+        if not isinstance(config, dict):
+            config = {}
+    except Exception:
+        config = {}
+    booking_required = bool(config.get("require_booking", True))
+    eligible, reason = _recipient_eligible_for_dial(
+        db,
+        order,
+        recipient,
+        now=now,
+        booking_required=booking_required,
+    )
+    if not eligible:
+        if reason == "slot_not_due":
+            raise ValueError("Your interview slot has not started yet — please join at your booked time")
+        if reason == "slot_missed":
+            raise ValueError("Your booked interview slot has passed — contact the employer to reschedule")
+        if reason == "not_booked":
+            raise ValueError("Please book a time slot before joining the meeting")
+        raise ValueError("You cannot join the meeting right now")
+
+
+def _language_instruction_suffix(language_code: str) -> str:
+    label = meeting_room_language_label(language_code)
+    return (
+        f"\n\nConduct this interview in {label}. "
+        f"Speak and listen in {label} unless the candidate clearly prefers another language."
+    )
+
+
+class InterviewMeetingService:
+    @staticmethod
+    def start_meeting(db: Session, token: str) -> dict[str, Any]:
+        row, order, recipient = _booking_row(db, token)
+        if str(row.channel or "").strip().lower() != MEETING_CHANNEL:
+            raise ValueError("This booking is not set up for an online meeting")
+
+        _assert_meeting_slot_window(db, order, recipient, row)
+
+        config = {}
+        try:
+            config = json.loads(order.config_json or "{}")
+            if not isinstance(config, dict):
+                config = {}
+        except Exception:
+            config = {}
+
+        meeting_settings = MeetingRoomSettingsService.get_settings(db)
+        language_code = str(meeting_settings.get("language_code") or "en").strip().lower()
+
+        assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
+        if not assistant_id:
+            raise ValueError("Interview AI agent is not configured")
+
+        instructions = build_interview_runtime_instructions(
+            db,
+            order=order,
+            config=config,
+            recipient=recipient,
+            agent=agent,
+        )
+        instructions = f"{instructions}{_language_instruction_suffix(language_code)}"
+
+        greeting = build_interview_opening_greeting(
+            db,
+            agent=agent,
+            config=config,
+            recipient_name=str(recipient.name or "there"),
+            org_id=order.org_id,
+            order=order,
+        )
+
+        prep = prepare_telnyx_webrtc_call(db, assistant_id, instructions, greeting=greeting or None)
+
+        custom_headers = {
+            "X-Interview-Recipient-Id": str(recipient.id),
+            "X-Service-Order-Id": str(order.id),
+            "interview_recipient_id": str(recipient.id),
+            "service_order_id": str(order.id),
+        }
+
+        now = datetime.utcnow()
+        _set_recipient_result(
+            db,
+            recipient,
+            {
+                "channel": MEETING_CHANNEL,
+                "transport": "webrtc",
+                "meeting_started_at": now.isoformat(),
+                "meeting_url": meeting_url_for_token(row.token),
+                "telnyx_assistant_id": prep.get("assistant_id") or assistant_id,
+                "interview_language_code": language_code,
+            },
+        )
+
+        if str(recipient.status or "").lower() not in {"completed", "done", "calling"}:
+            recipient.status = "calling"
+            recipient.updated_at = now
+            db.add(recipient)
+            db.commit()
+            db.refresh(recipient)
+
+        return {
+            "ok": True,
+            "agent_id": prep.get("assistant_id") or assistant_id,
+            "greeting": greeting,
+            "custom_headers": custom_headers,
+            "web_calls_enabled": bool(prep.get("web_calls_enabled")),
+            "meeting_url": meeting_url_for_token(row.token),
+            "candidate_name": recipient.name,
+            "role": str(config.get("role") or config.get("position") or order.title or "Interview"),
+        }
+
+    @staticmethod
+    def complete_meeting(
+        db: Session,
+        token: str,
+        *,
+        duration_seconds: int | None = None,
+        provider_call_id: str | None = None,
+    ) -> dict[str, Any]:
+        row, order, recipient = _booking_row(db, token)
+        now = datetime.utcnow()
+
+        merged = _recipient_result(recipient)
+        started_at = merged.get("meeting_started_at")
+        secs = duration_seconds
+        if secs is None and started_at:
+            try:
+                start_dt = datetime.fromisoformat(str(started_at).replace("Z", "+00:00")).replace(tzinfo=None)
+                secs = max(1, int((now - start_dt).total_seconds()))
+            except Exception:
+                secs = None
+
+        from app.services.billing_call_minutes import billable_call_minutes
+
+        payload: dict[str, Any] = {
+            "channel": MEETING_CHANNEL,
+            "transport": "webrtc",
+            "ended_at": now.isoformat(),
+            "call_channel": MEETING_CHANNEL,
+        }
+        if provider_call_id:
+            payload["telnyx_conversation_id"] = str(provider_call_id).strip()
+            payload["provider_call_id"] = str(provider_call_id).strip()
+        if secs is not None:
+            payload["duration_seconds"] = int(secs)
+            payload["billable_minutes"] = billable_call_minutes(int(secs))
+
+        _set_recipient_result(db, recipient, payload)
+        db.refresh(recipient)
+
+        recipient.status = "completed"
+        recipient.updated_at = now
+        db.add(recipient)
+        db.commit()
+
+        from app.services.interview_analysis_service import InterviewAnalysisService
+
+        InterviewAnalysisService.process_recipient_post_call(
+            db,
+            order=order,
+            recipient=recipient,
+            terminal_status="completed",
+            hangup_extra={"duration_seconds": secs},
+        )
+        schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
+
+        return {"ok": True, "status": recipient.status}
+
+
+def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipient_id: str) -> None:
+    """Daemon retry when Telnyx transcript is not ready immediately after WebRTC hangup."""
+    import threading
+    import time
+
+    from app.core.database import get_sessionmaker
+
+    def _worker() -> None:
+        sessionmaker = get_sessionmaker()
+        for delay in (5, 15, 30, 60):
+            time.sleep(delay)
+            try:
+                with sessionmaker() as session:
+                    order = session.get(ServiceOrder, order_id)
+                    recipient = session.get(ServiceOrderRecipient, recipient_id)
+                    if not order or not recipient:
+                        return
+                    from app.services.interview_analysis_service import InterviewAnalysisService
+                    from app.services.survey_analysis_service import ensure_survey_transcript
+
+                    ensure_survey_transcript(session, order=order, recipient=recipient)
+                    session.refresh(recipient)
+                    InterviewAnalysisService.run_interview_analysis_if_needed(
+                        session, order=order, recipient=recipient
+                    )
+                    merged = _recipient_result(recipient)
+                    if merged.get("analysis_saved_at"):
+                        return
+            except Exception:
+                logger.exception("meeting_analysis_retry_failed order=%s recipient=%s", order_id, recipient_id)
+
+    threading.Thread(target=_worker, daemon=True).start()
