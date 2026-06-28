@@ -63,6 +63,7 @@ from app.routers.assistant import admin_router as admin_assistant_router
 from app.routers.assistant import router as assistant_router
 from app.routers.dashboard_scripts import router as dashboard_scripts_router
 from app.routers.admin_customer_feedback import router as admin_customer_feedback_router
+from app.routers.admin_disabled_wa_templates import router as admin_disabled_wa_templates_router
 from app.routers.customer_feedback import router as customer_feedback_router
 from app.routers.public_feedback import router as public_feedback_router
 from app.routers.service_orders import router as service_orders_router
@@ -589,6 +590,7 @@ app.include_router(assistant_router)
 app.include_router(admin_assistant_router)
 app.include_router(dashboard_scripts_router)
 app.include_router(admin_customer_feedback_router)
+app.include_router(admin_disabled_wa_templates_router)
 app.include_router(customer_feedback_router)
 app.include_router(public_feedback_router)
 app.include_router(admin_sales_reps_router)

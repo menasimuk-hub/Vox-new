@@ -82,6 +82,7 @@ export const CustomerFeedbackHub = lazy(() => import('../pages/customer-feedback
 export const FeedbackIndustriesList = lazy(() => import('../pages/customer-feedback/FeedbackIndustriesList'))
 export const FeedbackIndustryEdit = lazy(() => import('../pages/customer-feedback/FeedbackIndustryEdit'))
 export const FeedbackPackagesPricing = lazy(() => import('../pages/customer-feedback/FeedbackPackagesPricing'))
+export const DisabledWaTemplates = lazy(() => import('../pages/DisabledWaTemplates'))
 export const FeedbackSurveyTypeEdit = lazy(() => import('../pages/customer-feedback/FeedbackSurveyTypeEdit'))
 export const CampaignsHub = lazy(() => import('../pages/campaigns/CampaignsHub'))
 export const CampaignTemplates = lazy(() => import('../pages/campaigns/CampaignTemplates'))

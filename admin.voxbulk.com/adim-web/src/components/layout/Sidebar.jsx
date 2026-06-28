@@ -480,6 +480,8 @@ const NAV = [
 
       ['Legal pages', '/settings/legal'],
 
+      ['Disabled WA templates', '/settings/disabled-wa-templates'],
+
     ],
 
   ],

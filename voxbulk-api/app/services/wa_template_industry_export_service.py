@@ -95,6 +95,8 @@ def build_export_resolver_context(db: Session) -> ExportResolverContext:
             "template_key": tpl.template_key,
             "telnyx_sync_status": tpl.telnyx_sync_status,
             "source": "feedback_db",
+            "feedback_template_id": tpl.id,
+            "platform_template_id": None,
         }
 
     return ctx
@@ -204,6 +206,8 @@ def resolve_template_export_row(
         "display_name": "",
         "body_preview": "",
         "source": "",
+        "feedback_template_id": None,
+        "platform_template_id": None,
     }
 
     if lower.startswith("voxbulk_cf_"):
@@ -242,6 +246,8 @@ def resolve_template_export_row(
                 "body_preview": (row.body_preview or "")[:200],
                 "db_found": "yes",
                 "source": "platform_db",
+                "feedback_template_id": None,
+                "platform_template_id": row.id,
             }
         )
         return base

@@ -214,6 +214,7 @@ export default function App() {
         <Route path='/settings/wa-survey/:typeId' element={<P.WaSurveyTypeEdit />} />
         <Route path='/settings/legal' element={<P.LegalPages />} />
         <Route path='/settings/legal/:slug/edit' element={<P.LegalPageEdit />} />
+        <Route path='/settings/disabled-wa-templates' element={<P.DisabledWaTemplates />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />
 
         <Route path='*' element={<HomeRedirect />} />
