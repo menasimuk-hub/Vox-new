@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0143_subscription_billing_interval"
-down_revision = "0142_meeting_room_and_booking_channel"
+down_revision = "0141_disabled_wa_template_survey_type"
 branch_labels = None
 depends_on = None
 
