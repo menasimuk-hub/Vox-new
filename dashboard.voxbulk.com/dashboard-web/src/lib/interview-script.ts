@@ -47,11 +47,35 @@ const CV_QUESTION_MARKERS = [
   "previous employer",
   "last role",
   "most recent role",
+  "سيرة",
+  "السيرة",
+  "الذاتية",
+  "خبرة",
+  "خبرات",
+  "عمل",
+  "وظيفة",
+  "منصب",
+  "إنجاز",
+  "انجاز",
+  "فجوة",
+  "مسار",
+  "خلفية",
+  "مؤهل",
+  "سابق",
+  "أخبرني",
+  "اخبرني",
+  "حدثني",
 ];
 
 export function looksCvPersonalized(question: string): boolean {
-  const q = String(question || "").toLowerCase();
-  return CV_QUESTION_MARKERS.some((marker) => q.includes(marker));
+  const q = String(question || "");
+  const lower = q.toLowerCase();
+  return CV_QUESTION_MARKERS.some((marker) => {
+    if (/[\u0600-\u06FF]/.test(marker)) {
+      return q.includes(marker);
+    }
+    return lower.includes(marker);
+  });
 }
 
 export type ParsedScriptQuestion = {

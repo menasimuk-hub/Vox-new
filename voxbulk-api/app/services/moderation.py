@@ -43,13 +43,16 @@ DEEPINFRA_MODERATION_MODELS: list[dict[str, str]] = [
     },
 ]
 
-_MODERATION_SYSTEM = """You are a content safety reviewer for outbound AI phone scripts (job interviews and customer surveys) used in the UK/EU.
+_MODERATION_SYSTEM = """You are a content safety reviewer for outbound AI phone scripts (job interviews and customer surveys) used in the UK/EU and internationally.
 Review the user's script text for harmful content before it is approved for live calls.
+
+Scripts may be written in ANY language (English, Arabic, French, etc.). Judge the MEANING of the content, not the language used.
+Normal professional interview and survey language is SAFE in any language — job skills, screening criteria, availability, and neutral business questions are acceptable.
 
 Return ONLY valid JSON with exactly these keys:
 - "safe": boolean — true only if the script is acceptable for professional outbound calls
 - "category": one of "safe", "racism", "offensive", "sexual", "political"
-- "reason": short British English explanation for the customer (empty string if safe)
+- "reason": short explanation for the customer when not safe — use the SAME language as the script when possible (empty string if safe)
 
 Flag as NOT safe when the script contains:
 - racism: racist, discriminatory, or hateful content targeting protected groups
@@ -57,7 +60,7 @@ Flag as NOT safe when the script contains:
 - sexual: sexual, explicit, or adult content inappropriate for professional calls
 - political: partisan campaigning, inflammatory political messaging, or election advocacy
 
-Professional interview and survey language is fine. Questions about job skills, customer satisfaction, and neutral business topics are safe.
+Do NOT flag scripts simply because they are written in Arabic or another non-English language.
 No markdown fences. No extra keys."""
 
 
@@ -147,7 +150,7 @@ def _normalize_result(data: dict[str, Any], *, fallback_reason: str = "") -> dic
     return {"safe": safe, "category": "safe" if safe else category, "reason": reason if not safe else ""}
 
 
-def moderate_content(text: str, *, db: Session) -> dict[str, Any]:
+def moderate_content(text: str, *, db: Session, language_code: str | None = None) -> dict[str, Any]:
     """Scan script text. Returns {safe, category, reason}. Fail-closed on API errors."""
     script = str(text or "").strip()
     if not script:
@@ -158,11 +161,18 @@ def moderate_content(text: str, *, db: Session) -> dict[str, Any]:
         logger.warning("script_moderation_config_missing err=%s", exc)
         return {"safe": False, "category": "error", "reason": str(exc)}
 
+    lang_hint = str(language_code or "").strip()
+    user_content = f"Review this outbound phone script:\n\n{script[:12000]}"
+    if lang_hint:
+        from app.utils.script_language import script_language_label
+
+        user_content = f"Script language: {script_language_label(lang_hint)}\n\n{user_content}"
+
     payload = {
         "model": runtime["model"],
         "messages": [
             {"role": "system", "content": _MODERATION_SYSTEM},
-            {"role": "user", "content": f"Review this outbound phone script:\n\n{script[:12000]}"},
+            {"role": "user", "content": user_content},
         ],
         "max_tokens": 256,
         "temperature": 0.1,

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder
 from app.services.moderation import is_moderation_enabled, moderate_content
+from app.utils.script_language import detect_script_language, normalize_script_language_code
 
 
 def loads_order_config(order: ServiceOrder | None) -> dict[str, Any]:
@@ -73,6 +74,10 @@ def apply_script_moderation_gate(
             patch["script_approved"] = False
         return patch
 
+    lang_override = patch.get("script_language_code") or prev.get("script_language_code")
+    script_lang = detect_script_language(script_text, override=str(lang_override or "") or None)
+    patch["script_language_code"] = normalize_script_language_code(script_lang)
+
     if script_changed and prev_status == "approved":
         patch["script_moderation_status"] = "not_scanned"
         patch["script_approved"] = False
@@ -103,7 +108,7 @@ def apply_script_moderation_gate(
         )
         return patch
 
-    result = moderate_content(script_text, db=db)
+    result = moderate_content(script_text, db=db, language_code=script_lang)
     now = datetime.utcnow().isoformat()
     patch["script_moderation_scanned_at"] = now
     patch["script_moderation_category"] = str(result.get("category") or "offensive")

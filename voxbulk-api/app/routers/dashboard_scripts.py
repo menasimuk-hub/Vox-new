@@ -125,6 +125,7 @@ def generate_service_script(payload: dict, db: Session = Depends(get_db), princi
                 agent=branding.get("agent"),
                 org_id=principal.org_id,
                 order_config=branding.get("order_config"),
+                language_code=str(payload.get("language_code") or "").strip() or None,
             )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

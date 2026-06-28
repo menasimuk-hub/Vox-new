@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models.agent import AgentDefinition
+from app.models.voice_agent_platform_settings import (
+    DEFAULT_OPENING_DISCLOSURE,
+    DEFAULT_OPENING_DISCLOSURE_AR,
+)
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
+from app.utils.script_language import detect_script_language, normalize_script_language_code, script_language_label
 
 _SURVEY_META = """You are an expert survey designer for VOXBULK outbound AI phone surveys.
 Return ONLY valid JSON with these fields:
@@ -41,7 +47,7 @@ Return ONLY valid JSON with these fields:
 Keep WhatsApp messages short (under 280 chars each). British English. No markdown fences.
 Never mention Voxbulk, VOXBULK, or any platform provider — the survey is from the client's business only."""
 
-_INTERVIEW_META = """You are an expert interview screener for outbound AI phone or Zoom job interviews.
+_INTERVIEW_META_BASE = """You are an expert interview screener for outbound AI phone or online job interviews.
 Return ONLY valid JSON with these fields:
 - "intro": short opening after disclosure (confirm role, ask if they have time; mention call is recorded)
 - "questions": array of 6-10 screening questions as strings — the FIRST TWO must be CV question TEMPLATES (no employer names or facts); the AI personalises them per candidate on the call; remaining questions are the same for every candidate from the role and screening criteria
@@ -50,9 +56,28 @@ Return ONLY valid JSON with these fields:
 - "system_prompt": instructions for the AI interviewer (follow-ups, professionalism, never say survey)
 - "expected_duration_minutes": integer estimate of total call length (intro + questions + closing; typically 10-18)
 
-British English. No markdown fences.
+{language_instruction}
+Keep JSON keys in English. Keep section headers OPENING DISCLOSURE, INTRO, QUESTIONS, CLOSING in English in script_text.
+No markdown fences.
 Never mention Voxbulk, VOXBULK, Telnyx, or any platform provider — the interview is on behalf of the hiring organisation only.
 Never describe this as a survey."""
+
+
+def _interview_meta(*, language_code: str) -> str:
+    code = normalize_script_language_code(language_code)
+    if code == "ar":
+        lang_line = (
+            "Write the entire script in Arabic (intro, questions, closing, system_prompt, and script_text body). "
+            "Use natural professional Arabic suitable for job screening calls."
+        )
+    elif code == "fr":
+        lang_line = (
+            "Write the entire script in French (intro, questions, closing, system_prompt, and script_text body). "
+            "Use professional French suitable for job screening calls."
+        )
+    else:
+        lang_line = "British English."
+    return _INTERVIEW_META_BASE.format(language_instruction=lang_line)
 
 
 def _estimate_interview_duration_minutes(questions: list[str], *, ai_value: object = None) -> int:
@@ -108,7 +133,7 @@ def _format_script(intro: str, questions: list[str], closing: str, *, opening_di
     return "\n".join(lines)
 
 
-_CV_QUESTION_MARKERS = (
+_CV_QUESTION_MARKERS_ASCII = (
     "cv",
     "resume",
     "résumé",
@@ -131,10 +156,38 @@ _CV_QUESTION_MARKERS = (
     "most recent role",
 )
 
+_CV_QUESTION_MARKERS_ARABIC = (
+    "سيرة",
+    "السيرة",
+    "الذاتية",
+    "خبرة",
+    "خبرات",
+    "عمل",
+    "وظيفة",
+    "منصب",
+    "إنجاز",
+    "انجاز",
+    "فجوة",
+    "مسار",
+    "خلفية",
+    "مؤهل",
+    "سابق",
+    "أخبرني",
+    "اخبرني",
+    "حدثني",
+)
+
 
 def _looks_cv_personalized(question: str) -> bool:
-    q = str(question or "").lower()
-    return any(marker in q for marker in _CV_QUESTION_MARKERS)
+    q = str(question or "")
+    q_lower = q.lower()
+    for marker in _CV_QUESTION_MARKERS_ASCII:
+        if marker in q_lower:
+            return True
+    for marker in _CV_QUESTION_MARKERS_ARABIC:
+        if marker in q:
+            return True
+    return False
 
 
 def _order_cv_questions_first(questions: list[str]) -> list[str]:
@@ -284,6 +337,63 @@ def _build_phone_intro(*, organisation_name: str, organiser_name: str, client_na
     )
 
 
+def _build_interview_phone_intro(
+    *,
+    organisation_name: str,
+    organiser_name: str,
+    client_name: str = "",
+    call_workflow: str = "",
+    language_code: str = "en",
+) -> str:
+    org = organisation_name.strip() or "your business"
+    client = str(client_name or "").strip() or org
+    organiser = organiser_name.strip() or org
+    if call_workflow.strip():
+        first_line = call_workflow.strip().split("\n")[0].strip()
+        if first_line:
+            return first_line
+    code = normalize_script_language_code(language_code)
+    if code == "ar":
+        return (
+            f"مرحبًا، معك {organiser} من {org}. أتواصل معك نيابة عن {client} "
+            f"لإجراء مقابلة قصيرة. هل الوقت مناسب الآن؟"
+        )
+    if code == "fr":
+        return (
+            f"Bonjour, ici {organiser} de {org}. J'appelle de la part de {client} "
+            f"pour un court entretien de sélection. Avez-vous quelques minutes maintenant ?"
+        )
+    return (
+        f"Hello, this is {organiser} from {org}. I'm calling on behalf of {client} "
+        f"for a short screening interview. Do you have a few minutes now?"
+    )
+
+
+def _localize_disclosure_for_script_language(
+    disclosure: str,
+    *,
+    language_code: str,
+    agent_name: str,
+    company_name: str,
+) -> str:
+    code = normalize_script_language_code(language_code)
+    if code != "ar":
+        return str(disclosure or "").strip()
+
+    text = str(disclosure or "").strip()
+    agent = agent_name.strip() or "your AI assistant"
+    company = company_name.strip() or "the company"
+    english_filled = (
+        DEFAULT_OPENING_DISCLOSURE.replace("{agent_name}", agent).replace("{company_name}", company).strip()
+    )
+    arabic_filled = (
+        DEFAULT_OPENING_DISCLOSURE_AR.replace("{agent_name}", agent).replace("{company_name}", company).strip()
+    )
+    if not text or text == DEFAULT_OPENING_DISCLOSURE.strip() or text == english_filled:
+        return arabic_filled
+    return text
+
+
 def _apply_agent_layers_to_script(
     db: Session,
     out: dict,
@@ -296,20 +406,24 @@ def _apply_agent_layers_to_script(
     assistant_name: str,
     organiser_name: str,
     client_name: str,
+    language_code: str = "en",
 ) -> dict:
-    from app.core.agent_services import SERVICE_SURVEY
+    from app.core.agent_services import SERVICE_INTERVIEW, SERVICE_SURVEY
     from app.services.voice_agent_runtime import (
         build_script_generation_agent_block,
         build_voice_runtime_layers,
         disclosure_mandatory,
         resolve_opening_disclosure_template,
+        resolve_voice_call_company_name,
         _platform_settings,
     )
 
+    lang = normalize_script_language_code(language_code)
     gen_config = {
         **config,
         "organisation_name": client_name or organisation_name,
         "survey_organiser_name": organiser_name,
+        "script_language_code": lang,
         "system_prompt": out.get("system_prompt") or config.get("system_prompt") or "",
     }
     layers = build_voice_runtime_layers(db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id)
@@ -318,18 +432,44 @@ def _apply_agent_layers_to_script(
         disclosure = resolve_opening_disclosure_template(
             db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id
         ).strip()
+    company_name = resolve_voice_call_company_name(db, config=gen_config, org_id=org_id)
+    agent_name = str(
+        (agent.voice_label if agent else None) or (agent.name if agent else None) or organiser_name or "your AI assistant"
+    ).strip()
+    disclosure = _localize_disclosure_for_script_language(
+        disclosure,
+        language_code=lang,
+        agent_name=agent_name,
+        company_name=company_name,
+    )
     mandatory = disclosure_mandatory(_platform_settings(db), agent)
     intro = str(out.get("intro") or "").strip()
     if _intro_is_invalid(intro):
-        intro = _build_phone_intro(
-            organisation_name=organisation_name,
-            organiser_name=organiser_name,
-            client_name=client_name,
-            call_workflow=layers.call_workflow,
-        )
+        if service_key == SERVICE_INTERVIEW:
+            intro = _build_interview_phone_intro(
+                organisation_name=organisation_name,
+                organiser_name=organiser_name,
+                client_name=client_name,
+                call_workflow=layers.call_workflow,
+                language_code=lang,
+            )
+        else:
+            intro = _build_phone_intro(
+                organisation_name=organisation_name,
+                organiser_name=organiser_name,
+                client_name=client_name,
+                call_workflow=layers.call_workflow,
+            )
     else:
         intro = _scrub_recipient_script(intro, organisation_name=organisation_name, organiser_name=organiser_name, client_name=client_name)
-    intro = _fix_intro_companies(intro, platform=organisation_name, client=client_name, organiser=organiser_name)
+    intro = _fix_intro_companies(
+        intro,
+        platform=organisation_name,
+        client=client_name,
+        organiser=organiser_name,
+        language_code=lang,
+        service_key=service_key,
+    )
     out["intro"] = _apply_org_placeholders(intro, organisation_name=client_name, assistant_name=organiser_name)
 
     agent_block = build_script_generation_agent_block(db, agent=agent, config=gen_config, service_key=service_key, org_id=org_id)
@@ -376,9 +516,26 @@ def _apply_org_placeholders(text: str, *, organisation_name: str, assistant_name
     return out
 
 
-def _fix_intro_companies(intro: str, *, platform: str, client: str, organiser: str) -> str:
+def _fix_intro_companies(
+    intro: str,
+    *,
+    platform: str,
+    client: str,
+    organiser: str,
+    language_code: str = "en",
+    service_key: str = "",
+) -> str:
+    from app.core.agent_services import SERVICE_INTERVIEW
+
     out = str(intro or "").strip()
     if not out:
+        if service_key == SERVICE_INTERVIEW:
+            return _build_interview_phone_intro(
+                organisation_name=platform,
+                organiser_name=organiser,
+                client_name=client,
+                language_code=language_code,
+            )
         return _build_phone_intro(organisation_name=platform, organiser_name=organiser, client_name=client)
     organiser_esc = re.escape(organiser)
     platform_esc = re.escape(platform)
@@ -492,18 +649,36 @@ def _brand_context_block(
     organiser_name: str = "",
     client_name: str = "",
     terminology_label: str = "customer",
+    language_code: str = "en",
 ) -> str:
     platform = organisation_name.strip() or "Voxbulk"
     client = str(client_name or "").strip() or platform
     organiser = (organiser_name or assistant_name).strip() or platform
     term = terminology_label.strip() or "customer"
+    code = normalize_script_language_code(language_code)
+    if code == "ar":
+        mandatory_intro = (
+            f"مرحبًا، معك {organiser} من {platform}. أتواصل معك نيابة عن {client} "
+            f"لإجراء مقابلة قصيرة..."
+        )
+    elif code == "fr":
+        mandatory_intro = (
+            f"Bonjour, ici {organiser} de {platform}. J'appelle de la part de {client} "
+            f"pour un court entretien..."
+        )
+    else:
+        mandatory_intro = (
+            f"Hello, this is {organiser} from {platform}. I'm calling on behalf of {client} "
+            f"to get your quick feedback..."
+        )
     return (
         f"Platform / caller company (where the AI agent works): {platform}\n"
         f"Client organisation (survey is on behalf of): {client}\n"
         f"AI agent name (caller): {organiser}\n"
         f"Refer to recipients as {term}s.\n"
+        f"Script language: {script_language_label(code)}.\n"
         f"MANDATORY phone intro format (use these exact names, no placeholders):\n"
-        f"\"Hello, this is {organiser} from {platform}. I'm calling on behalf of {client} to get your quick feedback...\"\n"
+        f'"{mandatory_intro}"\n'
         f"The agent is FROM {platform} but calling ON BEHALF OF {client} — do not swap these.\n"
         f"NEVER use [Your Name], [Clinic/Business Name], or other bracket placeholders.\n"
         f"WhatsApp intro must greet {{first_name}} and name {client} directly.\n"
@@ -725,12 +900,19 @@ def generate_interview_script(
     agent: AgentDefinition | None = None,
     org_id: str | None = None,
     order_config: dict | None = None,
+    language_code: str | None = None,
 ) -> dict:
     from app.core.agent_services import SERVICE_INTERVIEW
     from app.services.voice_agent_runtime import build_script_generation_agent_block
 
     role_text = str(role or "").strip() or "Open role"
     criteria_text = str(criteria or "").strip() or "General screening"
+    gen_config = dict(order_config or {})
+    gen_config.setdefault("organisation_name", client_name or organisation_name)
+    lang = detect_script_language(
+        f"{role_text}\n{criteria_text}",
+        override=language_code or gen_config.get("script_language_code") or gen_config.get("language_code"),
+    )
     channel = "Online meeting interview with AI" if str(delivery).lower() in {"ai_meeting", "meeting"} else "AI phone call"
     brand = _brand_context_block(
         organisation_name=organisation_name,
@@ -738,9 +920,8 @@ def generate_interview_script(
         organiser_name=organiser_name,
         client_name=client_name,
         terminology_label="candidate",
+        language_code=lang,
     )
-    gen_config = dict(order_config or {})
-    gen_config.setdefault("organisation_name", client_name or organisation_name)
     agent_block = ""
     if agent is not None:
         agent_block = build_script_generation_agent_block(
@@ -762,7 +943,7 @@ def generate_interview_script(
     if cv_hint:
         user_parts.insert(-1, f"Sample CV context for question style:\n{cv_hint[:2000]}")
     user = "\n\n".join(user_parts)
-    raw = _complete_json(db, meta=_INTERVIEW_META, user=user)
+    raw = _complete_json(db, meta=_interview_meta(language_code=lang), user=user)
     result = _parse_script_payload(
         raw,
         organisation_name=organisation_name,
@@ -770,6 +951,7 @@ def generate_interview_script(
         organiser_name=organiser_name,
         client_name=client_name,
     )
+    result["script_language_code"] = lang
     if agent is not None:
         result = _apply_agent_layers_to_script(
             db,
@@ -782,5 +964,6 @@ def generate_interview_script(
             assistant_name=assistant_name,
             organiser_name=organiser_name,
             client_name=client_name,
+            language_code=lang,
         )
     return result

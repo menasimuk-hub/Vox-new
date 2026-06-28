@@ -12,6 +12,11 @@ DEFAULT_OPENING_DISCLOSURE = (
     "This call is recorded for quality and service purposes."
 )
 
+DEFAULT_OPENING_DISCLOSURE_AR = (
+    "مرحبًا، معك {agent_name}، المساعد الذكي من {company_name}. "
+    "هذه المكالمة مسجّلة لأغراض الجودة والخدمة."
+)
+
 
 class VoiceAgentPlatformSettings(Base):
     __tablename__ = "voice_agent_platform_settings"

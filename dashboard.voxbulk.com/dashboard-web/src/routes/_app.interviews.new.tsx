@@ -133,7 +133,8 @@ function scriptFromGenerate(res: Record<string, unknown>) {
   const rawDuration = res.expected_duration_minutes;
   const expected_duration_minutes =
     rawDuration != null && !Number.isNaN(Number(rawDuration)) ? Math.max(3, Math.min(45, Number(rawDuration))) : undefined;
-  return { script_text: text || system, system_prompt: system || text, expected_duration_minutes };
+  const script_language_code = String(res.script_language_code || "").trim() || undefined;
+  return { script_text: text || system, system_prompt: system || text, expected_duration_minutes, script_language_code };
 }
 
 function isCvCollectionComplete(enabled: boolean, cfg: Record<string, unknown>) {
@@ -1048,6 +1049,7 @@ function CreateInterview() {
           system_prompt: materialised.system_prompt,
           expected_duration_minutes: draftDuration,
           script_approved: false,
+          ...(materialised.script_language_code ? { script_language_code: materialised.script_language_code } : {}),
         }),
       );
       lastHydrationKeyRef.current = "";
