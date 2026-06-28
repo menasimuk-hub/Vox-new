@@ -440,7 +440,9 @@ class ServiceOrderService:
         kind = ServiceOrderService._spreadsheet_kind(content, filename)
         if kind in {"xlsx", "xls"}:
             return ServiceOrderService._parse_recipient_spreadsheet(content, filename=filename, kind=kind)
-        text = content.decode("utf-8-sig", errors="replace")
+        from app.utils.text_decoding import decode_uploaded_text
+
+        text = decode_uploaded_text(content)
         reader = csv.DictReader(io.StringIO(text))
         if not reader.fieldnames:
             raise ValueError("CSV must include a header row: name, phone, email")

@@ -492,7 +492,9 @@ class DisabledWaTemplateService:
                     names.append(text)
             return names
 
-        text = content.decode("utf-8-sig", errors="replace")
+        from app.utils.text_decoding import decode_uploaded_text
+
+        text = decode_uploaded_text(content)
         for line in text.splitlines():
             parts = line.split(",")
             name = str(parts[0] or "").strip().strip('"')

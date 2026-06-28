@@ -339,7 +339,9 @@ class AiTeamService:
 
     @staticmethod
     def parse_csv_preview(raw: bytes) -> dict[str, Any]:
-        text = raw.decode("utf-8-sig", errors="replace")
+        from app.utils.text_decoding import decode_uploaded_text
+
+        text = decode_uploaded_text(raw)
         reader = csv.DictReader(io.StringIO(text))
         if not reader.fieldnames:
             raise AiTeamServiceError("CSV has no header row")
@@ -357,7 +359,9 @@ class AiTeamService:
         email_col = str(mapping.get("email") or "").strip()
         if not email_col:
             raise AiTeamServiceError("Map which CSV column contains email")
-        text = raw.decode("utf-8-sig", errors="replace")
+        from app.utils.text_decoding import decode_uploaded_text
+
+        text = decode_uploaded_text(raw)
         reader = csv.DictReader(io.StringIO(text))
         settings = AiTeamService.get_settings(db)
         keywords = [k.strip() for k in (settings.search_title_keywords or "").split(",") if k.strip()]

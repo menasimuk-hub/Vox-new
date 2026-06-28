@@ -77,6 +77,16 @@ def apply_script_moderation_gate(
         patch["script_moderation_status"] = "not_scanned"
         patch["script_approved"] = False
 
+    # Preserve an existing approval (including an admin override) when the
+    # script text is unchanged — re-scanning here would let a later autosave
+    # silently revert admin approval back to pending review.
+    if not script_changed and prev_status == "approved":
+        patch["script_moderation_status"] = "approved"
+        patch["script_moderation_category"] = prev.get("script_moderation_category") or "safe"
+        patch["script_moderation_reason"] = prev.get("script_moderation_reason") or ""
+        patch["script_approved"] = True
+        return patch
+
     if not wants_approve:
         return patch
 
@@ -160,6 +170,7 @@ def admin_approve_script_moderation(
 ) -> ServiceOrder:
     cfg = loads_order_config(order)
     now = datetime.utcnow().isoformat()
+    approved_text = resolve_script_text(cfg)
     cfg.update(
         {
             "script_moderation_status": "approved",
@@ -168,6 +179,7 @@ def admin_approve_script_moderation(
             "script_moderation_reviewed_by": admin_user_id,
             "script_moderation_reviewed_at": now,
             "script_moderation_admin_note": str(note or "").strip(),
+            "approved_script": approved_text,
             "script_approved": True,
         }
     )

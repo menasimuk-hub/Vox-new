@@ -712,7 +712,9 @@ def parse_contacts_csv_relaxed_from_bytes(content: bytes, filename: str) -> list
     import csv
     import io
 
-    text = content.decode("utf-8-sig", errors="replace")
+    from app.utils.text_decoding import decode_uploaded_text
+
+    text = decode_uploaded_text(content)
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
         raise ValueError("CSV must include a header row: name, phone, email")
