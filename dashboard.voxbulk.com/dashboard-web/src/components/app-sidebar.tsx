@@ -169,6 +169,8 @@ export function AppSidebar() {
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
       const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
       if (!showRecoveryModules && isRecoveryServiceKey(visibilityKey)) return false;
+      // Salesmen see every product module enabled so they can demo the full dashboard.
+      if (isSalesRep) return true;
       if (!loaded) return false;
       if (g.visibleKey) return visible[visibilityKey];
       return visible[g.key as ServiceKey];

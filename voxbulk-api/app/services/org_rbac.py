@@ -22,6 +22,8 @@ def effective_role(role: str | None) -> str:
         return "owner"
     if r == "receptionist":
         return "member"
+    if r == "sales":
+        return "owner"
     if r not in ORG_TEAM_ROLES:
         return "member"
     return r

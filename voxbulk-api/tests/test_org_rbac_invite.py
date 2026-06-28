@@ -345,6 +345,7 @@ def test_org_rbac_service_roles():
     from app.core.database import get_sessionmaker
 
     assert effective_role("receptionist") == "member"
+    assert effective_role("sales") == "owner"
     assert effective_role(None) == "owner"
 
     with get_sessionmaker()() as db:

@@ -7,6 +7,7 @@ export function normalizeOrgRole(role?: string | null): OrgRole {
   const r = String(role ?? "").trim().toLowerCase();
   if (!r) return "owner";
   if (r === "receptionist") return "member";
+  if (r === "sales") return "owner";
   return (ORG_ROLES as readonly string[]).includes(r) ? (r as OrgRole) : "member";
 }
 
