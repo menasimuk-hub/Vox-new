@@ -241,23 +241,24 @@ export default function DisabledWaTemplates() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: '30%' }}>Template name</th>
-                  <th style={{ width: '20%' }}>Industry</th>
-                  <th style={{ width: '20%' }}>Survey type</th>
-                  <th style={{ width: '15%' }}>Status</th>
-                  <th style={{ width: '15%', textAlign: 'center' }}>Action</th>
+                  <th style={{ width: '28%' }}>Template name</th>
+                  <th style={{ width: '17%' }}>Industry</th>
+                  <th style={{ width: '17%' }}>Survey type</th>
+                  <th style={{ width: '14%' }}>Template ID</th>
+                  <th style={{ width: '12%' }}>Status</th>
+                  <th style={{ width: '12%', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="empty-state"><p>Loading…</p></div>
                     </td>
                   </tr>
                 ) : sortedItems.length === 0 ? (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="empty-state">
                         <Inbox size={28} style={{ color: '#b8aa96', marginBottom: 8 }} />
                         <p>No templates added yet. Add templates above or upload a file.</p>
@@ -275,6 +276,21 @@ export default function DisabledWaTemplates() {
                       </td>
                       <td>{t.industry_name || 'Unknown'}</td>
                       <td>{t.survey_type_name || 'Unknown'}</td>
+                      <td>
+                        {t.anchor_id ? (
+                          <span className="tpl-id" title={t.template_code || ''}>
+                            <code>{t.anchor_id}</code>
+                            {t.pair_variant ? <span className="tpl-variant">{t.pair_variant}</span> : null}
+                            {t.topic_group_size > 1 ? (
+                              <span className="tpl-pair" title="Templates in this list sharing the same topic — all hide together">
+                                ×{t.topic_group_size}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="muted-hint">—</span>
+                        )}
+                      </td>
                       <td>
                         <span className={`status-badge${t.disabled ? ' disabled' : ''}`}>
                           <span className="dot" />

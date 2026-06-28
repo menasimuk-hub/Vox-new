@@ -131,7 +131,7 @@ class SurveyTypeService:
         return [m.template_id for m in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)]
 
     @staticmethod
-    def list_types(db: Session, *, industry_id: str | None = None) -> list[dict[str, Any]]:
+    def list_types(db: Session, *, industry_id: str | None = None, exclude_disabled: bool = False) -> list[dict[str, Any]]:
         SurveyTypeService.ensure_defaults(db)
         stmt = select(SurveyType).order_by(SurveyType.sort_order.asc(), SurveyType.name.asc())
         if industry_id:
@@ -139,6 +139,12 @@ class SurveyTypeService:
         else:
             stmt = stmt.where(SurveyType.system_template_kind.is_(None))
         rows = list(db.execute(stmt).scalars())
+        if exclude_disabled:
+            from app.services.disabled_wa_template_service import DisabledWaTemplateService
+
+            hidden = DisabledWaTemplateService.hidden_platform_survey_type_ids(db)
+            if hidden:
+                rows = [r for r in rows if r.id not in hidden]
         industry_cache: dict[str, Industry] = {}
         payload: list[dict[str, Any]] = []
         for row in rows:

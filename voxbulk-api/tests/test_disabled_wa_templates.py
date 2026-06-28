@@ -37,9 +37,8 @@ def test_add_names_dedup_and_disable_platform():
         first = DisabledWaTemplateService.add_names(db, [tpl_name, tpl_name])
         assert first["added"] == 1
         assert first["duplicates"] == 1
-        assert len(first["items"]) == 1
-
-        row_id = first["items"][0]["id"]
+        row = next(item for item in first["items"] if item["raw_name"] == tpl_name)
+        row_id = row["id"]
         DisabledWaTemplateService.set_disabled(db, row_id, True)
 
         db.refresh(tpl)
@@ -98,8 +97,9 @@ def test_disable_feedback_template():
 
         result = DisabledWaTemplateService.add_names(db, [meta_name])
         assert result["added"] == 1
-        row_id = result["items"][0]["id"]
-        assert result["items"][0]["target_kind"] == "feedback"
+        row = next(item for item in result["items"] if item["raw_name"] == meta_name)
+        row_id = row["id"]
+        assert row["target_kind"] == "feedback"
 
         DisabledWaTemplateService.set_disabled(db, row_id, True)
         db.refresh(fb_tpl)
@@ -119,14 +119,15 @@ def test_disabled_template_hides_survey_type_from_user_picker():
 
     db = _session()
     try:
+        tag = uuid.uuid4().hex[:8]
         industry = FeedbackIndustry(
-            id=str(uuid.uuid4()), slug=f"ind-{uuid.uuid4().hex[:6]}", name="Hide Test Industry", is_active=True
+            id=str(uuid.uuid4()), slug=f"ind-{tag}", name=f"Hide Test Industry {tag}", is_active=True
         )
         survey_type = FeedbackSurveyType(
             id=str(uuid.uuid4()),
             industry_id=industry.id,
-            slug=f"hidden-topic-{uuid.uuid4().hex[:6]}",
-            name="Hidden Topic",
+            slug=f"hidden-topic-{tag}",
+            name=f"Hidden Topic {tag}",
             is_active=True,
         )
         db.add(industry)
@@ -152,7 +153,8 @@ def test_disabled_template_hides_survey_type_from_user_picker():
         assert any(t["id"] == survey_type.id for t in before)
 
         result = DisabledWaTemplateService.add_names(db, [meta_name])
-        DisabledWaTemplateService.set_disabled(db, result["items"][0]["id"], True)
+        row = next(item for item in result["items"] if item["raw_name"] == meta_name)
+        DisabledWaTemplateService.set_disabled(db, row["id"], True)
 
         # Hidden from the user picker, still present for admin (exclude_disabled=False).
         after_user = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
@@ -161,7 +163,7 @@ def test_disabled_template_hides_survey_type_from_user_picker():
         assert any(t["id"] == survey_type.id for t in after_admin)
 
         # Re-enabling brings it back for the user.
-        DisabledWaTemplateService.set_disabled(db, result["items"][0]["id"], False)
+        DisabledWaTemplateService.set_disabled(db, row["id"], False)
         restored = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
         assert any(t["id"] == survey_type.id for t in restored)
     finally:
@@ -187,14 +189,96 @@ def test_real_cf_template_name_hides_topic():
 
         template_name = "voxbulk_cf_fitness_would_recommend_would_recommend_aa247a14"
         result = DisabledWaTemplateService.add_names(db, [template_name])
-        row_id = result["items"][0]["id"]
+        row = next(item for item in result["items"] if item["raw_name"] == template_name)
+        row_id = row["id"]
         DisabledWaTemplateService.set_disabled(db, row_id, True)
 
         visible = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
         assert all(t["id"] != survey_type.id for t in visible)
+        # Admin view (include_archived) still sees the topic — disable only hides it from users.
+        admin_view = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, include_archived=True)
+        assert any(t["id"] == survey_type.id for t in admin_view)
 
         DisabledWaTemplateService.set_disabled(db, row_id, False)
         visible_again = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
         assert any(t["id"] == survey_type.id for t in visible_again)
+    finally:
+        db.close()
+
+
+def test_booking_app_experience_slug_variant_hides_topic():
+    """Regression: catalog slug booking---app-experience vs template booking_app_experience."""
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+    db = _session()
+    try:
+        industry = db.execute(
+            __import__("sqlalchemy").select(FeedbackIndustry).where(FeedbackIndustry.slug == "fitness")
+        ).scalar_one_or_none()
+        assert industry is not None
+        survey_type = db.execute(
+            __import__("sqlalchemy")
+            .select(FeedbackSurveyType)
+            .where(
+                FeedbackSurveyType.industry_id == industry.id,
+                FeedbackSurveyType.slug == "booking---app-experience",
+            )
+        ).scalar_one_or_none()
+        assert survey_type is not None
+
+        template_name = "voxbulk_cf_fitness_booking_app_experience_booking_app_experience_62190a1e"
+        result = DisabledWaTemplateService.add_names(db, [template_name])
+        row = next(item for item in result["items"] if item["raw_name"] == template_name)
+        row_id = row["id"]
+        DisabledWaTemplateService.set_disabled(db, row_id, True)
+
+        visible = FeedbackCatalogService.list_survey_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert all(t["id"] != survey_type.id for t in visible)
+    finally:
+        db.close()
+
+
+def test_disabled_platform_template_hides_wa_survey_type():
+    from app.models.industry import Industry
+    from app.models.survey_type import SurveyType
+    from app.services.survey_type_service import SurveyTypeService
+
+    db = _session()
+    try:
+        industry = Industry(id=str(uuid.uuid4()), slug=f"ind-{uuid.uuid4().hex[:6]}", name="WA Hide Industry", is_active=True)
+        survey_type = SurveyType(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            slug=f"would_recommend_{uuid.uuid4().hex[:6]}",
+            name="Would recommend",
+            is_active=True,
+        )
+        tpl_name = f"voxbulk_survey_{survey_type.slug}_abc_{uuid.uuid4().hex[:6]}"
+        tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"rec-{uuid.uuid4().hex[:8]}",
+            template_id=f"tpl-{uuid.uuid4().hex[:8]}",
+            name=tpl_name,
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=survey_type.id,
+            industry_id=industry.id,
+            active_for_survey=True,
+            active_for_interview=False,
+            active_for_appointment=False,
+        )
+        db.add(industry)
+        db.add(survey_type)
+        db.add(tpl)
+        db.commit()
+
+        before = SurveyTypeService.list_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert any(t["id"] == survey_type.id for t in before)
+
+        result = DisabledWaTemplateService.add_names(db, [tpl_name])
+        row = next(item for item in result["items"] if item["raw_name"] == tpl_name)
+        DisabledWaTemplateService.set_disabled(db, row["id"], True)
+
+        after = SurveyTypeService.list_types(db, industry_id=industry.id, exclude_disabled=True)
+        assert all(t["id"] != survey_type.id for t in after)
     finally:
         db.close()

@@ -23,13 +23,36 @@ _SURVEY_PACK_SUFFIX_RE = re.compile(r"^(voxbulk_survey_.+)_(abc|utu)_([a-f0-9]{6
 _CF_ANCHOR_RE = re.compile(r"^[a-f0-9]{6,8}$", re.I)
 
 
+def _canonical_slug_token(slug: str) -> str:
+    """Collapse repeated -/_ so booking---app-experience matches booking_app_experience."""
+    return re.sub(r"[-_]+", "_", str(slug or "").strip().lower()).strip("_")
+
+
 def _slug_prefixes(slug: str) -> list[str]:
     """Template names use underscores; catalog slugs often use hyphens — try both."""
     base = str(slug or "").strip().lower()
     if not base:
         return []
-    variants = {base, base.replace("-", "_"), base.replace("_", "-")}
+    canon = _canonical_slug_token(base)
+    variants = {base, base.replace("-", "_"), base.replace("_", "-"), canon}
     return [f"{v}_" for v in variants if v]
+
+
+def _cf_tail_survey_slug(tail: str, known_slugs: list[str]) -> str | None:
+    """Match voxbulk_cf tail segments when slug uses mixed -/_ (e.g. booking---app-experience)."""
+    anchor_match = re.match(r"^(.+)_([a-f0-9]{6,8})$", str(tail or "").strip().lower())
+    if not anchor_match:
+        return None
+    topic_canon = _canonical_slug_token(anchor_match.group(1))
+    if not topic_canon:
+        return None
+    for slug in sorted({str(s or "").strip() for s in known_slugs if str(s or "").strip()}, key=lambda s: len(_canonical_slug_token(s)), reverse=True):
+        slug_canon = _canonical_slug_token(slug)
+        if not slug_canon:
+            continue
+        if topic_canon == slug_canon or topic_canon.startswith(f"{slug_canon}_"):
+            return slug
+    return None
 
 
 @dataclass
@@ -221,6 +244,22 @@ def parse_feedback_template_name(name: str, ctx: ExportResolverContext) -> dict[
                 "survey_type_slug": st_slug,
                 "survey_type_name": fb_st.name if fb_st else st_slug.replace("_", " ").title(),
                 "template_key": template_key,
+                "telnyx_sync_status": "",
+                "source": "parsed_cf_name",
+                "feedback_survey_type_id": fb_st.id if fb_st else None,
+                "platform_survey_type_id": None,
+            }
+        fallback_st = _cf_tail_survey_slug(tail, ctx.feedback_survey_slugs_by_industry.get(ind_slug, []))
+        if fallback_st:
+            fb_ind = ctx.feedback_industry_by_slug.get(ind_slug)
+            fb_st = ctx.feedback_survey_by_slug.get((ind_slug, fallback_st))
+            return {
+                "product_line": "Customer Feedback",
+                "industry_slug": ind_slug,
+                "industry_name": fb_ind.name if fb_ind else ind_slug.replace("_", " ").title(),
+                "survey_type_slug": fallback_st,
+                "survey_type_name": fb_st.name if fb_st else fallback_st.replace("-", " ").replace("_", " ").title(),
+                "template_key": fallback_st,
                 "telnyx_sync_status": "",
                 "source": "parsed_cf_name",
                 "feedback_survey_type_id": fb_st.id if fb_st else None,
