@@ -19,9 +19,8 @@ export async function requireOrgSettingsAccess() {
 
 export async function requireBillingOnlyHome() {
   const me = await apiFetch<MeRole>("/auth/me");
-  if (me.is_sales_rep) {
-    throw redirect({ to: "/sales" });
-  }
+  // Salesmen now use the full dashboard, so they stay on the home route.
+  if (me.is_sales_rep) return;
   const role = me.role ?? me.tenant_role;
   if (isBillingOnlyRole(role)) {
     throw redirect({ to: "/account/billing" });

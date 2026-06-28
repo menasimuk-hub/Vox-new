@@ -148,51 +148,10 @@ export function AppSidebar() {
   const avatar = initialsFromName(orgName);
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
   const role = normalizeOrgRole(session?.profile?.role);
-  const billingOnly = isBillingOnlyRole(role);
   const isSalesRep = Boolean(session?.profile?.is_sales_rep);
+  const billingOnly = isBillingOnlyRole(role) && !isSalesRep;
 
-  // Salesmen get a focused shell: their Sales workspace + profile settings only.
-  if (isSalesRep) {
-    const profileSettings: Group = {
-      key: "settings",
-      label: "Settings",
-      items: [{ title: "Profile settings", url: "/settings/profile", icon: User2 }],
-    };
-    const salesGroups = [salesGroup, profileSettings];
-    return (
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <BrandMark homeTo="/sales" />
-        </SidebarHeader>
-        <SidebarContent>
-          {salesGroups.map((g) => (
-            <NavGroup key={g.key} group={g} path={path} onNavigate={closeMobile} />
-          ))}
-        </SidebarContent>
-        <SidebarFooter>
-          <div className="flex items-center gap-3 rounded-lg p-2.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1">
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
-              <Briefcase className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-medium leading-tight">{session?.profile?.email || "Salesman"}</p>
-              <p className="truncate text-[11px] text-muted-foreground">Sales</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => logoutDashboard()}
-            className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground group-data-[collapsible=icon]:justify-center"
-          >
-            <LogOut className="size-3.5" />
-            <span className="group-data-[collapsible=icon]:hidden">Log out</span>
-          </button>
-        </SidebarFooter>
-      </Sidebar>
-    );
-  }
-
-  const visibleGroups = groups
+  const baseGroups = groups
     .map((g) => {
       if (g.key !== "settings") return g;
       return {
@@ -208,12 +167,24 @@ export function AppSidebar() {
       if (billingOnly) return g.key === "account";
       if (g.key === "account" && !canAccessBilling(role)) return false;
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
-      if (!loaded) return false;
       const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
       if (!showRecoveryModules && isRecoveryServiceKey(visibilityKey)) return false;
+      // Salesmen see every product module enabled so they can demo the full dashboard.
+      if (isSalesRep) return true;
+      if (!loaded) return false;
       if (g.visibleKey) return visible[visibilityKey];
       return visible[g.key as ServiceKey];
     });
+
+  // The Sales workspace is visible only to salesman users — injected right after Dashboard.
+  let visibleGroups = baseGroups;
+  if (isSalesRep) {
+    const wsIdx = baseGroups.findIndex((g) => g.key === "workspace");
+    visibleGroups =
+      wsIdx >= 0
+        ? [...baseGroups.slice(0, wsIdx + 1), salesGroup, ...baseGroups.slice(wsIdx + 1)]
+        : [salesGroup, ...baseGroups];
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -341,21 +312,28 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
                 {group.items.map((item, idx) => {
                   const showAddonDivider = item.addon && !group.items[idx - 1]?.addon;
                   return (
-                  <SidebarMenuSubItem key={item.title} className={showAddonDivider ? "mt-2 border-t border-sidebar-border pt-2" : undefined}>
-                    <SidebarMenuSubButton asChild isActive={itemActive(item)}>
-                      <Link to={item.url} search={item.search} onClick={onNavigate} className="items-start">
-                        <item.icon className="size-3.5 mt-0.5 shrink-0" />
-                        <span className="flex min-w-0 flex-col gap-0.5">
-                          {item.addon ? (
-                            <span className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground/80">
-                              Add-on
-                            </span>
-                          ) : null}
-                          <span>{item.title}</span>
+                  <React.Fragment key={item.title}>
+                    {showAddonDivider ? (
+                      <li
+                        aria-hidden="true"
+                        className="my-1.5 flex items-center gap-2 px-1.5 group-data-[collapsible=icon]:hidden"
+                      >
+                        <span className="h-px flex-1 bg-[#1a2a4a]/25 dark:bg-[#9db4d8]/30" />
+                        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#1a2a4a] dark:text-[#9db4d8]">
+                          Add-on
                         </span>
-                      </Link>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
+                        <span className="h-px flex-1 bg-[#1a2a4a]/25 dark:bg-[#9db4d8]/30" />
+                      </li>
+                    ) : null}
+                    <SidebarMenuSubItem>
+                      <SidebarMenuSubButton asChild isActive={itemActive(item)}>
+                        <Link to={item.url} search={item.search} onClick={onNavigate}>
+                          <item.icon className="size-3.5 shrink-0" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  </React.Fragment>
                   );
                 })}
               </SidebarMenuSub>

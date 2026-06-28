@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
+import { useSession } from "@/lib/session";
 import type { ApiEnabledServices, Organisation } from "@/lib/types/api";
 
 export type ServiceKey = "interviews" | "surveys" | "feedback" | "appointments" | "recovery" | "followup" | "campaigns";
@@ -101,8 +102,20 @@ const ServicesCtx = React.createContext<Ctx>({
   error: null,
 });
 
+const ALL_ON: Record<ServiceKey, boolean> = {
+  interviews: true,
+  surveys: true,
+  feedback: true,
+  appointments: true,
+  recovery: showRecoveryModules,
+  followup: showRecoveryModules,
+  campaigns: true,
+};
+
 export function ServicesProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const { session } = useSession();
+  const isSalesRep = Boolean(session?.profile?.is_sales_rep);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -123,7 +136,11 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
     [orgQ.data, orgQ.isSuccess],
   );
 
-  const visible = React.useMemo(() => visibleFrom(allowed, enabled), [allowed, enabled]);
+  // Salesmen demo the product, so every module is treated as enabled for them.
+  const visible = React.useMemo(
+    () => (isSalesRep ? { ...ALL_ON } : visibleFrom(allowed, enabled)),
+    [allowed, enabled, isSalesRep],
+  );
 
   const saveEnabled = async (next: Record<ServiceKey, boolean>) => {
     setSaving(true);
