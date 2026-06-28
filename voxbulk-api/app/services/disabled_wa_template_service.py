@@ -52,6 +52,17 @@ def _resolve_target(resolved: dict[str, Any]) -> tuple[str, str | None]:
     return "unresolved", None
 
 
+def _resolve_survey_type(resolved: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return (survey_type_id, survey_type_kind) for hiding the topic from the user dashboard."""
+    fb_st = resolved.get("feedback_survey_type_id")
+    if fb_st:
+        return str(fb_st), "feedback"
+    plat_st = resolved.get("platform_survey_type_id")
+    if plat_st:
+        return str(plat_st), "platform"
+    return None, None
+
+
 def _capture_platform_flags(row: TelnyxWhatsappTemplate) -> dict[str, bool]:
     return {
         "active_for_survey": bool(row.active_for_survey),
@@ -131,44 +142,56 @@ def _apply_enable(db: Session, row: DisabledWaTemplate) -> None:
     row.updated_at = datetime.utcnow()
 
 
+def _backfill_survey_types(db: Session, rows: list[DisabledWaTemplate]) -> bool:
+    """Resolve and persist survey_type_id/kind for legacy rows that predate the column.
+    Returns True if anything was updated."""
+    pending = [r for r in rows if not r.survey_type_kind]
+    if not pending:
+        return False
+    resolved_rows = resolve_template_export_rows(db, [r.raw_name for r in pending])
+    changed = False
+    for row, resolved in zip(pending, resolved_rows):
+        survey_type_id, survey_type_kind = _resolve_survey_type(resolved)
+        # Mark as processed even when unresolved so we don't re-run the resolver each request.
+        row.survey_type_id = survey_type_id
+        row.survey_type_kind = survey_type_kind or "none"
+        changed = True
+    if changed:
+        db.commit()
+    return changed
+
+
 class DisabledWaTemplateService:
     @staticmethod
     def hidden_feedback_survey_type_ids(db: Session) -> set[str]:
-        """Customer-feedback survey type ids that must be hidden from the user dashboard
-        because a WA template tied to them is currently disabled."""
-        ids: set[str] = set()
-        rows = db.execute(
-            select(DisabledWaTemplate).where(
-                DisabledWaTemplate.disabled.is_(True),
-                DisabledWaTemplate.target_kind == "feedback",
-                DisabledWaTemplate.target_id.is_not(None),
-            )
-        ).scalars()
-        for row in rows:
-            tpl = db.get(FeedbackWaTemplate, row.target_id)
-            if tpl is not None and tpl.survey_type_id:
-                ids.add(tpl.survey_type_id)
-        return ids
+        """Customer-feedback survey type ids hidden from the user dashboard because a
+        WA template tied to them is currently disabled."""
+        disabled_rows = list(
+            db.execute(select(DisabledWaTemplate).where(DisabledWaTemplate.disabled.is_(True))).scalars()
+        )
+        if not disabled_rows:
+            return set()
+        _backfill_survey_types(db, disabled_rows)
+        return {
+            r.survey_type_id
+            for r in disabled_rows
+            if r.survey_type_kind == "feedback" and r.survey_type_id
+        }
 
     @staticmethod
     def hidden_platform_survey_type_ids(db: Session) -> set[str]:
         """Platform WA survey type ids hidden because a tied template is disabled."""
-        ids: set[str] = set()
-        rows = db.execute(
-            select(DisabledWaTemplate).where(
-                DisabledWaTemplate.disabled.is_(True),
-                DisabledWaTemplate.target_kind == "platform",
-                DisabledWaTemplate.target_id.is_not(None),
-            )
-        ).scalars()
-        for row in rows:
-            try:
-                tpl = db.get(TelnyxWhatsappTemplate, int(row.target_id))
-            except (TypeError, ValueError):
-                tpl = None
-            if tpl is not None and tpl.survey_type_id:
-                ids.add(tpl.survey_type_id)
-        return ids
+        disabled_rows = list(
+            db.execute(select(DisabledWaTemplate).where(DisabledWaTemplate.disabled.is_(True))).scalars()
+        )
+        if not disabled_rows:
+            return set()
+        _backfill_survey_types(db, disabled_rows)
+        return {
+            r.survey_type_id
+            for r in disabled_rows
+            if r.survey_type_kind == "platform" and r.survey_type_id
+        }
 
     @staticmethod
     def list_rows(db: Session) -> list[dict[str, Any]]:
@@ -214,6 +237,7 @@ class DisabledWaTemplateService:
         for name, resolved in zip(to_resolve, resolved_rows):
             key = _normalize(name)
             target_kind, target_id = _resolve_target(resolved)
+            survey_type_id, survey_type_kind = _resolve_survey_type(resolved)
             row = DisabledWaTemplate(
                 id=str(uuid.uuid4()),
                 normalized_name=key,
@@ -223,6 +247,8 @@ class DisabledWaTemplateService:
                 survey_type_name=str(resolved.get("survey_type_name") or "Unknown"),
                 target_kind=target_kind,
                 target_id=target_id,
+                survey_type_id=survey_type_id,
+                survey_type_kind=survey_type_kind,
                 prior_flags_json=None,
                 disabled=False,
                 created_at=now,

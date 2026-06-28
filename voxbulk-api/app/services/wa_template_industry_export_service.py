@@ -97,6 +97,8 @@ def build_export_resolver_context(db: Session) -> ExportResolverContext:
             "source": "feedback_db",
             "feedback_template_id": tpl.id,
             "platform_template_id": None,
+            "feedback_survey_type_id": tpl.survey_type_id,
+            "platform_survey_type_id": None,
         }
 
     return ctx
@@ -160,6 +162,8 @@ def parse_feedback_template_name(name: str, ctx: ExportResolverContext) -> dict[
                 "template_key": template_key,
                 "telnyx_sync_status": "",
                 "source": "parsed_cf_name",
+                "feedback_survey_type_id": fb_st.id if fb_st else None,
+                "platform_survey_type_id": None,
             }
     return {
         "product_line": "Customer Feedback",
@@ -170,6 +174,8 @@ def parse_feedback_template_name(name: str, ctx: ExportResolverContext) -> dict[
         "template_key": "",
         "telnyx_sync_status": "",
         "source": "unparsed_cf",
+        "feedback_survey_type_id": None,
+        "platform_survey_type_id": None,
     }
 
 
@@ -187,6 +193,8 @@ def parse_platform_survey_template_name(name: str, ctx: ExportResolverContext) -
         "template_key": "",
         "telnyx_sync_status": "",
         "source": "parsed_survey_name",
+        "feedback_survey_type_id": None,
+        "platform_survey_type_id": survey_type.id if survey_type else None,
     }
 
 
@@ -208,6 +216,8 @@ def resolve_template_export_row(
         "source": "",
         "feedback_template_id": None,
         "platform_template_id": None,
+        "feedback_survey_type_id": None,
+        "platform_survey_type_id": None,
     }
 
     if lower.startswith("voxbulk_cf_"):
@@ -248,6 +258,8 @@ def resolve_template_export_row(
                 "source": "platform_db",
                 "feedback_template_id": None,
                 "platform_template_id": row.id,
+                "feedback_survey_type_id": None,
+                "platform_survey_type_id": survey_type.id if survey_type else None,
             }
         )
         return base

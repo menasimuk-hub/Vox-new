@@ -22,6 +22,8 @@ class DisabledWaTemplate(Base):
     survey_type_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     target_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="unresolved")
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    survey_type_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    survey_type_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
     prior_flags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
