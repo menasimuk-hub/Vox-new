@@ -4,6 +4,7 @@ import { ArrowRight, Check, Clock, FileText, MessageCircle, PhoneCall, Wallet } 
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import {
   BottomCTA, PLANS, WA_GBP, CV_GBP, fmt, SliderRow, ServiceCard, TopupCell,
+  BillingToggle, type Billing,
 } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 
@@ -22,24 +23,54 @@ export const Route = createFileRoute("/pricing")({
 
 // WhatsApp Surveys + AI Interview Screening share one combined plan (see PLANS).
 
+type FeedbackPlan = {
+  name: string;
+  price: number;
+  featured?: boolean;
+  waSurveys: number | "Unlimited";
+  webSurveys: number | "Unlimited";
+  extraFeatures: string[];
+};
 
-const feedbackPlans = [
-  { name: "Starter", price: 49, features: ["1 location", "200 surveys/mo", "Monthly report", "Email support"] },
-  { name: "Growth", price: 99, featured: true, features: ["3 locations", "600 surveys/mo", "Weekly report", "Live dashboard", "Priority support"] },
-  { name: "Pro", price: 199, features: ["10 locations", "Unlimited surveys", "Real-time dashboard", "Branded PDF report", "Dedicated AM"] },
+const feedbackPlans: FeedbackPlan[] = [
+  { name: "Starter", price: 49, waSurveys: 200, webSurveys: 100, extraFeatures: ["1 location", "Monthly report", "Email support"] },
+  { name: "Growth", price: 99, featured: true, waSurveys: 600, webSurveys: 300, extraFeatures: ["3 locations", "Weekly report", "Live dashboard", "Priority support"] },
+  { name: "Pro", price: 199, waSurveys: "Unlimited", webSurveys: "Unlimited", extraFeatures: ["10 locations", "Real-time dashboard", "Branded PDF report", "Dedicated AM"] },
 ];
 
-function SimplePlanCard({ p, s, fx }: { p: { name: string; price: number; featured?: boolean; features: string[] }; s: string; fx: number }) {
+function fmtSurveyCount(n: number | "Unlimited") {
+  return n === "Unlimited" ? "Unlimited" : n.toLocaleString();
+}
+
+function fmtTotalResponses(wa: number | "Unlimited", web: number | "Unlimited") {
+  if (wa === "Unlimited" || web === "Unlimited") return "Unlimited";
+  return (wa + web).toLocaleString();
+}
+
+function feedbackPlanFeatures(p: FeedbackPlan): string[] {
+  return [
+    `${fmtSurveyCount(p.waSurveys)} WhatsApp surveys/mo`,
+    `${fmtSurveyCount(p.webSurveys)} Web surveys/mo`,
+    `${fmtTotalResponses(p.waSurveys, p.webSurveys)} total responses/mo`,
+    "Voice-note transcription included",
+    ...p.extraFeatures,
+  ];
+}
+
+function SimplePlanCard({ p, s, fx, billing }: { p: FeedbackPlan; s: string; fx: number; billing: Billing }) {
+  const displayPrice = Math.round(p.price * (billing === "yearly" ? 10 : 1) * fx);
+  const period = billing === "yearly" ? "/yr" : "/mo";
+  const features = feedbackPlanFeatures(p);
   return (
     <div className={`relative rounded-2xl p-6 flex flex-col ${p.featured ? "bg-navy text-white border-2 border-gold shadow-elevated" : "bg-white border border-border shadow-elegant"}`}>
       {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
       <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
       <div className="mt-3 flex items-baseline gap-1">
-        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{Math.round(p.price * fx)}</span>
-        <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
+        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice}</span>
+        <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>{period}</span>
       </div>
       <ul className={`mt-5 space-y-2.5 text-[13.5px] flex-1 ${p.featured ? "text-white/80" : "text-body"}`}>
-        {p.features.map((f) => <li key={f} className="flex items-center gap-2"><Check size={13} className={p.featured ? "text-gold" : "text-primary"} /> {f}</li>)}
+        {features.map((f) => <li key={f} className="flex items-center gap-2"><Check size={13} className={p.featured ? "text-gold" : "text-primary"} /> {f}</li>)}
       </ul>
       <Link to="/contact" className={`mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${p.featured ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-white hover:bg-navy/90"}`}>
         Get started <ArrowRight size={13} />
@@ -54,6 +85,8 @@ function PricingPage() {
   const [topup, setTopup] = useState(50);
   const [dur, setDur] = useState(12);
   const [num, setNum] = useState(100);
+  const [coreBilling, setCoreBilling] = useState<Billing>("monthly");
+  const [feedbackBilling, setFeedbackBilling] = useState<Billing>("monthly");
 
   return (
     <div className="bg-background text-body antialiased">
@@ -79,6 +112,9 @@ function PricingPage() {
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">AI Interview Screening &amp; WhatsApp Surveys</div>
             <p className="mb-6 text-[14px] text-body max-w-[680px]">One shared plan — use minutes for AI interviews or calling surveys, plus WhatsApp surveys, all from the same bucket. Subscribe monthly or pay as you go.</p>
+            <div className="mb-6 flex justify-center">
+              <BillingToggle value={coreBilling} onChange={setCoreBilling} />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
               {PLANS.map((p) => {
                 const featured = p.badge === "Most popular";
@@ -107,8 +143,8 @@ function PricingPage() {
                     ) : (
                       <>
                         <div className="mt-3 flex items-baseline gap-1">
-                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{s}{Math.round((p.priceGBP as number) * fx)}</span>
-                          <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
+                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{s}{Math.round((p.priceGBP as number) * (coreBilling === "yearly" ? 10 : 1) * fx)}</span>
+                          <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{coreBilling === "yearly" ? "/yr" : "/mo"}</span>
                         </div>
                         <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong></div>
                       </>
@@ -170,8 +206,11 @@ function PricingPage() {
         <section className="py-16 bg-beige">
           <div className="max-w-[1080px] mx-auto px-5 md:px-10">
             <div className="mb-6 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Customer Feedback</div>
+            <div className="mb-6 flex justify-center">
+              <BillingToggle value={feedbackBilling} onChange={setFeedbackBilling} />
+            </div>
             <div className="grid md:grid-cols-3 gap-5">
-              {feedbackPlans.map((p) => <SimplePlanCard key={p.name} p={p} s={s} fx={fx} />)}
+              {feedbackPlans.map((p) => <SimplePlanCard key={p.name} p={p} s={s} fx={fx} billing={feedbackBilling} />)}
             </div>
             <p className="mt-10 text-center text-[13px] text-muted-text">
               All plans · GDPR compliant · UK and EU data centres · Cancel with 30 days notice

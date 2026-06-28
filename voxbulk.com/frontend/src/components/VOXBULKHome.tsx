@@ -570,11 +570,36 @@ export const CV_GBP = 0.75;
 
 export function fmt(n: number, dp = 2) { return n.toFixed(dp); }
 
+export type Billing = "monthly" | "yearly";
+
+export function BillingToggle({ value, onChange, className = "" }: { value: Billing; onChange: (b: Billing) => void; className?: string }) {
+  return (
+    <div className={`inline-flex items-center gap-1 rounded-full border border-border bg-white p-1 shadow-elegant ${className}`}>
+      <button
+        type="button"
+        onClick={() => onChange("monthly")}
+        className={`h-8 px-4 rounded-full text-[12.5px] font-semibold transition-all ${value === "monthly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("yearly")}
+        className={`h-8 pl-4 pr-2 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-2 transition-all ${value === "yearly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+      >
+        Yearly
+        <span className={`text-[10px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-full ${value === "yearly" ? "bg-gold text-navy" : "bg-gold/15 text-primary"}`}>2 months free</span>
+      </button>
+    </div>
+  );
+}
+
 export function Pricing() {
   const { currency: cur } = useCurrency();
   const [topup, setTopup] = useState(50);
   const [dur, setDur] = useState(12);
   const [num, setNum] = useState(100);
+  const [billing, setBilling] = useState<Billing>("monthly");
 
   const s = SYM[cur];
   const fx = FX[cur];
@@ -600,6 +625,9 @@ export function Pricing() {
 
 
         {/* Plans */}
+        <div className="mt-6 flex justify-center">
+          <BillingToggle value={billing} onChange={setBilling} />
+        </div>
         <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {PLANS.map((p) => {
             const featured = p.badge === "Most popular";
@@ -651,9 +679,9 @@ export function Pricing() {
                   <>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
-                        {s}{Math.round((p.priceGBP as number) * fx)}
+                        {s}{Math.round((p.priceGBP as number) * (billing === "yearly" ? 10 : 1) * fx)}
                       </span>
-                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
+                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{billing === "yearly" ? "/yr" : "/mo"}</span>
                     </div>
                     <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>
                       Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong>
