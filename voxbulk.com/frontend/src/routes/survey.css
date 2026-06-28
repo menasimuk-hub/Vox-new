@@ -77,6 +77,38 @@
   height: 1.5rem;
 }
 
+.fb-brand-logo {
+  height: 1.5rem;
+  width: auto;
+  max-width: 7rem;
+  object-fit: contain;
+}
+
+.fb-back {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border: 1px solid #e4ddd3;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1814;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.fb-back:hover:not(:disabled) {
+  border-color: #1a1814;
+}
+.fb-back:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.fb-back-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
 .fb-step-count {
   font-size: 11px;
   color: #6b6458;
@@ -188,6 +220,7 @@
   width: 1.25rem;
   height: 1.25rem;
   flex-shrink: 0;
+  display: block;
   color: #fff;
 }
 
@@ -635,6 +668,13 @@
 .fb-thanks {
   align-items: center;
   text-align: center;
+}
+.fb-thanks-logo {
+  height: 2.25rem;
+  width: auto;
+  max-width: 9rem;
+  object-fit: contain;
+  margin: 0 auto 1rem;
 }
 .fb-tick {
   margin: 0 auto 1.25rem;

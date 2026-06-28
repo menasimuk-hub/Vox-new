@@ -62,6 +62,14 @@ def submit_web_answer(session_id: str, payload: dict, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/survey/sessions/{session_id}/back")
+def go_back_web(session_id: str, db: Session = Depends(get_db)):
+    try:
+        return {"ok": True, **FeedbackWebSurveyService.step_back(db, session_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/survey/sessions/{session_id}/voice")
 async def submit_web_voice(
     session_id: str,
@@ -83,7 +91,11 @@ async def submit_web_voice(
                 audio_bytes=audio_bytes,
                 filename=file.filename or "voice.webm",
                 content_type=file.content_type or "audio/webm",
-                mode=("reason" if str(mode).strip().lower() == "reason" else "answer"),
+                mode=(
+                    str(mode).strip().lower()
+                    if str(mode).strip().lower() in {"reason", "transcribe"}
+                    else "answer"
+                ),
             ),
         }
     except ValueError as exc:

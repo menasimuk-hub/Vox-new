@@ -292,6 +292,46 @@ class FeedbackWebSurveyService:
         }
 
     @staticmethod
+    def step_back(db: Session, session_id: str) -> dict[str, Any]:
+        """Return to the previous step, discarding the answer saved for it."""
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            raise ValueError("Location not found")
+        steps = _web_steps(db, location)
+        step_index = int(session.current_step or 0)
+        prev = max(0, step_index - 1)
+        if step_index > 0:
+            # Drop any response(s) recorded for the step we're returning to so a
+            # re-answer does not create duplicates (answer + low-reason share step_order).
+            rows = (
+                db.execute(
+                    select(FeedbackResponse).where(
+                        FeedbackResponse.session_id == session.id,
+                        FeedbackResponse.step_order == prev + 1,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                db.delete(row)
+            session.current_step = prev
+            db.add(session)
+            db.commit()
+        question = (
+            _step_to_question(db, location, steps[prev], language=session.detected_language)
+            if prev < len(steps)
+            else None
+        )
+        return {
+            "completed": False,
+            "step_index": prev,
+            "step_count": len(steps),
+            "question": question,
+        }
+
+    @staticmethod
     def submit_voice(
         db: Session,
         *,
@@ -329,6 +369,10 @@ class FeedbackWebSurveyService:
             raise ValueError(
                 err or "Could not transcribe your voice note. Please type your answer instead."
             )
+
+        if mode == "transcribe":
+            # Transcribe only: caller fills the answer box and submits via the answer route.
+            return {"transcript": transcript}
 
         if mode == "reason":
             steps = _web_steps(db, location)

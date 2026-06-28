@@ -1,8 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquareText, Mic, Square, RotateCcw, ArrowRight } from "lucide-react";
+import { MessageSquareText, Mic, Square, RotateCcw, ArrowRight, ChevronLeft } from "lucide-react";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
-import { BrandLogo } from "@/components/BrandLogo";
 import "./survey.css";
 
 export const Route = createFileRoute("/survey/$token")({
@@ -149,7 +148,7 @@ function PublicFeedbackSurvey() {
     }
   };
 
-  const uploadVoice = async (blob: Blob, mode: "answer" | "reason") => {
+  const uploadVoice = async (blob: Blob, mode: "answer" | "reason" | "transcribe") => {
     if (!sessionId) return;
     setBusy(true);
     setError("");
@@ -161,7 +160,7 @@ function PublicFeedbackSurvey() {
         `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`,
         form,
       );
-      if (data.transcript && mode === "reason") {
+      if (data.transcript && (mode === "reason" || mode === "transcribe")) {
         setTextAnswer((prev) => (prev.trim() ? `${prev.trim()} — ${data.transcript}` : String(data.transcript)));
       }
       if (mode === "answer") {
@@ -171,6 +170,29 @@ function PublicFeedbackSurvey() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save voice note");
       throw e;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const goBack = async () => {
+    if (inReason) {
+      setPendingLow(null);
+      setReasonChips([]);
+      setTextAnswer("");
+      return;
+    }
+    if (stepIndex <= 0 || !sessionId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const data = await apiFetch<{ ok?: boolean } & AdvanceResponse>(
+        `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`,
+        { method: "POST" },
+      );
+      applyAdvance(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not go back");
     } finally {
       setBusy(false);
     }
@@ -197,7 +219,7 @@ function PublicFeedbackSurvey() {
 
   if (!payload) return null;
 
-  if (phase === "thanks") return <ThankYou companyName={payload.company_name} />;
+  if (phase === "thanks") return <ThankYou companyName={payload.company_name} logoUrl={payload.logo_url} />;
 
   if (phase === "choose") {
     return (
@@ -205,17 +227,16 @@ function PublicFeedbackSurvey() {
         <div className="fb-blobs" aria-hidden />
         <div className="fb-survey-shell">
           <div className="fb-top">
-            <Link to="/" className="fb-brand">
-              <BrandLogo icon className="fb-brand-icon" />
-              <span>VoxBulk Feedback</span>
-            </Link>
-            {payload.logo_url ? (
-              <img
-                src={`${getApiBaseUrl().replace(/\/+$/, "")}${payload.logo_url}`}
-                alt={payload.company_name}
-                className="fb-company-logo"
-              />
-            ) : null}
+            <span className="fb-brand">
+              {payload.logo_url ? (
+                <img
+                  src={`${getApiBaseUrl().replace(/\/+$/, "")}${payload.logo_url}`}
+                  alt=""
+                  className="fb-brand-logo"
+                />
+              ) : null}
+              <span>{payload.company_name}</span>
+            </span>
           </div>
           <div className="fb-hero">
             <p className="fb-company">{payload.company_name}</p>
@@ -266,7 +287,18 @@ function PublicFeedbackSurvey() {
       <div className="fb-survey-shell fb-survey-flow">
         <div className="fb-top">
           <span className="fb-brand">
-            <BrandLogo icon className="fb-brand-icon" />
+            {(inReason || stepIndex > 0) ? (
+              <button type="button" className="fb-back" onClick={goBack} disabled={busy} aria-label="Go back">
+                <ChevronLeft className="fb-back-icon" />
+              </button>
+            ) : null}
+            {payload.logo_url ? (
+              <img
+                src={`${getApiBaseUrl().replace(/\/+$/, "")}${payload.logo_url}`}
+                alt=""
+                className="fb-brand-logo"
+              />
+            ) : null}
             <span>{payload.company_name}</span>
           </span>
           <span className="fb-step-count">{stepIndex + 1} / {stepCount}</span>
@@ -304,7 +336,7 @@ function PublicFeedbackSurvey() {
                 onText={setTextAnswer}
                 allowVoice={Boolean(q?.allow_voice)}
                 busy={busy}
-                onUploadVoice={(blob) => uploadVoice(blob, "answer")}
+                onUploadVoice={(blob) => uploadVoice(blob, "transcribe")}
               />
             ) : (
               <div className="fb-options">
@@ -512,59 +544,6 @@ function Waveform() {
   );
 }
 
-function PlaybackBar({
-  playing,
-  onToggle,
-  duration,
-  onReset,
-  onSend,
-  busy,
-  uploading,
-}: {
-  playing: boolean;
-  onToggle: () => void;
-  duration: number;
-  onReset: () => void;
-  onSend: () => void;
-  busy: boolean;
-  uploading: boolean;
-}) {
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  return (
-    <div className="fb-playback">
-      <div className="fb-playback-bar">
-        <button type="button" className="fb-playback-play" onClick={onToggle} disabled={busy || uploading} aria-label={playing ? "Pause" : "Play"}>
-          {playing ? (
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M7 5v14l12-7z" />
-            </svg>
-          )}
-        </button>
-        <div className="fb-playback-static" aria-hidden>
-          {Array.from({ length: 28 }).map((_, i) => (
-            <span key={i} style={{ height: `${30 + Math.abs(Math.sin(i * 1.3)) * 70}%` }} />
-          ))}
-        </div>
-        <span className="fb-playback-time">{fmt(duration)}</span>
-      </div>
-      <div className="fb-playback-actions">
-        <button type="button" className="fb-playback-send" onClick={onSend} disabled={busy || uploading}>
-          {uploading ? "Transcribing…" : "Send voice note"}
-          {!uploading ? <ArrowRight className="fb-btn-icon" /> : null}
-        </button>
-        <button type="button" className="fb-rec-reset" onClick={onReset} disabled={busy || uploading}>
-          <RotateCcw className="fb-btn-icon" /> Re-record
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob: Blob) => Promise<unknown> }) {
   const [recState, setRecState] = useState<RecState>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -642,7 +621,7 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" });
         if (blob.size > 0) {
           blobRef.current = blob;
-          setRecState("recorded");
+          void sendRecording();
         } else {
           setRecError("Recording was empty. Try again and speak clearly.");
           setRecState("idle");
@@ -690,26 +669,6 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
     setRecError("");
   };
 
-  const togglePlayback = () => {
-    const blob = blobRef.current;
-    if (!blob) return;
-    if (!audioRef.current) {
-      const url = URL.createObjectURL(blob);
-      objectUrlRef.current = url;
-      const audio = new Audio(url);
-      audio.onended = () => setPlaying(false);
-      audioRef.current = audio;
-    }
-    const audio = audioRef.current;
-    if (playing) {
-      audio.pause();
-      setPlaying(false);
-    } else {
-      void audio.play();
-      setPlaying(true);
-    }
-  };
-
   const sendRecording = async () => {
     const blob = blobRef.current;
     if (!blob || busy) return;
@@ -720,7 +679,8 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
       await onRecorded(blob);
       setRecState("sent");
     } catch (err) {
-      setRecState("recorded");
+      setRecState("idle");
+      setElapsed(0);
       setRecError(err instanceof Error ? err.message : "Could not send voice note");
     }
   };
@@ -771,18 +731,10 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
     );
   }
 
-  if (recState === "recorded" || recState === "uploading") {
+  if (recState === "uploading") {
     return (
       <div className="fb-rec">
-        <PlaybackBar
-          playing={playing}
-          onToggle={togglePlayback}
-          duration={elapsed}
-          onReset={reset}
-          onSend={() => void sendRecording()}
-          busy={busy}
-          uploading={recState === "uploading"}
-        />
+        <span className="fb-rec-label">Sending…</span>
         {recError ? <p className="fb-rec-error">{recError}</p> : null}
       </div>
     );
@@ -829,11 +781,18 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
   );
 }
 
-function ThankYou({ companyName }: { companyName: string }) {
+function ThankYou({ companyName, logoUrl }: { companyName: string; logoUrl?: string }) {
   return (
     <main className="fb-survey-page">
       <div className="fb-blobs" aria-hidden />
       <div className="fb-survey-shell fb-thanks">
+        {logoUrl ? (
+          <img
+            src={`${getApiBaseUrl().replace(/\/+$/, "")}${logoUrl}`}
+            alt={companyName}
+            className="fb-thanks-logo"
+          />
+        ) : null}
         <div className="fb-tick">
           <svg viewBox="0 0 24 24" className="fb-tick-svg" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12l5 5L20 7" />
@@ -841,7 +800,7 @@ function ThankYou({ companyName }: { companyName: string }) {
         </div>
         <h1 className="fb-title">Thank you<span className="fb-dot">.</span></h1>
         <p className="fb-sub">Your feedback helps {companyName} get better. We read every reply.</p>
-        <Link to="/" className="fb-btn ghost fb-thanks-btn">Back to start</Link>
+        <Link to="/" className="fb-btn primary fb-thanks-btn">Back to start</Link>
       </div>
     </main>
   );

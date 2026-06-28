@@ -326,15 +326,17 @@ function CreateFeedback() {
                           active ? "border-primary bg-primary/5 shadow-md ring-1 ring-primary/30" : "border-border bg-background/40",
                         )}
                       >
-                        <div
-                          className={cn(
-                            "grid size-10 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
-                            active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
-                          )}
-                        >
-                          <Icon className="size-5" />
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              "grid size-9 place-items-center rounded-lg ring-1 transition-transform group-hover:scale-105",
+                              active ? "bg-primary text-primary-foreground ring-primary/40" : "bg-primary/10 text-primary ring-primary/20",
+                            )}
+                          >
+                            <Icon className="size-4" />
+                          </div>
+                          <p className="text-sm font-semibold leading-tight">{ind.name}</p>
                         </div>
-                        <p className="text-sm font-semibold leading-tight">{ind.name}</p>
                         <p className="text-[11px] text-muted-foreground">Survey topics</p>
                         {active ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
