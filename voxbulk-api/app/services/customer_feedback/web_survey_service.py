@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -28,6 +29,7 @@ from app.services.customer_feedback.survey_config_service import (
     template_for_step,
 )
 from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
 
 
 def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
@@ -102,17 +104,34 @@ class FeedbackWebSurveyService:
         steps = _web_steps(db, location)
         lang = "en_GB"
         questions = [_step_to_question(db, location, step, language=lang) for step in steps]
+        has_logo = bool(org and getattr(org, "logo_storage_key", None))
         return {
             "token": token,
             "company_name": org.name if org else "Your business",
             "branch_name": location.name or location.branch_code,
             "industry_name": industry.name if industry else None,
             "wa_url": loc.get("wa_url"),
+            "logo_url": f"/public/feedback/survey/{token}/logo" if has_logo else None,
             "web_survey_url": f"{base}/survey/{token}",
             "open_question_enabled": bool(location.open_question_enabled),
             "step_count": len(questions),
             "questions": questions,
         }
+
+    @staticmethod
+    def survey_logo(db: Session, token: str) -> tuple[Path, str]:
+        """Resolve the org logo file for a survey token. Raises ValueError if missing."""
+        location = FeedbackLocationService.resolve_by_token(db, token)
+        if location is None:
+            raise ValueError("Survey not found")
+        org = db.get(Organisation, location.org_id)
+        storage_key = getattr(org, "logo_storage_key", None) if org else None
+        if not storage_key:
+            raise ValueError("Logo not found")
+        path = resolve_logo_path(str(storage_key))
+        if path is None:
+            raise ValueError("Logo not found")
+        return path, media_type_for_key(str(storage_key))
 
     @staticmethod
     def start_session(db: Session, token: str) -> dict[str, Any]:

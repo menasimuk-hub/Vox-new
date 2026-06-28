@@ -229,7 +229,7 @@ export function AppSidebar() {
           onClick={() => logoutDashboard()}
           className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground group-data-[collapsible=icon]:justify-center"
         >
-          <LogOut className="size-3.5" />
+          <LogOut className="size-4" />
           <span className="group-data-[collapsible=icon]:hidden">Log out</span>
         </button>
       </SidebarFooter>
@@ -295,12 +295,12 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
     <Collapsible open={open} onOpenChange={setOpen}>
       <SidebarGroup>
         <CollapsibleTrigger asChild>
-          <SidebarGroupLabel className="group/label flex w-full cursor-pointer items-center justify-between hover:text-foreground">
+          <SidebarGroupLabel className="group/label flex w-full cursor-pointer items-center justify-between text-sm hover:text-foreground">
             <span className="flex items-center gap-2">
-              <HeadIcon className="size-3.5" />
+              <HeadIcon className="size-4" />
               {group.label}
             </span>
-            <ChevronDown className="size-3.5 transition-transform data-[state=closed]:-rotate-90 group-data-[state=closed]/label:-rotate-90" />
+            <ChevronDown className="size-4 transition-transform data-[state=closed]:-rotate-90 group-data-[state=closed]/label:-rotate-90" />
           </SidebarGroupLabel>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -326,7 +326,7 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
                     <SidebarMenuSubItem>
                       <SidebarMenuSubButton asChild isActive={itemActive(item)}>
                         <Link to={item.url} search={item.search} onClick={onNavigate}>
-                          <item.icon className="size-3.5 shrink-0" />
+                          <item.icon className="shrink-0" />
                           <span>{item.title}</span>
                         </Link>
                       </SidebarMenuSubButton>

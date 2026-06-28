@@ -82,6 +82,19 @@
   color: #6b6458;
 }
 
+.fb-company-logo {
+  height: 2rem;
+  width: auto;
+  max-width: 7.5rem;
+  object-fit: contain;
+}
+
+.fb-company {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1814;
+}
+
 .fb-progress {
   margin-top: 0.75rem;
   height: 4px;
@@ -104,6 +117,12 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+.fb-hero {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  margin-top: 1.25rem;
 }
 
 .fb-kicker {
@@ -131,7 +150,7 @@
 .fb-choices {
   display: grid;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: 1rem;
 }
 
 .fb-choice {
@@ -169,6 +188,7 @@
   width: 1.25rem;
   height: 1.25rem;
   flex-shrink: 0;
+  color: #fff;
 }
 
 .fb-options {

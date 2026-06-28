@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,6 +21,15 @@ def get_survey(token: str, db: Session = Depends(get_db)):
         return {"ok": True, **FeedbackWebSurveyService.survey_payload(db, token)}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/survey/{token}/logo")
+def get_survey_logo(token: str, db: Session = Depends(get_db)):
+    try:
+        path, media_type = FeedbackWebSurveyService.survey_logo(db, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post("/survey/{token}/sessions")
