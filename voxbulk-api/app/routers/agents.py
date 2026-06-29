@@ -462,7 +462,8 @@ def test_agent_webrtc(
         org = db.get(Organisation, org_id)
         org_name = str(org.name or "").strip() if org else ""
 
-    service_key = normalize_service_key(str(payload.get("service_key") or ""))
+    service_raw = str(payload.get("service_key") or "").strip()
+    service_key = normalize_service_key(service_raw) if service_raw else ""
     if not service_key:
         service_key = SERVICE_INTERVIEW if agent.supports_interview else SERVICE_SURVEY
 
