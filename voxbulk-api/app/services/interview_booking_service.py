@@ -1359,10 +1359,15 @@ class InterviewBookingService:
         time_line = _format_slot_time(slot_start)
         first = _first_name(recipient.name)
         token = InterviewBookingService._booking_token_for_recipient(db, order, recipient)
-        channel = str(token.channel or "").strip().lower() if token else ""
+        channel = ""
+        if token:
+            token_row = db.execute(
+                select(InterviewBookingToken).where(InterviewBookingToken.token == token).limit(1)
+            ).scalar_one_or_none()
+            channel = str(getattr(token_row, "channel", "") or "").strip().lower()
         meeting_url = ""
         if token and channel == "meeting":
-            meeting_url = meeting_url_for_token(token.token)
+            meeting_url = meeting_url_for_token(token)
         calendar_vars: dict[str, str] = {"calendar_links_html": ""}
         if token:
             try:
