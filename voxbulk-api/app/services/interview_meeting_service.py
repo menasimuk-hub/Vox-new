@@ -17,7 +17,6 @@ from app.services.interview_booking_service import (
     interview_slot_minutes,
     meeting_url_for_token,
 )
-from app.services.interview_call_dispatch_service import _recipient_eligible_for_dial
 from app.services.interview_voice_agent_service import (
     build_interview_opening_greeting,
     build_interview_runtime_instructions,
@@ -85,24 +84,28 @@ def _assert_meeting_slot_window(
     except Exception:
         config = {}
     booking_required = bool(config.get("require_booking", True))
-    eligible, reason = _recipient_eligible_for_dial(
-        db,
-        order,
-        recipient,
-        now=now,
-        booking_required=booking_required,
-    )
-    if not eligible:
-        if reason == "slot_not_due":
-            slot_start = row.booked_start_at
-            if slot_start is not None and now >= slot_start - timedelta(seconds=MEETING_EARLY_JOIN_SECONDS):
-                return
-            raise ValueError("Your interview room opens 1 minute before your booked time — please wait")
-        if reason == "slot_missed":
-            raise ValueError("Your booked interview slot has passed — contact the employer to reschedule")
-        if reason == "not_booked":
-            raise ValueError("Please book a time slot before joining the meeting")
-        raise ValueError("You cannot join the meeting right now")
+
+    # NOTE: do not reuse _recipient_eligible_for_dial here — that helper is for
+    # PHONE dialing and deliberately rejects meeting-channel bookings, which
+    # would block every web candidate. Meeting eligibility is purely about the
+    # booked time window (and the booking not having been cancelled).
+    merged = _recipient_result(recipient)
+    if merged.get("booking_withdrawn") or merged.get("booking_cancelled_at"):
+        raise ValueError("This interview booking was cancelled — contact the employer to rebook")
+
+    if not booking_required:
+        return
+
+    slot_start = row.booked_start_at
+    if slot_start is None:
+        raise ValueError("Please book a time slot before joining the meeting")
+
+    slot_end = slot_start + timedelta(minutes=interview_slot_minutes())
+    grace_end = slot_end + timedelta(minutes=15)
+    if now < slot_start - timedelta(seconds=MEETING_EARLY_JOIN_SECONDS):
+        raise ValueError("Your interview room opens 1 minute before your booked time — please wait")
+    if now > grace_end:
+        raise ValueError("Your booked interview slot has passed — contact the employer to reschedule")
 
 
 def _language_instruction_suffix(language_code: str) -> str:
