@@ -135,6 +135,10 @@ class InterviewMeetingService:
 
         meeting_settings = MeetingRoomSettingsService.get_settings(db)
         language_code = str(meeting_settings.get("language_code") or "en").strip().lower()
+        from app.services.voice_agent_runtime import detect_config_language
+
+        script_language = detect_config_language(config)
+        effective_language = script_language if script_language == "ar" else language_code
 
         assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
         if not assistant_id:
@@ -158,7 +162,9 @@ class InterviewMeetingService:
             order=order,
         )
 
-        prep = prepare_telnyx_webrtc_call(db, assistant_id, instructions, greeting=greeting or None)
+        prep = prepare_telnyx_webrtc_call(
+            db, assistant_id, instructions, greeting=greeting or None, language=effective_language
+        )
 
         custom_headers = {
             "X-Interview-Recipient-Id": str(recipient.id),

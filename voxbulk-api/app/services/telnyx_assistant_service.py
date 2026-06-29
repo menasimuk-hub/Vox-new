@@ -170,6 +170,45 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
     }
 
 
+# Telnyx STT model + locale used for non-English calls. Telnyx recommends the
+# native `azure/fast` engine for the highest-quality Arabic transcription; the
+# default `deepgram/flux` model does NOT support Arabic at all, so the candidate's
+# speech would otherwise be mis-transcribed as English.
+_ARABIC_STT_MODEL = "azure/fast"
+_ARABIC_STT_LOCALE = "ar-SA"
+
+
+def _transcription_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
+    """Build a Telnyx ``transcription`` body for the call language, or None if no change.
+
+    Only Arabic is handled explicitly; English/unknown languages leave the assistant's
+    existing transcription untouched (the default English/auto config already works).
+    """
+    lang = str(language or "").strip().lower()
+    if not lang or not lang.startswith("ar"):
+        return None
+    current = existing.get("transcription") if isinstance(existing.get("transcription"), dict) else {}
+    if (
+        str(current.get("model") or "").strip().lower() == _ARABIC_STT_MODEL
+        and str(current.get("language") or "").strip().lower() == _ARABIC_STT_LOCALE.lower()
+    ):
+        return None
+    return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE}
+
+
+def ensure_telnyx_assistant_transcription_language(db: Session, assistant_id: str, language: str) -> dict[str, Any]:
+    """Make the assistant transcribe (STT) in the given call language. No-op for English/unknown.
+
+    Used before placing an Arabic interview call so Telnyx understands the candidate.
+    """
+    clean_id = normalize_telnyx_assistant_id(assistant_id)
+    existing = fetch_telnyx_assistant(db, clean_id)
+    transcription = _transcription_for_language(existing, language)
+    if not transcription:
+        return existing
+    return _update_telnyx_assistant(db, clean_id, {"transcription": transcription})
+
+
 def extract_agent_name_from_prompt(instructions: str) -> str:
     """Extract agent name from system prompt. Returns 'VoxBulk' if not found."""
     text = str(instructions or "")
@@ -214,8 +253,14 @@ def sync_telnyx_assistant_instructions(
     sync_greeting: bool = True,
     enable_web_calls: bool = True,
     verify_live: bool = True,
+    language: str | None = None,
 ) -> dict[str, Any]:
-    """Push admin system prompt (and optional greeting) to the Telnyx assistant."""
+    """Push admin system prompt (and optional greeting) to the Telnyx assistant.
+
+    When ``language`` indicates a non-English call (e.g. ``ar``), the assistant's
+    speech-to-text language is switched to a model that supports it so the candidate
+    is understood in that language.
+    """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     clean_instructions = str(instructions or "").strip()
     if not clean_instructions:
@@ -228,6 +273,14 @@ def sync_telnyx_assistant_instructions(
         pushed_greeting = str(greeting or "").strip()
         if pushed_greeting:
             body["greeting"] = pushed_greeting
+    if language:
+        try:
+            existing = fetch_telnyx_assistant(db, clean_id)
+            transcription = _transcription_for_language(existing, language)
+            if transcription:
+                body["transcription"] = transcription
+        except Exception as exc:
+            logger.warning("telnyx_transcription_lang_skip assistant_id=%s error=%s", clean_id, exc)
     updated = _update_telnyx_assistant(db, clean_id, body)
     out: dict[str, Any] = {
         **updated,
@@ -270,6 +323,7 @@ def prepare_telnyx_webrtc_call(
     instructions: str,
     *,
     greeting: str | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     """Sync prompt + greeting to Telnyx and enable browser WebRTC before the client connects."""
     clean_id = normalize_telnyx_assistant_id(assistant_id)
@@ -277,7 +331,7 @@ def prepare_telnyx_webrtc_call(
     if not clean_instructions:
         raise ValueError("Save a system prompt in admin → Front page call leads.")
     try:
-        sync_telnyx_assistant_instructions(db, clean_id, clean_instructions, greeting=greeting)
+        sync_telnyx_assistant_instructions(db, clean_id, clean_instructions, greeting=greeting, language=language)
     except httpx.HTTPStatusError as exc:
         detail = ""
         try:

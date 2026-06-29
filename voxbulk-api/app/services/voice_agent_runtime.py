@@ -71,6 +71,16 @@ def _config_script_text(config: dict[str, Any]) -> str:
         or ""
     )
 
+
+def detect_config_language(config: dict[str, Any]) -> str:
+    """Resolve the call language from the approved script: 'ar' when Arabic, else 'en'.
+
+    Used to drive both the spoken language (greeting/instructions) and the Telnyx
+    speech-to-text language so the assistant understands and replies in Arabic.
+    """
+    return "ar" if _contains_arabic(_config_script_text(config)) else "en"
+
+
 DEFAULT_SURVEY_LOW_RATING_THRESHOLD = 3
 
 

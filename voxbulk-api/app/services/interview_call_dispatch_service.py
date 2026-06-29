@@ -707,6 +707,17 @@ class InterviewCallDispatchService:
 
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
+        from app.services.voice_agent_runtime import detect_config_language
+
+        call_language = detect_config_language(config)
+        if call_language == "ar":
+            from app.services.telnyx_assistant_service import ensure_telnyx_assistant_transcription_language
+
+            try:
+                ensure_telnyx_assistant_transcription_language(db, assistant_id, call_language)
+            except Exception as exc:
+                _log("transcription_lang_skip", order_id=order.id, detail=str(exc))
+
         result = TelnyxVoiceAdapter.start_outbound_call(
             to_number=to_number,
             from_number=from_number,
