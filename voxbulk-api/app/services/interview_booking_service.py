@@ -335,8 +335,28 @@ def meeting_url_for_token(token: str) -> str:
     return f"{booking_public_origin()}/meet/{quote(str(token).strip(), safe='')}"
 
 
-def resolve_booking_channel_options(db: Session, phone: str) -> dict[str, Any]:
+PHONE_CHANNEL = "phone"
+MEETING_CHANNEL = "meeting"
+
+
+def resolve_booking_channel_options(
+    db: Session, phone: str, *, order: ServiceOrder | None = None
+) -> dict[str, Any]:
     from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+
+    # Respect the employer's configured interview format. A web ("ai_meeting")
+    # interview must be conducted in the browser meeting room — never as a phone
+    # call — so the candidate is not offered (and cannot accidentally pick) phone.
+    delivery = ""
+    if order is not None:
+        cfg = _order_config(order)
+        delivery = str(cfg.get("delivery") or cfg.get("delivery_mode") or "").strip().lower()
+    if delivery in {"ai_meeting", "meeting"}:
+        return {
+            "phone_available": False,
+            "meeting_available": True,
+            "default_channel": MEETING_CHANNEL,
+        }
 
     check = TelnyxPhoneAllowlistService.validate_phone_db(db, phone)
     phone_available = bool(check.get("allowed"))
@@ -345,10 +365,6 @@ def resolve_booking_channel_options(db: Session, phone: str) -> dict[str, Any]:
         "meeting_available": True,
         "default_channel": PHONE_CHANNEL if phone_available else MEETING_CHANNEL,
     }
-
-
-PHONE_CHANNEL = "phone"
-MEETING_CHANNEL = "meeting"
 
 
 def resolve_booking_url(
@@ -1133,7 +1149,7 @@ class InterviewBookingService:
             if start not in booked or (row.booked_start_at and start == row.booked_start_at)
         ]
 
-        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""))
+        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""), order=order)
 
         return {
             "token": row.token,
@@ -1218,7 +1234,7 @@ class InterviewBookingService:
         if slot_start in booked:
             raise ValueError("That slot was just taken — pick another time")
 
-        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""))
+        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""), order=order)
         chosen = str(channel or channel_options.get("default_channel") or PHONE_CHANNEL).strip().lower()
         if chosen == PHONE_CHANNEL and not channel_options.get("phone_available"):
             chosen = MEETING_CHANNEL
@@ -1226,6 +1242,8 @@ class InterviewBookingService:
             raise ValueError("Invalid interview channel")
         if chosen == PHONE_CHANNEL and not channel_options.get("phone_available"):
             raise ValueError("Phone interviews are not available for your number — choose online meeting")
+        if chosen == MEETING_CHANNEL and not channel_options.get("meeting_available"):
+            raise ValueError("Online meetings are not available for this interview — choose phone")
 
         row.booked_start_at = slot_start
         row.booked_end_at = slot_end

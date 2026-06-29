@@ -22,12 +22,14 @@ import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
 import { Route as AppFeedbackRouteImport } from './routes/_app.feedback'
 import { Route as AppAppointmentsRouteImport } from './routes/_app.appointments'
 import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
 import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
 import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
 import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/_app.campaigns.index'
 import { Route as AppAppointmentsIndexRouteImport } from './routes/_app.appointments.index'
+import { Route as AppAccountIndexRouteImport } from './routes/_app.account.index'
 import { Route as AppSurveysResultsRouteImport } from './routes/_app.surveys.results'
 import { Route as AppSurveysReportsRouteImport } from './routes/_app.surveys.reports'
 import { Route as AppSurveysNewRouteImport } from './routes/_app.surveys.new'
@@ -136,6 +138,11 @@ const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppSurveysRoute,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
   id: '/sales/',
   path: '/sales/',
@@ -165,6 +172,11 @@ const AppAppointmentsIndexRoute = AppAppointmentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppAppointmentsRoute,
+} as any)
+const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
+  id: '/account/',
+  path: '/account/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSurveysResultsRoute = AppSurveysResultsRouteImport.update({
   id: '/results',
@@ -434,12 +446,14 @@ export interface FileRoutesByFullPath {
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
   '/surveys/results': typeof AppSurveysResultsRoute
+  '/account/': typeof AppAccountIndexRoute
   '/appointments/': typeof AppAppointmentsIndexRoute
   '/campaigns/': typeof AppCampaignsIndexRoute
   '/feedback/': typeof AppFeedbackIndexRoute
   '/interviews/': typeof AppInterviewsIndexRoute
   '/recovery/': typeof AppRecoveryIndexRoute
   '/sales/': typeof AppSalesIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
   '/surveys/': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -490,12 +504,14 @@ export interface FileRoutesByTo {
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
   '/surveys/results': typeof AppSurveysResultsRoute
+  '/account': typeof AppAccountIndexRoute
   '/appointments': typeof AppAppointmentsIndexRoute
   '/campaigns': typeof AppCampaignsIndexRoute
   '/feedback': typeof AppFeedbackIndexRoute
   '/interviews': typeof AppInterviewsIndexRoute
   '/recovery': typeof AppRecoveryIndexRoute
   '/sales': typeof AppSalesIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
   '/surveys': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -555,12 +571,14 @@ export interface FileRoutesById {
   '/_app/surveys/new': typeof AppSurveysNewRoute
   '/_app/surveys/reports': typeof AppSurveysReportsRoute
   '/_app/surveys/results': typeof AppSurveysResultsRoute
+  '/_app/account/': typeof AppAccountIndexRoute
   '/_app/appointments/': typeof AppAppointmentsIndexRoute
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
   '/_app/feedback/': typeof AppFeedbackIndexRoute
   '/_app/interviews/': typeof AppInterviewsIndexRoute
   '/_app/recovery/': typeof AppRecoveryIndexRoute
   '/_app/sales/': typeof AppSalesIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/surveys/': typeof AppSurveysIndexRoute
   '/_app/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/_app/account/support/faq': typeof AppAccountSupportFaqRoute
@@ -620,12 +638,14 @@ export interface FileRouteTypes {
     | '/surveys/new'
     | '/surveys/reports'
     | '/surveys/results'
+    | '/account/'
     | '/appointments/'
     | '/campaigns/'
     | '/feedback/'
     | '/interviews/'
     | '/recovery/'
     | '/sales/'
+    | '/settings/'
     | '/surveys/'
     | '/account/feedback/packages'
     | '/account/support/faq'
@@ -676,12 +696,14 @@ export interface FileRouteTypes {
     | '/surveys/new'
     | '/surveys/reports'
     | '/surveys/results'
+    | '/account'
     | '/appointments'
     | '/campaigns'
     | '/feedback'
     | '/interviews'
     | '/recovery'
     | '/sales'
+    | '/settings'
     | '/surveys'
     | '/account/feedback/packages'
     | '/account/support/faq'
@@ -740,12 +762,14 @@ export interface FileRouteTypes {
     | '/_app/surveys/new'
     | '/_app/surveys/reports'
     | '/_app/surveys/results'
+    | '/_app/account/'
     | '/_app/appointments/'
     | '/_app/campaigns/'
     | '/_app/feedback/'
     | '/_app/interviews/'
     | '/_app/recovery/'
     | '/_app/sales/'
+    | '/_app/settings/'
     | '/_app/surveys/'
     | '/_app/account/feedback/packages'
     | '/_app/account/support/faq'
@@ -859,6 +883,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSurveysIndexRouteImport
       parentRoute: typeof AppSurveysRoute
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/sales/': {
       id: '/_app/sales/'
       path: '/sales'
@@ -900,6 +931,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/appointments/'
       preLoaderRoute: typeof AppAppointmentsIndexRouteImport
       parentRoute: typeof AppAppointmentsRoute
+    }
+    '/_app/account/': {
+      id: '/_app/account/'
+      path: '/account'
+      fullPath: '/account/'
+      preLoaderRoute: typeof AppAccountIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/surveys/results': {
       id: '/_app/surveys/results'
@@ -1358,8 +1396,10 @@ interface AppRouteChildren {
   AppSettingsServicesRoute: typeof AppSettingsServicesRoute
   AppSettingsSystemRoute: typeof AppSettingsSystemRoute
   AppSettingsTeamRoute: typeof AppSettingsTeamRoute
+  AppAccountIndexRoute: typeof AppAccountIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppSalesIndexRoute: typeof AppSalesIndexRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
   AppSalesCustomersIdRoute: typeof AppSalesCustomersIdRoute
 }
@@ -1389,8 +1429,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsServicesRoute: AppSettingsServicesRoute,
   AppSettingsSystemRoute: AppSettingsSystemRoute,
   AppSettingsTeamRoute: AppSettingsTeamRoute,
+  AppAccountIndexRoute: AppAccountIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppSalesIndexRoute: AppSalesIndexRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
   AppSalesCustomersIdRoute: AppSalesCustomersIdRoute,
 }
