@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,8 @@ from app.services.customer_feedback.survey_config_service import (
 )
 from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
+
+logger = logging.getLogger(__name__)
 
 
 def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
@@ -367,11 +370,16 @@ class FeedbackWebSurveyService:
             language="auto",
         )
         transcript = str(getattr(result, "transcript", "") or "").strip()
+        stt_error = str(getattr(result, "error", "") or "").strip()
         if not transcript:
-            # Only reject when nothing was heard at all; the voice note is the answer.
-            raise ValueError(
-                "We couldn't hear that clearly — please try again or type your answer."
+            logger.warning(
+                "voice_web_transcription_empty session=%s mode=%s stt_error=%s storage=%s",
+                session_id,
+                mode,
+                stt_error or "empty_transcript",
+                getattr(result, "storage_path", None),
             )
+            transcript = "[Voice message recorded — transcription unavailable]"
 
         answer_value = str(answer).strip() if answer is not None else ""
         if answer_value:

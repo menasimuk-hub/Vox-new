@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -16,6 +17,7 @@ from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
 
 _CODE_RE = re.compile(r"^[A-Z0-9]{4,12}$")
+logger = logging.getLogger(__name__)
 
 
 class SalesRepError(ValueError):
@@ -119,6 +121,21 @@ class SalesRepService:
         db.add(rep)
         db.commit()
         db.refresh(rep)
+
+        membership = db.execute(
+            select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
+        ).scalar_one_or_none()
+        if membership is not None:
+            try:
+                from app.workers.demo_account_tasks import seed_demo_sales_account_task
+
+                seed_demo_sales_account_task.delay(str(membership.org_id), str(user.id))
+            except Exception as exc:  # noqa: BLE001 — demo seed must never block salesman creation
+                logger.warning(
+                    "demo_seed_enqueue_failed",
+                    extra={"org_id": membership.org_id, "user_id": user.id, "error": str(exc)},
+                )
+
         return rep
 
     @staticmethod

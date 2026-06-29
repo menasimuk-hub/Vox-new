@@ -196,48 +196,50 @@ export default function CallsCost() {
     return `Live Telnyx detail records · ${label}`
   }, [dateRange])
 
+  const showingCount = items.length
+  const totalCount = Number(pagination.total_results || 0)
+
   return (
     <>
-      <div className='pageTop'>
-        <div>
-          <h1>Calls cost</h1>
-          <p>{subtitle}. Agent, destination, duration, WebRTC vs phone, and per-component Telnyx billing.</p>
+      <div className='callCostPageShell'>
+        <div className='callCostPageHead'>
+          <div>
+            <h1>Calls cost</h1>
+            <p>{subtitle}</p>
+          </div>
+          <div className='actions'>
+            <span className='callCostLiveBadge'><span className='callCostLiveDot' /> Live</span>
+            <button type='button' className='btn soft' onClick={load} disabled={loading}>
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
         </div>
-        <div className='actions'>
-          <button type='button' className='btn soft' onClick={load} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
 
-      {error ? <div className='note' style={{ marginBottom: 16 }}>{error}</div> : null}
+        {error ? <div className='note' style={{ marginBottom: 16 }}>{error}</div> : null}
 
-      <div className='grid-4 callCostStats' style={{ marginBottom: 16 }}>
-        <div className='card stat' style={{ '--accent': '#0f766e' }}>
-          <div className='muted'>Total calls</div>
-          <div className='statValue'>{Number(summary.total_calls || 0).toLocaleString()}</div>
-          <span className='pill p-green'>Telnyx AI calls</span>
+        <div className='callCostStatGrid'>
+          <div className='callCostStatTile'>
+            <div className='callCostStatLabel'>Total calls</div>
+            <div className='callCostStatValue'>{Number(summary.total_calls || 0).toLocaleString()}</div>
+          </div>
+          <div className='callCostStatTile'>
+            <div className='callCostStatLabel'>Total spend</div>
+            <div className='callCostStatValue'>{money(summary.total_cost, currency)}</div>
+          </div>
+          <div className='callCostStatTile'>
+            <div className='callCostStatLabel'>WebRTC calls</div>
+            <div className='callCostStatValue'>{Number(summary.web_calls || 0).toLocaleString()}</div>
+          </div>
+          <div className='callCostStatTile'>
+            <div className='callCostStatLabel'>Phone calls</div>
+            <div className='callCostStatValue'>{Number(summary.phone_calls || 0).toLocaleString()}</div>
+          </div>
         </div>
-        <div className='card stat' style={{ '--accent': '#2563eb' }}>
-          <div className='muted'>Total spend</div>
-          <div className='statValue'>{money(summary.total_cost, currency)}</div>
-          <span className='pill p-cyan'>All components</span>
-        </div>
-        <div className='card stat' style={{ '--accent': '#7c3aed' }}>
-          <div className='muted'>WebRTC calls</div>
-          <div className='statValue'>{Number(summary.web_calls || 0).toLocaleString()}</div>
-          <span className='pill callCostPillWeb'>Browser</span>
-        </div>
-        <div className='card stat' style={{ '--accent': '#d97706' }}>
-          <div className='muted'>Phone calls</div>
-          <div className='statValue'>{Number(summary.phone_calls || 0).toLocaleString()}</div>
-          <span className='pill callCostPillPhone'>PSTN</span>
-        </div>
-      </div>
 
-      <div className='card callCostCard'>
+        <div className='card callCostCard' style={{ border: 'none', boxShadow: 'none', background: 'transparent', padding: 0 }}>
         <div className='cardHead callCostFilters'>
           <div className='callCostFilterGroup'>
+            <span className='pill p-cyan'>Telnyx AI calls</span>
             <label>
               <span className='muted'>Period</span>
               <select value={dateRange} onChange={(e) => { setPage(1); setDateRange(e.target.value) }}>
@@ -258,7 +260,7 @@ export default function CallsCost() {
               <span className='muted'>Search</span>
               <input
                 type='search'
-                placeholder='Agent, destination, contact…'
+                placeholder='Agent, destination, cost…'
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -318,7 +320,7 @@ export default function CallsCost() {
                   <td className='callCostActions'>
                     <button
                       type='button'
-                      className='btn soft'
+                      className='callCostRowLink'
                       disabled={!row.conversation_id && !row.session_id}
                       onClick={() => setInsightsTarget({
                         conversationId: row.conversation_id,
@@ -328,7 +330,7 @@ export default function CallsCost() {
                     >
                       Result
                     </button>
-                    <button type='button' className='btn soft' onClick={() => setDetailSessionId(row.session_id)}>
+                    <button type='button' className='callCostRowLink' onClick={() => setDetailSessionId(row.session_id)}>
                       Details
                     </button>
                   </td>
@@ -341,15 +343,21 @@ export default function CallsCost() {
         </div>
 
         <div className='callCostPager'>
-          <button type='button' className='btn soft' disabled={!canPrev || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-            Previous
-          </button>
           <span className='muted'>
-            Page {page} of {totalPages} · {Number(pagination.total_results || 0).toLocaleString()} calls
+            Showing {showingCount.toLocaleString()} of {totalCount.toLocaleString()}
           </span>
-          <button type='button' className='btn soft' disabled={!canNext || loading} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </button>
+          <div className='callCostPagerNums'>
+            <button type='button' className='callCostPagerBtn' disabled={!canPrev || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Previous
+            </button>
+            <button type='button' className='callCostPagerBtn active'>{page}</button>
+            {totalPages > 1 ? <span className='muted'>…</span> : null}
+            {totalPages > 1 ? <button type='button' className='callCostPagerBtn'>{totalPages}</button> : null}
+            <button type='button' className='callCostPagerBtn' disabled={!canNext || loading} onClick={() => setPage((p) => p + 1)}>
+              Next
+            </button>
+          </div>
+        </div>
         </div>
       </div>
 

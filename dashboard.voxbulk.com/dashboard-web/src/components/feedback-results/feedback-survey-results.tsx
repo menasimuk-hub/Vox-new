@@ -102,14 +102,14 @@ export function FeedbackSurveyResults({
     return respondents.filter((r) => {
       if (filter === "flagged" && !r.flagged) return false;
       if (filter !== "all" && filter !== "flagged" && r.sentiment !== filter) return false;
-      if (search && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.mobile.includes(search)) return false;
+      if (search && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.type.includes(search.toLowerCase())) return false;
       return true;
     });
   }, [search, filter, respondents]);
 
   type SortableRespondent = Respondent & {
     sortName: string;
-    sortMobile: string;
+    sortType: string;
     sortSentiment: number;
     sortCompletedAt: number;
   };
@@ -119,7 +119,7 @@ export function FeedbackSurveyResults({
       filtered.map((r) => ({
         ...r,
         sortName: r.name,
-        sortMobile: r.mobile,
+        sortType: r.type,
         sortSentiment: r.sentiment === "unhappy" ? 0 : r.sentiment === "neutral" ? 1 : 2,
         sortCompletedAt: r.completedAtTs,
       })),
@@ -407,8 +407,8 @@ export function FeedbackSurveyResults({
                           className="px-4 py-2"
                         />
                         <SortHeader
-                          label="Mobile"
-                          sortKey="sortMobile"
+                          label="Type"
+                          sortKey="sortType"
                           active={tableSort.sortKey}
                           dir={tableSort.sortDir}
                           onToggle={tableSort.toggleSort}
@@ -447,7 +447,11 @@ export function FeedbackSurveyResults({
                           <td className="px-4 py-3">
                             <p className="font-medium leading-tight">{r.name}</p>
                           </td>
-                          <td className="px-4 py-3 tabular-nums text-muted-foreground">{r.mobile}</td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium capitalize text-muted-foreground">
+                              {r.type}
+                            </span>
+                          </td>
                           <td className="px-4 py-3">
                             <SentimentBadge sentiment={r.sentiment} flagged={r.flagged} />
                           </td>

@@ -2767,8 +2767,81 @@ a.leadPlayBtnLink{
 }
 
 .callCostCard .cardHead.callCostFilters{
-  align-items:flex-end;
+  align-items:center;
   gap:12px;
+  padding:10px 16px;
+  border-radius:999px;
+  background:var(--s2);
+  border:1px solid var(--line);
+  margin-bottom:16px;
+}
+.callCostPageShell{
+  background:var(--s1);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:20px 20px 16px;
+  box-shadow:0 8px 30px rgba(15,23,42,.06);
+}
+.callCostPageHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:16px;
+}
+.callCostPageHead h1{
+  margin:0;
+  font-size:1.35rem;
+  letter-spacing:-0.02em;
+}
+.callCostPageHead p{
+  margin:4px 0 0;
+  font-size:0.8rem;
+  color:var(--t2);
+}
+.callCostLiveBadge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 12px;
+  border-radius:999px;
+  font-size:0.7rem;
+  font-weight:600;
+  color:var(--t2);
+  background:var(--s2);
+  border:1px solid var(--line);
+}
+.callCostLiveDot{
+  width:8px;
+  height:8px;
+  border-radius:999px;
+  background:#16a34a;
+}
+.callCostStatGrid{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:12px;
+  margin-bottom:16px;
+}
+.callCostStatTile{
+  background:var(--s2);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:10px 14px;
+}
+.callCostStatLabel{
+  font-size:0.68rem;
+  font-weight:600;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:var(--t2);
+  margin-bottom:4px;
+}
+.callCostStatValue{
+  font-size:1.25rem;
+  font-weight:700;
+  color:var(--t1);
+  line-height:1.2;
 }
 .callCostFilterGroup{
   display:flex;
@@ -2778,31 +2851,50 @@ a.leadPlayBtnLink{
 }
 .callCostFilterGroup label{
   display:flex;
-  flex-direction:column;
-  gap:4px;
-  min-width:120px;
+  flex-direction:row;
+  align-items:center;
+  gap:8px;
+  min-width:auto;
+}
+.callCostFilterGroup label > span.muted{
+  font-size:0.7rem;
+  font-weight:600;
+  color:var(--t2);
+  white-space:nowrap;
 }
 .callCostFilterGroup select,
 .callCostFilterGroup input{
-  min-height:38px;
+  min-height:28px;
   border:1px solid var(--line);
-  border-radius:10px;
-  padding:8px 10px;
+  border-radius:999px;
+  padding:4px 14px;
   background:var(--s1);
   color:var(--t1);
+  font-size:0.75rem;
+  font-weight:500;
 }
 .callCostSearchField{
   min-width:220px;
 }
 .callCostTableWrap{
   overflow:auto;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--s2);
 }
 .callCostTableCompact{
-  font-size:13px;
+  font-size:0.75rem;
+  min-width:680px;
+}
+.callCostTableCompact th{
+  text-transform:uppercase;
+  font-size:0.68rem;
+  letter-spacing:0.04em;
+  background:color-mix(in srgb, var(--s2) 70%, var(--line));
 }
 .callCostTableCompact th,
 .callCostTableCompact td{
-  padding:10px 12px;
+  padding:10px 12px 10px 14px;
   vertical-align:middle;
 }
 .callCostTableCompact .mono{
@@ -2820,12 +2912,26 @@ a.leadPlayBtnLink{
   gap:2px;
 }
 .callCostActions{
-  width:170px;
+  width:150px;
   text-align:right;
   display:flex;
   justify-content:flex-end;
   gap:6px;
   flex-wrap:wrap;
+}
+.callCostRowLink{
+  border:none;
+  background:none;
+  padding:0;
+  cursor:pointer;
+  font:inherit;
+  color:var(--t2);
+  font-weight:600;
+  font-size:0.72rem;
+  border-bottom:1px dashed var(--line);
+}
+.callCostRowLink:hover{
+  color:var(--t1);
 }
 .salesOutcomeLink{
   border:none;
@@ -2928,8 +3034,31 @@ a.leadPlayBtnLink{
   justify-content:space-between;
   align-items:center;
   gap:12px;
-  padding:14px 18px;
-  border-top:1px solid var(--line);
+  padding:10px 4px 0;
+  margin-top:8px;
+}
+.callCostPagerNums{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.callCostPagerBtn{
+  min-height:28px;
+  padding:2px 10px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:transparent;
+  font-size:0.72rem;
+  font-weight:600;
+  color:var(--t2);
+}
+.callCostPagerBtn.active{
+  background:var(--t1);
+  color:var(--s1);
+  border-color:var(--t1);
+}
+.callCostPagerBtn:disabled{
+  opacity:0.45;
 }
 .callCostPill{
   display:inline-flex;
@@ -2987,6 +3116,16 @@ a.leadPlayBtnLink{
 }
 .callCostTotal{
   color:#0f766e;
+}
+@media (max-width: 900px){
+  .callCostStatGrid{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+  .callCostCard .cardHead.callCostFilters{
+    border-radius:16px;
+    flex-direction:column;
+    align-items:stretch;
+  }
 }
 .callCostSourceLink{
   margin-bottom:16px;

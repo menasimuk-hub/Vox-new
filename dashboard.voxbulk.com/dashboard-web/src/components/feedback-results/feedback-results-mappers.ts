@@ -40,6 +40,7 @@ export type Question = RatingQ | YesNoQ | OpenQ;
 export type Respondent = {
   id: string;
   name: string;
+  type: "mobile" | "web";
   mobile: string;
   completedAt: string;
   completedAtTs: number;
@@ -118,6 +119,10 @@ function classifyYn(text: string): "yes" | "no" | null {
   if (t === "yes" || t.startsWith("yes")) return "yes";
   if (t === "no" || t.startsWith("no")) return "no";
   return null;
+}
+
+function respondentType(phone: string | null | undefined): "mobile" | "web" {
+  return String(phone || "").startsWith("web:") ? "web" : "mobile";
 }
 
 function displayName(phone: string | null | undefined): string {
@@ -251,6 +256,7 @@ export function mapFeedbackResults(
     return {
       id: String(r.id || ""),
       name: displayName(r.phone),
+      type: respondentType(r.phone),
       mobile: String(r.phone || "—"),
       completedAt: formatRelative(r.completed_at),
       completedAtTs: Number.isNaN(completedTs) ? 0 : completedTs,
