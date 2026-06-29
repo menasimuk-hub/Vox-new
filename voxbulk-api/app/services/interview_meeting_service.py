@@ -252,6 +252,16 @@ class InterviewMeetingService:
             terminal_status="completed",
             hangup_extra={"duration_seconds": secs},
         )
+
+        try:
+            from app.services.interview_missed_call_email_service import (
+                maybe_send_interview_thank_you_email,
+            )
+
+            maybe_send_interview_thank_you_email(db, order=order, recipient=recipient)
+        except Exception:
+            logger.exception("interview_meeting_thank_you_email_failed")
+
         schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
 
         return {"ok": True, "status": recipient.status}

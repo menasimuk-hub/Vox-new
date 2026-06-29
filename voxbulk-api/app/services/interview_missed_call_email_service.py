@@ -346,6 +346,66 @@ def missed_call_email_report_payload(
     }
 
 
+def maybe_send_interview_thank_you_email(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+) -> dict[str, Any]:
+    """Email a thank-you after a completed interview (phone call OR online meeting).
+
+    Idempotent on ``thank_you_email_sent_at``. Sent once the candidate has actually
+    attended (recipient marked completed), for both ai_call and ai_meeting orders.
+    """
+    outreach = str(recipient.email or "").strip()
+    if not outreach:
+        return {"skipped": True, "reason": "no_email"}
+
+    existing = _loads(recipient.result_json)
+    if existing.get("thank_you_email_sent_at"):
+        return {"skipped": True, "reason": "already_sent"}
+
+    config = _order_config(order)
+    role = str(config.get("role") or order.title or "the role").strip()
+    company_name = resolve_voice_call_company_name(db, config=config, org_id=order.org_id, order=order)
+
+    attempted_at = datetime.utcnow().isoformat()
+    sent_ok, err = CareerEmailService.send_templated_optional(
+        db,
+        template_key="interview_thank_you",
+        to_email=outreach,
+        variables={
+            "candidate_name": recipient.name or _first_name(recipient.name) or "there",
+            "first_name": _first_name(recipient.name or "there"),
+            "role": role,
+            "company_name": company_name,
+            "org_name": company_name,
+        },
+    )
+    merged = dict(existing)
+    merged["thank_you_email_attempted_at"] = attempted_at
+    merged["thank_you_email_to"] = outreach.lower()
+    if sent_ok:
+        merged["thank_you_email_sent_at"] = datetime.utcnow().isoformat()
+        merged["thank_you_email_ok"] = True
+        merged.pop("thank_you_email_failed", None)
+        logger.info(
+            "interview_thank_you_email_sent",
+            extra={"order_id": order.id, "recipient_id": recipient.id, "to": outreach},
+        )
+    else:
+        merged["thank_you_email_ok"] = False
+        merged["thank_you_email_failed"] = err or "send_failed"
+        logger.warning(
+            "interview_thank_you_email_failed",
+            extra={"order_id": order.id, "recipient_id": recipient.id, "error": err},
+        )
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    return {"ok": sent_ok, "error": err}
+
+
 def maybe_send_interview_meeting_missed_email(
     db: Session,
     *,

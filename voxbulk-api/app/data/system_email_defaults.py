@@ -265,6 +265,18 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
         ),
     },
+    "interview_thank_you": {
+        "title": "Interview thank-you",
+        "subject": "Thank you for your interview — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="Thank you for your interview",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Thank you for completing your <strong>{{role}}</strong> interview with <strong>{{company_name}}</strong>.</p>
+  <p>We appreciate the time you took to speak with our AI interviewer. The hiring team will now review your interview and will be in touch regarding the next steps.</p>
+  <p style="font-size:13px;color:#6b6560;">No further action is needed from you right now.</p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
+        ),
+    },
     "billing_cancellation_requested": {
         "title": "Subscription cancellation requested",
         "subject": "Cancellation scheduled — {{organisation_name}}",

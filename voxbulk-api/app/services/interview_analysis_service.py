@@ -356,6 +356,14 @@ class InterviewAnalysisService:
             ensure_survey_transcript(db, order=order, recipient=recipient, hangup_extra=hangup_extra)
             db.refresh(recipient)
             run_interview_analysis_if_needed(db, order=order, recipient=recipient)
+            try:
+                from app.services.interview_missed_call_email_service import (
+                    maybe_send_interview_thank_you_email,
+                )
+
+                maybe_send_interview_thank_you_email(db, order=order, recipient=recipient)
+            except Exception:
+                logger.exception("%s thank_you_email_failed", LOG_PREFIX)
         elif terminal_status in {"no_answer", "failed", "busy", "skipped", "cancelled", "opted_out"}:
             payload: dict[str, Any] = {"terminal_status": terminal_status}
             if hangup_extra.get("call_control_id"):
