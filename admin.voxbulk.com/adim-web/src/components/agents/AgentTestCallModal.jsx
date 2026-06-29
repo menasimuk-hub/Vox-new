@@ -218,7 +218,7 @@ export default function AgentTestCallModal({ open, onClose, agentId, testScript,
             </p>
           ) : null}
         </div>
-        <div className="waSurveyModalFoot" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', padding: '16px 20px', borderTop: '1px solid var(--border, #dde3ea)' }}>
           {phase === 'live' ? (
             <button type="button" className="agentsBtn warn" onClick={endCall}>
               <i className="ti ti-phone-off" /> End call
