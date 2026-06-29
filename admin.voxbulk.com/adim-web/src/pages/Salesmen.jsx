@@ -57,6 +57,17 @@ function Modal({ title, onClose, children, wide }) {
 
 const EMPTY_FORM = { name: '', email: '', password: '', promo_code: '', country: '', caller_id: '' }
 const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
+const SALESMAN_EMAIL_DOMAIN = 'voxbulk.com'
+
+// Suggest the next free salesman{N}@voxbulk.com based on existing reps.
+function nextSalesmanEmail(reps) {
+  let max = 0
+  for (const r of reps || []) {
+    const m = /^salesman(\d+)@voxbulk\.com$/i.exec(String(r?.email || '').trim())
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `salesman${max + 1}@${SALESMAN_EMAIL_DOMAIN}`
+}
 
 export default function Salesmen() {
   const [reps, setReps] = useState([])
@@ -261,7 +272,7 @@ export default function Salesmen() {
         </div>
         <div className='actions'>
           <button className='btn soft' onClick={load}>Refresh</button>
-          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateErr(''); setCreateForm(EMPTY_FORM); setShowCreate(true) }}>
+          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateErr(''); setCreateForm({ ...EMPTY_FORM, email: nextSalesmanEmail(reps) }); setShowCreate(true) }}>
             + Create salesman
           </button>
         </div>

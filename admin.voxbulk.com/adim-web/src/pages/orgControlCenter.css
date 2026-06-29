@@ -740,6 +740,22 @@
 }
 
 .occ-modal-overlay {
+  /* Re-declare tokens here so modals render correctly even when the host
+     page is not wrapped in `.occ` (e.g. the Salesmen page). */
+  --occ-bg: #f7f7f6;
+  --occ-surface: #fff;
+  --occ-surface2: #f0efed;
+  --occ-border: #e4e3e0;
+  --occ-border2: #d0cfc9;
+  --occ-text: #0f0f0e;
+  --occ-text2: #6b6a66;
+  --occ-text3: #9b9a96;
+  --occ-red: #dc2626;
+  --occ-red-bg: #fef2f2;
+  --occ-red-border: #fecaca;
+  --occ-radius: 10px;
+  --occ-radius-sm: 8px;
+  --occ-radius-lg: 14px;
   position: fixed;
   inset: 0;
   background: rgba(15, 15, 14, 0.45);
