@@ -217,11 +217,13 @@
 }
 
 .fb-choice-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 2.4rem;
+  height: 2.4rem;
   flex-shrink: 0;
   display: block;
   color: #fff;
+  transition: transform 0.2s ease;
+  will-change: transform;
 }
 
 .fb-options {
@@ -349,22 +351,35 @@
   transform: translateY(-2px);
 }
 .fb-choice-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 999px;
   flex-shrink: 0;
   line-height: 0;
 }
-.fb-choice-badge-wa {
-  background: rgba(255, 255, 255, 0.18);
+.fb-choice-badge-wa .fb-choice-icon {
   color: #fff;
 }
-.fb-choice-badge-dark {
-  background: #1a1814;
-  color: #fbf9f4;
+.fb-choice-badge-dark .fb-choice-icon {
+  color: #1a1814;
+}
+.fb-choice:hover .fb-choice-icon {
+  transform: scale(1.18);
+}
+@keyframes fb-icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fb-choice-badge-wa .fb-choice-icon {
+    animation: fb-icon-pulse 2.4s ease-in-out infinite;
+  }
+  .fb-choice-badge-dark .fb-choice-icon {
+    animation: fb-icon-pulse 2.6s ease-in-out infinite 0.3s;
+  }
+  .fb-choice:hover .fb-choice-icon {
+    animation: none;
+  }
 }
 .fb-choice-text {
   flex: 1;
