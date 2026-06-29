@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,36 @@ DEFAULT_INTERVIEW_OPENING_FALLBACK = (
     "This call is recorded for quality and assessment purposes. "
     "Can you hear me clearly, and is now still a good time to continue?"
 )
+
+# Arabic opening fallback (used when the approved script is written in Arabic and no
+# custom disclosure template is configured).
+DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = (
+    "مرحبًا {first_name}، أنا {agent_name} أتصل بالنيابة عن {company_name} بخصوص وظيفة {role}. "
+    "يُسجَّل هذا الاتصال لأغراض الجودة والتقييم. "
+    "هل تسمعني بوضوح، وهل الوقت مناسب الآن للمتابعة؟"
+)
+
+# Arabic equivalents of the interview recording/availability tail that is appended to
+# the opening disclosure. Keeps the whole greeting in one language.
+ARABIC_RECORD_AVAILABILITY = (
+    "يُسجَّل هذا الاتصال لأغراض الجودة والتقييم. هل تسمعني بوضوح، وهل الوقت مناسب الآن للمتابعة؟"
+)
+
+_ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+
+def _contains_arabic(text: str | None) -> bool:
+    return bool(_ARABIC_RE.search(str(text or "")))
+
+
+def _config_script_text(config: dict[str, Any]) -> str:
+    """Best-effort approved interview/survey script text used to detect the call language."""
+    return str(
+        config.get("approved_script")
+        or config.get("generated_script_draft")
+        or config.get("survey_runtime_prompt")
+        or ""
+    )
 
 DEFAULT_SURVEY_LOW_RATING_THRESHOLD = 3
 
@@ -317,13 +348,21 @@ def resolve_opening_disclosure_template(
             role=role,
             first_name="",
         )
-    if service_key == SERVICE_INTERVIEW and "record" not in rendered.lower():
-        rendered = (
-            f"{rendered} This call is recorded for quality and assessment purposes. "
-            "Can you hear me clearly, and is now still a good time to continue?"
-        ).strip()
-    elif service_key == SERVICE_INTERVIEW and "good time" not in rendered.lower() and "hear me" not in rendered.lower():
-        rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
+    if service_key == SERVICE_INTERVIEW:
+        # Match the disclosure tail to the language of the call. For Arabic scripts the
+        # old code appended an English recording/availability sentence, which made the
+        # agent drift into English after an Arabic greeting.
+        arabic = _contains_arabic(rendered) or _contains_arabic(_config_script_text(config))
+        if arabic:
+            if "مناسب" not in rendered:
+                rendered = f"{rendered} {ARABIC_RECORD_AVAILABILITY}".strip()
+        elif "record" not in rendered.lower():
+            rendered = (
+                f"{rendered} This call is recorded for quality and assessment purposes. "
+                "Can you hear me clearly, and is now still a good time to continue?"
+            ).strip()
+        elif "good time" not in rendered.lower() and "hear me" not in rendered.lower():
+            rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
     elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     elif service_key == SERVICE_APPOINTMENTS and mandatory and "record" not in rendered.lower():
@@ -499,6 +538,17 @@ def build_service_runtime_instructions(
                 pass
 
     parts: list[str] = []
+    # If the approved script/criteria are written in Arabic, force the whole call to
+    # stay in Arabic. Without this the English scaffolding below makes the model reply
+    # in English even though the script is Arabic.
+    if _contains_arabic(script) or _contains_arabic(survey_prompt) or _contains_arabic(criteria):
+        parts.append(
+            "LANGUAGE REQUIREMENT: Conduct the ENTIRE interaction in Arabic only — the greeting, "
+            "every question, and all of your replies. Never switch to English unless the person "
+            "explicitly asks you to.\n"
+            "تعليمات اللغة: أجرِ المكالمة بالكامل باللغة العربية فقط — التحية وجميع الأسئلة وكل ردودك. "
+            "لا تتحدث الإنجليزية إطلاقًا إلا إذا طلب المتحدث ذلك صراحةً."
+        )
     if layers.compliance:
         parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
     if layers.base_role:
@@ -680,7 +730,12 @@ def build_service_opening_greeting(
             f"about your appointment on {appt_dt}. This call is recorded for quality. "
             f"Am I speaking with {first}?"
         )
-    return substitute_voice_placeholders(DEFAULT_INTERVIEW_OPENING_FALLBACK, **placeholder_kwargs)
+    interview_fallback = (
+        DEFAULT_INTERVIEW_OPENING_FALLBACK_AR
+        if _contains_arabic(_config_script_text(config))
+        else DEFAULT_INTERVIEW_OPENING_FALLBACK
+    )
+    return substitute_voice_placeholders(interview_fallback, **placeholder_kwargs)
 
 
 def log_voice_call_prompt(
