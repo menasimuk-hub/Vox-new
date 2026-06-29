@@ -202,7 +202,8 @@ function InterviewMeetingRoomPage() {
           }
           if (notification?.type !== "callUpdate" || !notification.call) return;
           const state = notification.call.state;
-          if (state === "active") {
+          // AI assistants auto-answer; ringing means media path is up.
+          if (state === "active" || state === "ringing") {
             window.clearTimeout(timeout);
             startedAtRef.current = Date.now();
             setPhase("live");
@@ -210,7 +211,7 @@ function InterviewMeetingRoomPage() {
             resolve();
             return;
           }
-          if (state === "hangup" || state === "destroy") {
+          if (state === "hangup" || state === "destroy" || state === "destroyed") {
             window.clearTimeout(timeout);
             void endMeeting();
           }
