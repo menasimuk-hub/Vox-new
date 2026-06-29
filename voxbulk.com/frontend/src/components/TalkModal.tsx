@@ -203,7 +203,7 @@ function TalkModal({ onClose }: { onClose: () => void }) {
     });
     telnyxRef.current = client;
 
-    setStatusLine("Connecting to Telnyx…");
+    setStatusLine("Connecting to VoxBulk…");
     await new Promise<void>((resolve, reject) => {
       const t = window.setTimeout(() => reject(new Error("Connection timed out — check your network and try again")), 30_000);
       client.on("telnyx.ready", () => {

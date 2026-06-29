@@ -116,6 +116,16 @@ def _language_instruction_suffix(language_code: str) -> str:
     )
 
 
+def _meeting_custom_headers(order: ServiceOrder, recipient: ServiceOrderRecipient) -> list[dict[str, str]]:
+    """Telnyx WebRTC requires ``[{name, value}]`` SIP headers (same as front-page call leads)."""
+    headers: list[dict[str, str]] = [
+        {"name": "X-Interview-Recipient-Id", "value": str(recipient.id)},
+        {"name": "X-Service-Order-Id", "value": str(order.id)},
+        {"name": "X-Interview-Order-Id", "value": str(order.id)},
+    ]
+    return [row for row in headers if str(row.get("value") or "").strip()]
+
+
 class InterviewMeetingService:
     @staticmethod
     def start_meeting(db: Session, token: str) -> dict[str, Any]:
@@ -151,7 +161,7 @@ class InterviewMeetingService:
             recipient=recipient,
             agent=agent,
         )
-        instructions = f"{instructions}{_language_instruction_suffix(language_code)}"
+        instructions = f"{instructions}{_language_instruction_suffix(effective_language)}"
 
         greeting = build_interview_opening_greeting(
             db,
@@ -166,12 +176,7 @@ class InterviewMeetingService:
             db, assistant_id, instructions, greeting=greeting or None, language=effective_language
         )
 
-        custom_headers = {
-            "X-Interview-Recipient-Id": str(recipient.id),
-            "X-Service-Order-Id": str(order.id),
-            "interview_recipient_id": str(recipient.id),
-            "service_order_id": str(order.id),
-        }
+        custom_headers = _meeting_custom_headers(order, recipient)
 
         now = datetime.utcnow()
         _set_recipient_result(
@@ -183,7 +188,7 @@ class InterviewMeetingService:
                 "meeting_started_at": now.isoformat(),
                 "meeting_url": meeting_url_for_token(row.token),
                 "telnyx_assistant_id": prep.get("assistant_id") or assistant_id,
-                "interview_language_code": language_code,
+                "interview_language_code": effective_language,
             },
         )
 

@@ -2472,6 +2472,35 @@ def get_interview_recipient_recording(
 
     # Telnyx recording download URL stored on completed calls
     download_url = str(parsed.get("telnyx_recording_download_url") or "").strip()
+
+    # Web (ai_meeting) interviews may only have the Telnyx conversation id stored.
+    # Resolve the recording on demand so the web result plays like an AI call.
+    if not download_url.startswith("http"):
+        conversation_id = str(
+            parsed.get("telnyx_conversation_id") or parsed.get("provider_call_id") or ""
+        ).strip()
+        if conversation_id:
+            try:
+                from app.services.telnyx_conversation_service import (
+                    fetch_conversation_by_id,
+                    resolve_telnyx_recording,
+                )
+
+                conversation = fetch_conversation_by_id(db, conversation_id)
+                if conversation:
+                    rec = resolve_telnyx_recording(db, conversation)
+                    if rec and rec.get("download_url"):
+                        download_url = str(rec["download_url"]).strip()
+                        merged = dict(parsed)
+                        merged["telnyx_recording_download_url"] = download_url
+                        if rec.get("id"):
+                            merged["telnyx_recording_id"] = rec.get("id")
+                        recipient.result_json = json.dumps(merged, ensure_ascii=False)
+                        db.add(recipient)
+                        db.commit()
+            except Exception:
+                pass
+
     if download_url.startswith("http"):
         try:
             with httpx.Client(timeout=30.0, follow_redirects=True) as client:

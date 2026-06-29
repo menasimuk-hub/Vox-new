@@ -14,7 +14,7 @@ type MeetingStartResponse = {
   ok?: boolean;
   agent_id?: string;
   greeting?: string;
-  custom_headers?: Record<string, string>;
+  custom_headers?: Record<string, string> | Array<{ name: string; value: string }>;
   web_calls_enabled?: boolean;
   meeting_url?: string;
   candidate_name?: string;
@@ -40,7 +40,33 @@ type TelnyxNotification = {
 };
 
 const REMOTE_AUDIO_ID = "voxbulk-remote-audio";
-const ACTIVE_TIMEOUT_MS = 25_000;
+const ACTIVE_TIMEOUT_MS = 45_000;
+
+function normalizeTelnyxCustomHeaders(
+  raw: Record<string, string> | Array<{ name: string; value: string }> | undefined,
+): Array<{ name: string; value: string }> {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((h) => String(h?.name || "").trim() && String(h?.value || "").trim());
+  }
+  return Object.entries(raw)
+    .map(([name, value]) => {
+      const clean = String(value || "").trim();
+      if (!clean) return null;
+      const headerName = name.startsWith("X-") ? name : `X-${name}`;
+      return { name: headerName, value: clean };
+    })
+    .filter((h): h is { name: string; value: string } => h != null);
+}
+
+function callLooksLive(call: TelnyxCall | null | undefined): boolean {
+  const state = String(call?.state || "").toLowerCase();
+  if (state === "active" || state === "held" || state === "speaking" || state === "answered") {
+    return true;
+  }
+  const tracks = call?.remoteStream?.getAudioTracks?.() || [];
+  return tracks.some((t) => t.readyState === "live" && t.enabled);
+}
 
 function webrtcLog(msg: string, detail?: unknown) {
   console.info("[webrtc]", msg, detail ?? "");
@@ -237,7 +263,7 @@ function InterviewMeetingRoomPage() {
       });
       telnyxRef.current = client;
 
-      setStatusLine("Connecting to Telnyx…");
+      setStatusLine("Connecting to VoxBulk…");
       await new Promise<void>((resolve, reject) => {
         const connectTimeout = window.setTimeout(() => {
           reject(new Error("Could not reach the interview server — check your connection and try again"));
@@ -277,7 +303,7 @@ function InterviewMeetingRoomPage() {
           setPhase("aiJoining");
           setStatusLine("AI interviewer is joining…");
         }
-        if (state === "active" && !wentLive) {
+        if (callLooksLive(call) && !wentLive) {
           wentLive = true;
           clearActiveTimer();
           setAiPresent(true);
@@ -305,7 +331,7 @@ function InterviewMeetingRoomPage() {
         video: false,
         remoteElement: REMOTE_AUDIO_ID,
         preferred_codecs: opus ? [opus] : undefined,
-        customHeaders: start.custom_headers || {},
+        customHeaders: normalizeTelnyxCustomHeaders(start.custom_headers),
       }) as TelnyxCall;
       telnyxCallRef.current = call;
       attachRemoteAudio(call);

@@ -104,8 +104,20 @@ def _candidate_row(
     else:
         duration_label = "—"
 
+    # Recording can be served by the recipient recording endpoint from any of these
+    # handles. AI phone calls store recording_url / call_control_id; web (ai_meeting)
+    # interviews store telnyx_recording_download_url + telnyx_conversation_id. Treat
+    # both the same so the web result shows the recording player exactly like a call.
     recording_url = str(parsed.get("recording_url") or "").strip()
-    has_recording = bool(recording_url or parsed.get("call_control_id")) if has_report else False
+    telnyx_recording_url = str(parsed.get("telnyx_recording_download_url") or "").strip()
+    conversation_id = str(parsed.get("telnyx_conversation_id") or parsed.get("provider_call_id") or "").strip()
+    interview_done = str(recipient.status or "").lower() in VOICE_COMPLETED
+    has_recording = bool(
+        recording_url
+        or telnyx_recording_url
+        or parsed.get("call_control_id")
+        or conversation_id
+    ) and (has_report or interview_done)
     play_path = _recording_play_path(order_id, recipient.id) if has_recording else None
 
     from app.services.interview_activity_service import InterviewActivityService

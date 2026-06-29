@@ -1274,13 +1274,18 @@ class InterviewBookingService:
 
         email_ok = bool(notify.get("confirmation_email_sent"))
         email_err = notify.get("confirmation_email_error")
+        sent_to = str(notify.get("confirmation_sent_to") or "").strip()
         message = (
-            "Your interview slot is confirmed. A confirmation email was sent — check inbox and spam."
-            if email_ok
+            f"Your interview slot is confirmed. A confirmation email was sent to {sent_to} — check inbox and spam."
+            if email_ok and sent_to
             else (
-                f"Your slot is confirmed but we could not send the confirmation email"
-                f"{f': {email_err}' if email_err else ''}. "
-                "Save this page or note your booked time."
+                "Your interview slot is confirmed. A confirmation email was sent — check inbox and spam."
+                if email_ok
+                else (
+                    f"Your slot is confirmed but we could not send the confirmation email"
+                    f"{f': {email_err}' if email_err else ''}. "
+                    "Save this page or note your booked time."
+                )
             )
         )
         return {
@@ -1292,6 +1297,7 @@ class InterviewBookingService:
             "candidate_name": recipient.name,
             "confirmation_email_sent": email_ok,
             "confirmation_email_error": email_err,
+            "confirmation_sent_to": sent_to or None,
             "confirmation_wa_sent": bool(notify.get("confirmation_wa_sent")),
             "message": message,
         }
@@ -1419,16 +1425,13 @@ class InterviewBookingService:
             **calendar_vars,
         }
 
-        outreach_email = _recipient_outreach_email(recipient)
+        outreach_email = _persist_recipient_outreach_email(db, recipient)
         email_sent = False
         email_error: str | None = None
         confirm_channel = "none"
         if outreach_email:
-            if outreach_email != str(recipient.email or "").strip().lower():
-                recipient.email = outreach_email
-                db.add(recipient)
-                db.commit()
-                db.refresh(recipient)
+            db.commit()
+            db.refresh(recipient)
             try:
                 sent_ok, err, confirm_channel = CareerEmailService.send_booking_confirm_email(
                     db,
@@ -1476,6 +1479,7 @@ class InterviewBookingService:
             if email_sent:
                 merged = _recipient_result(recipient)
                 merged["confirmation_email_sent_at"] = _now().isoformat()
+                merged["confirmation_sent_to"] = outreach_email
                 if confirm_channel == "plain_fallback":
                     merged["confirmation_plain_fallback"] = True
                     merged.pop("confirmation_email_template", None)
@@ -1505,6 +1509,7 @@ class InterviewBookingService:
             return {
                 "confirmation_email_sent": email_sent,
                 "confirmation_email_error": email_error,
+                "confirmation_sent_to": outreach_email,
                 "confirmation_wa_sent": wa_sent,
             }
         confirm_row = InterviewBookingService.resolve_confirmation_template(db, order)
@@ -1512,6 +1517,7 @@ class InterviewBookingService:
             return {
                 "confirmation_email_sent": email_sent,
                 "confirmation_email_error": email_error,
+                "confirmation_sent_to": outreach_email,
                 "confirmation_wa_sent": wa_sent,
             }
         components = InterviewBookingService.build_confirmation_components(
@@ -1556,6 +1562,7 @@ class InterviewBookingService:
         return {
             "confirmation_email_sent": email_sent,
             "confirmation_email_error": email_error,
+            "confirmation_sent_to": outreach_email,
             "confirmation_wa_sent": wa_sent,
         }
 

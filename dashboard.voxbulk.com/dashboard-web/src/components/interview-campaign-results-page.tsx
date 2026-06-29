@@ -166,6 +166,16 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const campaignId = String(orderMeta.campaign_id || rawOrder?.campaign_id || "—");
 
   const rowsForSort: CandidateRow[] = React.useMemo(() => {
+    const resultFields = (c: Record<string, unknown>) => ({
+      duration: String(c.duration_label || c.duration || "—"),
+      duration_label: String(c.duration_label || ""),
+      score: c.score != null ? Number(c.score) : null,
+      recommendation: String(c.recommendation || "—"),
+      sentiment: String(c.sentiment || "—"),
+      has_interview_report: Boolean(c.has_interview_report),
+      transcript_preview: (c.transcript_preview as string | null) ?? null,
+      recording_play_url: (c.recording_play_url as string | null) ?? null,
+    });
     if (isLive) {
       return apiCandidates.map((c) => {
         const booked_start_at = c.booked_start_at ? String(c.booked_start_at) : null;
@@ -189,6 +199,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           ats_score: c.ats_score != null ? Number(c.ats_score) : null,
           ats_status: String(c.ats_status || ""),
           ats_label: String(c.ats_label || ""),
+          ...resultFields(c),
         };
       });
     }
@@ -199,17 +210,10 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
       email: String(c.outreach_email || c.email || ""),
       outreach_email: c.outreach_email ? String(c.outreach_email) : undefined,
       invite_email_failed: c.invite_email_failed ? String(c.invite_email_failed) : undefined,
-      duration: String(c.duration_label || c.duration || "—"),
-      duration_label: String(c.duration_label || ""),
-      score: c.score != null ? Number(c.score) : null,
-      recommendation: String(c.recommendation || "—"),
-      sentiment: String(c.sentiment || "—"),
-      has_interview_report: Boolean(c.has_interview_report),
-      transcript_preview: (c.transcript_preview as string | null) ?? null,
-      recording_play_url: (c.recording_play_url as string | null) ?? null,
       ats_score: c.ats_score != null ? Number(c.ats_score) : null,
       ats_status: String(c.ats_status || ""),
       ats_label: String(c.ats_label || ""),
+      ...resultFields(c),
     }));
   }, [apiCandidates, isLive]);
 
@@ -300,6 +304,12 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
   const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
   const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
+  const candidateHasResults = (c: CandidateRow | null | undefined) =>
+    Boolean(
+      c?.has_interview_report ||
+        c?.recording_play_url ||
+        ["report_ready", "interview_completed"].includes(String(c?.activity_status || "").toLowerCase()),
+    );
   const resendBookingInviteForOpen = candidateAllowsResendBookingInvite({
     orderStatus: rawOrder?.status,
     activityStatus: candidateOpen?.activity_status,
@@ -572,24 +582,58 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                   </p>
                 )}
               </div>
-              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Email</p>
-                  <p className="mt-1 font-medium break-all">{candidateOpen.email || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Phone</p>
-                  <p className="mt-1 font-medium">{candidateOpen.phone || "—"}</p>
-                </div>
-              </div>
-              <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
-              <p className="text-xs text-muted-foreground">
-                {resendBookingInviteForOpen
-                  ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
-                  : candidateOpen?.has_interview_report || candidateOpen?.activity_status === "report_ready"
-                    ? "Click the candidate name for contact details. The AI interview is complete — resend invite is not available."
-                    : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
-              </p>
+              {candidateHasResults(candidateOpen) ? (
+                <>
+                  {candidateOpen.recording_play_url ? (
+                    <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
+                  ) : null}
+                  {candidateOpen.has_interview_report ? (
+                    <>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
+                        <FileText className="size-3.5" /> Open transcript
+                      </Button>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
+                        <FileText className="size-3.5" /> Full report
+                      </Button>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
+                        <Download className="size-3.5" /> Report PDF
+                      </Button>
+                      <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+                        <div className="flex items-start gap-2">
+                          <UserCheck className="mt-0.5 size-4 text-success" />
+                          <div>
+                            <p className="text-sm font-medium">AI recommendation</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Interview complete — transcript and AI report are processing.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground">Email</p>
+                      <p className="mt-1 font-medium break-all">{candidateOpen.email || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground">Phone</p>
+                      <p className="mt-1 font-medium">{candidateOpen.phone || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
+                  <p className="text-xs text-muted-foreground">
+                    {resendBookingInviteForOpen
+                      ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
+                      : candidateOpen?.has_interview_report || candidateOpen?.activity_status === "report_ready"
+                        ? "Click the candidate name for contact details. The AI interview is complete — resend invite is not available."
+                        : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
@@ -601,31 +645,39 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
               <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {candidateOpen.has_interview_report ? (
+              {candidateHasResults(candidateOpen) ? (
                 <>
-                  <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
-                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
-                    <FileText className="size-3.5" /> Open transcript
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
-                    <FileText className="size-3.5" /> Full report
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
-                    <Download className="size-3.5" /> Report PDF
-                  </Button>
-                  <div className="rounded-lg border border-success/30 bg-success/10 p-3">
-                    <div className="flex items-start gap-2">
-                      <UserCheck className="mt-0.5 size-4 text-success" />
-                      <div>
-                        <p className="text-sm font-medium">AI recommendation</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
+                  {candidateOpen.recording_play_url ? (
+                    <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
+                  ) : null}
+                  {candidateOpen.has_interview_report ? (
+                    <>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
+                        <FileText className="size-3.5" /> Open transcript
+                      </Button>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
+                        <FileText className="size-3.5" /> Full report
+                      </Button>
+                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
+                        <Download className="size-3.5" /> Report PDF
+                      </Button>
+                      <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+                        <div className="flex items-start gap-2">
+                          <UserCheck className="mt-0.5 size-4 text-success" />
+                          <div>
+                            <p className="text-sm font-medium">AI recommendation</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Interview complete — transcript and AI report are processing.</p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Interview not completed yet. Results and reports appear here after the AI phone call finishes.
+                  Interview not completed yet. Results and reports appear here after the AI interview finishes.
                 </p>
               )}
             </CardContent>
