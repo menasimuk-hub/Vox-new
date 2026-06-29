@@ -57,8 +57,9 @@ def main() -> int:
     args = parser.parse_args()
 
     from app.core.database import get_sessionmaker
-    from app.services.career_email_service import interview_email_delivery_status
+    from app.services.career_email_service import careers_from_address, interview_email_delivery_status
     from app.services.interview_booking_service import _recipient_outreach_email
+    from app.services.smtp_settings_service import SmtpSettingsService
 
     verdicts: list[str] = []
 
@@ -100,11 +101,23 @@ def main() -> int:
 
         print("\n=== SMTP / email delivery ===")
         email_status = interview_email_delivery_status(db)
+        smtp_row = SmtpSettingsService.get_row(db)
+        _, careers_from = careers_from_address(db)
         print(f"  can_send_email      {email_status.get('can_send_email')}")
         print(f"  interview_from      {email_status.get('interview_from_email')}")
+        print(f"  smtp_host           {smtp_row.host}")
+        print(f"  smtp_port           {smtp_row.port}")
+        print(f"  smtp_username       {smtp_row.username}")
+        print(f"  admin_smtp_from     {smtp_row.from_email}")
         missing = email_status.get("smtp_missing_fields") or []
         if missing:
             print(f"  smtp_missing_fields {', '.join(str(m) for m in missing)}")
+        admin_from = str(smtp_row.from_email or "").strip().lower()
+        if admin_from and careers_from and admin_from != careers_from:
+            print(
+                f"  NOTE: Interview mail uses From={careers_from} but Admin SMTP default From is {admin_from}. "
+                "Gmail may spam or drop mail if SPF/DKIM for voxbulk.com does not authorize this SMTP host."
+            )
 
         print("\n=== Recipients ===")
         from app.services.platform_catalog_service import ServiceOrderService
@@ -153,11 +166,20 @@ def main() -> int:
                 "(this fix) will send the invitation on its next tick."
             )
 
+        email_sent_n = int(dispatch.get("email_sent") or 0) if dispatch else 0
+
         print("\n=== Verdict ===")
         if verdicts:
             for v in verdicts:
                 print(f"  • {v}")
-        else:
+        if email_sent_n > 0 and order.payment_status == "approved":
+            print("  • WORKFLOW OK: API handed the invite to SMTP (email_sent=%d, invite_email_sent_at set)." % email_sent_n)
+            print("    If skipdaq@gmail.com (or the candidate inbox) is empty, this is DELIVERY — not a missing launch:")
+            print("      1. Gmail → Spam / Promotions / All Mail — search: from:careers@voxbulk.com")
+            print("      2. Admin → Email: SMTP host must be allowed to send AS careers@voxbulk.com (SPF + DKIM on voxbulk.com)")
+            print("      3. On VPS: grep career_email_sent voxbulk-api/logs/*.log | tail -5")
+            print("      4. Test same path: python3 scripts/send_interview_invite_email_test.py --to skipdaq@gmail.com")
+        elif not verdicts:
             print("  No blocking condition detected — invites appear to have been sent (check recipient flags above and spam folder).")
 
     return 0

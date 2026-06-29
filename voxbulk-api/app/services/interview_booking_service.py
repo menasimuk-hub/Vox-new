@@ -344,20 +344,11 @@ def resolve_booking_channel_options(
 ) -> dict[str, Any]:
     from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
-    # Respect the employer's configured interview format. A web ("ai_meeting")
-    # interview must be conducted in the browser meeting room — never as a phone
-    # call — so the candidate is not offered (and cannot accidentally pick) phone.
-    delivery = ""
-    if order is not None:
-        cfg = _order_config(order)
-        delivery = str(cfg.get("delivery") or cfg.get("delivery_mode") or "").strip().lower()
-    if delivery in {"ai_meeting", "meeting"}:
-        return {
-            "phone_available": False,
-            "meeting_available": True,
-            "default_channel": MEETING_CHANNEL,
-        }
-
+    # Candidate-choice booking: the allowlist always decides. If the candidate's
+    # mobile is eligible for AI calling they may pick phone OR online meeting;
+    # otherwise only the browser meeting room is offered. The order-level
+    # ``delivery`` no longer forces web-only — the per-slot ``channel`` the
+    # candidate selects is the source of truth.
     check = TelnyxPhoneAllowlistService.validate_phone_db(db, phone)
     phone_available = bool(check.get("allowed"))
     return {

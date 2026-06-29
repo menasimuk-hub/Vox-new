@@ -63,6 +63,20 @@ def _order_config(order: ServiceOrder) -> dict[str, Any]:
         return {}
 
 
+def _interview_order_processable(order: ServiceOrder) -> bool:
+    """Any booking-based interview order the dispatcher should process.
+
+    Candidate-choice booking means a single order can hold phone- and
+    meeting-channel recipients regardless of its (legacy) ``delivery``. We gate
+    on "interview order that requires booking" rather than ``ai_call`` so a
+    phone-choosing candidate on an older ``ai_meeting`` order still gets dialed;
+    meeting-channel recipients are skipped per-row during dialing.
+    """
+    if order.service_code != "interview":
+        return False
+    return _order_config(order).get("require_booking", True) is not False
+
+
 def _recipient_result(recipient: ServiceOrderRecipient) -> dict[str, Any]:
     try:
         data = json.loads(recipient.result_json or "{}")
@@ -409,7 +423,7 @@ class InterviewCallDispatchService:
             ).scalars()
         )
         for order in due:
-            if not is_ai_call_interview_order(order):
+            if not _interview_order_processable(order):
                 continue
             try:
                 if InterviewCallDispatchService.start_campaign(db, order):
@@ -427,7 +441,7 @@ class InterviewCallDispatchService:
             ).scalars()
         )
         for order in running:
-            if not is_ai_call_interview_order(order):
+            if not _interview_order_processable(order):
                 continue
             try:
                 InterviewCallDispatchService.tick_running_order(db, order)
@@ -440,7 +454,7 @@ class InterviewCallDispatchService:
     def start_campaign(db: Session, order: ServiceOrder) -> bool:
         if order.status not in {"scheduled", "paid"}:
             return False
-        if not is_ai_call_interview_order(order):
+        if not _interview_order_processable(order):
             return False
         if order.payment_status != "approved":
             return False

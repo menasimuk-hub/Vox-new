@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.agents.base import AgentMessage
-from app.services.interview_voice_agent_service import is_ai_call_interview_order
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_analysis_service import (
@@ -348,7 +347,7 @@ class InterviewAnalysisService:
         terminal_status: str,
         hangup_extra: dict[str, Any] | None = None,
     ) -> None:
-        if not is_ai_call_interview_order(order):
+        if order.service_code != "interview":
             return
         db.refresh(recipient)
         hangup_extra = dict(hangup_extra or {})
@@ -390,7 +389,7 @@ class InterviewAnalysisService:
             if processed >= limit:
                 break
             order = db.get(ServiceOrder, recipient.order_id)
-            if order is None or not is_ai_call_interview_order(order):
+            if order is None or order.service_code != "interview":
                 continue
             result = _recipient_result(recipient)
             if result.get("analysis_saved_at"):

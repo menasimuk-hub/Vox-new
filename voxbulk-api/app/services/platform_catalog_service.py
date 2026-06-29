@@ -1630,27 +1630,30 @@ class ServiceOrderService:
         if order.service_code == "interview":
             from app.services.interview_call_dispatch_service import (
                 InterviewCallDispatchService,
-                is_ai_call_interview_order,
             )
 
-            if is_ai_call_interview_order(order):
+            cfg = {}
+            try:
+                cfg = json.loads(order.config_json or "{}")
+            except Exception:
                 cfg = {}
-                try:
-                    cfg = json.loads(order.config_json or "{}")
-                except Exception:
-                    cfg = {}
-                if cfg.get("require_booking", True) is not False:
-                    from app.services.interview_launch_service import InterviewLaunchService
+            if cfg.get("require_booking", True) is not False:
+                # Booking-based interview (candidate chooses phone or web):
+                # launch_after_payment sends invitation emails and creates booking
+                # tokens for EVERY interview order, not just ai_call — this closes the
+                # gap where an ai_meeting order launched via /start became "running"
+                # with no invite email sent.
+                from app.services.interview_launch_service import InterviewLaunchService
 
-                    result = InterviewLaunchService.launch_after_payment(db, order)
-                    db.refresh(order)
-                    return order
-                if not InterviewCallDispatchService.start_campaign(db, order):
-                    raise ValueError(
-                        "Could not start AI interviews — check payment, approved script, voice agent, and calling window."
-                    )
+                InterviewLaunchService.launch_after_payment(db, order)
                 db.refresh(order)
                 return order
+            if not InterviewCallDispatchService.start_campaign(db, order):
+                raise ValueError(
+                    "Could not start AI interviews — check payment, approved script, voice agent, and calling window."
+                )
+            db.refresh(order)
+            return order
         order.status = "running"
         order.started_at = now
         order.updated_at = now
