@@ -21,11 +21,22 @@ type MeetingStartResponse = {
 
 type CallPhase = "idle" | "connecting" | "live" | "ended" | "error";
 
+type TelnyxCall = {
+  state?: string;
+  id?: string;
+  remoteStream?: MediaStream | null;
+  hangup?: () => void;
+  muteAudio?: () => void;
+  unmuteAudio?: () => void;
+};
+
 type TelnyxNotification = {
   type?: string;
-  call?: { state?: string; id?: string };
+  call?: TelnyxCall;
   errorMessage?: string;
 };
+
+const REMOTE_AUDIO_ID = "voxbulk-remote-audio";
 
 async function loadTelnyxRtc() {
   const mod = await import("@telnyx/webrtc");
@@ -83,6 +94,20 @@ function InterviewMeetingRoomPage() {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [phase, canJoin]);
+
+  const attachRemoteAudio = React.useCallback((call: TelnyxCall | null | undefined) => {
+    const el = remoteAudioRef.current;
+    const stream = call?.remoteStream ?? null;
+    if (!el || !stream) return;
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+    el.muted = false;
+    el.volume = 1;
+    void el.play().catch(() => {
+      /* autoplay may defer until the next gesture; element is unmuted so it resumes */
+    });
+  }, []);
 
   const cleanupRtc = React.useCallback(() => {
     try {
@@ -206,7 +231,12 @@ function InterviewMeetingRoomPage() {
           return;
         }
         if (notification?.type !== "callUpdate" || !notification.call) return;
-        const state = notification.call.state;
+        const call = notification.call;
+        const state = call.state;
+        if (state === "active" || state === "ringing" || state === "answering") {
+          telnyxCallRef.current = call as typeof telnyxCallRef.current;
+          attachRemoteAudio(call);
+        }
         if (state === "hangup" || state === "destroy" || state === "destroyed") {
           void endMeeting();
         }
@@ -219,11 +249,13 @@ function InterviewMeetingRoomPage() {
       const call = client.newCall({
         destinationNumber: "",
         audio: true,
-        remoteElement: remoteAudioRef.current || undefined,
+        video: false,
+        remoteElement: REMOTE_AUDIO_ID,
         preferred_codecs: opus ? [opus] : undefined,
         customHeaders: start.custom_headers || {},
-      });
-      telnyxCallRef.current = call;
+      }) as TelnyxCall;
+      telnyxCallRef.current = call as typeof telnyxCallRef.current;
+      attachRemoteAudio(call);
       startedAtRef.current = Date.now();
       setPhase("live");
       setElapsed(0);
@@ -257,7 +289,7 @@ function InterviewMeetingRoomPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-[#eef2f6]">
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      <audio id={REMOTE_AUDIO_ID} ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-6 sm:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">
