@@ -112,6 +112,22 @@
 .fb-step-count {
   font-size: 11px;
   color: #6b6458;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fb-saving {
+  font-size: 10px;
+  color: #1a7a45;
+  font-weight: 600;
+  opacity: 0.85;
+  animation: fb-saving-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fb-saving-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.95; }
 }
 
 .fb-company-logo {

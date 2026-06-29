@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquareText, Mic, Square, RotateCcw, ArrowRight, ChevronLeft, Play, Pause, Send } from "lucide-react";
+import { MessageSquareText, Mic, Square, ArrowRight, ChevronLeft, Play, Pause } from "lucide-react";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import "./survey.css";
 
@@ -78,6 +78,9 @@ function PublicFeedbackSurvey() {
   const [reasonChips, setReasonChips] = useState<string[]>([]);
   const [reasonText, setReasonText] = useState("");
   const [voiceRecState, setVoiceRecState] = useState<VoiceRecState>("idle");
+  // Background, strictly-ordered send queue so the visitor never waits on uploads.
+  const [pendingSends, setPendingSends] = useState(0);
+  const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     let cancelled = false;
@@ -99,27 +102,43 @@ function PublicFeedbackSurvey() {
   }, [token]);
 
   const inReasonOverlay = reasonOverlay !== null;
+  const questions = payload?.questions ?? [];
   const progress = useMemo(() => {
     if (!stepCount) return 0;
     return ((stepIndex + 1) / stepCount) * 100;
   }, [stepIndex, stepCount]);
 
-  const applyAdvance = (data: AdvanceResponse, opts?: { showReasonAfter?: ReasonOverlay | null }) => {
-    if (data.completed) {
-      setPhase("thanks");
-      return;
-    }
-    setStepIndex(Number(data.step_index ?? stepIndex + 1));
-    setStepCount(Number(data.step_count ?? stepCount));
-    setQuestion(data.question || null);
+  // Append a task to the strict-order background queue. The UI never awaits it, so
+  // answers and voice notes upload (and transcribe) while the visitor keeps moving.
+  const enqueue = (task: () => Promise<unknown>) => {
+    setPendingSends((n) => n + 1);
+    const next = sendQueueRef.current
+      .catch(() => undefined)
+      .then(() => task())
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Some answers could not be saved");
+      })
+      .finally(() => setPendingSends((n) => Math.max(0, n - 1)));
+    sendQueueRef.current = next;
+    return next;
+  };
+
+  const drainQueue = () => sendQueueRef.current.catch(() => undefined);
+
+  // Move the local view to a step (or finish). Navigation is client-driven from the
+  // full question list, so the visitor never waits on a network round-trip.
+  const goToStep = (idx: number, opts?: { reasonAfter?: ReasonOverlay | null }) => {
     setTextAnswer("");
     setReasonChips([]);
     setReasonText("");
-    if (opts?.showReasonAfter) {
-      setReasonOverlay(opts.showReasonAfter);
-    } else {
+    if (idx >= stepCount) {
       setReasonOverlay(null);
+      setPhase("thanks");
+      return;
     }
+    setStepIndex(idx);
+    setQuestion(questions[idx] || null);
+    setReasonOverlay(opts?.reasonAfter ?? null);
   };
 
   const startWeb = async () => {
@@ -142,89 +161,59 @@ function PublicFeedbackSurvey() {
     }
   };
 
-  const submitAnswer = async (
-    answer: string,
-    opts?: { reason?: string; reasonSource?: string; showReasonAfter?: ReasonOverlay },
-  ) => {
-    if (!sessionId) return;
-    setBusy(true);
-    setError("");
-    try {
-      const data = await apiFetch<{ ok?: boolean } & AdvanceResponse>(
-        `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/answer`,
-        {
-          method: "POST",
-          body: JSON.stringify({ answer, reason: opts?.reason, reason_source: opts?.reasonSource || "text" }),
-        },
-      );
-      applyAdvance(data, { showReasonAfter: opts?.showReasonAfter });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save answer");
-    } finally {
-      setBusy(false);
-    }
+  const postAnswer = (answer: string, opts?: { reason?: string; reasonSource?: string }) =>
+    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/answer`, {
+      method: "POST",
+      body: JSON.stringify({ answer, reason: opts?.reason, reason_source: opts?.reasonSource || "text" }),
+    });
+
+  const postVoice = (blob: Blob, mode: string, answer?: string) => {
+    const form = new FormData();
+    form.append("file", blob, "voice.webm");
+    form.append("mode", mode);
+    if (answer != null) form.append("answer", answer);
+    return apiUpload(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`, form);
   };
 
-  const uploadVoice = async (
-    blob: Blob,
-    mode: "answer" | "reason" | "reason_prev" | "transcribe",
-    answer?: string,
-  ) => {
+  const postReason = (reason: string, reasonSource = "text") =>
+    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/reason`, {
+      method: "POST",
+      body: JSON.stringify({ reason, reason_source: reasonSource }),
+    });
+
+  // Answer the current step (choice / typed text / skip) and advance instantly.
+  const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
     if (!sessionId) return;
-    setBusy(true);
     setError("");
-    try {
-      const form = new FormData();
-      form.append("file", blob, "voice.webm");
-      form.append("mode", mode);
-      if (answer != null) form.append("answer", answer);
-      const data = await apiUpload<{ ok?: boolean; transcript?: string } & AdvanceResponse>(
-        `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`,
-        form,
-      );
-      // Voice is sent as a voice note — the server transcribes it. Recording must
-      // never populate the text box, so advance the flow whenever a voice answer
-      // (a normal answer, or a low-rating reason carried by `answer`) was submitted.
-      if (mode === "answer" || answer != null) {
-        applyAdvance(data);
-      } else if (mode === "reason_prev") {
-        setReasonOverlay(null);
-        setReasonChips([]);
-        setReasonText("");
-      }
-      return data;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save voice note");
-      throw e;
-    } finally {
-      setBusy(false);
-    }
+    enqueue(() => postAnswer(answer));
+    goToStep(stepIndex + 1, { reasonAfter: opts?.showReasonAfter ?? null });
   };
 
-  const submitReason = async (reason: string, reasonSource = "text") => {
+  // Submit a recorded voice note as the current step's answer and advance instantly.
+  const voiceAnswerStep = (blob: Blob) => {
     if (!sessionId) return;
+    setError("");
+    enqueue(() => postVoice(blob, "answer"));
+    goToStep(stepIndex + 1);
+  };
+
+  // Low-rating reason (chips/text) for the step we just answered — sent in background.
+  const submitReason = (reason: string, reasonSource = "text") => {
     const clean = reason.trim();
-    if (!clean || clean.toLowerCase() === "skip") {
-      setReasonOverlay(null);
-      setReasonChips([]);
-      setReasonText("");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/reason`, {
-        method: "POST",
-        body: JSON.stringify({ reason: clean, reason_source: reasonSource }),
-      });
-      setReasonOverlay(null);
-      setReasonChips([]);
-      setReasonText("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save reason");
-    } finally {
-      setBusy(false);
-    }
+    setReasonOverlay(null);
+    setReasonChips([]);
+    setReasonText("");
+    if (!sessionId || !clean || clean.toLowerCase() === "skip") return;
+    enqueue(() => postReason(clean, reasonSource));
+  };
+
+  // Low-rating reason recorded as a voice note — sent in background, overlay closes.
+  const voiceReason = (blob: Blob) => {
+    setReasonOverlay(null);
+    setReasonChips([]);
+    setReasonText("");
+    if (!sessionId) return;
+    enqueue(() => postVoice(blob, "reason_prev"));
   };
 
   const dismissReasonOverlay = () => {
@@ -242,11 +231,12 @@ function PublicFeedbackSurvey() {
     setBusy(true);
     setError("");
     try {
-      const data = await apiFetch<{ ok?: boolean } & AdvanceResponse>(
-        `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`,
-        { method: "POST" },
-      );
-      applyAdvance(data);
+      // Let queued sends finish so the server's step pointer matches before we step back.
+      await drainQueue();
+      await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`, {
+        method: "POST",
+      });
+      goToStep(stepIndex - 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not go back");
     } finally {
@@ -336,6 +326,7 @@ function PublicFeedbackSurvey() {
 
   const q = question;
   const isText = q?.input === "text";
+  const isLast = stepIndex >= stepCount - 1;
   const voicePending = voiceRecState === "recording" || voiceRecState === "recorded" || voiceRecState === "uploading";
 
   return (
@@ -358,7 +349,10 @@ function PublicFeedbackSurvey() {
             ) : null}
             <span>{payload.company_name}</span>
           </span>
-          <span className="fb-step-count">{stepIndex + 1} / {stepCount}</span>
+          <span className="fb-step-count">
+            {pendingSends > 0 ? <span className="fb-saving" title="Saving in the background">Saving…</span> : null}
+            {stepIndex + 1} / {stepCount}
+          </span>
         </div>
         <div className="fb-progress">
           <div className="fb-progress-bar" style={{ width: `${progress}%` }} />
@@ -375,8 +369,9 @@ function PublicFeedbackSurvey() {
               onText={setTextAnswer}
               allowVoice={Boolean(q?.allow_voice)}
               busy={busy}
-              onUploadVoice={(blob) => uploadVoice(blob, "answer")}
+              onSubmitVoice={voiceAnswerStep}
               onRecStateChange={setVoiceRecState}
+              voicePrimaryLabel={isLast ? "Submit" : "Next"}
             />
           ) : (
             <div className="fb-options">
@@ -387,17 +382,17 @@ function PublicFeedbackSurvey() {
                     key={opt.value}
                     type="button"
                     className="fb-option"
-                    disabled={busy || inReasonOverlay}
+                    disabled={inReasonOverlay}
                     onClick={() => {
                       if (isLow) {
-                        void submitAnswer(opt.value, {
+                        answerStep(opt.value, {
                           showReasonAfter: {
                             reason_options: q?.reason_options,
                             reason_prompt: q?.reason_prompt,
                           },
                         });
                       } else {
-                        submitAnswer(opt.value);
+                        answerStep(opt.value);
                       }
                     }}
                   >
@@ -411,16 +406,16 @@ function PublicFeedbackSurvey() {
 
         {isText && !voicePending ? (
           <div className="fb-footer">
-            <button type="button" className="fb-btn ghost" disabled={busy} onClick={() => submitAnswer("skip")}>
+            <button type="button" className="fb-btn ghost" onClick={() => answerStep("skip")}>
               Skip
             </button>
             <button
               type="button"
               className="fb-btn primary"
-              disabled={busy || !textAnswer.trim()}
-              onClick={() => submitAnswer(textAnswer.trim())}
+              disabled={!textAnswer.trim()}
+              onClick={() => answerStep(textAnswer.trim())}
             >
-              {busy ? "Saving…" : "Next"}
+              {isLast ? "Submit" : "Next"}
               <ArrowRight className="fb-btn-icon" />
             </button>
           </div>
@@ -437,11 +432,11 @@ function PublicFeedbackSurvey() {
               text={reasonText}
               onText={setReasonText}
               busy={busy}
-              onUploadVoice={(blob) => uploadVoice(blob, "reason_prev")}
+              onSubmitVoice={voiceReason}
               onSkip={dismissReasonOverlay}
               onSubmit={() => {
                 const reason = [reasonChips.join(", "), reasonText.trim()].filter(Boolean).join(" — ");
-                void submitReason(reason);
+                submitReason(reason);
               }}
             />
           </div>
@@ -460,7 +455,7 @@ function ReasonScreen({
   text,
   onText,
   busy,
-  onUploadVoice,
+  onSubmitVoice,
   onSkip,
   onSubmit,
 }: {
@@ -470,11 +465,10 @@ function ReasonScreen({
   text: string;
   onText: (v: string) => void;
   busy: boolean;
-  onUploadVoice: (blob: Blob) => Promise<unknown>;
+  onSubmitVoice: (blob: Blob) => void;
   onSkip: () => void;
   onSubmit: () => void;
 }) {
-  const [voiceSaved, setVoiceSaved] = useState(false);
   const [voiceRecState, setVoiceRecState] = useState<VoiceRecState>("idle");
   const voicePending = voiceRecState === "recording" || voiceRecState === "recorded" || voiceRecState === "uploading";
   const canSubmitText = Boolean(chips.length || text.trim());
@@ -511,18 +505,10 @@ function ReasonScreen({
 
       <VoiceRecorder
         busy={busy}
-        onRecorded={async (blob) => {
-          try {
-            const res = await onUploadVoice(blob);
-            if (res) setVoiceSaved(true);
-          } catch {
-            setVoiceSaved(false);
-          }
-        }}
+        onSubmit={onSubmitVoice}
         onRecStateChange={setVoiceRecState}
-        submitLabel="Submit"
+        primaryLabel="Submit"
       />
-      {voiceSaved ? <p className="fb-voice-saved">Voice note saved ✓</p> : null}
 
       {!voicePending ? (
         <div className="fb-footer">
@@ -530,7 +516,7 @@ function ReasonScreen({
             Skip
           </button>
           <button type="button" className="fb-btn primary" disabled={busy || !canSubmitText} onClick={onSubmit}>
-            {busy ? "Saving…" : "Submit"}
+            Submit
             <ArrowRight className="fb-btn-icon" />
           </button>
         </div>
@@ -544,15 +530,17 @@ function TextStep({
   onText,
   allowVoice,
   busy,
-  onUploadVoice,
+  onSubmitVoice,
   onRecStateChange,
+  voicePrimaryLabel = "Next",
 }: {
   text: string;
   onText: (v: string) => void;
   allowVoice: boolean;
   busy: boolean;
-  onUploadVoice: (blob: Blob) => Promise<unknown>;
+  onSubmitVoice: (blob: Blob) => void;
   onRecStateChange?: (state: VoiceRecState) => void;
+  voicePrimaryLabel?: string;
 }) {
   return (
     <div className="fb-rise">
@@ -568,9 +556,9 @@ function TextStep({
           <div className="fb-or">or record a voice note instead</div>
           <VoiceRecorder
             busy={busy}
-            onRecorded={onUploadVoice}
+            onSubmit={onSubmitVoice}
             onRecStateChange={onRecStateChange}
-            submitLabel="Submit"
+            primaryLabel={voicePrimaryLabel}
           />
         </>
       ) : null}
@@ -624,14 +612,14 @@ function Waveform() {
 
 function VoiceRecorder({
   busy,
-  onRecorded,
+  onSubmit,
   onRecStateChange,
-  submitLabel = "Submit",
+  primaryLabel = "Next",
 }: {
   busy: boolean;
-  onRecorded: (blob: Blob) => Promise<unknown>;
+  onSubmit: (blob: Blob) => void;
   onRecStateChange?: (state: RecState) => void;
-  submitLabel?: string;
+  primaryLabel?: string;
 }) {
   const [recState, setRecState] = useState<RecState>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -787,20 +775,14 @@ function VoiceRecorder({
     }
   };
 
-  const sendRecording = async () => {
+  // Hand the recording to the parent (which uploads it in the background) and let the
+  // parent advance the flow — the visitor does not wait for the upload/transcription.
+  const submitRecording = () => {
     const blob = blobRef.current;
     if (!blob || busy) return;
     setRecError("");
-    setState("uploading");
     revokeAudioUrl();
-    try {
-      await onRecorded(blob);
-      setState("sent");
-    } catch (err) {
-      setState("idle");
-      setElapsed(0);
-      setRecError(err instanceof Error ? err.message : "Could not send voice note");
-    }
+    onSubmit(blob);
   };
 
   const handleMicDown = (e: React.MouseEvent | React.TouchEvent) => {
@@ -838,17 +820,6 @@ function VoiceRecorder({
     return <p className="fb-voice-hint">Voice notes aren't supported on this browser — please type instead.</p>;
   }
 
-  if (recState === "sent") {
-    return (
-      <div className="fb-rec-done">
-        <span className="fb-rec-check">Voice note sent ✓</span>
-        <button type="button" className="fb-rec-reset" onClick={reset} disabled={busy}>
-          <RotateCcw className="fb-btn-icon" /> Re-record
-        </button>
-      </div>
-    );
-  }
-
   if (recState === "recorded") {
     return (
       <div className="fb-rec-preview">
@@ -868,24 +839,15 @@ function VoiceRecorder({
         <button
           type="button"
           className="fb-btn primary fb-rec-submit-only"
-          onClick={() => void sendRecording()}
+          onClick={submitRecording}
           disabled={busy}
         >
-          <Send className="fb-btn-icon" />
-          {busy ? "Saving…" : submitLabel}
+          {primaryLabel}
+          <ArrowRight className="fb-btn-icon" />
         </button>
         <button type="button" className="fb-rec-redo-link" onClick={reset} disabled={busy}>
           Re-record
         </button>
-        {recError ? <p className="fb-rec-error">{recError}</p> : null}
-      </div>
-    );
-  }
-
-  if (recState === "uploading") {
-    return (
-      <div className="fb-rec">
-        <span className="fb-rec-label">Sending…</span>
         {recError ? <p className="fb-rec-error">{recError}</p> : null}
       </div>
     );
