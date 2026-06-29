@@ -5,8 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -99,13 +99,32 @@
 
 .dark { --background: var(--navy); --foreground: var(--beige); }
 
+/* Metric-matched fallback fonts: keep the fallback the same size as the web
+   font so swapping in Inter / Instrument Serif causes ~no layout shift (CLS). */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Helvetica'), local('Liberation Sans');
+  ascent-override: 90.20%;
+  descent-override: 22.48%;
+  line-gap-override: 0.00%;
+  size-adjust: 107.40%;
+}
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Georgia'), local('Times New Roman'), local('Liberation Serif');
+  ascent-override: 91.00%;
+  descent-override: 23.00%;
+  line-gap-override: 0.00%;
+  size-adjust: 101.00%;
+}
+
 @layer base {
   * { border-color: var(--color-border); }
   html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
   body {
     background-color: var(--color-background);
     color: var(--color-body);
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Inter', 'Inter Fallback', system-ui, sans-serif;
     font-size: 17px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
@@ -212,7 +231,7 @@
 .spin-slow { animation: spin-slow 24s linear infinite; }
 
 /* Serif accent */
-.serif-italic { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; letter-spacing: -0.01em; }
+.serif-italic { font-family: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif; font-style: italic; font-weight: 400; letter-spacing: -0.01em; }
 
 /* Range slider */
 input[type="range"].premium-slider {
