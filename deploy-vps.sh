@@ -91,6 +91,7 @@ git_pull() {
   fi
   _clear_untracked_pull_conflicts
   VOX_GIT_BRANCH="$GIT_BRANCH" vox_git_sync "$ROOT" || fail "git sync failed — try: VOX_HARD_RESET=1 VOX_GIT_BRANCH=$GIT_BRANCH ./deploy-vps.sh"
+  chmod +x "$ROOT/scripts/run-celery-worker.sh" "$ROOT/scripts/run-celery-beat.sh" 2>/dev/null || true
 }
 
 api_deps_and_migrate() {

@@ -1,4 +1,4 @@
-import { Bot, Mic } from "lucide-react";
+import { Mic } from "lucide-react";
 
 const SPEAK_THRESHOLD = 0.06;
 
@@ -50,7 +50,11 @@ function ParticipantAvatar({ label, sublabel, initials, level, variant, present,
             isAi ? "bg-violet-500/20 text-violet-200" : "bg-emerald-500/15 text-emerald-200"
           }`}
         >
-          {isAi ? <Bot className="size-8" /> : <span>{initials || "?"}</span>}
+          {isAi ? (
+            <img src="/brand/icon-white.svg" alt="VoxBulk" className="size-9 object-contain" />
+          ) : (
+            <span>{initials || "?"}</span>
+          )}
         </div>
         {!isAi && micOn ? (
           <span className="absolute -bottom-0.5 -right-0.5 flex size-6 items-center justify-center rounded-full bg-emerald-600 text-white ring-2 ring-[#0a0e17]">
