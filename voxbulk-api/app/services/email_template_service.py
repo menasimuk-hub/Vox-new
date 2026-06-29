@@ -172,12 +172,6 @@ class EmailTemplateService:
                 and "{{calendar_links_html}}" in default_body
                 and "{{calendar_links_html}}" not in body
             )
-            needs_meeting_link_refresh = (
-                key in {"interview_booking_confirm", "interview_booking_reminder"}
-                and default_body
-                and "{{meeting_link_html}}" in default_body
-                and "{{meeting_link_html}}" not in body
-            )
             needs_cancel_refresh = (
                 key in {"interview_booking_cancel", "interview_campaign_cancelled"}
                 and default_body
@@ -218,7 +212,6 @@ class EmailTemplateService:
                 "data:image" in body
                 or ("data:" in body and "base64" in body)
                 or needs_calendar_refresh
-                or needs_meeting_link_refresh
                 or needs_cancel_refresh
             ):
                 row.body = default_body
