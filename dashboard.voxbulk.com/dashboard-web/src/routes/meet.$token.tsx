@@ -21,6 +21,12 @@ type MeetingStartResponse = {
 
 type CallPhase = "idle" | "connecting" | "live" | "ended" | "error";
 
+type TelnyxNotification = {
+  type?: string;
+  call?: { state?: string; id?: string };
+  errorMessage?: string;
+};
+
 async function loadTelnyxRtc() {
   const mod = await import("@telnyx/webrtc");
   return mod.TelnyxRTC;
@@ -29,8 +35,9 @@ async function loadTelnyxRtc() {
 function InterviewMeetingRoomPage() {
   const { token } = Route.useParams();
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
-  const telnyxRef = React.useRef<{ disconnect?: () => void } | null>(null);
+  const telnyxRef = React.useRef<{ disconnect?: () => void; off?: (event: string, handler: (...args: unknown[]) => void) => void } | null>(null);
   const telnyxCallRef = React.useRef<{ hangup?: () => void; id?: string } | null>(null);
+  const telnyxNotificationRef = React.useRef<((notification: TelnyxNotification) => void) | null>(null);
   const startedAtRef = React.useRef<number | null>(null);
 
   const [phase, setPhase] = React.useState<CallPhase>("idle");
@@ -79,6 +86,12 @@ function InterviewMeetingRoomPage() {
 
   const cleanupRtc = React.useCallback(() => {
     try {
+      const client = telnyxRef.current;
+      const handler = telnyxNotificationRef.current;
+      if (client && handler) {
+        client.off?.("telnyx.notification", handler as (...args: unknown[]) => void);
+      }
+      telnyxNotificationRef.current = null;
       telnyxCallRef.current?.hangup?.();
       telnyxRef.current?.disconnect?.();
     } catch {
@@ -170,14 +183,41 @@ function InterviewMeetingRoomPage() {
         customHeaders: start.custom_headers || {},
       });
       telnyxCallRef.current = call;
-      startedAtRef.current = Date.now();
-      setPhase("live");
-      setElapsed(0);
 
-      call.on("callUpdate", (state: { call?: { state?: string } }) => {
-        if (state?.call?.state === "hangup" || state?.call?.state === "destroy") {
-          void endMeeting();
-        }
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          reject(new Error("Connection timed out — check your microphone permission and try again"));
+        }, 45_000);
+
+        const onNotification = (notification: TelnyxNotification) => {
+          if (notification?.type === "userMediaError") {
+            window.clearTimeout(timeout);
+            reject(
+              new Error(
+                notification.errorMessage ||
+                  "Microphone access is required — allow the browser to use your mic and try again",
+              ),
+            );
+            return;
+          }
+          if (notification?.type !== "callUpdate" || !notification.call) return;
+          const state = notification.call.state;
+          if (state === "active") {
+            window.clearTimeout(timeout);
+            startedAtRef.current = Date.now();
+            setPhase("live");
+            setElapsed(0);
+            resolve();
+            return;
+          }
+          if (state === "hangup" || state === "destroy") {
+            window.clearTimeout(timeout);
+            void endMeeting();
+          }
+        };
+
+        telnyxNotificationRef.current = onNotification;
+        client.on("telnyx.notification", onNotification);
       });
     } catch (e) {
       cleanupRtc();
