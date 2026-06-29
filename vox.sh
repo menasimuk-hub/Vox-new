@@ -11,8 +11,7 @@ PUBLIC_LOG="/tmp/voxbulk-public.log"
 DASH_LOG="/tmp/voxbulk-dashboard.log"
 
 stop_api() {
-  pkill -f "uvicorn main:app --host 127.0.0.1 --port 8000" 2>/dev/null || true
-  pkill -f "uvicorn main:app" 2>/dev/null || true
+  pkill -f "uvicorn.*main:app" 2>/dev/null || true
 }
 
 stop_public() {
@@ -159,6 +158,10 @@ start_public() {
 }
 
 start_dashboard() {
+  if [[ "${VOX_SKIP_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
+    echo "Skipping dashboard preview (VOX_SKIP_DASHBOARD_PREVIEW=1 — nginx serves static wwwroot)"
+    return
+  fi
   cd "$DASH_DIR"
   if [[ "${VOX_SKIP_DASHBOARD_BUILD:-0}" != "1" ]]; then
     echo "Building dashboard (npm run build) …"
@@ -205,7 +208,10 @@ status() {
 
   echo ""
   echo "=== Dashboard (5175) ==="
-  if wait_for_http "http://127.0.0.1:5175/" "" "$wait_attempts"; then
+  if [[ "${VOX_SKIP_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
+    echo "Skipped (VOX_SKIP_DASHBOARD_PREVIEW=1 — static wwwroot via nginx)"
+    dashboard_ok=1
+  elif wait_for_http "http://127.0.0.1:5175/" "" "$wait_attempts"; then
     curl -sf -I http://127.0.0.1:5175/ | head -1
     dashboard_ok=1
   else
@@ -216,12 +222,12 @@ status() {
   echo ""
   echo "=== Static admin (nginx wwwroot — not managed by vox.sh) ==="
   echo "  admin:      /www/wwwroot/admin.voxbulk.com"
-  echo "  dashboard:  nginx must proxy to 127.0.0.1:5175 (TanStack Start — not static wwwroot)"
+  echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com (static) or 127.0.0.1:5175 preview in dev"
   echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync admin + restart)"
 
   echo ""
   echo "=== Processes ==="
-  pgrep -af "uvicorn main:app" || echo "no uvicorn"
+  pgrep -af "uvicorn.*main:app" || echo "no uvicorn"
   pgrep -af "vite preview" || echo "no vite preview"
   status_celery || true
 
