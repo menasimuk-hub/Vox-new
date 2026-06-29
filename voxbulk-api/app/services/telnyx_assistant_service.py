@@ -170,28 +170,32 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
     }
 
 
-# Telnyx STT model + locale used for non-English calls. Telnyx recommends the
-# native `azure/fast` engine for the highest-quality Arabic transcription; the
-# default `deepgram/flux` model does NOT support Arabic at all, so the candidate's
-# speech would otherwise be mis-transcribed as English.
+# Telnyx STT for Arabic calls. We use `azure/fast`, which Telnyx now provides KEYLESS
+# (no customer Azure API key required) and which Telnyx documents as the highest-quality
+# Arabic transcription on their platform. `deepgram/flux` is English-only (it cannot
+# transcribe Arabic at all), so an Arabic agent on flux SPEAKS Arabic but hears the
+# candidate as English and never understands them. Azure needs a region-specific BCP-47
+# locale (e.g. `ar-EG`, `ar-SA`) — a bare `ar` is not accepted. We default to Egyptian
+# Arabic, which Azure recognises across most Levantine/Gulf speakers too.
 _ARABIC_STT_MODEL = "azure/fast"
-_ARABIC_STT_LOCALE = "ar-SA"
+_ARABIC_STT_LOCALE = "ar-EG"
 
 
 def _transcription_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
     """Build a Telnyx ``transcription`` body for the call language, or None if no change.
 
-    Only Arabic is handled explicitly; English/unknown languages leave the assistant's
-    existing transcription untouched (the default English/auto config already works).
+    For Arabic we switch STT to keyless `azure/fast` with an Arabic locale so the
+    assistant actually understands the candidate (flux is English-only). We send only
+    ``model`` + ``language`` — flux-specific end-of-turn ``settings`` must NOT be sent to
+    Azure (they are Deepgram-only and cause Telnyx to reject the update).
     """
     lang = str(language or "").strip().lower()
     if not lang or not lang.startswith("ar"):
         return None
     current = existing.get("transcription") if isinstance(existing.get("transcription"), dict) else {}
-    if (
-        str(current.get("model") or "").strip().lower() == _ARABIC_STT_MODEL
-        and str(current.get("language") or "").strip().lower() == _ARABIC_STT_LOCALE.lower()
-    ):
+    current_model = str(current.get("model") or "").strip().lower()
+    current_lang = str(current.get("language") or "").strip().lower()
+    if current_model == _ARABIC_STT_MODEL and current_lang == _ARABIC_STT_LOCALE.lower():
         return None
     return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE}
 
@@ -287,15 +291,30 @@ def sync_telnyx_assistant_instructions(
         pushed_greeting = str(greeting or "").strip()
         if pushed_greeting:
             body["greeting"] = pushed_greeting
+    # Apply language-specific STT/voice as a SEPARATE best-effort update AFTER the main
+    # one. A bad transcription value (e.g. a model Telnyx rejects with 400) must never
+    # block the instructions+greeting update — otherwise the assistant connects but never
+    # speaks. We swallow errors here so the greeting/instructions always get saved.
     if language:
         try:
             existing = fetch_telnyx_assistant(db, clean_id)
+            lang_body: dict[str, Any] = {}
             transcription = _transcription_for_language(existing, language)
             if transcription:
-                body["transcription"] = transcription
+                lang_body["transcription"] = transcription
             voice_settings = _voice_settings_for_language(existing, language)
             if voice_settings:
-                body["voice_settings"] = voice_settings
+                lang_body["voice_settings"] = voice_settings
+            if lang_body:
+                try:
+                    _update_telnyx_assistant(db, clean_id, lang_body)
+                except Exception as exc:
+                    logger.warning(
+                        "telnyx_lang_settings_update_failed assistant_id=%s body=%s error=%s",
+                        clean_id,
+                        list(lang_body.keys()),
+                        exc,
+                    )
         except Exception as exc:
             logger.warning("telnyx_transcription_lang_skip assistant_id=%s error=%s", clean_id, exc)
     updated = _update_telnyx_assistant(db, clean_id, body)

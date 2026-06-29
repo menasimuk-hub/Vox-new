@@ -55,6 +55,25 @@ ARABIC_RECORD_AVAILABILITY = (
     "يُسجَّل هذا الاتصال لأغراض الجودة والتقييم. هل تسمعني بوضوح، وهل الوقت مناسب الآن للمتابعة؟"
 )
 
+# Arabic runtime layers used when an Arabic agent (e.g. Jammal) is selected but the
+# stored system prompt / call workflow are still copied from an English template.
+ARABIC_BASE_ROLE = (
+    "تحدث بالعربية الفصحى فقط. كن محترفًا وودودًا. توقف بعد كل سؤال. "
+    "استخدم متابعات قصيرة عند الحاجة فقط. احترم المقاطعات وكرر الخطوة الحالية بوضوح."
+)
+ARABIC_INTERVIEW_SERVICE_ROLE = (
+    "أجرِ مقابلات فرز هاتفية منظمة للوظائف.\n"
+    "الأسئلة 1–2: ارجع إلى سيرة المرشّح (خبرة، إنجاز، أو فجوة).\n"
+    "الأسئلة 3+: من دور الوظيفة ومعايير الفرز المقدمة لهذه الحملة.\n"
+    "قيّم الإجابات ذهنيًا من حيث الوضوح والملاءمة والأدلة. لا تقل أبدًا «استبيان»."
+)
+ARABIC_INTERVIEW_CALL_WORKFLOW = (
+    "بعد التحية: أكد اسم المرشّح والوظيفة → اسأل إن كان لديه 10–15 دقيقة الآن.\n"
+    "إن نعم: تابع بأسئلة السيرة الذاتية ثم أسئلة الوظيفة بالترتيب.\n"
+    "إن لا: اقترح معاودة الاتصال خلال ساعات العمل وانهِ المكالمة بلباقة.\n"
+    "اختتم بالشكر والخطوات التالية من فريق التوظيف."
+)
+
 _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
 
 
@@ -79,6 +98,60 @@ def detect_config_language(config: dict[str, Any]) -> str:
     speech-to-text language so the assistant understands and replies in Arabic.
     """
     return "ar" if _contains_arabic(_config_script_text(config)) else "en"
+
+
+def agent_is_arabic(agent: AgentDefinition | None) -> bool:
+    """True when the selected agent is an Arabic agent (e.g. "Jammal - Ar").
+
+    Detected from the agent's Arabic opening disclosure / system prompt, or an
+    ``ar``/``arabic`` marker in its name/voice label. Lets us force the whole
+    interview into Arabic even when the script or system prompt is written in English.
+    """
+    if agent is None:
+        return False
+    if _contains_arabic(getattr(agent, "opening_disclosure_template", "") or ""):
+        return True
+    if _contains_arabic(getattr(agent, "system_prompt", "") or ""):
+        return True
+    blob = " ".join(
+        str(getattr(agent, attr, "") or "")
+        for attr in ("name", "voice_label", "voice_type_label", "slug")
+    ).lower()
+    if "عرب" in blob:
+        return True
+    return bool(re.search(r"(?:^|[^a-z])(ar|arabic)(?:$|[^a-z])", blob))
+
+
+def detect_interview_language(config: dict[str, Any], agent: AgentDefinition | None = None) -> str:
+    """Resolve the spoken language from the script AND the selected agent.
+
+    Returns 'ar' when either the approved script is Arabic or an Arabic agent is
+    selected, so picking Jammal (Ar) forces a fully Arabic interview.
+    """
+    if agent_is_arabic(agent):
+        return "ar"
+    return detect_config_language(config)
+
+
+def call_should_use_arabic(
+    agent: AgentDefinition | None,
+    *,
+    script: str = "",
+    survey_prompt: str = "",
+    criteria: str = "",
+) -> bool:
+    """True when the whole call (layers + speech) must run in Arabic."""
+    return agent_is_arabic(agent) or _contains_arabic(script) or _contains_arabic(survey_prompt) or _contains_arabic(criteria)
+
+
+def _layer_text_for_call_language(text: str, *, arabic_default: str, use_arabic: bool) -> str:
+    """Keep Arabic layer text as-is; replace English template layers with Arabic defaults."""
+    raw = str(text or "").strip()
+    if not use_arabic:
+        return raw
+    if _contains_arabic(raw):
+        return raw
+    return arabic_default
 
 
 DEFAULT_SURVEY_LOW_RATING_THRESHOLD = 3
@@ -292,6 +365,8 @@ def substitute_voice_placeholders(
     for key, value in mapping.items():
         if value:
             out = out.replace(f"{{{key}}}", value)
+    if first_name:
+        out = out.replace("{first_name}", first).replace("{candidate_name}", first)
     return out.strip()
 
 
@@ -302,6 +377,7 @@ def resolve_opening_disclosure_template(
     config: dict[str, Any],
     service_key: str = SERVICE_SURVEY,
     org_id: str | None = None,
+    first_name: str = "",
 ) -> str:
     platform = _platform_settings(db)
     if not disclosure_enabled(platform, agent, service_key=service_key):
@@ -341,7 +417,7 @@ def resolve_opening_disclosure_template(
     if mandatory and not template.strip():
         template = DEFAULT_OPENING_DISCLOSURE
 
-    script_ar = _contains_arabic(_config_script_text(config))
+    script_ar = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
     if script_ar:
         from app.services.service_script_generator import _localize_disclosure_for_script_language
 
@@ -358,7 +434,7 @@ def resolve_opening_disclosure_template(
         organiser_name=organiser_name,
         agent_name=agent_name,
         role=role,
-        first_name="",
+        first_name=first_name,
     )
     if mandatory and not rendered.strip():
         rendered = substitute_voice_placeholders(
@@ -373,7 +449,7 @@ def resolve_opening_disclosure_template(
         # Match the disclosure tail to the language of the call. For Arabic scripts the
         # old code appended an English recording/availability sentence, which made the
         # agent drift into English after an Arabic greeting.
-        arabic = _contains_arabic(rendered) or _contains_arabic(_config_script_text(config))
+        arabic = _contains_arabic(rendered) or _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
         if arabic:
             if "مناسب" not in rendered:
                 rendered = f"{rendered} {ARABIC_RECORD_AVAILABILITY}".strip()
@@ -559,34 +635,45 @@ def build_service_runtime_instructions(
                 pass
 
     parts: list[str] = []
-    # If the approved script/criteria are written in Arabic, force the whole call to
-    # stay in Arabic. Without this the English scaffolding below makes the model reply
-    # in English even though the script is Arabic.
-    if _contains_arabic(script) or _contains_arabic(survey_prompt) or _contains_arabic(criteria):
-        parts.append(
-            "LANGUAGE REQUIREMENT: Conduct the ENTIRE interaction in Arabic only — the greeting, "
-            "every question, and all of your replies. Never switch to English unless the person "
-            "explicitly asks you to.\n"
-            "تعليمات اللغة: أجرِ المكالمة بالكامل باللغة العربية فقط — التحية وجميع الأسئلة وكل ردودك. "
-            "لا تتحدث الإنجليزية إطلاقًا إلا إذا طلب المتحدث ذلك صراحةً."
+    use_arabic = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
+    base_role = _layer_text_for_call_language(layers.base_role, arabic_default=ARABIC_BASE_ROLE, use_arabic=use_arabic)
+    service_role = layers.service_role
+    if use_arabic and service_key == SERVICE_INTERVIEW:
+        service_role = _layer_text_for_call_language(
+            layers.service_role, arabic_default=ARABIC_INTERVIEW_SERVICE_ROLE, use_arabic=True
         )
-    if layers.compliance:
-        parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
-    if layers.base_role:
-        parts.append(substitute_voice_placeholders(layers.base_role, **placeholder_kwargs))
-    if layers.service_role:
-        parts.append(substitute_voice_placeholders(layers.service_role, **placeholder_kwargs))
-    if layers.call_workflow:
-        parts.append(
-            "Call workflow (follow exactly after opening):\n"
-            + substitute_voice_placeholders(layers.call_workflow, **placeholder_kwargs)
-        )
-    if layers.kb_context:
-        parts.append(
-            "Reference knowledge:\n" + substitute_voice_placeholders(layers.kb_context, **placeholder_kwargs)
+    call_workflow = layers.call_workflow
+    if use_arabic and service_key == SERVICE_INTERVIEW:
+        call_workflow = _layer_text_for_call_language(
+            layers.call_workflow, arabic_default=ARABIC_INTERVIEW_CALL_WORKFLOW, use_arabic=True
         )
 
-    parts.append(f"Organisation name (always use this exact name on the call): {company_name}")
+    if use_arabic:
+        parts.append(
+            "تعليمات اللغة (أولوية قصوى): أجرِ المكالمة بالكامل بالعربية الفصحى فقط — التحية وجميع الأسئلة "
+            "والمتابعات وكل ردودك. لا تتحدث الإنجليزية إطلاقًا إلا إذا طلب المرشّح ذلك صراحةً."
+        )
+    if layers.compliance and not (use_arabic and not _contains_arabic(layers.compliance)):
+        parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
+    if base_role:
+        parts.append(substitute_voice_placeholders(base_role, **placeholder_kwargs))
+    if service_role:
+        parts.append(substitute_voice_placeholders(service_role, **placeholder_kwargs))
+    if call_workflow:
+        workflow_label = "سير المكالمة (اتبعه حرفيًا بعد التحية):" if use_arabic else "Call workflow (follow exactly after opening):"
+        parts.append(
+            f"{workflow_label}\n" + substitute_voice_placeholders(call_workflow, **placeholder_kwargs)
+        )
+    if layers.kb_context:
+        kb_label = "مرجع معرفة (تحدث عن هذا المحتوى بالعربية فقط):" if use_arabic else "Reference knowledge:"
+        parts.append(
+            f"{kb_label}\n" + substitute_voice_placeholders(layers.kb_context, **placeholder_kwargs)
+        )
+
+    if use_arabic:
+        parts.append(f"اسم المنظمة (استخدم هذا الاسم بالضبط في المكالمة): {company_name}")
+    else:
+        parts.append(f"Organisation name (always use this exact name on the call): {company_name}")
     if service_key == SERVICE_SURVEY:
         parts.append(f"Survey organiser: {organiser}")
         parts.append(f"Contact first name: {first}")
@@ -616,42 +703,65 @@ def build_service_runtime_instructions(
             "Confirm identity, then confirm or help reschedule/cancel the appointment."
         )
     else:
-        parts.append(f"Calling on behalf of: {organiser}")
-        parts.append(f"Candidate first name: {first}")
-        if goal:
-            parts.append(f"Role / position: {role}")
-        if criteria:
-            parts.append(f"Screening criteria:\n{criteria}")
-        if cv_snippet:
-            parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
-        parts.append(
-            "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order. "
-            f"When introducing yourself, say you are calling on behalf of {company_name}. "
-            "Never say the generic word 'company' without the actual organisation name."
-        )
+        if use_arabic:
+            parts.append(f"تتصل بالنيابة عن: {organiser}")
+            parts.append(f"الاسم الأول للمرشّح: {first}")
+            if goal:
+                parts.append(f"الوظيفة / المنصب: {role}")
+            if criteria:
+                parts.append(f"معايير الفرز:\n{criteria}")
+            if cv_snippet:
+                parts.append(f"ملخص السيرة الذاتية (استخدمه في السؤالين الأولين):\n{cv_snippet}")
+            parts.append(
+                "هذه مكالمة فرز لمقابلة وظيفية — وليست استبيانًا. اطرح أسئلة المقابلة المعتمدة بالترتيب. "
+                f"عند تقديم نفسك، قل إنك تتصل بالنيابة عن {company_name}. "
+                "لا تقل كلمة «شركة» بشكل عام دون ذكر اسم المنظمة الفعلي."
+            )
+        else:
+            parts.append(f"Calling on behalf of: {organiser}")
+            parts.append(f"Candidate first name: {first}")
+            if goal:
+                parts.append(f"Role / position: {role}")
+            if criteria:
+                parts.append(f"Screening criteria:\n{criteria}")
+            if cv_snippet:
+                parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
+            parts.append(
+                "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order. "
+                f"When introducing yourself, say you are calling on behalf of {company_name}. "
+                "Never say the generic word 'company' without the actual organisation name."
+            )
 
-    if layers.campaign_system_prompt:
+    if layers.campaign_system_prompt and not (use_arabic and not _contains_arabic(layers.campaign_system_prompt)):
         parts.append(
             "Campaign notes:\n"
             + substitute_voice_placeholders(layers.campaign_system_prompt, **placeholder_kwargs)
         )
 
     if survey_prompt:
-        label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved interview script"
-        parts.append(
-            f"{label} (follow this structure):\n"
-            + substitute_voice_placeholders(survey_prompt, **placeholder_kwargs)
-        )
+        if use_arabic:
+            label = "نص الاستبيان المعتمد" if service_key == SERVICE_SURVEY else "نص المقابلة المعتمد"
+            script_heading = f"{label} (اتبع هذا الهيكل):"
+        else:
+            label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved interview script"
+            script_heading = f"{label} (follow this structure):"
+        parts.append(script_heading + "\n" + substitute_voice_placeholders(survey_prompt, **placeholder_kwargs))
 
     platform = _platform_settings(db)
     mandatory = disclosure_mandatory(platform, agent)
     question_label = "survey questions" if service_key == SERVICE_SURVEY else "confirmation steps" if service_key == SERVICE_APPOINTMENTS else "interview questions"
     if layers.opening_disclosure:
-        parts.append(
-            "The opening disclosure has already been spoken to the recipient as the call greeting. "
-            "Do NOT repeat the disclosure. Continue with the INTRO section from the approved script "
-            f"(availability check / call workflow), then the {question_label}."
-        )
+        if use_arabic:
+            parts.append(
+                "تمت التحية الافتتاحية مع المرشّح بالفعل. لا تكرر التحية. تابع بقسم المقدمة من النص المعتمد "
+                "(التحقق من التوفر / سير المكالمة)، ثم أسئلة المقابلة."
+            )
+        else:
+            parts.append(
+                "The opening disclosure has already been spoken to the recipient as the call greeting. "
+                "Do NOT repeat the disclosure. Continue with the INTRO section from the approved script "
+                f"(availability check / call workflow), then the {question_label}."
+            )
     elif mandatory and disclosure_enabled(platform, agent, service_key=service_key):
         parts.append(
             "Opening disclosure is mandatory for this agent. If it was not spoken yet, deliver it verbatim "
@@ -663,7 +773,7 @@ def build_service_runtime_instructions(
         )
 
     behavior: list[str] = []
-    if layers.interruption_notes:
+    if layers.interruption_notes and not (use_arabic and not _contains_arabic(layers.interruption_notes)):
         behavior.append(layers.interruption_notes)
     if service_key == SERVICE_SURVEY and is_ai_call_survey_config(config):
         behavior.extend(_survey_interrupt_behavior_rules(anonymous=survey_anonymous_enabled(config)))
@@ -672,26 +782,33 @@ def build_service_runtime_instructions(
             behavior.append(followup)
     else:
         behavior.append(
-            "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
+            "إذا قاطعك المرشّح قبل إنهاء المقدمة، توقف وكرر الخطوة الحالية بوضوح من البداية."
+            if use_arabic
+            else "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
         )
     if service_key == SERVICE_INTERVIEW:
         behavior.append(
-            "Do not continue to interview questions until the callee confirms they heard the introduction "
+            "لا تنتقل إلى أسئلة المقابلة حتى يؤكد المرشّح أنه سمع المقدمة وأن الوقت مناسب الآن."
+            if use_arabic
+            else "Do not continue to interview questions until the callee confirms they heard the introduction "
             "and that now is still a good time."
         )
-    if layers.opt_out_notes:
+    if layers.opt_out_notes and not (use_arabic and not _contains_arabic(layers.opt_out_notes)):
         behavior.append(layers.opt_out_notes)
     else:
         behavior.append(
-            "If the recipient asks to be removed, stop calling, or opts out, acknowledge politely, end the call, "
+            "إذا طلب المرشّح الإزالة من القائمة أو التوقف عن الاتصال، اعترف بلباقة وأنهِ المكالمة ولا تتابع."
+            if use_arabic
+            else "If the recipient asks to be removed, stop calling, or opts out, acknowledge politely, end the call, "
             "and do not continue."
         )
-    if layers.retry_notes:
+    if layers.retry_notes and not (use_arabic and not _contains_arabic(layers.retry_notes)):
         behavior.append(f"Retry policy notes: {layers.retry_notes}")
-    if layers.voicemail_notes:
+    if layers.voicemail_notes and not (use_arabic and not _contains_arabic(layers.voicemail_notes)):
         behavior.append(f"Voicemail behavior: {layers.voicemail_notes}")
 
-    parts.append("Behavior rules:\n" + "\n".join(f"- {line}" for line in behavior if line))
+    behavior_label = "قواعد السلوك:" if use_arabic else "Behavior rules:"
+    parts.append(behavior_label + "\n" + "\n".join(f"- {line}" for line in behavior if line))
     return "\n\n".join(parts)
 
 
@@ -725,7 +842,7 @@ def build_service_opening_greeting(
     }
 
     disclosure = resolve_opening_disclosure_template(
-        db, agent=agent, config=config, service_key=service_key, org_id=org_id
+        db, agent=agent, config=config, service_key=service_key, org_id=org_id, first_name=first
     )
     if disclosure:
         greeting = substitute_voice_placeholders(disclosure, **placeholder_kwargs)
@@ -753,7 +870,7 @@ def build_service_opening_greeting(
         )
     interview_fallback = (
         DEFAULT_INTERVIEW_OPENING_FALLBACK_AR
-        if _contains_arabic(_config_script_text(config))
+        if _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
         else DEFAULT_INTERVIEW_OPENING_FALLBACK
     )
     return substitute_voice_placeholders(interview_fallback, **placeholder_kwargs)

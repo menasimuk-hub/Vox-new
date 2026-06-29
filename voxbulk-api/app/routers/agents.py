@@ -439,7 +439,7 @@ def test_agent_webrtc(
     from app.services.voice_agent_runtime import (
         build_service_opening_greeting,
         build_service_runtime_instructions,
-        detect_config_language,
+        detect_interview_language,
     )
 
     payload = payload or {}
@@ -505,7 +505,7 @@ def test_agent_webrtc(
         org_id=org_id or None,
         order=order,
     )
-    language = detect_config_language(config)
+    language = detect_interview_language(config, agent)
 
     try:
         prep = prepare_telnyx_webrtc_call(

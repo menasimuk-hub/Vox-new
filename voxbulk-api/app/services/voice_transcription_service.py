@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 MIN_TRANSCRIPT_CHARS = 2
 DEFAULT_STT_LANGUAGE = "ar"
 DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
+WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepinfra", "deepgram", "whisper_cpp", "groq")
 
 _LAUGHTER_PATTERN = re.compile(
     r"^(?:ha+|he+|hi+|ho+|hu+|ah+|eh+|oh+|uh+|lol+|haha+|hehe+|hihi+|"
@@ -349,7 +350,10 @@ class VoiceTranscriptionService:
             audio_path = VoiceTranscriptionService._transcode_to_ogg(dest)
             duration_seconds = _duration_from_file(audio_path)
             transcript = VoiceTranscriptionService._transcribe_file(
-                main_db, audio_path, language=stt_lang
+                main_db,
+                audio_path,
+                language=stt_lang,
+                provider_order=WEB_UPLOAD_STT_PROVIDER_ORDER,
             ).strip()
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript) and not is_low_quality_transcript(transcript)
@@ -430,8 +434,14 @@ class VoiceTranscriptionService:
                 pass
 
     @staticmethod
-    def _transcribe_file(main_db: Session, audio_path: Path, *, language: str | None) -> str:
-        providers = stt_provider_order()
+    def _transcribe_file(
+        main_db: Session,
+        audio_path: Path,
+        *,
+        language: str | None,
+        provider_order: tuple[str, ...] | None = None,
+    ) -> str:
+        providers = provider_order or stt_provider_order()
         deepgram_ready = DeepgramProviderService.is_configured(main_db)
         deepinfra_ready = DeepInfraProviderService.is_configured(main_db)
         failures: list[str] = []

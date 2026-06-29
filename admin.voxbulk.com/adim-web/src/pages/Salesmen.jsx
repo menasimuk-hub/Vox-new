@@ -38,7 +38,7 @@ function dummyProfile() {
 
 function Modal({ title, onClose, children, wide }) {
   return (
-    <div className='occ-modal-overlay' role='presentation' onClick={onClose}>
+    <div className='occ-modal-overlay open' role='presentation' onClick={onClose}>
       <div
         className='occ-modal'
         role='dialog'
@@ -56,6 +56,7 @@ function Modal({ title, onClose, children, wide }) {
 }
 
 const EMPTY_FORM = { name: '', email: '', password: '', promo_code: '', country: '', caller_id: '' }
+const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
 
 export default function Salesmen() {
   const [reps, setReps] = useState([])
@@ -66,6 +67,7 @@ export default function Salesmen() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState(EMPTY_FORM)
+  const [createErr, setCreateErr] = useState('')
 
   const [editRep, setEditRep] = useState(null)
   const [editForm, setEditForm] = useState({ name: '', promo_code: '', country: '', caller_id: '' })
@@ -97,25 +99,56 @@ export default function Salesmen() {
     e.preventDefault()
     setBusy(true)
     setErr('')
+    setCreateErr('')
     setMsg('')
+
+    const name = createForm.name.trim()
+    const email = createForm.email.trim().toLowerCase()
+    const password = createForm.password
+    const promoCode = createForm.promo_code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+
+    if (!name) {
+      setCreateErr('Full name is required.')
+      setBusy(false)
+      return
+    }
+    if (!email || !email.includes('@')) {
+      setCreateErr('A valid email is required.')
+      setBusy(false)
+      return
+    }
+    if (!password || password.length < 6) {
+      setCreateErr('Password must be at least 6 characters.')
+      setBusy(false)
+      return
+    }
+    if (!PROMO_CODE_RE.test(promoCode)) {
+      setCreateErr('Promo code must be 4–12 letters or numbers (e.g. UK4F2A).')
+      setBusy(false)
+      return
+    }
+
     try {
       const res = await apiFetch('/admin/sales-reps', {
         method: 'POST',
         body: JSON.stringify({
-          name: createForm.name.trim(),
-          email: createForm.email.trim(),
-          password: createForm.password,
-          promo_code: createForm.promo_code.trim().toUpperCase(),
+          name,
+          email,
+          password,
+          promo_code: promoCode,
           country: createForm.country.trim().toUpperCase(),
           caller_id: createForm.caller_id.trim(),
         }),
       })
-      setMsg(`Created ${res?.rep?.email || createForm.email} · promo code ${res?.rep?.promo_code}. They sign in at the dashboard with this email + password.`)
+      setMsg(`Created ${res?.rep?.email || email} · promo code ${res?.rep?.promo_code || promoCode}. They sign in at the dashboard with this email + password.`)
       setCreateForm(EMPTY_FORM)
+      setCreateErr('')
       setShowCreate(false)
       load()
     } catch (e2) {
-      setErr(e2?.message || 'Create failed')
+      const message = e2?.message || 'Create failed'
+      setCreateErr(message)
+      setErr(message)
     } finally {
       setBusy(false)
     }
@@ -228,7 +261,7 @@ export default function Salesmen() {
         </div>
         <div className='actions'>
           <button className='btn soft' onClick={load}>Refresh</button>
-          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateForm(EMPTY_FORM); setShowCreate(true) }}>
+          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateErr(''); setCreateForm(EMPTY_FORM); setShowCreate(true) }}>
             + Create salesman
           </button>
         </div>
@@ -290,10 +323,15 @@ export default function Salesmen() {
       </div>
 
       {showCreate ? (
-        <Modal title='Create salesman' onClose={() => setShowCreate(false)}>
-          <form onSubmit={create}>
+        <Modal title='Create salesman' onClose={() => { if (!busy) { setShowCreate(false); setCreateErr('') } }}>
+          <form onSubmit={create} noValidate>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
               <p className='muted' style={{ margin: 0 }}>Creates a dashboard login. The salesman signs in with this email + password and sees only the Sales portal.</p>
+              {createErr ? (
+                <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', margin: 0 }} role='alert'>
+                  {createErr}
+                </div>
+              ) : null}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Full name</span>

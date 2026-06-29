@@ -4,6 +4,15 @@ import { apiFetch } from '../../lib/api'
 const REMOTE_AUDIO_ID = 'voxbulk-agent-test-remote-audio'
 const ACTIVE_TIMEOUT_MS = 45_000
 
+function callLooksLive(call) {
+  const state = String(call?.state || '').toLowerCase()
+  if (state === 'active' || state === 'held' || state === 'speaking' || state === 'answered') {
+    return true
+  }
+  const tracks = call?.remoteStream?.getAudioTracks?.() || []
+  return tracks.some((t) => t.readyState === 'live' && t.enabled)
+}
+
 function normalizeTelnyxCustomHeaders(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) {
@@ -136,7 +145,7 @@ export default function AgentTestCallModal({ open, onClose, agentId, testScript,
           setPhase('aiJoining')
           setStatusLine('AI agent is joining…')
         }
-        if (call.state === 'active' && !wentLive) {
+        if (callLooksLive(call) && !wentLive) {
           wentLive = true
           if (activeTimerRef.current) clearTimeout(activeTimerRef.current)
           setPhase('live')

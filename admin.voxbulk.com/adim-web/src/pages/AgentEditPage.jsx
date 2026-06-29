@@ -56,6 +56,20 @@ function isPlaceholderPrompt(prompt) {
   return !text || text.includes('not configured')
 }
 
+const ENGLISH_TEST_SCRIPT =
+  'OPENING\nGreet the candidate in a friendly tone and confirm they can hear you.\n\nQUESTIONS\n1. Tell me briefly about your background.\n2. Why are you interested in this role?\n'
+const ARABIC_TEST_SCRIPT =
+  'الافتتاحية\nرحّب بالمرشّح بنبرة ودّية وتأكد من أنه يسمعك بوضوح.\n\nالأسئلة\n١. حدّثني باختصار عن خلفيتك المهنية.\n٢. لماذا أنت مهتم بهذه الوظيفة؟\n'
+
+function agentLooksArabic(a) {
+  if (!a) return false
+  if (/[\u0600-\u06FF]/.test(String(a.opening_disclosure_template || ''))) return true
+  if (/[\u0600-\u06FF]/.test(String(a.system_prompt || ''))) return true
+  const blob = `${a.name || ''} ${a.voice_label || ''} ${a.voice_type_label || ''} ${a.slug || ''}`.toLowerCase()
+  if (blob.includes('عرب')) return true
+  return /(?:^|[^a-z])(ar|arabic)(?:$|[^a-z])/.test(blob)
+}
+
 export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved }) {
   const [agent, setAgent] = useState(initialDraft || emptyAgent)
   const [loading, setLoading] = useState(agentId !== 'new')
@@ -66,9 +80,8 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
   const [msgError, setMsgError] = useState(false)
   const [kbFiles, setKbFiles] = useState([])
   const fileInputRef = useRef(null)
-  const [testScript, setTestScript] = useState(
-    'OPENING\nGreet the candidate in a friendly tone and confirm they can hear you.\n\nQUESTIONS\n1. Tell me briefly about your background.\n2. Why are you interested in this role?\n',
-  )
+  const [testScript, setTestScript] = useState(ENGLISH_TEST_SCRIPT)
+  const [testScriptDirty, setTestScriptDirty] = useState(false)
   const [testCallOpen, setTestCallOpen] = useState(false)
 
   const flash = (text, isError = false) => {
@@ -101,6 +114,11 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
   const setField = (field, value) => {
     setAgent((s) => ({ ...s, [field]: value }))
   }
+
+  useEffect(() => {
+    if (testScriptDirty) return
+    setTestScript(agentLooksArabic(agent) ? ARABIC_TEST_SCRIPT : ENGLISH_TEST_SCRIPT)
+  }, [agent.name, agent.voice_label, agent.voice_type_label, agent.slug, agent.opening_disclosure_template, agent.system_prompt, testScriptDirty])
 
   const validKnowledgeFileIds = useMemo(
     () => (agent.knowledge_file_ids || []).filter((id) => kbFiles.some((f) => f.id === id)),
@@ -500,7 +518,7 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
                 className="input agentPromptAreaSm"
                 rows={5}
                 value={testScript}
-                onChange={(e) => setTestScript(e.target.value)}
+                onChange={(e) => { setTestScript(e.target.value); setTestScriptDirty(true) }}
                 placeholder="OPENING + QUESTIONS for a quick voice test…"
               />
             </div>

@@ -197,7 +197,7 @@ def find_conversation_for_interview_recipient(
     *,
     recipient_id: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    from app.models.service_order import ServiceOrderRecipient
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 
     recipient = db.get(ServiceOrderRecipient, str(recipient_id or "").strip())
     if recipient is None:

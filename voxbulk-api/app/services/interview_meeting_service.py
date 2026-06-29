@@ -145,14 +145,14 @@ class InterviewMeetingService:
 
         meeting_settings = MeetingRoomSettingsService.get_settings(db)
         language_code = str(meeting_settings.get("language_code") or "en").strip().lower()
-        from app.services.voice_agent_runtime import detect_config_language
-
-        script_language = detect_config_language(config)
-        effective_language = script_language if script_language == "ar" else language_code
+        from app.services.voice_agent_runtime import detect_interview_language
 
         assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
         if not assistant_id:
             raise ValueError("Interview AI agent is not configured")
+
+        script_language = detect_interview_language(config, agent)
+        effective_language = script_language if script_language == "ar" else language_code
 
         instructions = build_interview_runtime_instructions(
             db,

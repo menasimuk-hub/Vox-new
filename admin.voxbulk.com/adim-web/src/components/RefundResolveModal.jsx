@@ -37,7 +37,7 @@ export default function RefundResolveModal({ row, open, onClose, onSubmit, busy 
   }
 
   return (
-    <div className="occ-modal-overlay" role="presentation" onClick={onClose}>
+    <div className="occ-modal-overlay open" role="presentation" onClick={onClose}>
       <div className="occ-modal" role="dialog" onClick={(e) => e.stopPropagation()}>
         <div className="occ-modal-head">
           <h3>Resolve refund review</h3>

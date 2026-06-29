@@ -20,6 +20,7 @@ from app.services.providers.openai_service import OpenAIProviderService
 from app.services.telnyx_conversation_service import (
     _conversation_list,
     _extract_call_ids_from_conversation,
+    fetch_conversation_by_id,
     fetch_conversation_insights,
     fetch_conversation_messages,
     transcript_entries_from_messages,

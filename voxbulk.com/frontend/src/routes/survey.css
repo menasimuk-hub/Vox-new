@@ -822,3 +822,46 @@
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.fb-reason-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem 1.5rem;
+  background: rgba(251, 249, 244, 0.97);
+  backdrop-filter: blur(6px);
+  border-radius: 1.25rem;
+}
+
+.fb-survey-flow {
+  position: relative;
+}
+
+.fb-reason-panel {
+  flex: 1;
+}
+
+.fb-rec-submit-only {
+  width: 100%;
+  margin-top: 0.75rem;
+  justify-content: center;
+}
+
+.fb-rec-redo-link {
+  display: block;
+  margin: 0.65rem auto 0;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: #6b6458;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fb-rec-redo-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

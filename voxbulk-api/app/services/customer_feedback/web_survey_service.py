@@ -295,6 +295,43 @@ class FeedbackWebSurveyService:
         }
 
     @staticmethod
+    def save_low_reason_for_previous_step(
+        db: Session,
+        *,
+        session_id: str,
+        reason: str,
+        reason_source: str = "text",
+    ) -> dict[str, Any]:
+        """Attach a low-rating reason to the step immediately before current_step."""
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            raise ValueError("Location not found")
+
+        steps = _web_steps(db, location)
+        step_index = int(session.current_step or 0) - 1
+        if step_index < 0:
+            raise ValueError("No previous step to attach reason")
+        if step_index >= len(steps):
+            raise ValueError("Previous step not found")
+
+        reason = str(reason or "").strip()
+        if not reason or reason.lower() == "skip":
+            return {"saved": False}
+
+        FeedbackWebSurveyService._save_low_rating_reason(
+            db,
+            session=session,
+            location=location,
+            step=steps[step_index],
+            step_index=step_index,
+            reason=reason,
+            reason_source=reason_source,
+        )
+        db.commit()
+        return {"saved": True}
+
+    @staticmethod
     def step_back(db: Session, session_id: str) -> dict[str, Any]:
         """Return to the previous step, discarding the answer saved for it."""
         session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
@@ -404,6 +441,22 @@ class FeedbackWebSurveyService:
             steps = _web_steps(db, location)
             step_index = int(session.current_step or 0)
             if step_index < len(steps) and transcript:
+                FeedbackWebSurveyService._save_low_rating_reason(
+                    db,
+                    session=session,
+                    location=location,
+                    step=steps[step_index],
+                    step_index=step_index,
+                    reason=transcript,
+                    reason_source="voice",
+                )
+                db.commit()
+            return {"transcript": transcript, "saved": bool(transcript)}
+
+        if mode == "reason_prev":
+            steps = _web_steps(db, location)
+            step_index = int(session.current_step or 0) - 1
+            if step_index >= 0 and step_index < len(steps) and transcript:
                 FeedbackWebSurveyService._save_low_rating_reason(
                     db,
                     session=session,

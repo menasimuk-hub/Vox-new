@@ -261,7 +261,7 @@ def _local_source_links(db: Session, conversation_id: str, call_control_id: str)
             select(ServiceOrderRecipient, ServiceOrder)
             .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
             .where(ServiceOrder.service_code == "interview")
-            .order_by(ServiceOrderRecipient.updated_at.desc())
+            .order_by(ServiceOrderRecipient.created_at.desc())
             .limit(300)
         ).all()
         for recipient, order in rows:

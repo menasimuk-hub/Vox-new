@@ -62,6 +62,25 @@ def submit_web_answer(session_id: str, payload: dict, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/survey/sessions/{session_id}/reason")
+def submit_web_reason(session_id: str, payload: dict, db: Session = Depends(get_db)):
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason required")
+    try:
+        return {
+            "ok": True,
+            **FeedbackWebSurveyService.save_low_reason_for_previous_step(
+                db,
+                session_id=session_id,
+                reason=reason,
+                reason_source=str(payload.get("reason_source") or "text"),
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/survey/sessions/{session_id}/back")
 def go_back_web(session_id: str, db: Session = Depends(get_db)):
     try:
@@ -83,6 +102,7 @@ async def submit_web_voice(
         raise HTTPException(status_code=400, detail="Empty audio upload")
     if len(audio_bytes) > _MAX_VOICE_BYTES:
         raise HTTPException(status_code=413, detail="Voice note too large")
+    clean_mode = str(mode).strip().lower()
     try:
         return {
             "ok": True,
@@ -93,8 +113,8 @@ async def submit_web_voice(
                 filename=file.filename or "voice.webm",
                 content_type=file.content_type or "audio/webm",
                 mode=(
-                    str(mode).strip().lower()
-                    if str(mode).strip().lower() in {"reason", "transcribe"}
+                    clean_mode
+                    if clean_mode in {"reason", "transcribe", "reason_prev"}
                     else "answer"
                 ),
                 answer=answer,

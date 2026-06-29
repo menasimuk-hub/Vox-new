@@ -18,6 +18,33 @@ from app.services.platform_catalog_service import ServiceOrderService
 VOICE_COMPLETED = frozenset({"completed", "done", "answered", "success"})
 
 
+def _hydrate_completed_interview_recipient(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+) -> None:
+    """Pull Telnyx transcript/recording/analysis for completed interviews (incl. web meetings)."""
+    if str(recipient.status or "").lower() not in VOICE_COMPLETED:
+        return
+    parsed = _loads_json(recipient.result_json) or {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    from app.services.survey_analysis_service import MIN_TRANSCRIPT_CHARS, ensure_survey_transcript
+
+    transcript = str(parsed.get("transcript") or "").strip()
+    needs_transcript = len(transcript) < MIN_TRANSCRIPT_CHARS
+    needs_analysis = not parsed.get("analysis_saved_at")
+    if not needs_transcript and not needs_analysis:
+        return
+    ensure_survey_transcript(db, order=order, recipient=recipient)
+    db.refresh(recipient)
+    from app.services.interview_analysis_service import run_interview_analysis_if_needed
+
+    run_interview_analysis_if_needed(db, order=order, recipient=recipient)
+    db.refresh(recipient)
+
+
 def _loads_json(raw: str | None) -> Any:
     try:
         return json.loads(raw or "")
@@ -297,6 +324,7 @@ class InterviewResultsService:
             raise ValueError("Recipient does not belong to this order")
         if order.service_code != "interview":
             raise ValueError("Interview detail is only available for interview orders")
+        _hydrate_completed_interview_recipient(db, order=order, recipient=recipient)
         config = _loads_json(order.config_json) or {}
         role = str(config.get("role") or order.title or "Interview campaign")
         parsed = _loads_json(recipient.result_json) or {}
@@ -317,7 +345,7 @@ class InterviewResultsService:
         row = _candidate_row(recipient, role=role, order_id=order.id, order=order, parsed=parsed)
         row.update(_scheduling_links(order, row, parsed=parsed))
         analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
-        transcript = str(parsed.get("transcript") or "").strip() if row.get("has_interview_report") else ""
+        transcript = str(parsed.get("transcript") or "").strip()
         if not row.get("has_interview_report"):
             analysis = {}
         return {

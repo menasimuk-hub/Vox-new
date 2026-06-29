@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Activity, CalendarClock, Download, FileText, Filter, Play, Search, Send, UserCheck } from "lucide-react";
+import { ArrowLeft, Activity, CalendarClock, Download, FileText, Filter, Search, Send, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
 import { isInterviewCampaignReadOnly, interviewCampaignReadOnlyLabel, candidateAllowsResendBookingInvite } from "@/lib/interview-campaign";
-import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign } from "@/lib/queries";
+import { useInterviewResults, useHubSpotStatus, useSaveInterviewShortlist, useSendInterviewScheduling, useServiceOrders, useSchedulingStatus, useStopInterviewCampaign, useInterviewRecipientDetail } from "@/lib/queries";
 import type { CampaignTone } from "@/lib/types/campaign";
 import type { ServiceOrder } from "@/lib/types/api";
 import { AtsScore } from "@/components/ats-score";
@@ -209,6 +209,8 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
       phone: String(c.phone || ""),
       email: String(c.outreach_email || c.email || ""),
       outreach_email: c.outreach_email ? String(c.outreach_email) : undefined,
+      status: String(c.status || ""),
+      activity_status: String(c.activity_status || ""),
       invite_email_failed: c.invite_email_failed ? String(c.invite_email_failed) : undefined,
       ats_score: c.ats_score != null ? Number(c.ats_score) : null,
       ats_status: String(c.ats_status || ""),
@@ -218,6 +220,41 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
   }, [apiCandidates, isLive]);
 
   const candSort = useTableSort(rowsForSort as Record<string, unknown>[]);
+  const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
+  const detailQ = useInterviewRecipientDetail(orderId, open, Boolean(open));
+
+  const candidateDisplay = React.useMemo((): CandidateRow | null => {
+    if (!candidateOpen) return null;
+    const detail = detailQ.data?.candidate as Record<string, unknown> | undefined;
+    if (!detail) return candidateOpen;
+    return {
+      ...candidateOpen,
+      status: String(detail.status || candidateOpen.status || ""),
+      activity_status: String(detail.activity_status || candidateOpen.activity_status || ""),
+      duration: String(detail.duration_label || detail.duration || candidateOpen.duration || "—"),
+      duration_label: String(detail.duration_label || candidateOpen.duration_label || ""),
+      score: detail.score != null ? Number(detail.score) : candidateOpen.score,
+      recommendation: String(detail.recommendation || candidateOpen.recommendation || "—"),
+      sentiment: String(detail.sentiment || candidateOpen.sentiment || "—"),
+      has_interview_report: Boolean(detail.has_interview_report ?? candidateOpen.has_interview_report),
+      transcript_preview: (detail.transcript_preview as string | null) ?? candidateOpen.transcript_preview ?? null,
+      recording_play_url: (detail.recording_play_url as string | null) ?? candidateOpen.recording_play_url ?? null,
+    };
+  }, [candidateOpen, detailQ.data]);
+
+  React.useEffect(() => {
+    if (!open || !candidateDisplay) return;
+    if (candidateDisplay.has_interview_report) return;
+    const hasResults =
+      Boolean(candidateDisplay.recording_play_url) ||
+      ["report_ready", "interview_completed"].includes(String(candidateDisplay.activity_status || "").toLowerCase());
+    if (!hasResults) return;
+    const timer = window.setInterval(() => {
+      void detailQ.refetch();
+    }, 12000);
+    return () => window.clearInterval(timer);
+  }, [open, candidateDisplay, detailQ.refetch]);
+
   const allSelected = rowsForSort.length > 0 && rowsForSort.every((r) => selectedRows[r.id]);
 
   const toggleAll = () => {
@@ -303,7 +340,6 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
 
   const selectedCount = Object.values(selectedRows).filter(Boolean).length;
   const campaignReadOnly = isInterviewCampaignReadOnly(rawOrder?.status) || rawOrder?.is_finished === true;
-  const candidateOpen = open ? rowsForSort.find((c) => c.id === open) : null;
   const candidateHasResults = (c: CandidateRow | null | undefined) =>
     Boolean(
       c?.has_interview_report ||
@@ -506,46 +542,17 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                         </>
                       )}
                       <TableCell className="pr-4 text-right">
-                        {isLive ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="gap-1.5"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActivityCandidate(c);
-                            }}
-                          >
-                            <Activity className="size-4" /> Activity
-                          </Button>
-                        ) : (
-                          <div className="inline-flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="gap-1.5"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActivityCandidate(c);
-                              }}
-                            >
-                              <Activity className="size-4" /> Activity
-                            </Button>
-                            {c.has_interview_report && (c.status === "completed" || c.activity_status === "report_ready") && (
-                              <>
-                                <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "html"); }}>Report</Button>
-                                <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void downloadReport(c.id, "pdf"); }}>PDF</Button>
-                              </>
-                            )}
-                            {c.has_interview_report ? (
-                              <Button size="icon" variant="ghost" aria-label="Play recording" onClick={(e) => { e.stopPropagation(); setOpen(c.id); }}>
-                                <Play className="size-4" />
-                              </Button>
-                            ) : (
-                              <span className="px-2 text-xs text-muted-foreground">No interview yet</span>
-                            )}
-                          </div>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1.5"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActivityCandidate(c);
+                          }}
+                        >
+                          <Activity className="size-4" /> Activity
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -556,10 +563,10 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           </CardContent>
         </Card>
 
-        {open && isLive && candidateOpen && (
+        {open && isLive && candidateDisplay && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{candidateOpen.name}</CardTitle>
+              <CardTitle className="text-base">{candidateDisplay.name}</CardTitle>
               <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -568,67 +575,44 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
                   <CalendarClock className="size-3.5" /> Booking status
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={activityStatusTone(candidateOpen.activity_status)}>
-                    {candidateOpen.bookingStatus}
+                  <StatusBadge tone={activityStatusTone(candidateDisplay.activity_status)}>
+                    {candidateDisplay.bookingStatus}
                   </StatusBadge>
                 </div>
-                {candidateOpen.booked_start_at ? (
-                  <p className="mt-2 text-base font-semibold tabular-nums">{candidateOpen.bookingTime} UK</p>
+                {candidateDisplay.booked_start_at ? (
+                  <p className="mt-2 text-base font-semibold tabular-nums">{candidateDisplay.bookingTime} UK</p>
                 ) : (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {candidateOpen.bookingStatus === "Waiting for booking"
+                    {candidateDisplay.bookingStatus === "Waiting for booking"
                       ? "Invite sent — waiting for the candidate to pick a slot."
                       : "No interview slot booked yet."}
                   </p>
                 )}
               </div>
-              {candidateHasResults(candidateOpen) ? (
-                <>
-                  {candidateOpen.recording_play_url ? (
-                    <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
-                  ) : null}
-                  {candidateOpen.has_interview_report ? (
-                    <>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
-                        <FileText className="size-3.5" /> Open transcript
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
-                        <FileText className="size-3.5" /> Full report
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
-                        <Download className="size-3.5" /> Report PDF
-                      </Button>
-                      <div className="rounded-lg border border-success/30 bg-success/10 p-3">
-                        <div className="flex items-start gap-2">
-                          <UserCheck className="mt-0.5 size-4 text-success" />
-                          <div>
-                            <p className="text-sm font-medium">AI recommendation</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Interview complete — transcript and AI report are processing.</p>
-                  )}
-                </>
+              {candidateHasResults(candidateDisplay) ? (
+                <CandidateInterviewResults
+                  candidate={candidateDisplay}
+                  loading={detailQ.isFetching && !candidateDisplay.has_interview_report}
+                  onOpenTranscript={() => setTranscriptOpen(true)}
+                  onDownloadReport={(kind) => void downloadReport(candidateDisplay.id, kind)}
+                />
               ) : (
                 <>
                   <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
                     <div>
                       <p className="text-xs uppercase tracking-wider text-muted-foreground">Email</p>
-                      <p className="mt-1 font-medium break-all">{candidateOpen.email || "—"}</p>
+                      <p className="mt-1 font-medium break-all">{candidateDisplay.email || "—"}</p>
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wider text-muted-foreground">Phone</p>
-                      <p className="mt-1 font-medium">{candidateOpen.phone || "—"}</p>
+                      <p className="mt-1 font-medium">{candidateDisplay.phone || "—"}</p>
                     </div>
                   </div>
-                  <div className="pt-1"><AtsScore score={candidateOpen.ats_score} status={candidateOpen.ats_status} label={candidateOpen.ats_label} /></div>
+                  <div className="pt-1"><AtsScore score={candidateDisplay.ats_score} status={candidateDisplay.ats_status} label={candidateDisplay.ats_label} /></div>
                   <p className="text-xs text-muted-foreground">
                     {resendBookingInviteForOpen
                       ? "Click the candidate name for contact details and resend invite. Use Activity for the full timeline."
-                      : candidateOpen?.has_interview_report || candidateOpen?.activity_status === "report_ready"
+                      : candidateDisplay?.has_interview_report || candidateDisplay?.activity_status === "report_ready"
                         ? "Click the candidate name for contact details. The AI interview is complete — resend invite is not available."
                         : "Click the candidate name for contact details. Resend invite is available after you launch the campaign."}
                   </p>
@@ -638,43 +622,20 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           </Card>
         )}
 
-        {open && !isLive && candidateOpen && (
+        {open && !isLive && candidateDisplay && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{candidateOpen.name}</CardTitle>
+              <CardTitle className="text-base">{candidateDisplay.name}</CardTitle>
               <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>Close</Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {candidateHasResults(candidateOpen) ? (
-                <>
-                  {candidateOpen.recording_play_url ? (
-                    <InterviewRecordingPlayer playPath={candidateOpen.recording_play_url} durationLabel={candidateOpen.duration_label || candidateOpen.duration} />
-                  ) : null}
-                  {candidateOpen.has_interview_report ? (
-                    <>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => setTranscriptOpen(true)}>
-                        <FileText className="size-3.5" /> Open transcript
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "html")}>
-                        <FileText className="size-3.5" /> Full report
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => void downloadReport(candidateOpen.id, "pdf")}>
-                        <Download className="size-3.5" /> Report PDF
-                      </Button>
-                      <div className="rounded-lg border border-success/30 bg-success/10 p-3">
-                        <div className="flex items-start gap-2">
-                          <UserCheck className="mt-0.5 size-4 text-success" />
-                          <div>
-                            <p className="text-sm font-medium">AI recommendation</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{candidateOpen.recommendation} — {candidateOpen.sentiment}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Interview complete — transcript and AI report are processing.</p>
-                  )}
-                </>
+              {candidateHasResults(candidateDisplay) ? (
+                <CandidateInterviewResults
+                  candidate={candidateDisplay}
+                  loading={detailQ.isFetching && !candidateDisplay.has_interview_report}
+                  onOpenTranscript={() => setTranscriptOpen(true)}
+                  onDownloadReport={(kind) => void downloadReport(candidateDisplay.id, kind)}
+                />
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Interview not completed yet. Results and reports appear here after the AI interview finishes.
@@ -692,7 +653,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
         orderId={orderId}
         recipientIds={Object.entries(selectedRows).filter(([, v]) => v).map(([id]) => id)}
       />
-      <InterviewTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} orderId={orderId} recipientId={open} candidateName={candidateOpen?.name} />
+      <InterviewTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} orderId={orderId} recipientId={open} candidateName={candidateDisplay?.name || candidateOpen?.name} />
       <CandidateContactDialog
         open={contactCandidate != null}
         onOpenChange={(next) => {
@@ -855,6 +816,59 @@ function SendBookingDialog({ open, onOpenChange, count, orderId, recipientIds }:
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CandidateInterviewResults({
+  candidate,
+  loading,
+  onOpenTranscript,
+  onDownloadReport,
+}: {
+  candidate: CandidateRow;
+  loading?: boolean;
+  onOpenTranscript: () => void;
+  onDownloadReport: (kind: "html" | "pdf") => void;
+}) {
+  return (
+    <>
+      {candidate.recording_play_url ? (
+        <InterviewRecordingPlayer
+          playPath={candidate.recording_play_url}
+          durationLabel={candidate.duration_label || candidate.duration}
+        />
+      ) : null}
+      {candidate.has_interview_report ? (
+        <>
+          <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={onOpenTranscript}>
+            <FileText className="size-3.5" /> Open transcript
+          </Button>
+          <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => onDownloadReport("html")}>
+            <FileText className="size-3.5" /> Full report
+          </Button>
+          <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => onDownloadReport("pdf")}>
+            <Download className="size-3.5" /> Report PDF
+          </Button>
+          <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+            <div className="flex items-start gap-2">
+              <UserCheck className="mt-0.5 size-4 text-success" />
+              <div>
+                <p className="text-sm font-medium">AI recommendation</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {candidate.recommendation} — {candidate.sentiment}
+                </p>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {loading
+            ? "Loading interview recording and report…"
+            : "Interview complete — transcript and AI report are processing."}
+        </p>
+      )}
+    </>
   );
 }
 
