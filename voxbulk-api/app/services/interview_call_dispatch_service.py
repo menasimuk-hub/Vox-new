@@ -1231,6 +1231,61 @@ def process_due_interview_call_orders(db: Session) -> int:
     return InterviewCallDispatchService.process_due_orders(db)
 
 
+def ensure_launched_interview_invites(db: Session, *, limit: int = 50) -> dict[str, int]:
+    """Re-attempt invitation emails for launched interviews whose candidates never
+    received one.
+
+    The invitation email is sent synchronously at launch. If that send was skipped
+    or failed (transient SMTP outage, a candidate added after launch, or a dispatch
+    that errored), nothing else recovers it and the candidate never enters the email
+    workflow. This guarded pass closes that gap.
+
+    Strictly gated and idempotent — it NEVER emails drafts:
+      * only orders with payment_status == "approved" and status in scheduled/paid/running,
+      * only when the calling window is set and SMTP is ready,
+      * only the email channel (no duplicate WhatsApp),
+      * ``send_invites`` skips candidates already emailed, so repeat ticks are no-ops.
+    """
+    from app.services.career_email_service import interview_email_delivery_status
+    from app.services.interview_booking_service import InterviewBookingService
+
+    if not interview_email_delivery_status(db).get("can_send_email"):
+        return {"orders": 0, "email_sent": 0}
+
+    orders = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.service_code == "interview",
+                ServiceOrder.payment_status == "approved",
+                ServiceOrder.status.in_(["scheduled", "paid", "running"]),
+            )
+            .order_by(ServiceOrder.updated_at.asc())
+            .limit(limit)
+        ).scalars()
+    )
+    orders_touched = 0
+    email_sent = 0
+    for order in orders:
+        if not order.scheduled_start_at or not order.scheduled_end_at:
+            continue
+        try:
+            if not InterviewBookingService.recipients_pending_invite_email(db, order):
+                continue
+            result = InterviewBookingService.send_invites(db, order, channels=["email"])
+            n = int((result or {}).get("email_sent") or 0)
+            if n:
+                orders_touched += 1
+                email_sent += n
+                logger.info(
+                    "interview_invite_auto_ensured",
+                    extra={"order_id": order.id, "email_sent": n},
+                )
+        except Exception:
+            logger.exception("interview_invite_auto_ensure_failed", extra={"order_id": order.id})
+    return {"orders": orders_touched, "email_sent": email_sent}
+
+
 async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
     from app.core.database import get_sessionmaker
     from app.services.interview_analysis_service import InterviewAnalysisService
@@ -1251,6 +1306,12 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                     reminder_stats = InterviewBookingReminderService.process_due_reminders(db)
                     if reminder_stats.get("email_sent") or reminder_stats.get("whatsapp_sent"):
                         logger.info("interview_booking_reminders_sent", extra=reminder_stats)
+                    try:
+                        ensure_stats = ensure_launched_interview_invites(db)
+                        if ensure_stats.get("email_sent"):
+                            logger.info("interview_invites_auto_ensured", extra=ensure_stats)
+                    except Exception:
+                        logger.exception("interview_invite_auto_ensure_tick_failed")
                     try:
                         no_show_sent = sweep_meeting_no_shows(db)
                         if no_show_sent:
