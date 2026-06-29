@@ -196,6 +196,20 @@ def _transcription_for_language(existing: dict[str, Any], language: str) -> dict
     return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE}
 
 
+def _voice_settings_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
+    """Set ``language_boost`` for Arabic without changing the portal-configured TTS voice."""
+    lang = str(language or "").strip().lower()
+    if not lang or not lang.startswith("ar"):
+        return None
+    current = _voice_settings_dict(existing)
+    boost = str(current.get("language_boost") or "").strip().lower()
+    if boost in {"ar", "arabic"}:
+        return None
+    merged = dict(current) if current else {}
+    merged["language_boost"] = "ar"
+    return merged
+
+
 def ensure_telnyx_assistant_transcription_language(db: Session, assistant_id: str, language: str) -> dict[str, Any]:
     """Make the assistant transcribe (STT) in the given call language. No-op for English/unknown.
 
@@ -279,6 +293,9 @@ def sync_telnyx_assistant_instructions(
             transcription = _transcription_for_language(existing, language)
             if transcription:
                 body["transcription"] = transcription
+            voice_settings = _voice_settings_for_language(existing, language)
+            if voice_settings:
+                body["voice_settings"] = voice_settings
         except Exception as exc:
             logger.warning("telnyx_transcription_lang_skip assistant_id=%s error=%s", clean_id, exc)
     updated = _update_telnyx_assistant(db, clean_id, body)

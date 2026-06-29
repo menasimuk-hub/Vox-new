@@ -425,6 +425,113 @@ def assign_business_type_agent(category_id: str, payload: dict, db: Session = De
     return _assignment_out(row)
 
 
+@router.post("/{agent_id}/test-webrtc")
+def test_agent_webrtc(
+    agent_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_agent_admin),
+):
+    """Sync agent prompt to Telnyx and return WebRTC connect payload for a browser test call."""
+    from app.core.agent_services import SERVICE_INTERVIEW, SERVICE_SURVEY, normalize_service_key
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id, prepare_telnyx_webrtc_call
+    from app.services.voice_agent_runtime import (
+        build_service_opening_greeting,
+        build_service_runtime_instructions,
+        detect_config_language,
+    )
+
+    payload = payload or {}
+    agent = db.execute(select(AgentDefinition).where(AgentDefinition.id == agent_id)).scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    assistant_raw = str(agent.telnyx_assistant_id or "").strip()
+    if not assistant_raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telnyx Assistant ID is required")
+    assistant_id = normalize_telnyx_assistant_id(assistant_raw)
+    system_prompt = str(agent.system_prompt or "").strip()
+    if not system_prompt or system_prompt.lower().startswith("(not configured"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="System prompt is required before testing")
+
+    org_id = str(payload.get("org_id") or "").strip()
+    if not org_id:
+        org_id = db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none() or ""
+    org_name = ""
+    if org_id:
+        org = db.get(Organisation, org_id)
+        org_name = str(org.name or "").strip() if org else ""
+
+    service_key = normalize_service_key(str(payload.get("service_key") or ""))
+    if not service_key:
+        service_key = SERVICE_INTERVIEW if agent.supports_interview else SERVICE_SURVEY
+
+    test_script = str(payload.get("test_script") or "").strip()
+    default_script = (
+        "OPENING\n"
+        "Greet the candidate and confirm they can hear you.\n\n"
+        "QUESTIONS\n"
+        "1. Tell me briefly about your background.\n"
+        "2. Why are you interested in this role?\n"
+    )
+    config: dict = {
+        "approved_script": test_script or default_script,
+        "role": str(payload.get("role") or "Test interview").strip(),
+        "company_name": str(payload.get("company_name") or org_name or "VoxBulk").strip(),
+        "organiser_name": str(payload.get("organiser_name") or org_name or "VoxBulk").strip(),
+    }
+    candidate_name = str(payload.get("candidate_first_name") or payload.get("candidate_name") or "Test User").strip()
+
+    order = ServiceOrder(org_id=org_id or None, title=config["role"], service_code="interview")
+    recipient = ServiceOrderRecipient(name=candidate_name)
+
+    refresh_agent_kb_context(db, agent_id)
+
+    instructions = build_service_runtime_instructions(
+        db,
+        order=order,
+        config=config,
+        recipient=recipient,
+        agent=agent,
+        service_key=service_key,
+    )
+    greeting = build_service_opening_greeting(
+        db,
+        agent=agent,
+        config=config,
+        recipient_name=candidate_name,
+        service_key=service_key,
+        org_id=org_id or None,
+        order=order,
+    )
+    language = detect_config_language(config)
+
+    try:
+        prep = prepare_telnyx_webrtc_call(
+            db,
+            assistant_id,
+            instructions,
+            greeting=greeting or None,
+            language=language,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    custom_headers = [
+        {"name": "X-Agent-Test", "value": "true"},
+        {"name": "X-Agent-Definition-Id", "value": str(agent.id)},
+    ]
+    return {
+        "ok": True,
+        "agent_id": prep.get("assistant_id") or assistant_id,
+        "greeting": greeting,
+        "custom_headers": custom_headers,
+        "web_calls_enabled": bool(prep.get("web_calls_enabled")),
+        "prompt_synced": bool(prep.get("prompt_synced")),
+        "language": language,
+    }
+
+
 @router.post("/preview")
 def preview_agent(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_agent_admin)):
     org_id = str(payload.get("org_id") or "").strip()

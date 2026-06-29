@@ -307,12 +307,21 @@ class CareerEmailService:
         date_line = str(variables.get("interview_date") or "").strip()
         time_line = str(variables.get("interview_time") or "").strip()
         subject = f"Interview confirmed — {role} on {date_line}" if date_line else f"Interview confirmed — {role}"
+        meeting_url = str(variables.get("meeting_url") or "").strip()
+        channel_note = str(variables.get("interview_channel_note") or "").strip()
         body = (
             f"Hi {name},\n\n"
             f"Your {role} interview at {company} is confirmed.\n\n"
             f"Date: {date_line}\n"
             f"Time: {time_line} UK time (GMT/BST)\n\n"
-            "We will call you on the number you provided.\n\n"
+        )
+        if meeting_url:
+            body += f"Join your online meeting: {meeting_url}\n\n"
+        elif channel_note:
+            body += f"{channel_note}\n\n"
+        else:
+            body += "We will call you on the number you provided.\n\n"
+        body += (
             "Need to change your time? Use the reschedule link from your original booking message.\n\n"
             "— VOXBULK Careers (careers@voxbulk.com)"
         )

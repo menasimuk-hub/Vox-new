@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, apiUpload } from '../lib/api'
+import AgentTestCallModal from '../components/agents/AgentTestCallModal'
 
 const emptyAgent = {
   name: '',
@@ -65,6 +66,10 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
   const [msgError, setMsgError] = useState(false)
   const [kbFiles, setKbFiles] = useState([])
   const fileInputRef = useRef(null)
+  const [testScript, setTestScript] = useState(
+    'OPENING\nGreet the candidate in a friendly tone and confirm they can hear you.\n\nQUESTIONS\n1. Tell me briefly about your background.\n2. Why are you interested in this role?\n',
+  )
+  const [testCallOpen, setTestCallOpen] = useState(false)
 
   const flash = (text, isError = false) => {
     setMsg(text)
@@ -486,6 +491,32 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
                 onChange={(e) => setField('opening_disclosure_template', e.target.value)}
               />
             </div>
+            <div className="agentsEditField span2">
+              <label>Test script (browser test call)</label>
+              <p className="agentsEditNote">
+                Short script used when you click <strong>Test agent</strong> — same Telnyx WebRTC path as web interviews.
+              </p>
+              <textarea
+                className="input agentPromptAreaSm"
+                rows={5}
+                value={testScript}
+                onChange={(e) => setTestScript(e.target.value)}
+                placeholder="OPENING + QUESTIONS for a quick voice test…"
+              />
+            </div>
+            <div className="agentsEditField span2 agentsEditActions">
+              <button
+                type="button"
+                className="agentsBtn primary"
+                disabled={agentId === 'new' || !agent.telnyx_assistant_id?.trim() || isPlaceholderPrompt(agent.system_prompt)}
+                onClick={() => setTestCallOpen(true)}
+              >
+                <i className="ti ti-phone" /> Test agent
+              </button>
+              <span className="agentsEditNote" style={{ margin: 0 }}>
+                Requires Telnyx Assistant ID and system prompt. Save agent first if you changed Telnyx ID or prompt.
+              </span>
+            </div>
           </div>
         </section>
 
@@ -681,6 +712,15 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
           </button>
         </div>
       </div>
+      {agentId !== 'new' ? (
+        <AgentTestCallModal
+          open={testCallOpen}
+          onClose={() => setTestCallOpen(false)}
+          agentId={agentId}
+          testScript={testScript}
+          agentLabel={agent.voice_label || agent.name}
+        />
+      ) : null}
     </div>
   )
 }

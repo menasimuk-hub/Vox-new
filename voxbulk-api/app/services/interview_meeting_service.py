@@ -287,7 +287,7 @@ def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipi
 
     def _worker() -> None:
         sessionmaker = get_sessionmaker()
-        for delay in (5, 15, 30, 60):
+        for delay in (5, 15, 30, 60, 120, 240):
             time.sleep(delay)
             try:
                 with sessionmaker() as session:

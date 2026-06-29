@@ -341,6 +341,17 @@ def resolve_opening_disclosure_template(
     if mandatory and not template.strip():
         template = DEFAULT_OPENING_DISCLOSURE
 
+    script_ar = _contains_arabic(_config_script_text(config))
+    if script_ar:
+        from app.services.service_script_generator import _localize_disclosure_for_script_language
+
+        template = _localize_disclosure_for_script_language(
+            template,
+            language_code="ar",
+            agent_name=agent_name,
+            company_name=company_name,
+        )
+
     rendered = substitute_voice_placeholders(
         template,
         company_name=company_name,
