@@ -175,6 +175,78 @@ def _mark_missed_booking_slots(
                 logger.exception("interview_meeting_missed_email_failed")
 
 
+def sweep_meeting_no_shows(db: Session, *, limit: int = 100) -> int:
+    """Flag missed online-meeting interview slots and email a reschedule link.
+
+    Phone (ai_call) orders mark no-shows inside the dialer tick, but meeting
+    (ai_meeting) orders never run through that path, so a candidate who books an
+    online interview and never joins would otherwise never be flagged or followed
+    up. This sweep covers meeting orders: once the slot + grace window has passed
+    without the candidate joining, it marks them skipped and sends the
+    ``interview_meeting_missed`` email (which carries their rebooking link).
+    """
+    from app.services.interview_voice_agent_service import is_meeting_interview_order
+    from app.services.interview_missed_call_email_service import (
+        maybe_send_interview_meeting_missed_email,
+    )
+
+    now = datetime.utcnow()
+    grace_minutes = interview_slot_minutes() + 15
+    sent = 0
+    orders = list(
+        db.execute(
+            select(ServiceOrder)
+            .where(
+                ServiceOrder.service_code == "interview",
+                ServiceOrder.status.in_(["scheduled", "paid", "running"]),
+            )
+            .order_by(ServiceOrder.updated_at.asc())
+            .limit(limit)
+        ).scalars()
+    )
+    for order in orders:
+        if not is_meeting_interview_order(order):
+            continue
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        for recipient in recipients:
+            status = str(recipient.status or "pending").lower()
+            if status in VOICE_TERMINAL or status in VOICE_ACTIVE:
+                continue
+            token = _recipient_booking_token(db, order.id, recipient.id)
+            if token is None or token.booked_start_at is None:
+                continue
+            if str(token.channel or "").strip().lower() != "meeting":
+                continue
+            merged = _recipient_result(recipient)
+            if (
+                merged.get("booking_cancelled_at")
+                or merged.get("booking_withdrawn")
+                or merged.get("meeting_started_at")
+            ):
+                continue
+            grace_end = token.booked_start_at + timedelta(minutes=grace_minutes)
+            if now <= grace_end:
+                continue
+            recipient.status = "skipped"
+            _set_recipient_result(
+                db,
+                recipient,
+                {
+                    "error": "Missed booked interview slot",
+                    "skipped_at": now.isoformat(),
+                    "booked_start_at": token.booked_start_at.isoformat(),
+                    "channel": "meeting",
+                },
+            )
+            try:
+                result = maybe_send_interview_meeting_missed_email(db, order=order, recipient=recipient)
+                if result.get("ok"):
+                    sent += 1
+            except Exception:
+                logger.exception("interview_meeting_missed_email_failed")
+    return sent
+
+
 def _cancel_unbooked_at_window_end(
     db: Session,
     order: ServiceOrder,
@@ -1179,6 +1251,12 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                     reminder_stats = InterviewBookingReminderService.process_due_reminders(db)
                     if reminder_stats.get("email_sent") or reminder_stats.get("whatsapp_sent"):
                         logger.info("interview_booking_reminders_sent", extra=reminder_stats)
+                    try:
+                        no_show_sent = sweep_meeting_no_shows(db)
+                        if no_show_sent:
+                            logger.info("interview_meeting_no_show_emails_sent", extra={"count": no_show_sent})
+                    except Exception:
+                        logger.exception("interview_meeting_no_show_sweep_failed")
         except Exception:
             logger.exception("interview_call_scheduler_tick_failed")
         try:
