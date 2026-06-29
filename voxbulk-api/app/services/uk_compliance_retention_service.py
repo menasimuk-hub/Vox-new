@@ -121,12 +121,15 @@ class UkComplianceRetentionService:
 
 async def uk_compliance_retention_scheduler_loop() -> None:
     """Daily retention pass (runs in main.py lifespan)."""
+    from app.services.scheduler_lock import is_scheduler_leader
+
     await asyncio.sleep(300)
     while True:
         try:
-            with get_sessionmaker()() as db:
-                stats = UkComplianceRetentionService.run_retention_pass(db, dry_run=False)
-                logger.info("uk_compliance_retention_pass", extra=stats)
+            if is_scheduler_leader():
+                with get_sessionmaker()() as db:
+                    stats = UkComplianceRetentionService.run_retention_pass(db, dry_run=False)
+                    logger.info("uk_compliance_retention_pass", extra=stats)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

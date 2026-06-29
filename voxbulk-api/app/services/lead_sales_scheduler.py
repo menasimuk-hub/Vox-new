@@ -10,13 +10,16 @@ logger = get_logger(__name__)
 
 
 async def lead_sales_scheduler_loop(stop_event: asyncio.Event) -> None:
+    from app.services.scheduler_lock import is_scheduler_leader
+
     sessionmaker = get_sessionmaker()
     while not stop_event.is_set():
         try:
-            with sessionmaker() as db:
-                count = process_due_lead_sales_tasks(db)
-                if count:
-                    logger.info("lead_sales_tasks_started", extra={"count": count})
+            if is_scheduler_leader():
+                with sessionmaker() as db:
+                    count = process_due_lead_sales_tasks(db)
+                    if count:
+                        logger.info("lead_sales_tasks_started", extra={"count": count})
         except Exception:
             logger.exception("lead_sales_scheduler_tick_failed")
         try:

@@ -14,13 +14,20 @@ _WEEKLY_WEEKDAY = 0  # Monday
 
 
 async def weekly_digest_scheduler_loop(stop_event: asyncio.Event) -> None:
+    from app.services.scheduler_lock import is_scheduler_leader
+
     sessionmaker = get_sessionmaker()
     last_run_key: str | None = None
     while not stop_event.is_set():
         try:
             now = datetime.utcnow()
             run_key = f"{now.isocalendar().year}-W{now.isocalendar().week}"
-            if now.weekday() == _WEEKLY_WEEKDAY and now.hour == _WEEKLY_HOUR_UTC and last_run_key != run_key:
+            if (
+                now.weekday() == _WEEKLY_WEEKDAY
+                and now.hour == _WEEKLY_HOUR_UTC
+                and last_run_key != run_key
+                and is_scheduler_leader()
+            ):
                 with sessionmaker() as db:
                     count = WeeklyDigestService.send_all_due(db)
                     logger.info("weekly_digest_sent", extra={"count": count, "week": run_key})

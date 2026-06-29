@@ -14,18 +14,21 @@ async def interview_ats_scheduler_loop(stop_event: asyncio.Event) -> None:
     from app.core.database import get_sessionmaker
     from app.services.interview_ats_service import process_pending_ats_scans
 
+    from app.services.scheduler_lock import is_scheduler_leader
+
     sessionmaker = get_sessionmaker()
     while not stop_event.is_set():
         try:
-            with sessionmaker() as db:
-                count = process_pending_ats_scans(db)
-                if count:
-                    logger.info("interview_ats_processed count=%s", count)
-                from app.services.interview_email_ats_service import retry_deferred_email_ats
+            if is_scheduler_leader():
+                with sessionmaker() as db:
+                    count = process_pending_ats_scans(db)
+                    if count:
+                        logger.info("interview_ats_processed count=%s", count)
+                    from app.services.interview_email_ats_service import retry_deferred_email_ats
 
-                deferred = retry_deferred_email_ats(db, limit=8)
-                if deferred:
-                    logger.info("interview_email_ats_deferred_retried count=%s", deferred)
+                    deferred = retry_deferred_email_ats(db, limit=8)
+                    if deferred:
+                        logger.info("interview_email_ats_deferred_retried count=%s", deferred)
         except Exception:
             logger.exception("interview_ats_scheduler_tick_failed")
         try:

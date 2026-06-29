@@ -984,19 +984,22 @@ async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
     from app.core.database import get_sessionmaker
     from app.services.survey_analysis_service import SurveyAnalysisService
 
+    from app.services.scheduler_lock import is_scheduler_leader
+
     sessionmaker = get_sessionmaker()
     while not stop_event.is_set():
         try:
-            with sessionmaker() as db:
-                count = process_due_survey_call_orders(db)
-                if count:
-                    logger.info("survey_call_campaigns_started", extra={"count": count})
-                SurveyAnalysisService.process_pending_analysis(db)
-                from app.services.survey_wa_final_feedback_service import process_final_feedback_timeouts
+            if is_scheduler_leader():
+                with sessionmaker() as db:
+                    count = process_due_survey_call_orders(db)
+                    if count:
+                        logger.info("survey_call_campaigns_started", extra={"count": count})
+                    SurveyAnalysisService.process_pending_analysis(db)
+                    from app.services.survey_wa_final_feedback_service import process_final_feedback_timeouts
 
-                timed_out = process_final_feedback_timeouts(db)
-                if timed_out:
-                    logger.info("survey_final_feedback_timeouts", extra={"count": timed_out})
+                    timed_out = process_final_feedback_timeouts(db)
+                    if timed_out:
+                        logger.info("survey_final_feedback_timeouts", extra={"count": timed_out})
         except Exception:
             logger.exception("survey_call_scheduler_tick_failed")
         try:

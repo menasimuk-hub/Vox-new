@@ -13,11 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 async def career_mailbox_scheduler_loop(stop_event: asyncio.Event) -> None:
+    from app.services.scheduler_lock import is_scheduler_leader
+
     tick = 0
     while not stop_event.is_set():
         try:
             await asyncio.sleep(60)
             tick += 1
+            if not is_scheduler_leader():
+                continue
             with get_sessionmaker()() as db:
                 row = CareerMailboxSettingsService.get_row(db)
                 interval = max(1, int(row.sync_interval_minutes or 15))

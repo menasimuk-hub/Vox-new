@@ -1163,19 +1163,22 @@ async def interview_call_scheduler_loop(stop_event: asyncio.Event) -> None:
     from app.core.database import get_sessionmaker
     from app.services.interview_analysis_service import InterviewAnalysisService
 
+    from app.services.scheduler_lock import is_scheduler_leader
+
     sessionmaker = get_sessionmaker()
     while not stop_event.is_set():
         try:
-            with sessionmaker() as db:
-                count = process_due_interview_call_orders(db)
-                if count:
-                    logger.info("interview_call_campaigns_started", extra={"count": count})
-                InterviewAnalysisService.process_pending_analysis(db)
-                from app.services.interview_booking_reminder_service import InterviewBookingReminderService
+            if is_scheduler_leader():
+                with sessionmaker() as db:
+                    count = process_due_interview_call_orders(db)
+                    if count:
+                        logger.info("interview_call_campaigns_started", extra={"count": count})
+                    InterviewAnalysisService.process_pending_analysis(db)
+                    from app.services.interview_booking_reminder_service import InterviewBookingReminderService
 
-                reminder_stats = InterviewBookingReminderService.process_due_reminders(db)
-                if reminder_stats.get("email_sent") or reminder_stats.get("whatsapp_sent"):
-                    logger.info("interview_booking_reminders_sent", extra=reminder_stats)
+                    reminder_stats = InterviewBookingReminderService.process_due_reminders(db)
+                    if reminder_stats.get("email_sent") or reminder_stats.get("whatsapp_sent"):
+                        logger.info("interview_booking_reminders_sent", extra=reminder_stats)
         except Exception:
             logger.exception("interview_call_scheduler_tick_failed")
         try:
