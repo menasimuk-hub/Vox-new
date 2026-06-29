@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
 import { Loader2, Mic, MicOff, PhoneOff, ShieldCheck } from "lucide-react";
+import { VoiceCallAvatars } from "@/components/VoiceCallAvatars";
+import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { publicApiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/meet/$token")({
@@ -19,12 +21,13 @@ type MeetingStartResponse = {
   role?: string;
 };
 
-type CallPhase = "idle" | "connecting" | "live" | "ended" | "error";
+type CallPhase = "idle" | "connecting" | "aiJoining" | "live" | "ended" | "error";
 
 type TelnyxCall = {
   state?: string;
   id?: string;
   remoteStream?: MediaStream | null;
+  localStream?: MediaStream | null;
   hangup?: () => void;
   muteAudio?: () => void;
   unmuteAudio?: () => void;
@@ -37,25 +40,43 @@ type TelnyxNotification = {
 };
 
 const REMOTE_AUDIO_ID = "voxbulk-remote-audio";
+const ACTIVE_TIMEOUT_MS = 25_000;
+
+function webrtcLog(msg: string, detail?: unknown) {
+  console.info("[webrtc]", msg, detail ?? "");
+}
 
 async function loadTelnyxRtc() {
   const mod = await import("@telnyx/webrtc");
   return mod.TelnyxRTC;
 }
 
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function InterviewMeetingRoomPage() {
   const { token } = Route.useParams();
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const telnyxRef = React.useRef<{ disconnect?: () => void; off?: (event: string, handler: (...args: unknown[]) => void) => void } | null>(null);
-  const telnyxCallRef = React.useRef<{ hangup?: () => void; id?: string } | null>(null);
+  const telnyxCallRef = React.useRef<TelnyxCall | null>(null);
   const telnyxNotificationRef = React.useRef<((notification: TelnyxNotification) => void) | null>(null);
+  const localStreamRef = React.useRef<MediaStream | null>(null);
+  const activeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = React.useRef<number | null>(null);
 
   const [phase, setPhase] = React.useState<CallPhase>("idle");
+  const [statusLine, setStatusLine] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [meta, setMeta] = React.useState<MeetingStartResponse | null>(null);
   const [muted, setMuted] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
+  const [aiPresent, setAiPresent] = React.useState(false);
+  const [remoteStream, setRemoteStream] = React.useState<MediaStream | null>(null);
+  const [localMeterStream, setLocalMeterStream] = React.useState<MediaStream | null>(null);
   const [booking, setBooking] = React.useState<{
     candidate_name?: string;
     role?: string;
@@ -64,11 +85,13 @@ function InterviewMeetingRoomPage() {
   } | null>(null);
   const [nowMs, setNowMs] = React.useState(() => Date.now());
 
-  // Room opens 1 minute before the booked slot (matches backend early-join window).
   const EARLY_JOIN_MS = 60_000;
   const slotMs = booking?.booked_start_at ? new Date(booking.booked_start_at).getTime() : null;
   const msUntilOpen = slotMs != null ? slotMs - EARLY_JOIN_MS - nowMs : 0;
   const canJoin = slotMs == null || msUntilOpen <= 0;
+
+  const aiLevel = useAudioLevel(remoteStream, phase === "live" || phase === "aiJoining");
+  const userLevel = useAudioLevel(localMeterStream, (phase === "live" || phase === "aiJoining") && !muted);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -81,9 +104,7 @@ function InterviewMeetingRoomPage() {
       .then((res) => {
         if (!cancelled) setBooking(res);
       })
-      .catch(() => {
-        /* waiting area still works; join will surface any error */
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -95,21 +116,32 @@ function InterviewMeetingRoomPage() {
     return () => window.clearInterval(id);
   }, [phase, canJoin]);
 
+  const clearActiveTimer = React.useCallback(() => {
+    if (activeTimerRef.current) {
+      clearTimeout(activeTimerRef.current);
+      activeTimerRef.current = null;
+    }
+  }, []);
+
   const attachRemoteAudio = React.useCallback((call: TelnyxCall | null | undefined) => {
     const el = remoteAudioRef.current;
     const stream = call?.remoteStream ?? null;
+    if (stream) setRemoteStream(stream);
     if (!el || !stream) return;
-    if (el.srcObject !== stream) {
-      el.srcObject = stream;
-    }
+    if (el.srcObject !== stream) el.srcObject = stream;
     el.muted = false;
     el.volume = 1;
-    void el.play().catch(() => {
-      /* autoplay may defer until the next gesture; element is unmuted so it resumes */
-    });
+    void el.play().catch(() => {});
+  }, []);
+
+  const stopLocalStream = React.useCallback(() => {
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current = null;
+    setLocalMeterStream(null);
   }, []);
 
   const cleanupRtc = React.useCallback(() => {
+    clearActiveTimer();
     try {
       const client = telnyxRef.current;
       const handler = telnyxNotificationRef.current;
@@ -124,7 +156,10 @@ function InterviewMeetingRoomPage() {
     }
     telnyxRef.current = null;
     telnyxCallRef.current = null;
-  }, []);
+    setRemoteStream(null);
+    setAiPresent(false);
+    stopLocalStream();
+  }, [clearActiveTimer, stopLocalStream]);
 
   const completeMeeting = React.useCallback(
     async (providerCallId?: string) => {
@@ -152,14 +187,11 @@ function InterviewMeetingRoomPage() {
     const callId = telnyxCallRef.current?.id;
     cleanupRtc();
     setPhase("ended");
+    setStatusLine("");
     await completeMeeting(callId);
   }, [cleanupRtc, completeMeeting]);
 
-  React.useEffect(() => {
-    return () => {
-      cleanupRtc();
-    };
-  }, [cleanupRtc]);
+  React.useEffect(() => () => cleanupRtc(), [cleanupRtc]);
 
   React.useEffect(() => {
     if (phase !== "live" || startedAtRef.current == null) return;
@@ -172,26 +204,28 @@ function InterviewMeetingRoomPage() {
   const joinMeeting = async () => {
     setError(null);
     setPhase("connecting");
+    setStatusLine("Requesting microphone…");
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Your browser does not support microphone access — try Chrome or Edge on desktop.");
       }
+      let micStream: MediaStream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => track.stop());
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStreamRef.current = micStream;
+        setLocalMeterStream(micStream);
       } catch {
         throw new Error(
           "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
         );
       }
 
+      setStatusLine("Starting interview room…");
       const start = await publicApiFetch<MeetingStartResponse>(
         `/public/interview-booking/${encodeURIComponent(token)}/meeting/start`,
         { method: "POST", body: "{}" },
       );
-      if (!start?.agent_id) {
-        throw new Error("Interview agent is not available right now");
-      }
+      if (!start?.agent_id) throw new Error("Interview agent is not available right now");
       if (start.web_calls_enabled === false) {
         throw new Error("Online meeting is not enabled for this interview agent — contact the employer.");
       }
@@ -199,29 +233,31 @@ function InterviewMeetingRoomPage() {
 
       const TelnyxRTC = await loadTelnyxRtc();
       const client = new TelnyxRTC({
-        anonymous_login: {
-          target_type: "ai_assistant",
-          target_id: start.agent_id,
-        },
+        anonymous_login: { target_type: "ai_assistant", target_id: start.agent_id },
       });
       telnyxRef.current = client;
 
+      setStatusLine("Connecting to Telnyx…");
       await new Promise<void>((resolve, reject) => {
         const connectTimeout = window.setTimeout(() => {
           reject(new Error("Could not reach the interview server — check your connection and try again"));
         }, 30_000);
         client.on("telnyx.ready", () => {
           window.clearTimeout(connectTimeout);
+          webrtcLog("telnyx.ready");
           resolve();
         });
         client.on("telnyx.error", (err: { message?: string }) => {
           window.clearTimeout(connectTimeout);
+          webrtcLog("telnyx.error", err);
           reject(new Error(err?.message || "Could not connect to the interview room"));
         });
         client.connect();
       });
 
+      let wentLive = false;
       const onNotification = (notification: TelnyxNotification) => {
+        webrtcLog("notification", notification);
         if (notification?.type === "userMediaError") {
           setPhase("error");
           setError(
@@ -233,8 +269,22 @@ function InterviewMeetingRoomPage() {
         if (notification?.type !== "callUpdate" || !notification.call) return;
         const call = notification.call;
         const state = call.state;
-        if (state === "active" || state === "ringing" || state === "answering") {
-          telnyxCallRef.current = call as typeof telnyxCallRef.current;
+        telnyxCallRef.current = call;
+        attachRemoteAudio(call);
+        if (call.localStream) setLocalMeterStream(call.localStream);
+
+        if (state === "ringing" || state === "new" || state === "answering") {
+          setPhase("aiJoining");
+          setStatusLine("AI interviewer is joining…");
+        }
+        if (state === "active" && !wentLive) {
+          wentLive = true;
+          clearActiveTimer();
+          setAiPresent(true);
+          setPhase("live");
+          setStatusLine("AI is here — you can speak now");
+          startedAtRef.current = Date.now();
+          setElapsed(0);
           attachRemoteAudio(call);
         }
         if (state === "hangup" || state === "destroy" || state === "destroyed") {
@@ -243,6 +293,9 @@ function InterviewMeetingRoomPage() {
       };
       telnyxNotificationRef.current = onNotification;
       client.on("telnyx.notification", onNotification);
+
+      setPhase("aiJoining");
+      setStatusLine("Calling AI interviewer…");
 
       const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs || [];
       const opus = codecs.find((c) => c.mimeType.toLowerCase().includes("opus"));
@@ -254,26 +307,31 @@ function InterviewMeetingRoomPage() {
         preferred_codecs: opus ? [opus] : undefined,
         customHeaders: start.custom_headers || {},
       }) as TelnyxCall;
-      telnyxCallRef.current = call as typeof telnyxCallRef.current;
+      telnyxCallRef.current = call;
       attachRemoteAudio(call);
-      startedAtRef.current = Date.now();
-      setPhase("live");
-      setElapsed(0);
+      if (call.localStream) setLocalMeterStream(call.localStream);
+
+      activeTimerRef.current = setTimeout(() => {
+        if (!wentLive) {
+          webrtcLog("active timeout");
+          cleanupRtc();
+          setPhase("error");
+          setError("The AI interviewer did not answer — please try again. Check your mic and speakers.");
+        }
+      }, ACTIVE_TIMEOUT_MS);
     } catch (e) {
       cleanupRtc();
       setPhase("error");
       setError(e instanceof Error ? e.message : "Could not start the meeting");
+      setStatusLine("");
     }
   };
 
   const toggleMute = () => {
-    const call = telnyxCallRef.current as { muteAudio?: () => void; unmuteAudio?: () => void } | null;
+    const call = telnyxCallRef.current;
     if (!call) return;
-    if (muted) {
-      call.unmuteAudio?.();
-    } else {
-      call.muteAudio?.();
-    }
+    if (muted) call.unmuteAudio?.();
+    else call.muteAudio?.();
     setMuted((m) => !m);
   };
 
@@ -281,11 +339,14 @@ function InterviewMeetingRoomPage() {
   const secs = String(elapsed % 60).padStart(2, "0");
   const role = meta?.role || booking?.role || "Interview";
   const name = meta?.candidate_name || booking?.candidate_name || "Candidate";
+  const userInitials = initialsFromName(name);
 
   const waitTotal = Math.max(0, Math.ceil(msUntilOpen / 1000));
   const waitMins = String(Math.floor(waitTotal / 60)).padStart(2, "0");
   const waitSecs = String(waitTotal % 60).padStart(2, "0");
   const slotTimeLabel = slotMs != null ? new Date(slotMs).toLocaleString() : "";
+
+  const inCallUi = phase === "live" || phase === "aiJoining";
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-[#eef2f6]">
@@ -344,34 +405,50 @@ function InterviewMeetingRoomPage() {
             {phase === "connecting" ? (
               <div className="mt-10 flex flex-col items-center gap-3 text-slate-300">
                 <Loader2 className="size-8 animate-spin text-violet-400" />
-                <p className="text-sm">Connecting you to your AI interviewer…</p>
+                <p className="text-sm">{statusLine || "Connecting…"}</p>
               </div>
             ) : null}
 
-            {phase === "live" ? (
-              <div className="mt-8 space-y-4">
-                <div className="mx-auto flex size-24 items-center justify-center rounded-full bg-violet-500/15 ring-2 ring-violet-500/30">
-                  <div className="size-16 rounded-full bg-violet-500/25 animate-pulse" />
-                </div>
-                <p className="text-sm text-slate-300">Speak naturally — the AI interviewer is listening.</p>
-                <div className="flex flex-wrap justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={toggleMute}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium hover:bg-white/10"
-                  >
-                    {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-                    {muted ? "Unmute" : "Mute"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void endMeeting()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500"
-                  >
-                    <PhoneOff className="size-4" />
-                    End interview
-                  </button>
-                </div>
+            {inCallUi ? (
+              <div className="mt-8 space-y-5">
+                <VoiceCallAvatars
+                  aiLabel="AI Interviewer"
+                  aiLevel={aiLevel}
+                  aiPresent={aiPresent}
+                  userLabel={name.split(" ")[0] || "You"}
+                  userInitials={userInitials}
+                  userLevel={userLevel}
+                  micOn={!muted}
+                />
+                <p className="text-sm text-slate-300">
+                  {phase === "live"
+                    ? meta?.greeting
+                      ? "The AI will greet you shortly — speak naturally after you hear the welcome."
+                      : "Speak naturally — the AI interviewer is listening."
+                    : statusLine || "Waiting for the AI interviewer…"}
+                </p>
+                {phase === "live" ? (
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={toggleMute}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium hover:bg-white/10"
+                    >
+                      {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                      {muted ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void endMeeting()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500"
+                    >
+                      <PhoneOff className="size-4" />
+                      End interview
+                    </button>
+                  </div>
+                ) : (
+                  <Loader2 className="mx-auto size-6 animate-spin text-violet-400" />
+                )}
               </div>
             ) : null}
 
@@ -393,6 +470,7 @@ function InterviewMeetingRoomPage() {
                   onClick={() => {
                     setPhase("idle");
                     setError(null);
+                    setStatusLine("");
                   }}
                 >
                   Try again
