@@ -45,6 +45,8 @@ def stt_provider_order() -> tuple[str, ...]:
 
 def _stt_language(language: str | None) -> str:
     raw = str(language or DEFAULT_STT_LANGUAGE).strip().lower()
+    if raw in {"auto", "detect", "multi"}:
+        return "auto"
     if raw.startswith("ar"):
         return "ar"
     if raw.startswith("en"):
@@ -389,7 +391,8 @@ class VoiceTranscriptionService:
         result = DeepInfraProviderService.transcribe_audio_file(
             main_db,
             audio_path=audio_path,
-            language=stt_lang,
+            # None lets DeepInfra/Whisper auto-detect the spoken language.
+            language=None if stt_lang == "auto" else stt_lang,
         )
         return str(result.get("text") or "").strip()
 

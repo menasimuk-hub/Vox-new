@@ -84,13 +84,18 @@ class DeepgramProviderService:
     ) -> dict[str, Any]:
         start = time.perf_counter()
         config = DeepgramProviderService._config(db)
+        auto_detect = str(language or "").strip().lower() in {"auto", "detect", "multi"}
         stt_language = str(language or config["language"] or DEEPGRAM_DEFAULT_LANGUAGE).strip()
-        params = {
+        params: dict[str, str] = {
             "model": config["model"],
-            "language": stt_language,
             "smart_format": "true",
             "punctuate": "true",
         }
+        if auto_detect:
+            params["detect_language"] = "true"
+            stt_language = "auto"
+        else:
+            params["language"] = stt_language
         headers = {"Authorization": f"Token {config['api_key']}", "Content-Type": content_type}
         with httpx.Client(timeout=45.0, verify=DeepgramProviderService._ssl_context()) as client:
             response = client.post(f"{config['base_url']}/v1/listen", params=params, content=audio, headers=headers)

@@ -340,12 +340,15 @@ class FeedbackWebSurveyService:
         filename: str,
         content_type: str,
         mode: str = "answer",
+        answer: str | None = None,
     ) -> dict[str, Any]:
         """Transcode + transcribe an uploaded voice note for the current web step.
 
+        answer set: submit `answer` as the step answer with the transcript as a voice
+            reason, then advance (the low-rating reason screen "send voice note" case).
         mode="answer": records the transcript as the current step answer and advances.
         mode="reason": records a low-rating reason for the current step (no advance).
-        Returns the transcript plus, for mode="answer", the next question / completion.
+        Returns the transcript plus, for advancing modes, the next question / completion.
         """
         from app.services.voice_transcription_service import VoiceTranscriptionService
 
@@ -361,15 +364,29 @@ class FeedbackWebSurveyService:
             audio_bytes=audio_bytes,
             filename=filename or "voice.webm",
             content_type=content_type or "audio/webm",
-            language="en",
+            language="auto",
         )
         transcript = str(getattr(result, "transcript", "") or "").strip()
         if not transcript:
-            # Accept low-confidence transcripts (the visitor can edit the text box);
-            # only reject when nothing was heard at all.
+            # Only reject when nothing was heard at all; the voice note is the answer.
             raise ValueError(
                 "We couldn't hear that clearly — please try again or type your answer."
             )
+
+        answer_value = str(answer).strip() if answer is not None else ""
+        if answer_value:
+            # Voice note carries a low-rating reason: submit the chosen rating with the
+            # spoken transcript as the reason and advance the flow.
+            return {
+                "transcript": transcript,
+                **FeedbackWebSurveyService.submit_answer(
+                    db,
+                    session_id=session_id,
+                    answer=answer_value,
+                    reason=transcript,
+                    reason_source="voice",
+                ),
+            }
 
         if mode == "transcribe":
             # Transcribe only: caller fills the answer box and submits via the answer route.

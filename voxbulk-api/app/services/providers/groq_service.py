@@ -85,12 +85,17 @@ class GroqProviderService:
         start = time.perf_counter()
         config = GroqProviderService._config(db)
         files = {"file": (filename, audio, content_type)}
+        auto_detect = str(language or "").strip().lower() in {"auto", "detect", "multi"}
         stt_lang = str(language or "ar").strip().lower() or "ar"
         data = {
             "model": config["stt_model"] or GROQ_DEFAULT_STT_MODEL,
-            "language": stt_lang,
             "response_format": "json",
         }
+        if auto_detect:
+            stt_lang = "auto"
+        else:
+            # Omit `language` for auto-detect; otherwise pin the requested language.
+            data["language"] = stt_lang
         if prompt:
             data["prompt"] = str(prompt).strip()
         headers = {"Authorization": f"Bearer {config['api_key']}"}

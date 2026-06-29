@@ -75,6 +75,7 @@ async def submit_web_voice(
     session_id: str,
     file: UploadFile = File(...),
     mode: str = Form("answer"),
+    answer: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     audio_bytes = await file.read()
@@ -96,6 +97,7 @@ async def submit_web_voice(
                     if str(mode).strip().lower() in {"reason", "transcribe"}
                     else "answer"
                 ),
+                answer=answer,
             ),
         }
     except ValueError as exc:

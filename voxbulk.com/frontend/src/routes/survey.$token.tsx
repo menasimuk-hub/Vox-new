@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquareText, Mic, Square, RotateCcw, ArrowRight, ChevronLeft } from "lucide-react";
+import { MessageSquareText, Mic, Square, RotateCcw, ArrowRight, ChevronLeft, Play, Pause, Send } from "lucide-react";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import "./survey.css";
 
@@ -148,7 +148,11 @@ function PublicFeedbackSurvey() {
     }
   };
 
-  const uploadVoice = async (blob: Blob, mode: "answer" | "reason" | "transcribe") => {
+  const uploadVoice = async (
+    blob: Blob,
+    mode: "answer" | "reason" | "transcribe",
+    answer?: string,
+  ) => {
     if (!sessionId) return;
     setBusy(true);
     setError("");
@@ -156,14 +160,15 @@ function PublicFeedbackSurvey() {
       const form = new FormData();
       form.append("file", blob, "voice.webm");
       form.append("mode", mode);
+      if (answer != null) form.append("answer", answer);
       const data = await apiUpload<{ ok?: boolean; transcript?: string } & AdvanceResponse>(
         `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`,
         form,
       );
-      if (data.transcript && (mode === "reason" || mode === "transcribe")) {
-        setTextAnswer((prev) => (prev.trim() ? `${prev.trim()} — ${data.transcript}` : String(data.transcript)));
-      }
-      if (mode === "answer") {
+      // Voice is sent as a voice note — the server transcribes it. Recording must
+      // never populate the text box, so advance the flow whenever a voice answer
+      // (a normal answer, or a low-rating reason carried by `answer`) was submitted.
+      if (mode === "answer" || answer != null) {
         applyAdvance(data);
       }
       return data;
@@ -317,7 +322,7 @@ function PublicFeedbackSurvey() {
             text={textAnswer}
             onText={setTextAnswer}
             busy={busy}
-            onUploadVoice={(blob) => uploadVoice(blob, "reason")}
+            onUploadVoice={(blob) => uploadVoice(blob, "reason", pendingLow as string)}
             onSkip={() => submitAnswer(pendingLow as string)}
             onSubmit={() => {
               const reason = [reasonChips.join(", "), textAnswer.trim()].filter(Boolean).join(" — ");
@@ -336,7 +341,7 @@ function PublicFeedbackSurvey() {
                 onText={setTextAnswer}
                 allowVoice={Boolean(q?.allow_voice)}
                 busy={busy}
-                onUploadVoice={(blob) => uploadVoice(blob, "transcribe")}
+                onUploadVoice={(blob) => uploadVoice(blob, "answer")}
               />
             ) : (
               <div className="fb-options">
@@ -492,7 +497,7 @@ function TextStep({
       />
       {allowVoice ? (
         <>
-          <div className="fb-or">or record a voice note — we'll transcribe it</div>
+          <div className="fb-or">or record a voice note instead</div>
           <VoiceRecorder busy={busy} onRecorded={onUploadVoice} />
         </>
       ) : null}
@@ -573,6 +578,13 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
   };
 
   const revokeAudioUrl = () => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+      } catch {
+        /* ignore */
+      }
+    }
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
@@ -621,7 +633,13 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" });
         if (blob.size > 0) {
           blobRef.current = blob;
-          void sendRecording();
+          // Don't auto-send: let the visitor play it back and re-record before sending.
+          const url = URL.createObjectURL(blob);
+          objectUrlRef.current = url;
+          const audio = new Audio(url);
+          audio.onended = () => setPlaying(false);
+          audioRef.current = audio;
+          setRecState("recorded");
         } else {
           setRecError("Recording was empty. Try again and speak clearly.");
           setRecState("idle");
@@ -667,6 +685,18 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
     setRecState("idle");
     setElapsed(0);
     setRecError("");
+  };
+
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      void audio.play();
+      setPlaying(true);
+    }
   };
 
   const sendRecording = async () => {
@@ -727,6 +757,47 @@ function VoiceRecorder({ busy, onRecorded }: { busy: boolean; onRecorded: (blob:
         <button type="button" className="fb-rec-reset" onClick={reset} disabled={busy}>
           <RotateCcw className="fb-btn-icon" /> Re-record
         </button>
+      </div>
+    );
+  }
+
+  if (recState === "recorded") {
+    return (
+      <div className="fb-rec-preview">
+        <div className="fb-rec-preview-row">
+          <button
+            type="button"
+            className="fb-rec-play"
+            onClick={togglePlayback}
+            disabled={busy}
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? <Pause className="fb-btn-icon" /> : <Play className="fb-btn-icon" />}
+            {playing ? "Pause" : "Play"}
+          </button>
+          <span className="fb-rec-len">{fmt(elapsed)}</span>
+        </div>
+        <div className="fb-rec-preview-row">
+          <button
+            type="button"
+            className="fb-rec-redo"
+            onClick={reset}
+            disabled={busy}
+            aria-label="Re-record"
+          >
+            <RotateCcw className="fb-btn-icon" /> Re-record
+          </button>
+          <button
+            type="button"
+            className="fb-rec-send"
+            onClick={() => void sendRecording()}
+            disabled={busy}
+            aria-label="Send voice note"
+          >
+            <Send className="fb-btn-icon" /> Send
+          </button>
+        </div>
+        {recError ? <p className="fb-rec-error">{recError}</p> : null}
       </div>
     );
   }
