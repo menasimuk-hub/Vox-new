@@ -148,12 +148,27 @@ function InterviewMeetingRoomPage() {
     setError(null);
     setPhase("connecting");
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Your browser does not support microphone access — try Chrome or Edge on desktop.");
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch {
+        throw new Error(
+          "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
+        );
+      }
+
       const start = await publicApiFetch<MeetingStartResponse>(
         `/public/interview-booking/${encodeURIComponent(token)}/meeting/start`,
         { method: "POST", body: "{}" },
       );
       if (!start?.agent_id) {
         throw new Error("Interview agent is not available right now");
+      }
+      if (start.web_calls_enabled === false) {
+        throw new Error("Online meeting is not enabled for this interview agent — contact the employer.");
       }
       setMeta(start);
 
@@ -167,59 +182,51 @@ function InterviewMeetingRoomPage() {
       telnyxRef.current = client;
 
       await new Promise<void>((resolve, reject) => {
-        client.on("telnyx.ready", () => resolve());
-        client.on("telnyx.error", (err: { message?: string }) =>
-          reject(new Error(err?.message || "Could not connect to the interview room")),
-        );
+        const connectTimeout = window.setTimeout(() => {
+          reject(new Error("Could not reach the interview server — check your connection and try again"));
+        }, 30_000);
+        client.on("telnyx.ready", () => {
+          window.clearTimeout(connectTimeout);
+          resolve();
+        });
+        client.on("telnyx.error", (err: { message?: string }) => {
+          window.clearTimeout(connectTimeout);
+          reject(new Error(err?.message || "Could not connect to the interview room"));
+        });
         client.connect();
       });
+
+      const onNotification = (notification: TelnyxNotification) => {
+        if (notification?.type === "userMediaError") {
+          setPhase("error");
+          setError(
+            notification.errorMessage ||
+              "Microphone error — allow mic access for this site in browser settings and try again",
+          );
+          return;
+        }
+        if (notification?.type !== "callUpdate" || !notification.call) return;
+        const state = notification.call.state;
+        if (state === "hangup" || state === "destroy" || state === "destroyed") {
+          void endMeeting();
+        }
+      };
+      telnyxNotificationRef.current = onNotification;
+      client.on("telnyx.notification", onNotification);
 
       const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs || [];
       const opus = codecs.find((c) => c.mimeType.toLowerCase().includes("opus"));
       const call = client.newCall({
         destinationNumber: "",
+        audio: true,
         remoteElement: remoteAudioRef.current || undefined,
         preferred_codecs: opus ? [opus] : undefined,
         customHeaders: start.custom_headers || {},
       });
       telnyxCallRef.current = call;
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-          reject(new Error("Connection timed out — check your microphone permission and try again"));
-        }, 45_000);
-
-        const onNotification = (notification: TelnyxNotification) => {
-          if (notification?.type === "userMediaError") {
-            window.clearTimeout(timeout);
-            reject(
-              new Error(
-                notification.errorMessage ||
-                  "Microphone access is required — allow the browser to use your mic and try again",
-              ),
-            );
-            return;
-          }
-          if (notification?.type !== "callUpdate" || !notification.call) return;
-          const state = notification.call.state;
-          // AI assistants auto-answer; ringing means media path is up.
-          if (state === "active" || state === "ringing") {
-            window.clearTimeout(timeout);
-            startedAtRef.current = Date.now();
-            setPhase("live");
-            setElapsed(0);
-            resolve();
-            return;
-          }
-          if (state === "hangup" || state === "destroy" || state === "destroyed") {
-            window.clearTimeout(timeout);
-            void endMeeting();
-          }
-        };
-
-        telnyxNotificationRef.current = onNotification;
-        client.on("telnyx.notification", onNotification);
-      });
+      startedAtRef.current = Date.now();
+      setPhase("live");
+      setElapsed(0);
     } catch (e) {
       cleanupRtc();
       setPhase("error");
