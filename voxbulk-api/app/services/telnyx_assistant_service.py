@@ -67,6 +67,41 @@ def _voice_settings_dict(assistant: dict[str, Any]) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def parse_telnyx_assistant_voice(
+    voice: str,
+    *,
+    voice_settings: dict[str, Any] | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    """Map Telnyx voice_settings.voice → (tts_provider, elevenlabs_voice_id, extras).
+
+    Telnyx portal uses composite IDs such as ``ElevenLabs.eleven_flash_v2_5.{voice_id}``.
+    Direct ElevenLabs integrations may store only the raw voice id with ``api_key_ref`` set.
+    """
+    raw = str(voice or "").strip()
+    settings = voice_settings if isinstance(voice_settings, dict) else {}
+    extras: dict[str, Any] = {}
+
+    if not raw:
+        return "telnyx", "", extras
+
+    lower = raw.lower()
+    if lower.startswith("telnyx."):
+        return "telnyx", "", extras
+
+    if lower.startswith("elevenlabs."):
+        parts = raw.split(".")
+        if len(parts) >= 3:
+            extras["model_id"] = parts[1]
+            return "elevenlabs", parts[-1], extras
+        if len(parts) == 2 and parts[1].strip():
+            return "elevenlabs", parts[1].strip(), extras
+
+    if settings.get("api_key_ref") or ("." not in raw and len(raw) >= 10):
+        return "elevenlabs", raw, extras
+
+    return "telnyx", "", extras
+
+
 def resolve_telnyx_assistant_runtime(db: Session, assistant_id: str) -> dict[str, Any]:
     """Map Telnyx portal assistant → instructions, greeting, and TTS voice for browser calls."""
     assistant = fetch_telnyx_assistant(db, assistant_id)
@@ -79,14 +114,11 @@ def resolve_telnyx_assistant_runtime(db: Session, assistant_id: str) -> dict[str
     if voice_speed is None:
         voice_speed = voice_settings.get("speed")
 
-    tts_provider = "telnyx"
-    elevenlabs_voice_id = ""
-    elevenlabs_voice_settings: dict[str, Any] = {}
-    if voice.lower().startswith("telnyx."):
-        tts_provider = "telnyx"
-    elif voice_settings.get("api_key_ref") or (voice and "." not in voice and len(voice) >= 10):
-        tts_provider = "elevenlabs"
-        elevenlabs_voice_id = voice
+    tts_provider, elevenlabs_voice_id, voice_extras = parse_telnyx_assistant_voice(
+        voice, voice_settings=voice_settings
+    )
+    elevenlabs_voice_settings: dict[str, Any] = dict(voice_extras)
+    if tts_provider == "elevenlabs":
         for key in ("stability", "similarity_boost", "style", "speed", "temperature", "use_speaker_boost"):
             if voice_settings.get(key) is not None:
                 elevenlabs_voice_settings[key] = voice_settings.get(key)

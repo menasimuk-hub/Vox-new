@@ -14,6 +14,18 @@ from app.services.provider_settings import ProviderSettingsService
 logger = logging.getLogger(__name__)
 
 
+def normalize_elevenlabs_voice_id(voice_id: str) -> tuple[str, str | None]:
+    """Telnyx stores ElevenLabs as ``ElevenLabs.{model}.{voice_id}`` — API needs the last segment."""
+    raw = str(voice_id or "").strip()
+    if raw.lower().startswith("elevenlabs."):
+        parts = raw.split(".")
+        if len(parts) >= 3:
+            return parts[-1], parts[1]
+        if len(parts) == 2 and parts[1].strip():
+            return parts[1].strip(), None
+    return raw, None
+
+
 class ElevenLabsProviderService:
     TEST_PHRASE = "Hello, this is your ElevenLabs voice test."
 
@@ -54,17 +66,21 @@ class ElevenLabsProviderService:
     ) -> dict[str, Any]:
         total_start = time.perf_counter()
         config = ElevenLabsProviderService._config(db)
-        selected_voice_id = str(voice_id or config.get("default_voice_id") or "").strip()
+        raw_voice_id = str(voice_id or config.get("default_voice_id") or "").strip()
+        selected_voice_id, composite_model = normalize_elevenlabs_voice_id(raw_voice_id)
         if not selected_voice_id:
             raise ValueError("ElevenLabs voice_id is required")
+        merged_settings = dict(voice_settings or {})
+        if composite_model and not merged_settings.get("model_id"):
+            merged_settings["model_id"] = composite_model
         base_url = str(config.get("base_url") or "https://api.elevenlabs.io").rstrip("/")
-        model_id = str((voice_settings or {}).get("model_id") or config.get("model_id") or "eleven_multilingual_v2")
-        output_format = str((voice_settings or {}).get("output_format") or config.get("output_format") or "mp3_44100_128")
+        model_id = str(merged_settings.get("model_id") or config.get("model_id") or "eleven_multilingual_v2")
+        output_format = str(merged_settings.get("output_format") or config.get("output_format") or "mp3_44100_128")
         url = f"{base_url}/v1/text-to-speech/{selected_voice_id}"
         payload = {
             "text": str(text or ""),
             "model_id": model_id,
-            "voice_settings": ElevenLabsProviderService._voice_settings(config, voice_settings),
+            "voice_settings": ElevenLabsProviderService._voice_settings(config, merged_settings),
         }
         headers = {
             "xi-api-key": config["api_key"],

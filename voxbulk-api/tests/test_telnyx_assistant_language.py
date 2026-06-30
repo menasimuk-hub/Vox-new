@@ -1,4 +1,38 @@
-from app.services.telnyx_assistant_service import _voice_settings_for_language, _transcription_for_language
+from app.services.telnyx_assistant_service import _voice_settings_for_language, _transcription_for_language, parse_telnyx_assistant_voice
+
+
+def test_parse_telnyx_elevenlabs_composite_voice():
+    provider, voice_id, extras = parse_telnyx_assistant_voice(
+        "ElevenLabs.eleven_flash_v2_5.lUTamkMw7gOzZbFIwmq4"
+    )
+    assert provider == "elevenlabs"
+    assert voice_id == "lUTamkMw7gOzZbFIwmq4"
+    assert extras["model_id"] == "eleven_flash_v2_5"
+
+
+def test_parse_telnyx_raw_elevenlabs_voice_with_api_key_ref():
+    provider, voice_id, extras = parse_telnyx_assistant_voice(
+        "cgSgspJ2msm6clMCkdW9",
+        voice_settings={"api_key_ref": "elevenlabs-prod"},
+    )
+    assert provider == "elevenlabs"
+    assert voice_id == "cgSgspJ2msm6clMCkdW9"
+    assert extras == {}
+
+
+def test_parse_telnyx_native_voice():
+    provider, voice_id, extras = parse_telnyx_assistant_voice("telnyx.NaturalHD.astra")
+    assert provider == "telnyx"
+    assert voice_id == ""
+    assert extras == {}
+
+
+def test_normalize_elevenlabs_voice_id_strips_telnyx_prefix():
+    from app.services.providers.elevenlabs_service import normalize_elevenlabs_voice_id
+
+    voice_id, model = normalize_elevenlabs_voice_id("ElevenLabs.eleven_flash_v2_5.lUTamkMw7gOzZbFIwmq4")
+    assert voice_id == "lUTamkMw7gOzZbFIwmq4"
+    assert model == "eleven_flash_v2_5"
 
 
 def test_voice_settings_skips_elevenlabs_assistant():

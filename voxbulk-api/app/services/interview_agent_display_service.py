@@ -105,7 +105,7 @@ def preview_interview_agent_voice(db: Session, *, agent_id: str, org_id: str) ->
             "Azure-only agents: use Admin → Agents → Test call."
         )
 
-    voice_id = str(runtime.get("elevenlabs_voice_id") or runtime.get("voice") or "").strip()
+    voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
     if not voice_id:
         raise ValueError("ElevenLabs voice ID not found on this Telnyx assistant")
 
