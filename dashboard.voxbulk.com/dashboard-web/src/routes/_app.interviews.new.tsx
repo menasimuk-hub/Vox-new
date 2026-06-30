@@ -1852,40 +1852,26 @@ function CreateInterview() {
           <Field label="Role" error={missingPosition ? "Enter role or position" : undefined}>
             <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Registered dental hygienist (GDC)" className={inputErrorClass(missingPosition)} />
           </Field>
-          <div className="md:col-span-2 space-y-3">
-            <Label className="text-xs">Language</Label>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={interviewLanguage === "en" ? "default" : "outline"}
-                onClick={() => setInterviewLanguage("en")}
-              >
-                English
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={interviewLanguage === "ar" ? "default" : "outline"}
-                disabled={agentsForLanguage(agents, "ar").length === 0}
-                onClick={() => setInterviewLanguage("ar")}
-              >
-                Arabic
-              </Button>
-            </div>
-            {agentsForLanguage(agents, "ar").length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">Arabic requires an Arabic interview agent in Admin → Agents.</p>
-            ) : null}
-          </div>
-          <div className="md:col-span-2 space-y-3">
-            <Label className="text-xs">AI voice agent</Label>
-            {agents.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
-            ) : languageAgents.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No {interviewLanguage === "ar" ? "Arabic" : "English"} interview agents available.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {languageAgents.map((a) => (
+          <div className="md:col-span-2 space-y-2">
+            <Label className="text-xs">Language &amp; AI voice agent</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={interviewLanguage} onValueChange={(v) => setInterviewLanguage(v as InterviewLanguage)}>
+                <SelectTrigger className="h-9 w-[150px] shrink-0">
+                  <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="ar" disabled={agentsForLanguage(agents, "ar").length === 0}>
+                    Arabic
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {agents.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
+              ) : languageAgents.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No {interviewLanguage === "ar" ? "Arabic" : "English"} interview agents available.</p>
+              ) : (
+                languageAgents.map((a) => (
                   <Button
                     key={a.id}
                     type="button"
@@ -1895,11 +1881,11 @@ function CreateInterview() {
                   >
                     {agentButtonLabel(a)}
                   </Button>
-                ))}
-              </div>
-            )}
-            {selectedAgent ? (
-              <p className="text-[11px] text-muted-foreground">Selected: {agentButtonLabel(selectedAgent)}</p>
+                ))
+              )}
+            </div>
+            {agentsForLanguage(agents, "ar").length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Arabic requires an Arabic interview agent in Admin → Agents.</p>
             ) : null}
           </div>
           <Field label="Interview format">

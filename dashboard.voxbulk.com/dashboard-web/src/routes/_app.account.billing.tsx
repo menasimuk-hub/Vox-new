@@ -176,13 +176,22 @@ function BillingPage() {
   const feedbackFinance = (subsSummaryQ.data?.feedback || null) as Record<string, unknown> | null;
 
   const formatSubDate = (raw: unknown) => {
-    if (!raw) return "—";
+    if (!raw) return "";
     const d = new Date(String(raw));
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   };
 
   const formatSubAmount = (fin: Record<string, unknown> | null) =>
-    String(fin?.amount_next_payment_display || fin?.amount_next_payment_minor || "—");
+    String(fin?.amount_next_payment_display || fin?.amount_next_payment_minor || "");
+
+  // Fall back to the subscriptions summary (Core/Feedback) so feedback-only orgs
+  // without a Core "next invoice" still show a real date + amount instead of "—".
+  const activeFinance = coreFinance?.plan_name ? coreFinance : feedbackFinance?.plan_name ? feedbackFinance : null;
+  const nextInvoiceAmount = String(nextInvoice.amount_display || formatSubAmount(activeFinance) || "—");
+  const nextInvoiceDate =
+    String(nextInvoice.charge_date_display || "") ||
+    formatSubDate(activeFinance?.next_billing_date || activeFinance?.current_period_end) ||
+    "—";
   const sharedPool = Boolean(monitor.shared_package_pool);
   const meters = usageQ.data?.meters || [];
 
@@ -449,33 +458,13 @@ function BillingPage() {
               <CardHeader className="pb-2">
                 <CardDescription>Next invoice</CardDescription>
                 <CardTitle className="text-2xl tabular-nums">
-                  {String(nextInvoice.amount_display || "—")}
+                  {nextInvoiceAmount}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Charged on {String(nextInvoice.charge_date_display || "—")}
+                  Charged on {nextInvoiceDate}
                 </p>
-                {(coreFinance?.plan_name || feedbackFinance?.plan_name) && subsSummaryQ.data ? (
-                  <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3 text-sm">
-                    {coreFinance?.plan_name ? (
-                      <p>
-                        <span className="text-muted-foreground">Core next billing:</span>{" "}
-                        <strong>{formatSubDate(coreFinance.next_billing_date || coreFinance.current_period_end)}</strong>
-                        {" · "}
-                        <strong>{formatSubAmount(coreFinance)}</strong>
-                      </p>
-                    ) : null}
-                    {feedbackFinance?.plan_name ? (
-                      <p>
-                        <span className="text-muted-foreground">Feedback next billing:</span>{" "}
-                        <strong>{formatSubDate(feedbackFinance.next_billing_date || feedbackFinance.current_period_end)}</strong>
-                        {" · "}
-                        <strong>{formatSubAmount(feedbackFinance)}</strong>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div className="space-y-1 text-sm">
                   <p className="text-muted-foreground">
                     Payment method:{" "}

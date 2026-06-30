@@ -521,6 +521,9 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
             for r in rows
         ],
     }
+
+
+@router.get("/wa-templates")
 def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
 

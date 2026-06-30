@@ -96,11 +96,7 @@ function BillingIntervalToggle({
       {centered ? (
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Billing period</p>
       ) : null}
-      <div
-        className={`flex rounded-full border border-primary/30 bg-background p-1 text-xs shadow-sm ${
-          centered ? "ring-2 ring-primary/20 animate-pulse" : ""
-        }`}
-      >
+      <div className="flex rounded-full border border-primary/30 bg-background p-1 text-xs shadow-sm">
         <button
           type="button"
           className={`rounded-full px-4 py-2 transition-colors ${value === "monthly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
@@ -110,10 +106,17 @@ function BillingIntervalToggle({
         </button>
         <button
           type="button"
-          className={`rounded-full px-4 py-2 transition-colors ${value === "yearly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+          className={`inline-flex items-center gap-2 rounded-full px-4 py-2 transition-colors ${value === "yearly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onChange("yearly")}
         >
-          Yearly <span className="font-semibold text-inherit">(2 months free)</span>
+          Yearly
+          <span className="relative inline-flex items-center gap-1 rounded-full bg-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success-foreground shadow-sm">
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-success-foreground opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-success-foreground" />
+            </span>
+            2 months free
+          </span>
         </button>
       </div>
     </div>
@@ -397,20 +400,18 @@ function PackagesPage() {
           {(Object.keys(SERVICE_TABS) as ServiceTab[]).map((key) => {
             const s = SERVICE_TABS[key];
             const Icon = s.icon;
+            const productActive =
+              (key === "feedback" && hasActiveFeedbackSub) || (key === "core" && hasActiveCorePlan);
             return (
-              <TabsTrigger key={key} value={key} className="flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
+              <TabsTrigger key={key} value={key} className="relative flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
+                {productActive ? (
+                  <span className="absolute right-1.5 top-1.5 flex size-2" title="Active subscription">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+                    <span className="relative inline-flex size-2 rounded-full bg-success ring-2 ring-background" />
+                  </span>
+                ) : null}
                 <Icon className={`size-4 ${s.tint}`} />
                 <span className="text-[11px] font-medium">{s.label}</span>
-                {key === "feedback" && hasActiveFeedbackSub ? (
-                  <Badge variant="secondary" className="mt-0.5 h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide">
-                    Active
-                  </Badge>
-                ) : null}
-                {key === "core" && hasActiveCorePlan ? (
-                  <Badge variant="secondary" className="mt-0.5 h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide">
-                    Active
-                  </Badge>
-                ) : null}
               </TabsTrigger>
             );
           })}
@@ -420,7 +421,11 @@ function PackagesPage() {
           const s = SERVICE_TABS[key];
           const Icon = s.icon;
           return (
-            <TabsContent key={key} value={key} className="mt-4 space-y-6">
+            <TabsContent
+              key={key}
+              value={key}
+              className={`mt-4 space-y-6 ${key === "core" ? "rounded-2xl border border-[#EFE2C6] bg-[#FBF3E4] p-4 ring-1 ring-primary/10 sm:p-6 dark:border-border dark:bg-card dark:ring-0" : ""}`}
+            >
               <div className={`rounded-2xl border border-border bg-gradient-to-br ${s.bg} to-transparent p-4 ring-1 ${s.ring}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
@@ -576,7 +581,7 @@ function PackagesPage() {
                       Most popular
                     </span>
                   )}
-                  <Card className={`flex h-full w-full flex-col bg-[#FBEFEF] border-[#F5D6D6] ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
+                  <Card className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
                     <CardHeader className="pb-2 pt-5">
                       <Badge variant="outline" className="mb-2 w-fit border-primary/40 text-primary">Core platform</Badge>
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>
