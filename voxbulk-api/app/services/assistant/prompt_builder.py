@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services.assistant.dashboard_catalog import catalog_prompt_block
+from app.services.assistant.service_gate import disabled_services_list
 from app.services.assistant.service_registry import INTENT_REGISTRY, registry_intent_names
 
 
@@ -12,9 +13,15 @@ def build_classify_system_prompt(*, enabled_services: list[str] | None = None) -
         "Pick exactly one intent from the allowed list and extract parameters (order_id, invoice_id, ticket_id when mentioned).",
         "Never invent intents. If unsure, use general_help with low confidence.",
         "create_ticket is allowed when the user wants to open a support ticket.",
-        "",
-        "Allowed intents:",
     ]
+    disabled = disabled_services_list(enabled_services)
+    if disabled:
+        lines.append(
+            "Do NOT classify into intents for disabled modules ("
+            + ", ".join(disabled)
+            + "). Use general_help and explain the module is not enabled on this account."
+        )
+    lines.extend(["", "Allowed intents:"])
     names = list(registry_intent_names())
     if "create_ticket" not in names:
         names.append("create_ticket")
@@ -38,9 +45,15 @@ def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None)
         "Never invent numbers, IDs, or account facts not present in the data.",
         "Never mention APIs, errors, stack traces, or internal systems.",
         "Return ui_commands to help the user navigate (navigate, highlight, scroll_to).",
-        "",
-        catalog_prompt_block(enabled_services=enabled_services),
     ]
+    disabled = disabled_services_list(enabled_services)
+    if disabled:
+        lines.append(
+            "These modules are DISABLED on this account — do not guide the user into them: "
+            + ", ".join(disabled)
+            + ". Direct them to Settings → Services or support instead."
+        )
+    lines.extend(["", catalog_prompt_block(enabled_services=enabled_services)])
     return "\n".join(lines)
 
 

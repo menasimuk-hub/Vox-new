@@ -18,6 +18,7 @@ from app.services.assistant.pending_actions import issue_pending_action, verify_
 from app.services.assistant.policy_coach import build_policy_refusal_response
 from app.services.assistant.policy_gate import check_policy
 from app.services.assistant.dashboard_catalog import example_questions_for_user
+from app.services.assistant.service_gate import check_intent_service_gate
 from app.services.assistant.safe_tools import (
     INVOICE_FALLBACK_HINT,
     INVOICE_READ_ERROR,
@@ -65,12 +66,21 @@ class AssistantOrchestrator:
             )
 
         intent_match = classify_intent(payload.message, is_admin=is_admin)
+        chat_context = _context_with_history(payload)
         org = AssistantTools.get_org(db, principal.org_id)
         if org is None:
             return build_out(primary_message="Organisation not found.", confidence=1.0, blocking_reason="org_not_found")
 
+        if not is_admin:
+            gated = check_intent_service_gate(
+                intent_match.intent,
+                enabled_services=chat_context.enabled_services,
+                service_code=intent_match.service_code or chat_context.service_code,
+            )
+            if gated is not None:
+                return gated
+
         handler = _HANDLERS.get(intent_match.intent, _handle_general)
-        chat_context = _context_with_history(payload)
         try:
             return handler(
                 db,

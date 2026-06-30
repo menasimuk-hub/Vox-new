@@ -36,7 +36,7 @@ from app.services.assistant.service_registry import (
     registry_intent_names,
     tool_data_for_prompt,
 )
-from app.services.assistant.support_report import issue_support_report_token
+from app.services.assistant.service_gate import check_intent_service_gate
 from app.services.providers.openai_service import OpenAIProviderService
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,15 @@ class LlmAssistantOrchestrator:
             is_admin=is_admin,
             enabled_services=enabled,
         )
+
+        if not is_admin:
+            gated = check_intent_service_gate(
+                intent_match.intent,
+                enabled_services=enabled,
+                service_code=intent_match.service_code or payload.context.service_code,
+            )
+            if gated is not None:
+                return gated
 
         if should_delegate_to_handler(intent_match.intent):
             handler = _HANDLERS.get(intent_match.intent) or _handle_general

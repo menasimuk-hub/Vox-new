@@ -231,12 +231,24 @@ function assistantWelcomeName(email?: string | null): string | null {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-function buildAssistantWelcome(email?: string | null): string {
+const SERVICE_WELCOME_LABELS: Record<ServiceKey, string> = {
+  interviews: "interviews",
+  surveys: "surveys",
+  feedback: "customer feedback",
+  appointments: "appointments",
+  recovery: "recovery",
+  followup: "follow up",
+  campaigns: "campaigns",
+};
+
+function buildAssistantWelcome(email?: string | null, enabled: ServiceKey[] = []): string {
   const name = assistantWelcomeName(email);
-  if (name) {
-    return `Hi ${name} — I'm your VoxBulk assistant. Ask about billing, usage, campaigns, feedback, or support.`;
-  }
-  return "Hi — I'm your VoxBulk assistant. Ask about billing, usage, campaigns, feedback, or support.";
+  const modules =
+    enabled.length > 0
+      ? enabled.map((k) => SERVICE_WELCOME_LABELS[k]).join(", ")
+      : "billing, usage, and support";
+  const greet = name ? `Hi ${name}` : "Hi";
+  return `${greet} — I'm your VoxBulk assistant. Ask about ${modules}, billing, usage, or support. I only cover modules enabled on your account.`;
 }
 
 function enabledServicesForAssistant(visible: Record<ServiceKey, boolean>): string[] {
@@ -257,9 +269,13 @@ export function LiveChatFab() {
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
   const reportM = useAssistantReportSupport();
+  const enabledForAssistant = React.useMemo(
+    () => enabledServicesForAssistant(visibleServices) as ServiceKey[],
+    [visibleServices],
+  );
   const welcomeText = React.useMemo(
-    () => buildAssistantWelcome(session?.profile?.email),
-    [session?.profile?.email],
+    () => buildAssistantWelcome(session?.profile?.email, enabledForAssistant),
+    [session?.profile?.email, enabledForAssistant],
   );
   const orgId = session?.org?.id;
   const [pos, setPos] = React.useState({ x: 0, y: 0 });
@@ -335,7 +351,7 @@ export function LiveChatFab() {
         history,
         context: {
           current_route: currentRoute,
-          enabled_services: enabledServicesForAssistant(visibleServices),
+          enabled_services: enabledForAssistant,
         },
       });
       applyResponse(res, t);
