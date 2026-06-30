@@ -18,7 +18,12 @@ from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
 from app.models.customer_feedback import (
     FeedbackLocation,
+    FeedbackMarketingSubscriber,
+    FeedbackPromoCampaign,
+    FeedbackPromoSend,
+    FeedbackPromoWallet,
     FeedbackResponse,
+    FeedbackResultsInsightsCache,
     FeedbackSession,
     FeedbackUsagePeriod,
 )
@@ -259,8 +264,15 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
 
     db.execute(delete(SurveySession).where(SurveySession.org_id == org_id))
     db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.org_id == org_id))
+    # Customer Feedback: delete children before locations/org to satisfy FKs.
     db.execute(delete(FeedbackResponse).where(FeedbackResponse.org_id == org_id))
+    db.execute(delete(FeedbackMarketingSubscriber).where(FeedbackMarketingSubscriber.org_id == org_id))
     db.execute(delete(FeedbackSession).where(FeedbackSession.org_id == org_id))
+    db.execute(delete(FeedbackResultsInsightsCache).where(FeedbackResultsInsightsCache.org_id == org_id))
+    db.execute(delete(FeedbackPromoSend).where(FeedbackPromoSend.org_id == org_id))
+    db.execute(delete(FeedbackPromoCampaign).where(FeedbackPromoCampaign.org_id == org_id))
+    db.execute(delete(FeedbackPromoWallet).where(FeedbackPromoWallet.org_id == org_id))
+    db.execute(delete(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org_id))
     db.execute(delete(FeedbackLocation).where(FeedbackLocation.org_id == org_id))
     db.execute(delete(WhatsAppLog).where(WhatsAppLog.org_id == org_id))
     db.execute(delete(DentallyAppointment).where(DentallyAppointment.org_id == org_id))
