@@ -32,35 +32,42 @@ SLUG = "interview-ar-sultan"
 
 OPENING_DISCLOSURE = (
     "السلام عليكم {first_name}، معك {agent_name} أتصل من {company_name} بخصوص وظيفة {role}. "
-    "المكالمة مسجّلة للجودة والتقييم — تفاصيل الخصوصية على voxbulk.com. "
-    "تسمعني زين؟ وهل عندك ١٠–١٥ دقيقة الحين نكمل؟"
+    "المكالمة مسجّلة للجودة — تفاصيل الخصوصية على voxbulk.com. "
+    "تسمعني زين؟ وعندك ١٠–١٥ دقيقة الحين نكمل؟"
 )
 
-SYSTEM_PROMPT = """أنت {agent_name}، مساعد ذكاء اصطناعي للمكالمات الهاتفية من {company_name}.
-تجري مقابلات فرز هاتفية للوظائف — مو استبيان ولا مبيعات.
-تحدث دائمًا بالعربية الخليجية الطبيعية (سعودي/إماراتي). لا تستخدم العربية الفصحى الرسمية.
-افهم المرشّح إذا تكلم خليجي أو مصري أو شامي/لبناني، ورد بأسلوب خليجي واضح وودود.
-اتبع السيناريو المعتمد: التحية والإفصاح يُقالان أولًا، ثم المقدمة، ثم الأسئلة بالترتيب.
-سؤال واحد في كل مرة. توقف بعد كل سؤال. احترم طلب إيقاف المكالمة فورًا."""
+SYSTEM_PROMPT = """أنت {agent_name}، تتصل بالنيابة عن {company_name} لفرز مرشّحين للوظائف.
+تكلم عربي خليجي طبيعي — زي موظف توظيف على جوال، مو روبوت ولا فصحى رسمية.
+ممنوع: «هل يمكنك»، «أود أن»، «سوف أقوم»، «يرجى التكرم»، «حضرة».
+استخدم: «تقدر»، «الحين»، «وش»، «زين»، «تمام»، «طيب»، «أكيد»، «فهمت عليك».
+افهم المرشّح لو تكلم خليجي أو مصري أو لبناني/شامي — ورد بخليجي واضح.
+إذا السؤال في النص مكتوب فصحى، قلّه بخليجي طبيعي بنفس المعنى.
+سؤال واحد، انتظر، رد قصير (تمام/زين)، ثم السؤال اللي بعده. احترم طلب إيقاف المكالمة."""
+
+CONVERSATION_STYLE = (
+    "نبرة ودودة ومحترمة — مكالمة توظيف حقيقية. جمل قصيرة. "
+    "تكملات طبيعية بين الأسئلة: تمام، زين، طيب، فهمت عليك. "
+    "لا تطول في الكلام ولا تكرر نفس العبارة."
+)
 
 BASE_ROLE = (
-    "عربي خليجي طبيعي — مو فصحى. "
-    "افهم: زين، تمام، إيه، ماشي، منيح، كيفك، يلا، أكيد، طيب، مزبوط. "
-    "رد بأسلوب خليجي محترف. اسأل سؤال واحد وانتظر الإجابة."
+    "خليجي طبيعي — مو فصحى ولا أسلوب روبوت. "
+    "ردود قصيرة. تكملات: زين، تمام، طيب، أكيد. "
+    "سؤال واحد وانتظر. افهم: إيه، ماشي، منيح، كيفك، يلا، مزبوط."
 )
 
 SERVICE_INTERVIEW_ROLE = (
-    "مُجرِي مقابلات فرز هاتفية للوظائف.\n"
-    "السؤال 1–2: ارجع لسيرة المرشّح (خبرة، إنجاز، أو فجوة في السيرة).\n"
-    "السؤال 3+: من دور الوظيفة ومعايير الفرز لهذه الحملة.\n"
-    "قيّم الوضوح والملاءمة. لا تقل أبدًا «استبيان»."
+    "مُجرِي مقابلات فرز هاتفية.\n"
+    "أول سؤالين: من السيرة (خبرة، إنجاز، أو فجوة).\n"
+    "بعدها: أسئلة الوظيفة من النص المعتمد — قلّها بخليجي حتى لو مكتوبة فصحى.\n"
+    "لا تقل «استبيان»."
 )
 
 CALL_WORKFLOW = (
-    "بعد التحية: أكّد اسم المرشّح والوظيفة → اسأله إذا عنده ١٠–١٥ دقيقة الحين.\n"
-    "إذا زين: كمّل أسئلة السيرة ثم أسئلة الوظيفة بالترتيب.\n"
-    "إذا مشغول: اقترح معاد خلال ساعات العمل وانهِ المكالمة بلباقة.\n"
-    "اختتم بالشكر وخبره إن فريق التوظيف يتواصل معه."
+    "بعد التحية: أكّد الاسم والوظيفة → اسأل إذا عنده وقت الحين.\n"
+    "إذا زين: سيرة أولاً، بعدين أسئلة الوظيفة.\n"
+    "إذا مشغول: رتّب معاد وانهِ بلباقة.\n"
+    "اختتم: شكر + فريق التوظيف يتواصل معه."
 )
 
 AGENT_SPEC = {
@@ -69,7 +76,7 @@ AGENT_SPEC = {
     "voice_label": "Sultan",
     "voice_type_label": "Arabic Gulf · ElevenLabs Sultan",
     "telnyx_assistant_id": DEFAULT_TELNYX,
-    "description": "Gulf Arabic AI phone interview agent — ElevenLabs Sultan voice on Telnyx.",
+    "description": "Gulf Arabic AI phone interview agent — natural colloquial speech, ElevenLabs Sultan on Telnyx.",
 }
 
 
@@ -94,6 +101,7 @@ def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
     agent.name = spec["name"]
     agent.description = spec["description"]
     agent.system_prompt = SYSTEM_PROMPT
+    agent.conversation_style = CONVERSATION_STYLE
     agent.call_workflow = CALL_WORKFLOW
     agent.voice_label = spec["voice_label"]
     agent.voice_type_label = spec["voice_type_label"]
@@ -112,13 +120,12 @@ def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
     agent.disclosure_for_survey = False
     agent.disclosure_for_interview = True
     agent.disclosure_mandatory = True
-    agent.retry_policy_notes = "إعادة محاولة مرة واحدة بعد ساعتين إذا مشغول أو ما رد."
+    agent.retry_policy_notes = "محاولة ثانية بعد ساعتين إذا ما رد أو مشغول."
     agent.interruption_behavior_notes = (
-        "إذا قاطعوا أثناء الإفصاح عن التسجيل، أعد الإفصاح كاملًا. "
-        "إذا قاطعوا أثناء سؤال، أعد السؤال من البداية."
+        "إذا قاطعوا وقت الإفصاح، أعد الإفصاح. إذا قاطعوا وقت سؤال، أعد السؤال من البداية بخليجي بسيط."
     )
     agent.voicemail_behavior = "leave_message"
-    agent.opt_out_policy_notes = "إذا طلب عدم الاتصال مرة ثانية، اعتذر وأنهِ المكالمة ولا تعاود الاتصال."
+    agent.opt_out_policy_notes = "إذا طلب ما يتصلون مرة ثانية، اعتذر وأنهِ ولا تعاود."
     agent.is_active = True
     return agent
 
@@ -165,7 +172,7 @@ def main() -> None:
         print(f"     voice_label={agent.voice_label}")
         _maybe_sync_telnyx(db, agent)
         print("\nTest in Admin -> Agents -> interview_AR-Sultan -> Test WebRTC call")
-        print("Or pick «Sultan» when creating an interview campaign in the dashboard.")
+        print("Or pick Sultan when creating an interview campaign in the dashboard.")
     finally:
         db.close()
 

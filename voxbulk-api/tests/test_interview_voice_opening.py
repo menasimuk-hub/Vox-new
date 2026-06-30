@@ -179,3 +179,5 @@ def test_arabic_interview_runtime_uses_gulf_not_msa(db):
     )
     assert "الخليجية" in instructions or "خليجي" in instructions
     assert "زين" in instructions or "منيح" in instructions or "تمام" in instructions
+    assert "هل يمكنك" in instructions or "تقدر" in instructions
+    assert "أسلوب الكلام" in instructions or "فصحى" in instructions

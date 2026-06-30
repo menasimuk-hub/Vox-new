@@ -67,10 +67,11 @@ def _interview_meta(*, language_code: str) -> str:
     code = normalize_script_language_code(language_code)
     if code == "ar":
         lang_line = (
-            "Write the entire script in Gulf Arabic (Saudi/UAE natural phone style — not formal MSA). "
-            "Use short, clear sentences suitable for a phone screening call. "
-            "Intro, questions, closing, system_prompt, and script_text body must all match this tone. "
-            "Expect informal dialect answers from candidates; questions should still be professional."
+            "Write the entire script in Gulf Arabic (Saudi/UAE natural phone style — NOT formal MSA, NOT newsreader tone). "
+            "Use short spoken sentences like a real recruiter on a phone call. "
+            "Prefer: «تقدر»، «الحين»، «وش»، «زين»، «تمام» — avoid: «هل يمكنك»، «أود أن»، «سوف»، «يرجى». "
+            "Intro, questions, closing, system_prompt, and script_text body must all match this colloquial Gulf tone. "
+            "Expect informal dialect answers from candidates; questions should sound human, not robotic."
         )
     elif code == "fr":
         lang_line = (
