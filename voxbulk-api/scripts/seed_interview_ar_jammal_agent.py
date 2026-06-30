@@ -45,8 +45,24 @@ AGENT_SPEC = {
 
 
 def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
+    from sqlalchemy import or_, select
+
     spec = AGENT_SPEC
     agent = db.execute(select(AgentDefinition).where(AgentDefinition.slug == spec["slug"])).scalar_one_or_none()
+    if agent is None:
+        agent = db.execute(
+            select(AgentDefinition)
+            .where(
+                AgentDefinition.supports_interview.is_(True),
+                or_(
+                    AgentDefinition.name.ilike("%jammal%"),
+                    AgentDefinition.name.ilike("%jamal%"),
+                    AgentDefinition.voice_label.ilike("%jammal%"),
+                    AgentDefinition.voice_label.ilike("%jamal%"),
+                ),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
     if agent is None:
         agent = AgentDefinition(
             name=spec["name"],
@@ -62,6 +78,7 @@ def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
         agent.updated_at = now
 
     agent.name = spec["name"]
+    agent.slug = spec["slug"]
     agent.description = spec["description"]
     agent.system_prompt = SYSTEM_PROMPT
     agent.voice_label = spec["voice_label"]

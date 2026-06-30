@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import type { InterviewAgent } from "@/lib/queries";
 import { previewInterviewAgentVoice } from "@/lib/queries";
+import { interviewAgentDisplayName, resolveInterviewAgentDialect } from "@/lib/interview-agents";
 
 type Props = {
   agents: InterviewAgent[];
@@ -95,8 +96,9 @@ export function InterviewAgentPicker({
         <div className="grid gap-2 sm:grid-cols-2">
           {languageAgents.map((agent) => {
             const selected = resolvedAgentId === agent.id;
-            const name = agent.voice_label || agent.name;
-            const code = agent.dialect_code || (agent.language === "ar" ? "AR" : "GB");
+            const name = interviewAgentDisplayName(agent);
+            const dialect = resolveInterviewAgentDialect(agent);
+            const code = dialect.dialect_code;
             const previewBusy = previewAgentId === agent.id;
             return (
               <div
@@ -117,9 +119,9 @@ export function InterviewAgentPicker({
                         <span className="text-[10px] text-muted-foreground">{genderLabel(agent.gender)}</span>
                       ) : null}
                     </div>
-                    <p className="mt-1 text-xs font-medium text-foreground/90">{agent.dialect_label || agent.voice_type_label}</p>
+                    <p className="mt-1 text-xs font-medium text-foreground/90">{dialect.dialect_label}</p>
                     <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                      {agent.dialect_description || agent.voice_type_label || "AI phone interviewer"}
+                      {dialect.dialect_description || agent.voice_type_label || "AI phone interviewer"}
                     </p>
                   </button>
                   <Button

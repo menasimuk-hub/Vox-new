@@ -19,7 +19,7 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
         for attr in ("slug", "name", "voice_label", "voice_type_label", "description")
     ).lower()
 
-    if "sultan" in blob or ("gulf" in blob and "saudi" in blob) or "interview-ar-sultan" in blob:
+    if "sultan" in blob or "saudi" in blob or "gulf" in blob or "khaleeji" in blob or "interview-ar-sultan" in blob:
         return {
             "dialect_code": "SA",
             "dialect_label": "Saudi Gulf",

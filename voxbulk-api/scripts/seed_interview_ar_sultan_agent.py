@@ -80,9 +80,35 @@ AGENT_SPEC = {
 }
 
 
+def _find_interview_agent(db, *, slug: str, name_patterns: tuple[str, ...]) -> AgentDefinition | None:
+    from sqlalchemy import or_, select
+
+    agent = db.execute(select(AgentDefinition).where(AgentDefinition.slug == slug)).scalar_one_or_none()
+    if agent is not None:
+        return agent
+    clauses = []
+    for pat in name_patterns:
+        like = f"%{pat}%"
+        clauses.extend(
+            [
+                AgentDefinition.name.ilike(like),
+                AgentDefinition.voice_label.ilike(like),
+            ]
+        )
+    return db.execute(
+        select(AgentDefinition)
+        .where(
+            AgentDefinition.supports_interview.is_(True),
+            or_(*clauses),
+        )
+        .order_by(AgentDefinition.updated_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
     spec = AGENT_SPEC
-    agent = db.execute(select(AgentDefinition).where(AgentDefinition.slug == spec["slug"])).scalar_one_or_none()
+    agent = _find_interview_agent(db, slug=spec["slug"], name_patterns=("sultan", "interview_ar-sultan"))
     if agent is None:
         agent = AgentDefinition(
             name=spec["name"],
