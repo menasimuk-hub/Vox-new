@@ -80,7 +80,6 @@ billing hook.
 ```bash
 cd voxbulk-api
 pytest tests/test_sales_rep_promo_flow.py tests/test_promo_offer_service.py tests/test_assistant.py -q
-python scripts/audit_email_templates.py
 ```
 
 - [ ] Pass

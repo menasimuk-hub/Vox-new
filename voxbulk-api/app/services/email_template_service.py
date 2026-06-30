@@ -209,11 +209,6 @@ class EmailTemplateService:
                 and "<!DOCTYPE html><html><body" in body
                 and "wrap_brand_email" not in body
             )
-            needs_sales_offer_refresh = (
-                key == "sales_offer"
-                and default_body
-                and ("{{first_name}}" not in body or "wrap_brand_email" not in default_body or body.strip() != default_body.strip())
-            )
             if default_body and key.startswith("interview_") and (
                 "data:image" in body
                 or ("data:" in body and "base64" in body)
@@ -240,7 +235,7 @@ class EmailTemplateService:
                 row.updated_at = datetime.utcnow()
                 db.add(row)
                 changed = True
-            elif needs_general_notification_refresh or needs_unthemed_refresh or needs_sales_offer_refresh:
+            elif needs_general_notification_refresh or needs_unthemed_refresh:
                 row.body = default_body
                 if default_subject:
                     row.subject = default_subject

@@ -8,17 +8,18 @@ WEEKLY_DIGEST_BODY = wrap_brand_email(
     title="Weekly digest",
     badge="Weekly digest",
     inner_html="""<p style="margin:0 0 8px;font-size:13px;color:#6b6560;">{{digest_greeting}}</p>
-  <h2 style="margin:0 0 16px;font-size:20px;color:#1a2d5c;">{{organisation_name}}</h2>
+  <h2 style="margin:0 0 16px;font-size:20px;color:#1a2d5c;">{{practice_name}}</h2>
   <p style="margin:0 0 20px;font-size:14px;color:#3d3832;">Week of <strong>{{digest_week_date}}</strong></p>
   {{message_html}}
   <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:12px;border:1px solid #e5e0d8;">
-    <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#1a2d5c;">Account summary</p>
-    {{usage_summary_html}}
+    <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#1a2d5c;">Recovery queue</p>
+    {{recovery_items}}
   </div>
   <div style="margin:20px 0;padding:16px;background:#f5f1ea;border-radius:12px;border:1px solid #e5e0d8;">
-    <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#1a2d5c;">Billing & support</p>
+    <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#1a2d5c;">System alerts</p>
     {{system_alerts}}
   </div>
+  <p style="margin:0 0 8px;font-size:13px;color:#6b6560;">Interviews recommended: {{interviews_recommended_percent}}% · Satisfaction: {{satisfaction_score_percent}}%</p>
   """
     + cta_button(href="{{dashboard_link}}", label="Open dashboard")
     + """

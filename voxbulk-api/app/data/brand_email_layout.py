@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.brand_assets import BRAND_COLORS, BRAND_TAGLINE, email_logo_url
+from app.services.brand_assets import BRAND_COLORS, email_logo_url
 
 # Production logo URL (HTTPS, works in email clients — not data: URIs)
 EMAIL_LOGO_URL = "https://api.voxbulk.com/public/brand/logo-black"
@@ -18,15 +18,6 @@ def email_logo_html(*, href: str = "https://voxbulk.com", width: int = 140) -> s
     )
 
 
-def email_tagline_html() -> str:
-    c = BRAND_COLORS
-    return (
-        f'<p style="margin:10px 0 0;font-size:13px;line-height:1.45;color:{c["ink_muted"]};">'
-        f"{BRAND_TAGLINE}"
-        f"</p>"
-    )
-
-
 def wrap_brand_email(
     *,
     title: str,
@@ -35,7 +26,6 @@ def wrap_brand_email(
     badge: str | None = None,
 ) -> str:
     logo = email_logo_html()
-    tagline = email_tagline_html()
     c = BRAND_COLORS
     badge_html = ""
     if badge:
@@ -58,7 +48,6 @@ def wrap_brand_email(
           <tr>
             <td style="padding:24px 28px 12px;border-bottom:1px solid {c['border']};">
               {logo}
-              {tagline}
               {badge_html}
             </td>
           </tr>

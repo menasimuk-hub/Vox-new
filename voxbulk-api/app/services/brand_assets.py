@@ -10,8 +10,6 @@ from pathlib import Path
 _LOGOS_DIR = Path(__file__).resolve().parent.parent.parent / "logos"
 
 # Dashboard theme — beige + deep navy (matches dashboard-web/src/styles.css)
-BRAND_TAGLINE = "Intelligent voice & messaging that runs itself."
-
 BRAND_COLORS = {
     "background": "#f5f1ea",
     "surface": "#fbf8f3",
