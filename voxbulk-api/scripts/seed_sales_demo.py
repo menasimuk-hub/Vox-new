@@ -7,9 +7,8 @@ Usage (from voxbulk-api, project venv):
 
 What it seeds (into the salesman's own workspace org):
   - 20 AI interviews (4 "Advance"/pass, 10 scoring > 50%)
-  - 200 WhatsApp survey responses
-  - 50 AI-call (phone) survey responses
-  - 100 separate "sent" WhatsApp campaigns
+  - 1 AI-call (phone) survey with 50 clients
+  - 1 WhatsApp survey with 100 clients
   - 3 Customer Feedback QR locations (one named "Demo"), each 100-200 scans/responses
 """
 from __future__ import annotations
@@ -108,9 +107,8 @@ def main() -> None:
         else:
             print("Done:")
             print(f"  interview order:   {result.get('interview_order_id')}")
-            print(f"  AI-call survey:    {result.get('ai_survey_order_id')}")
-            print(f"  WhatsApp survey:   {result.get('wa_survey_order_id')}")
-            print(f"  campaigns:         {len(result.get('campaign_order_ids') or [])}")
+            print(f"  AI-call survey:    {result.get('ai_survey_order_id')} (50 clients)")
+            print(f"  WhatsApp survey:   {result.get('wa_survey_order_id')} (100 clients)")
             print(f"  feedback locations:{len(result.get('feedback_location_ids') or [])}")
     finally:
         db.close()

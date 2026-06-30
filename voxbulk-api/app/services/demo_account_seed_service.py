@@ -45,12 +45,11 @@ SALES_DEMO_PHONE_PREFIX = "+44770299"
 _API_ROOT = Path(__file__).resolve().parents[2]
 
 # Default demo volumes for a salesman workspace. Override via seed_for_org(counts=...).
+# Exactly two surveys are created: one AI call survey and one WhatsApp survey.
 DEFAULT_DEMO_COUNTS: dict[str, int] = {
     "interviews": 20,        # 4 "Advance" (pass) + 10 scoring > 50 (see _seed_interview_campaign)
-    "ai_call_survey": 50,    # phone (AI call) survey responses
-    "wa_survey": 200,        # WhatsApp survey responses
-    "campaigns": 100,        # separate "sent" WhatsApp campaigns
-    "campaign_members": 5,   # recipients per separate campaign
+    "ai_call_survey": 50,    # one AI call (phone) survey with 50 clients
+    "wa_survey": 100,        # one WhatsApp survey with 100 clients
     "feedback_locations": 3, # QR Customer Feedback locations (one named "Demo")
 }
 
@@ -157,24 +156,6 @@ class DemoAccountSeedService:
             debits=debits,
         )
 
-        # 100 separate "sent" campaigns so the surveys/campaigns history looks populated.
-        campaign_ids: list[str] = []
-        members_each = max(1, int(vol["campaign_members"]))
-        for n in range(int(vol["campaigns"])):
-            camp = user_account.seed_consolidated_survey(
-                db,
-                org_id=org_id,
-                user_id=user_id,
-                org=org,
-                auto_top_up=auto_top_up,
-                channel="wa",
-                member_count=members_each,
-                title=f"Demo Campaign #{n + 1:03d} · WhatsApp",
-                seed=seed + 3000 + n,
-                debits=debits,
-            )
-            campaign_ids.append(camp.id)
-
         feedback_locations = DemoAccountSeedService._seed_feedback_locations(
             db,
             org_id=org_id,
@@ -191,7 +172,6 @@ class DemoAccountSeedService:
                 "interview": interview_order.id,
                 "ai_survey": ai_order.id,
                 "wa_survey": wa_order.id,
-                "campaigns": len(campaign_ids),
                 "feedback_locations": len(feedback_locations),
             },
         )
@@ -201,7 +181,6 @@ class DemoAccountSeedService:
             "interview_order_id": interview_order.id,
             "ai_survey_order_id": ai_order.id,
             "wa_survey_order_id": wa_order.id,
-            "campaign_order_ids": campaign_ids,
             "feedback_location_ids": feedback_locations,
         }
 
