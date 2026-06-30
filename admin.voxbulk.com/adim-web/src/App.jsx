@@ -34,6 +34,7 @@ export default function App() {
 
         <Route path='/organisations' element={<P.Organisations />} />
         <Route path='/organisations/all-users' element={<P.OrgControlCenter />} />
+        <Route path='/organisations/all-users/:orgId' element={<P.OrgControlCenter />} />
         <Route path='/organisations/profile' element={<P.OrganisationProfile />} />
         <Route path='/organisations/categories' element={<P.Categories />} />
         <Route path='/organisations/zone/:zone' element={<P.ZoneOrganisations />} />

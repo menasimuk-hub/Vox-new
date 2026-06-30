@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Building2, CircleCheck, CreditCard, FileText, Megaphone, Snowflake } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { adminOrderViewPath } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
+import { KpiCard } from '@/components/ui/KpiCard'
 import './orgControlCenter.css'
 
 const TABS = [
@@ -295,6 +297,8 @@ function KpiCards({ org }) {
 }
 
 export default function OrgControlCenter() {
+  const navigate = useNavigate()
+  const { orgId: routeOrgId } = useParams()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -407,6 +411,18 @@ export default function OrgControlCenter() {
   }, [loadList])
 
   useEffect(() => {
+    if (routeOrgId) {
+      setSelectedId(routeOrgId)
+      setActiveTab('overview')
+      loadDetail(routeOrgId)
+      window.scrollTo({ top: 0 })
+    } else {
+      setSelectedId(null)
+      setDetail(null)
+    }
+  }, [routeOrgId, loadDetail])
+
+  useEffect(() => {
     apiFetch('/admin/billing/plans')
       .then((rows) => setPlans(Array.isArray(rows) ? rows : []))
       .catch(() => setPlans([]))
@@ -441,6 +457,18 @@ export default function OrgControlCenter() {
     return rows
   }, [items, chips, sortField, sortAsc])
 
+  const aggregateKpis = useMemo(() => {
+    const isDue = (s) => ['due', 'overdue', 'failed', 'past_due'].includes(String(s || '').toLowerCase())
+    return {
+      total: items.length,
+      active: items.filter((o) => o.status === 'active').length,
+      frozen: items.filter((o) => o.status === 'frozen').length,
+      paymentDue: items.filter((o) => isDue(o.payment_status)).length,
+      campaigns: items.reduce((acc, o) => acc + (Number(o.campaigns) || 0), 0),
+      invoices: items.reduce((acc, o) => acc + (Number(o.invoices) || 0), 0),
+    }
+  }, [items])
+
   const org = detail?.organisation
   const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
@@ -474,13 +502,8 @@ export default function OrgControlCenter() {
   const subscriptionCancellation = detail?.subscription_cancellation || null
   const refundReviews = detail?.refund_reviews || []
 
-  const selectOrg = async (id) => {
-    setSelectedId(id)
-    setActiveTab('overview')
-    await loadDetail(id)
-    setTimeout(() => {
-      document.getElementById('occ-detail-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 80)
+  const selectOrg = (id) => {
+    navigate(`/organisations/all-users/${encodeURIComponent(id)}`)
   }
 
   const toggleChip = (key) => {
@@ -1195,6 +1218,7 @@ export default function OrgControlCenter() {
         </button>
       </div>
 
+      {!routeOrgId ? (
       <div className="occ-search-bar">
         <div className="occ-search-inner">
           <div className="occ-search-input-wrap">
@@ -1254,14 +1278,23 @@ export default function OrgControlCenter() {
           </div>
         </div>
       </div>
+      ) : null}
 
-      {!selectedId ? (
+      {!routeOrgId ? (
         <div className="occ-kpi-section">
           <div className="occ-section-eyebrow">KPI overview</div>
-          <KpiCards org={null} />
+          <div className="ds-scope grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <KpiCard icon={Building2} label="Total organisations" value={aggregateKpis.total} tone="primary" index={0} />
+            <KpiCard icon={CircleCheck} label="Active" value={aggregateKpis.active} tone="success" index={1} />
+            <KpiCard icon={Snowflake} label="Frozen" value={aggregateKpis.frozen} tone="info" index={2} />
+            <KpiCard icon={CreditCard} label="Payment due" value={aggregateKpis.paymentDue} tone="warning" index={3} />
+            <KpiCard icon={Megaphone} label="Running campaigns" value={aggregateKpis.campaigns} tone="primary" index={4} />
+            <KpiCard icon={FileText} label="Open invoices" value={aggregateKpis.invoices} tone="danger" index={5} />
+          </div>
         </div>
       ) : null}
 
+      {!routeOrgId ? (
       <div className="occ-table-section">
         <div className="occ-section-header">
           <div className="occ-section-title">
@@ -1356,9 +1389,20 @@ export default function OrgControlCenter() {
           </table>
         </div>
       </div>
+      ) : null}
 
-      {selectedId && (detail || detailLoading) ? (
+      {routeOrgId ? (
         <div className="occ-detail-panel" id="occ-detail-panel">
+          <div className="ds-scope" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className="occ-btn"
+              onClick={() => navigate('/organisations/all-users')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <ArrowLeft size={15} /> Back to all users
+            </button>
+          </div>
           <div className="occ-detail-header">
             <div className="occ-detail-org-row">
               <div>

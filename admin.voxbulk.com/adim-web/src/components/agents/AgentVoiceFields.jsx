@@ -1,8 +1,7 @@
 import React from 'react'
-import { Panel } from '@/components/ui/Card'
+import { ChevronDown, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
-import { Label } from '@/components/ui/Label'
 import { Switch } from '@/components/ui/Switch'
 import { Pill } from '@/components/ui/Badge'
 
@@ -47,57 +46,64 @@ export function serviceBadges(agent) {
 }
 
 export function PlatformVoiceSettings({ settings, onChange, onSave, busy }) {
+  const [open, setOpen] = React.useState(false)
   if (!settings) return null
   return (
     <div className='ds-scope'>
-      <Panel
-        title='Shared voice compliance'
-        subtitle='Global disclosure text reused across voice agents — per-agent overrides are optional.'
-        action={<Pill tone='info'>Survey + Interview</Pill>}
-        bodyClassName='p-3'
-      >
-        <div className='grid gap-3 sm:grid-cols-2'>
-          <div className='space-y-1'>
-            <Label className='text-[12px]'>Global compliance / disclosure role</Label>
-            <Textarea
-              rows={3}
-              className='text-[12px]'
-              value={settings.global_compliance_role || ''}
-              onChange={(e) => onChange({ ...settings, global_compliance_role: e.target.value })}
-              placeholder='Shared rules: AI disclosure, recording notice, opt-out handling...'
-            />
+      <section className='rounded-lg border border-border bg-card text-card-foreground shadow-[0_1px_0_rgba(0,0,0,0.02)]'>
+        <button
+          type='button'
+          onClick={() => setOpen((v) => !v)}
+          className='flex w-full items-center gap-2 px-3 py-2 text-left'
+        >
+          <ShieldCheck size={14} className='text-info' />
+          <span className='text-[13px] font-semibold tracking-tight'>Shared voice compliance</span>
+          <Pill tone='info'>Survey + Interview</Pill>
+          <ChevronDown
+            size={15}
+            className={`ml-auto text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {open ? (
+          <div className='border-t border-border p-3'>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <Textarea
+                rows={2}
+                className='text-[12px]'
+                value={settings.global_compliance_role || ''}
+                onChange={(e) => onChange({ ...settings, global_compliance_role: e.target.value })}
+                placeholder='Global compliance / disclosure role: AI disclosure, recording notice, opt-out…'
+              />
+              <Textarea
+                rows={2}
+                className='text-[12px]'
+                value={settings.opening_disclosure_template || ''}
+                onChange={(e) => onChange({ ...settings, opening_disclosure_template: e.target.value })}
+                placeholder='Default opening disclosure: Hello, this is {agent_name} from {company_name}…'
+              />
+            </div>
+            <div className='mt-2.5 flex flex-wrap items-center justify-between gap-2'>
+              <div className='flex flex-wrap items-center gap-3 text-[11.5px]'>
+                <label className='flex items-center gap-1.5'>
+                  <Switch checked={Boolean(settings.disclosure_mandatory)} onCheckedChange={(v) => onChange({ ...settings, disclosure_mandatory: v })} />
+                  <span>Mandatory</span>
+                </label>
+                <label className='flex items-center gap-1.5'>
+                  <Switch checked={Boolean(settings.disclosure_for_survey)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_survey: v })} />
+                  <span>Surveys</span>
+                </label>
+                <label className='flex items-center gap-1.5'>
+                  <Switch checked={Boolean(settings.disclosure_for_interview)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_interview: v })} />
+                  <span>Interviews</span>
+                </label>
+              </div>
+              <Button type='button' size='sm' className='h-7' onClick={onSave} disabled={busy}>
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
           </div>
-          <div className='space-y-1'>
-            <Label className='text-[12px]'>Default opening disclosure template</Label>
-            <Textarea
-              rows={3}
-              className='text-[12px]'
-              value={settings.opening_disclosure_template || ''}
-              onChange={(e) => onChange({ ...settings, opening_disclosure_template: e.target.value })}
-              placeholder='Hello, this is {agent_name}, the AI assistant calling from {company_name}...'
-            />
-          </div>
-        </div>
-        <div className='mt-3 flex flex-wrap items-center justify-between gap-3'>
-          <div className='flex flex-wrap items-center gap-4 text-[12px]'>
-            <label className='flex items-center gap-2'>
-              <Switch checked={Boolean(settings.disclosure_mandatory)} onCheckedChange={(v) => onChange({ ...settings, disclosure_mandatory: v })} />
-              <span>Mandatory opening</span>
-            </label>
-            <label className='flex items-center gap-2'>
-              <Switch checked={Boolean(settings.disclosure_for_survey)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_survey: v })} />
-              <span>For surveys</span>
-            </label>
-            <label className='flex items-center gap-2'>
-              <Switch checked={Boolean(settings.disclosure_for_interview)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_interview: v })} />
-              <span>For interviews</span>
-            </label>
-          </div>
-          <Button type='button' size='sm' className='h-8' onClick={onSave} disabled={busy}>
-            {busy ? 'Saving...' : 'Save shared settings'}
-          </Button>
-        </div>
-      </Panel>
+        ) : null}
+      </section>
     </div>
   )
 }
