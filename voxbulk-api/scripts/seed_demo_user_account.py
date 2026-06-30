@@ -533,6 +533,51 @@ def issue_demo_payment_invoice(db, order: ServiceOrder, *, user_id: str) -> None
         print(f"  Warning: invoice not issued for {order.id}: {exc}")
 
 
+def _order_demo_seed_config(order: ServiceOrder) -> dict:
+    try:
+        cfg = json.loads(order.config_json or "{}")
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+def _is_demo_seed_order(order: ServiceOrder) -> bool:
+    cfg = _order_demo_seed_config(order)
+    return bool(cfg.get("demo_account_pack") or cfg.get("demo_survey_pack") or cfg.get("demo"))
+
+
+def _approve_demo_seed_order(db, order: ServiceOrder, *, user_id: str) -> ServiceOrder:
+    """Mark a demo-seed order as paid without debiting the wallet."""
+    if order.payment_status == "approved":
+        return order
+    order.payment_status = "approved"
+    order.payment_method = "demo_seed"
+    order.payment_note = "Demo seed — no wallet charge"
+    if str(order.status or "").lower() in {"", "draft", "quoted"}:
+        order.status = "paid"
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    issue_demo_payment_invoice(db, order, user_id=user_id)
+    return order
+
+
+def _wallet_needed_minor(breakdown: dict, *, eligibility: dict, order: ServiceOrder) -> int:
+    """Amount the wallet must cover before approve_if_covered (includes 125% PAYG hold)."""
+    if breakdown.get("can_launch"):
+        return int(breakdown.get("wallet_charge_minor") or 0)
+    required = int(breakdown.get("required_wallet_minor") or 0)
+    if required > 0:
+        return required
+    return int(
+        breakdown.get("wallet_charge_minor")
+        or eligibility.get("amount_due_pence")
+        or order.quote_total_pence
+        or 0
+    )
+
+
 def charge_survey_from_wallet(
     db,
     order: ServiceOrder,
@@ -545,15 +590,17 @@ def charge_survey_from_wallet(
     if order.payment_status == "approved":
         return order
     order = ServiceOrderService.quote_order(db, order)
+    if _is_demo_seed_order(order):
+        return _approve_demo_seed_order(db, order, user_id=user_id)
     eligibility = SurveyLaunchEligibilityService.compute(db, order, org)
     breakdown = eligibility.get("launch_billing")
     if not isinstance(breakdown, dict):
         breakdown = {}
-    wallet_charge = int(breakdown.get("wallet_charge_minor") or eligibility.get("amount_due_pence") or order.quote_total_pence or 0)
-    if wallet_charge > 0:
-        ensure_wallet_balance(db, org, needed_minor=wallet_charge, auto_top_up=auto_top_up)
-        if debits is not None:
-            debits.append(wallet_charge)
+    wallet_needed = _wallet_needed_minor(breakdown, eligibility=eligibility, order=order)
+    if wallet_needed > 0:
+        ensure_wallet_balance(db, org, needed_minor=wallet_needed, auto_top_up=auto_top_up)
+        if debits is not None and breakdown.get("can_launch"):
+            debits.append(int(breakdown.get("wallet_charge_minor") or wallet_needed))
     try:
         SurveyLaunchEligibilityService.approve_if_covered(db, order, org)
     except SurveyLaunchEligibilityError as exc:
@@ -574,6 +621,8 @@ def charge_interview_from_wallet(
 ) -> ServiceOrder:
     if order.payment_status == "approved":
         return order
+    if _is_demo_seed_order(order):
+        return _approve_demo_seed_order(db, order, user_id=user_id)
     order = _try_quote(db, order)
     amount = int(order.quote_total_pence or 0)
     if amount > 0:

@@ -105,6 +105,9 @@ class SalesRepService:
         else:
             if db.execute(select(SalesRep).where(SalesRep.user_id == user.id)).scalar_one_or_none():
                 raise SalesRepError("This user is already a salesman.")
+            # Existing user row (e.g. prior signup) — always apply the admin-provided password.
+            user.password_hash = hash_password(password)
+            user.is_active = True
 
         # A salesman needs an organisation membership so the dashboard login flow issues a token.
         # Give them a dedicated personal "Sales" workspace.
