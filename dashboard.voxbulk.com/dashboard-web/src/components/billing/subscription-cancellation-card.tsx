@@ -44,16 +44,10 @@ function fmtDate(iso?: string | null) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-function cancellationBadgeTone(status: string, cancelled: boolean): BadgeTone {
-  if (cancelled) return "archived";
-  if (status === "scheduled" || status === "requested") return "scheduled";
-  return "live";
-}
-
-function cancellationBadgeLabel(status: string, cancelled: boolean) {
-  if (cancelled) return "Cancelled";
-  if (status === "scheduled" || status === "requested") return "Scheduled";
-  return "Active";
+function cancellationStatusBadge(status: string, cancelled: boolean): { tone: BadgeTone; label: string } | null {
+  if (cancelled) return { tone: "archived", label: "Cancelled" };
+  if (status === "scheduled" || status === "requested") return { tone: "scheduled", label: "Scheduled" };
+  return null;
 }
 
 function useInvalidateBillingQueries() {
@@ -312,6 +306,7 @@ export function SubscriptionCancellationBar({
 }) {
   const state = useSubscriptionCancellationState(service);
   const { data, status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen, cancelQ } = state;
+  const cancellationBadge = cancellationStatusBadge(status, cancelled);
 
   if (cancelQ.isLoading) return null;
 
@@ -326,7 +321,7 @@ export function SubscriptionCancellationBar({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold">Subscription cancellation</p>
-            <StatusBadge tone={cancellationBadgeTone(status, cancelled)} label={cancellationBadgeLabel(status, cancelled)} />
+            {cancellationBadge ? <StatusBadge tone={cancellationBadge.tone} label={cancellationBadge.label} /> : null}
           </div>
           {scheduled ? (
             <>
@@ -373,7 +368,8 @@ export function SubscriptionCancellationBar({
 /** @deprecated Use SubscriptionCancellationBar on the billing page */
 export function SubscriptionCancellationCard({ planName }: { planName?: string | null }) {
   const state = useSubscriptionCancellationState();
-  const { data, status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen } = state;
+  const { status, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen } = state;
+  const cancellationBadge = cancellationStatusBadge(status, cancelled);
 
   return (
     <>
@@ -381,8 +377,8 @@ export function SubscriptionCancellationCard({ planName }: { planName?: string |
         <CardHeader className="pb-2">
           <CardDescription>Subscription</CardDescription>
           <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-            {scheduled ? "Scheduled to cancel" : cancelled ? "Cancelled" : "Active"}
-            <StatusBadge tone={cancellationBadgeTone(status, cancelled)} label={cancellationBadgeLabel(status, cancelled)} />
+            {scheduled ? "Scheduled to cancel" : cancelled ? "Cancelled" : "Subscription"}
+            {cancellationBadge ? <StatusBadge tone={cancellationBadge.tone} label={cancellationBadge.label} /> : null}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">

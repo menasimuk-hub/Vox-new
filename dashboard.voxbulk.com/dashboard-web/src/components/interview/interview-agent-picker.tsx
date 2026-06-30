@@ -113,13 +113,13 @@ export function InterviewAgentPicker({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-full w-7 shrink-0 items-center justify-center border-l border-border/80 hover:bg-muted/60 disabled:opacity-50"
+                  className="inline-flex h-full w-[2.625rem] shrink-0 items-center justify-center border-l border-border/80 hover:bg-muted/60 disabled:opacity-50"
                   disabled={previewBusy}
                   title={`Play ${name} sample`}
                   aria-label={`Play ${name} voice sample`}
                   onClick={(e) => void playPreview(agent, e)}
                 >
-                  {previewBusy ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+                  {previewBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
                 </button>
               </div>
             );
@@ -128,7 +128,7 @@ export function InterviewAgentPicker({
       </div>
       {interviewLanguage === "ar" ? (
         <p className="text-[10px] text-muted-foreground">
-          Sultan (SA) Gulf · Jammal (EG) Egyptian — tap ▶ for a free sample.
+          Sultan (SA) Gulf · Jammal (EG) Egyptian — tap ▶ for a sample.
         </p>
       ) : null}
       {allAgents.filter((a) => a.language === "ar").length === 0 ? (
