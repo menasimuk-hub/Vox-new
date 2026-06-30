@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Loader2, Play, Volume2 } from "lucide-react";
+import { Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +28,6 @@ function dialectBadgeClass(code?: string) {
   return "border-border bg-muted/40 text-muted-foreground";
 }
 
-function genderLabel(gender?: string) {
-  if (gender === "female") return "Female";
-  if (gender === "male") return "Male";
-  return "";
-}
-
 export function InterviewAgentPicker({
   agents,
   languageAgents,
@@ -46,7 +40,9 @@ export function InterviewAgentPicker({
   const [previewAgentId, setPreviewAgentId] = React.useState<string | null>(null);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
-  const playPreview = async (agent: InterviewAgent) => {
+  const playPreview = async (agent: InterviewAgent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
     if (previewAgentId) return;
     setPreviewAgentId(agent.id);
     try {
@@ -63,18 +59,18 @@ export function InterviewAgentPicker({
         toast.error("Could not play voice sample");
       };
       await audio.play();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Voice preview unavailable");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Voice preview unavailable");
       setPreviewAgentId(null);
     }
   };
 
   return (
-    <div className="md:col-span-2 space-y-3">
+    <div className="md:col-span-2 space-y-1.5">
       <Label className="text-xs">Language &amp; AI voice agent</Label>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={interviewLanguage} onValueChange={(v) => onLanguageChange(v as "en" | "ar")}>
-          <SelectTrigger className="h-9 w-[150px] shrink-0">
+          <SelectTrigger className="h-8 w-[130px] shrink-0">
             <SelectValue placeholder="Language" />
           </SelectTrigger>
           <SelectContent>
@@ -84,77 +80,59 @@ export function InterviewAgentPicker({
             </SelectItem>
           </SelectContent>
         </Select>
-      </div>
 
-      {agents.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
-      ) : languageAgents.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No {interviewLanguage === "ar" ? "Arabic" : "English"} interview agents available.
-        </p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {languageAgents.map((agent) => {
+        {agents.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No voice agents configured — ask your admin.</p>
+        ) : languageAgents.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No {interviewLanguage === "ar" ? "Arabic" : "English"} agents available.
+          </p>
+        ) : (
+          languageAgents.map((agent) => {
             const selected = resolvedAgentId === agent.id;
             const name = interviewAgentDisplayName(agent);
             const dialect = resolveInterviewAgentDialect(agent);
-            const code = dialect.dialect_code;
             const previewBusy = previewAgentId === agent.id;
             return (
               <div
                 key={agent.id}
                 className={cn(
-                  "rounded-xl border p-3 transition-colors",
-                  selected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30",
+                  "inline-flex h-8 items-center overflow-hidden rounded-md border text-sm",
+                  selected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border bg-background",
                 )}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelectAgent(agent.id)}>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-medium text-sm">{name}</span>
-                      <Badge variant="outline" className={cn("text-[10px] font-semibold", dialectBadgeClass(code))}>
-                        {code}
-                      </Badge>
-                      {genderLabel(agent.gender) ? (
-                        <span className="text-[10px] text-muted-foreground">{genderLabel(agent.gender)}</span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-xs font-medium text-foreground/90">{dialect.dialect_label}</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                      {dialect.dialect_description || agent.voice_type_label || "AI phone interviewer"}
-                    </p>
-                  </button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="size-8 shrink-0"
-                    disabled={previewBusy}
-                    title="Play short voice sample (free preview)"
-                    onClick={() => void playPreview(agent)}
-                  >
-                    {previewBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                  </Button>
-                </div>
-                {selected ? (
-                  <p className="mt-2 flex items-center gap-1 text-[10px] text-primary">
-                    <Volume2 className="size-3" /> Selected for this interview
-                  </p>
-                ) : null}
+                <button
+                  type="button"
+                  className="inline-flex h-full items-center gap-1 px-2.5 hover:bg-muted/50"
+                  onClick={() => onSelectAgent(agent.id)}
+                >
+                  <span className="font-medium">{name}</span>
+                  <Badge variant="outline" className={cn("h-4 px-1 text-[9px] font-semibold leading-none", dialectBadgeClass(dialect.dialect_code))}>
+                    {dialect.dialect_code}
+                  </Badge>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-full w-7 shrink-0 items-center justify-center border-l border-border/80 hover:bg-muted/60 disabled:opacity-50"
+                  disabled={previewBusy}
+                  title={`Play ${name} sample`}
+                  aria-label={`Play ${name} voice sample`}
+                  onClick={(e) => void playPreview(agent, e)}
+                >
+                  {previewBusy ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+                </button>
               </div>
             );
-          })}
-        </div>
-      )}
-
+          })
+        )}
+      </div>
       {interviewLanguage === "ar" ? (
-        <p className="text-[11px] text-muted-foreground">
-          <strong>Sultan (SA)</strong> — Saudi Gulf colloquial. <strong>Jammal (EG)</strong> — Egyptian tone. Tap{" "}
-          <Play className="inline size-3" /> for a free short sample (no wallet charge).
+        <p className="text-[10px] text-muted-foreground">
+          Sultan (SA) Gulf · Jammal (EG) Egyptian — tap ▶ for a free sample.
         </p>
       ) : null}
       {allAgents.filter((a) => a.language === "ar").length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">Arabic requires an Arabic interview agent in Admin → Agents.</p>
+        <p className="text-[10px] text-muted-foreground">Arabic needs an Arabic agent in Admin → Agents.</p>
       ) : null}
     </div>
   );

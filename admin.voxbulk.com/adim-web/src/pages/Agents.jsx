@@ -1,8 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { CircleCheck, Plus, RotateCw, Snowflake, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { serviceBadges, PlatformVoiceSettings } from '../components/agents/AgentVoiceFields'
 import AgentEditPage from './AgentEditPage'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 function agentInitial(agent) {
   const label = agent.voice_label || agent.name || 'A'
@@ -179,7 +195,7 @@ export default function Agents() {
   }
 
   return (
-    <div className="agentsMainPage">
+    <div className="agentsMainPage ds-scope space-y-4">
       <div className="agentsMainTop">
         <div>
           <h1>Main agents</h1>
@@ -187,17 +203,27 @@ export default function Agents() {
             Voice agents for surveys and interviews — Telnyx, prompts, and service assignment.
           </div>
         </div>
-        <div className="agentsMainActions">
-          <button type="button" className="agentsBtn" onClick={() => loadAgents()} disabled={loading || busy}>
-            Reload
-          </button>
-          <button type="button" className="agentsBtn primary" onClick={() => navigate('/ai/agents/new')}>
-            <i className="ti ti-plus"></i> New agent
-          </button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => loadAgents()} disabled={loading || busy}>
+            <RotateCw size={14} /> Reload
+          </Button>
+          <Button type="button" size="sm" className="h-8" onClick={() => navigate('/ai/agents/new')}>
+            <Plus size={14} /> New agent
+          </Button>
         </div>
       </div>
 
-      {msg ? <div className={`agentsMsg${msgError ? ' is-error' : ''}`}>{msg}</div> : null}
+      {msg ? (
+        <div
+          className={
+            msgError
+              ? 'rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'
+              : 'rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success'
+          }
+        >
+          {msg}
+        </div>
+      ) : null}
 
       <PlatformVoiceSettings
         settings={platformSettings}
@@ -206,146 +232,128 @@ export default function Agents() {
         busy={platformBusy}
       />
 
-      <div className="agentsKpis">
-        <div className="agentsKpi">
-          <div className="agentsKpiLabel">Total agents</div>
-          <div className="agentsKpiValue">{kpis.total}</div>
-        </div>
-        <div className="agentsKpi">
-          <div className="agentsKpiLabel">Active agents</div>
-          <div className="agentsKpiValue">{kpis.active}</div>
-        </div>
-        <div className="agentsKpi">
-          <div className="agentsKpiLabel">Frozen agents</div>
-          <div className="agentsKpiValue">{kpis.frozen}</div>
-        </div>
+      <div className="grid grid-cols-3 gap-3">
+        <KpiCard icon={Users} label="Total agents" value={kpis.total} tone="primary" index={0} />
+        <KpiCard icon={CircleCheck} label="Active agents" value={kpis.active} tone="success" index={1} />
+        <KpiCard icon={Snowflake} label="Frozen agents" value={kpis.frozen} tone="info" index={2} />
       </div>
 
-      <div className="agentsPanel">
-        <div className="agentsToolbar">
-          <div>
-            <div className="agentsToolbarTitle">
-              <i className="ti ti-list-details"></i> Agents
-            </div>
-            <div className="agentsMainSub" style={{ marginTop: 3 }}>
-              Active + Survey enabled agents appear in dashboard AI voice dropdown.
-            </div>
-          </div>
-          <div className="agentsToolbarRight">
-            <div className="agentsSearch">
-              <input
-                type="search"
-                placeholder="Search agents, slugs..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <select className="agentsSelect" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+      <Panel
+        title="Agents"
+        subtitle="Active + Survey-enabled agents appear in the dashboard AI voice dropdown."
+        action={
+          <div className="flex items-center gap-2">
+            <Input
+              type="search"
+              placeholder="Search agents, slugs…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-8 w-[220px]"
+            />
+            <select
+              className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
               <option value="all">All statuses</option>
               <option value="active">Active</option>
               <option value="frozen">Frozen</option>
             </select>
           </div>
-        </div>
-
-        {loading ? (
-          <div className="agentsEmpty">Loading agents...</div>
-        ) : filtered.length === 0 ? (
-          <div className="agentsEmpty">No agents found.</div>
-        ) : (
-          <div className="agentsTableWrap">
-            <table className="agentsTable">
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Services</th>
-                  <th>Voice</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((agent) => {
-                  const chips = serviceChips(agent)
-                  const surveyReady = agent.is_active && agent.supports_survey
-                  return (
-                    <tr key={agent.id}>
-                      <td>
-                        <div className="agentsAgentCell">
-                          <div className="agentsAvatar">{agentInitial(agent)}</div>
-                          <div style={{ minWidth: 0 }}>
-                            <div className="agentsNameRow">
-                              {agent.name}
-                              <span className="agentsSlugChip" title={agent.slug}>
-                                {agent.slug}
+        }
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Agent</TableHead>
+              <TableHead>Services</TableHead>
+              <TableHead>Voice</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableLoading colSpan={5}>Loading agents…</TableLoading>
+            ) : (
+              filtered.map((agent) => {
+                const chips = serviceChips(agent)
+                const surveyReady = agent.is_active && agent.supports_survey
+                return (
+                  <TableRow key={agent.id}>
+                    <TableCell>
+                      <div className="agentsAgentCell">
+                        <div className="agentsAvatar">{agentInitial(agent)}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="agentsNameRow">
+                            {agent.name}
+                            <span className="agentsSlugChip" title={agent.slug}>
+                              {agent.slug}
+                            </span>
+                          </div>
+                          <div className="agentsDesc" title={agent.description || ''}>
+                            {agent.description || '—'}
+                          </div>
+                          <div className="agentsChips">
+                            {chips.map((b) => (
+                              <span key={b} className="agentsChip">
+                                {b}
                               </span>
-                            </div>
-                            <div className="agentsDesc" title={agent.description || ''}>
-                              {agent.description || '—'}
-                            </div>
-                            <div className="agentsChips">
-                              {chips.map((b) => (
-                                <span key={b} className="agentsChip">
-                                  {b}
-                                </span>
-                              ))}
-                              {agent.is_default_survey ? <span className="agentsChip">Default</span> : null}
-                              {surveyReady ? <span className="agentsChip survey">Dashboard</span> : null}
-                            </div>
+                            ))}
+                            {agent.is_default_survey ? <span className="agentsChip">Default</span> : null}
+                            {surveyReady ? <span className="agentsChip survey">Dashboard</span> : null}
                           </div>
                         </div>
-                      </td>
-                      <td>
-                        {chips.length ? (
-                          chips.map((b) => (
-                            <span key={b} className="agentsChip" style={{ marginRight: 4 }}>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {chips.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {chips.map((b) => (
+                            <span key={b} className="agentsChip">
                               {b}
                             </span>
-                          ))
-                        ) : (
-                          <span className="agentsMutedDash">—</span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, fontSize: 11 }}>{agent.voice_label || '—'}</div>
-                        {agent.voice_type_label ? (
-                          <div className="agentsMutedDash">{agent.voice_type_label}</div>
-                        ) : null}
-                      </td>
-                      <td>
-                        <span className={`agentsStatus ${agent.is_active ? 'active' : 'frozen'}`}>
-                          <i className={`ti ${agent.is_active ? 'ti-circle-check' : 'ti-lock'}`}></i>
-                          {agent.is_active ? 'Active' : 'Frozen'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="agentsRowActions">
-                          <button type="button" className="agentsAction" onClick={() => duplicateAgent(agent)} disabled={busy}>
-                            Duplicate
-                          </button>
-                          <button
-                            type="button"
-                            className="agentsAction primary"
-                            onClick={() => navigate(`/ai/agents/${agent.id}/edit`)}
-                          >
-                            Edit
-                          </button>
-                          <button type="button" className="agentsAction" onClick={() => toggleFreeze(agent)} disabled={busy}>
-                            {agent.is_active ? 'Freeze' : 'Unfreeze'}
-                          </button>
-                          <button type="button" className="agentsAction warn" onClick={() => deleteAgent(agent)} disabled={busy}>
-                            Delete
-                          </button>
+                          ))}
                         </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{agent.voice_label || '—'}</div>
+                      {agent.voice_type_label ? (
+                        <div className="text-[11px] text-muted-foreground">{agent.voice_type_label}</div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <Pill tone={agent.is_active ? 'success' : 'neutral'}>
+                        {agent.is_active ? 'Active' : 'Frozen'}
+                      </Pill>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => duplicateAgent(agent)} disabled={busy}>
+                          Duplicate
+                        </Button>
+                        <Button type="button" size="sm" className="h-7" onClick={() => navigate(`/ai/agents/${agent.id}/edit`)}>
+                          Edit
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => toggleFreeze(agent)} disabled={busy}>
+                          {agent.is_active ? 'Freeze' : 'Unfreeze'}
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={() => deleteAgent(agent)} disabled={busy}>
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+            {!loading && filtered.length === 0 ? <TableEmpty colSpan={5}>No agents found.</TableEmpty> : null}
+          </TableBody>
+        </StripeTable>
+      </Panel>
     </div>
   )
 }

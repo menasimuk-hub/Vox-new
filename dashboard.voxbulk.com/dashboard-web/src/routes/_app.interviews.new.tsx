@@ -1476,6 +1476,10 @@ function CreateInterview() {
   }, [orderId, campaignReadOnly, onSaveDraft]);
 
   const onWizardNext = () => {
+    if (campaignReadOnly) {
+      goWizardNext();
+      return;
+    }
     if (wizardStep === 1 && setupErrors.length > 0) {
       setStep1FieldsTouched(true);
       toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
@@ -1494,12 +1498,12 @@ function CreateInterview() {
 
   const onWizardStepClick = (step: number) => {
     if (step === wizardStep) return;
-    if (step > 1 && wizardStep === 1 && setupErrors.length > 0) {
+    if (!campaignReadOnly && step > 1 && wizardStep === 1 && setupErrors.length > 0) {
       setStep1FieldsTouched(true);
       toast.error(setupErrors.length === 1 ? setupErrors[0] : `Complete Step 1 first: ${setupErrors[0]}`);
       return;
     }
-    if (step > 1 && wizardStep === 1) {
+    if (!campaignReadOnly && step > 1 && wizardStep === 1) {
       void persistStep1Setup()
         .then(() => goWizardTo(step))
         .catch(() => {
@@ -1812,9 +1816,7 @@ function CreateInterview() {
         </Card>
       ) : null}
 
-      {!campaignReadOnly ? (
-        <Stepper steps={INTERVIEW_WIZARD_STEPS} current={wizardStep} onStepClick={onWizardStepClick} />
-      ) : null}
+      <Stepper steps={INTERVIEW_WIZARD_STEPS} current={wizardStep} onStepClick={onWizardStepClick} />
 
       {(setupErrors.length > 0 || launchErrors.length > 0) && !campaignReadOnly && wizardStep === 1 && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
@@ -1831,7 +1833,7 @@ function CreateInterview() {
       )}
 
       <div key={wizardStep} className="animate-fade-in">
-      {(wizardStep === 1 || campaignReadOnly) && (
+      {wizardStep === 1 && (
       <Card>
         <CardHeader>
           <CardTitle>Step 1 · Define interview</CardTitle>
@@ -1924,7 +1926,7 @@ function CreateInterview() {
       </Card>
       )}
 
-      {(wizardStep === 2 || campaignReadOnly) && (
+      {wizardStep === 2 && (
       <Card>
         <CardHeader>
           <CardTitle>Step 2 · Collect candidates</CardTitle>
@@ -2229,7 +2231,7 @@ function CreateInterview() {
       </Card>
       )}
 
-      {(wizardStep === 3 || campaignReadOnly) && (
+      {wizardStep === 3 && (
       <Card>
         <CardHeader>
           <CardTitle>Step 3 · CV email collection</CardTitle>
@@ -2469,7 +2471,7 @@ function CreateInterview() {
       </Card>
       )}
 
-      {(wizardStep === 4 || campaignReadOnly) ? (
+      {wizardStep === 4 ? (
       <Card ref={launchStatusRef}>
         <CardHeader>
           <CardTitle>Step 4 · ATS, preview & launch</CardTitle>
@@ -2609,14 +2611,14 @@ function CreateInterview() {
       ) : null}
       </div>
 
-      {!campaignReadOnly && wizardStep !== 4 ? (
+      {wizardStep !== 4 ? (
         <WizardNav
           step={wizardStep}
           total={INTERVIEW_WIZARD_STEPS.length}
           onPrev={goWizardPrev}
           onNext={onWizardNext}
-          nextDisabled={!canWizardNext}
-          skippable={wizardStep === 2}
+          nextDisabled={!campaignReadOnly && !canWizardNext}
+          skippable={!campaignReadOnly && wizardStep === 2}
           onSkip={goWizardNext}
           leftActions={
             <>

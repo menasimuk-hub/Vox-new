@@ -1,4 +1,10 @@
 import React from 'react'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Switch } from '@/components/ui/Switch'
+import { Pill } from '@/components/ui/Badge'
 
 export const voiceAgentDefaults = {
   voice_label: '',
@@ -43,68 +49,56 @@ export function serviceBadges(agent) {
 export function PlatformVoiceSettings({ settings, onChange, onSave, busy }) {
   if (!settings) return null
   return (
-    <section className='card voiceAgentPlatformCard'>
-      <div className='cardHead'>
-        <h3>Shared voice compliance</h3>
-        <span className='pill p-cyan'>Survey + Interview</span>
-      </div>
-      <div className='cardBody stack'>
-        <p className='muted voiceAgentHelp'>
-          Global disclosure and compliance text reused across voice agents. Per-agent overrides are optional below.
-        </p>
-        <label>
-          <span className='label'>Global compliance / disclosure role</span>
-          <textarea
-            className='input agentPromptAreaSm'
-            rows={6}
-            value={settings.global_compliance_role || ''}
-            onChange={(e) => onChange({ ...settings, global_compliance_role: e.target.value })}
-            placeholder='Shared rules: AI disclosure, recording notice, opt-out handling...'
-          />
-        </label>
-        <label>
-          <span className='label'>Default opening disclosure template</span>
-          <textarea
-            className='input agentPromptAreaSm'
-            rows={5}
-            value={settings.opening_disclosure_template || ''}
-            onChange={(e) => onChange({ ...settings, opening_disclosure_template: e.target.value })}
-            placeholder='Hello, this is {agent_name}, the AI assistant calling from {company_name}...'
-          />
-        </label>
-        <div className='agentFieldGrid3'>
-          <label className='agentActiveToggle'>
-            <input
-              type='checkbox'
-              checked={Boolean(settings.disclosure_mandatory)}
-              onChange={(e) => onChange({ ...settings, disclosure_mandatory: e.target.checked })}
+    <div className='ds-scope'>
+      <Panel
+        title='Shared voice compliance'
+        subtitle='Global disclosure text reused across voice agents — per-agent overrides are optional.'
+        action={<Pill tone='info'>Survey + Interview</Pill>}
+        bodyClassName='p-3'
+      >
+        <div className='grid gap-3 sm:grid-cols-2'>
+          <div className='space-y-1'>
+            <Label className='text-[12px]'>Global compliance / disclosure role</Label>
+            <Textarea
+              rows={3}
+              className='text-[12px]'
+              value={settings.global_compliance_role || ''}
+              onChange={(e) => onChange({ ...settings, global_compliance_role: e.target.value })}
+              placeholder='Shared rules: AI disclosure, recording notice, opt-out handling...'
             />
-            <span>Mandatory opening</span>
-          </label>
-          <label className='agentActiveToggle'>
-            <input
-              type='checkbox'
-              checked={Boolean(settings.disclosure_for_survey)}
-              onChange={(e) => onChange({ ...settings, disclosure_for_survey: e.target.checked })}
+          </div>
+          <div className='space-y-1'>
+            <Label className='text-[12px]'>Default opening disclosure template</Label>
+            <Textarea
+              rows={3}
+              className='text-[12px]'
+              value={settings.opening_disclosure_template || ''}
+              onChange={(e) => onChange({ ...settings, opening_disclosure_template: e.target.value })}
+              placeholder='Hello, this is {agent_name}, the AI assistant calling from {company_name}...'
             />
-            <span>For surveys</span>
-          </label>
-          <label className='agentActiveToggle'>
-            <input
-              type='checkbox'
-              checked={Boolean(settings.disclosure_for_interview)}
-              onChange={(e) => onChange({ ...settings, disclosure_for_interview: e.target.checked })}
-            />
-            <span>For interviews</span>
-          </label>
+          </div>
         </div>
-        <div className='actions'>
-          <button type='button' className='btn primary' onClick={onSave} disabled={busy}>
+        <div className='mt-3 flex flex-wrap items-center justify-between gap-3'>
+          <div className='flex flex-wrap items-center gap-4 text-[12px]'>
+            <label className='flex items-center gap-2'>
+              <Switch checked={Boolean(settings.disclosure_mandatory)} onCheckedChange={(v) => onChange({ ...settings, disclosure_mandatory: v })} />
+              <span>Mandatory opening</span>
+            </label>
+            <label className='flex items-center gap-2'>
+              <Switch checked={Boolean(settings.disclosure_for_survey)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_survey: v })} />
+              <span>For surveys</span>
+            </label>
+            <label className='flex items-center gap-2'>
+              <Switch checked={Boolean(settings.disclosure_for_interview)} onCheckedChange={(v) => onChange({ ...settings, disclosure_for_interview: v })} />
+              <span>For interviews</span>
+            </label>
+          </div>
+          <Button type='button' size='sm' className='h-8' onClick={onSave} disabled={busy}>
             {busy ? 'Saving...' : 'Save shared settings'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </section>
+      </Panel>
+    </div>
   )
 }
 
