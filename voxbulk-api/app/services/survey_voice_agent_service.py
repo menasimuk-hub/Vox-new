@@ -206,6 +206,7 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
     agents = list_agents_for_service(db, service_key=service_key, org_id=org_id)
     assigned = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=False)
     default_field = _default_field(service_key) or "is_default_survey"
+    assigned_id = assigned.id if assigned else None
 
     def _sort_key(agent: AgentDefinition) -> tuple:
         assigned_prio = 0 if assigned and assigned.id == agent.id else 1
@@ -214,6 +215,19 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
         return (assigned_prio, platform_prio, zone_prio, agent.name or "")
 
     agents = sorted(agents, key=_sort_key)
+    if service_key == SERVICE_INTERVIEW:
+        from app.services.interview_agent_display_service import dashboard_agent_row
+
+        return [
+            dashboard_agent_row(
+                agent,
+                assigned_id=assigned_id,
+                default_field=default_field,
+                zone=zone,
+            )
+            for agent in agents
+        ]
+
     out: list[dict[str, Any]] = []
     for agent in agents:
         out.append(

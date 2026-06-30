@@ -74,7 +74,7 @@ AGENT_SPEC = {
     "slug": SLUG,
     "name": "interview_AR-Sultan",
     "voice_label": "Sultan",
-    "voice_type_label": "Arabic Gulf · ElevenLabs Sultan",
+    "voice_type_label": "🇸🇦 Saudi Gulf · ElevenLabs Sultan",
     "telnyx_assistant_id": DEFAULT_TELNYX,
     "description": "Gulf Arabic AI phone interview agent — natural colloquial speech, ElevenLabs Sultan on Telnyx.",
 }

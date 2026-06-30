@@ -1504,11 +1504,30 @@ export type InterviewAgent = {
   voice_type_label?: string;
   language?: "en" | "ar" | string;
   gender?: "male" | "female" | "unknown" | string;
+  dialect_code?: string;
+  dialect_label?: string;
+  dialect_description?: string;
+  sample_phrase?: string;
   is_default_for_org?: boolean;
   is_platform_default?: boolean;
   is_zone_match?: boolean;
   market_zone?: string;
 };
+
+export type InterviewAgentVoicePreview = {
+  agent_id: string;
+  voice_label?: string;
+  dialect_code?: string;
+  dialect_label?: string;
+  sample_text?: string;
+  content_type: string;
+  audio_base64: string;
+  billing_note?: string;
+};
+
+export async function previewInterviewAgentVoice(agentId: string) {
+  return apiFetch<InterviewAgentVoicePreview>(`/service-orders/interview-agents/${encodeURIComponent(agentId)}/voice-preview`);
+}
 
 export function pickDefaultInterviewAgent(agents: InterviewAgent[]): InterviewAgent | undefined {
   if (!agents.length) return undefined;

@@ -26,6 +26,7 @@ import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
+import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { AtsPreviewGateModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
@@ -249,13 +250,6 @@ type InterviewLanguage = "en" | "ar";
 
 function agentsForLanguage(agents: InterviewAgent[], lang: InterviewLanguage): InterviewAgent[] {
   return agents.filter((a) => (a.language || "en") === lang);
-}
-
-function agentButtonLabel(agent: InterviewAgent): string {
-  const name = agent.voice_label || agent.name;
-  const region = agent.language === "ar" ? "AR" : "GB";
-  const gender = agent.gender === "female" ? "Female" : agent.gender === "male" ? "Male" : "";
-  return gender ? `${name} (${gender} ${region})` : `${name} (${region})`;
 }
 
 function collectInterviewLaunchErrors(opts: {
@@ -1852,42 +1846,15 @@ function CreateInterview() {
           <Field label="Role" error={missingPosition ? "Enter role or position" : undefined}>
             <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Registered dental hygienist (GDC)" className={inputErrorClass(missingPosition)} />
           </Field>
-          <div className="md:col-span-2 space-y-2">
-            <Label className="text-xs">Language &amp; AI voice agent</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={interviewLanguage} onValueChange={(v) => setInterviewLanguage(v as InterviewLanguage)}>
-                <SelectTrigger className="h-9 w-[150px] shrink-0">
-                  <SelectValue placeholder="Language" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="ar" disabled={agentsForLanguage(agents, "ar").length === 0}>
-                    Arabic
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {agents.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
-              ) : languageAgents.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No {interviewLanguage === "ar" ? "Arabic" : "English"} interview agents available.</p>
-              ) : (
-                languageAgents.map((a) => (
-                  <Button
-                    key={a.id}
-                    type="button"
-                    size="sm"
-                    variant={resolvedAgentId === a.id ? "default" : "outline"}
-                    onClick={() => setAgentId(a.id)}
-                  >
-                    {agentButtonLabel(a)}
-                  </Button>
-                ))
-              )}
-            </div>
-            {agentsForLanguage(agents, "ar").length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">Arabic requires an Arabic interview agent in Admin → Agents.</p>
-            ) : null}
-          </div>
+          <InterviewAgentPicker
+            agents={agents}
+            allAgents={agents}
+            languageAgents={languageAgents}
+            interviewLanguage={interviewLanguage}
+            resolvedAgentId={resolvedAgentId}
+            onSelectAgent={setAgentId}
+            onLanguageChange={setInterviewLanguage}
+          />
           <Field label="Interview format">
             <p className="text-[11px] text-muted-foreground">
               Candidates choose phone or online meeting on their booking page: a phone call when their
