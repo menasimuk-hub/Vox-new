@@ -404,13 +404,17 @@ function PackagesPage() {
               (key === "feedback" && hasActiveFeedbackSub) || (key === "core" && hasActiveCorePlan);
             return (
               <TabsTrigger key={key} value={key} className="relative flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
-                <div className="relative overflow-hidden rounded-md px-0.5 pt-0.5">
-                  {productActive ? (
-                    <span
-                      className="absolute inset-x-0 top-0 z-10 h-[3px] rounded-t-sm bg-success shadow-[0_1px_4px] shadow-success/40"
-                      title="Active subscription"
-                    />
-                  ) : null}
+                <div className="flex h-[26px] flex-col items-center justify-end gap-1">
+                  <div className="flex h-[6px] w-9 items-center justify-center">
+                    {productActive ? (
+                      <span
+                        className="h-full w-full rounded-[3px] bg-success shadow-sm shadow-success/30"
+                        title="Active subscription"
+                      />
+                    ) : (
+                      <span className="h-full w-full" aria-hidden />
+                    )}
+                  </div>
                   <Icon className={`size-4 ${s.tint}`} />
                 </div>
                 <span className="text-[11px] font-medium">{s.label}</span>
