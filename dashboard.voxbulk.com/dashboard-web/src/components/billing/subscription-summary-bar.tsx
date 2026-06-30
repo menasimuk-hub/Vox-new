@@ -10,6 +10,7 @@ export type SubscriptionFinanceSummary = {
   plan_name?: string | null;
   plan_code?: string | null;
   status?: string | null;
+  billing_interval?: string | null;
   next_billing_date?: string | null;
   amount_next_payment_display?: string | null;
   amount_next_payment_minor?: number | null;
@@ -18,6 +19,8 @@ export type SubscriptionFinanceSummary = {
   mandate_status?: string | null;
   payment_provider?: string | null;
   current_period_end?: string | null;
+  pending_plan_name?: string | null;
+  pending_plan_code?: string | null;
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -36,12 +39,18 @@ function mandateLabel(status: string | null | undefined) {
   return { text: s.replace(/_/g, " "), variant: "outline" as const };
 }
 
+function billingIntervalLabel(raw: string | null | undefined) {
+  const v = String(raw || "monthly").toLowerCase();
+  return v === "yearly" ? "Yearly" : "Monthly";
+}
+
 type Props = {
   title: string;
   finance: SubscriptionFinanceSummary | null | undefined;
   loading?: boolean;
   emptyMessage?: string;
   tintClass?: string;
+  hideBillingLink?: boolean;
 };
 
 export function SubscriptionSummaryBar({
@@ -50,6 +59,7 @@ export function SubscriptionSummaryBar({
   loading,
   emptyMessage = "No active subscription on this tab.",
   tintClass = "border-border/60 bg-muted/30",
+  hideBillingLink = false,
 }: Props) {
   if (loading) {
     return (
@@ -72,17 +82,30 @@ export function SubscriptionSummaryBar({
   }
 
   const mandate = mandateLabel(finance.mandate_status);
-  const nextLabel = finance.cancel_at_period_end ? "Access until" : "Next invoice";
+  const nextLabel = finance.cancel_at_period_end ? "Access until" : "Next payment";
   const nextDate = finance.cancel_at_period_end
     ? finance.current_period_end || finance.next_billing_date
     : finance.next_billing_date;
+  const hasPendingChange = Boolean(finance.pending_plan_name || finance.pending_plan_code);
 
   return (
-    <Card className={`mb-6 ${tintClass}`}>
+    <Card className={`${hideBillingLink ? "mb-0" : "mb-6"} ${tintClass}`}>
       <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
-          <p className="text-base font-semibold">{finance.plan_name || finance.plan_code}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-semibold">{finance.plan_name || finance.plan_code}</p>
+            {finance.billing_interval ? (
+              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                {billingIntervalLabel(finance.billing_interval)}
+              </Badge>
+            ) : null}
+            {hasPendingChange ? (
+              <Badge variant="secondary" className="text-[10px]">
+                Change scheduled · {finance.pending_plan_name || finance.pending_plan_code}
+              </Badge>
+            ) : null}
+          </div>
           {finance.status ? (
             <p className="text-xs capitalize text-muted-foreground">Status: {String(finance.status).replace(/_/g, " ")}</p>
           ) : null}
@@ -107,9 +130,11 @@ export function SubscriptionSummaryBar({
           {mandate ? <Badge variant={mandate.variant}>{mandate.text}</Badge> : null}
           {finance.cancel_at_period_end ? <Badge variant="secondary">Cancels at period end</Badge> : null}
         </div>
-        <Link to="/account/billing" className="text-sm font-medium text-primary hover:underline">
-          Billing details →
-        </Link>
+        {!hideBillingLink ? (
+          <Link to="/account/billing" className="text-sm font-medium text-primary hover:underline">
+            Billing details →
+          </Link>
+        ) : null}
       </CardContent>
     </Card>
   );

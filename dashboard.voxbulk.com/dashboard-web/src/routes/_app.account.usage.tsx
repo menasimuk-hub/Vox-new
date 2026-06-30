@@ -16,6 +16,8 @@ import { orderDetailLink } from "@/lib/billing/usage-detail-link";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 import { usageServiceIcon } from "@/lib/billing/refund-timing";
+import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { useBillingUsageBreakdown } from "@/lib/queries";
 
 import { requireBillingAccess } from "@/lib/guards/billing-route";
@@ -56,6 +58,7 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 }
 
 function AccountUsagePage() {
+  const allowancesState = useUsageAllowances();
   const [serviceCode, setServiceCode] = React.useState("");
   const [status, setStatus] = React.useState("");
   const [billingSource, setBillingSource] = React.useState("");
@@ -98,26 +101,48 @@ function AccountUsagePage() {
         }
       />
 
-      {breakdownQ.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
-          ))}
+      {allowancesState.loading ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Skeleton className="h-40" />
+          <Skeleton className="h-40" />
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Calls used" value={String(summary.calls_used ?? 0)} sub="Current billing period" />
-          <KpiCard label="WhatsApp used" value={String(summary.whatsapp_used ?? 0)} sub="Current billing period" />
-          <KpiCard
-            label="Extra usage / overage"
-            value={String(summary.overage_pending_display || "£0.00")}
-            sub="Pending invoice (period level)"
-          />
-          <KpiCard
-            label="Wallet-paid usage"
-            value={String(summary.wallet_paid_display || "£0.00")}
-            sub="Campaign charges from wallet"
-          />
+        <div className="space-y-4">
+          {allowancesState.periodLabel ? (
+            <p className="text-xs text-muted-foreground">Billing period: {allowancesState.periodLabel}</p>
+          ) : null}
+          <div className={cn("grid gap-4", allowancesState.coreRows.length && allowancesState.feedbackRows.length ? "lg:grid-cols-2" : "grid-cols-1")}>
+            {allowancesState.coreRows.length > 0 ? (
+              <AllowanceProductPanel meta={allowancesState.coreMeta} rows={allowancesState.coreRows} sharedPool={allowancesState.sharedPool} />
+            ) : null}
+            {allowancesState.feedbackRows.length > 0 ? (
+              <AllowanceProductPanel meta={allowancesState.feedbackMeta} rows={allowancesState.feedbackRows} />
+            ) : null}
+          </div>
+          {!breakdownQ.isLoading ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard
+                label="AI minutes"
+                value={`${summary.calls_used ?? 0} / ${summary.calls_included ?? 0}`}
+                sub={`${summary.calls_remaining ?? 0} remaining`}
+              />
+              <KpiCard
+                label="WA surveys"
+                value={`${summary.whatsapp_used ?? 0} / ${summary.whatsapp_included ?? 0}`}
+                sub={`${summary.whatsapp_remaining ?? 0} remaining`}
+              />
+              <KpiCard
+                label="Extra usage / overage"
+                value={String(summary.overage_pending_display || "£0.00")}
+                sub="Pending invoice (period level)"
+              />
+              <KpiCard
+                label="Wallet-paid usage"
+                value={String(summary.wallet_paid_display || "£0.00")}
+                sub="Campaign charges from wallet"
+              />
+            </div>
+          ) : null}
         </div>
       )}
 

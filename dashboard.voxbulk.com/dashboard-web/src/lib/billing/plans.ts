@@ -62,6 +62,15 @@ export function isSamePlan(
   return Boolean(codeA) && codeA === codeB;
 }
 
+function isPaygPlanLike(plan: PlanLike) {
+  return String(plan.code || "").toLowerCase() === "payg";
+}
+
+export function subscribePlanLabel(plan: PlanLike) {
+  if (isPaygPlanLike(plan)) return "Subscribe PAYG";
+  return `Subscribe to ${plan.name}`;
+}
+
 export function planButtonLabel(
   plan: PlanLike,
   currentPlan: PlanLike | null | undefined,
@@ -74,28 +83,31 @@ export function planButtonLabel(
 ) {
   if (opts?.busy) return "Redirecting to GoCardless…";
   if (plan.is_enterprise) return "Contact us";
-  if (opts?.pendingPlanId && plan.id && String(opts.pendingPlanId) === String(plan.id)) {
-    return "Downgrade scheduled";
-  }
   const plans = opts?.plans || [];
   const currentPlanId = opts?.currentPlanId ?? null;
   const curIdx =
     currentPlan && plans.length ? findCurrentPlanIndex(plans, currentPlan, currentPlanId) : -1;
+  if (currentPlan && (isSamePlan(plan, currentPlan, plans, currentPlanId) || (currentPlanId && plan.id && String(plan.id) === String(currentPlanId)))) {
+    return "Current plan";
+  }
   if (currentPlan && plans.length && curIdx >= 0) {
     const idx = findPlanIndex(plans, plan);
     if (idx >= 0) {
       if (idx === curIdx) return "Current plan";
       if (idx > curIdx) return `Upgrade to ${plan.name}`;
-      if (idx < curIdx) return `Downgrade to ${plan.name}`;
+      if (idx < curIdx) return isPaygPlanLike(plan) ? "Downgrade to PAYG" : `Downgrade to ${plan.name}`;
     }
   }
-  if (!currentPlan || curIdx < 0) return `Subscribe to ${plan.name}`;
+  if (opts?.pendingPlanId && plan.id && String(opts.pendingPlanId) === String(plan.id)) {
+    return "Downgrade scheduled";
+  }
+  if (!currentPlan || curIdx < 0) return subscribePlanLabel(plan);
   if (isSamePlan(plan, currentPlan, plans, currentPlanId)) return "Current plan";
   const oldRank = planRank(currentPlan);
   const newRank = planRank(plan);
   if (newRank > oldRank) return `Upgrade to ${plan.name}`;
-  if (newRank < oldRank) return `Downgrade to ${plan.name}`;
-  return `Switch to ${plan.name}`;
+  if (newRank < oldRank) return isPaygPlanLike(plan) ? "Downgrade to PAYG" : `Downgrade to ${plan.name}`;
+  return isPaygPlanLike(plan) ? "Switch to PAYG" : `Switch to ${plan.name}`;
 }
 
 export function feedbackPlanButtonLabel(

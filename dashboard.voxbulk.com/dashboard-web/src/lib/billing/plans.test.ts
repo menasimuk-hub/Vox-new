@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { findCurrentPlanIndex, findPlanIndex, isSamePlan, planButtonLabel } from "./plans";
+import { findCurrentPlanIndex, findPlanIndex, isSamePlan, planButtonLabel, subscribePlanLabel } from "./plans";
+
+const PAYG_PLAN = { id: "plan-payg", code: "payg", name: "Pay as you go", sort_order: 0 };
 
 const CORE_PLANS = [
   { id: "plan-starter", code: "starter", name: "Starter", sort_order: 1 },
@@ -52,6 +54,21 @@ describe("planButtonLabel", () => {
     expect(
       planButtonLabel(CORE_PLANS[1], CORE_PLANS[1], { plans: CORE_PLANS, currentPlanId: "plan-growth" }),
     ).toBe("Current plan");
+  });
+
+  it("shows current plan on pending target when it is also the active plan", () => {
+    expect(
+      planButtonLabel(CORE_PLANS[0], CORE_PLANS[0], {
+        plans: CORE_PLANS,
+        currentPlanId: "plan-starter",
+        pendingPlanId: "plan-starter",
+      }),
+    ).toBe("Current plan");
+  });
+
+  it("uses short PAYG subscribe label", () => {
+    expect(subscribePlanLabel(PAYG_PLAN)).toBe("Subscribe PAYG");
+    expect(planButtonLabel(PAYG_PLAN, null, { plans: [PAYG_PLAN, ...CORE_PLANS] })).toBe("Subscribe PAYG");
   });
 });
 

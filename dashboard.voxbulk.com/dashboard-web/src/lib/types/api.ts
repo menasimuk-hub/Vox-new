@@ -225,6 +225,34 @@ export type UsageSummary = {
     estimate_source?: string;
     sublabel?: string;
   }>;
+  allowances?: Array<{
+    product: string;
+    key: string;
+    label: string;
+    used: number;
+    included: number;
+    remaining: number | null;
+    unit: string;
+    unlimited?: boolean;
+    period_start?: string | null;
+    period_end?: string | null;
+    pct_used?: number;
+    shared_pool?: boolean;
+  }>;
+  allowance_alerts?: Array<{
+    product?: string;
+    key?: string;
+    level: string;
+    message: string;
+    pct_used?: number;
+  }>;
+  billing_snapshot?: {
+    has_core_subscription?: boolean;
+    is_payg?: boolean;
+    shared_package_pool?: boolean;
+    wallet_balance_display?: string;
+    wallet_balance_pence?: number;
+  };
   wallet_balance_pence?: number;
   wallet_balance_gbp?: string;
   promo_credits?: { survey_credits?: number; interview_credits?: number };

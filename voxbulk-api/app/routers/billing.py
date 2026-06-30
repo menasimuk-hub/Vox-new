@@ -681,6 +681,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_b
     promo = OrgServiceCreditService.balances_dict(org)
 
     from app.services.billing_monitor_service import BillingMonitorService
+    from app.services.usage_allowance_service import UsageAllowanceService
 
     billing_monitor = BillingMonitorService.build_for_org(
         db,
@@ -855,11 +856,41 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_b
         ]
     )
 
+    allowances, allowance_alerts = UsageAllowanceService.build_for_org(
+        db,
+        org,
+        usage_payload=usage_payload,
+        current_plan=current_plan,
+        usage_row=row,
+        shared_pool=shared_pool,
+        billing_monitor=billing_monitor,
+    )
+
+    plan_code = str(current_plan.code or "").strip().lower() if current_plan else ""
+    from app.services.gocardless_service import BillingService as _BillingService
+
+    is_payg = _BillingService._is_payg_like_plan(current_plan)
+    sub_status = str(sub.status or "").strip().lower() if sub else ""
+    has_core_sub = (
+        sub is not None
+        and sub_status in {"active", "trial", "past_due", "pending_first_payment"}
+        and not is_payg
+    )
+
     return {
         "ok": True,
         "usage": usage_payload,
         "billing_monitor": billing_monitor,
         "meters": meters,
+        "allowances": allowances,
+        "allowance_alerts": allowance_alerts,
+        "billing_snapshot": {
+            "has_core_subscription": has_core_sub,
+            "is_payg": is_payg or not has_core_sub,
+            "shared_package_pool": shared_pool,
+            "wallet_balance_display": commercial.get("wallet_balance_display") or f"£{wallet_pence / 100:.2f}",
+            "wallet_balance_pence": wallet_pence,
+        },
         "wallet_balance_pence": wallet_pence,
         "wallet_balance_gbp": commercial.get("wallet_balance_display") or f"£{wallet_pence / 100:.2f}",
         "promo_credits": promo,

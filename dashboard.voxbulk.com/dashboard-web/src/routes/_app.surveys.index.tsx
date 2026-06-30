@@ -15,6 +15,8 @@ import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
+import { AnimatedAllowanceKpi } from "@/components/billing/animated-allowance-kpi";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +50,8 @@ function SavedSurveys() {
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; status: string } | null>(null);
   const ordersQ = useServiceOrders("survey");
   const summaryQ = useHomeSummary();
+  const allowancesState = useUsageAllowances();
+  const waAllowance = allowancesState.coreRows.find((r) => r.key === "whatsapp");
   const archiveM = useArchiveOrder();
   const deleteM = useDeleteOrder();
   const duplicateM = useDuplicateSurveyOrder();
@@ -108,6 +112,12 @@ function SavedSurveys() {
         description="All your AI phone and WhatsApp survey campaigns."
         actions={<Button asChild className="gap-1.5"><Link to="/surveys/new"><Plus className="size-4" /> Create new</Link></Button>}
       />
+
+      {waAllowance ? (
+        <div className="max-w-md">
+          <AnimatedAllowanceKpi row={waAllowance} compact />
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Live" value={summaryQ.isLoading ? "…" : String(sur?.live ?? 0)} />

@@ -18,6 +18,8 @@ import { orderTab, orderToCampaign } from "@/lib/mappers/orders";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 import { isInterviewCampaignReadOnly } from "@/lib/interview-campaign";
+import { AnimatedAllowanceKpi } from "@/components/billing/animated-allowance-kpi";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { useArchiveOrder, useDeleteOrder, useHomeSummary, usePromoCredits, useServiceOrders, useStopInterviewCampaign } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/interviews/")({
@@ -55,6 +57,8 @@ function SavedInterviews() {
   const ordersQ = useServiceOrders("interview");
   const summaryQ = useHomeSummary();
   const creditsQ = usePromoCredits();
+  const allowancesState = useUsageAllowances();
+  const callsAllowance = allowancesState.coreRows.find((r) => r.key === "calls");
   const archiveM = useArchiveOrder();
   const deleteM = useDeleteOrder();
   const stopM = useStopInterviewCampaign();
@@ -85,6 +89,7 @@ function SavedInterviews() {
   const running = (ordersQ.data || []).filter((o) => o.status === "running").length;
   const int = summaryQ.data?.interview;
   const credits = creditsQ.data?.interview_credits ?? creditsQ.data?.credits;
+  const promoCredits = Number(credits || 0);
 
   const onArchive = async (id: string) => {
     try {
@@ -130,8 +135,16 @@ function SavedInterviews() {
         }
       />
 
+      {callsAllowance ? (
+        <div className="max-w-md">
+          <AnimatedAllowanceKpi row={callsAllowance} compact />
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Credits remaining" value={creditsQ.isLoading ? "…" : String(credits ?? "—")} />
+        {promoCredits > 0 ? (
+          <Stat label="Promo credits" value={creditsQ.isLoading ? "…" : String(promoCredits)} />
+        ) : null}
         <Stat label="Finished" value={summaryQ.isLoading ? "…" : String(int?.finished ?? 0)} />
         <Stat label="Live campaigns" value={summaryQ.isLoading ? "…" : String(int?.live ?? 0)} />
         <Stat label="Running now" value={ordersQ.isLoading ? "…" : String(running)} />

@@ -2,11 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Copy, Download, Eye, Pencil, Plus, QrCode } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { AnimatedAllowanceKpi } from "@/components/billing/animated-allowance-kpi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canDuplicateFeedbackSurvey } from "@/lib/feedback-plan";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { useFeedbackLocations, useFeedbackSubscription } from "@/lib/queries";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
@@ -19,6 +21,9 @@ export const Route = createFileRoute("/_app/feedback/")({
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
   const subscriptionQ = useFeedbackSubscription();
+  const allowancesState = useUsageAllowances();
+  const waAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_wa");
+  const webAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_web");
   const highlight = useAssistantHighlight().highlight;
   const items = locationsQ.data || [];
   const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
@@ -37,6 +42,15 @@ function SavedFeedback() {
           </Button>
         }
       />
+
+      {(waAllowance || webAllowance) && !allowancesState.loading ? (
+        <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+          {waAllowance ? <AnimatedAllowanceKpi row={waAllowance} compact /> : null}
+          {webAllowance ? <AnimatedAllowanceKpi row={webAllowance} compact /> : null}
+        </div>
+      ) : allowancesState.loading ? (
+        <Skeleton className="h-20 max-w-2xl rounded-xl" />
+      ) : null}
 
       {locationsQ.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -251,9 +251,22 @@ class BillingUsageBreakdownService:
             )
 
         usage_row = UsageWalletService.get_current(db, org.id)
+        calls_inc = int(getattr(usage_row, "calls_included", 0) or 0) if usage_row else 0
+        calls_used = int(getattr(usage_row, "calls_used", 0) or 0) if usage_row else 0
+        wa_inc = int(getattr(usage_row, "whatsapp_included", 0) or 0) if usage_row else 0
+        wa_used = int(getattr(usage_row, "whatsapp_used", 0) or 0) if usage_row else 0
+        cv_inc = int(getattr(usage_row, "cv_scans_included", 0) or 0) if usage_row else 0
+        cv_used_row = int(getattr(usage_row, "cv_scans_used", 0) or 0) if usage_row else 0
         summary = {
-            "calls_used": int(getattr(usage_row, "calls_used", 0) or 0) if usage_row else 0,
-            "whatsapp_used": int(getattr(usage_row, "whatsapp_used", 0) or 0) if usage_row else 0,
+            "calls_used": calls_used,
+            "calls_included": calls_inc,
+            "calls_remaining": max(0, calls_inc - calls_used) if calls_inc > 0 else 0,
+            "whatsapp_used": wa_used,
+            "whatsapp_included": wa_inc,
+            "whatsapp_remaining": max(0, wa_inc - wa_used) if wa_inc > 0 else 0,
+            "cv_scans_used": cv_used_row,
+            "cv_scans_included": cv_inc,
+            "cv_scans_remaining": max(0, cv_inc - cv_used_row) if cv_inc > 0 else 0,
             "overage_pending_pence": 0,
             "overage_pending_display": money_display(0, currency),
             "wallet_paid_minor": sum(r["cost_minor"] for r in rows if r["billing_source"] == "wallet"),

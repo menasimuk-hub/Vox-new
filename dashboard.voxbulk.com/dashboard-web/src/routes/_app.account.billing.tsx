@@ -7,7 +7,6 @@ import { InvoicePayDialog } from "@/components/invoice-pay-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
@@ -20,6 +19,13 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingSubscriptionsSummary, useBillingUsage, useFeedbackSubscription, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
+import { BillingProductColumn } from "@/components/billing/billing-product-column";
+import { BillingSmartAlerts, allowanceAlertsToItems, type BillingAlertItem } from "@/components/billing/billing-smart-alerts";
+import type { SubscriptionFinanceSummary } from "@/components/billing/subscription-summary-bar";
+import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
+import { ChevronDown } from "lucide-react";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
@@ -88,56 +94,16 @@ function billingErrorMessage(err: unknown) {
   return "Could not load billing data. Try refreshing the page.";
 }
 
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function KpiCard({ label, value, sub, action }: { label: string; value: string; sub?: string; action?: React.ReactNode }) {
   return (
     <Card>
       <CardContent className="space-y-1 p-4">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-xl font-semibold tabular-nums">{value}</p>
         {sub ? <p className="text-[11px] text-muted-foreground">{sub}</p> : null}
+        {action ? <div className="pt-1">{action}</div> : null}
       </CardContent>
     </Card>
-  );
-}
-
-function usageMeterTone(pct: number) {
-  if (pct >= 90) {
-    return {
-      text: "text-destructive",
-      bar: "[&>div]:bg-destructive bg-destructive/20",
-    };
-  }
-  if (pct >= 75) {
-    return {
-      text: "text-amber-600 dark:text-amber-500",
-      bar: "[&>div]:bg-amber-500 bg-amber-500/20",
-    };
-  }
-  return {
-    text: "text-emerald-600 dark:text-emerald-500",
-    bar: "[&>div]:bg-emerald-600 bg-emerald-600/20",
-  };
-}
-
-function UsageMeterBar({
-  label,
-  used,
-  included,
-}: {
-  label: string;
-  used: number;
-  included: number;
-}) {
-  const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
-  const tone = usageMeterTone(pct);
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className={cn("tabular-nums font-semibold", tone.text)}>{pct}%</span>
-      </div>
-      <Progress value={pct} className={cn("h-2", tone.bar)} />
-    </div>
   );
 }
 
@@ -150,6 +116,7 @@ function BillingPage() {
   const cancelQ = useBillingSubscriptionCancellation();
   const requestsQ = useBillingRequests();
   const usageQ = useBillingUsage();
+  const allowancesState = useUsageAllowances();
   const invoicesQ = useBillingInvoices();
   const accessQ = useBillingAccess();
   const overageM = useSetBillingOverage();
@@ -159,6 +126,8 @@ function BillingPage() {
   const [ledgerPage, setLedgerPage] = React.useState(1);
   const [billingTab, setBillingTab] = React.useState<"invoices" | "transactions" | "requests">("invoices");
   const [mandateBusy, setMandateBusy] = React.useState(false);
+  const [topupOpen, setTopupOpen] = React.useState(false);
+  const [estimatesOpen, setEstimatesOpen] = React.useState(false);
 
   const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
   const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
@@ -172,8 +141,9 @@ function BillingPage() {
   const estimates = monitor.capacity_estimates || {};
   const status = monitor.status || {};
   const nextInvoice = status.next_invoice || {};
-  const coreFinance = (subsSummaryQ.data?.core || null) as Record<string, unknown> | null;
-  const feedbackFinance = (subsSummaryQ.data?.feedback || null) as Record<string, unknown> | null;
+  const coreFinance = (subsSummaryQ.data?.core || null) as SubscriptionFinanceSummary | null;
+  const feedbackFinance = (subsSummaryQ.data?.feedback || null) as SubscriptionFinanceSummary | null;
+  const pendingCorePlanName = subQ.data?.pending_plan?.name || coreFinance?.pending_plan_name;
 
   const formatSubDate = (raw: unknown) => {
     if (!raw) return "";
@@ -181,23 +151,15 @@ function BillingPage() {
     return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   };
 
-  const formatSubAmount = (fin: Record<string, unknown> | null) =>
+  const formatSubAmount = (fin: SubscriptionFinanceSummary | null) =>
     String(fin?.amount_next_payment_display || fin?.amount_next_payment_minor || "");
 
-  // Fall back to the subscriptions summary (Core/Feedback) so feedback-only orgs
-  // without a Core "next invoice" still show a real date + amount instead of "—".
-  const activeFinance = coreFinance?.plan_name ? coreFinance : feedbackFinance?.plan_name ? feedbackFinance : null;
-  const nextInvoiceAmount = String(nextInvoice.amount_display || formatSubAmount(activeFinance) || "—");
-  const nextInvoiceDate =
-    String(nextInvoice.charge_date_display || "") ||
-    formatSubDate(activeFinance?.next_billing_date || activeFinance?.current_period_end) ||
-    "—";
-  const sharedPool = Boolean(monitor.shared_package_pool);
-  const meters = usageQ.data?.meters || [];
-
-  const callsMeter = meters.find((m) => m.key === "calls");
-  const waMeter = meters.find((m) => m.key === "whatsapp");
-  const packageMeter = meters.find((m) => m.key === "package");
+  const hasCoreSub = allowancesState.hasCoreSub || Boolean(coreFinance?.plan_name || plan);
+  const hasFeedbackSubFinance = allowancesState.hasFeedbackSub || Boolean(feedbackFinance?.plan_name || hasActiveFeedbackSub);
+  const sharedPool = allowancesState.sharedPool;
+  const cancelStatus = String(cancelQ.data?.status || "none").toLowerCase();
+  const cancellationScheduled = cancelStatus === "scheduled" || cancelStatus === "requested";
+  const subscriptionCancelled = cancelStatus === "cancelled" || cancelQ.data?.effective_subscription_status === "cancelled";
 
   const overagePending = Number(status.overage_pending_pence ?? usageQ.data?.overage_pending_pence ?? 0);
   const openInvoices = Number(status.open_invoices_count ?? usageQ.data?.open_invoices_count ?? 0);
@@ -319,17 +281,85 @@ function BillingPage() {
   }, []);
 
   const outstandingInvoices = invoiceRows.filter((row) => row.payable);
-  const planPrice = plan
-    ? moneyFromPence(
-        plan?.price_gbp_pence ?? (plan as { price_pence?: number; monthly_price_minor?: number })?.price_pence
-          ?? (plan as { monthly_price_minor?: number })?.monthly_price_minor,
-        billingCurrency,
-        (plan as { price_display?: string })?.price_display,
-      )
-    : "—";
-  const cancelStatus = String(cancelQ.data?.status || "none").toLowerCase();
-  const cancellationScheduled = cancelStatus === "scheduled" || cancelStatus === "requested";
-  const subscriptionCancelled = cancelStatus === "cancelled" || cancelQ.data?.effective_subscription_status === "cancelled";
+
+  const coreBadges = React.useMemo(() => {
+    const badges: Array<{ label: string; variant?: "default" | "secondary" | "outline" }> = [];
+    if (hasCoreSub && !allowancesState.isPayg) badges.push({ label: "Current plan", variant: "default" });
+    if (pendingCorePlanName) badges.push({ label: `Change scheduled · ${pendingCorePlanName}`, variant: "secondary" });
+    if (cancellationScheduled) badges.push({ label: "Cancellation scheduled", variant: "secondary" });
+    return badges;
+  }, [hasCoreSub, allowancesState.isPayg, pendingCorePlanName, cancellationScheduled]);
+
+  const smartAlerts = React.useMemo(() => {
+    const items: BillingAlertItem[] = [];
+    if (outstandingInvoices.length > 0) {
+      items.push({
+        id: "outstanding-invoices",
+        tone: "warning",
+        title: `${outstandingInvoices.length} outstanding invoice${outstandingInvoices.length === 1 ? "" : "s"}`,
+        detail: "Pay now to avoid service interruption.",
+        actionLabel: "Pay now",
+        onAction: () => setPayInvoice(outstandingInvoices[0].raw!),
+      });
+    }
+    if (accessQ.data?.can_launch === false && accessQ.data.launch_block_reason) {
+      items.push({
+        id: "launch-blocked",
+        tone: "warning",
+        title: "Campaign launches are blocked",
+        detail: accessQ.data.launch_block_reason,
+        actionLabel: "Packages",
+        href: "/account/packages",
+      });
+    }
+    items.push(...allowanceAlertsToItems(allowancesState.allowanceAlerts));
+    if (status.next_action === "top_up_wallet" || (exhausted && nextActionLabel)) {
+      items.push({
+        id: "top-up-wallet",
+        tone: "warning",
+        title: exhausted ? "No remaining balance" : "Top up required",
+        detail: nextActionLabel || "Add funds to your wallet to continue.",
+        actionLabel: "Top up wallet",
+        onAction: () => setTopupOpen(true),
+      });
+    }
+    if (overagePending > 0) {
+      items.push({
+        id: "overage-pending",
+        tone: "info",
+        title: "Extra usage pending invoice",
+        detail: moneyFromPence(overagePending, billingCurrency),
+        actionLabel: "View history",
+        onAction: () => setBillingTab("invoices"),
+      });
+    }
+    if (!nextInvoice.can_update_mandate && nextInvoice.payment_method_label === "—" && hasCoreSub && !allowancesState.isPayg) {
+      items.push({
+        id: "mandate-missing",
+        tone: "info",
+        title: "Set up Direct Debit",
+        detail: "Add a payment method for subscription renewals.",
+        actionLabel: "Set up payment",
+        href: "/account/packages",
+      });
+    }
+    return items;
+  }, [
+    outstandingInvoices,
+    accessQ.data,
+    allowancesState.allowanceAlerts,
+    status.next_action,
+    exhausted,
+    nextActionLabel,
+    overagePending,
+    billingCurrency,
+    nextInvoice,
+    hasCoreSub,
+    allowancesState.isPayg,
+  ]);
+
+  const showCoreColumn = hasCoreSub || allowancesState.isPayg || allowancesState.coreRows.length > 0;
+  const showFeedbackColumn = hasFeedbackSubFinance || allowancesState.feedbackRows.length > 0;
 
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
@@ -338,9 +368,14 @@ function BillingPage() {
         title="Billing"
         description="Commercial balance, usage, and invoices for your organisation."
         actions={
-          <Button asChild variant="outline" size="sm">
-            <Link to="/account/packages">Packages & pricing</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/account/usage">Usage detail</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/account/packages">Packages & pricing</Link>
+            </Button>
+          </div>
         }
       />
 
@@ -354,32 +389,9 @@ function BillingPage() {
         </div>
       ) : null}
 
-      {!billingLoadError && accessQ.data && accessQ.data.can_launch === false && accessQ.data.launch_block_reason ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="font-medium text-foreground">Campaign launches are blocked</p>
-            <p className="text-muted-foreground">{accessQ.data.launch_block_reason}</p>
-          </div>
-        </div>
-      ) : null}
+      {!billingLoadError ? <BillingSmartAlerts alerts={smartAlerts} /> : null}
 
-      {!billingLoadError && nextActionLabel && (exhausted || status.next_action === "top_up_wallet") ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="font-medium text-foreground">{exhausted ? "No remaining package balance" : "Billing notice"}</p>
-            <p className="text-muted-foreground">{nextActionLabel}</p>
-            {status.next_action === "top_up_wallet" ? (
-              <Link to="/account/packages" className="mt-2 inline-block text-primary underline-offset-4 hover:underline">
-                Top up wallet to continue
-              </Link>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !feedbackSubQ.isLoading && !plan && !hasActiveFeedbackSub ? (
+      {!billingLoadError && !allowancesState.loading && !hasCoreSub && !hasFeedbackSubFinance && !allowancesState.isPayg ? (
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           No active plan is linked to this organisation yet. Choose a package on{" "}
           <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
@@ -389,115 +401,80 @@ function BillingPage() {
         </div>
       ) : null}
 
-      {!billingLoadError && !subQ.isLoading && !usageQ.isLoading && !feedbackSubQ.isLoading && !plan && hasActiveFeedbackSub ? (
-        <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm">
-          <p className="font-medium text-foreground">
-            Customer Feedback — {feedbackSub?.plan_name || "active plan"}
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            Your Direct Debit subscription is on the Customer Feedback product. Core platform billing (interviews &amp; outbound surveys) is separate —{" "}
-            <Link to="/account/packages" search={{ tab: "feedback" }} className="text-primary underline-offset-4 hover:underline">
-              manage Feedback plan
-            </Link>
-            .
-          </p>
-        </div>
-      ) : null}
+      <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} />
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Billing overview</h2>
-        {usageQ.isLoading ? (
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your products</h2>
+        {allowancesState.loading || usageQ.isLoading ? (
           <div className="grid gap-3 lg:grid-cols-2">
-            <Skeleton className="h-44" />
-            <Skeleton className="h-44" />
+            <Skeleton className="h-56" />
+            <Skeleton className="h-56" />
           </div>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardDescription>Current plan</CardDescription>
-                <CardTitle className="text-2xl">
-                  {plan?.name || "—"}
-                  {plan ? ` · ${planPrice}/mo` : ""}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {sharedPool && packageMeter ? (
-                  <UsageMeterBar
-                    label="Package usage"
-                    used={Number(packageMeter.used || 0)}
-                    included={Number(packageMeter.included || 0)}
-                  />
-                ) : (
-                  <>
-                    <UsageMeterBar
-                      label="AI minutes used"
-                      used={Number(callsMeter?.used ?? 0)}
-                      included={Number(callsMeter?.included ?? 0)}
-                    />
-                    <UsageMeterBar
-                      label="WhatsApp messages"
-                      used={Number(waMeter?.used ?? 0)}
-                      included={Number(waMeter?.included ?? 0)}
-                    />
-                  </>
-                )}
-                {!cancellationScheduled && !subscriptionCancelled ? (
-                  <Button asChild size="sm">
-                    <Link to="/account/packages">{plan ? "Change plan" : "View packages"}</Link>
-                  </Button>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Plan changes are unavailable while cancellation is scheduled or active.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Next invoice</CardDescription>
-                <CardTitle className="text-2xl tabular-nums">
-                  {nextInvoiceAmount}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Charged on {nextInvoiceDate}
-                </p>
-                <div className="space-y-1 text-sm">
-                  <p className="text-muted-foreground">
-                    Payment method:{" "}
-                    {nextInvoice.payment_method_label && nextInvoice.payment_method_label !== "—"
-                      ? nextInvoice.payment_method_label
-                      : "Not set up"}
-                  </p>
-                  {nextInvoice.can_update_mandate ? (
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="h-auto p-0 text-primary"
-                      disabled={mandateBusy}
-                      onClick={() => void onUpdateMandate()}
-                    >
-                      {mandateBusy ? (
-                        <>
-                          <Loader2 className="mr-1 inline size-3.5 animate-spin" /> Redirecting…
-                        </>
-                      ) : (
-                        "Update Direct Debit"
-                      )}
-                    </Button>
-                  ) : (
-                    <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
-                      Set up payment method
-                    </Link>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          <div className={cn("grid gap-3", showCoreColumn && showFeedbackColumn ? "lg:grid-cols-2" : "grid-cols-1")}>
+            {showCoreColumn ? (
+              <BillingProductColumn
+                meta={allowancesState.coreMeta}
+                finance={coreFinance}
+                allowanceRows={allowancesState.coreRows}
+                planLabel={plan?.name || coreFinance?.plan_name || undefined}
+                isPayg={allowancesState.isPayg && !allowancesState.snapshot.has_core_subscription}
+                walletDisplay={allowancesState.walletDisplay}
+                sharedPool={sharedPool}
+                badges={coreBadges}
+                onTopUp={() => setTopupOpen(true)}
+              />
+            ) : null}
+            {showFeedbackColumn ? (
+              <BillingProductColumn
+                meta={allowancesState.feedbackMeta}
+                finance={feedbackFinance}
+                allowanceRows={allowancesState.feedbackRows}
+                planLabel={feedbackSub?.plan_name || feedbackFinance?.plan_name || undefined}
+                billingInterval={feedbackSub?.billing_interval}
+                badges={[{ label: "Current plan", variant: "default" }]}
+              />
+            ) : null}
           </div>
         )}
+
+        {!usageQ.isLoading ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <KpiCard
+              label="Wallet balance"
+              value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence, billingCurrency)}
+              sub="Actual money available"
+              action={
+                <Button type="button" size="sm" variant="link" className="h-auto p-0" onClick={() => setTopupOpen(true)}>
+                  Top up
+                </Button>
+              }
+            />
+            <KpiCard
+              label="Extra usage"
+              value={
+                overagePending > 0
+                  ? moneyFromPence(overagePending, billingCurrency)
+                  : status.overage_risk
+                    ? "At risk"
+                    : "Normal"
+              }
+              sub={overagePending > 0 ? "Pending invoice" : "No extra usage pending"}
+            />
+            <KpiCard
+              label="Open invoices"
+              value={String(openInvoices)}
+              sub="Outstanding invoices"
+              action={
+                openInvoices > 0 ? (
+                  <Button type="button" size="sm" variant="link" className="h-auto p-0" onClick={() => setBillingTab("invoices")}>
+                    View history
+                  </Button>
+                ) : null
+              }
+            />
+          </div>
+        ) : null}
 
         {!usageQ.isLoading ? (
           <div className="mt-3 flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
@@ -527,52 +504,30 @@ function BillingPage() {
         ) : null}
 
         {!usageQ.isLoading ? (
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <KpiCard
-              label="Extra usage"
-              value={
-                overagePending > 0
-                  ? moneyFromPence(overagePending, billingCurrency)
-                  : status.overage_risk
-                    ? "At risk"
-                    : "Normal"
-              }
-              sub={overagePending > 0 ? "Pending invoice" : "No extra usage pending"}
-            />
-            <KpiCard label="Open invoices" value={String(openInvoices)} sub="Outstanding invoices" />
-            <KpiCard
-              label="Wallet balance"
-              value={commercial.wallet_balance_display || usageQ.data?.wallet_balance_gbp || moneyFromPence(commercial.wallet_balance_pence, billingCurrency)}
-              sub="Actual money available"
-            />
-          </div>
+          <Collapsible open={estimatesOpen} onOpenChange={setEstimatesOpen} className="mt-3">
+            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/10 px-4 py-3 text-sm font-medium hover:bg-muted/20">
+              Wallet estimates (approximate only)
+              <ChevronDown className={cn("size-4 transition-transform", estimatesOpen && "rotate-180")} />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <p className="mb-3 text-xs text-muted-foreground">
+                {estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <KpiCard
+                  label="Estimated WA surveys left"
+                  value={String(estimates.estimated_wa_surveys ?? 0)}
+                  sub={estimates.label || "Estimated from plan or wallet"}
+                />
+                <KpiCard
+                  label="Estimated AI minutes left"
+                  value={String(estimates.estimated_ai_minutes ?? 0)}
+                  sub={estimates.label || "Estimated from plan or wallet"}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         ) : null}
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Approximate capacity left</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          {estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}
-        </p>
-        {usageQ.isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Skeleton className="h-20" />
-            <Skeleton className="h-20" />
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <KpiCard
-              label="Estimated WA surveys left"
-              value={String(estimates.estimated_wa_surveys ?? 0)}
-              sub={estimates.label || "Estimated from plan or wallet"}
-            />
-            <KpiCard
-              label="Estimated AI minutes left"
-              value={String(estimates.estimated_ai_minutes ?? 0)}
-              sub={estimates.label || "Estimated from plan or wallet"}
-            />
-          </div>
-        )}
       </section>
 
       {plan ? <SubscriptionCancellationBar planName={plan?.name} /> : null}

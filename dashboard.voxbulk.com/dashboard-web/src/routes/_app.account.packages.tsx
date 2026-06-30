@@ -196,6 +196,7 @@ function PackagesPage() {
   const currentPlan = (subscription?.plan || null) as PlanLike | null;
   const currentCorePlanId = subscription?.subscription?.plan_id || currentPlan?.id || null;
   const pendingCorePlanId = subscription?.pending_plan?.id || subscription?.subscription?.pending_plan_id || null;
+  const pendingCorePlan = (subscription?.pending_plan || null) as PlanRow | null;
   const gcReady = gocardlessAvailable(subscription as Record<string, unknown> | null);
   const coreSubStatus = String(subscription?.subscription?.status || "").toLowerCase();
   const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
@@ -574,6 +575,9 @@ function PackagesPage() {
               const isFeatured = Boolean(p.is_featured);
               const payg = isPaygPlan(p);
               const isPendingDowngrade = Boolean(pendingCorePlanId && String(p.id) === String(pendingCorePlanId));
+              const hasPendingPlanChange = Boolean(
+                pendingCorePlanId && effectiveCorePlanId && String(pendingCorePlanId) !== String(effectiveCorePlanId),
+              );
               const btnLabel = planButtonLabel(p, effectiveCurrentPlan, {
                 busy: busyPlanId === String(p.id),
                 plans,
@@ -589,7 +593,18 @@ function PackagesPage() {
                   )}
                   <Card className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
                     <CardHeader className="pb-2 pt-5">
-                      <Badge variant="outline" className="mb-2 w-fit border-primary/40 text-primary">Core platform</Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="w-fit border-primary/40 text-primary">Core platform</Badge>
+                        {isCurrent ? (
+                          <Badge className="bg-primary text-primary-foreground hover:bg-primary">Current plan</Badge>
+                        ) : null}
+                        {isCurrent && hasPendingPlanChange ? (
+                          <Badge variant="secondary">
+                            Downgrade scheduled
+                            {pendingCorePlan?.name ? ` · ${String(pendingCorePlan.name)}` : ""}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>
                       <CardDescription className="text-xl font-semibold text-foreground">
                         {ent ? "Let's talk" : payg ? "No monthly fee" : formatCorePlanPrice(p, sym(data), coreBillingInterval === "yearly")}
@@ -625,7 +640,7 @@ function PackagesPage() {
                         disabled={isCurrent || isPendingDowngrade || Boolean(busyPlanId)}
                         onClick={() => (ent ? openEnterpriseContact() : void onSubscribe(p))}
                       >
-                        {ent ? "Let's talk" : btnLabel}
+                        {ent ? "Let's talk" : isCurrent ? "Current plan" : busyPlanId === String(p.id) ? <Loader2 className="size-4 animate-spin" /> : btnLabel}
                       </Button>
                     </CardContent>
                   </Card>

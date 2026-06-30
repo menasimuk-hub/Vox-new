@@ -114,12 +114,16 @@ class BillingFinanceService:
         next_billing = sub.next_billing_date
         if not next_billing and sub.cancel_at_period_end and sub.cancellation_effective_at:
             next_billing = sub.cancellation_effective_at
+        interval = str(getattr(sub, "billing_interval", None) or "monthly").strip().lower()
+        if interval not in {"monthly", "yearly"}:
+            interval = "monthly"
         return {
             "subscription_id": sub.id,
             "org_id": sub.org_id,
             "status": sub.status,
             "plan_code": plan.code if plan else None,
             "plan_name": plan.name if plan else None,
+            "billing_interval": interval,
             "pending_plan_code": pending.code if pending else None,
             "pending_plan_name": pending.name if pending else None,
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,

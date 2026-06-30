@@ -23,9 +23,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import { useConnections } from "@/lib/connections";
-import { useBillingUsage, useHomeSummary, useServiceOrders } from "@/lib/queries";
-import type { UsageSummary } from "@/lib/types/api";
+import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
+import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { orderToCampaign } from "@/lib/mappers/orders";
+import { useBillingUsage, useHomeSummary, useServiceOrders } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import type { HomeSummary } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
@@ -100,7 +101,7 @@ function Dashboard() {
 
       {anyService && summaryReady && <LiveStrip visible={visible} summary={summary} />}
       {anyService && summaryReady && (
-        <HeroRow visible={visible} summary={summary} usage={usageQ.data} usageLoading={usageQ.isLoading} />
+        <HeroRow visible={visible} summary={summary} usageLoading={usageQ.isLoading} />
       )}
 
       {(anyResponseService || visible.interviews) && summaryReady && (
@@ -174,17 +175,16 @@ function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSu
 function HeroRow({
   visible,
   summary,
-  usage,
   usageLoading,
 }: {
   visible: VisibleMap;
   summary?: HomeSummary;
-  usage?: UsageSummary;
   usageLoading?: boolean;
 }) {
   const int = summary?.interview;
   const sur = summary?.survey;
   const fb = summary?.feedback;
+  const allowancesState = useUsageAllowances();
   const conversations =
     (int?.calls_completed ?? int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
 
@@ -196,24 +196,7 @@ function HeroRow({
 
   const unhappyCount = summary?.feedback?.unhappy?.length ?? 0;
   const liveCampaigns = (int?.live ?? 0) + (sur?.live ?? 0);
-  const monitor = usage?.billing_monitor;
-  const sharedPool = Boolean(monitor?.shared_package_pool);
-  const meters = usage?.meters || [];
-  const callsMeter = meters.find((m) => m.key === "calls");
-  const packageMeter = meters.find((m) => m.key === "package");
-  const primaryMeter = sharedPool && packageMeter ? packageMeter : callsMeter;
-  const used = Number(primaryMeter?.used ?? 0);
-  const included = Number(primaryMeter?.included ?? 0);
-  const unlimited = Boolean(primaryMeter?.unlimited);
-  const usagePct =
-    primaryMeter?.percent != null
-      ? Math.min(100, Math.round(Number(primaryMeter.percent)))
-      : included > 0
-        ? Math.min(100, Math.round((used / included) * 100))
-        : 0;
-  const usageUnit = sharedPool ? "package allowance" : "AI minutes";
-  const overageRisk = Boolean(monitor?.status?.overage_risk);
-  const usageBadge = overageRisk ? "watch usage" : "on track";
+  const overageRisk = Boolean(allowancesState.usage?.billing_monitor?.status?.overage_risk);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
@@ -235,28 +218,34 @@ function HeroRow({
 
       <div className="rounded-2xl border border-border bg-card p-5">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium">Usage this month</p>
-          <Badge variant="secondary" className="gap-1 shrink-0">
-            <TrendingUp className="size-3" /> {usageBadge}
-          </Badge>
+          <p className="text-sm font-medium">Allowance this period</p>
+          <Link to="/account/billing" className="text-xs font-medium text-primary hover:underline">
+            Billing →
+          </Link>
         </div>
-        {usageLoading ? (
-          <Skeleton className="mt-3 h-9 w-48" />
+        {usageLoading || allowancesState.loading ? (
+          <Skeleton className="mt-3 h-24 w-full" />
         ) : (
-          <p className="mt-1 text-2xl font-semibold tabular-nums">
-            {used.toLocaleString()}
-            {unlimited ? (
-              <span className="text-sm font-normal text-muted-foreground"> {usageUnit}</span>
-            ) : included > 0 ? (
-              <span className="text-sm font-normal text-muted-foreground">
-                {" "}of {included.toLocaleString()} {usageUnit}
-              </span>
-            ) : (
-              <span className="text-sm font-normal text-muted-foreground"> {usageUnit}</span>
-            )}
-          </p>
+          <div className="mt-3 space-y-4">
+            {allowancesState.coreRows.length > 0 && visible.interviews ? (
+              <AllowanceProductPanel
+                meta={allowancesState.coreMeta}
+                rows={allowancesState.coreRows.filter((r) => r.key === "calls" || r.key === "whatsapp")}
+                sharedPool={allowancesState.sharedPool}
+                compact
+                hideFooter
+              />
+            ) : null}
+            {allowancesState.feedbackRows.length > 0 && visible.feedback ? (
+              <AllowanceProductPanel
+                meta={allowancesState.feedbackMeta}
+                rows={allowancesState.feedbackRows}
+                compact
+                hideFooter
+              />
+            ) : null}
+          </div>
         )}
-        <Progress value={usageLoading ? 0 : usagePct} className="mt-3 h-2" />
         <div className={cn("mt-4 grid gap-2 text-sm", (visible.feedback && unhappyCount > 0) && (overageRisk || liveCampaigns > 0) ? "grid-cols-2" : "grid-cols-1")}>
           {visible.feedback && unhappyCount > 0 && (
             <HeroAlert tone="warning" icon={AlertTriangle} title={`${unhappyCount} need follow-up`} detail="Review unhappy feedback today" />
