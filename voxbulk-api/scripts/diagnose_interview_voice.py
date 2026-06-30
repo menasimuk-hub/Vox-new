@@ -5,7 +5,8 @@ Sends nothing, changes nothing. Run on the VPS where the API/DB lives:
 
   cd /www/voxbulk/voxbulk-api
   source .venv/bin/activate
-  python3 scripts/diagnose_interview_voice.py --agent "Jammal"
+  python3 scripts/diagnose_interview_voice.py --agent "Sultan"
+  python3 scripts/diagnose_interview_voice.py --agent "interview_AR-Sultan"
   python3 scripts/diagnose_interview_voice.py --order VB-CMP-9442F012
 
 Prints, for an agent or an interview order:
@@ -57,12 +58,28 @@ def _resolve_order(db, ref: str):
 
 
 def _resolve_agent_by_name(db, name: str):
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
     from app.models.agent import AgentDefinition
 
+    key = str(name or "").strip()
+    if not key:
+        return None
+    exact = db.execute(select(AgentDefinition).where(AgentDefinition.name == key).limit(1)).scalar_one_or_none()
+    if exact is not None:
+        return exact
+    pattern = f"%{key}%"
     return db.execute(
-        select(AgentDefinition).where(AgentDefinition.name == name).limit(1)
+        select(AgentDefinition)
+        .where(
+            or_(
+                AgentDefinition.name.ilike(pattern),
+                AgentDefinition.voice_label.ilike(pattern),
+                AgentDefinition.slug.ilike(pattern),
+            )
+        )
+        .order_by(AgentDefinition.updated_at.desc())
+        .limit(1)
     ).scalar_one_or_none()
 
 

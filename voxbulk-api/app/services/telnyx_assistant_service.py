@@ -201,17 +201,22 @@ def _transcription_for_language(existing: dict[str, Any], language: str) -> dict
 
 
 def _voice_settings_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
-    """Set ``language_boost`` for Arabic without changing the portal-configured TTS voice."""
+    """Set ``language_boost`` for Arabic on Telnyx-native TTS only.
+
+    ElevenLabs voices on Telnyx reject a merged ``voice_settings`` PATCH (400) — the
+    Sultan voice is already Arabic-capable via ElevenLabs multilingual models.
+    """
     lang = str(language or "").strip().lower()
     if not lang or not lang.startswith("ar"):
         return None
     current = _voice_settings_dict(existing)
+    voice = str(current.get("voice") or "").strip()
+    if current.get("api_key_ref") or (voice and "." not in voice and len(voice) >= 10):
+        return None
     boost = str(current.get("language_boost") or "").strip().lower()
     if boost in {"ar", "arabic"}:
         return None
-    merged = dict(current) if current else {}
-    merged["language_boost"] = "ar"
-    return merged
+    return {"language_boost": "ar"}
 
 
 def ensure_telnyx_assistant_transcription_language(db: Session, assistant_id: str, language: str) -> dict[str, Any]:
@@ -306,15 +311,16 @@ def sync_telnyx_assistant_instructions(
             if voice_settings:
                 lang_body["voice_settings"] = voice_settings
             if lang_body:
-                try:
-                    _update_telnyx_assistant(db, clean_id, lang_body)
-                except Exception as exc:
-                    logger.warning(
-                        "telnyx_lang_settings_update_failed assistant_id=%s body=%s error=%s",
-                        clean_id,
-                        list(lang_body.keys()),
-                        exc,
-                    )
+                for patch_key, patch_val in lang_body.items():
+                    try:
+                        _update_telnyx_assistant(db, clean_id, {patch_key: patch_val})
+                    except Exception as exc:
+                        logger.warning(
+                            "telnyx_lang_settings_update_failed assistant_id=%s body=%s error=%s",
+                            clean_id,
+                            [patch_key],
+                            exc,
+                        )
         except Exception as exc:
             logger.warning("telnyx_transcription_lang_skip assistant_id=%s error=%s", clean_id, exc)
     updated = _update_telnyx_assistant(db, clean_id, body)
