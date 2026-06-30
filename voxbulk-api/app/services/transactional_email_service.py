@@ -62,6 +62,19 @@ EMAIL_TEST_VARIABLES: dict[str, str] = {
     "interview_time": "14:30",
     "closure_reason": "This interview campaign has been closed.",
     "calendar_links_html": "",
+    "digest_greeting": "Good morning, Alex",
+    "digest_week_date": "23 Jun – 29 Jun 2026",
+    "organisation_name": "Demo Organisation",
+    "practice_name": "Demo Organisation",
+    "usage_summary_html": "<p>Survey campaigns active this week: 2.</p>",
+    "message_html": "",
+    "system_alerts": "<p>No billing or support alerts this week.</p>",
+    "dashboard_link": "https://dashboard.voxbulk.com",
+    "privacy_link": "https://voxbulk.com/privacy",
+    "frequency_link": "https://dashboard.voxbulk.com/settings/team",
+    "billing_url": "https://dashboard.voxbulk.com/account/billing",
+    "mandate_update_url": "https://dashboard.voxbulk.com/account/billing?billing=update_mandate",
+    "total": "£49.99",
 }
 
 

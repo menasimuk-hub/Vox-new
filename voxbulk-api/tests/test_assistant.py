@@ -396,3 +396,38 @@ def test_create_ticket_meta_request_uses_plain_customer_message(app_client):
     assert "support team" in message.lower()
 
 
+def test_list_interviews_returns_handler_not_generic_fallback(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(
+            db,
+            principal=principal,
+            payload=AssistantChatIn(message="List my interviews"),
+        )
+
+    assert out.intent == "list_interviews"
+    assert "not sure I matched" not in out.primary_message.lower()
+
+
+def test_billing_subscription_uses_registry_handler(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db)
+
+    principal = CurrentPrincipal(user_id=user.id, org_id=org.id, token_payload={})
+    with get_sessionmaker()() as db:
+        out = AssistantOrchestrator.handle_chat(
+            db,
+            principal=principal,
+            payload=AssistantChatIn(message="What is my subscription plan?"),
+        )
+
+    assert out.intent == "billing_subscription"
+    assert "not sure I matched" not in out.primary_message.lower()
+

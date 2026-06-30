@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models.billing_invoice import BillingInvoice
+from app.models.organisation import Organisation
+from app.models.promo_offer import PromoOffer
 from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
 
@@ -96,6 +98,12 @@ class SalesRepService:
             raise SalesRepError("Promo code must be 4–12 letters/numbers (e.g. UK4F2A).")
         if db.execute(select(SalesRep).where(SalesRep.promo_code == code)).scalar_one_or_none():
             raise SalesRepError(f"Promo code {code} is already in use.")
+        try:
+            from app.services.promo_offer_service import PromoOfferError, PromoOfferService
+
+            PromoOfferService._assert_code_available(db, code)
+        except PromoOfferError as exc:
+            raise SalesRepError(str(exc)) from exc
 
         user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
         if user is None:
@@ -139,6 +147,13 @@ class SalesRepService:
         db.commit()
         db.refresh(rep)
 
+        try:
+            from app.services.promo_offer_service import PromoOfferService
+
+            PromoOfferService.upsert_for_sales_rep(db, rep)
+        except Exception:
+            logger.exception("Failed to sync promo offer for sales rep %s", rep.id)
+
         # Demo data is no longer auto-seeded on create. New salesmen start with an empty
         # workspace; seed demo data on demand with scripts/seed_sales_demo.py (./seed-sales-demo.sh).
         return rep
@@ -160,10 +175,26 @@ class SalesRepService:
             existing = db.execute(select(SalesRep).where(SalesRep.promo_code == code)).scalar_one_or_none()
             if existing and existing.id != rep.id:
                 raise SalesRepError(f"Promo code {code} is already in use.")
+            try:
+                from app.services.promo_offer_service import PromoOfferError, PromoOfferService
+
+                promo = db.execute(
+                    select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)
+                ).scalar_one_or_none()
+                PromoOfferService._assert_code_available(db, code, exclude_promo_id=promo.id if promo else None)
+            except PromoOfferError as exc:
+                raise SalesRepError(str(exc)) from exc
             rep.promo_code = code
         rep.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(rep)
+        if "promo_code" in patch and patch["promo_code"]:
+            try:
+                from app.services.promo_offer_service import PromoOfferService
+
+                PromoOfferService.upsert_for_sales_rep(db, rep)
+            except Exception:
+                logger.exception("Failed to sync promo offer for sales rep %s", rep.id)
         return rep
 
     @staticmethod
@@ -333,10 +364,29 @@ class SalesRepService:
 
     @staticmethod
     def send_offer(db: Session, *, rep: SalesRep, customer: SalesCustomer, channel: str, offer_details: str) -> dict[str, Any]:
+        from app.services.promo_offer_service import PromoOfferService
+        from app.services.sales_offer_send_service import SalesOfferSendService
+
         offer_details = str(offer_details or "").strip() or "Special VoxBulk offer"
         customer.offer_details = offer_details
-        signup = f"Use promo code {rep.promo_code} to claim your offer."
-        body = f"Hi {customer.full_name or 'there'} — {offer_details}. {signup}"
+        try:
+            PromoOfferService.upsert_for_sales_rep(db, rep)
+        except Exception:
+            logger.exception("Promo sync before send_offer failed rep=%s", rep.id)
+        promo = PromoOfferService.get_by_code(db, rep.promo_code)
+        signup_url = PromoOfferService.signup_url(rep.promo_code)
+        first_name = SalesOfferSendService._first_name(customer.full_name)
+        offer_line = "£20 welcome credit"
+        promo_name = promo.name if promo else f"{rep.promo_code} — VoxBulk offer"
+        offer_summary = f"{offer_details}. Includes £20 wallet credit after signup (not usable for campaign launches or Customer feedback promo sends)."
+        variables = {
+            "first_name": first_name,
+            "offer_line": offer_line,
+            "promo_name": promo_name,
+            "offer_summary": offer_summary,
+            "signup_url": signup_url,
+            "promo_code": rep.promo_code,
+        }
         log: dict[str, Any] = {}
         ok = False
         if channel == "email":
@@ -349,11 +399,7 @@ class SalesRepService:
                     db,
                     template_key="sales_offer",
                     to_email=customer.email,
-                    variables={
-                        "name": customer.full_name or "",
-                        "offer": offer_details,
-                        "promo_code": rep.promo_code,
-                    },
+                    variables=variables,
                 )
                 ok = bool(sent)
                 log = {"channel": "email", "ok": ok, "error": err}
@@ -363,8 +409,13 @@ class SalesRepService:
             if not customer.mobile:
                 return {"ok": False, "message": "Customer has no mobile number."}
             try:
+                from app.data.sales_offer_email_default import SALES_OFFER_WHATSAPP_BODY
                 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
+                body = SALES_OFFER_WHATSAPP_BODY
+                for key, val in variables.items():
+                    body = body.replace(f"{{{{{key}}}}}", str(val))
+                body = f"{body}\n\nSign up: {signup_url}"
                 res = TelnyxMessagingService.send_whatsapp(db, to_number=customer.mobile, body=body)
                 ok = bool(getattr(res, "ok", True))
                 log = {"channel": "wa", "ok": ok}
@@ -503,6 +554,103 @@ class SalesRepService:
             }
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": f"Could not start the AI survey demo: {e}"}
+
+    @staticmethod
+    def link_customer_on_promo_redeem(
+        db: Session,
+        *,
+        promo,
+        org: Organisation,
+        user_email: str | None,
+    ) -> None:
+        from app.models.organisation import Organisation as OrgModel
+
+        if not isinstance(org, OrgModel):
+            org = db.get(OrgModel, str(getattr(org, "id", org)))
+        if org is None:
+            return
+        rep_id = getattr(promo, "sales_rep_id", None)
+        if not rep_id:
+            row = db.execute(
+                select(SalesRep).where(SalesRep.promo_code == str(getattr(promo, "code", "") or ""))
+            ).scalar_one_or_none()
+            rep_id = row.id if row else None
+        if not rep_id:
+            return
+        email_norm = str(user_email or org.contact_email or "").strip().lower()
+        mobile = str(org.contact_phone or "").strip()
+        q = select(SalesCustomer).where(SalesCustomer.sales_rep_id == rep_id)
+        candidates = list(db.execute(q).scalars().all())
+        matched: SalesCustomer | None = None
+        for cust in candidates:
+            cust_email = str(cust.email or "").strip().lower()
+            cust_mobile = str(cust.mobile or "").strip()
+            if email_norm and cust_email and cust_email == email_norm:
+                matched = cust
+                break
+            if mobile and cust_mobile and cust_mobile.replace(" ", "") == mobile.replace(" ", ""):
+                matched = cust
+                break
+        now = datetime.utcnow()
+        if matched is None and email_norm:
+            matched = SalesCustomer(
+                sales_rep_id=rep_id,
+                full_name=str(org.contact_name or org.name or "Customer"),
+                company_name=org.name,
+                email=email_norm or None,
+                mobile=mobile or None,
+                status="won",
+                org_id=org.id,
+                interested=True,
+                interested_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(matched)
+        elif matched is not None:
+            matched.org_id = org.id
+            matched.status = "won"
+            matched.interested = True
+            if matched.interested_at is None:
+                matched.interested_at = now
+            matched.updated_at = now
+            db.add(matched)
+        db.flush()
+
+    @staticmethod
+    def mark_commission_paid(db: Session, *, commission_id: str, note: str | None = None) -> SalesCommission:
+        row = db.get(SalesCommission, commission_id)
+        if row is None:
+            raise SalesRepError("Commission not found")
+        if str(row.status or "").lower() == "paid":
+            return row
+        row.status = "paid"
+        if note:
+            row.note = str(note).strip()[:255]
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
+    def mark_rep_commissions_paid(db: Session, *, rep_id: str, commission_ids: list[str] | None = None) -> dict[str, Any]:
+        q = select(SalesCommission).where(
+            SalesCommission.sales_rep_id == rep_id,
+            SalesCommission.status == "pending",
+        )
+        if commission_ids:
+            q = q.where(SalesCommission.id.in_(commission_ids))
+        rows = list(db.execute(q).scalars().all())
+        now = datetime.utcnow()
+        total = 0
+        for row in rows:
+            row.status = "paid"
+            row.updated_at = now
+            total += int(row.amount_minor or 0)
+            db.add(row)
+        db.commit()
+        return {"ok": True, "marked_paid": len(rows), "amount_minor": total}
 
     # ---- commission + dashboard ---------------------------------------------
     @staticmethod

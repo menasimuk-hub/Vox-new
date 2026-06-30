@@ -140,7 +140,8 @@ class LaunchBillingService:
         """Split the billable amount across wallet first, then Direct Debit for subscription."""
         from app.services.wallet_service import WalletService
 
-        wallet_balance = WalletService.balance_minor(org)
+        wallet_balance = WalletService.spendable_minor(org, allow_promo=False)
+        total_balance = WalletService.balance_minor(org)
         estimated_cost = max(0, int(total_minor or 0))
         required_wallet = (
             math.ceil(estimated_cost * PAYG_WALLET_BUFFER_MULTIPLIER)
@@ -182,8 +183,9 @@ class LaunchBillingService:
             est_display = money_display(estimated_cost, currency)
             block_reason = (
                 f"Estimated cost {est_display}. We hold 125% ({hold_display}) for longer calls. "
-                f"Your wallet has {money_display(wallet_balance, currency)} — "
-                f"top up at least {money_display(shortfall, currency)} to launch."
+                f"Your wallet has {money_display(wallet_balance, currency)} available for launches"
+                f"{f' ({money_display(total_balance, currency)} total, including promo credit that cannot be used here)' if total_balance > wallet_balance else ''}"
+                f" — top up at least {money_display(shortfall, currency)} to launch."
             )
 
         return {
@@ -202,8 +204,10 @@ class LaunchBillingService:
             "wallet_charge_display": money_display(wallet_charge, currency),
             "dd_charge_minor": dd_charge,
             "dd_charge_display": money_display(dd_charge, currency),
-            "wallet_balance_minor": wallet_balance,
-            "wallet_balance_display": money_display(wallet_balance, currency),
+            "wallet_balance_minor": total_balance,
+            "wallet_balance_display": money_display(total_balance, currency),
+            "wallet_spendable_minor": wallet_balance,
+            "wallet_spendable_display": money_display(wallet_balance, currency),
             "wallet_shortfall_minor": max(0, required_wallet - wallet_balance) if method == "blocked" else 0,
             "top_up_minor": max(0, required_wallet - wallet_balance) if method == "blocked" else 0,
             "top_up_display": money_display(max(0, required_wallet - wallet_balance), currency)
@@ -253,6 +257,7 @@ class LaunchBillingService:
                 order_id=order.id,
                 created_by_user_id=user_id,
                 metadata={"channel": breakdown.get("channel"), "units": breakdown.get("units_billable")},
+                restrict_promo_spend=True,
                 commit=False,
             )
             result["wallet_charged_minor"] = wallet_charge

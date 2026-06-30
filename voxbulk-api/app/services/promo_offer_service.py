@@ -12,13 +12,17 @@ from app.models.plan import Plan
 from app.models.organisation import Organisation
 from app.models.promo_offer import PromoOffer, PromoRedemption
 from app.models.subscription import Subscription
+from app.models.user import User
 from app.services.gocardless_service import BillingService
 from app.services.usage_wallet_service import UsageWalletService
+from app.services.wallet_service import WalletService
 
 _CODE_RE = re.compile(r"[^A-Z0-9]+")
 
 SUBSCRIPTION_OFFER_TYPES = {"dental_trial", "subscription_trial"}
 SERVICE_CREDIT_OFFER_TYPES = {"survey_credits", "interview_credits"}
+WALLET_VOUCHER_OFFER_TYPES = {"sales_wallet_voucher"}
+SALES_REP_WALLET_CREDIT_PENCE = 2000
 
 
 class PromoOfferError(ValueError):
@@ -26,6 +30,11 @@ class PromoOfferError(ValueError):
 
 
 class PromoOfferService:
+    @staticmethod
+    def is_wallet_voucher_offer(offer_type: str | None) -> bool:
+        clean = str(offer_type or "").strip()
+        return clean in WALLET_VOUCHER_OFFER_TYPES
+
     @staticmethod
     def is_subscription_offer(offer_type: str | None) -> bool:
         clean = str(offer_type or "dental_trial").strip() or "dental_trial"
@@ -39,7 +48,7 @@ class PromoOfferService:
     @staticmethod
     def normalize_offer_type(raw: str | None) -> str:
         clean = str(raw or "dental_trial").strip() or "dental_trial"
-        if clean in SUBSCRIPTION_OFFER_TYPES | SERVICE_CREDIT_OFFER_TYPES:
+        if clean in SUBSCRIPTION_OFFER_TYPES | SERVICE_CREDIT_OFFER_TYPES | WALLET_VOUCHER_OFFER_TYPES:
             return clean
         if clean in {"subscription", "plan"}:
             return "dental_trial"
@@ -95,6 +104,8 @@ class PromoOfferService:
             "overage_per_min_pence": int(row.overage_per_min_pence or 0),
             "survey_contacts_included": int(row.survey_contacts_included or 0),
             "interview_contacts_included": int(row.interview_contacts_included or 0),
+            "wallet_credit_pence": int(row.wallet_credit_pence or 0),
+            "wallet_credit_gbp": f"£{int(row.wallet_credit_pence or 0) / 100:.2f}",
             "signup_url": PromoOfferService.signup_url(row.code),
             "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         }
@@ -116,6 +127,7 @@ class PromoOfferService:
             "is_active": bool(row.is_active),
             "lead_sales_task_id": row.lead_sales_task_id,
             "ai_team_prospect_id": row.ai_team_prospect_id,
+            "sales_rep_id": row.sales_rep_id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 
@@ -218,6 +230,86 @@ class PromoOfferService:
         return row
 
     @staticmethod
+    def _assert_code_available(db: Session, code: str, *, exclude_promo_id: str | None = None) -> None:
+        clean = PromoOfferService.normalize_code(code)
+        row = PromoOfferService.get_by_code(db, clean)
+        if row is not None and (exclude_promo_id is None or row.id != exclude_promo_id):
+            raise PromoOfferError("Promo code already exists")
+
+    @staticmethod
+    def upsert_for_sales_rep(db: Session, rep) -> PromoOffer:
+        from app.models.sales_rep import SalesRep
+
+        if not isinstance(rep, SalesRep):
+            raise PromoOfferError("Invalid sales rep")
+        code = PromoOfferService.normalize_code(rep.promo_code)
+        existing = db.execute(
+            select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)
+        ).scalar_one_or_none()
+        if existing is None:
+            existing = PromoOfferService.get_by_code(db, code)
+            if existing is not None and existing.sales_rep_id not in (None, rep.id):
+                raise PromoOfferError(f"Promo code {code} is already linked to another offer")
+        elif existing.code != code:
+            PromoOfferService._assert_code_available(db, code, exclude_promo_id=existing.id)
+
+        now = datetime.utcnow()
+        credit = SALES_REP_WALLET_CREDIT_PENCE
+        display_name = f"{rep.name} · £{credit // 100} welcome credit"
+        if existing is not None:
+            existing.code = code
+            existing.name = display_name
+            existing.offer_type = "sales_wallet_voucher"
+            existing.wallet_credit_pence = credit
+            existing.sales_rep_id = rep.id
+            existing.is_active = bool(rep.is_active)
+            existing.max_redemptions = max(int(existing.max_redemptions or 0), 999999)
+            if existing.expires_at is None:
+                existing.expires_at = now + timedelta(days=3650)
+            existing.updated_at = now
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
+            return existing
+
+        row = PromoOffer(
+            code=code,
+            name=display_name,
+            offer_type="sales_wallet_voucher",
+            wallet_credit_pence=credit,
+            sales_rep_id=rep.id,
+            max_redemptions=999999,
+            redemption_count=0,
+            expires_at=now + timedelta(days=3650),
+            is_active=bool(rep.is_active),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
+    def stamp_promo_attribution(
+        db: Session,
+        *,
+        org_id: str,
+        promo: PromoOffer,
+        subscription: Subscription | None = None,
+    ) -> None:
+        row = UsageWalletService.get_current(db, org_id)
+        now = datetime.utcnow()
+        if row is not None:
+            row.promo_code = promo.code
+            row.updated_at = now
+            db.add(row)
+            return
+        if subscription is None:
+            return
+        UsageWalletService.bootstrap_from_promo(db, org_id=org_id, promo=promo, subscription=subscription)
+
+    @staticmethod
     def create_for_sales_task(
         db: Session,
         *,
@@ -308,7 +400,67 @@ class PromoOfferService:
         if org is None:
             raise PromoOfferError("Organisation not found")
 
-        if PromoOfferService.is_service_credit_offer(row.offer_type):
+        existing_org = db.execute(
+            select(PromoRedemption.id).where(
+                PromoRedemption.promo_offer_id == row.id,
+                PromoRedemption.org_id == org_id,
+            )
+        ).first()
+        if existing_org is not None:
+            raise PromoOfferError("Promo already redeemed for this organisation")
+
+        if PromoOfferService.is_wallet_voucher_offer(row.offer_type):
+            credit = max(0, int(row.wallet_credit_pence or SALES_REP_WALLET_CREDIT_PENCE))
+            if credit <= 0:
+                credit = SALES_REP_WALLET_CREDIT_PENCE
+            try:
+                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
+            except ValueError:
+                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
+            WalletService.credit(
+                db,
+                org,
+                amount_minor=credit,
+                kind="promo_credit",
+                provider="sales_rep_promo",
+                provider_reference=row.id,
+                description=f"Welcome credit — promo {row.code}",
+                created_by_user_id=user_id,
+                metadata={
+                    "restricted_spend": True,
+                    "source": "sales_rep_promo",
+                    "promo_offer_id": row.id,
+                    "sales_rep_id": row.sales_rep_id,
+                    "promo_code": row.code,
+                },
+                commit=False,
+            )
+            PromoOfferService.stamp_promo_attribution(db, org_id=org_id, promo=row, subscription=sub)
+            try:
+                from app.services.billing_refund_email_service import BillingRefundEmailService
+
+                BillingRefundEmailService.send_wallet_credit_issued(
+                    db,
+                    org=org,
+                    user_id=user_id,
+                    amount_pence=credit,
+                    wallet_balance_pence=int(org.wallet_balance_pence or 0),
+                )
+            except Exception:
+                pass
+            try:
+                from app.services.sales_rep_service import SalesRepService
+
+                user = db.get(User, user_id) if user_id else None
+                SalesRepService.link_customer_on_promo_redeem(
+                    db,
+                    promo=row,
+                    org=org,
+                    user_email=user.email if user else None,
+                )
+            except Exception:
+                pass
+        elif PromoOfferService.is_service_credit_offer(row.offer_type):
             if row.offer_type == "survey_credits":
                 org.survey_credits_balance = int(org.survey_credits_balance or 0) + int(row.survey_contacts_included or 0)
             else:

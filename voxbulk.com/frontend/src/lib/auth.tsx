@@ -27,13 +27,13 @@ type AuthCtx = {
   loading: boolean;
   refresh: () => Promise<AuthUser | null>;
   login: (email: string, password: string, orgId?: string) => Promise<LoginResult>;
-  register: (email: string, password: string, organisationName: string) => Promise<AuthUser>;
+  register: (email: string, password: string, organisationName: string, promoCode?: string) => Promise<AuthUser>;
   acceptInvite: (token: string, password: string) => Promise<AuthUser>;
   previewInvite: (token: string) => Promise<InvitePreview>;
   completeOAuthOrgSelection: (selectionToken: string, orgId: string) => Promise<AuthUser>;
   fetchOAuthOrgSelection: (selectionToken: string) => Promise<OrgLoginOption[]>;
   logout: () => void;
-  startOAuth: (provider: string, inviteToken?: string) => void;
+  startOAuth: (provider: string, inviteToken?: string, promoCode?: string) => void;
   consumeOAuthHash: () => OAuthHashResult;
   needsOnboarding: (user?: AuthUser | null) => boolean;
 };
@@ -103,14 +103,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { kind: "authenticated", user: me };
   }, [refresh]);
 
-  const register = React.useCallback(async (email: string, password: string, organisationName: string): Promise<AuthUser> => {
+  const register = React.useCallback(async (email: string, password: string, organisationName: string, promoCode?: string): Promise<AuthUser> => {
+    const body: Record<string, string> = {
+      email: email.trim(),
+      password,
+      organisation_name: organisationName.trim() || "My organisation",
+    };
+    const promo = promoCode?.trim().toUpperCase();
+    if (promo) body.promo_code = promo;
     const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({
-        email: email.trim(),
-        password,
-        organisation_name: organisationName.trim() || "My organisation",
-      }),
+      body: JSON.stringify(body),
     });
     setSession(data.access_token, data.org_id, data.user_id);
     const me = await refresh();
@@ -138,8 +141,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const startOAuth = React.useCallback((provider: string, inviteToken?: string) => {
-    window.location.href = oauthStartUrl(provider, { inviteToken });
+  const startOAuth = React.useCallback((provider: string, inviteToken?: string, promoCode?: string) => {
+    window.location.href = oauthStartUrl(provider, { inviteToken, promoCode });
   }, []);
 
   const fetchOAuthOrgSelection = React.useCallback(async (selectionToken: string): Promise<OrgLoginOption[]> => {

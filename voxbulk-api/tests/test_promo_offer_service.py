@@ -30,7 +30,17 @@ def test_offer_line_for_survey_promo():
     assert "survey" in line.lower()
 
 
+def test_is_wallet_voucher_offer():
+    assert PromoOfferService.is_wallet_voucher_offer("sales_wallet_voucher")
+    assert not PromoOfferService.is_wallet_voucher_offer("dental_trial")
+
+
 def test_signup_url_uses_public_origin(monkeypatch):
+    class _Settings:
+        public_app_origin = "https://app.example.com"
+
+    monkeypatch.setattr("app.services.promo_offer_service.get_settings", lambda: _Settings())
+    assert PromoOfferService.signup_url("SALEABC") == "https://app.example.com/signin?promo=SALEABC"
     class _Settings:
         public_app_origin = "https://app.example.com"
 

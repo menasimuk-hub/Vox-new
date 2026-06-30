@@ -60,12 +60,28 @@ billing hook.
 - [ ] Pass
 
 ### 5. Billing → commission (core)
-1. Sign up a new customer org using the salesman's **promo code** at checkout.
-2. Pay the subscription invoice (card / wallet / Direct Debit).
-3. Monthly plan: pay the **2nd** invoice → commission accrues.
-4. Yearly plan: commission accrues on the **1st** payment (≈ invoice ÷ 12).
-5. Salesman **Wallet** → pending commission increases.
-6. DB check (optional): a `sales_commissions` row exists for that org + rep.
+1. Admin creates salesman → verify `promo_offers` row exists with `offer_type=sales_wallet_voucher` and `wallet_credit_pence=2000`.
+2. Rep sends offer email → verify branded template (logo, tagline, signup link to `voxbulk.com/signin?promo=CODE`).
+3. Customer opens signup link → signin page shows offer banner and passes promo on register (or OAuth).
+4. After signup: org wallet +£20; `promo_wallet_balance_pence=2000`; campaign launch blocked if only promo credit available.
+5. Customer pays subscription → commission accrues on 2nd invoice (monthly) or 1st (yearly).
+6. Admin → Salesmen → mark pending commissions paid → salesman Wallet shows paid commission.
+
+- [ ] Pass
+
+### 5b. £20 wallet voucher restrictions
+1. Org with only promo wallet credit (£20, no top-up).
+2. Survey/interview launch estimate shows shortfall (promo credit excluded).
+3. Customer feedback promo campaign invoice paid from wallet → blocked with clear message if only promo credit.
+
+- [ ] Pass
+
+### 5c. Automated pytest
+```bash
+cd voxbulk-api
+pytest tests/test_sales_rep_promo_flow.py tests/test_promo_offer_service.py tests/test_assistant.py -q
+python scripts/audit_email_templates.py
+```
 
 - [ ] Pass
 
@@ -98,7 +114,5 @@ billing hook.
 
 ## Known gaps (not bugs)
 
-- Attribution relies on the promo code reaching `OrgUsagePeriod.promo_code` (or a
-  `SalesCustomer.org_id`). No code entered at signup → no commission.
-- No automatic customer → org conversion; linking is by promo code only.
-- Commission stays `pending` — no admin payout / mark-paid action yet.
+- Attribution via promo code on signup (`OrgUsagePeriod.promo_code`) and auto-link of `SalesCustomer.org_id` when email/mobile matches.
+- Admin can mark commissions paid via `POST /admin/sales-reps/{rep_id}/commissions/mark-paid`.

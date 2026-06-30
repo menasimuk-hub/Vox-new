@@ -135,7 +135,7 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
         "body": wrap_brand_email(
             title="Payment received",
             inner_html="""<p>Hi,</p>
-  <p>We have received your payment of <strong>{{total}}</strong> for invoice <strong>{{invoice_number}}</strong>.</p>
+  <p>We have received your payment of <strong>{{amount}}</strong> for invoice <strong>{{invoice_number}}</strong>.</p>
   <p style="font-size:13px;color:#6b6560;">Your invoice PDF is attached for your records.</p>""",
             footer="Sent by VOXBULK Billing · billing@voxbulk.com",
         ),

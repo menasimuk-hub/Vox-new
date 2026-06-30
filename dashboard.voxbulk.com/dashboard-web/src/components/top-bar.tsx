@@ -251,8 +251,8 @@ function buildAssistantWelcome(email?: string | null, enabled: ServiceKey[] = []
   return `${greet} — I'm your VoxBulk assistant. Ask about ${modules}, billing, usage, or support. I only cover modules enabled on your account.`;
 }
 
-function enabledServicesForAssistant(visible: Record<ServiceKey, boolean>): string[] {
-  return (Object.entries(visible) as Array<[ServiceKey, boolean]>)
+function enabledServicesForAssistant(allowed: Record<ServiceKey, boolean>): string[] {
+  return (Object.entries(allowed) as Array<[ServiceKey, boolean]>)
     .filter(([, on]) => on)
     .map(([key]) => key);
 }
@@ -264,14 +264,14 @@ export function LiveChatFab() {
   const { session } = useSession();
   const navigate = useNavigate();
   const currentRoute = useRouterState({ select: (s) => s.location.pathname });
-  const { visible: visibleServices } = useServices();
+  const { allowed, visible: visibleServices } = useServices();
   const { setHighlight, applyNextAction } = useAssistantHighlight();
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
   const reportM = useAssistantReportSupport();
   const enabledForAssistant = React.useMemo(
-    () => enabledServicesForAssistant(visibleServices) as ServiceKey[],
-    [visibleServices],
+    () => enabledServicesForAssistant(allowed) as ServiceKey[],
+    [allowed],
   );
   const welcomeText = React.useMemo(
     () => buildAssistantWelcome(session?.profile?.email, enabledForAssistant),

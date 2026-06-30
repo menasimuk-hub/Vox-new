@@ -17,7 +17,7 @@ from app.services.invoice_lifecycle_service import InvoiceLifecycleService
 from app.services.invoice_service import InvoiceService
 from app.services.org_audit_service import OrgAuditService
 from app.services.stripe_payment_service import StripePaymentService
-from app.services.wallet_service import InsufficientWalletBalance, WalletService
+from app.services.wallet_service import InsufficientWalletBalance, PromoWalletRestricted, WalletService
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +256,11 @@ class InvoicePaymentService:
         if amount <= 0:
             raise InvoicePaymentError("Nothing due on this invoice.")
 
+        restrict_promo = str(getattr(invoice, "service_code", "") or "").lower() in {
+            "customer_feedback",
+            "feedback",
+        } or "promo campaign" in str(getattr(invoice, "description", "") or "").lower()
+
         try:
             tx = WalletService.debit(
                 db,
@@ -266,8 +271,11 @@ class InvoicePaymentService:
                 invoice_id=invoice.id,
                 order_id=getattr(invoice, "order_id", None),
                 created_by_user_id=user_id,
+                restrict_promo_spend=restrict_promo,
                 commit=False,
             )
+        except PromoWalletRestricted as exc:
+            raise InvoicePaymentError(str(exc)) from exc
         except InsufficientWalletBalance as exc:
             raise InvoicePaymentError(
                 "Wallet balance is insufficient for the full invoice amount. "

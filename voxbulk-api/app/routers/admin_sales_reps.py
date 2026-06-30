@@ -75,6 +75,26 @@ def delete_sales_rep(rep_id: str, db: Session = Depends(get_db), _admin=Depends(
     return {"ok": True}
 
 
+@router.post("/{rep_id}/commissions/mark-paid")
+def mark_rep_commissions_paid(rep_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    rep = _get_rep(db, rep_id)
+    ids = list((payload or {}).get("commission_ids") or [])
+    try:
+        result = SalesRepService.mark_rep_commissions_paid(db, rep_id=rep.id, commission_ids=ids or None)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **result}
+
+
+@router.post("/commissions/{commission_id}/mark-paid")
+def mark_commission_paid(commission_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    try:
+        row = SalesRepService.mark_commission_paid(db, commission_id=commission_id, note=(payload or {}).get("note"))
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "commission_id": row.id, "status": row.status}
+
+
 @router.get("/{rep_id}/customers")
 def list_rep_customers(rep_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rep = _get_rep(db, rep_id)

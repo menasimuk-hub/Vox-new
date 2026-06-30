@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,8 @@ from app.services.org_invite_service import (
     organisations_for_user,
     setup_new_invited_user,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthFlowError(RuntimeError):
@@ -113,15 +116,18 @@ def _build_state(
     invite_token: str | None,
     org_id: str | None,
     return_to: str | None = None,
+    promo_code: str | None = None,
 ) -> str:
     # Signed, short-lived state token (JWT) to prevent CSRF and preserve context.
     settings = get_settings()
     now = datetime.now(timezone.utc)
+    promo_clean = str(promo_code or "").strip().upper() or None
     payload = {
         "provider": provider,
         "nonce": nonce,
         "invite_token": invite_token,
         "org_id": org_id,
+        "promo_code": promo_clean,
         "return_to": str(return_to or "").strip().lower() or None,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=10)).timestamp()),
@@ -153,6 +159,7 @@ class SocialOAuthService:
         invite_token: str | None,
         org_id: str | None,
         return_to: str | None = None,
+        promo_code: str | None = None,
     ) -> str:
         provider = provider.lower().strip()
         if provider not in SocialOAuthService.PROVIDERS:
@@ -165,6 +172,7 @@ class SocialOAuthService:
             invite_token=invite_token,
             org_id=org_id,
             return_to=return_to,
+            promo_code=promo_code,
         )
 
         if provider == "google":
@@ -486,6 +494,7 @@ class SocialOAuthService:
             raise OAuthFlowError("State/provider mismatch")
         invite_token = state_payload.get("invite_token") or None
         org_id_hint = state_payload.get("org_id") or None
+        promo_code = str(state_payload.get("promo_code") or "").strip().upper() or None
 
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider=provider)
         conf = _require_config(provider, cfg, enabled)
@@ -524,6 +533,21 @@ class SocialOAuthService:
             org_ent = db.execute(select(Organisation).where(Organisation.id == resolved_org_id)).scalar_one_or_none()
             if org_ent is not None and bool(org_ent.is_suspended):
                 raise OAuthFlowError("Organisation suspended")
+
+        if is_new and promo_code and resolved_org_id and not invite_token:
+            try:
+                from app.services.promo_offer_service import PromoOfferError, PromoOfferService
+
+                PromoOfferService.redeem_for_org(
+                    db,
+                    org_id=str(resolved_org_id),
+                    user_id=user.id,
+                    promo_code=promo_code,
+                )
+            except PromoOfferError:
+                pass
+            except Exception:
+                logger.exception("oauth promo redeem failed user=%s promo=%s", user.id, promo_code)
 
         token = create_access_token(subject=user.id, org_id=resolved_org_id)
         return OAuthCallbackResult(

@@ -213,10 +213,11 @@ export async function apiUpload<T = unknown>(path: string, form: FormData, metho
   return (data ?? {}) as T;
 }
 
-export function oauthStartUrl(provider: string, opts?: { inviteToken?: string; orgId?: string }) {
+export function oauthStartUrl(provider: string, opts?: { inviteToken?: string; orgId?: string; promoCode?: string }) {
   const params = new URLSearchParams();
   if (opts?.inviteToken) params.set("invite_token", opts.inviteToken);
   if (opts?.orgId) params.set("org_id", opts.orgId);
+  if (opts?.promoCode) params.set("promo_code", opts.promoCode.trim().toUpperCase());
   const qs = params.toString();
   const base = apiUrl(`/auth/oauth/${encodeURIComponent(provider)}/start`);
   return qs ? `${base}?${qs}` : base;

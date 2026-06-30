@@ -7,7 +7,7 @@ import { Mail, Lock, ArrowRight, Loader2, Building2 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SocialAuthButtons } from "@/components/SocialAuthButtons";
 import { useAuth } from "@/lib/auth";
-import { resolvePostLoginDestination, type InvitePreview, type OrgLoginOption } from "@/lib/api";
+import { apiFetch, resolvePostLoginDestination, type InvitePreview, type OrgLoginOption } from "@/lib/api";
 import type { AuthUser } from "@/lib/auth";
 
 export const Route = createFileRoute("/signin")({
@@ -29,6 +29,15 @@ const credSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(128),
 });
 
+type PromoPreview = {
+  code: string;
+  name: string;
+  offer_type: string;
+  wallet_credit_pence?: number;
+  wallet_credit_gbp?: string;
+  signup_url?: string;
+};
+
 function SignInPage() {
   const navigate = useNavigate();
   const auth = useAuth();
@@ -43,6 +52,9 @@ function SignInPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [orgChoices, setOrgChoices] = useState<OrgLoginOption[] | null>(null);
   const [oauthSelectToken, setOauthSelectToken] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState<string | null>(null);
+  const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
 
   useEffect(() => {
     const oauthResult = auth.consumeOAuthHash();
@@ -73,6 +85,20 @@ function SignInPage() {
           setInviteToken(null);
         })
         .finally(() => setInviteLoading(false));
+    }
+    const promo = params.get("promo")?.trim().toUpperCase();
+    if (promo) {
+      setPromoCode(promo);
+      setMode("signup");
+      setPromoLoading(true);
+      void apiFetch<{ ok?: boolean; promo: PromoPreview }>(`/promo/${encodeURIComponent(promo)}`)
+        .then((res) => setPromoPreview(res.promo))
+        .catch((e: unknown) => {
+          toast.error(e instanceof Error ? e.message : "Promo code is invalid or expired");
+          setPromoCode(null);
+          setPromoPreview(null);
+        })
+        .finally(() => setPromoLoading(false));
     }
   }, [auth]);
 
@@ -107,8 +133,8 @@ function SignInPage() {
         return;
       }
       if (mode === "signup") {
-        const user = await auth.register(email, password, orgName.trim());
-        toast.success("Account created!");
+        const user = await auth.register(email, password, orgName.trim(), promoCode || undefined);
+        toast.success(promoCode ? "Account created — welcome credit applied!" : "Account created!");
         routeAfterAuth(user);
         return;
       }
@@ -149,7 +175,7 @@ function SignInPage() {
 
   const oauth = (provider: string) => {
     setOauthLoading(provider);
-    auth.startOAuth(provider, inviteToken || undefined);
+    auth.startOAuth(provider, inviteToken || undefined, promoCode || undefined);
   };
 
   const inviteActive = Boolean(inviteToken && invitePreview);
@@ -174,7 +200,17 @@ function SignInPage() {
           </div>
 
           <div className="mt-8 bg-white border border-border rounded-2xl p-7 shadow-elegant">
-            {inviteLoading ? (
+            {promoPreview && !inviteActive ? (
+              <div className="mb-5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-heading">
+                <p className="font-semibold text-primary">Offer applied: {promoPreview.name}</p>
+                {promoPreview.wallet_credit_pence ? (
+                  <p className="mt-1 text-muted-text">
+                    Includes {promoPreview.wallet_credit_gbp || `£${(promoPreview.wallet_credit_pence / 100).toFixed(2)}`} welcome wallet credit after signup.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {inviteLoading || promoLoading ? (
               <div className="flex justify-center py-8"><Loader2 className="animate-spin text-primary" /></div>
             ) : orgChoices && orgChoices.length > 0 ? (
               <div className="space-y-3">

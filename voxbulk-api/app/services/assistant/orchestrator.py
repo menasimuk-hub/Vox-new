@@ -30,6 +30,11 @@ from app.services.assistant.safe_tools import (
 from app.services.assistant.tools import AssistantTools
 from app.services.gocardless_service import BillingService
 from app.services.platform_catalog_service import PlatformCatalogService as ServiceOrderService
+from app.services.assistant.service_registry import (
+    INTENT_REGISTRY,
+    default_ui_commands_for_intent,
+    execute_intent,
+)
 from app.services.support_ticket_service import SupportTicketService
 
 logger = logging.getLogger(__name__)
@@ -80,7 +85,11 @@ class AssistantOrchestrator:
             if gated is not None:
                 return gated
 
-        handler = _HANDLERS.get(intent_match.intent, _handle_general)
+        handler = _HANDLERS.get(intent_match.intent)
+        if handler is None and intent_match.intent in INTENT_REGISTRY:
+            handler = _handle_registry_intent
+        if handler is None:
+            handler = _handle_general
         try:
             return handler(
                 db,
@@ -665,6 +674,106 @@ def _handle_catalog_nav(db, *, principal, org, message, intent, context, is_admi
     )
 
 
+def _registry_summary(intent: str, data: Any) -> str:
+    if not isinstance(data, dict):
+        return "Here is what I found in your account."
+    if intent == "billing_subscription":
+        plan = str(data.get("plan_name") or data.get("plan_code") or "your plan")
+        status = str(data.get("status") or data.get("subscription_status") or "").strip()
+        interval = str(data.get("billing_interval") or "").strip()
+        bits = [f"Your subscription is on the {plan} plan"]
+        if status:
+            bits.append(f"status: {status}")
+        if interval:
+            bits.append(f"billing: {interval}")
+        return ". ".join(bits) + "."
+    if intent == "usage_breakdown":
+        rows = data.get("rows") or data.get("items") or []
+        if isinstance(rows, list) and rows:
+            return f"I found {len(rows)} recent usage line(s). Open Usage for the full breakdown."
+        return "Open Usage to see allowance and campaign consumption for this period."
+    if intent == "feedback_subscription":
+        plan = str(data.get("plan_name") or "Customer feedback")
+        return f"Your Customer feedback subscription: {plan}."
+    if intent in {"list_tickets", "ticket_detail"}:
+        return "Here are your recent support tickets."
+    if intent == "invoice_detail":
+        num = str(data.get("invoice_number") or data.get("id") or "invoice")
+        amt = str(data.get("amount_display") or data.get("total_display") or "")
+        return f"Invoice {num}" + (f" — {amt}." if amt else ".")
+    return "Here is what I found in your account."
+
+
+def _ui_commands_to_nav(commands: list) -> list:
+    from app.schemas.assistant import AssistantUiCommand
+
+    actions = []
+    for cmd in commands:
+        if not isinstance(cmd, AssistantUiCommand):
+            continue
+        if cmd.kind == "navigate" and cmd.route:
+            actions.append(nav_action(cmd.id or "nav", cmd.label or "Open", cmd.route))
+    return actions
+
+
+def _handle_registry_intent(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    tool_result = execute_intent(
+        db,
+        intent=intent.intent,
+        params=intent.params,
+        principal=principal,
+        org=org,
+        context=context,
+        message=message,
+    )
+    ui_commands = default_ui_commands_for_intent(
+        intent.intent,
+        data=tool_result.data if tool_result.ok else None,
+        params=tool_result.params_sent,
+    )
+    next_actions = _ui_commands_to_nav(ui_commands)
+    if not tool_result.ok:
+        if tool_result.navigation_only:
+            label = intent.intent.replace("_", " ").title()
+            return build_out(
+                primary_message=f"Open {label} using the link below.",
+                confidence=0.85,
+                intent=intent.intent,
+                next_actions=next_actions or [nav_action("home", "Dashboard", "/")],
+            )
+        return _handler_error_response(
+            db,
+            principal=principal,
+            org=org,
+            message=message,
+            intent=intent,
+        )
+    if tool_result.navigation_only:
+        label = intent.intent.replace("_", " ").title()
+        return build_out(
+            primary_message=f"You can {label.lower()} from here — use the button below.",
+            confidence=0.88,
+            intent=intent.intent,
+            next_actions=next_actions,
+        )
+    summary = _registry_summary(intent.intent, tool_result.data)
+    highlight_type = highlight_id = highlight_label = None
+    if ui_commands:
+        first = ui_commands[0]
+        highlight_type = getattr(first, "highlight_type", None)
+        highlight_id = getattr(first, "highlight_id", None)
+        highlight_label = getattr(first, "highlight_label", None)
+    return build_out(
+        primary_message=summary,
+        confidence=0.86,
+        intent=intent.intent,
+        highlight_type=str(highlight_type or ""),
+        highlight_id=highlight_id,
+        highlight_label=highlight_label,
+        next_actions=next_actions,
+    )
+
+
 def _handle_general(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
     name = user_display_name(db, principal)
     examples = example_questions_for_user(enabled_services=context.enabled_services or None, limit=5)
@@ -729,6 +838,14 @@ _HANDLERS = {
     "followup_overview": _handle_catalog_nav,
     "survey_reports": _handle_catalog_nav,
     "interview_reports": _handle_catalog_nav,
+    "create_interview": _handle_registry_intent,
+    "billing_subscription": _handle_registry_intent,
+    "usage_breakdown": _handle_registry_intent,
+    "feedback_subscription": _handle_registry_intent,
+    "list_tickets": _handle_registry_intent,
+    "ticket_detail": _handle_registry_intent,
+    "invoice_detail": _handle_registry_intent,
+    "campaign_detail": _handle_registry_intent,
     "general_help": _handle_general,
     "unknown": _handle_general,
 }

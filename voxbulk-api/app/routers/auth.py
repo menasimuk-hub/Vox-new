@@ -631,6 +631,7 @@ def oauth_start(
     invite_token: str | None = None,
     org_id: str | None = None,
     return_to: str | None = None,
+    promo_code: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
@@ -649,6 +650,7 @@ def oauth_start(
             invite_token=invite_token,
             org_id=org_id,
             return_to=return_to,
+            promo_code=promo_code,
         )
         res = RedirectResponse(url=url, status_code=302)
         secure = False

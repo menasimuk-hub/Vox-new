@@ -32,6 +32,8 @@ class PromoOffer(Base):
     prospect_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     lead_sales_task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     ai_team_prospect_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    sales_rep_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    wallet_credit_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_redemptions: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     redemption_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -550,6 +550,7 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                                 "invoice_number": invoice.invoice_number or invoice.external_invoice_id,
                                 "amount": money_display(amount, invoice.currency or "GBP"),
                                 "mandate_update_url": BillingLifecycleService._mandate_update_url(db, org_id),
+                                "billing_url": BillingLifecycleService._mandate_update_url(db, org_id),
                                 "retry_count": str(dd_recovery.get("dd_retry_count") or ""),
                             }
                         )

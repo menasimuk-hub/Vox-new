@@ -26,7 +26,7 @@ from app.services.assistant.orchestrator import AssistantOrchestrator, _HANDLERS
 from app.services.assistant.policy_coach import build_policy_refusal_response
 from app.services.assistant.policy_gate import check_policy
 from app.services.assistant.prompt_builder import build_classify_system_prompt, build_synthesize_system_prompt
-from app.services.assistant.rate_limit import check_assistant_rate_limit
+from app.services.assistant.support_report import issue_support_report_token
 from app.services.assistant.safe_tools import user_display_name
 from app.services.assistant.service_registry import (
     INTENT_REGISTRY,

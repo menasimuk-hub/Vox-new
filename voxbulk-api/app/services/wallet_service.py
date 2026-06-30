@@ -31,8 +31,32 @@ class InsufficientWalletBalance(WalletError):
     pass
 
 
+class PromoWalletRestricted(WalletError):
+    pass
+
+
+PROMO_RESTRICTED_DEBIT_KINDS = frozenset(
+    {"launch_debit", "launch_hold", "invoice_payment", "feedback_promo", "campaign_debit"}
+)
+
+
 class WalletService:
     MIN_TOPUP_MINOR = 500
+
+    @staticmethod
+    def promo_balance_minor(org: Organisation) -> int:
+        return max(0, int(getattr(org, "promo_wallet_balance_pence", 0) or 0))
+
+    @staticmethod
+    def unrestricted_balance_minor(org: Organisation) -> int:
+        return max(0, WalletService.balance_minor(org) - WalletService.promo_balance_minor(org))
+
+    @staticmethod
+    def spendable_minor(org: Organisation, *, allow_promo: bool) -> int:
+        total = WalletService.balance_minor(org)
+        if allow_promo:
+            return total
+        return WalletService.unrestricted_balance_minor(org)
 
     @staticmethod
     def balance_minor(org: Organisation) -> int:
@@ -113,6 +137,9 @@ class WalletService:
             raise WalletError("Credit amount must be positive")
         currency = resolve_org_currency(db, org, persist=True)
         org.wallet_balance_pence = WalletService.balance_minor(org) + amount
+        promo_flag = bool((metadata or {}).get("restricted_spend"))
+        if promo_flag:
+            org.promo_wallet_balance_pence = WalletService.promo_balance_minor(org) + amount
         db.add(org)
         row = WalletService._record(
             db,
@@ -151,18 +178,32 @@ class WalletService:
         invoice_id: str | None = None,
         created_by_user_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        restrict_promo_spend: bool | None = None,
         commit: bool = True,
     ) -> WalletTransaction:
         amount = int(amount_minor or 0)
         if amount <= 0:
             raise WalletError("Debit amount must be positive")
         balance = WalletService.balance_minor(org)
-        if balance < amount:
+        if restrict_promo_spend is None:
+            restrict_promo_spend = kind in PROMO_RESTRICTED_DEBIT_KINDS
+        spendable = WalletService.spendable_minor(org, allow_promo=not restrict_promo_spend)
+        if spendable < amount:
+            if restrict_promo_spend and WalletService.promo_balance_minor(org) > 0:
+                raise PromoWalletRestricted(
+                    "Promo wallet credit cannot be used for campaign launches or Customer feedback — "
+                    "top up or use package allowance."
+                )
             raise InsufficientWalletBalance(
-                f"Wallet balance is insufficient ({money_display(balance)} available, {money_display(amount)} required)"
+                f"Wallet balance is insufficient ({money_display(spendable)} available, {money_display(amount)} required)"
             )
         currency = resolve_org_currency(db, org, persist=True)
+        unrestricted_before = WalletService.unrestricted_balance_minor(org)
         org.wallet_balance_pence = balance - amount
+        if not restrict_promo_spend:
+            promo_used = max(0, amount - unrestricted_before)
+            if promo_used > 0:
+                org.promo_wallet_balance_pence = max(0, WalletService.promo_balance_minor(org) - promo_used)
         db.add(org)
         row = WalletService._record(
             db,

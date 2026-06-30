@@ -213,6 +213,7 @@ class InvoiceDocumentService:
             "country_name": country_name,
             "description": invoice.description or "",
             "amount": _money(total, currency),
+            "total": _money(total, currency),
             "amount_gbp_pence": str(total),
             "subtotal": _money(subtotal, currency),
             "tax_amount": _money(tax, currency),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -38,23 +38,74 @@ class WeeklyDigestService:
         public = str(settings.public_app_origin or "https://voxbulk.com").rstrip("/")
 
         outstanding_minor = BillingAccessService.outstanding_invoice_minor(db, org_id)
-        recovery_items = _empty_row("No recovery items this week.")
-        system_alerts = (
-            _empty_row(f"You have outstanding invoices ({outstanding_minor / 100:.2f} due).")
-            if outstanding_minor > 0
-            else _empty_row("No billing alerts this week.")
-        )
+        org_name = (org.name if org else "") or "Your organisation"
+
+        open_tickets = 0
+        try:
+            from app.models.support_ticket import SupportTicket
+
+            open_tickets = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(SupportTicket)
+                    .where(
+                        SupportTicket.org_id == org_id,
+                        SupportTicket.status.in_(("open", "pending", "in_progress")),
+                    )
+                ).scalar_one()
+                or 0
+            )
+        except Exception:
+            open_tickets = 0
+
+        survey_runs = interview_runs = 0
+        try:
+            from app.models.service_order import ServiceOrder
+
+            week_start = datetime.utcnow() - timedelta(days=7)
+            orders = list(
+                db.execute(
+                    select(ServiceOrder.service_code).where(
+                        ServiceOrder.org_id == org_id,
+                        ServiceOrder.updated_at >= week_start,
+                    )
+                ).all()
+            )
+            survey_runs = sum(1 for (code,) in orders if str(code or "") == "survey")
+            interview_runs = sum(1 for (code,) in orders if str(code or "") == "interview")
+        except Exception:
+            pass
+
+        usage_lines = [
+            f"Survey campaigns active this week: {survey_runs}.",
+            f"Interview campaigns active this week: {interview_runs}.",
+        ]
+        usage_summary_html = "".join(_empty_row(line) for line in usage_lines)
+
+        alert_lines: list[str] = []
+        if outstanding_minor > 0:
+            alert_lines.append(f"Outstanding invoices: £{outstanding_minor / 100:.2f} due.")
+        if open_tickets > 0:
+            alert_lines.append(
+                f"{open_tickets} open support ticket{'s' if open_tickets != 1 else ''} — "
+                f'<a href="{dashboard}/account/support/tickets" style="color:#185fa5;">view tickets</a>.'
+            )
+        if not alert_lines:
+            alert_lines.append("No billing or support alerts this week.")
+        system_alerts = "".join(_empty_row(line) for line in alert_lines)
 
         return {
-            "practice_name": (org.name if org else "") or "Your organisation",
+            "practice_name": org_name,
+            "organisation_name": org_name,
             "digest_week_date": _week_label(),
             "digest_greeting": f"Good morning, {first}",
             "message_html": "",
-            "recovery_items": recovery_items,
+            "recovery_items": _empty_row("Recovery outreach is managed from your Recovery module when enabled."),
+            "usage_summary_html": usage_summary_html,
             "system_alerts": system_alerts,
-            "interviews_recommended_percent": "0",
-            "satisfaction_score_percent": "0",
-            "recommend_percent": "0",
+            "interviews_recommended_percent": "",
+            "satisfaction_score_percent": "",
+            "recommend_percent": "",
             "dashboard_link": dashboard,
             "survey_results_link": f"{dashboard}/surveys/results",
             "interviews_results_link": f"{dashboard}/interviews/results",
