@@ -67,8 +67,10 @@ def _interview_meta(*, language_code: str) -> str:
     code = normalize_script_language_code(language_code)
     if code == "ar":
         lang_line = (
-            "Write the entire script in Arabic (intro, questions, closing, system_prompt, and script_text body). "
-            "Use natural professional Arabic suitable for job screening calls."
+            "Write the entire script in Gulf Arabic (Saudi/UAE natural phone style — not formal MSA). "
+            "Use short, clear sentences suitable for a phone screening call. "
+            "Intro, questions, closing, system_prompt, and script_text body must all match this tone. "
+            "Expect informal dialect answers from candidates; questions should still be professional."
         )
     elif code == "fr":
         lang_line = (
@@ -355,8 +357,8 @@ def _build_interview_phone_intro(
     code = normalize_script_language_code(language_code)
     if code == "ar":
         return (
-            f"مرحبًا، معك {organiser} من {org}. أتواصل معك نيابة عن {client} "
-            f"لإجراء مقابلة قصيرة. هل الوقت مناسب الآن؟"
+            f"السلام عليكم، معك {organiser} من {org}. أتواصل معك نيابة عن {client} "
+            f"لإجراء مقابلة قصيرة. هل الوقت مناسب الحين؟"
         )
     if code == "fr":
         return (
@@ -658,8 +660,8 @@ def _brand_context_block(
     code = normalize_script_language_code(language_code)
     if code == "ar":
         mandatory_intro = (
-            f"مرحبًا، معك {organiser} من {platform}. أتواصل معك نيابة عن {client} "
-            f"لإجراء مقابلة قصيرة..."
+            f"السلام عليكم، معك {organiser} من {platform}. أتواصل معك نيابة عن {client} "
+            f"لإجراء استبيان قصير..."
         )
     elif code == "fr":
         mandatory_intro = (

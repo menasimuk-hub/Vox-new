@@ -153,3 +153,30 @@ def test_substitute_voice_placeholders_regression_leo_from_company(db):
     )
     assert rendered == "Hello, this is Leo from Acme Health."
     assert "from company" not in rendered.lower()
+
+
+def test_arabic_interview_runtime_uses_gulf_not_msa(db):
+    org, order, recipient, _ = _seed_interview_call(db)
+    agent = AgentDefinition(
+        name="Jamal - Ar",
+        slug=f"jamal-{uuid.uuid4().hex[:8]}",
+        voice_label="Jamal",
+        system_prompt="English template only.",
+        supports_interview=True,
+        is_active=True,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    instructions = build_service_runtime_instructions(
+        db,
+        order=order,
+        config={"role": "مساعد رعاية", "approved_script": "INTRO\nThanks.\n\nQUESTIONS\n1. Example?\n\nCLOSING\nBye."},
+        recipient=recipient,
+        agent=agent,
+        service_key=SERVICE_INTERVIEW,
+    )
+    assert "الفصحى" not in instructions
+    assert "الخليجية" in instructions or "خليجي" in instructions
+    assert "زين" in instructions or "تمام" in instructions

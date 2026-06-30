@@ -707,9 +707,9 @@ class InterviewCallDispatchService:
 
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
-        from app.services.voice_agent_runtime import detect_config_language
+        from app.services.voice_agent_runtime import detect_interview_language
 
-        call_language = detect_config_language(config)
+        call_language = detect_interview_language(config, agent)
         if call_language == "ar":
             from app.services.telnyx_assistant_service import ensure_telnyx_assistant_transcription_language
 

@@ -13,8 +13,8 @@ DEFAULT_OPENING_DISCLOSURE = (
 )
 
 DEFAULT_OPENING_DISCLOSURE_AR = (
-    "مرحبًا، معك {agent_name}، المساعد الذكي من {company_name}. "
-    "هذه المكالمة مسجّلة لأغراض الجودة والخدمة."
+    "السلام عليكم، معك {agent_name}، المساعد الذكي من {company_name}. "
+    "المكالمة مسجّلة للجودة والخدمة."
 )
 
 

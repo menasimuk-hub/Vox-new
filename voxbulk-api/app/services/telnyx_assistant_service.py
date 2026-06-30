@@ -175,10 +175,10 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
 # Arabic transcription on their platform. `deepgram/flux` is English-only (it cannot
 # transcribe Arabic at all), so an Arabic agent on flux SPEAKS Arabic but hears the
 # candidate as English and never understands them. Azure needs a region-specific BCP-47
-# locale (e.g. `ar-EG`, `ar-SA`) — a bare `ar` is not accepted. We default to Egyptian
-# Arabic, which Azure recognises across most Levantine/Gulf speakers too.
+# locale (e.g. `ar-EG`, `ar-SA`) — a bare `ar` is not accepted. We default to Saudi
+# Arabic (Gulf-oriented) for STT on interview/survey calls targeting UAE/KSA speakers.
 _ARABIC_STT_MODEL = "azure/fast"
-_ARABIC_STT_LOCALE = "ar-EG"
+_ARABIC_STT_LOCALE = "ar-SA"
 
 
 def _transcription_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
