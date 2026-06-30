@@ -44,6 +44,16 @@ DEMO_ACCOUNT_PACK = "sales_demo_account_v1"
 SALES_DEMO_PHONE_PREFIX = "+44770299"
 _API_ROOT = Path(__file__).resolve().parents[2]
 
+# Default demo volumes for a salesman workspace. Override via seed_for_org(counts=...).
+DEFAULT_DEMO_COUNTS: dict[str, int] = {
+    "interviews": 20,        # 4 "Advance" (pass) + 10 scoring > 50 (see _seed_interview_campaign)
+    "ai_call_survey": 50,    # phone (AI call) survey responses
+    "wa_survey": 200,        # WhatsApp survey responses
+    "campaigns": 100,        # separate "sent" WhatsApp campaigns
+    "campaign_members": 5,   # recipients per separate campaign
+    "feedback_locations": 3, # QR Customer Feedback locations (one named "Demo")
+}
+
 
 def _load_seed_module(name: str) -> Any:
     path = _API_ROOT / "scripts" / f"{name}.py"
@@ -78,7 +88,13 @@ def _org_already_seeded(db: Session, org_id: str) -> bool:
 
 class DemoAccountSeedService:
     @staticmethod
-    def seed_for_org(db: Session, *, org_id: str, user_id: str) -> dict[str, Any]:
+    def seed_for_org(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        counts: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
         if _org_already_seeded(db, org_id):
             logger.info("demo_seed_skipped_already_seeded", extra={"org_id": org_id})
             return {"ok": True, "skipped": True, "reason": "already_seeded"}
@@ -86,6 +102,8 @@ class DemoAccountSeedService:
         org = db.get(Organisation, org_id)
         if org is None:
             return {"ok": False, "error": "organisation_not_found"}
+
+        vol = {**DEFAULT_DEMO_COUNTS, **(counts or {})}
 
         PlatformCatalogService.ensure_defaults(db)
         FeedbackSeedService.ensure_seeded(db)
@@ -112,6 +130,7 @@ class DemoAccountSeedService:
             auto_top_up=auto_top_up,
             debits=debits,
             seed=seed,
+            count=int(vol["interviews"]),
         )
         ai_order = user_account.seed_consolidated_survey(
             db,
@@ -120,8 +139,8 @@ class DemoAccountSeedService:
             org=org,
             auto_top_up=auto_top_up,
             channel="ai_call",
-            member_count=50,
-            title="Demo · AI Call Survey · 50 members",
+            member_count=int(vol["ai_call_survey"]),
+            title=f"Demo · AI Call Survey · {int(vol['ai_call_survey'])} members",
             seed=seed,
             debits=debits,
         )
@@ -132,28 +151,36 @@ class DemoAccountSeedService:
             org=org,
             auto_top_up=auto_top_up,
             channel="wa",
-            member_count=200,
-            title="Demo · WhatsApp Survey · 200 members",
+            member_count=int(vol["wa_survey"]),
+            title=f"Demo · WhatsApp Survey · {int(vol['wa_survey'])} members",
             seed=seed + 100,
             debits=debits,
         )
-        wa_broadcast = user_account.seed_consolidated_survey(
-            db,
-            org_id=org_id,
-            user_id=user_id,
-            org=org,
-            auto_top_up=auto_top_up,
-            channel="wa",
-            member_count=1000,
-            title="Demo · WhatsApp Broadcast · 1000 members",
-            seed=seed + 2000,
-            debits=debits,
-        )
+
+        # 100 separate "sent" campaigns so the surveys/campaigns history looks populated.
+        campaign_ids: list[str] = []
+        members_each = max(1, int(vol["campaign_members"]))
+        for n in range(int(vol["campaigns"])):
+            camp = user_account.seed_consolidated_survey(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                org=org,
+                auto_top_up=auto_top_up,
+                channel="wa",
+                member_count=members_each,
+                title=f"Demo Campaign #{n + 1:03d} · WhatsApp",
+                seed=seed + 3000 + n,
+                debits=debits,
+            )
+            campaign_ids.append(camp.id)
+
         feedback_locations = DemoAccountSeedService._seed_feedback_locations(
             db,
             org_id=org_id,
             org=org,
             seed=seed,
+            location_count=int(vol["feedback_locations"]),
         )
 
         db.refresh(org)
@@ -164,7 +191,7 @@ class DemoAccountSeedService:
                 "interview": interview_order.id,
                 "ai_survey": ai_order.id,
                 "wa_survey": wa_order.id,
-                "wa_broadcast": wa_broadcast.id,
+                "campaigns": len(campaign_ids),
                 "feedback_locations": len(feedback_locations),
             },
         )
@@ -174,7 +201,7 @@ class DemoAccountSeedService:
             "interview_order_id": interview_order.id,
             "ai_survey_order_id": ai_order.id,
             "wa_survey_order_id": wa_order.id,
-            "wa_broadcast_order_id": wa_broadcast.id,
+            "campaign_order_ids": campaign_ids,
             "feedback_location_ids": feedback_locations,
         }
 
@@ -218,12 +245,13 @@ class DemoAccountSeedService:
         auto_top_up: bool,
         debits: list[int],
         seed: int,
+        count: int = 20,
     ) -> ServiceOrder:
         from app.services.interview_analysis_service import refresh_order_interview_report
         from app.services.platform_catalog_service import ServiceOrderService
 
         ROLE = interview_mod.ROLE
-        contacts = user_account._interview_contacts_batch(20, success_email=None)
+        contacts = user_account._interview_contacts_batch(count, success_email=None)
         config = user_account._tag_config(interview_mod._demo_config(org_name))
         config["ats_skipped"] = False
         config["delivery"] = "ai_call"
@@ -234,7 +262,7 @@ class DemoAccountSeedService:
             org_id=org_id,
             user_id=user_id,
             service_code="interview",
-            title=f"Demo Interview · {ROLE} · 20 candidates",
+            title=f"Demo Interview · {ROLE} · {count} candidates",
             config=config,
         )
         ServiceOrderService.replace_recipients(db, order, contacts)
@@ -330,6 +358,7 @@ class DemoAccountSeedService:
         org_id: str,
         org: Organisation,
         seed: int,
+        location_count: int = 3,
     ) -> list[str]:
         feedback_seed = _load_seed_module("seed_feedback_responses_mixed")
         industry = db.execute(
@@ -352,8 +381,11 @@ class DemoAccountSeedService:
 
         location_ids: list[str] = []
         rng = random.Random(seed)
-        counts = [rng.randint(100, 200), rng.randint(100, 200), rng.randint(100, 200)]
-        branch_names = ["Demo · City Centre", "Demo · West End", "Demo · Riverside"]
+        # First location is plainly "Demo" (the one to show the QR for); the rest are branches.
+        all_branch_names = ["Demo", "Demo · West End", "Demo · Riverside", "Demo · North", "Demo · South"]
+        location_count = max(1, int(location_count))
+        branch_names = [all_branch_names[i % len(all_branch_names)] for i in range(location_count)]
+        counts = [rng.randint(100, 200) for _ in range(location_count)]
 
         for branch_idx, (branch_name, count) in enumerate(zip(branch_names, counts)):
             survey_config = build_survey_config(

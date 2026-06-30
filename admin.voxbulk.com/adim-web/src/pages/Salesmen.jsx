@@ -8,34 +8,6 @@ function money(minor, currency = 'GBP') {
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-// Rich sample profile so a new salesman never shows an empty screen.
-function dummyProfile() {
-  const companies = [
-    { company_name: 'Bright Smile Dental', full_name: 'Dr. Sarah Lin', mobile: '+447700900112', email: 'sarah@brightsmile.co.uk', status: 'won', org_id: 'org-demo-1', business_type: 'Dental clinic', branches: 3, city: 'London' },
-    { company_name: 'Apex Fitness', full_name: 'Marco Rossi', mobile: '+447700900145', email: 'marco@apexfit.co.uk', status: 'won', org_id: 'org-demo-2', business_type: 'Gym', branches: 2, city: 'Manchester' },
-    { company_name: 'GreenLeaf Café', full_name: 'Emma Watson', mobile: '+447700900178', email: 'emma@greenleaf.co.uk', status: 'contacted', org_id: null, business_type: 'Restaurant', branches: 1, city: 'Leeds' },
-    { company_name: 'Sunrise Medical', full_name: 'Dr. Omar Haddad', mobile: '+447700900190', email: 'omar@sunrise.co.uk', status: 'contacted', org_id: null, business_type: 'Medical', branches: 4, city: 'Birmingham' },
-    { company_name: 'Urban Cuts Barbers', full_name: 'Jake Miller', mobile: '+447700900201', email: 'jake@urbancuts.co.uk', status: 'lead', org_id: null, business_type: 'Salon', branches: 2, city: 'Glasgow' },
-    { company_name: 'Petal & Stem Florist', full_name: 'Nadia Ali', mobile: '+447700900233', email: 'nadia@petalstem.co.uk', status: 'lead', org_id: null, business_type: 'Retail', branches: 1, city: 'Bristol' },
-  ]
-  return {
-    sample: true,
-    customers: companies.map((c, i) => ({ id: `demo-${i}`, ...c })),
-    stats: {
-      won_deals: { count: 2 },
-      wallet: {
-        active_companies: 2,
-        codes_used: 4,
-        revenue_minor: 248000,
-        commission_minor: 18000,
-        commission_paid_minor: 9000,
-        commission_pending_minor: 9000,
-      },
-      visited_count: 6,
-    },
-  }
-}
-
 function Modal({ title, onClose, children, wide }) {
   return (
     <div className='occ-modal-overlay open' role='presentation' onClick={onClose}>
@@ -250,16 +222,9 @@ export default function Salesmen() {
         apiFetch(`/admin/sales-reps/${rep.id}/customers`),
         apiFetch(`/admin/sales-reps/${rep.id}/dashboard`),
       ])
-      const customers = cust?.items || []
-      const stats = dash?.stats || null
-      if (customers.length === 0) {
-        setProfile(dummyProfile())
-      } else {
-        setProfile({ customers, stats, sample: false })
-      }
+      setProfile({ customers: cust?.items || [], stats: dash?.stats || null, sample: false })
     } catch (e) {
-      // On any failure, still show a populated sample profile.
-      setProfile(dummyProfile())
+      setProfile({ customers: [], stats: null, sample: false })
     }
   }
 
@@ -451,24 +416,28 @@ export default function Salesmen() {
                 ) : null}
                 <div>
                   <strong>Customers ({profile.customers.length})</strong>
-                  <table className='table' style={{ marginTop: 6 }}>
-                    <thead>
-                      <tr><th>Company</th><th>Contact</th><th>Mobile</th><th>Type</th><th>Branches</th><th>Status</th><th>Converted</th></tr>
-                    </thead>
-                    <tbody>
-                      {profile.customers.map((c) => (
-                        <tr key={c.id}>
-                          <td>{c.company_name || c.full_name}</td>
-                          <td className='muted'>{c.full_name}</td>
-                          <td className='muted'>{c.mobile || '—'}</td>
-                          <td className='muted'>{c.business_type || '—'}</td>
-                          <td>{c.branches ?? '—'}</td>
-                          <td><span className={`pill ${c.status === 'won' ? 'p-green' : c.status === 'contacted' ? 'p-cyan' : 'p-amber'}`}>{c.status}</span></td>
-                          <td className='muted'>{c.org_id ? 'Yes' : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {profile.customers.length === 0 ? (
+                    <div className='muted' style={{ marginTop: 8 }}>No customers yet — they appear once this salesman adds prospects or converts a sale.</div>
+                  ) : (
+                    <table className='table' style={{ marginTop: 6 }}>
+                      <thead>
+                        <tr><th>Company</th><th>Contact</th><th>Mobile</th><th>Type</th><th>Branches</th><th>Status</th><th>Converted</th></tr>
+                      </thead>
+                      <tbody>
+                        {profile.customers.map((c) => (
+                          <tr key={c.id}>
+                            <td>{c.company_name || c.full_name}</td>
+                            <td className='muted'>{c.full_name}</td>
+                            <td className='muted'>{c.mobile || '—'}</td>
+                            <td className='muted'>{c.business_type || '—'}</td>
+                            <td>{c.branches ?? '—'}</td>
+                            <td><span className={`pill ${c.status === 'won' ? 'p-green' : c.status === 'contacted' ? 'p-cyan' : 'p-amber'}`}>{c.status}</span></td>
+                            <td className='muted'>{c.org_id ? 'Yes' : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </>
             )}

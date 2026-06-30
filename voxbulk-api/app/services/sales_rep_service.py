@@ -19,6 +19,20 @@ from app.models.user import User
 _CODE_RE = re.compile(r"^[A-Z0-9]{4,12}$")
 logger = logging.getLogger(__name__)
 
+# Fixed script for the salesman "Call & Survey" demo (matches the 'sales ai survey' agent).
+# Salesmen never edit this — warm welcome, 3 questions, gentle "why" if unhappy, warm thanks.
+DEMO_AI_SURVEY_SCRIPT = (
+    "OPENING (warm welcome): Greet the customer warmly by first name, say this is a quick "
+    "friendly survey on behalf of {org_name} and it only takes a minute.\n\n"
+    "ASK THESE THREE QUESTIONS, ONE AT A TIME, IN ORDER:\n"
+    "1. Overall, how would you rate your experience with us today — excellent, good, or poor?\n"
+    "2. What did you enjoy most about your experience?\n"
+    "3. Is there anything we could do to make it better next time?\n\n"
+    "IF THE CUSTOMER IS UNHAPPY OR SAYS \"poor\": stay warm and empathetic, briefly acknowledge it, "
+    "and gently ask why so we can improve. Never argue or get defensive.\n\n"
+    "CLOSING (warm thanks): Thank the customer sincerely for their time and wish them a great day."
+)
+
 
 class SalesRepError(ValueError):
     pass
@@ -122,20 +136,8 @@ class SalesRepService:
         db.commit()
         db.refresh(rep)
 
-        membership = db.execute(
-            select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
-        ).scalar_one_or_none()
-        if membership is not None:
-            try:
-                from app.workers.demo_account_tasks import seed_demo_sales_account_task
-
-                seed_demo_sales_account_task.delay(str(membership.org_id), str(user.id))
-            except Exception as exc:  # noqa: BLE001 — demo seed must never block salesman creation
-                logger.warning(
-                    "demo_seed_enqueue_failed",
-                    extra={"org_id": membership.org_id, "user_id": user.id, "error": str(exc)},
-                )
-
+        # Demo data is no longer auto-seeded on create. New salesmen start with an empty
+        # workspace; seed demo data on demand with scripts/seed_sales_demo.py (./seed-sales-demo.sh).
         return rep
 
     @staticmethod
@@ -412,31 +414,90 @@ class SalesRepService:
             return {"ok": False, "message": f"WhatsApp not available: {e}"}
 
     @staticmethod
+    def _rep_workspace_org_id(db: Session, rep: SalesRep) -> str | None:
+        from app.models.membership import OrganisationMembership
+
+        m = db.execute(
+            select(OrganisationMembership).where(OrganisationMembership.user_id == rep.user_id)
+        ).scalar_one_or_none()
+        return str(m.org_id) if m is not None else None
+
+    @staticmethod
     def send_demo_call(db: Session, *, rep: SalesRep, customer: SalesCustomer) -> dict[str, Any]:
+        """Run a live 3-question AI survey demo to the customer's number.
+
+        Reuses the proven outbound survey pipeline (Telnyx assistant + dispatch) so the
+        transcript and answers show up in the salesman's /surveys/results. Billing/eligibility
+        is bypassed (demo=True); the number must still pass the Telnyx phone allowlist.
+        """
         if not customer.mobile:
             return {"ok": False, "message": "Customer has no mobile number."}
-        try:
-            from app.services.telnyx_voice_service import TelnyxVoiceAdapter
 
-            config = SalesRepService._telnyx_config(db)
-            from_number = (
-                rep.caller_id
-                or str(config.get("default_outbound_number") or config.get("from_phone_number") or "").strip()
-            )
-            if not from_number:
-                return {"ok": False, "message": "No caller ID / outbound number configured for voice."}
-            res = TelnyxVoiceAdapter.start_outbound_call(
-                to_number=customer.mobile,
-                from_number=from_number,
+        org_id = SalesRepService._rep_workspace_org_id(db, rep)
+        if not org_id:
+            return {"ok": False, "message": "Salesman has no workspace organisation."}
+
+        try:
+            from app.models.agent import AgentDefinition
+            from app.services.platform_catalog_service import ServiceOrderService
+            from app.services.survey_call_dispatch_service import SurveyCallDispatchService
+
+            org_name = "VoxBulk"
+            try:
+                from app.models.organisation import Organisation
+
+                org = db.get(Organisation, org_id)
+                org_name = (org.name if org and org.name else org_name)
+            except Exception:  # noqa: BLE001
+                pass
+
+            config: dict[str, Any] = {
+                "survey_channel": "ai_call",
+                "delivery": "ai_call",
+                "demo": True,
+                "script_approved": True,
+                "organisation_name": org_name,
+                "survey_organiser_name": org_name,
+                "approved_script": DEMO_AI_SURVEY_SCRIPT,
+            }
+            agent = db.execute(
+                select(AgentDefinition).where(AgentDefinition.slug == "sales-ai-survey")
+            ).scalar_one_or_none()
+            if agent is not None:
+                config["agent_id"] = agent.id
+
+            order = ServiceOrderService.create_order(
+                db,
+                org_id=org_id,
+                user_id=str(rep.user_id),
+                service_code="survey",
+                title=f"AI Survey Demo · {customer.company_name or customer.full_name or customer.mobile}",
                 config=config,
-                client_state={"sales_demo": True},
             )
-            ok = bool(getattr(res, "ok", False))
-            if ok:
-                SalesRepService._mark_demoed(db, customer, channel="call")
-            return {"ok": ok, "message": getattr(res, "detail", None) or "Demo call started."}
+            ServiceOrderService.replace_recipients(
+                db,
+                order,
+                [{"name": customer.full_name or customer.company_name or "Customer", "phone": customer.mobile}],
+            )
+
+            now = datetime.utcnow()
+            order.status = "running"
+            order.payment_status = "approved"
+            order.started_at = order.started_at or now
+            order.updated_at = now
+            db.add(order)
+            db.commit()
+            db.refresh(order)
+
+            recipients = ServiceOrderService.get_recipients(db, order.id)
+            if not recipients:
+                return {"ok": False, "message": "Could not prepare the demo call recipient."}
+
+            SurveyCallDispatchService.dial_recipient(db, order, recipients[0])
+            SalesRepService._mark_demoed(db, customer, channel="call")
+            return {"ok": True, "message": "AI survey demo call started — watch the transcript in Surveys results."}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "message": f"Voice not available: {e}"}
+            return {"ok": False, "message": f"Could not start the AI survey demo: {e}"}
 
     # ---- commission + dashboard ---------------------------------------------
     @staticmethod
