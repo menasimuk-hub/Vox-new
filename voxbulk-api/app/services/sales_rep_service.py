@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Salesmen never edit this — warm welcome, 3 questions, gentle "why" if unhappy, warm thanks.
 DEMO_AI_SURVEY_SCRIPT = (
     "OPENING (warm welcome): Greet the customer warmly by first name, say this is a quick "
-    "friendly survey on behalf of {org_name} and it only takes a minute.\n\n"
+    "friendly survey on behalf of {organisation_name} and it only takes a minute.\n\n"
     "ASK THESE THREE QUESTIONS, ONE AT A TIME, IN ORDER:\n"
     "1. Overall, how would you rate your experience with us today — excellent, good, or poor?\n"
     "2. What did you enjoy most about your experience?\n"
@@ -445,14 +445,11 @@ class SalesRepService:
             from app.services.platform_catalog_service import ServiceOrderService
             from app.services.survey_call_dispatch_service import SurveyCallDispatchService
 
-            org_name = "VoxBulk"
-            try:
-                from app.models.organisation import Organisation
-
-                org = db.get(Organisation, org_id)
-                org_name = (org.name if org and org.name else org_name)
-            except Exception:  # noqa: BLE001
-                pass
+            org_name = (
+                str(customer.company_name or "").strip()
+                or str(customer.full_name or "").strip()
+                or "VoxBulk"
+            )
 
             config: dict[str, Any] = {
                 "survey_channel": "ai_call",
@@ -460,8 +457,9 @@ class SalesRepService:
                 "demo": True,
                 "script_approved": True,
                 "organisation_name": org_name,
+                "clinic_name": org_name,
                 "survey_organiser_name": org_name,
-                "approved_script": DEMO_AI_SURVEY_SCRIPT,
+                "approved_script": DEMO_AI_SURVEY_SCRIPT.replace("{organisation_name}", org_name),
             }
             agent = db.execute(
                 select(AgentDefinition).where(AgentDefinition.slug == "sales-ai-survey")
@@ -498,7 +496,11 @@ class SalesRepService:
 
             SurveyCallDispatchService.dial_recipient(db, order, recipients[0])
             SalesRepService._mark_demoed(db, customer, channel="call")
-            return {"ok": True, "message": "AI survey demo call started — watch the transcript in Surveys results."}
+            return {
+                "ok": True,
+                "message": "AI survey demo call started — watch the transcript in Surveys results.",
+                "order_id": order.id,
+            }
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": f"Could not start the AI survey demo: {e}"}
 

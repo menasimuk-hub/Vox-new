@@ -3476,15 +3476,33 @@ def admin_patch_category(category_id: str, payload: dict, db: Session = Depends(
 
 @router.delete("/categories/{category_id}")
 def admin_delete_category(category_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.models.agent import AgentAssignment, AgentDefinition
+    from app.models.organisation_ai_config import OrganisationServiceCatalogItem
+    from app.models.service_api import SupportedServiceAPI
+
     obj = db.execute(select(Category).where(Category.id == category_id)).scalar_one_or_none()
     if obj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
-    # detach from organisations to avoid FK violations
+    slug = str(obj.slug or "").strip()
+    # Detach orgs and dependent rows so FK delete succeeds.
     db.execute(
         sa.update(Organisation)
         .where(Organisation.category_id == category_id)
         .values(category_id=None)
     )
+    db.execute(
+        sa.update(AgentDefinition)
+        .where(AgentDefinition.category_id == category_id)
+        .values(category_id=None)
+    )
+    db.execute(
+        sa.update(AgentAssignment)
+        .where(AgentAssignment.category_id == category_id)
+        .values(category_id=None)
+    )
+    if slug:
+        db.execute(delete(OrganisationServiceCatalogItem).where(OrganisationServiceCatalogItem.category_slug == slug))
+        db.execute(delete(SupportedServiceAPI).where(SupportedServiceAPI.category_slug == slug))
     db.delete(obj)
     db.commit()
     return {"ok": True}

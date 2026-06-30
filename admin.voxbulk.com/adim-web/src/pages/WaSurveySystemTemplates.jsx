@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass, validateCategoryBeforeSync } from '../lib/waSurveyTelnyxSync'
 import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
+import { Switch } from '@/components/ui/Switch'
 
 const KIND_OPTIONS = [
   { value: 'welcome', label: 'Welcome' },
@@ -419,7 +420,7 @@ export default function WaSurveySystemTemplates() {
   )
 
   return (
-    <div className="content">
+    <div className="content" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="breadcrumb">
         <Link to="/settings/wa-survey">WA Survey</Link>
         <span> / Global System Templates</span>
@@ -486,7 +487,7 @@ export default function WaSurveySystemTemplates() {
               onChange={(e) => setGenInstruction(e.target.value)}
             />
           </div>
-          <div className="actions">
+          <div className="actions" style={{ gridColumn: '1 / -1', marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
             <button type="button" className="btn primary" disabled={working === 'generate'} onClick={() => void runGenerate()}>
               {working === 'generate' ? 'Generating…' : 'Generate drafts'}
             </button>
@@ -523,15 +524,14 @@ export default function WaSurveySystemTemplates() {
                     <p className="fieldHint" style={{ color: 'var(--red)' }}>{errors.join('; ')}</p>
                   ) : null}
                   <div className="waSurveySystemTemplateActions">
-                    <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <input
-                        type="checkbox"
+                    <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Switch
                         disabled={!valid}
                         checked={Boolean(selectedGen[idx])}
-                        onChange={(e) => setSelectedGen((prev) => ({ ...prev, [idx]: e.target.checked }))}
+                        onCheckedChange={(v) => setSelectedGen((prev) => ({ ...prev, [idx]: v }))}
                       />
                       Select
-                    </label>
+                    </span>
                     <button type="button" className="btn sm soft" onClick={() => openViewGenerated(idx)}>View</button>
                     <button type="button" className="btn sm" onClick={() => openEditGenerated(idx)}>Edit</button>
                     <button

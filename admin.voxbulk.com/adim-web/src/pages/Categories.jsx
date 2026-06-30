@@ -1,5 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 const PATCH_DEBOUNCE_MS = 550
 
@@ -151,159 +167,152 @@ export default function Categories() {
   }
 
   return (
-    <>
+    <div className='ds-scope space-y-4'>
       <div className='pageTop'>
         <div>
           <h1>Categories</h1>
           <p>Create and manage dashboard setup categories. Services API entries connect to these by slug.</p>
         </div>
         <div className='actions'>
-          <button className='btn' onClick={load} disabled={saving}>
+          <Button variant='outline' size='sm' className='h-8' onClick={load} disabled={saving}>
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
       {error && (
-        <div className='card' style={{ marginBottom: 16, borderColor: '#fecaca' }}>
-          <div className='cardBody' style={{ color: '#b91c1c', fontSize: 14 }}>
-            {error}
-          </div>
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+          {error}
         </div>
       )}
 
-      <div className='categoriesPageGrid'>
-        <div className='stack'>
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>New category</h3>
-              <span className='pill p-cyan'>Global</span>
-            </div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 12 }}>
-              <label className='formField'>
-                <span className='label' style={{ textTransform: 'none', letterSpacing: 'normal', fontWeight: 600 }}>
-                  Name
-                </span>
-                <input className='input' value={name} onChange={(e) => setName(e.target.value)} placeholder='Dental' />
-              </label>
-              <label className='formField'>
-                <span className='label' style={{ textTransform: 'none', letterSpacing: 'normal', fontWeight: 600 }}>
-                  Slug
-                </span>
-                <input
-                  className='input'
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                  placeholder='dental'
-                />
-                <div className='muted' style={{ fontSize: 12 }}>
-                  Used internally and by Services API category mapping. Leave blank to auto-generate from name.
-                </div>
-              </label>
-              <label className='formField'>
-                <span className='label' style={{ textTransform: 'none', letterSpacing: 'normal', fontWeight: 600 }}>
-                  Description (optional)
-                </span>
-                <textarea
-                  className='input'
-                  rows={4}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder='Notes about this category…'
-                />
-              </label>
-              <button type='button' className='btn primary' onClick={create} disabled={saving}>
-                {saving ? 'Saving…' : 'Create category'}
-              </button>
+      <Panel
+        title='New category'
+        subtitle='Added globally and available to every organisation.'
+        action={<Pill tone='info'>Global</Pill>}
+      >
+        <div className='grid gap-3 sm:grid-cols-2'>
+          <div className='space-y-1'>
+            <Label htmlFor='cat-new-name' className='text-[12px]'>
+              Name
+            </Label>
+            <Input
+              id='cat-new-name'
+              className='h-8'
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder='Dental'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='cat-new-slug' className='text-[12px]'>
+              Slug
+            </Label>
+            <Input
+              id='cat-new-slug'
+              className='h-8 font-mono'
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder='dental'
+            />
+            <div className='text-[11px] text-muted-foreground'>
+              Used internally and by Services API category mapping. Leave blank to auto-generate from name.
             </div>
           </div>
+          <div className='space-y-1 sm:col-span-2'>
+            <Label htmlFor='cat-new-desc' className='text-[12px]'>
+              Description (optional)
+            </Label>
+            <Textarea
+              id='cat-new-desc'
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder='Notes about this category…'
+            />
+          </div>
         </div>
+        <div className='mt-3 flex justify-end'>
+          <Button type='button' size='sm' className='h-8' onClick={create} disabled={saving}>
+            {saving ? 'Saving…' : 'Create category'}
+          </Button>
+        </div>
+      </Panel>
 
-        <div className='stack' style={{ minWidth: 0 }}>
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>All categories</h3>
-              <span className='pill p-cyan'>{Array.isArray(items) ? `${items.length}` : '—'}</span>
-            </div>
-            <div className='cardBody'>
-              <div className='tableWrap'>
-                <table className='table categoriesTable'>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Slug</th>
-                      <th>Description</th>
-                      <th>Created</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!items && (
-                      <tr>
-                        <td colSpan={5}>Loading…</td>
-                      </tr>
-                    )}
-                    {items &&
-                      items.map((c) => (
-                        <tr key={c.id}>
-                          <td className='cat-cellName'>
-                            <input
-                              className='input'
-                              aria-label={`Category name for ${c.slug || c.id}`}
-                              value={c.name || ''}
-                              onChange={(e) => updateCategoryField(c.id, 'name', e.target.value)}
-                              onBlur={() => flushCategoryPatch(c.id)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              className='input catSlugInput'
-                              aria-label={`Slug for ${c.name || c.id}`}
-                              value={c.slug || ''}
-                              onChange={(e) => updateCategoryField(c.id, 'slug', e.target.value)}
-                              onBlur={() => flushCategoryPatch(c.id)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <textarea
-                              className='input'
-                              rows={2}
-                              aria-label={`Description for ${c.name || c.slug}`}
-                              value={c.description || ''}
-                              onChange={(e) => updateCategoryField(c.id, 'description', e.target.value || null)}
-                              onBlur={() => flushCategoryPatch(c.id)}
-                              disabled={saving}
-                              placeholder='Optional description…'
-                            />
-                          </td>
-                          <td>{c.created_at ? new Date(c.created_at).toLocaleString() : '—'}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              <button type='button' className='btn soft' onClick={() => remove(c.id)} disabled={saving}>
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    {items && items.length === 0 && (
-                      <tr>
-                        <td colSpan={5}>No categories yet.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className='muted' style={{ fontSize: 12, marginTop: 10 }}>
-                Edits save after a short pause or when you leave a field.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
+      <Panel
+        title='All categories'
+        subtitle='Edits save after a short pause or when you leave a field.'
+        action={<Pill tone='info'>{Array.isArray(items) ? `${items.length}` : '—'}</Pill>}
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead className='w-[22%]'>Name</TableHead>
+              <TableHead className='w-[20%]'>Slug</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead className='w-[15%]'>Created</TableHead>
+              <TableHead className='w-[1%] text-right'>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!items && <TableLoading colSpan={5} />}
+            {items &&
+              items.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell>
+                    <Input
+                      className='h-8'
+                      aria-label={`Category name for ${c.slug || c.id}`}
+                      value={c.name || ''}
+                      onChange={(e) => updateCategoryField(c.id, 'name', e.target.value)}
+                      onBlur={() => flushCategoryPatch(c.id)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      className='h-8 font-mono text-[12px]'
+                      aria-label={`Slug for ${c.name || c.id}`}
+                      value={c.slug || ''}
+                      onChange={(e) => updateCategoryField(c.id, 'slug', e.target.value)}
+                      onBlur={() => flushCategoryPatch(c.id)}
+                      disabled={saving}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Textarea
+                      rows={2}
+                      aria-label={`Description for ${c.name || c.slug}`}
+                      value={c.description || ''}
+                      onChange={(e) => updateCategoryField(c.id, 'description', e.target.value || null)}
+                      onBlur={() => flushCategoryPatch(c.id)}
+                      disabled={saving}
+                      placeholder='Optional description…'
+                    />
+                  </TableCell>
+                  <TableCell className='whitespace-nowrap text-[11px] text-muted-foreground'>
+                    {c.created_at ? new Date(c.created_at).toLocaleString() : '—'}
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-7'
+                      onClick={() => remove(c.id)}
+                      disabled={saving}
+                    >
+                      Delete
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            {items && items.length === 0 && (
+              <TableEmpty colSpan={5}>No categories yet.</TableEmpty>
+            )}
+          </TableBody>
+        </StripeTable>
+      </Panel>
+    </div>
   )
 }
-

@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
-import '../../styles/admin-industries.css'
-
-function statusPill(active) {
-  return active ? 'badge-active' : 'leadPill leadPillNeutral'
-}
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 export default function FeedbackIndustriesList() {
   const navigate = useNavigate()
@@ -45,69 +53,85 @@ export default function FeedbackIndustriesList() {
   }
 
   return (
-    <div className="pageWrap indHub">
-      <div className="pageHead">
+    <div className="ds-scope space-y-4">
+      <div className="pageTop">
         <div>
           <h1>Industries</h1>
           <p>Manage feedback industries, survey types and template approval status.</p>
         </div>
-        <div className="pageHeadActions">
-          <button type="button" className="btn soft bsm" onClick={async () => {
-            try {
-              await apiFetch('/admin/customer-feedback/templates/import-md', { method: 'POST', body: JSON.stringify({}) })
-              setMsg('Templates imported from MD.')
-              await load()
-            } catch (e) {
-              setError(e?.message || 'Import failed')
-            }
-          }}>Import English templates</button>
-          <button type="button" className="btn primary bsm" onClick={addIndustry}>Add industry</button>
-          <Link className="btn soft bsm" to="/customer-feedback/subscriptions">Hub</Link>
+        <div className="actions">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={async () => {
+              try {
+                await apiFetch('/admin/customer-feedback/templates/import-md', { method: 'POST', body: JSON.stringify({}) })
+                setMsg('Templates imported from MD.')
+                await load()
+              } catch (e) {
+                setError(e?.message || 'Import failed')
+              }
+            }}
+          >
+            Import English templates
+          </Button>
+          <Button type="button" size="sm" className="h-8" onClick={addIndustry}>
+            Add industry
+          </Button>
+          <Button type="button" variant="secondary" size="sm" className="h-8" asChild>
+            <Link to="/customer-feedback/subscriptions">Hub</Link>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success">{msg}</div>
+      ) : null}
 
-      <div className="card">
-        <div className="tableWrap">
-          <table className="table runningSurveyTable">
-            <thead>
-              <tr>
-                <th>Industry</th>
-                <th>Slug</th>
-                <th>Status</th>
-                <th>Survey types</th>
-                <th>Templates</th>
-                <th>Approved</th>
-                <th>Pending</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={8} className="muted">Loading…</td></tr>
-              ) : items.map((row) => (
-                <tr key={row.id}>
-                  <td><strong>{row.name}</strong></td>
-                  <td><code>{row.slug}</code></td>
-                  <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
-                  <td>{row.survey_type_count ?? '—'}</td>
-                  <td className="num-link">{row.template_count ?? '—'}</td>
-                  <td>{row.approved_count ?? 0}</td>
-                  <td>{row.pending_count ?? 0}</td>
-                  <td>
-                    <button type="button" className="btn soft bsm" onClick={() => navigate(`/customer-feedback/industries/${row.id}`)}>
+      <Panel title="Industries" subtitle="Per-industry survey types and template counts.">
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Industry</TableHead>
+              <TableHead>Slug</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Survey types</TableHead>
+              <TableHead>Templates</TableHead>
+              <TableHead>Approved</TableHead>
+              <TableHead>Pending</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableLoading colSpan={8} />
+            ) : (
+              items.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell><strong className="font-medium">{row.name}</strong></TableCell>
+                  <TableCell><code className="text-[11px]">{row.slug}</code></TableCell>
+                  <TableCell><Pill tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Active' : 'Inactive'}</Pill></TableCell>
+                  <TableCell>{row.survey_type_count ?? '—'}</TableCell>
+                  <TableCell>{row.template_count ?? '—'}</TableCell>
+                  <TableCell>{row.approved_count ?? 0}</TableCell>
+                  <TableCell>{row.pending_count ?? 0}</TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => navigate(`/customer-feedback/industries/${row.id}`)}>
                       Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!loading && !items.length ? <tr><td colSpan={8} className="muted">No industries yet.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+            {!loading && !items.length ? <TableEmpty colSpan={8}>No industries yet.</TableEmpty> : null}
+          </TableBody>
+        </StripeTable>
+      </Panel>
     </div>
   )
 }

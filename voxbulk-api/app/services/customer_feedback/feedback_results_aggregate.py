@@ -302,6 +302,7 @@ def build_respondents(
                 {
                     "question": question,
                     "answer": answer,
+                    "original_text": str(resp.original_text or "").strip() or None,
                     "step_role": step_role,
                     "answer_source": getattr(resp, "answer_source", None) or "text",
                 }

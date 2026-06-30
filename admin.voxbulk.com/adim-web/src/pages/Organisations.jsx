@@ -2,6 +2,27 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { orgStatusPill, subscriptionLabel } from '../lib/marketZone'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
+
+const STATUS_PILL_TONE = {
+  'p-green': 'success',
+  'p-amber': 'warning',
+  'p-red': 'danger',
+  'p-cyan': 'info',
+}
 
 export default function Organisations() {
   const navigate = useNavigate()
@@ -71,10 +92,10 @@ export default function Organisations() {
   }
 
   return (
-    <>
+    <div className='ds-scope space-y-4'>
       {listError && (
-        <div className='card alertCard'>
-          <div className='cardBody alertText'>{listError}</div>
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+          {listError}
         </div>
       )}
       <div className='pageTop'>
@@ -83,108 +104,104 @@ export default function Organisations() {
           <p>Manage organisations, categories, contacts, and suspension state.</p>
         </div>
         <div className='actions'>
-          <button className='btn' onClick={() => load(search)} disabled={busy}>
+          <Button variant='outline' size='sm' className='h-8' onClick={() => load(search)} disabled={busy}>
             Refresh
-          </button>
-          <button className='btn primary' onClick={() => navigate('/onboarding/add-customer')}>Add customer</button>
-        </div>
-      </div>
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardBody'>
-          <div className='filters'>
-            <input
-              className='input'
-              placeholder='Search organisations…'
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          </Button>
+          <Button size='sm' className='h-8' onClick={() => navigate('/onboarding/add-customer')}>
+            Add customer
+          </Button>
         </div>
       </div>
 
-      <div className='card'>
-        <div className='cardHead'>
-          <h3>Organisation list</h3>
-          <span className='pill p-cyan'>{items ? `${items.length}` : '—'}</span>
-        </div>
-        <div className='cardBody'>
-          <div className='tableWrap'>
-            <table className='table'>
-              <thead>
-                <tr>
-                  <th>Organisation</th>
-                  <th>Zone</th>
-                  <th>Subscription</th>
-                  <th>Status</th>
-                  <th>Users</th>
-                  <th>Wallet</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(items || []).map((o) => {
-                  const pill = orgStatusPill(o)
-                  return (
-                  <tr key={o.id}>
-                    <td>
-                      <div className='cellStack'>
-                        <strong>{o.name}</strong>
-                        <span className='muted cellSub'>
-                          {o.city || o.country ? `${o.city || ''}${o.city && o.country ? ', ' : ''}${o.country || ''}` : '—'}
-                        </span>
-                      </div>
-                    </td>
-                    <td>{o.market_label || '—'}</td>
-                    <td>
-                      <div className='cellStack'>
-                        <span>{o.plan_name || o.plan_code || '—'}</span>
-                        <span className='muted cellSub'>{subscriptionLabel(o.subscription_status)}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`pill ${pill.cls}`}>{pill.text}</span>
-                    </td>
-                    <td>{o.user_count} users</td>
-                    <td>{o.wallet_balance_display || '—'}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button
-                          className='btn soft'
-                          onClick={() => {
-                            localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
-                            navigate('/organisations/profile')
-                          }}
-                        >
-                          Profile
-                        </button>
-                        <button
-                          className='btn soft'
-                          onClick={() => {
-                            localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
-                            navigate(`/organisations/${encodeURIComponent(o.id)}`)
-                          }}
-                        >
-                          Ops
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )})}
-                {!items && (
-                  <tr>
-                    <td colSpan={7}>Loading…</td>
-                  </tr>
-                )}
-                {items && items.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>No organisations found.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </>
+      <Panel
+        title='Organisation list'
+        subtitle='Search, review status, and jump into an organisation.'
+        action={<Pill tone='info'>{items ? `${items.length}` : '—'}</Pill>}
+        bodyClassName='space-y-3'
+      >
+        <Input
+          placeholder='Search organisations…'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='h-8 max-w-sm'
+        />
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Organisation</TableHead>
+              <TableHead>Zone</TableHead>
+              <TableHead>Subscription</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Users</TableHead>
+              <TableHead>Wallet</TableHead>
+              <TableHead className='text-right'>Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(items || []).map((o) => {
+              const pill = orgStatusPill(o)
+              return (
+                <TableRow key={o.id}>
+                  <TableCell>
+                    <div className='flex flex-col leading-tight'>
+                      <strong className='font-medium'>{o.name}</strong>
+                      <span className='text-[11px] text-muted-foreground'>
+                        {o.city || o.country
+                          ? `${o.city || ''}${o.city && o.country ? ', ' : ''}${o.country || ''}`
+                          : '—'}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>{o.market_label || '—'}</TableCell>
+                  <TableCell>
+                    <div className='flex flex-col leading-tight'>
+                      <span>{o.plan_name || o.plan_code || '—'}</span>
+                      <span className='text-[11px] text-muted-foreground'>
+                        {subscriptionLabel(o.subscription_status)}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone={STATUS_PILL_TONE[pill.cls] || 'neutral'}>{pill.text}</Pill>
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>{o.user_count} users</TableCell>
+                  <TableCell>{o.wallet_balance_display || '—'}</TableCell>
+                  <TableCell>
+                    <div className='flex justify-end gap-1.5'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-7'
+                        onClick={() => {
+                          localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
+                          navigate('/organisations/profile')
+                        }}
+                      >
+                        Profile
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-7'
+                        onClick={() => {
+                          localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
+                          navigate(`/organisations/${encodeURIComponent(o.id)}`)
+                        }}
+                      >
+                        Ops
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+            {!items && <TableLoading colSpan={7} />}
+            {items && items.length === 0 && (
+              <TableEmpty colSpan={7}>No organisations found.</TableEmpty>
+            )}
+          </TableBody>
+        </StripeTable>
+      </Panel>
+    </div>
   )
 }

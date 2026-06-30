@@ -1,15 +1,30 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Pencil, RefreshCw, Check, Ban, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
-import '../../styles/admin-industries.css'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Switch } from '@/components/ui/Switch'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 function rowBadge(row) {
-  if (!row?.is_active) return <span className="badge-disabled">Disabled</span>
+  if (!row?.is_active) return <Pill tone="neutral">Disabled</Pill>
   const s = String(row?.status || 'draft').toLowerCase()
   if (['approved', 'synced', 'live', 'active'].includes(s)) {
-    return <span className="badge-approved">✓ Approved</span>
+    return <Pill tone="success">Approved</Pill>
   }
-  return <span className="badge-draft">Draft</span>
+  return <Pill tone="warning">Draft</Pill>
 }
 
 export default function FeedbackIndustryEdit() {
@@ -147,141 +162,137 @@ export default function FeedbackIndustryEdit() {
   }
 
   if (loading) {
-    return <div className="pageWrap indHub"><div className="card"><div className="cardBody muted">Loading…</div></div></div>
+    return (
+      <div className="ds-scope">
+        <Panel>
+          <div className="text-[12px] text-muted-foreground">Loading…</div>
+        </Panel>
+      </div>
+    )
   }
 
   if (!item) {
-    return <div className="pageWrap indHub"><div className="alert error">{error || 'Industry not found'}</div></div>
+    return (
+      <div className="ds-scope">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error || 'Industry not found'}
+        </div>
+      </div>
+    )
   }
 
+  const surveyTypes = (item.survey_types || []).filter((row) => !row.archived_at)
+
   return (
-    <div className="pageWrap indHub">
-      <Link to="/customer-feedback/industries" className="ind-breadcrumb">← <span>Industries</span></Link>
+    <div className="ds-scope space-y-4">
+      <Link to="/customer-feedback/industries" className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
+        ← <span>Industries</span>
+      </Link>
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success">{msg}</div>
+      ) : null}
 
-      <div className="ind-strip">
-        <div className="ind-strip-head">
-          <div className="ind-strip-head-title">Industry details</div>
-          <div className="ind-strip-actions">
-            <button type="button" className="btn soft bsm" disabled={busy} onClick={syncTelnyx}>Sync all templates (Telnyx)</button>
-            <button type="button" className="btn primary bsm" disabled={busy} onClick={save}>Save changes</button>
+      <Panel
+        title="Industry details"
+        action={
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-8" disabled={busy} onClick={syncTelnyx}>
+              <RefreshCw size={14} /> Sync all templates (Telnyx)
+            </Button>
+            <Button type="button" size="sm" className="h-8" disabled={busy} onClick={save}>
+              Save changes
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-[12px]">Name</Label>
+            <Input className="h-8" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Slug</Label>
+            <Input className="h-8" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Sort order</Label>
+            <Input className="h-8" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Description</Label>
+            <Input className="h-8" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
+          </div>
+          <div className="flex items-center gap-2 text-[12px]">
+            <Switch checked={Boolean(item.is_active)} onCheckedChange={(v) => setItem((f) => ({ ...f, is_active: v }))} />
+            <span className="text-muted-foreground">{item.is_active ? 'Active' : 'Inactive'}</span>
           </div>
         </div>
-        <div className="ind-fields">
-          <div className="fg">
-            <label>Name</label>
-            <input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div className="fg">
-            <label>Slug</label>
-            <input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
-          </div>
-          <div className="fg">
-            <label>Sort order</label>
-            <input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
-          </div>
-          <div className="fg">
-            <label>Description</label>
-            <input className="input" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
-          </div>
-          <div className="toggle-row">
-            <label className="ind-toggle">
-              <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
-              <span className="ind-toggle-track" aria-hidden />
-            </label>
-            <span>{item.is_active ? 'Active' : 'Inactive'}</span>
-          </div>
-        </div>
-      </div>
+      </Panel>
 
-      <div className="card">
-        <div className="section-title">
-          <span>Survey types</span>
-          <button type="button" className="btn primary bsm" onClick={addType}>+ Add type</button>
-        </div>
-        <div className="tableWrap">
-          <table className="table runningSurveyTable">
-            <thead>
-              <tr>
-                <th>Survey type</th>
-                <th>Templates</th>
-                <th>Approved</th>
-                <th>Pending</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(item.survey_types || [])
-                .filter((row) => !row.archived_at)
-                .map((row) => {
-                  const disabled = !row.is_active
-                  return (
-                    <tr key={row.id} style={disabled ? { opacity: 0.45 } : undefined}>
-                      <td><strong>{row.name}</strong></td>
-                      <td>
-                        <span className="num-link" onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}>
-                          {row.template_count ?? 0}
-                        </span>
-                      </td>
-                      <td>{row.approved_count ?? 0}</td>
-                      <td>{row.pending_count ?? 0}</td>
-                      <td>{rowBadge(row)}</td>
-                      <td>
-                        <div className="actions-cell">
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            data-tip="Open"
-                            onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}
-                          >
-                            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            data-tip="Sync (Telnyx)"
-                            disabled={busy}
-                            onClick={() => syncType(row)}
-                          >
-                            <svg viewBox="0 0 24 24"><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>
-                          </button>
-                          <button
-                            type="button"
-                            className={`icon-btn${disabled ? ' disabled-row' : ''}`}
-                            data-tip={disabled ? 'Enable' : 'Disable'}
-                            disabled={busy}
-                            onClick={() => toggleType(row)}
-                          >
-                            {disabled ? (
-                              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn danger"
-                            data-tip="Remove"
-                            disabled={busy}
-                            onClick={() => removeType(row)}
-                          >
-                            <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              {!(item.survey_types || []).filter((row) => !row.archived_at).length ? (
-                <tr><td colSpan={6} className="muted">No survey types yet.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <Panel
+        title="Survey types"
+        action={
+          <Button type="button" size="sm" className="h-8" onClick={addType}>
+            + Add type
+          </Button>
+        }
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Survey type</TableHead>
+              <TableHead>Templates</TableHead>
+              <TableHead>Approved</TableHead>
+              <TableHead>Pending</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {surveyTypes.map((row) => {
+              const disabled = !row.is_active
+              return (
+                <TableRow key={row.id} className={disabled ? 'opacity-45' : undefined}>
+                  <TableCell><strong className="font-medium">{row.name}</strong></TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className="text-info hover:underline"
+                      onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}
+                    >
+                      {row.template_count ?? 0}
+                    </button>
+                  </TableCell>
+                  <TableCell>{row.approved_count ?? 0}</TableCell>
+                  <TableCell>{row.pending_count ?? 0}</TableCell>
+                  <TableCell>{rowBadge(row)}</TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-0.5">
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 px-0" title="Open" onClick={() => navigate(`/customer-feedback/survey-types/${row.id}`)}>
+                        <Pencil size={14} />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 px-0" title="Sync (Telnyx)" disabled={busy} onClick={() => syncType(row)}>
+                        <RefreshCw size={14} />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 px-0" title={disabled ? 'Enable' : 'Disable'} disabled={busy} onClick={() => toggleType(row)}>
+                        {disabled ? <Check size={14} /> : <Ban size={14} />}
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 w-7 px-0 text-destructive hover:text-destructive" title="Remove" disabled={busy} onClick={() => removeType(row)}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+            {!surveyTypes.length ? <TableEmpty colSpan={6}>No survey types yet.</TableEmpty> : null}
+          </TableBody>
+        </StripeTable>
+      </Panel>
     </div>
   )
 }

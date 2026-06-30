@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
+import { Switch } from '@/components/ui/Switch'
 
 
 
@@ -701,11 +702,10 @@ export default function WaSurveyIndustryEdit() {
                 <div className="field span-2" style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
                   <span>Select customers</span>
                   {orgs.length ? orgs.map((org) => (
-                    <label key={org.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 13 }}>
-                      <input
-                        type="checkbox"
+                    <div key={org.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 13 }}>
+                      <Switch
                         checked={(industry.selectedOrgIds || []).includes(org.id)}
-                        onChange={() => {
+                        onCheckedChange={() => {
                           const set = new Set(industry.selectedOrgIds || [])
                           if (set.has(org.id)) set.delete(org.id)
                           else set.add(org.id)
@@ -713,7 +713,7 @@ export default function WaSurveyIndustryEdit() {
                         }}
                       />
                       <span>{org.name || org.id}</span>
-                    </label>
+                    </div>
                   )) : (
                     <p className="muted" style={{ margin: '8px 0 0' }}>No organisations loaded.</p>
                   )}
@@ -804,15 +804,13 @@ export default function WaSurveyIndustryEdit() {
 
                     <th className="waIndustryTypesCheckCol">
 
-                      <input
-
-                        type="checkbox"
+                      <Switch
 
                         aria-label="Select all survey types"
 
                         checked={allSelected}
 
-                        onChange={toggleSelectAll}
+                        onCheckedChange={() => toggleSelectAll()}
 
                         disabled={typesLoading || !selectableTypeIds.length}
 
@@ -860,15 +858,13 @@ export default function WaSurveyIndustryEdit() {
 
                         <td className="waIndustryTypesCheckCol">
 
-                          <input
-
-                            type="checkbox"
+                          <Switch
 
                             aria-label={`Select ${type.name}`}
 
                             checked={checked}
 
-                            onChange={() => toggleTypeSelection(typeId)}
+                            onCheckedChange={() => toggleTypeSelection(typeId)}
 
                           />
 

@@ -55,11 +55,13 @@ import { gocardlessAvailable, startGoCardlessOrderPayment } from "@/lib/billing/
 import { formatQuoteDisplay } from "@/lib/billing/market";
 import { interviewBillingFromSources } from "@/lib/billing/plan-entitlements";
 import { useSession } from "@/lib/session";
+import { cn } from "@/lib/utils";
 import {
   queryKeys,
   useGenerateInterviewScript,
   useInterviewAgents,
   pickDefaultInterviewAgent,
+  type InterviewAgent,
   useInterviewDraft,
   useOrderQuote,
   usePatchServiceOrder,
@@ -243,6 +245,19 @@ const INTERVIEW_WIZARD_STEPS: WizardStepDef[] = [
   { id: 4, title: "Review & launch", subtitle: "Confirm and go", icon: Rocket },
 ];
 
+type InterviewLanguage = "en" | "ar";
+
+function agentsForLanguage(agents: InterviewAgent[], lang: InterviewLanguage): InterviewAgent[] {
+  return agents.filter((a) => (a.language || "en") === lang);
+}
+
+function agentButtonLabel(agent: InterviewAgent): string {
+  const name = agent.voice_label || agent.name;
+  const region = agent.language === "ar" ? "AR" : "GB";
+  const gender = agent.gender === "female" ? "Female" : agent.gender === "male" ? "Male" : "";
+  return gender ? `${name} (${gender} ${region})` : `${name} (${region})`;
+}
+
 function collectInterviewLaunchErrors(opts: {
   cvEmailActive: boolean;
   cvReadyForScreening: boolean;
@@ -329,6 +344,7 @@ function CreateInterview() {
   const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>();
   const [scriptApproved, setScriptApproved] = React.useState(false);
   const [agentId, setAgentId] = React.useState("");
+  const [interviewLanguage, setInterviewLanguage] = React.useState<InterviewLanguage>("en");
   const [delivery, setDelivery] = React.useState<"ai_call" | "ai_meeting">("ai_call");
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxCvCount, setMaxCvCount] = React.useState<number | "">("");
@@ -411,9 +427,19 @@ function CreateInterview() {
   }, [draftOrderId]);
 
   const agents = agentsQ.data || [];
-  const defaultAgent = pickDefaultInterviewAgent(agents);
+  const languageAgents = agentsForLanguage(agents, interviewLanguage);
+  const defaultAgent = pickDefaultInterviewAgent(languageAgents.length ? languageAgents : agents);
   const resolvedAgentId = agentId || defaultAgent?.id || "";
   const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
+
+  React.useEffect(() => {
+    if (!agents.length) return;
+    const pool = agentsForLanguage(agents, interviewLanguage);
+    if (!pool.length) return;
+    if (!pool.some((a) => a.id === agentId)) {
+      setAgentId(pool[0]?.id || "");
+    }
+  }, [interviewLanguage, agents, agentId]);
   const createStartedRef = React.useRef(false);
   const createFailedRef = React.useRef(false);
 
@@ -500,7 +526,15 @@ function CreateInterview() {
     // the candidate's per-slot channel decides phone vs online meeting.
     setDelivery("ai_call");
     const savedAgentId = String(config.agent_id || "").trim();
-    setAgentId(savedAgentId || pickDefaultInterviewAgent(agents)?.id || "");
+    const savedLang = String(config.script_language_code || config.language_code || "").toLowerCase();
+    if (savedLang.startsWith("ar")) {
+      setInterviewLanguage("ar");
+    } else {
+      setInterviewLanguage("en");
+    }
+    const langPool = agentsForLanguage(agents, savedLang.startsWith("ar") ? "ar" : "en");
+    const savedInPool = langPool.find((a) => a.id === savedAgentId);
+    setAgentId(savedInPool?.id || savedAgentId || pickDefaultInterviewAgent(langPool.length ? langPool : agents)?.id || "");
     setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionCloseAt(toLocalInput(String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || "")));
     setMaxCvCount(config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : "");
@@ -919,6 +953,8 @@ function CreateInterview() {
       report_notes: reportNotes.trim() || undefined,
       agent_id: resolvedAgentId,
       delivery,
+      script_language_code: interviewLanguage === "ar" ? "ar" : "en",
+      language_code: interviewLanguage === "ar" ? "ar" : "en",
       cv_email_enabled: cvEmailOn,
       cv_collection_start_at: cvEmailOn ? collectionStartIso || null : null,
       cv_email_start_at: cvEmailOn ? collectionStartIso || null : null,
@@ -1028,6 +1064,7 @@ function CreateInterview() {
         criteria,
         delivery,
         agent_id: resolvedAgentId,
+        language_code: interviewLanguage === "ar" ? "ar" : "en",
         client_context: { agent_id: resolvedAgentId },
       });
       const materialised = scriptFromGenerate(res);
@@ -1815,23 +1852,56 @@ function CreateInterview() {
           <Field label="Role" error={missingPosition ? "Enter role or position" : undefined}>
             <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Registered dental hygienist (GDC)" className={inputErrorClass(missingPosition)} />
           </Field>
-          <Field label="AI voice agent">
+          <div className="md:col-span-2 space-y-3">
+            <Label className="text-xs">Language</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={interviewLanguage === "en" ? "default" : "outline"}
+                onClick={() => setInterviewLanguage("en")}
+              >
+                English
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={interviewLanguage === "ar" ? "default" : "outline"}
+                disabled={agentsForLanguage(agents, "ar").length === 0}
+                onClick={() => setInterviewLanguage("ar")}
+              >
+                Arabic
+              </Button>
+            </div>
+            {agentsForLanguage(agents, "ar").length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Arabic requires an Arabic interview agent in Admin → Agents.</p>
+            ) : null}
+          </div>
+          <div className="md:col-span-2 space-y-3">
+            <Label className="text-xs">AI voice agent</Label>
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No voice agents configured yet. Ask your admin to enable interview agents.</p>
+            ) : languageAgents.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No {interviewLanguage === "ar" ? "Arabic" : "English"} interview agents available.</p>
             ) : (
-              <Select value={resolvedAgentId} onValueChange={setAgentId}>
-                <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
-                <SelectContent>
-                  {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.voice_label || a.name}
-                      {a.is_default_for_org ? " · default" : a.is_zone_match ? " · GB" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap gap-2">
+                {languageAgents.map((a) => (
+                  <Button
+                    key={a.id}
+                    type="button"
+                    size="sm"
+                    variant={resolvedAgentId === a.id ? "default" : "outline"}
+                    onClick={() => setAgentId(a.id)}
+                  >
+                    {agentButtonLabel(a)}
+                  </Button>
+                ))}
+              </div>
             )}
-          </Field>
+            {selectedAgent ? (
+              <p className="text-[11px] text-muted-foreground">Selected: {agentButtonLabel(selectedAgent)}</p>
+            ) : null}
+          </div>
           <Field label="Interview format">
             <p className="text-[11px] text-muted-foreground">
               Candidates choose phone or online meeting on their booking page: a phone call when their

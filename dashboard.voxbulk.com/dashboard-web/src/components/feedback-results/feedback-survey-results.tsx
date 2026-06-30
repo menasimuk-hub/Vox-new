@@ -632,6 +632,9 @@ function VoiceCard({ v }: { v: VoiceComment }) {
       </div>
       <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">Transcript · {v.question}</p>
       <p className="text-sm leading-relaxed">"{v.transcript}"</p>
+      {v.originalTranscript ? (
+        <p className="mt-2 text-xs text-muted-foreground">Original: {v.originalTranscript}</p>
+      ) : null}
     </div>
   );
 }
@@ -792,7 +795,12 @@ function RespondentSheet({
                   {a.type === "Rating" && <RatingChip value={a.value} />}
                   {a.type === "Yes/No" && <YNChip value={a.value} />}
                   {a.type === "Voice" && (
-                    <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{a.value}"</p>
+                    <>
+                      <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{a.value}"</p>
+                      {"original" in a && a.original && a.original !== a.value ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Original: {a.original}</p>
+                      ) : null}
+                    </>
                   )}
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { BookOpen, MessageCircle, Calendar, Mail, Activity, FileText } from "lucide-react";
+import { BookOpen, MessageCircle, Mail, FileText } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,9 +15,7 @@ function SupportIndex() {
   const cards = [
     { title: "Documentation", desc: "FAQ, categories and step-by-step guides.", Icon: BookOpen, to: "/account/support/faq" as const },
     { title: "Live chat", desc: "Chat with VoxBulk AI · instant answers.", Icon: MessageCircle, onClick: openChat },
-    { title: "Book onboarding", desc: "30-min call with a clinical specialist.", Icon: Calendar },
     { title: "Email support", desc: "Open a ticket — reply, close, track status.", Icon: Mail, to: "/account/support/tickets" as const },
-    { title: "Status page", desc: "All systems operational.", Icon: Activity },
     { title: "Legal & DPA", desc: "Data processing agreement, terms.", Icon: FileText },
   ];
 

@@ -148,7 +148,7 @@ const NAV = [
 
     [
 
-      ['Overview', '/customer-feedback/industries'],
+      ['Overview', '/customer-feedback/overview'],
 
       ['Industries', '/customer-feedback/industries'],
 

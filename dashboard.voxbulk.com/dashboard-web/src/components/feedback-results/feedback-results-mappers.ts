@@ -49,7 +49,7 @@ export type Respondent = {
   answers: Array<
     | { qid: string; type: "Rating"; value: "poor" | "good" | "excellent" }
     | { qid: string; type: "Yes/No"; value: "yes" | "no" }
-    | { qid: string; type: "Voice"; value: string }
+    | { qid: string; type: "Voice"; value: string; original?: string }
   >;
 };
 
@@ -58,6 +58,7 @@ export type VoiceComment = {
   name: string;
   tone: "destructive" | "success";
   transcript: string;
+  originalTranscript?: string;
   reason: string;
   question: string;
 };
@@ -208,7 +209,15 @@ function mapRespondentAnswers(
     const raw = String(a.answer || "").trim();
     const role = String(a.step_role || "").toLowerCase();
     if (a.answer_source === "voice" || role.includes("voice") || role.includes("open") || q?.scale === "OPEN") {
-      if (raw) answers.push({ qid, type: "Voice", value: raw });
+      if (raw) {
+        const original = String((a as { original_text?: string }).original_text || "").trim();
+        answers.push({
+          qid,
+          type: "Voice",
+          value: raw,
+          ...(original && original !== raw ? { original } : {}),
+        });
+      }
       continue;
     }
     const yn = classifyYn(raw);
@@ -274,6 +283,10 @@ export function mapFeedbackResults(
       name: c.sentiment === "negative" ? "Anonymous · Unhappy" : "Anonymous · Excellent",
       tone: c.sentiment === "negative" ? "destructive" : "success",
       transcript: String(c.text || ""),
+      originalTranscript:
+        c.original_text && String(c.original_text).trim() !== String(c.text || "").trim()
+          ? String(c.original_text)
+          : undefined,
       reason: String(c.theme || "Feedback"),
       question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
     }));

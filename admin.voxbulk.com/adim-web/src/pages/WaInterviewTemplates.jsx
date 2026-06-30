@@ -4,6 +4,19 @@ import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass } from '../lib/waSurveyTelnyxSync'
 import WaInterviewTemplateModal from '../components/WaInterviewTemplateModal'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 function formatWhen(iso) {
   if (!iso) return '—'
@@ -100,7 +113,7 @@ export default function WaInterviewTemplates() {
   }
 
   return (
-    <div className="pageShell">
+    <div className="ds-scope pageShell space-y-4">
       <div className="pageTop">
         <div>
           <p className="muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Platform Settings</p>
@@ -110,85 +123,79 @@ export default function WaInterviewTemplates() {
           </p>
         </div>
         <div className="actions">
-          <Link className="btn" to="/settings/email">Email settings</Link>
-          <button type="button" className="btn primary" disabled={working === 'sync'} onClick={() => void syncAll()}>
+          <Button type="button" variant="outline" size="sm" className="h-8" asChild>
+            <Link to="/settings/email">Email settings</Link>
+          </Button>
+          <Button type="button" size="sm" className="h-8" disabled={working === 'sync'} onClick={() => void syncAll()}>
             {working === 'sync' ? 'Syncing…' : 'Sync from Telnyx'}
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="alert err">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success">{msg}</div>
+      ) : null}
 
-      {loading ? (
-        <p className="muted">Loading templates…</p>
-      ) : (
-        <div className="card">
-          <div className="tableWrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Template</th>
-                  <th>Telnyx name</th>
-                  <th>Status</th>
-                  <th>Visibility</th>
-                  <th>Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((tpl) => (
-                  <tr key={tpl.id}>
-                    <td>
-                      <strong>{tpl.display_name || tpl.name}</strong>
-                      <div className="muted" style={{ fontSize: '11.5px', marginTop: '3px' }}>{tpl.description || tpl.sales_template_key}</div>
-                    </td>
-                    <td><code>{tpl.name}</code></td>
-                    <td>
-                      <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
-                        {resolveTelnyxSyncLabel(tpl)}
-                      </span>
-                    </td>
-                    <td>{tpl.active_for_interview === false ? 'Hidden' : 'Active'}</td>
-                    <td>{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
-                        <button type="button" className="btn soft sm" onClick={() => setEditId(tpl.id)}>
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn soft sm"
-                          disabled={!!working}
-                          onClick={() => void toggleHidden(tpl)}
-                        >
-                          {tpl.active_for_interview === false ? 'Show' : 'Hide'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn soft sm"
-                          disabled={!!working}
-                          onClick={() => void pushTemplate(tpl)}
-                        >
-                          Sync
-                        </button>
-                        <button
-                          type="button"
-                          className="btn sm danger"
-                          disabled={!!working}
-                          onClick={() => void deleteTemplate(tpl)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <Panel title="Interview templates" subtitle="Launch notice, booking confirmation, cancel, and job-closed messages.">
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Template</TableHead>
+              <TableHead>Telnyx name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Visibility</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableLoading colSpan={6} />
+            ) : (
+              templates.map((tpl) => (
+                <TableRow key={tpl.id}>
+                  <TableCell>
+                    <strong className="font-medium">{tpl.display_name || tpl.name}</strong>
+                    <div className="text-[11px] text-muted-foreground">{tpl.description || tpl.sales_template_key}</div>
+                  </TableCell>
+                  <TableCell><code className="text-[11px]">{tpl.name}</code></TableCell>
+                  <TableCell>
+                    <span className={telnyxSyncPillClass(resolveTelnyxSyncLabel(tpl))}>
+                      {resolveTelnyxSyncLabel(tpl)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone={tpl.active_for_interview === false ? 'neutral' : 'success'}>
+                      {tpl.active_for_interview === false ? 'Hidden' : 'Active'}
+                    </Pill>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground">{formatWhen(tpl.updated_at || tpl.last_pushed_at)}</TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => setEditId(tpl.id)}>
+                        Edit
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" className="h-7" disabled={!!working} onClick={() => void toggleHidden(tpl)}>
+                        {tpl.active_for_interview === false ? 'Show' : 'Hide'}
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" className="h-7" disabled={!!working} onClick={() => void pushTemplate(tpl)}>
+                        Sync
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 text-destructive hover:text-destructive" disabled={!!working} onClick={() => void deleteTemplate(tpl)}>
+                        Delete
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+            {!loading && !templates.length ? <TableEmpty colSpan={6}>No interview templates yet.</TableEmpty> : null}
+          </TableBody>
+        </StripeTable>
+      </Panel>
 
       <WaInterviewTemplateModal
         templateId={editId}

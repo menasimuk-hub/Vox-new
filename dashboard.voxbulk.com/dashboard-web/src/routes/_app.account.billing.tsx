@@ -18,7 +18,7 @@ import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingUsage, useFeedbackSubscription, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
+import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingSubscriptionsSummary, useBillingUsage, useFeedbackSubscription, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
@@ -145,6 +145,7 @@ function BillingPage() {
   const { highlight } = useAssistantHighlight();
   const { pay: payInvoiceId } = Route.useSearch();
   const subQ = useBillingSubscription();
+  const subsSummaryQ = useBillingSubscriptionsSummary();
   const feedbackSubQ = useFeedbackSubscription();
   const cancelQ = useBillingSubscriptionCancellation();
   const requestsQ = useBillingRequests();
@@ -171,6 +172,17 @@ function BillingPage() {
   const estimates = monitor.capacity_estimates || {};
   const status = monitor.status || {};
   const nextInvoice = status.next_invoice || {};
+  const coreFinance = (subsSummaryQ.data?.core || null) as Record<string, unknown> | null;
+  const feedbackFinance = (subsSummaryQ.data?.feedback || null) as Record<string, unknown> | null;
+
+  const formatSubDate = (raw: unknown) => {
+    if (!raw) return "—";
+    const d = new Date(String(raw));
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  };
+
+  const formatSubAmount = (fin: Record<string, unknown> | null) =>
+    String(fin?.amount_next_payment_display || fin?.amount_next_payment_minor || "—");
   const sharedPool = Boolean(monitor.shared_package_pool);
   const meters = usageQ.data?.meters || [];
 
@@ -444,6 +456,26 @@ function BillingPage() {
                 <p className="text-sm text-muted-foreground">
                   Charged on {String(nextInvoice.charge_date_display || "—")}
                 </p>
+                {(coreFinance?.plan_name || feedbackFinance?.plan_name) && subsSummaryQ.data ? (
+                  <div className="space-y-1 rounded-lg border border-border bg-muted/20 p-3 text-sm">
+                    {coreFinance?.plan_name ? (
+                      <p>
+                        <span className="text-muted-foreground">Core next billing:</span>{" "}
+                        <strong>{formatSubDate(coreFinance.next_billing_date || coreFinance.current_period_end)}</strong>
+                        {" · "}
+                        <strong>{formatSubAmount(coreFinance)}</strong>
+                      </p>
+                    ) : null}
+                    {feedbackFinance?.plan_name ? (
+                      <p>
+                        <span className="text-muted-foreground">Feedback next billing:</span>{" "}
+                        <strong>{formatSubDate(feedbackFinance.next_billing_date || feedbackFinance.current_period_end)}</strong>
+                        {" · "}
+                        <strong>{formatSubAmount(feedbackFinance)}</strong>
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="space-y-1 text-sm">
                   <p className="text-muted-foreground">
                     Payment method:{" "}

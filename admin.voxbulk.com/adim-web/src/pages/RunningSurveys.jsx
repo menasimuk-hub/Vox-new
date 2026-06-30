@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Activity, ClipboardList, MessageCircle, Pause, Phone, PhoneCall, Play, RefreshCw, Square, Users } from 'lucide-react'
+import { Activity, CheckCircle2, ClipboardList, MessageCircle, Pause, Phone, PhoneCall, Play, RefreshCw, Square, TriangleAlert, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { isWaSurveyOrder, waSessionStatusPill, deliveryOkBadge } from '../lib/waSurveyOps'
 import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
 import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
+import { KpiCard } from '@/components/ui/KpiCard'
+import '../styles/ops-theme.css'
 
 function surveyResponded(report) {
   return Number(report?.completed ?? report?.sent ?? 0)
@@ -334,10 +336,10 @@ export default function RunningSurveys() {
 
   const overviewCards = useMemo(
     () => [
-      { label: 'Live surveys', value: overview?.live ?? '—', hint: `${overview?.scheduled ?? 0} scheduled` },
-      { label: 'Running now', value: overview?.running ?? '—', hint: `${overview?.paused ?? 0} paused` },
-      { label: 'Completed', value: overview?.completed ?? '—', hint: 'All time' },
-      { label: 'Failed payments', value: overview?.failed_payments ?? '—', hint: `${overview?.pending_payment_approval ?? 0} pending approval` },
+      { label: 'Live surveys', value: overview?.live ?? '—', hint: `${overview?.scheduled ?? 0} scheduled`, icon: Activity, tone: 'info' },
+      { label: 'Running now', value: overview?.running ?? '—', hint: `${overview?.paused ?? 0} paused`, icon: Play, tone: 'success' },
+      { label: 'Completed', value: overview?.completed ?? '—', hint: 'All time', icon: CheckCircle2, tone: 'primary' },
+      { label: 'Failed payments', value: overview?.failed_payments ?? '—', hint: `${overview?.pending_payment_approval ?? 0} pending approval`, icon: TriangleAlert, tone: 'danger' },
     ],
     [overview],
   )
@@ -358,7 +360,7 @@ export default function RunningSurveys() {
   }, [orders, listTab, searchQuery])
 
   return (
-    <>
+    <div className="opsTheme">
       <div className="pageTop">
         <div>
           <h1>Survey operations</h1>
@@ -695,22 +697,10 @@ export default function RunningSurveys() {
       ) : null}
 
       {!selected ? (
-        <div className="grid-4 runningSurveyStats">
-          {overviewCards.map((c) => (
-            <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
+        <div className="ds-scope grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {overviewCards.map((c, i) => (
+            <KpiCard key={c.label} icon={c.icon} label={c.label} value={c.value} hint={c.hint} tone={c.tone} index={i} />
           ))}
-        </div>
-      ) : null}
-
-      {!selected ? (
-        <div className="note runningSurveyGuide">
-          <strong>How to run calls for a customer</strong>
-          <ol>
-            <li>Click a survey row in the list below to open it.</li>
-            <li>Confirm payment is approved and the script is approved.</li>
-            <li>Use <strong>Start survey</strong> at the bottom of the detail panel.</li>
-            <li>Use <strong>Dial next contact</strong> while running, or <strong>Run AI call</strong> on a contact row.</li>
-          </ol>
         </div>
       ) : null}
 
@@ -765,6 +755,6 @@ export default function RunningSurveys() {
           ) : null}
         </div>
       </div>
-    </>
+    </div>
   )
 }

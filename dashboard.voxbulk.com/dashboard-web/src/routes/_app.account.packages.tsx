@@ -85,26 +85,37 @@ type BillingInterval = "monthly" | "yearly";
 function BillingIntervalToggle({
   value,
   onChange,
+  centered = false,
 }: {
   value: BillingInterval;
   onChange: (v: BillingInterval) => void;
+  centered?: boolean;
 }) {
   return (
-    <div className="flex rounded-lg border border-border p-0.5 text-xs">
-      <button
-        type="button"
-        className={`rounded-md px-3 py-1.5 ${value === "monthly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-        onClick={() => onChange("monthly")}
+    <div className={centered ? "flex flex-col items-center gap-2" : undefined}>
+      {centered ? (
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Billing period</p>
+      ) : null}
+      <div
+        className={`flex rounded-full border border-primary/30 bg-background p-1 text-xs shadow-sm ${
+          centered ? "ring-2 ring-primary/20 animate-pulse" : ""
+        }`}
       >
-        Monthly
-      </button>
-      <button
-        type="button"
-        className={`rounded-md px-3 py-1.5 ${value === "yearly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-        onClick={() => onChange("yearly")}
-      >
-        Yearly (2 months free)
-      </button>
+        <button
+          type="button"
+          className={`rounded-full px-4 py-2 transition-colors ${value === "monthly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+          onClick={() => onChange("monthly")}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          className={`rounded-full px-4 py-2 transition-colors ${value === "yearly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+          onClick={() => onChange("yearly")}
+        >
+          Yearly <span className="font-semibold text-inherit">(2 months free)</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -326,13 +337,8 @@ function PackagesPage() {
   React.useEffect(() => {
     if (tabFromUrl) {
       setPackagesTab(tabFromUrl);
-      return;
     }
-    if (feedbackSubQ.isLoading || pricingQ.isLoading) return;
-    if (hasActiveFeedbackSub && !hasActiveCorePlan) {
-      setPackagesTab("feedback");
-    }
-  }, [tabFromUrl, feedbackSubQ.isLoading, pricingQ.isLoading, hasActiveFeedbackSub, hasActiveCorePlan]);
+  }, [tabFromUrl]);
 
   const formatFeedbackPrice = (pkg: FeedbackPackage) =>
     formatFeedbackPackagePrice(pkg, orgCurrency, feedbackBillingInterval === "yearly");
@@ -536,9 +542,11 @@ function PackagesPage() {
       </p>
 
       <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-6 flex justify-center">
+          <BillingIntervalToggle value={coreBillingInterval} onChange={setCoreBillingInterval} centered />
+        </div>
+        <div className="mb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
-          <BillingIntervalToggle value={coreBillingInterval} onChange={setCoreBillingInterval} />
         </div>
         {pricingQ.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-72" />)}</div>
@@ -568,7 +576,7 @@ function PackagesPage() {
                       Most popular
                     </span>
                   )}
-                  <Card className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
+                  <Card className={`flex h-full w-full flex-col bg-[#FBEFEF] border-[#F5D6D6] ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
                     <CardHeader className="pb-2 pt-5">
                       <Badge variant="outline" className="mb-2 w-fit border-primary/40 text-primary">Core platform</Badge>
                       <CardTitle className="text-base">{String(p.name)}</CardTitle>

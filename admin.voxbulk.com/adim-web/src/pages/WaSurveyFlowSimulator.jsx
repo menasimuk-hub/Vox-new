@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
 import WaSurveyPhonePreview from '../components/WaSurveyPhonePreview'
+import { Switch } from '@/components/ui/Switch'
 
 const FLOW_LINEAR = 'linear'
 const FLOW_GRAPH = 'graph'
@@ -537,44 +538,42 @@ export default function WaSurveyFlowSimulator() {
               No published graph — simulator will compile a draft graph from the step bank.
             </p>
           ) : null}
-          <label style={{ display: 'block', marginBottom: 8 }}>
-            <input
-              type="checkbox"
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Switch
               checked={aiPickerEnabled}
-              onChange={(e) => setAiPickerEnabled(e.target.checked)}
+              onCheckedChange={(v) => setAiPickerEnabled(v)}
               disabled={flowEngine !== FLOW_GRAPH}
-            />{' '}
-            Enable AI picker on graph
-            {prefill && !prefill.platform_picker_enabled ? (
-              <span className="muted"> (platform kill switch off)</span>
-            ) : null}
-          </label>
-          <label style={{ display: 'block', marginBottom: 8 }}>
-            <input
-              type="checkbox"
+            />
+            <span>
+              Enable AI picker on graph
+              {prefill && !prefill.platform_picker_enabled ? (
+                <span className="muted"> (platform kill switch off)</span>
+              ) : null}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Switch
               checked={mockPicker}
-              onChange={(e) => setMockPicker(e.target.checked)}
+              onCheckedChange={(v) => setMockPicker(v)}
               disabled={!aiPickerEnabled}
-            />{' '}
-            Use mock picker (no OpenAI call)
-          </label>
-          <label style={{ display: 'block', marginBottom: 12 }}>
-            <input
-              type="checkbox"
+            />
+            <span>Use mock picker (no OpenAI call)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Switch
               checked={forceTextFallback}
-              onChange={(e) => setForceTextFallback(e.target.checked)}
-            />{' '}
-            Force outcome text fallback (simulated template failure)
-          </label>
+              onCheckedChange={(v) => setForceTextFallback(v)}
+            />
+            <span>Force outcome text fallback (simulated template failure)</span>
+          </div>
           <div className="waSurveySimulatorLiveTestBlock" style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', marginBottom: 8 }}>
-              <input
-                type="checkbox"
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Switch
                 checked={sendLive}
-                onChange={(e) => setSendLive(e.target.checked)}
-              />{' '}
-              Send real WhatsApp to my mobile (Telnyx)
-            </label>
+                onCheckedChange={(v) => setSendLive(v)}
+              />
+              <span>Send real WhatsApp to my mobile (Telnyx)</span>
+            </div>
             {sendLive ? (
               <>
                 <label style={{ display: 'block', marginBottom: 6 }}>

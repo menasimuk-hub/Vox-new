@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, MessageCircle, RefreshCw } from 'lucide-react'
+import { BarChart3, CheckCircle2, MessageCircle, RefreshCw, TriangleAlert, Bot } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { deliveryOkBadge, waSessionStatusPill } from '../lib/waSurveyOps'
 import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
+import { KpiCard } from '@/components/ui/KpiCard'
+import '../styles/ops-theme.css'
 
 function fmtWhen(iso) {
   if (!iso) return '—'
@@ -86,28 +88,36 @@ export default function WaSurveyInsights() {
         label: 'Sessions',
         value: overview?.session_count ?? '—',
         hint: overview?.since ? `Since ${fmtWhen(overview.since)}` : null,
+        icon: MessageCircle,
+        tone: 'info',
       },
       {
         label: 'Completed',
         value: overview?.sessions_by_status?.completed ?? 0,
         hint: `${overview?.sessions_by_status?.active ?? 0} active`,
+        icon: CheckCircle2,
+        tone: 'success',
       },
       {
         label: 'Delivery failures',
         value: overview?.delivery_failure_count ?? 0,
         hint: `${overview?.template_send_failure_count ?? 0} template failures`,
+        icon: TriangleAlert,
+        tone: 'danger',
       },
       {
         label: 'AI picker fallbacks',
         value: overview?.ai_picker_fallback_count ?? 0,
         hint: `${overview?.picker_invocation_count ?? 0} invocations`,
+        icon: Bot,
+        tone: 'warning',
       },
     ],
     [overview],
   )
 
   return (
-    <>
+    <div className="opsTheme">
       <div className="pageTop">
         <div>
           <h1><MessageCircle size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />WA Survey insights</h1>
@@ -152,9 +162,9 @@ export default function WaSurveyInsights() {
         <Link to="/settings/wa-survey/simulator">Open simulator</Link>
       </div>
 
-      <div className="grid-4 waSurveyInsightStats">
-        {metrics.map((m) => (
-          <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
+      <div className="ds-scope grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {metrics.map((m, i) => (
+          <KpiCard key={m.label} icon={m.icon} label={m.label} value={m.value} hint={m.hint} tone={m.tone} index={i} />
         ))}
       </div>
 
@@ -260,6 +270,6 @@ export default function WaSurveyInsights() {
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   )
 }

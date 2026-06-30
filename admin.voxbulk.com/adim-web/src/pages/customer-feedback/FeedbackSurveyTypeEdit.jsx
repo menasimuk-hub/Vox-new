@@ -1,7 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { Pencil } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import '../../styles/admin-industries.css'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Switch } from '@/components/ui/Switch'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 const DEFAULT_BUTTONS = [
   { id: 'great', label: 'Great' },
@@ -16,12 +32,12 @@ const WA_FOOTER = 'Reply STOP to opt out'
 function statusBadge(status) {
   const s = String(status || 'draft').toLowerCase()
   if (['approved', 'synced', 'live'].includes(s)) {
-    return <span className="badge-approved">✓ Approved</span>
+    return <Pill tone="success">Approved</Pill>
   }
   if (s === 'submitted' || s === 'pending') {
-    return <span className="badge-draft">Pending</span>
+    return <Pill tone="warning">Pending</Pill>
   }
-  return <span className="badge-draft">Draft</span>
+  return <Pill tone="neutral">Draft</Pill>
 }
 
 function buttonLabel(b) {
@@ -198,21 +214,25 @@ export default function FeedbackSurveyTypeEdit() {
 
   if (loading) {
     return (
-      <div className="pageWrap indHub">
-        <div className="card"><div className="cardBody muted">Loading…</div></div>
+      <div className="ds-scope">
+        <Panel>
+          <div className="text-[12px] text-muted-foreground">Loading…</div>
+        </Panel>
       </div>
     )
   }
 
   if (!item) {
     return (
-      <div className="pageWrap indHub">
-        <div className="alert error">{error || 'Survey type not found'}</div>
+      <div className="ds-scope">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error || 'Survey type not found'}
+        </div>
       </div>
     )
   }
 
-  // ── PAGE 3: template editor (two-column with live WhatsApp preview) ──
+  // ── Template editor (two-column with live WhatsApp preview) — bespoke phone mockup, kept as-is ──
   if (editing) {
     const previewButtons = (editing.buttons || []).map((b) => String(b || '').trim()).filter(Boolean)
     const variables = detectVariables(editing.body_text)
@@ -422,106 +442,105 @@ export default function FeedbackSurveyTypeEdit() {
     )
   }
 
-  // ── PAGE 2-equivalent: survey type details + templates list ──
+  // ── Survey type details + templates list ──
   return (
-    <div className="pageWrap indHub">
-      <div className="ind-breadcrumb">
-        <Link to="/customer-feedback/industries" style={{ color: 'inherit', textDecoration: 'none' }}>Industries</Link>
-        <span style={{ color: '#ccc' }}>/</span>
-        <Link to={`/customer-feedback/industries/${item.industry_id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+    <div className="ds-scope space-y-4">
+      <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+        <Link to="/customer-feedback/industries" className="hover:text-foreground">Industries</Link>
+        <span>/</span>
+        <Link to={`/customer-feedback/industries/${item.industry_id}`} className="hover:text-foreground">
           {item.industry_name || 'Industry'}
         </Link>
-        <span style={{ color: '#ccc' }}>/</span>
-        <span>{item.name}</span>
+        <span>/</span>
+        <span className="text-foreground">{item.name}</span>
       </div>
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert ok">{msg}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success">{msg}</div>
+      ) : null}
 
-      <div className="ind-strip">
-        <div className="ind-strip-head">
-          <div className="ind-strip-head-title">Survey type details</div>
-          <div className="ind-strip-actions">
-            <button type="button" className="btn soft bsm" disabled={Boolean(busy)} onClick={syncTelnyx}>
+      <Panel
+        title="Survey type details"
+        action={
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-8" disabled={Boolean(busy)} onClick={syncTelnyx}>
               {busy === 'sync' ? 'Syncing…' : 'Sync to Telnyx'}
-            </button>
-            <button type="button" className="btn primary bsm" disabled={busy === 'save-type'} onClick={saveSurveyType}>
+            </Button>
+            <Button type="button" size="sm" className="h-8" disabled={busy === 'save-type'} onClick={saveSurveyType}>
               {busy === 'save-type' ? 'Saving…' : 'Save changes'}
-            </button>
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-[12px]">Name</Label>
+            <Input className="h-8" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Slug</Label>
+            <Input className="h-8" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Sort order</Label>
+            <Input className="h-8" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[12px]">Description</Label>
+            <Input className="h-8" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
+          </div>
+          <div className="flex items-center gap-2 text-[12px]">
+            <Switch checked={Boolean(item.is_active)} onCheckedChange={(v) => setItem((f) => ({ ...f, is_active: v }))} />
+            <span className="text-muted-foreground">{item.is_active ? 'Active' : 'Inactive'}</span>
           </div>
         </div>
-        <div className="ind-fields">
-          <div className="fg">
-            <label>Name</label>
-            <input className="input" value={item.name || ''} onChange={(e) => setItem((f) => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div className="fg">
-            <label>Slug</label>
-            <input className="input" value={item.slug || ''} onChange={(e) => setItem((f) => ({ ...f, slug: e.target.value }))} />
-          </div>
-          <div className="fg">
-            <label>Sort order</label>
-            <input className="input" type="number" value={item.sort_order ?? 100} onChange={(e) => setItem((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
-          </div>
-          <div className="fg">
-            <label>Description</label>
-            <input className="input" value={item.description || ''} onChange={(e) => setItem((f) => ({ ...f, description: e.target.value }))} placeholder="Optional…" />
-          </div>
-          <div className="toggle-row">
-            <label className="ind-toggle">
-              <input type="checkbox" checked={Boolean(item.is_active)} onChange={(e) => setItem((f) => ({ ...f, is_active: e.target.checked }))} />
-              <span className="ind-toggle-track" aria-hidden />
-            </label>
-            <span>{item.is_active ? 'Active' : 'Inactive'}</span>
-          </div>
-        </div>
-      </div>
+      </Panel>
 
-      <div className="card">
-        <div className="section-title">
-          <span>WhatsApp templates</span>
-          <button type="button" className="btn primary bsm" disabled={Boolean(busy)} onClick={createTemplate}>
+      <Panel
+        title="WhatsApp templates"
+        action={
+          <Button type="button" size="sm" className="h-8" disabled={Boolean(busy)} onClick={createTemplate}>
             {busy === 'create' ? 'Adding…' : '+ Add English template'}
-          </button>
-        </div>
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Role</th>
-                <th>Language</th>
-                <th>Category</th>
-                <th>Telnyx</th>
-                <th>Active</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visibleTemplates.map((tpl) => (
-                <tr key={tpl.id}>
-                  <td><strong>{tpl.template_key}</strong></td>
-                  <td>{tpl.step_role || '—'}</td>
-                  <td><code>{tpl.language}</code></td>
-                  <td>{tpl.meta_category}</td>
-                  <td>{statusBadge(tpl.telnyx_sync_status)}</td>
-                  <td>{tpl.is_active ? 'Yes' : 'No'}</td>
-                  <td>
-                    <div className="actions-cell">
-                      <button type="button" className="icon-btn" data-tip="Edit" onClick={() => openTemplate(tpl)}>
-                        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!visibleTemplates.length ? (
-                <tr><td colSpan={7} className="muted">No templates yet. Import from MD on Industries or add one here.</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          </Button>
+        }
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Key</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Language</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Telnyx</TableHead>
+              <TableHead>Active</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleTemplates.map((tpl) => (
+              <TableRow key={tpl.id}>
+                <TableCell><strong className="font-medium">{tpl.template_key}</strong></TableCell>
+                <TableCell>{tpl.step_role || '—'}</TableCell>
+                <TableCell><code className="text-[11px]">{tpl.language}</code></TableCell>
+                <TableCell>{tpl.meta_category}</TableCell>
+                <TableCell>{statusBadge(tpl.telnyx_sync_status)}</TableCell>
+                <TableCell>{tpl.is_active ? 'Yes' : 'No'}</TableCell>
+                <TableCell className="text-right">
+                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 px-0" title="Edit" onClick={() => openTemplate(tpl)}>
+                    <Pencil size={14} />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {!visibleTemplates.length ? (
+              <TableEmpty colSpan={7}>No templates yet. Import from MD on Industries or add one here.</TableEmpty>
+            ) : null}
+          </TableBody>
+        </StripeTable>
+      </Panel>
     </div>
   )
 }

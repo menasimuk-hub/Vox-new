@@ -1502,6 +1502,8 @@ export type InterviewAgent = {
   name: string;
   voice_label?: string;
   voice_type_label?: string;
+  language?: "en" | "ar" | string;
+  gender?: "male" | "female" | "unknown" | string;
   is_default_for_org?: boolean;
   is_platform_default?: boolean;
   is_zone_match?: boolean;

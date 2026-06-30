@@ -1,0 +1,38 @@
+/* Compact, denser tables for WA-survey and AI-interview operations pages.
+   Scoped under .opsTheme so the legacy global table styles elsewhere are
+   untouched. Selectors are intentionally specific to win the cascade over the
+   admin's unlayered `.runningSurveyTable` / `.table` rules. */
+
+.opsTheme table.table,
+.opsTheme table.runningSurveyTable,
+.opsTheme table.runningSurveyContactsTable,
+.opsTheme table.waSurveyInsightTable {
+  font-size: 12px;
+}
+
+.opsTheme table.table thead th,
+.opsTheme table.runningSurveyTable thead th,
+.opsTheme table.runningSurveyContactsTable thead th,
+.opsTheme table.waSurveyInsightTable thead th {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.opsTheme table.table tbody td,
+.opsTheme table.runningSurveyTable tbody td,
+.opsTheme table.runningSurveyContactsTable tbody td,
+.opsTheme table.waSurveyInsightTable tbody td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Zebra striping (one on / one off) to match the rest of the refreshed admin. */
+.opsTheme table.table tbody tr:nth-child(even),
+.opsTheme table.runningSurveyTable tbody tr:nth-child(even),
+.opsTheme table.runningSurveyContactsTable tbody tr:nth-child(even),
+.opsTheme table.waSurveyInsightTable tbody tr:nth-child(even) {
+  background: var(--ds-surface-muted, rgba(0, 0, 0, 0.02));
+}

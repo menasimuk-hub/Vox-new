@@ -133,7 +133,6 @@ const groups: Group[] = [
     { title: "Integrations", url: "/settings/integrations", icon: Plug },
     { title: "Team members", url: "/settings/team", icon: Users },
     { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
-    { title: "Audit log", url: "/settings/audit", icon: History },
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },

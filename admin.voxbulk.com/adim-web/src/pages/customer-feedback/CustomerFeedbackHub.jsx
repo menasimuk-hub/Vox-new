@@ -1,9 +1,40 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { MessageCircle, Package, RefreshCw } from 'lucide-react'
+import {
+  Activity,
+  Building2,
+  CheckCircle2,
+  CreditCard,
+  Gauge,
+  Layers,
+  MapPin,
+  MessageCircle,
+  MessageSquare,
+  Package,
+  QrCode,
+  RefreshCw,
+} from 'lucide-react'
 import { apiFetch } from '../../lib/api'
+import { cn } from '@/lib/utils'
+import { Panel } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Switch } from '@/components/ui/Switch'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 const TABS = [
+  { key: 'overview', label: 'Overview' },
   { key: 'industries', label: 'Industries' },
   { key: 'survey-types', label: 'Survey types' },
   { key: 'packages', label: 'Packages' },
@@ -13,9 +44,18 @@ const TABS = [
   { key: 'wa-templates', label: 'WhatsApp templates' },
 ]
 
+// Overview pinned first; the rest sorted alphabetically.
+const SORTED_TABS = [
+  TABS[0],
+  ...TABS.slice(1).sort((a, b) => a.label.localeCompare(b.label)),
+]
+
 const PACKAGE_ZONES = ['gb', 'eu', 'us', 'ca', 'au']
 
 const ZONE_LABELS = { gb: 'GB', eu: 'EU', us: 'US', ca: 'CA', au: 'AU' }
+
+const NATIVE_SELECT_CLS =
+  'flex h-8 w-full items-center rounded-md border border-input bg-transparent px-2 text-[12px] shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50'
 
 function fmtWhen(iso) {
   if (!iso) return '—'
@@ -33,10 +73,12 @@ function moneyMinor(minor, currency = 'GBP') {
   }
 }
 
+// Kept for the (untouched) Packages tab.
 function statusPill(active) {
   return active ? 'leadPill leadPillAdvance' : 'leadPill leadPillNeutral'
 }
 
+// Kept for the (untouched) Packages tab.
 function EditPanel({ title, onClose, onSave, saving, children }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -57,12 +99,97 @@ function EditPanel({ title, onClose, onSave, saving, children }) {
   )
 }
 
+// Kept for the (untouched) Packages tab.
 function Field({ label, children }) {
   return (
     <label style={{ display: 'grid', gap: 6 }}>
       <span className="muted" style={{ fontSize: 12 }}>{label}</span>
       {children}
     </label>
+  )
+}
+
+function DsField({ label, children, className }) {
+  return (
+    <div className={cn('space-y-1', className)}>
+      <Label className="text-[12px]">{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+function ActiveCheck({ checked, onChange }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <Switch checked={checked} onCheckedChange={(v) => onChange({ target: { checked: v } })} />
+      <span className="text-muted-foreground">{checked ? 'Active' : 'Inactive'}</span>
+    </div>
+  )
+}
+
+function DsEditPanel({ title, onClose, onSave, saving, children }) {
+  return (
+    <div className="mb-3 rounded-md border border-border bg-surface-muted/50 p-2.5">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+        <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+      <div className="mt-2.5 flex justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" className="h-7 px-3 text-[11px]" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="button" size="sm" className="h-7 px-3 text-[11px]" disabled={saving} onClick={onSave}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const KPI_TONES = {
+  primary: 'bg-primary/10 text-primary',
+  info: 'bg-info-soft text-info',
+  success: 'bg-success-soft text-success',
+  warning: 'bg-warning-soft text-warning',
+  danger: 'bg-destructive/10 text-destructive',
+}
+
+function useCountUp(target, duration = 900) {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    const to = Number(target) || 0
+    let raf
+    const start = performance.now()
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - p, 3)
+      setValue(Math.round(to * eased))
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
+
+function KpiCard({ icon: Icon, label, value, tone = 'primary', index = 0 }) {
+  const numeric = value !== null && value !== undefined && value !== '—' && Number.isFinite(Number(value))
+  const counted = useCountUp(numeric ? Number(value) : 0)
+  const display = numeric ? counted.toLocaleString() : value ?? '—'
+  return (
+    <div
+      className="animate-in fade-in slide-in-from-bottom-2 rounded-lg border border-border bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      style={{ animationDuration: '500ms', animationDelay: `${index * 60}ms`, animationFillMode: 'both' }}
+    >
+      <span className={cn('flex size-9 items-center justify-center rounded-md', KPI_TONES[tone])}>
+        <Icon size={18} />
+      </span>
+      <div className="mt-3 text-2xl font-semibold leading-none tabular-nums">{display}</div>
+      <div className="mt-1 text-[12px] text-muted-foreground">{label}</div>
+    </div>
   )
 }
 
@@ -104,7 +231,20 @@ export default function CustomerFeedbackHub() {
     setError('')
     setLoading(true)
     try {
-      if (tab === 'industries') {
+      if (tab === 'overview') {
+        const [subs, locs, res, types, tpls] = await Promise.all([
+          apiFetch('/admin/customer-feedback/subscriptions'),
+          apiFetch('/admin/customer-feedback/locations'),
+          apiFetch('/admin/customer-feedback/results'),
+          apiFetch('/admin/customer-feedback/survey-types'),
+          apiFetch('/admin/customer-feedback/wa-templates'),
+        ])
+        setSubscriptions(subs?.items || [])
+        setLocations(locs?.items || [])
+        setResults(res?.rows || [])
+        setSurveyTypes(types?.items || [])
+        setWaTemplates(tpls?.items || [])
+      } else if (tab === 'industries') {
         const data = await apiFetch('/admin/customer-feedback/industries')
         setIndustries(data?.items || [])
       } else if (tab === 'survey-types') {
@@ -248,8 +388,27 @@ export default function CustomerFeedbackHub() {
     { label: 'Active tab', value: TABS.find((t) => t.key === tab)?.label || tab },
   ]
 
+  const activeLabel = TABS.find((t) => t.key === tab)?.label || tab
+
+  const kpis = useMemo(() => {
+    const sum = (rows, key) => rows.reduce((acc, r) => acc + (Number(r?.[key]) || 0), 0)
+    const activeSubs = subscriptions.filter((s) => String(s.status || '').toLowerCase() === 'active').length
+    return [
+      { label: 'Industries', value: overview?.industries ?? 0, icon: Building2, tone: 'primary' },
+      { label: 'Survey types', value: surveyTypes.length, icon: Layers, tone: 'info' },
+      { label: 'Packages', value: overview?.packages ?? 0, icon: Package, tone: 'warning' },
+      { label: 'Subscriptions', value: subscriptions.length, icon: CreditCard, tone: 'success' },
+      { label: 'Active subscriptions', value: activeSubs, icon: CheckCircle2, tone: 'success' },
+      { label: 'Locations', value: locations.length, icon: MapPin, tone: 'info' },
+      { label: 'Total scans', value: sum(locations, 'scan_count'), icon: QrCode, tone: 'primary' },
+      { label: 'WA units used', value: sum(subscriptions, 'wa_units_used'), icon: Activity, tone: 'warning' },
+      { label: 'WA units remaining', value: sum(subscriptions, 'wa_units_remaining'), icon: Gauge, tone: 'success' },
+      { label: 'Responses', value: results.length, icon: MessageSquare, tone: 'info' },
+    ]
+  }, [overview, surveyTypes, subscriptions, locations, results])
+
   return (
-    <>
+    <div className="ds-scope space-y-4">
       <div className="pageTop">
         <div>
           <h1>Customer feedback</h1>
@@ -260,491 +419,500 @@ export default function CustomerFeedbackHub() {
           </p>
         </div>
         <div className="actions">
-          <button type="button" className="btn soft" onClick={refreshAll} disabled={loading}>
-            <RefreshCw size={15} />
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={refreshAll} disabled={loading}>
+            <RefreshCw size={14} />
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="note runningSurveyError">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
-      <div className="grid-3 runningSurveyStats">
-        {overviewCards.map((c) => (
-          <div key={c.label} className="card stat runningSurveyStat">
-            <div className="statValue">{c.value}</div>
-            <div className="muted">{c.label}</div>
-          </div>
-        ))}
+      {tab !== 'overview' ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {overviewCards.map((c) => (
+            <Panel key={c.label} bodyClassName="py-3">
+              <div className="text-2xl font-semibold leading-none">{c.value}</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">{c.label}</div>
+            </Panel>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground">
+          <MessageCircle size={15} /> Customer feedback admin
+        </span>
+        <div className="flex flex-wrap gap-0.5 rounded-lg border border-border bg-card p-1">
+          {SORTED_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'h-7 rounded-md px-3 text-[12px] font-medium transition-colors',
+                tab === t.key
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="note runningSurveyGuide">
-        <strong>Billing &amp; refunds (GoCardless only)</strong>
-        <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-          <li>Customer feedback subscriptions use <strong>Direct Debit (GoCardless)</strong> only — no wallet top-up.</li>
-          <li>There is <strong>no overage</strong>; WhatsApp survey units stop when the included allowance is exhausted.</li>
-          <li>When units are used up, the customer must <strong>upgrade their package</strong> to continue — process refunds or plan changes via GoCardless mandate/subscription tools.</li>
-          <li>Invoices use prefix <code>CF-</code> with <code>service_code=customer_feedback</code>.</li>
-        </ul>
-      </div>
+      {loading ? <div className="text-[12px] text-muted-foreground">Loading…</div> : null}
 
-      <div className="card runningSurveyListCard">
-        <div className="cardHead runningSurveyListHead">
-          <h3><MessageCircle size={16} /> Customer feedback admin</h3>
-          <div className="runningSurveyTabs">
-            {TABS.map((t) => (
+      {!loading && tab === 'overview' ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {kpis.map((k, i) => (
+            <KpiCard key={k.label} icon={k.icon} label={k.label} value={k.value} tone={k.tone} index={i} />
+          ))}
+        </div>
+      ) : null}
+
+      {!loading && tab === 'industries' ? (
+        <Panel
+          title="Industries"
+          subtitle="Feedback industries shown to customers."
+          action={
+            <Button
+              type="button"
+              size="sm"
+              className="h-8"
+              onClick={() => setIndustryEdit({ name: '', slug: '', description: '', is_active: true, sort_order: 100 })}
+            >
+              Add industry
+            </Button>
+          }
+        >
+          {industryEdit ? (
+            <DsEditPanel title={industryEdit.id ? 'Edit industry' : 'New industry'} onClose={() => setIndustryEdit(null)} onSave={saveIndustry} saving={busy}>
+              <DsField label="Name">
+                <Input className="h-8" value={industryEdit.name || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, name: e.target.value }))} />
+              </DsField>
+              <DsField label="Slug">
+                <Input className="h-8" value={industryEdit.slug || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, slug: e.target.value }))} />
+              </DsField>
+              <DsField label="Sort order">
+                <Input className="h-8" type="number" value={industryEdit.sort_order ?? 100} onChange={(e) => setIndustryEdit((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+              </DsField>
+              <DsField label="Description" className="sm:col-span-2">
+                <Input className="h-8" value={industryEdit.description || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, description: e.target.value }))} />
+              </DsField>
+              <DsField label="Active">
+                <ActiveCheck checked={Boolean(industryEdit.is_active)} onChange={(e) => setIndustryEdit((f) => ({ ...f, is_active: e.target.checked }))} />
+              </DsField>
+            </DsEditPanel>
+          ) : null}
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Slug</TableHead>
+                <TableHead>Order</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {industries.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell><strong className="font-medium">{row.name}</strong></TableCell>
+                  <TableCell><code className="text-[11px]">{row.slug}</code></TableCell>
+                  <TableCell>{row.sort_order}</TableCell>
+                  <TableCell><Pill tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Active' : 'Inactive'}</Pill></TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => setIndustryEdit({ ...row })}>Edit</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!industries.length ? <TableEmpty colSpan={5}>No industries yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
+
+      {!loading && tab === 'survey-types' ? (
+        <Panel
+          title="Survey types"
+          subtitle="Survey types grouped under each industry."
+          action={
+            <Button
+              type="button"
+              size="sm"
+              className="h-8"
+              disabled={!industries.length}
+              onClick={() =>
+                setSurveyTypeEdit({
+                  industry_id: industries[0]?.id || '',
+                  name: '',
+                  slug: '',
+                  description: '',
+                  is_active: true,
+                  sort_order: 100,
+                })
+              }
+            >
+              Add survey type
+            </Button>
+          }
+        >
+          {surveyTypeEdit ? (
+            <DsEditPanel title={surveyTypeEdit.id ? 'Edit survey type' : 'New survey type'} onClose={() => setSurveyTypeEdit(null)} onSave={saveSurveyType} saving={busy}>
+              <DsField label="Industry">
+                <select className={NATIVE_SELECT_CLS} value={surveyTypeEdit.industry_id || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, industry_id: e.target.value }))}>
+                  {industries.map((i) => (
+                    <option key={i.id} value={i.id}>{i.name}</option>
+                  ))}
+                </select>
+              </DsField>
+              <DsField label="Name">
+                <Input className="h-8" value={surveyTypeEdit.name || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, name: e.target.value }))} />
+              </DsField>
+              <DsField label="Slug">
+                <Input className="h-8" value={surveyTypeEdit.slug || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, slug: e.target.value }))} />
+              </DsField>
+              <DsField label="Sort order">
+                <Input className="h-8" type="number" value={surveyTypeEdit.sort_order ?? 100} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
+              </DsField>
+              <DsField label="Description" className="sm:col-span-2">
+                <Input className="h-8" value={surveyTypeEdit.description || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, description: e.target.value }))} />
+              </DsField>
+              <DsField label="Active">
+                <ActiveCheck checked={Boolean(surveyTypeEdit.is_active)} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, is_active: e.target.checked }))} />
+              </DsField>
+            </DsEditPanel>
+          ) : null}
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Industry</TableHead>
+                <TableHead>Slug</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {surveyTypes.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell><strong className="font-medium">{row.name}</strong></TableCell>
+                  <TableCell className="text-muted-foreground">{industryName(row.industry_id)}</TableCell>
+                  <TableCell><code className="text-[11px]">{row.slug}</code></TableCell>
+                  <TableCell>
+                    <Pill tone={row.archived_at ? 'neutral' : row.is_active ? 'success' : 'neutral'}>
+                      {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Inactive'}
+                    </Pill>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!surveyTypes.length ? <TableEmpty colSpan={5}>No survey types yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
+
+      {!loading && tab === 'packages' ? (
+        <div className="card">
+          <div className="cardBody">
+            <div className="runningSurveyTabs" style={{ marginBottom: 14 }}>
+              {PACKAGE_ZONES.map((z) => (
+                <button
+                  key={z}
+                  type="button"
+                  className={`runningSurveyTab${packageZone === z ? ' on' : ''}`}
+                  onClick={() => setPackageZone(z)}
+                >
+                  {ZONE_LABELS[z] || z.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <div className="runningSurveyActionBar" style={{ marginBottom: 14 }}>
               <button
-                key={t.key}
                 type="button"
-                className={`runningSurveyTab${tab === t.key ? ' on' : ''}`}
-                onClick={() => setTab(t.key)}
+                className="btn primary bsm"
+                onClick={() =>
+                  setPackageEdit({
+                    plan_id: '',
+                    max_locations: 1,
+                    wa_units_included: 100,
+                    admin_notes: '',
+                    is_active: true,
+                    display_order: 100,
+                  })
+                }
               >
-                {t.label}
+                <Package size={14} /> Link / edit package
               </button>
-            ))}
+            </div>
+            {packageEdit ? (
+              <EditPanel title="Package (plan link)" onClose={() => setPackageEdit(null)} onSave={savePackage} saving={busy}>
+                <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+                  Zone: <strong>{ZONE_LABELS[packageZone]}</strong>. Requires an existing Plan with <code>service_kind=customer_feedback</code>.
+                </p>
+                <div className="runningSurveyEditGrid">
+                  <Field label="Plan">
+                    <select
+                      className="input"
+                      value={packageEdit.plan_id || ''}
+                      onChange={(e) => {
+                        const planId = e.target.value
+                        const plan = feedbackPlans.find((p) => p.id === planId)
+                        setPackageEdit((f) => ({
+                          ...f,
+                          plan_id: planId,
+                          max_locations: plan?.max_locations ?? f.max_locations,
+                          wa_units_included: plan?.wa_units_included ?? f.wa_units_included,
+                        }))
+                      }}
+                    >
+                      <option value="">Select feedback plan…</option>
+                      {feedbackPlans.map((plan) => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name} ({plan.code})
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Max locations">
+                    <input className="input" type="number" value={packageEdit.max_locations ?? 1} onChange={(e) => setPackageEdit((f) => ({ ...f, max_locations: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="WA units included">
+                    <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="Display order">
+                    <input className="input" type="number" value={packageEdit.display_order ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, display_order: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="Admin notes">
+                    <input className="input" value={packageEdit.admin_notes || ''} onChange={(e) => setPackageEdit((f) => ({ ...f, admin_notes: e.target.value }))} />
+                  </Field>
+                  <Field label="Active">
+                    <input type="checkbox" checked={Boolean(packageEdit.is_active)} onChange={(e) => setPackageEdit((f) => ({ ...f, is_active: e.target.checked }))} />
+                  </Field>
+                </div>
+              </EditPanel>
+            ) : null}
+            <div className="tableWrap">
+              <table className="table runningSurveyTable">
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Code</th>
+                    <th>Locations</th>
+                    <th>WA units</th>
+                    <th>Prices</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {packages.map((row) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.plan_name || '—'}</strong></td>
+                      <td><code>{row.plan_code || row.plan_id}</code></td>
+                      <td>{row.max_locations}</td>
+                      <td>{row.wa_units_included}</td>
+                      <td className="muted">
+                        {(row.prices || []).map((p) => moneyMinor(p.monthly_price_minor, p.currency)).join(' · ') || '—'}
+                      </td>
+                      <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
+                      <td>
+                        <button type="button" className="btn soft bsm" onClick={() => setPackageEdit({ ...row, plan_id: row.plan_id })}>Edit</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!packages.length ? <tr><td colSpan={7} className="muted">No packages for this zone.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      ) : null}
 
-        <div className="cardBody">
-          {loading ? <div className="muted">Loading…</div> : null}
+      {!loading && tab === 'subscriptions' ? (
+        <Panel title="Subscriptions" subtitle="Active customer feedback subscriptions and WhatsApp unit usage.">
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Organisation</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>WA used</TableHead>
+                <TableHead>WA remaining</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {subscriptions.map((row) => (
+                <TableRow key={row.org_id}>
+                  <TableCell><strong className="font-medium">{row.org_name}</strong></TableCell>
+                  <TableCell className="text-muted-foreground">{row.plan_name || '—'}</TableCell>
+                  <TableCell><Pill tone="info">{row.status}</Pill></TableCell>
+                  <TableCell>{row.wa_units_used ?? 0} / {row.wa_units_included ?? 0}</TableCell>
+                  <TableCell>{row.wa_units_remaining ?? 0}</TableCell>
+                </TableRow>
+              ))}
+              {!subscriptions.length ? <TableEmpty colSpan={5}>No customer feedback subscriptions yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
 
-          {!loading && tab === 'industries' ? (
-            <>
-              <div className="runningSurveyActionBar" style={{ marginBottom: 14 }}>
-                <button
-                  type="button"
-                  className="btn primary bsm"
-                  onClick={() => setIndustryEdit({ name: '', slug: '', description: '', is_active: true, sort_order: 100 })}
-                >
-                  Add industry
-                </button>
-              </div>
-              {industryEdit ? (
-                <EditPanel title={industryEdit.id ? 'Edit industry' : 'New industry'} onClose={() => setIndustryEdit(null)} onSave={saveIndustry} saving={busy}>
-                  <div className="runningSurveyEditGrid">
-                    <Field label="Name">
-                      <input className="input" value={industryEdit.name || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, name: e.target.value }))} />
-                    </Field>
-                    <Field label="Slug">
-                      <input className="input" value={industryEdit.slug || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, slug: e.target.value }))} />
-                    </Field>
-                    <Field label="Sort order">
-                      <input className="input" type="number" value={industryEdit.sort_order ?? 100} onChange={(e) => setIndustryEdit((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="Description">
-                      <input className="input" value={industryEdit.description || ''} onChange={(e) => setIndustryEdit((f) => ({ ...f, description: e.target.value }))} />
-                    </Field>
-                    <Field label="Active">
-                      <input type="checkbox" checked={Boolean(industryEdit.is_active)} onChange={(e) => setIndustryEdit((f) => ({ ...f, is_active: e.target.checked }))} />
-                    </Field>
-                  </div>
-                </EditPanel>
-              ) : null}
-              <div className="tableWrap">
-                <table className="table runningSurveyTable">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Slug</th>
-                      <th>Order</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {industries.map((row) => (
-                      <tr key={row.id}>
-                        <td><strong>{row.name}</strong></td>
-                        <td><code>{row.slug}</code></td>
-                        <td>{row.sort_order}</td>
-                        <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
-                        <td>
-                          <button type="button" className="btn soft bsm" onClick={() => setIndustryEdit({ ...row })}>Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!industries.length ? <tr><td colSpan={5} className="muted">No industries yet.</td></tr> : null}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : null}
+      {!loading && tab === 'locations' ? (
+        <Panel title="Locations" subtitle="Feedback QR locations across organisations.">
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Location</TableHead>
+                <TableHead>Org ID</TableHead>
+                <TableHead>Industry</TableHead>
+                <TableHead>Survey type</TableHead>
+                <TableHead>Scans</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {locations.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell><strong className="font-medium">{row.name || row.branch_code || row.id.slice(0, 8)}</strong></TableCell>
+                  <TableCell className="text-muted-foreground">{row.org_id}</TableCell>
+                  <TableCell>{row.industry_name || '—'}</TableCell>
+                  <TableCell>{row.survey_type_name || '—'}</TableCell>
+                  <TableCell>{row.scan_count ?? 0}</TableCell>
+                  <TableCell><Pill tone="info">{row.status || '—'}</Pill></TableCell>
+                  <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtWhen(row.created_at)}</TableCell>
+                </TableRow>
+              ))}
+              {!locations.length ? <TableEmpty colSpan={7}>No feedback locations yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
 
-          {!loading && tab === 'survey-types' ? (
-            <>
-              <div className="runningSurveyActionBar" style={{ marginBottom: 14 }}>
-                <button
-                  type="button"
-                  className="btn primary bsm"
-                  disabled={!industries.length}
-                  onClick={() =>
-                    setSurveyTypeEdit({
-                      industry_id: industries[0]?.id || '',
-                      name: '',
-                      slug: '',
-                      description: '',
-                      is_active: true,
-                      sort_order: 100,
-                    })
-                  }
-                >
-                  Add survey type
-                </button>
-              </div>
-              {surveyTypeEdit ? (
-                <EditPanel title={surveyTypeEdit.id ? 'Edit survey type' : 'New survey type'} onClose={() => setSurveyTypeEdit(null)} onSave={saveSurveyType} saving={busy}>
-                  <div className="runningSurveyEditGrid">
-                    <Field label="Industry">
-                      <select className="input" value={surveyTypeEdit.industry_id || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, industry_id: e.target.value }))}>
-                        {industries.map((i) => (
-                          <option key={i.id} value={i.id}>{i.name}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Name">
-                      <input className="input" value={surveyTypeEdit.name || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, name: e.target.value }))} />
-                    </Field>
-                    <Field label="Slug">
-                      <input className="input" value={surveyTypeEdit.slug || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, slug: e.target.value }))} />
-                    </Field>
-                    <Field label="Sort order">
-                      <input className="input" type="number" value={surveyTypeEdit.sort_order ?? 100} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, sort_order: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="Description">
-                      <input className="input" value={surveyTypeEdit.description || ''} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, description: e.target.value }))} />
-                    </Field>
-                    <Field label="Active">
-                      <input type="checkbox" checked={Boolean(surveyTypeEdit.is_active)} onChange={(e) => setSurveyTypeEdit((f) => ({ ...f, is_active: e.target.checked }))} />
-                    </Field>
-                  </div>
-                </EditPanel>
-              ) : null}
-              <div className="tableWrap">
-                <table className="table runningSurveyTable">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Industry</th>
-                      <th>Slug</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {surveyTypes.map((row) => (
-                      <tr key={row.id}>
-                        <td><strong>{row.name}</strong></td>
-                        <td>{industryName(row.industry_id)}</td>
-                        <td><code>{row.slug}</code></td>
-                        <td>
-                          <span className={statusPill(row.is_active && !row.archived_at)}>
-                            {row.archived_at ? 'Archived' : row.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td>
-                          <button type="button" className="btn soft bsm" onClick={() => setSurveyTypeEdit({ ...row })}>Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!surveyTypes.length ? <tr><td colSpan={5} className="muted">No survey types yet.</td></tr> : null}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : null}
+      {!loading && tab === 'results' ? (
+        <Panel title="Results" subtitle="Latest feedback responses across all locations.">
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Question</TableHead>
+                <TableHead>Answer</TableHead>
+                <TableHead>Org ID</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {results.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtWhen(row.created_at)}</TableCell>
+                  <TableCell>{row.location_name || row.location_id || '—'}</TableCell>
+                  <TableCell><code className="text-[11px]">{row.question_key}</code></TableCell>
+                  <TableCell>{row.answer_text || '—'}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.org_id}</TableCell>
+                </TableRow>
+              ))}
+              {!results.length ? <TableEmpty colSpan={5}>No feedback responses yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
 
-          {!loading && tab === 'packages' ? (
-            <>
-              <div className="runningSurveyTabs" style={{ marginBottom: 14 }}>
-                {PACKAGE_ZONES.map((z) => (
-                  <button
-                    key={z}
-                    type="button"
-                    className={`runningSurveyTab${packageZone === z ? ' on' : ''}`}
-                    onClick={() => setPackageZone(z)}
-                  >
-                    {ZONE_LABELS[z] || z.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="runningSurveyActionBar" style={{ marginBottom: 14 }}>
-                <button
-                  type="button"
-                  className="btn primary bsm"
-                  onClick={() =>
-                    setPackageEdit({
-                      plan_id: '',
-                      max_locations: 1,
-                      wa_units_included: 100,
-                      admin_notes: '',
-                      is_active: true,
-                      display_order: 100,
-                    })
-                  }
-                >
-                  <Package size={14} /> Link / edit package
-                </button>
-              </div>
-              {packageEdit ? (
-                <EditPanel title="Package (plan link)" onClose={() => setPackageEdit(null)} onSave={savePackage} saving={busy}>
-                  <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-                    Zone: <strong>{ZONE_LABELS[packageZone]}</strong>. Requires an existing Plan with <code>service_kind=customer_feedback</code>.
-                  </p>
-                  <div className="runningSurveyEditGrid">
-                    <Field label="Plan">
-                      <select
-                        className="input"
-                        value={packageEdit.plan_id || ''}
-                        onChange={(e) => {
-                          const planId = e.target.value
-                          const plan = feedbackPlans.find((p) => p.id === planId)
-                          setPackageEdit((f) => ({
-                            ...f,
-                            plan_id: planId,
-                            max_locations: plan?.max_locations ?? f.max_locations,
-                            wa_units_included: plan?.wa_units_included ?? f.wa_units_included,
-                          }))
-                        }}
-                      >
-                        <option value="">Select feedback plan…</option>
-                        {feedbackPlans.map((plan) => (
-                          <option key={plan.id} value={plan.id}>
-                            {plan.name} ({plan.code})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Max locations">
-                      <input className="input" type="number" value={packageEdit.max_locations ?? 1} onChange={(e) => setPackageEdit((f) => ({ ...f, max_locations: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="WA units included">
-                      <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="Display order">
-                      <input className="input" type="number" value={packageEdit.display_order ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, display_order: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="Admin notes">
-                      <input className="input" value={packageEdit.admin_notes || ''} onChange={(e) => setPackageEdit((f) => ({ ...f, admin_notes: e.target.value }))} />
-                    </Field>
-                    <Field label="Active">
-                      <input type="checkbox" checked={Boolean(packageEdit.is_active)} onChange={(e) => setPackageEdit((f) => ({ ...f, is_active: e.target.checked }))} />
-                    </Field>
-                  </div>
-                </EditPanel>
-              ) : null}
-              <div className="tableWrap">
-                <table className="table runningSurveyTable">
-                  <thead>
-                    <tr>
-                      <th>Plan</th>
-                      <th>Code</th>
-                      <th>Locations</th>
-                      <th>WA units</th>
-                      <th>Prices</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {packages.map((row) => (
-                      <tr key={row.id}>
-                        <td><strong>{row.plan_name || '—'}</strong></td>
-                        <td><code>{row.plan_code || row.plan_id}</code></td>
-                        <td>{row.max_locations}</td>
-                        <td>{row.wa_units_included}</td>
-                        <td className="muted">
-                          {(row.prices || []).map((p) => moneyMinor(p.monthly_price_minor, p.currency)).join(' · ') || '—'}
-                        </td>
-                        <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
-                        <td>
-                          <button type="button" className="btn soft bsm" onClick={() => setPackageEdit({ ...row, plan_id: row.plan_id })}>Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!packages.length ? <tr><td colSpan={7} className="muted">No packages for this zone.</td></tr> : null}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : null}
-
-          {!loading && tab === 'subscriptions' ? (
-            <div className="tableWrap">
-              <table className="table runningSurveyTable">
-                <thead>
-                  <tr>
-                    <th>Organisation</th>
-                    <th>Plan</th>
-                    <th>Status</th>
-                    <th>WA used</th>
-                    <th>WA remaining</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map((row) => (
-                    <tr key={row.org_id}>
-                      <td><strong>{row.org_name}</strong></td>
-                      <td>{row.plan_name || '—'}</td>
-                      <td><span className="leadPill">{row.status}</span></td>
-                      <td>{row.wa_units_used ?? 0} / {row.wa_units_included ?? 0}</td>
-                      <td>{row.wa_units_remaining ?? 0}</td>
-                    </tr>
+      {!loading && tab === 'wa-templates' ? (
+        <Panel
+          title="WhatsApp templates"
+          subtitle="Per-step WhatsApp survey message templates."
+          action={
+            <Button
+              type="button"
+              size="sm"
+              className="h-8"
+              onClick={() =>
+                setWaTemplateEdit({
+                  industry_id: industries[0]?.id || '',
+                  survey_type_id: surveyTypes[0]?.id || '',
+                  step_order: 1,
+                  template_key: 'question',
+                  body_text: '',
+                  is_active: true,
+                })
+              }
+            >
+              Add template step
+            </Button>
+          }
+        >
+          {waTemplateEdit ? (
+            <DsEditPanel title={waTemplateEdit.id ? 'Edit WA template' : 'New WA template'} onClose={() => setWaTemplateEdit(null)} onSave={saveWaTemplate} saving={busy}>
+              <DsField label="Industry">
+                <select className={NATIVE_SELECT_CLS} value={waTemplateEdit.industry_id || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, industry_id: e.target.value }))}>
+                  <option value="">—</option>
+                  {industries.map((i) => (
+                    <option key={i.id} value={i.id}>{i.name}</option>
                   ))}
-                  {!subscriptions.length ? <tr><td colSpan={5} className="muted">No customer feedback subscriptions yet.</td></tr> : null}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {!loading && tab === 'locations' ? (
-            <div className="tableWrap">
-              <table className="table runningSurveyTable">
-                <thead>
-                  <tr>
-                    <th>Location</th>
-                    <th>Org ID</th>
-                    <th>Industry</th>
-                    <th>Survey type</th>
-                    <th>Scans</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {locations.map((row) => (
-                    <tr key={row.id}>
-                      <td><strong>{row.name || row.branch_code || row.id.slice(0, 8)}</strong></td>
-                      <td className="muted">{row.org_id}</td>
-                      <td>{row.industry_name || '—'}</td>
-                      <td>{row.survey_type_name || '—'}</td>
-                      <td>{row.scan_count ?? 0}</td>
-                      <td><span className="leadPill">{row.status || '—'}</span></td>
-                      <td>{fmtWhen(row.created_at)}</td>
-                    </tr>
+                </select>
+              </DsField>
+              <DsField label="Survey type">
+                <select className={NATIVE_SELECT_CLS} value={waTemplateEdit.survey_type_id || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, survey_type_id: e.target.value }))}>
+                  <option value="">—</option>
+                  {surveyTypes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
-                  {!locations.length ? <tr><td colSpan={7} className="muted">No feedback locations yet.</td></tr> : null}
-                </tbody>
-              </table>
-            </div>
+                </select>
+              </DsField>
+              <DsField label="Step order">
+                <Input className="h-8" type="number" value={waTemplateEdit.step_order ?? 1} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, step_order: Number(e.target.value) }))} />
+              </DsField>
+              <DsField label="Template key">
+                <Input className="h-8" value={waTemplateEdit.template_key || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, template_key: e.target.value }))} />
+              </DsField>
+              <DsField label="Body text" className="sm:col-span-2">
+                <Textarea rows={4} value={waTemplateEdit.body_text || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, body_text: e.target.value }))} />
+              </DsField>
+              <DsField label="Active">
+                <ActiveCheck checked={Boolean(waTemplateEdit.is_active)} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, is_active: e.target.checked }))} />
+              </DsField>
+            </DsEditPanel>
           ) : null}
-
-          {!loading && tab === 'results' ? (
-            <div className="tableWrap">
-              <table className="table runningSurveyTable">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Location</th>
-                    <th>Question</th>
-                    <th>Answer</th>
-                    <th>Org ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((row) => (
-                    <tr key={row.id}>
-                      <td>{fmtWhen(row.created_at)}</td>
-                      <td>{row.location_name || row.location_id || '—'}</td>
-                      <td><code>{row.question_key}</code></td>
-                      <td>{row.answer_text || '—'}</td>
-                      <td className="muted">{row.org_id}</td>
-                    </tr>
-                  ))}
-                  {!results.length ? <tr><td colSpan={5} className="muted">No feedback responses yet.</td></tr> : null}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {!loading && tab === 'wa-templates' ? (
-            <>
-              <div className="runningSurveyActionBar" style={{ marginBottom: 14 }}>
-                <button
-                  type="button"
-                  className="btn primary bsm"
-                  onClick={() =>
-                    setWaTemplateEdit({
-                      industry_id: industries[0]?.id || '',
-                      survey_type_id: surveyTypes[0]?.id || '',
-                      step_order: 1,
-                      template_key: 'question',
-                      body_text: '',
-                      is_active: true,
-                    })
-                  }
-                >
-                  Add template step
-                </button>
-              </div>
-              {waTemplateEdit ? (
-                <EditPanel title={waTemplateEdit.id ? 'Edit WA template' : 'New WA template'} onClose={() => setWaTemplateEdit(null)} onSave={saveWaTemplate} saving={busy}>
-                  <div className="runningSurveyEditGrid">
-                    <Field label="Industry">
-                      <select className="input" value={waTemplateEdit.industry_id || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, industry_id: e.target.value }))}>
-                        <option value="">—</option>
-                        {industries.map((i) => (
-                          <option key={i.id} value={i.id}>{i.name}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Survey type">
-                      <select className="input" value={waTemplateEdit.survey_type_id || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, survey_type_id: e.target.value }))}>
-                        <option value="">—</option>
-                        {surveyTypes.map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Step order">
-                      <input className="input" type="number" value={waTemplateEdit.step_order ?? 1} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, step_order: Number(e.target.value) }))} />
-                    </Field>
-                    <Field label="Template key">
-                      <input className="input" value={waTemplateEdit.template_key || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, template_key: e.target.value }))} />
-                    </Field>
-                    <Field label="Body text">
-                      <textarea className="input" rows={4} value={waTemplateEdit.body_text || ''} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, body_text: e.target.value }))} />
-                    </Field>
-                    <Field label="Active">
-                      <input type="checkbox" checked={Boolean(waTemplateEdit.is_active)} onChange={(e) => setWaTemplateEdit((f) => ({ ...f, is_active: e.target.checked }))} />
-                    </Field>
-                  </div>
-                </EditPanel>
-              ) : null}
-              <div className="tableWrap">
-                <table className="table runningSurveyTable">
-                  <thead>
-                    <tr>
-                      <th>Step</th>
-                      <th>Key</th>
-                      <th>Industry</th>
-                      <th>Survey type</th>
-                      <th>Body</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {waTemplates.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.step_order}</td>
-                        <td><code>{row.template_key}</code></td>
-                        <td>{industryName(row.industry_id)}</td>
-                        <td>{surveyTypes.find((s) => s.id === row.survey_type_id)?.name || row.survey_type_id || '—'}</td>
-                        <td className="muted" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.body_text}</td>
-                        <td><span className={statusPill(row.is_active)}>{row.is_active ? 'Active' : 'Inactive'}</span></td>
-                        <td>
-                          <button type="button" className="btn soft bsm" onClick={() => setWaTemplateEdit({ ...row })}>Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!waTemplates.length ? <tr><td colSpan={7} className="muted">No WhatsApp templates yet.</td></tr> : null}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </>
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Step</TableHead>
+                <TableHead>Key</TableHead>
+                <TableHead>Industry</TableHead>
+                <TableHead>Survey type</TableHead>
+                <TableHead>Body</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {waTemplates.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>{row.step_order}</TableCell>
+                  <TableCell><code className="text-[11px]">{row.template_key}</code></TableCell>
+                  <TableCell>{industryName(row.industry_id)}</TableCell>
+                  <TableCell>{surveyTypes.find((s) => s.id === row.survey_type_id)?.name || row.survey_type_id || '—'}</TableCell>
+                  <TableCell className="max-w-[280px] truncate text-muted-foreground">{row.body_text}</TableCell>
+                  <TableCell><Pill tone={row.is_active ? 'success' : 'neutral'}>{row.is_active ? 'Active' : 'Inactive'}</Pill></TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => setWaTemplateEdit({ ...row })}>Edit</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!waTemplates.length ? <TableEmpty colSpan={7}>No WhatsApp templates yet.</TableEmpty> : null}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : null}
+    </div>
   )
 }

@@ -1,0 +1,22 @@
+# Cursor Rules — adim-web
+
+## Design
+- Always read DESIGN_SYSTEM.md before writing or editing any UI code.
+- Never hardcode colors, spacing, radius, or shadow values. Use the tokens/components defined in DESIGN_SYSTEM.md only.
+- Never invent a new button, table, modal, or input pattern. If a shared component exists in /src/components/ui/, use it. If it doesn't exist yet, build it there first, matching the reference style in telynx-settings-hub-main, then use it.
+- Reference implementation for all visual style: telynx-settings-hub-main. When in doubt about how something should look, check that project's code, not assumptions.
+
+## Scope discipline
+- Only touch the files needed for the current task. Do not refactor unrelated pages/components "while you're in there."
+- One page or one component per task unless explicitly told to do a multi-page pass.
+- Do not change business logic, API calls, or routing when the task is a visual/design task. Flag if a visual fix seems to require a logic change instead of making it silently.
+
+## Workflow
+- Before making changes, state in plain terms what you're about to change and which files.
+- After making changes, list every file touched and a one-line summary of what changed in each.
+- Work on a feature/fix branch, never directly on main.
+- Backend changes (FastAPI/Celery/migrations) always go through staging first — never edit production paths directly.
+
+## Output
+- No placeholder/lorem content in final UI — use realistic VoxBulk data examples.
+- No new npm dependencies without asking first.

@@ -179,6 +179,24 @@ def _agent_zone_match(agent: AgentDefinition, zone: str) -> bool:
     return True
 
 
+def _agent_dashboard_language(agent: AgentDefinition) -> str:
+    from app.services.voice_agent_runtime import agent_is_arabic
+
+    return "ar" if agent_is_arabic(agent) else "en"
+
+
+def _agent_dashboard_gender(agent: AgentDefinition) -> str:
+    blob = " ".join(
+        str(getattr(agent, attr, "") or "")
+        for attr in ("voice_type_label", "voice_label", "name", "slug")
+    ).lower()
+    if "female" in blob or any(n in blob for n in ("jodi", "amelia", "emily")):
+        return "female"
+    if "male" in blob or any(n in blob for n in ("leo", "james", "jamal", "jammal", "george")):
+        return "male"
+    return "unknown"
+
+
 def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: str) -> list[dict[str, Any]]:
     from app.services.market_zone import country_to_zone
     from app.services.recovery_service import OrganisationService
@@ -204,6 +222,8 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
                 "name": agent.name,
                 "voice_label": agent.voice_label or agent.name,
                 "voice_type_label": agent.voice_type_label,
+                "language": _agent_dashboard_language(agent),
+                "gender": _agent_dashboard_gender(agent),
                 "is_default_for_org": bool(assigned and assigned.id == agent.id),
                 "is_platform_default": bool(getattr(agent, default_field, False)),
                 "is_zone_match": _agent_zone_match(agent, zone),

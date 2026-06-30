@@ -1,0 +1,155 @@
+/* VoxBulk Admin design system — Tailwind v4 + shadcn tokens from telynx-settings-hub-main.
+   Isolation strategy (see DESIGN_SYSTEM.md):
+   - No preflight import: the admin's existing global reset/styles stay intact.
+   - theme + utilities are imported UNLAYERED so utility classes win over the admin's
+     (also unlayered) broad element rules (button/input/table ...) by specificity.
+   - Source tokens are renamed to --ds-* so they never collide with the admin's
+     :root vars (--border / --muted / --surface / --radius-*).
+   - @theme inline keeps the shadcn component class strings verbatim (bg-primary,
+     rounded-md, ...) while inlining the --ds-* values. */
+
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+@import "tw-animate-css";
+
+@source "../";
+
+@theme inline {
+  --radius-sm: calc(var(--ds-radius) - 4px);
+  --radius-md: calc(var(--ds-radius) - 2px);
+  --radius-lg: var(--ds-radius);
+  --radius-xl: calc(var(--ds-radius) + 4px);
+  --radius-2xl: calc(var(--ds-radius) + 8px);
+
+  --color-background: var(--ds-background);
+  --color-foreground: var(--ds-foreground);
+  --color-card: var(--ds-card);
+  --color-card-foreground: var(--ds-card-foreground);
+  --color-popover: var(--ds-popover);
+  --color-popover-foreground: var(--ds-popover-foreground);
+  --color-primary: var(--ds-primary);
+  --color-primary-foreground: var(--ds-primary-foreground);
+  --color-secondary: var(--ds-secondary);
+  --color-secondary-foreground: var(--ds-secondary-foreground);
+  --color-muted: var(--ds-muted);
+  --color-muted-foreground: var(--ds-muted-foreground);
+  --color-accent: var(--ds-accent);
+  --color-accent-foreground: var(--ds-accent-foreground);
+  --color-destructive: var(--ds-destructive);
+  --color-destructive-foreground: var(--ds-destructive-foreground);
+  --color-border: var(--ds-border);
+  --color-input: var(--ds-input);
+  --color-ring: var(--ds-ring);
+  --color-success: var(--ds-success);
+  --color-success-foreground: var(--ds-success-foreground);
+  --color-success-soft: var(--ds-success-soft);
+  --color-warning: var(--ds-warning);
+  --color-warning-foreground: var(--ds-warning-foreground);
+  --color-warning-soft: var(--ds-warning-soft);
+  --color-info: var(--ds-info);
+  --color-info-foreground: var(--ds-info-foreground);
+  --color-info-soft: var(--ds-info-soft);
+  --color-surface: var(--ds-surface);
+  --color-surface-muted: var(--ds-surface-muted);
+}
+
+:root {
+  --ds-radius: 0.625rem;
+
+  --ds-background: oklch(0.975 0.012 85);
+  --ds-foreground: oklch(0.22 0.02 260);
+
+  --ds-surface: oklch(0.995 0.004 85);
+  --ds-surface-muted: oklch(0.955 0.014 85);
+
+  --ds-card: oklch(0.995 0.004 85);
+  --ds-card-foreground: oklch(0.22 0.02 260);
+
+  --ds-popover: oklch(0.995 0.004 85);
+  --ds-popover-foreground: oklch(0.22 0.02 260);
+
+  --ds-primary: oklch(0.27 0.04 265);
+  --ds-primary-foreground: oklch(0.98 0.003 247);
+
+  --ds-secondary: oklch(0.93 0.012 80);
+  --ds-secondary-foreground: oklch(0.27 0.04 265);
+
+  --ds-muted: oklch(0.945 0.014 80);
+  --ds-muted-foreground: oklch(0.5 0.02 260);
+
+  --ds-accent: oklch(0.93 0.012 80);
+  --ds-accent-foreground: oklch(0.27 0.04 265);
+
+  --ds-destructive: oklch(0.6 0.21 27);
+  --ds-destructive-foreground: oklch(0.99 0.003 247);
+
+  --ds-border: oklch(0.9 0.012 85);
+  --ds-input: oklch(0.9 0.012 85);
+  --ds-ring: oklch(0.62 0.05 260);
+
+  --ds-success: oklch(0.55 0.14 150);
+  --ds-success-foreground: oklch(0.99 0.003 247);
+  --ds-success-soft: oklch(0.93 0.06 150);
+
+  --ds-warning: oklch(0.62 0.13 65);
+  --ds-warning-foreground: oklch(0.22 0.02 260);
+  --ds-warning-soft: oklch(0.93 0.05 75);
+
+  --ds-info: oklch(0.52 0.1 250);
+  --ds-info-foreground: oklch(0.99 0.003 247);
+  --ds-info-soft: oklch(0.93 0.03 250);
+}
+
+.dark {
+  --ds-background: oklch(0.16 0.02 260);
+  --ds-foreground: oklch(0.98 0.003 247);
+  --ds-surface: oklch(0.21 0.025 260);
+  --ds-surface-muted: oklch(0.24 0.025 260);
+  --ds-card: oklch(0.21 0.025 260);
+  --ds-card-foreground: oklch(0.98 0.003 247);
+  --ds-popover: oklch(0.21 0.025 260);
+  --ds-popover-foreground: oklch(0.98 0.003 247);
+  --ds-primary: oklch(0.93 0.013 255);
+  --ds-primary-foreground: oklch(0.21 0.04 265);
+  --ds-secondary: oklch(0.28 0.04 260);
+  --ds-secondary-foreground: oklch(0.98 0.003 247);
+  --ds-muted: oklch(0.28 0.04 260);
+  --ds-muted-foreground: oklch(0.7 0.04 256);
+  --ds-accent: oklch(0.28 0.04 260);
+  --ds-accent-foreground: oklch(0.98 0.003 247);
+  --ds-destructive: oklch(0.7 0.19 22);
+  --ds-destructive-foreground: oklch(0.98 0.003 247);
+  --ds-border: oklch(1 0 0 / 10%);
+  --ds-input: oklch(1 0 0 / 15%);
+  --ds-ring: oklch(0.55 0.03 264);
+  --ds-success: oklch(0.7 0.16 150);
+  --ds-success-foreground: oklch(0.15 0.02 260);
+  --ds-success-soft: oklch(0.3 0.06 150);
+  --ds-warning: oklch(0.78 0.14 75);
+  --ds-warning-foreground: oklch(0.15 0.02 260);
+  --ds-warning-soft: oklch(0.32 0.05 75);
+  --ds-info: oklch(0.7 0.1 250);
+  --ds-info-foreground: oklch(0.15 0.02 260);
+  --ds-info-soft: oklch(0.3 0.04 250);
+}
+
+/* Faithful to the reference: default border color for bordered elements.
+   Placed in @layer base so the admin's unlayered explicit borders always win. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+}
+
+/* Re-assert the admin radius scale. Tailwind's default theme.css emits
+   --radius-xs/sm/md/lg to :root, which would otherwise shrink the legacy admin
+   pages. The ui components use the inlined (calc) radii from @theme inline above,
+   so they are unaffected by these values. */
+:root {
+  --radius-xs: 9px;
+  --radius-sm: 12px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}

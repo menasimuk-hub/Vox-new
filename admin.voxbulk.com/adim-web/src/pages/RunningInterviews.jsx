@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Activity, Briefcase, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
+import { Activity, Briefcase, CheckCircle2, CreditCard, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
 import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Input } from '@/components/ui/Input'
+import { Button } from '@/components/ui/Button'
+import '../styles/ops-theme.css'
 
 const LIVE_INTERVIEW_STATUSES = new Set(['running', 'paused', 'scheduled'])
 const EMPTY_CANDIDATE = { name: '', phone: '', email: '', status: '' }
@@ -388,10 +392,10 @@ export default function RunningInterviews() {
 
   const overviewCards = useMemo(
     () => [
-      { label: 'Live interviews', value: overview?.live ?? '—', hint: `${overview?.scheduled ?? 0} scheduled · drafts hidden` },
-      { label: 'Running now', value: overview?.running ?? '—', hint: `${overview?.paused ?? 0} paused` },
-      { label: 'Completed', value: overview?.completed ?? '—', hint: 'All time' },
-      { label: 'Pending payment', value: overview?.pending_payment_approval ?? '—', hint: `${overview?.failed_payments ?? 0} rejected` },
+      { label: 'Live interviews', value: overview?.live ?? '—', hint: `${overview?.scheduled ?? 0} scheduled · drafts hidden`, icon: Activity, tone: 'info' },
+      { label: 'Running now', value: overview?.running ?? '—', hint: `${overview?.paused ?? 0} paused`, icon: Play, tone: 'success' },
+      { label: 'Completed', value: overview?.completed ?? '—', hint: 'All time', icon: CheckCircle2, tone: 'primary' },
+      { label: 'Pending payment', value: overview?.pending_payment_approval ?? '—', hint: `${overview?.failed_payments ?? 0} rejected`, icon: CreditCard, tone: 'warning' },
     ],
     [overview],
   )
@@ -430,7 +434,7 @@ export default function RunningInterviews() {
   }, [orders, listTab, searchQuery, sortBy, dateFrom, dateTo])
 
   return (
-    <>
+    <div className="opsTheme">
       <div className="pageTop">
         <div>
           <h1>Interviews</h1>
@@ -438,27 +442,32 @@ export default function RunningInterviews() {
             Live and finished AI phone interview campaigns. Drafts are hidden — customers manage drafts in their dashboard.
           </p>
         </div>
-        <div className="actions">
-          <input
-            className="input runningSurveySearch"
-            type="search"
-            placeholder="Search name, reference, or company…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <input className="input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" />
-          <input className="input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" />
-          <select className="input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="date_desc">Newest first</option>
-            <option value="date_asc">Oldest first</option>
-            <option value="name_asc">Name A–Z</option>
-            <option value="name_desc">Name Z–A</option>
-          </select>
-          <button type="button" className="btn soft" onClick={load} disabled={loading}>
-            <RefreshCw size={15} />
-            Refresh
-          </button>
-        </div>
+      </div>
+
+      <div className="ds-scope flex w-full flex-wrap items-center gap-2">
+        <Input
+          type="search"
+          placeholder="Search name, reference, or company…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-9 min-w-[200px] flex-1"
+        />
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" className="h-9 w-auto shrink-0" />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" className="h-9 w-auto shrink-0" />
+        <select
+          className="h-9 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="date_desc">Newest first</option>
+          <option value="date_asc">Oldest first</option>
+          <option value="name_asc">Name A–Z</option>
+          <option value="name_desc">Name Z–A</option>
+        </select>
+        <Button type="button" variant="outline" className="h-9 shrink-0" onClick={load} disabled={loading}>
+          <RefreshCw size={15} />
+          Refresh
+        </Button>
       </div>
 
       {error ? <div className="note runningSurveyError">{error}</div> : null}
@@ -681,21 +690,10 @@ export default function RunningInterviews() {
       ) : null}
 
       {!selected ? (
-        <div className="grid-4 runningSurveyStats">
-          {overviewCards.map((c) => (
-            <StatCard key={c.label} label={c.label} value={c.value} hint={c.hint} />
+        <div className="ds-scope grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {overviewCards.map((c, i) => (
+            <KpiCard key={c.label} icon={c.icon} label={c.label} value={c.value} hint={c.hint} tone={c.tone} index={i} />
           ))}
-        </div>
-      ) : null}
-
-      {!selected ? (
-        <div className="note runningSurveyGuide">
-          <strong>How to support a customer interview task</strong>
-          <ol>
-            <li>Click an interview row in the list below to open it.</li>
-            <li>Check the <strong>Task reference</strong> — candidates email CVs to careers@voxbulk.com with this ID.</li>
-            <li>Approve cash payment if needed, then <strong>Start interview</strong> when ready.</li>
-          </ol>
         </div>
       ) : null}
 
@@ -782,6 +780,6 @@ export default function RunningInterviews() {
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   )
 }

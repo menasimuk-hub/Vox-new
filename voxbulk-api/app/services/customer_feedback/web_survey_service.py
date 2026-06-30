@@ -193,6 +193,42 @@ class FeedbackWebSurveyService:
         return session
 
     @staticmethod
+    def _detect_language_from_text(text: str, session: FeedbackSession) -> str:
+        from app.utils.script_language import detect_script_language
+
+        lang = detect_script_language(str(text or ""))
+        if lang == "ar":
+            return "ar"
+        if lang == "fr":
+            return "fr_FR"
+        return str(session.detected_language or "en_GB")
+
+    @staticmethod
+    def _voice_translation_fields(
+        db: Session,
+        *,
+        text: str,
+        session: FeedbackSession,
+        tpl=None,
+    ) -> dict[str, str]:
+        from app.services.customer_feedback.feedback_answer_service import translate_answer_to_english
+
+        detected = FeedbackWebSurveyService._detect_language_from_text(text, session)
+        translated = translate_answer_to_english(
+            db,
+            answer=str(text or "").strip(),
+            detected_language=detected,
+            tpl=tpl,
+        )
+        original = str(translated.get("original_text") or text or "").strip()
+        answer_en = str(translated.get("answer_text_en") or original).strip()
+        return {
+            "answer_text": answer_en,
+            "original_text": original,
+            "answer_text_en": answer_en,
+        }
+
+    @staticmethod
     def _save_low_rating_reason(
         db: Session,
         *,
@@ -209,6 +245,9 @@ class FeedbackWebSurveyService:
             return
         tpl = template_for_step(db, location, step, language=session.detected_language)
         survey_type_id = str(step.get("survey_type_id") or location.survey_type_id)
+        fields = FeedbackWebSurveyService._voice_translation_fields(
+            db, text=reason, session=session, tpl=tpl
+        )
         db.add(
             FeedbackResponse(
                 id=str(uuid.uuid4()),
@@ -217,9 +256,9 @@ class FeedbackWebSurveyService:
                 location_id=session.location_id,
                 survey_type_id=survey_type_id,
                 question_key=f"{(tpl.template_key if tpl else str(step.get('template_key') or step.get('kind')))}__low_reason",
-                answer_text=reason,
-                original_text=reason,
-                answer_text_en=reason,
+                answer_text=fields["answer_text"],
+                original_text=fields["original_text"],
+                answer_text_en=fields["answer_text_en"],
                 step_order=step_index + 1,
                 answer_source=(reason_source or "text")[:16],
                 created_at=datetime.utcnow(),
@@ -417,6 +456,14 @@ class FeedbackWebSurveyService:
                 getattr(result, "storage_path", None),
             )
             transcript = "[Voice message recorded — transcription unavailable]"
+
+        # Align session language with spoken content so voice answers translate to English in results.
+        if transcript and not transcript.startswith("["):
+            detected = FeedbackWebSurveyService._detect_language_from_text(transcript, session)
+            if detected != session.detected_language:
+                session.detected_language = detected
+                db.add(session)
+                db.flush()
 
         answer_value = str(answer).strip() if answer is not None else ""
         if answer_value:
