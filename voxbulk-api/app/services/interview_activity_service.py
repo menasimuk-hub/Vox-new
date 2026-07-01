@@ -256,6 +256,8 @@ class InterviewActivityService:
                 ),
             ),
             _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview report ready"),
+            _event(parsed.get("usage_metered_at"), code="usage_metered", label="Call minutes recorded on plan"),
+            _event(parsed.get("recording_saved_at"), code="recording_ready", label="Interview recording saved"),
             _event(parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"), code="scheduling", label="Human interview link sent"),
         ):
             if item:

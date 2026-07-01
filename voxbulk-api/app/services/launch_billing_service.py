@@ -84,6 +84,7 @@ class LaunchBillingService:
         duration_min: int,
         calls_remaining_min: int,
         has_subscription: bool,
+        voice_channel: str = "ai_call",
     ) -> dict[str, Any]:
         from app.services.gocardless_service import BillingService
         from app.services.wallet_service import WalletService
@@ -103,6 +104,12 @@ class LaunchBillingService:
         connection_total = connection_fee * count if not has_subscription else 0
         total_minor = billable_minutes * per_min + connection_total
 
+        channel = str(voice_channel or "ai_call").strip().lower()
+        if channel not in {"ai_call", "ai_meeting", "meeting", "phone", "call"}:
+            channel = "ai_call"
+        if channel == "meeting":
+            channel = "ai_meeting"
+
         return LaunchBillingService._allocate_payment(
             db,
             org,
@@ -110,7 +117,7 @@ class LaunchBillingService:
             total_minor=total_minor,
             collect_by_dd=has_subscription,
             base={
-                "channel": "ai_call",
+                "channel": channel,
                 "unit": "minutes",
                 "unit_rate_minor": per_min,
                 "unit_rate_display": money_display(per_min, currency),

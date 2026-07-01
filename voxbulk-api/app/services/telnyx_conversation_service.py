@@ -559,6 +559,40 @@ def resolve_telnyx_recording(db: Session, conversation: dict[str, Any]) -> dict[
     return None
 
 
+def resolve_telnyx_recording_relaxed(
+    db: Session,
+    conversation: dict[str, Any],
+    *,
+    prefer_dual: bool = True,
+) -> dict[str, Any] | None:
+    """Dual-channel validated recording first; then any downloadable MP3/WAV (typical WebRTC)."""
+    if prefer_dual:
+        rec = resolve_telnyx_recording(db, conversation)
+        if rec:
+            return rec
+
+    candidates = _prioritize_recording_rows(conversation, _collect_recording_candidates(db, conversation))
+    candidates.sort(key=lambda row: int(row.get("duration_millis") or 0), reverse=True)
+    for row in candidates:
+        fresh = _refresh_recording_row(db, row)
+        download_url, file_format = _recording_download(fresh)
+        if not download_url or not file_format:
+            continue
+        audio = _download_recording_bytes(download_url)
+        if not audio:
+            continue
+        channels = str(fresh.get("channels") or "").strip().lower() or "single"
+        return {
+            "id": str(fresh.get("id") or "").strip() or None,
+            "channels": channels,
+            "format": file_format,
+            "download_url": download_url,
+            "duration_millis": fresh.get("duration_millis"),
+            "audio_bytes": audio,
+        }
+    return None
+
+
 def telnyx_recording_response(db: Session, row) -> tuple[Any, str | None]:
     """Stream validated dual-channel WAV from Telnyx (both caller + agent)."""
     from fastapi.responses import Response

@@ -27,23 +27,35 @@ def enrich_admin_order_costs(db: Session, order: ServiceOrder, payload: dict[str
         return payload
 
     from app.services.telnyx_call_cost_service import lookup_cost_by_refs
+    from app.services.billing_call_minutes import billable_call_minutes
 
     total_retail_minor = 0
     total_operator = 0.0
     operator_currency = "USD"
+    connected_sessions = 0
 
     for row in recipients:
         if not isinstance(row, dict):
             continue
         bm = int(row.get("billable_minutes") or 0)
+        if bm <= 0:
+            bm = billable_call_minutes(row.get("duration_seconds"))
         retail_minor = bm * per_min + (conn_fee if bm > 0 else 0)
+        if bm > 0:
+            connected_sessions += 1
+        row["billable_minutes"] = bm
         row["retail_cost_minor"] = retail_minor
         row["retail_cost_display"] = money_display(retail_minor, currency) if retail_minor > 0 else "—"
 
+        conv_id = (
+            row.get("telnyx_conversation_id")
+            or row.get("conversation_id")
+            or row.get("provider_call_id")
+        )
         op = lookup_cost_by_refs(
             db,
             call_control_id=row.get("call_control_id"),
-            conversation_id=row.get("telnyx_conversation_id") or row.get("conversation_id"),
+            conversation_id=conv_id,
             session_id=row.get("call_session_id") or row.get("telnyx_session_id"),
         )
         if op:
@@ -67,6 +79,20 @@ def enrich_admin_order_costs(db: Session, order: ServiceOrder, payload: dict[str
             row["margin_display"] = "—"
 
         total_retail_minor += retail_minor
+
+    if total_retail_minor <= 0 and order.service_code == "interview":
+        from app.services.plan_price_service import PlanPriceService
+
+        sessions = payload.get("interview_sessions") if isinstance(payload.get("interview_sessions"), dict) else {}
+        session_mins = int(sessions.get("total_billable_minutes") or 0)
+        if session_mins > 0:
+            live_rates = PlanPriceService.rates_for_org(db, org) if org else {}
+            rate = per_min or int(live_rates.get("interview_per_min_minor") or 0)
+            conn = conn_fee or int(live_rates.get("connection_fee_minor") or 0)
+            connected_sessions = connected_sessions or int(sessions.get("web_sessions") or 0) + int(
+                sessions.get("phone_sessions") or 0
+            )
+            total_retail_minor = session_mins * rate + conn * max(0, connected_sessions)
 
     payload["cost_summary"] = {
         "currency": currency,

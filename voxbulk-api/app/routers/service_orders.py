@@ -2464,10 +2464,14 @@ def get_interview_recipient_recording(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    import httpx
     from fastapi.responses import RedirectResponse, Response
 
     from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_recording_service import (
+        USER_RECORDING_PROCESSING,
+        USER_RECORDING_UNAVAILABLE,
+        fetch_interview_recording,
+    )
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
     if order is None:
@@ -2487,57 +2491,32 @@ def get_interview_recipient_recording(
     if remote.startswith("http://") or remote.startswith("https://"):
         return RedirectResponse(url=remote, status_code=302)
 
-    # Telnyx recording download URL stored on completed calls
-    download_url = str(parsed.get("telnyx_recording_download_url") or "").strip()
+    try:
+        result = fetch_interview_recording(db, recipient)
+    except Exception:
+        import logging
 
-    # Web (ai_meeting) interviews may only have the Telnyx conversation id stored.
-    # Resolve the recording on demand so the web result plays like an AI call.
-    if not download_url.startswith("http"):
-        conversation_id = str(
-            parsed.get("telnyx_conversation_id") or parsed.get("provider_call_id") or ""
-        ).strip()
-        if conversation_id:
-            try:
-                from app.services.telnyx_conversation_service import (
-                    fetch_conversation_by_id,
-                    resolve_telnyx_recording,
-                )
+        logging.getLogger(__name__).exception(
+            "interview_recording_fetch_failed order_id=%s recipient_id=%s",
+            order.id,
+            recipient.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=USER_RECORDING_UNAVAILABLE,
+        ) from None
 
-                conversation = fetch_conversation_by_id(db, conversation_id)
-                if conversation:
-                    rec = resolve_telnyx_recording(db, conversation)
-                    if rec and rec.get("download_url"):
-                        download_url = str(rec["download_url"]).strip()
-                        merged = dict(parsed)
-                        merged["telnyx_recording_download_url"] = download_url
-                        if rec.get("id"):
-                            merged["telnyx_recording_id"] = rec.get("id")
-                        recipient.result_json = json.dumps(merged, ensure_ascii=False)
-                        db.add(recipient)
-                        db.commit()
-            except Exception:
-                pass
-
-    if download_url.startswith("http"):
-        try:
-            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-                resp = client.get(download_url)
-                resp.raise_for_status()
-            media_type = resp.headers.get("content-type") or "audio/mpeg"
-            return Response(
-                content=resp.content,
-                media_type=media_type,
-                headers={"Content-Disposition": 'inline; filename="interview-recording.mp3"'},
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Could not fetch Telnyx recording: {exc}",
-            ) from exc
+    if result:
+        content, media_type = result
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": 'inline; filename="interview-recording.mp3"'},
+        )
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail="Recording not available yet — still processing. Try again in a minute.",
+        detail=USER_RECORDING_PROCESSING,
     )
 
 

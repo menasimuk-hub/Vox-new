@@ -237,6 +237,7 @@ class InterviewMeetingService:
             "channel": MEETING_CHANNEL,
             "transport": "webrtc",
             "ended_at": now.isoformat(),
+            "meeting_ended_at": now.isoformat(),
             "call_channel": MEETING_CHANNEL,
         }
         if provider_call_id:
@@ -263,6 +264,12 @@ class InterviewMeetingService:
             terminal_status="completed",
             hangup_extra={"duration_seconds": secs},
         )
+
+        from app.services.interview_call_dispatch_service import _finalize_order_if_done
+
+        db.refresh(order)
+        db.refresh(recipient)
+        _finalize_order_if_done(db, order)
 
         try:
             from app.services.interview_missed_call_email_service import (

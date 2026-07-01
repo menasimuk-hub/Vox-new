@@ -99,6 +99,8 @@ class InterviewLaunchEligibilityService:
             return base
 
         can_invoice = bool(survey_billing.get("can_launch_and_invoice"))
+        delivery = str(config.get("delivery") or "ai_call").strip().lower()
+        voice_channel = "ai_meeting" if delivery == "ai_meeting" else "ai_call"
         est = LaunchBillingService.estimate_phone_launch(
             db,
             org,
@@ -106,6 +108,7 @@ class InterviewLaunchEligibilityService:
             duration_min=duration_min,
             calls_remaining_min=int(survey_billing.get("calls_remaining") or 0),
             has_subscription=can_invoice,
+            voice_channel=voice_channel,
         )
         method = str(est.get("payment_method") or "")
         total = int(est.get("total_minor") or 0)

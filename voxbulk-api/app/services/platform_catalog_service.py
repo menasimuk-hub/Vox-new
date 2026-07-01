@@ -653,7 +653,7 @@ class ServiceOrderService:
             "call_channel": result.get("channel") or "ai_call",
             "transport": result.get("transport"),
             "call_control_id": result.get("call_control_id"),
-            "telnyx_conversation_id": result.get("telnyx_conversation_id") or result.get("conversation_id"),
+            "telnyx_conversation_id": result.get("telnyx_conversation_id") or result.get("conversation_id") or result.get("provider_call_id"),
             "call_session_id": result.get("call_session_id") or result.get("telnyx_session_id"),
             "call_summary": result.get("call_summary"),
             "sentiment": analysis.get("sentiment") or result.get("sentiment"),

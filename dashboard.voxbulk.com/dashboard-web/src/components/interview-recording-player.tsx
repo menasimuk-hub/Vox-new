@@ -3,7 +3,7 @@ import { Loader2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { fetchAuthenticatedBlob, getApiBaseUrl } from "@/lib/api";
+import { fetchAuthenticatedBlob, getApiBaseUrl, sanitizeUserError } from "@/lib/api";
 
 type Props = {
   playPath: string | null | undefined;
@@ -33,7 +33,7 @@ export function InterviewRecordingPlayer({ playPath, durationLabel, compact }: P
       setSrc(url);
       return url;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Recording not available yet");
+      toast.error(sanitizeUserError(e instanceof Error ? e.message : "Recording not available yet"));
       return null;
     } finally {
       setLoading(false);

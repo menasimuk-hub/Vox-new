@@ -139,6 +139,26 @@ export class ApiError extends Error {
   }
 }
 
+/** Strip provider names/URLs from API errors shown to dashboard users. */
+export function sanitizeUserError(message: string): string {
+  const raw = String(message || "").trim();
+  if (!raw) return "Something went wrong. Please try again.";
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("telnyx") ||
+    lower.includes("amazonaws.com") ||
+    lower.includes("s3.eu-") ||
+    lower.includes("403 forbidden") ||
+    lower.includes("could not fetch") && lower.includes("recording")
+  ) {
+    if (lower.includes("processing") || lower.includes("not available yet") || lower.includes("not ready")) {
+      return "Recording is still processing. Please try again shortly.";
+    }
+    return "Interview recording is temporarily unavailable. Please try again in a minute.";
+  }
+  return raw;
+}
+
 function safeJson(text: string) {
   try {
     return JSON.parse(text);
@@ -280,7 +300,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit &
   const data = text ? safeJson(text) : null;
 
   if (!res.ok) {
-    const message = apiErrorMessage(data, `${res.status} ${res.statusText}`.trim());
+    const message = sanitizeUserError(apiErrorMessage(data, `${res.status} ${res.statusText}`.trim()));
     const err = new ApiError(message, { status: res.status, data });
     if (res.status === 401 && options.redirectOn401 !== false) handleUnauthorizedApiError(err);
     throw err;
@@ -348,7 +368,7 @@ export async function downloadAuthenticatedFile(path: string, filename = "downlo
     } catch {
       /* ignore */
     }
-    throw new ApiError(message, { status: res.status });
+    throw new ApiError(sanitizeUserError(message), { status: res.status });
   }
   const blob = await res.blob();
   const resolvedName =
@@ -404,7 +424,7 @@ export async function fetchAuthenticatedBlob(path: string) {
     } catch {
       /* ignore */
     }
-    throw new ApiError(message, { status: res.status });
+    throw new ApiError(sanitizeUserError(message), { status: res.status });
   }
   return res.blob();
 }
