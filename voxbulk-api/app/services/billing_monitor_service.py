@@ -251,6 +251,7 @@ class BillingMonitorService:
 
         entitlement = PackageEntitlementService.for_org(db, org, usage_row)
         shared_pool = bool(entitlement.get("shared_package_pool"))
+        value_pool = entitlement.get("value_pool") or {}
 
         summary = UsageWalletService.summary_dict(usage_row, db, org.id) if usage_row else {}
         calls = summary.get("calls") or {}
@@ -261,14 +262,25 @@ class BillingMonitorService:
         package_used_units = int(entitlement.get("package_used") or 0) if shared_pool else 0
         package_included_units = int(entitlement.get("package_included") or 0) if shared_pool else 0
 
-        package_remaining_pence = package_remaining_units * wa_unit_minor if shared_pool else 0
-        package_used_pence = package_used_units * wa_unit_minor if shared_pool else 0
-        package_included_pence = package_included_units * wa_unit_minor if shared_pool else 0
+        if value_pool.get("value_pool_active"):
+            package_remaining_pence = int(value_pool.get("package_remaining_minor") or 0)
+            package_used_pence = int(value_pool.get("package_used_minor") or 0)
+            package_included_pence = int(value_pool.get("package_included_minor") or 0)
+            wa_unit_minor = int(value_pool.get("wa_unit_minor") or wa_unit_minor)
+            per_min_minor = int(value_pool.get("per_min_minor") or per_min_minor)
+        else:
+            package_remaining_pence = package_remaining_units * wa_unit_minor if shared_pool else 0
+            package_used_pence = package_used_units * wa_unit_minor if shared_pool else 0
+            package_included_pence = package_included_units * wa_unit_minor if shared_pool else 0
 
         if shared_pool and package_remaining_pence > 0:
             primary_source = "package"
-            est_wa = package_remaining_units
-            est_ai = package_remaining_units
+            if value_pool.get("value_pool_active"):
+                est_wa = package_remaining_pence // max(1, wa_unit_minor)
+                est_ai = package_remaining_pence // max(1, per_min_minor)
+            else:
+                est_wa = package_remaining_units
+                est_ai = package_remaining_units
             estimate_source = "package"
             estimate_label = "Estimated from plan"
         elif wallet_pence > 0:

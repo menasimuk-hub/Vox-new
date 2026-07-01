@@ -40,6 +40,7 @@ type UsageRow = {
   status?: string;
   usage_display?: string;
   cost_display?: string;
+  amount_due_display?: string;
   cost_kind?: string;
   billing_source_label?: string;
   created_at?: string | null;
@@ -64,18 +65,25 @@ function AccountUsagePage() {
   const [billingSource, setBillingSource] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [pollRunning, setPollRunning] = React.useState(false);
 
-  const breakdownQ = useBillingUsageBreakdown({
-    service_code: serviceCode || undefined,
-    status: status || undefined,
-    billing_source: billingSource || undefined,
-    search: search.trim() || undefined,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-  });
+  const breakdownQ = useBillingUsageBreakdown(
+    {
+      service_code: serviceCode || undefined,
+      status: status || undefined,
+      billing_source: billingSource || undefined,
+      search: search.trim() || undefined,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    },
+    { refetchInterval: pollRunning ? 45_000 : false },
+  );
 
   const rows = (breakdownQ.data?.rows || []) as UsageRow[];
   const summary = (breakdownQ.data?.summary || {}) as Record<string, unknown>;
+  React.useEffect(() => {
+    setPollRunning(rows.some((r) => String(r.status || "").toLowerCase() === "running"));
+  }, [rows]);
   const table = useTableSort(rows, "created_at", "desc");
   const sortedRows = table.sortKey === "created_at" && table.sortDir === "desc" ? rows : table.sorted;
   const total = Number(breakdownQ.data?.total || rows.length);
@@ -132,9 +140,9 @@ function AccountUsagePage() {
                 sub={`${summary.whatsapp_remaining ?? 0} remaining`}
               />
               <KpiCard
-                label="Extra usage / overage"
-                value={String(summary.overage_pending_display || "£0.00")}
-                sub="Pending invoice (period level)"
+                label="Extra due at completion"
+                value={String(summary.extra_due_at_completion_display || summary.overage_pending_display || "£0.00")}
+                sub="Estimated until campaign finishes"
               />
               <KpiCard
                 label="Wallet-paid usage"
@@ -150,7 +158,7 @@ function AccountUsagePage() {
         <CardHeader>
           <CardTitle>Campaign usage</CardTitle>
           <CardDescription>
-            Each row explains quantity, cost, and billing source. Period overage may apply to your whole account, not one campaign.
+            Each row shows campaign value (cost) and amount due. Extras are invoiced once when the campaign completes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -220,6 +228,7 @@ function AccountUsagePage() {
                       <TableHead>Status</TableHead>
                       <TableHead>Usage</TableHead>
                       <TableHead>Cost</TableHead>
+                      <TableHead>Amount due</TableHead>
                       <TableHead>Billing source</TableHead>
                       <SortHeader label="Created" sortKey="created_at" active={table.sortKey} dir={table.sortDir} onToggle={table.toggleSort} />
                     </TableRow>
@@ -263,8 +272,11 @@ function AccountUsagePage() {
                             {row.cost_display || "—"}
                             {row.cost_kind === "estimated" ? (
                               <span className="ml-1 text-[10px] text-muted-foreground">Est.</span>
+                            ) : row.cost_kind === "running" ? (
+                              <span className="ml-1 text-[10px] text-muted-foreground">Live</span>
                             ) : null}
                           </TableCell>
+                          <TableCell className="tabular-nums text-xs">{row.amount_due_display ?? "—"}</TableCell>
                           <TableCell className="text-xs">{row.billing_source_label || "—"}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {row.created_at ? new Date(row.created_at).toLocaleDateString() : "—"}

@@ -630,6 +630,7 @@ class SurveyLaunchEligibilityService:
 
     @staticmethod
     def consume_launch_allowance(db: Session, order: ServiceOrder, org: Organisation) -> None:
+        """Reserve WA allowance at launch; actual usage is recorded once at campaign settlement."""
         config = SurveyLaunchEligibilityService._order_config(order)
         channel = PlatformCatalogService.resolve_survey_channel(config)
         if channel != "whatsapp":
@@ -637,14 +638,46 @@ class SurveyLaunchEligibilityService:
         units = int(config.get("launch_allowance_units") or 0)
         if units <= 0:
             units = SurveyLaunchEligibilityService.estimated_whatsapp_units(order, channel=channel)
-        if units > 0:
-            UsageWalletService.record_whatsapp_usage(db, org_id=org.id, units=units, commit=True)
+        if units <= 0:
+            return
+
+        import json
+
+        from app.services.campaign_billing_settlement_service import CampaignBillingSettlementService
+
+        snapshot = CampaignBillingSettlementService._load_snapshot(order)
+        deferred = str(snapshot.get("billing_phase") or "") in {"held", "pending_settlement"}
+        if deferred:
+            row = UsageWalletService.get_current(db, org.id)
+            wa_remaining = 0
+            wa_used = 0
+            wa_included = 0
+            if row is not None:
+                wa_remaining = max(0, int(row.whatsapp_included or 0) - int(row.whatsapp_used or 0))
+                wa_used = int(row.whatsapp_used or 0)
+                wa_included = int(row.whatsapp_included or 0)
+            snapshot["allowance_units_reserved_at_launch"] = units
+            snapshot["wa_remaining_at_launch"] = wa_remaining
+            snapshot["wa_used_at_launch"] = wa_used
+            snapshot["wa_included_at_launch"] = wa_included
+            order.launch_billing_json = json.dumps(snapshot, ensure_ascii=False)
+            db.add(order)
+            db.commit()
             logger.info(
-                "survey_launch_whatsapp_usage order_id=%s org_id=%s units=%s",
+                "survey_launch_whatsapp_reserved order_id=%s org_id=%s units=%s deferred=true",
                 order.id,
                 org.id,
                 units,
             )
+            return
+
+        UsageWalletService.record_whatsapp_usage(db, org_id=org.id, units=units, commit=True)
+        logger.info(
+            "survey_launch_whatsapp_usage order_id=%s org_id=%s units=%s deferred=false",
+            order.id,
+            org.id,
+            units,
+        )
 
     @staticmethod
     def assert_can_launch(db: Session, order: ServiceOrder, org: Organisation) -> dict[str, Any]:

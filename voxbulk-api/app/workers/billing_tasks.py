@@ -56,3 +56,22 @@ def retry_failed_dd_payments_task() -> dict:
         stats = BillingLifecycleService.retry_due_dd_invoices(db)
     logger.info("dd_retry_billing_complete", extra=stats)
     return stats
+
+
+@celery_app.task(name="billing.retry_campaign_settlement", bind=True, max_retries=3, default_retry_delay=120)
+def retry_campaign_settlement(self, order_id: str, trigger: str = "completion") -> dict:
+    from app.models.service_order import ServiceOrder
+    from app.services.campaign_billing_settlement_service import CampaignBillingSettlementService
+
+    with get_sessionmaker()() as db:
+        order = db.get(ServiceOrder, order_id)
+        if order is None:
+            return {"ok": False, "reason": "order_not_found"}
+        try:
+            result = CampaignBillingSettlementService.settle_order(db, order, trigger=trigger)
+            return {"ok": True, "settled": result is not None}
+        except Exception as exc:
+            logger.exception("campaign_settlement_retry_failed order_id=%s", order_id)
+            if self.request.retries < self.max_retries:
+                raise self.retry(exc=exc)
+            return {"ok": False, "reason": str(exc)}

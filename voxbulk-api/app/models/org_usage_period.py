@@ -29,6 +29,8 @@ class OrgUsagePeriod(Base):
     cv_scans_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    allowance_value_included_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    allowance_value_used_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pack_credits_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     overage_per_min_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     overage_invoiced_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

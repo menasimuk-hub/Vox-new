@@ -175,17 +175,26 @@ class InvoiceDocumentService:
                     }
                 ]
 
-        gross = InvoiceLineItemService.gross_total_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
+        gross = InvoiceLineItemService.catalog_value_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
+        due = InvoiceLineItemService.amount_due_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
+        if due <= 0 and int(invoice.amount_gbp_pence or 0) <= 0:
+            due = 0
         if gross <= 0:
             gross = int(invoice.amount_gbp_pence or 0)
-        if vat_inclusive and gross > 0:
+        if due <= 0 and gross > 0:
+            due = int(invoice.amount_gbp_pence or 0)
+        if vat_inclusive and due > 0:
+            subtotal, tax = CountryVatService.split_gross_pence(due, CountryVatService.gb_vat_rate_percent())
+            total = due
+            rate = CountryVatService.gb_vat_rate_percent()
+        elif vat_inclusive and gross > 0 and due <= 0:
             subtotal, tax = CountryVatService.split_gross_pence(gross, CountryVatService.gb_vat_rate_percent())
-            total = gross
+            total = 0
             rate = CountryVatService.gb_vat_rate_percent()
         else:
-            subtotal = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)
+            subtotal = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else due or invoice.amount_gbp_pence or 0)
             tax = int(invoice.tax_pence or 0)
-            total = int(invoice.amount_gbp_pence or subtotal + tax)
+            total = int(invoice.amount_gbp_pence if invoice.amount_gbp_pence is not None else subtotal + tax)
             rate = float(invoice.tax_rate_percent or 0)
 
         display_items = CountryVatService.display_line_items_ex_vat(
@@ -222,9 +231,13 @@ class InvoiceDocumentService:
             "total_label": "Total (inc. VAT)" if vat_inclusive and tax > 0 else "Total due",
             "vat_note": "All unit prices include VAT where applicable." if vat_inclusive else "",
             "notes": (
-                "All unit prices include VAT where applicable. Thank you for your business. Please retain this invoice for your records."
-                if vat_inclusive
-                else "Thank you for your business. Please retain this invoice for your records."
+                "Covered by plan allowance — no payment due."
+                + (f" Campaign value: {_money(gross, currency)}." if gross > 0 and due <= 0 else "")
+                + (
+                    " All unit prices include VAT where applicable. Thank you for your business. Please retain this invoice for your records."
+                    if vat_inclusive
+                    else " Thank you for your business. Please retain this invoice for your records."
+                )
             ),
             "currency": currency,
             "payment_method": _payment_method_label(invoice),
@@ -240,6 +253,9 @@ class InvoiceDocumentService:
     @staticmethod
     def _append_pay_cta(html: str, *, invoice: BillingInvoice, dashboard_origin: str) -> str:
         st = str(invoice.status or "").lower()
+        amount = int(invoice.amount_gbp_pence or 0)
+        if amount <= 0:
+            return html
         if st in {"paid", "void", "cancelled", "refunded", "credited"}:
             return html
         if st == "collecting" or (st == "pending" and getattr(invoice, "dd_payment_id", None)):

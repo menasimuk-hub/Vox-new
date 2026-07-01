@@ -116,59 +116,131 @@ class InvoiceLineItemService:
         return lines
 
     @staticmethod
+    def amount_due_pence(line_items: list[dict[str, Any]] | None) -> int:
+        return sum(max(0, int(row.get("total_pence") or 0)) for row in (line_items or []) if not row.get("included_in_plan"))
+
+    @staticmethod
+    def catalog_value_pence(line_items: list[dict[str, Any]] | None) -> int:
+        return sum(max(0, int(row.get("catalog_pence") or row.get("total_pence") or 0)) for row in (line_items or []))
+
+    @staticmethod
+    def _voice_product_label(*, service_code: str, channel: str) -> str:
+        sc = str(service_code or "").strip().lower()
+        ch = str(channel or "").strip().lower()
+        if sc == "interview":
+            if ch in {"ai_meeting", "meeting", "web"}:
+                return "AI interview (web)"
+            return "AI interview (phone)"
+        return "AI call survey"
+
+    @staticmethod
+    def from_campaign_settlement(
+        costs: dict[str, Any],
+        *,
+        order_title: str = "",
+        channel: str = "ai_call",
+        service_code: str = "",
+    ) -> list[dict[str, Any]]:
+        title = (order_title or "Campaign").strip()
+        ch = str(channel or costs.get("channel") or "").strip().lower()
+        lines: list[dict[str, Any]] = []
+
+        if ch == "whatsapp":
+            units = max(0, int(costs.get("actual_units") or 0))
+            included = max(0, int(costs.get("included_units") or 0))
+            extra = max(0, int(costs.get("extra_units") or 0))
+            pkg_rate = max(0, int(costs.get("wa_package_fee_minor") or costs.get("catalog_per_min_minor") or 0))
+            extra_rate = max(0, int(costs.get("wa_extra_minor") or costs.get("per_min_rate_minor") or 0))
+            if units > 0 and pkg_rate > 0:
+                catalog_total = units * pkg_rate
+                lines.append(
+                    InvoiceLineItemService._line(
+                        description=f"WA survey — {title}",
+                        quantity=units,
+                        unit_pence=pkg_rate,
+                        total_pence=extra * extra_rate if extra > 0 else 0,
+                        kind="wa_survey",
+                    )
+                )
+                lines[-1]["catalog_pence"] = catalog_total
+                if included > 0 and extra <= 0:
+                    lines.append(
+                        InvoiceLineItemService._line(
+                            description="Included in plan allowance",
+                            quantity=1,
+                            unit_pence=0,
+                            total_pence=0,
+                            kind="allowance_credit",
+                        )
+                    )
+                    lines[-1]["included_in_plan"] = True
+                    lines[-1]["catalog_pence"] = catalog_total
+            return lines
+
+        product = InvoiceLineItemService._voice_product_label(service_code=service_code, channel=ch)
+        connected = max(0, int(costs.get("connected_calls") or 0))
+        conn_unit = max(0, int(costs.get("connection_fee_unit_minor") or 0))
+        total_mins = max(0, int(costs.get("total_billable_minutes") or 0))
+        included_mins = max(0, int(costs.get("included_minutes") or 0))
+        extra_mins = max(0, int(costs.get("extra_minutes") or 0))
+        catalog_rate = max(0, int(costs.get("catalog_per_min_minor") or costs.get("per_min_rate_minor") or 0))
+        extra_rate = max(0, int(costs.get("extra_per_min_minor") or costs.get("per_min_rate_minor") or 0))
+        is_sub = bool(costs.get("is_subscription"))
+
+        if connected > 0 and conn_unit > 0:
+            conn_catalog = connected * conn_unit
+            conn_due = conn_catalog if (not is_sub or extra_mins > 0) else 0
+            lines.append(
+                InvoiceLineItemService._line(
+                    description=f"{product} — connection fee — {title}",
+                    quantity=connected,
+                    unit_pence=conn_unit,
+                    total_pence=conn_due,
+                    kind="connection_fee",
+                )
+            )
+            lines[-1]["catalog_pence"] = conn_catalog
+
+        if total_mins > 0 and catalog_rate > 0:
+            mins_catalog = total_mins * catalog_rate
+            mins_due = extra_mins * extra_rate if is_sub else total_mins * catalog_rate
+            lines.append(
+                InvoiceLineItemService._line(
+                    description=f"{product} — call minutes — {title}",
+                    quantity=total_mins,
+                    unit_pence=catalog_rate,
+                    total_pence=mins_due,
+                    kind="call_minutes",
+                )
+            )
+            lines[-1]["catalog_pence"] = mins_catalog
+
+        if is_sub and included_mins > 0 and extra_mins <= 0 and lines:
+            lines.append(
+                InvoiceLineItemService._line(
+                    description="Included in plan allowance",
+                    quantity=1,
+                    unit_pence=0,
+                    total_pence=0,
+                    kind="allowance_credit",
+                )
+            )
+            lines[-1]["included_in_plan"] = True
+        return lines
+
+    @staticmethod
     def from_actual_call_usage(
         costs: dict[str, Any],
         *,
         order_title: str = "",
         channel: str = "ai_call",
     ) -> list[dict[str, Any]]:
-        title = (order_title or "Campaign").strip()
-        lines: list[dict[str, Any]] = []
-        ch = str(channel or "").strip().lower()
-        per_min = max(0, int(costs.get("per_min_rate_minor") or 0))
-        conn_total = max(0, int(costs.get("connection_fee_minor") or 0))
-
-        if ch == "whatsapp":
-            extra = max(0, int(costs.get("extra_units") or 0))
-            unit = per_min or max(0, int(costs.get("per_min_rate_minor") or 0))
-            if extra > 0 and unit > 0:
-                lines.append(
-                    InvoiceLineItemService._line(
-                        description=f"WA survey (extra) — {title}",
-                        quantity=extra,
-                        unit_pence=unit,
-                        total_pence=extra * unit,
-                        kind="wa_survey",
-                    )
-                )
-            return lines
-
-        extra_mins = max(0, int(costs.get("extra_minutes") or 0))
-        total_mins = max(0, int(costs.get("total_billable_minutes") or 0))
-        bill_mins = extra_mins if costs.get("is_subscription") else total_mins
-        if conn_total > 0:
-            connected = max(1, int(costs.get("connected_calls") or 1))
-            unit_conn = conn_total // connected if connected else conn_total
-            lines.append(
-                InvoiceLineItemService._line(
-                    description=f"AI call — connection fee — {title}",
-                    quantity=connected,
-                    unit_pence=unit_conn,
-                    total_pence=conn_total,
-                    kind="connection_fee",
-                )
-            )
-        if bill_mins > 0 and per_min > 0:
-            lines.append(
-                InvoiceLineItemService._line(
-                    description=f"AI call minutes (actual) — {title}",
-                    quantity=bill_mins,
-                    unit_pence=per_min,
-                    total_pence=bill_mins * per_min,
-                    kind="call_minutes",
-                )
-            )
-        return lines
+        return InvoiceLineItemService.from_campaign_settlement(
+            costs,
+            order_title=order_title,
+            channel=channel,
+            service_code=str(costs.get("service_code") or ""),
+        )
 
     @staticmethod
     def from_launch_breakdown(breakdown: dict[str, Any], *, order_title: str = "") -> list[dict[str, Any]]:

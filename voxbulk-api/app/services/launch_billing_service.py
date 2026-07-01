@@ -36,6 +36,19 @@ class LaunchBillingService:
     # ------------------------------------------------------------------ estimates
 
     @staticmethod
+    def _rate_snapshot(db: Session, org: Organisation, plan) -> dict[str, Any]:
+        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
+        return {
+            "currency": str(rates["currency"]),
+            "per_min_minor": int(rates["per_min_minor"] or 0),
+            "extra_per_min_minor": int(rates["extra_per_min_minor"] or 0),
+            "list_per_min_minor": int(rates.get("interview_per_min_minor") or rates["per_min_minor"] or 0),
+            "connection_fee_minor": int(rates["connection_fee_minor"] or 0),
+            "wa_package_fee_minor": int(rates["wa_package_fee_minor"] or 0),
+            "wa_extra_minor": int(rates["wa_extra_minor"] or 0),
+        }
+
+    @staticmethod
     def estimate_whatsapp_launch(
         db: Session,
         org: Organisation,
@@ -48,32 +61,45 @@ class LaunchBillingService:
         from app.services.wallet_service import WalletService
 
         plan = BillingService.resolve_active_plan(db, org.id)
-        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-        currency = str(rates["currency"])
-        unit_rate = int(rates["wa_extra_minor"] or 0)
+        rate_snap = LaunchBillingService._rate_snapshot(db, org, plan)
+        currency = rate_snap["currency"]
+        wa_package = rate_snap["wa_package_fee_minor"]
+        wa_extra = rate_snap["wa_extra_minor"]
 
         count = max(0, int(recipient_count or 0))
         covered = min(max(0, int(wa_remaining or 0)), count) if has_subscription else 0
         billable = max(0, count - covered)
-        total_minor = billable * unit_rate
+        catalog_minor = count * (wa_package if has_subscription else wa_extra)
+        amount_due_minor = billable * wa_extra
 
-        return LaunchBillingService._allocate_payment(
+        breakdown = LaunchBillingService._allocate_payment(
             db,
             org,
             currency=currency,
-            total_minor=total_minor,
+            total_minor=amount_due_minor,
             collect_by_dd=has_subscription,
             base={
                 "channel": "whatsapp",
                 "unit": "recipients",
-                "unit_rate_minor": unit_rate,
-                "unit_rate_display": money_display(unit_rate, currency),
+                "unit_rate_minor": wa_extra,
+                "unit_rate_display": money_display(wa_extra, currency),
+                "wa_package_fee_minor": wa_package,
+                "wa_extra_minor": wa_extra,
+                "per_min_minor": rate_snap["per_min_minor"],
+                "extra_per_min_minor": rate_snap["extra_per_min_minor"],
+                "list_per_min_minor": rate_snap["list_per_min_minor"],
+                "connection_fee_minor": rate_snap["connection_fee_minor"],
                 "units_total": count,
                 "units_covered_by_allowance": covered,
                 "units_billable": billable,
-                "wallet_balance_minor": WalletService.balance_minor(org),
+                "catalog_cost_minor": catalog_minor,
+                "catalog_cost_display": money_display(catalog_minor, currency),
+                "amount_due_minor": amount_due_minor,
+                "amount_due_display": money_display(amount_due_minor, currency),
+                "wa_remaining_at_launch": max(0, int(wa_remaining or 0)) if has_subscription else 0,
             },
         )
+        return breakdown
 
     @staticmethod
     def estimate_phone_launch(
@@ -90,19 +116,25 @@ class LaunchBillingService:
         from app.services.wallet_service import WalletService
 
         plan = BillingService.resolve_active_plan(db, org.id)
-        rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-        currency = str(rates["currency"])
-        per_min = int(rates["interview_per_min_minor"] or 0)
-        connection_fee = int(rates["connection_fee_minor"] or 0)
+        rate_snap = LaunchBillingService._rate_snapshot(db, org, plan)
+        currency = rate_snap["currency"]
+        per_min_bundle = rate_snap["per_min_minor"]
+        extra_per_min = rate_snap["extra_per_min_minor"]
+        list_per_min = rate_snap["list_per_min_minor"]
+        connection_fee = rate_snap["connection_fee_minor"]
 
         count = max(0, int(recipient_count or 0))
         duration = max(1, int(duration_min or 1))
         estimated_minutes = duration * count
         covered_minutes = min(max(0, int(calls_remaining_min or 0)), estimated_minutes) if has_subscription else 0
         billable_minutes = max(0, estimated_minutes - covered_minutes)
-        # Connection fees apply per call; covered allowance is minute based, fees are billable when PAYG
-        connection_total = connection_fee * count if not has_subscription else 0
-        total_minor = billable_minutes * per_min + connection_total
+        connection_total = connection_fee * count
+        if has_subscription:
+            catalog_minor = estimated_minutes * per_min_bundle + connection_total
+            amount_due_minor = billable_minutes * extra_per_min + (connection_total if billable_minutes > 0 else 0)
+        else:
+            catalog_minor = estimated_minutes * list_per_min + connection_total
+            amount_due_minor = catalog_minor
 
         channel = str(voice_channel or "ai_call").strip().lower()
         if channel not in {"ai_call", "ai_meeting", "meeting", "phone", "call"}:
@@ -114,23 +146,35 @@ class LaunchBillingService:
             db,
             org,
             currency=currency,
-            total_minor=total_minor,
+            total_minor=amount_due_minor,
             collect_by_dd=has_subscription,
             base={
                 "channel": channel,
                 "unit": "minutes",
-                "unit_rate_minor": per_min,
-                "unit_rate_display": money_display(per_min, currency),
+                "unit_rate_minor": list_per_min if not has_subscription else per_min_bundle,
+                "unit_rate_display": money_display(list_per_min if not has_subscription else per_min_bundle, currency),
+                "per_min_minor": per_min_bundle,
+                "extra_per_min_minor": extra_per_min,
+                "list_per_min_minor": list_per_min,
                 "connection_fee_minor": connection_fee,
                 "connection_fee_total_minor": connection_total,
-                "per_call_minor": connection_fee + per_min * duration,
-                "per_call_display": money_display(connection_fee + per_min * duration, currency),
+                "wa_package_fee_minor": rate_snap["wa_package_fee_minor"],
+                "wa_extra_minor": rate_snap["wa_extra_minor"],
+                "per_call_minor": connection_fee + (list_per_min if not has_subscription else per_min_bundle) * duration,
+                "per_call_display": money_display(
+                    connection_fee + (list_per_min if not has_subscription else per_min_bundle) * duration,
+                    currency,
+                ),
                 "duration_minutes": duration,
                 "units_total": estimated_minutes,
                 "units_covered_by_allowance": covered_minutes,
                 "units_billable": billable_minutes,
                 "recipient_count": count,
-                "wallet_balance_minor": WalletService.balance_minor(org),
+                "catalog_cost_minor": catalog_minor,
+                "catalog_cost_display": money_display(catalog_minor, currency),
+                "amount_due_minor": amount_due_minor,
+                "amount_due_display": money_display(amount_due_minor, currency),
+                "calls_remaining_at_launch": max(0, int(calls_remaining_min or 0)) if has_subscription else 0,
             },
         )
 
@@ -251,22 +295,25 @@ class LaunchBillingService:
         is_payg_hold = method == "wallet" and dd_charge <= 0 and wallet_charge > 0
 
         if wallet_charge > 0:
-            from app.services.wallet_service import WalletService
+            from app.services.wallet_service import InsufficientWalletBalance, WalletService
 
-            tx = WalletService.debit(
-                db,
-                org,
-                amount_minor=wallet_charge,
-                kind="launch_hold" if is_payg_hold else "launch_debit",
-                description=(
-                    f"Campaign launch hold — {order.title}" if is_payg_hold else f"Campaign launch — {order.title}"
-                )[:500],
-                order_id=order.id,
-                created_by_user_id=user_id,
-                metadata={"channel": breakdown.get("channel"), "units": breakdown.get("units_billable")},
-                restrict_promo_spend=True,
-                commit=False,
-            )
+            try:
+                tx = WalletService.debit(
+                    db,
+                    org,
+                    amount_minor=wallet_charge,
+                    kind="launch_hold" if is_payg_hold else "launch_debit",
+                    description=(
+                        f"Campaign launch hold — {order.title}" if is_payg_hold else f"Campaign launch — {order.title}"
+                    )[:500],
+                    order_id=order.id,
+                    created_by_user_id=user_id,
+                    metadata={"channel": breakdown.get("channel"), "units": breakdown.get("units_billable")},
+                    restrict_promo_spend=True,
+                    commit=False,
+                )
+            except InsufficientWalletBalance as exc:
+                raise LaunchBillingError(str(exc)) from exc
             result["wallet_charged_minor"] = wallet_charge
             result["wallet_transaction_id"] = tx.id
 

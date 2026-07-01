@@ -28,7 +28,8 @@ class PackageEntitlementService:
         pack = int(usage_row.pack_credits_included or 0)
         calls = int(usage_row.calls_included or 0)
         wa = int(usage_row.whatsapp_included or 0)
-        return pack > 0 or calls > 0 or wa > 0
+        value = int(getattr(usage_row, "allowance_value_included_minor", 0) or 0)
+        return pack > 0 or calls > 0 or wa > 0 or value > 0
 
     @staticmethod
     def package_included_units(usage_row: OrgUsagePeriod | None) -> int:
@@ -107,7 +108,25 @@ class PackageEntitlementService:
         plan_code = str(plan.code or "").strip().lower() if plan else None
         if not plan_code and usage_row is not None:
             plan_code = str(usage_row.plan_code or "").strip().lower() or None
-        return PackageEntitlementService.for_usage_row(usage_row, plan_code=plan_code)
+        ent = PackageEntitlementService.for_usage_row(usage_row, plan_code=plan_code)
+        from app.services.package_value_pool_service import PackageValuePoolService
+
+        value = PackageValuePoolService.snapshot(db, usage_row, org, plan)
+        if value.get("value_pool_active"):
+            remaining_minor = int(value.get("package_remaining_minor") or 0)
+            used_minor = int(value.get("package_used_minor") or 0)
+            included_minor = int(value.get("package_included_minor") or 0)
+            ent["shared_package_pool"] = True
+            ent["value_pool"] = value
+            ent["package_included"] = included_minor
+            ent["package_used"] = used_minor
+            ent["package_remaining"] = remaining_minor
+            ent["package_percent"] = float(value.get("package_percent") or 0)
+            ent["launch_allowance_remaining"] = remaining_minor
+            ent["package_included_display"] = value.get("package_included_display")
+            ent["package_used_display"] = value.get("package_used_display")
+            ent["package_remaining_display"] = value.get("package_remaining_display")
+        return ent
 
     @staticmethod
     def merge_into_summary(summary: dict[str, Any], entitlement: dict[str, Any]) -> dict[str, Any]:

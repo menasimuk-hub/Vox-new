@@ -14,6 +14,7 @@ from app.services.billing_access_service import BillingAccessService
 from app.services.interview_billing_context import org_interview_billing_context
 from app.services.interview_launch_service import InterviewLaunchService
 from app.services.launch_billing_service import LaunchBillingError, LaunchBillingService
+from app.services.org_service_credit_service import OrgServiceCreditService
 from app.services.survey_billing_context import org_survey_billing_context
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,26 @@ class InterviewLaunchEligibilityService:
             base["block_reason_code"] = "no_recipients"
             return base
 
+        interview_credits = int(billing_ctx.get("interview_credits") or org.interview_credits_balance or 0)
+        if OrgServiceCreditService.can_cover(org, service_code="interview", recipient_count=recipient_count):
+            base.update(
+                {
+                    "can_launch": True,
+                    "payment_required": False,
+                    "mode": "promo_credits",
+                    "launch_action": "launch",
+                    "covered_by_promo_credits": recipient_count,
+                    "remaining_promo_credits_after_launch": interview_credits - recipient_count,
+                    "summary": (
+                        f"This interview campaign is covered by your interview promo credits "
+                        f"({interview_credits} available · this launch uses {recipient_count})."
+                    ),
+                    "amount_due_pence": 0,
+                    "amount_due_display": "£0.00",
+                }
+            )
+            return base
+
         can_invoice = bool(survey_billing.get("can_launch_and_invoice"))
         delivery = str(config.get("delivery") or "ai_call").strip().lower()
         voice_channel = "ai_meeting" if delivery == "ai_meeting" else "ai_call"
@@ -147,6 +168,19 @@ class InterviewLaunchEligibilityService:
                 }
             )
         elif method == "direct_debit":
+            if BillingAccessService.pending_first_payment_blocks_dd(db, org.id):
+                base.update(
+                    {
+                        "can_launch": False,
+                        "payment_required": True,
+                        "mode": "pending_first_payment",
+                        "launch_action": "blocked",
+                        "block_reason": "Your first Direct Debit payment is still pending. Top up your wallet or wait for confirmation before launching with Direct Debit.",
+                        "block_reason_code": "pending_first_payment",
+                        "summary": "First payment pending — Direct Debit launches are blocked.",
+                    }
+                )
+                return base
             base.update(
                 {
                     "can_launch": True,
@@ -186,6 +220,15 @@ class InterviewLaunchEligibilityService:
             return InterviewLaunchService.approve_for_subscription_package(db, order, org)
 
         eligibility = InterviewLaunchEligibilityService.compute(db, order, org)
+        mode = str(eligibility.get("mode") or "")
+        if mode == "promo_credits":
+            try:
+                from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
+
+                return OrgServiceCreditService.apply_to_order(db, order, org)
+            except OrgServiceCreditError as e:
+                raise InterviewLaunchEligibilityError(str(e)) from e
+
         breakdown = eligibility.get("launch_billing")
         if not eligibility.get("can_launch") or not isinstance(breakdown, dict):
             raise InterviewLaunchEligibilityError(

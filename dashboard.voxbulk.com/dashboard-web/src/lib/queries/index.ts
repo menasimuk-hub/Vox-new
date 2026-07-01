@@ -344,7 +344,10 @@ export type BillingUsageBreakdownFilters = {
   offset?: number;
 };
 
-export function useBillingUsageBreakdown(filters: BillingUsageBreakdownFilters = {}) {
+export function useBillingUsageBreakdown(
+  filters: BillingUsageBreakdownFilters = {},
+  options?: { refetchInterval?: number | false },
+) {
   const params = new URLSearchParams();
   if (filters.service_code) params.set("service_code", filters.service_code);
   if (filters.status) params.set("status", filters.status);
@@ -358,6 +361,7 @@ export function useBillingUsageBreakdown(filters: BillingUsageBreakdownFilters =
     queryKey: queryKeys.billingUsageBreakdown(filterKey),
     queryFn: () => apiFetch<Record<string, unknown>>(`/billing/usage-breakdown${qs ? `?${qs}` : ""}`),
     refetchOnMount: "always",
+    refetchInterval: options?.refetchInterval,
   });
 }
 

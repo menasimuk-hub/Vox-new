@@ -80,5 +80,6 @@ def test_payg_settlement_refunds_hold_when_call_shorter_than_estimate():
         assert int(result["total_billable_minutes"]) == 1
         assert int(result["final_charge_minor"]) == 100
         assert int(result["hold_refund_minor"]) == 275
+        assert result.get("invoice_id")
         org = db.get(Organisation, org_id)
         assert int(org.wallet_balance_pence or 0) == wallet_before + 275

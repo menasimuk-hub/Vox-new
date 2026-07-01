@@ -53,6 +53,10 @@ class UsageWalletService:
         overage = int(promo.overage_per_min_pence or (plan.overage_per_min_pence if plan else 20))
         pack_credits = int(promo.free_call_credits or 0)
         pack_expires = now + timedelta(days=90) if pack_credits > 0 else None
+        org = db.get(Organisation, org_id)
+        from app.services.package_value_pool_service import PackageValuePoolService
+
+        value_included = PackageValuePoolService.resolve_included_minor(db, org, plan) if plan else 0
 
         row = OrgUsagePeriod(
             org_id=org_id,
@@ -68,6 +72,8 @@ class UsageWalletService:
             pack_credits_included=pack_credits,
             pack_credits_expires_at=pack_expires,
             overage_per_min_pence=overage,
+            allowance_value_included_minor=value_included,
+            allowance_value_used_minor=0,
             created_at=now,
             updated_at=now,
         )
@@ -269,6 +275,12 @@ class UsageWalletService:
         row.sms_included = int(plan.sms_included or 0)
         row.cv_scans_included = int(getattr(plan, "cv_scans_included", 0) or 0)
         row.overage_per_min_pence = int(plan.overage_per_min_pence or 0)
+        org = db.get(Organisation, org_id)
+        from app.services.package_value_pool_service import PackageValuePoolService
+
+        value_included = PackageValuePoolService.resolve_included_minor(db, org, plan)
+        if value_included > 0:
+            row.allowance_value_included_minor = value_included
         row.status = "trial" if subscription.status == "trial" else "active"
         row.updated_at = now
         db.add(row)
@@ -410,15 +422,6 @@ class UsageWalletService:
 
     @staticmethod
     def _after_usage_increment(db: Session, *, org_id: str, row: OrgUsagePeriod, client_email: str | None = None) -> None:
-        em = (client_email or "").strip().lower() or UsageWalletService.get_org_billing_email(db, org_id) or ""
-        if em:
-            try:
-                UsageWalletService.maybe_invoice_overage(db, org_id=org_id, client_email=em, row=row)
-            except Exception as exc:
-                logger.warning(
-                    "usage_overage_invoice_failed",
-                    extra=safe_log_extra(org_id=org_id, error=str(exc)[:500]),
-                )
         try:
             UsageWalletService.maybe_send_80_warning(db, org_id=org_id, row=row)
             UsageWalletService.maybe_send_100_warning(db, org_id=org_id, row=row)
@@ -441,6 +444,15 @@ class UsageWalletService:
         if row is None:
             return None
         row.calls_used = int(row.calls_used or 0) + max(0, int(units))
+        if int(getattr(row, "allowance_value_included_minor", 0) or 0) > 0:
+            from app.models.organisation import Organisation
+            from app.models.plan import Plan
+            from app.services.package_value_pool_service import PackageValuePoolService
+
+            org = db.get(Organisation, org_id)
+            plan = db.execute(select(Plan).where(Plan.code == row.plan_code)).scalar_one_or_none() if row.plan_code else None
+            rates = PackageValuePoolService.rates_for_row(db, org, plan)
+            PackageValuePoolService.apply_call_burn(row, units=units, per_min_minor=int(rates["per_min_minor"]))
         row.updated_at = datetime.utcnow()
         db.add(row)
         if commit:
@@ -462,12 +474,44 @@ class UsageWalletService:
         if row is None:
             return None
         row.whatsapp_used = int(row.whatsapp_used or 0) + max(0, int(units))
+        if int(getattr(row, "allowance_value_included_minor", 0) or 0) > 0:
+            from app.models.organisation import Organisation
+            from app.models.plan import Plan
+            from app.services.package_value_pool_service import PackageValuePoolService
+
+            org = db.get(Organisation, org_id)
+            plan = db.execute(select(Plan).where(Plan.code == row.plan_code)).scalar_one_or_none() if row.plan_code else None
+            rates = PackageValuePoolService.rates_for_row(db, org, plan)
+            PackageValuePoolService.apply_wa_burn(row, units=units, wa_unit_minor=int(rates["wa_unit_minor"]))
         row.updated_at = datetime.utcnow()
         db.add(row)
         if commit:
             db.commit()
             db.refresh(row)
             UsageWalletService._after_usage_increment(db, org_id=org_id, row=row, client_email=client_email)
+        return row
+
+    @staticmethod
+    def adjust_whatsapp_usage(
+        db: Session,
+        *,
+        org_id: str,
+        delta: int,
+        client_email: str | None = None,
+        commit: bool = True,
+    ) -> OrgUsagePeriod | None:
+        """Apply a signed delta to whatsapp_used (e.g. settlement reconciliation)."""
+        row = UsageWalletService.get_current(db, org_id)
+        if row is None:
+            return None
+        row.whatsapp_used = max(0, int(row.whatsapp_used or 0) + int(delta))
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        if commit:
+            db.commit()
+            db.refresh(row)
+            if int(delta) > 0:
+                UsageWalletService._after_usage_increment(db, org_id=org_id, row=row, client_email=client_email)
         return row
 
     @staticmethod
@@ -734,12 +778,6 @@ class UsageWalletService:
         )
 
         for row in expired:
-            em = UsageWalletService.get_org_billing_email(db, row.org_id)
-            if em:
-                inv = UsageWalletService.maybe_invoice_overage(db, org_id=row.org_id, client_email=em, row=row)
-                if inv:
-                    stats["overage_invoices"] += 1
-
             row.status = "closed"
             row.updated_at = now
             db.add(row)

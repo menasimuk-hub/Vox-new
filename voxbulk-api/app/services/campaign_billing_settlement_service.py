@@ -16,7 +16,7 @@ from app.services.billing_currency import money_display, resolve_org_currency
 
 logger = logging.getLogger(__name__)
 
-_DEFERRED_PHASES = frozenset({"held", "pending_settlement"})
+_DEFERRED_PHASES = frozenset({"held", "pending_settlement", "billing_failed"})
 _VOICE_BILLING_CHANNELS = frozenset({"ai_call", "ai_meeting", "phone", "call", "meeting"})
 
 
@@ -150,73 +150,53 @@ class CampaignBillingSettlementService:
         *,
         trigger: str,
     ) -> dict[str, Any]:
+        from app.models.organisation import Organisation
+        from app.services.campaign_running_cost_service import CampaignRunningCostService
+
+        org = db.get(Organisation, order.org_id)
+        if org is None:
+            return {"final_charge_minor": 0, "catalog_cost_minor": 0}
+
         channel = str(snapshot.get("channel") or "").lower()
-        per_min = int(snapshot.get("unit_rate_minor") or 0)
-        connection_fee = int(snapshot.get("connection_fee_minor") or 0)
-        payment_method = str(snapshot.get("payment_method") or order.payment_method or "").lower()
-        is_subscription = payment_method in {"allowance", "direct_debit", "gocardless_dd", "subscription_allowance"}
+        unmetered = 0
+        if order.service_code == "interview":
+            from app.services.interview_session_billing_service import unmetered_billable_minutes
+            from app.services.platform_catalog_service import ServiceOrderService
+
+            recipients = ServiceOrderService.get_recipients(db, order.id)
+            unmetered = unmetered_billable_minutes(recipients)
 
         if channel == "whatsapp":
             from app.services.billing_reconciliation_service import BillingReconciliationService
 
             units = BillingReconciliationService._actual_whatsapp_units(db, order, trigger=trigger)
-            covered_est = int(snapshot.get("units_covered_by_allowance") or 0)
-            if is_subscription:
-                remaining = CampaignBillingSettlementService._allowance_remaining_minutes(db, order.org_id)
-                # WA allowance is recipient count, not minutes
-                from app.services.usage_wallet_service import UsageWalletService
-
-                wa_row = UsageWalletService.get_current(db, order.org_id)
-                wa_remaining = 0
-                if wa_row is not None:
-                    wa_remaining = max(0, int(wa_row.wa_included or 0) - int(wa_row.wa_used or 0))
-                included_units = min(units, wa_remaining)
-                extra_units = max(0, units - included_units)
-            else:
-                included_units = 0
-                extra_units = units
-            unit_rate = int(snapshot.get("unit_rate_minor") or 0)
-            final_minor = extra_units * unit_rate
-            return {
-                "channel": channel,
-                "actual_units": units,
-                "included_units": included_units,
-                "extra_units": extra_units,
-                "extra_minutes": 0,
-                "included_minutes": included_units,
-                "total_billable_minutes": 0,
-                "final_charge_minor": final_minor,
-                "connection_fee_minor": 0,
-                "per_min_rate_minor": unit_rate,
-                "is_subscription": is_subscription,
-            }
-
-        total_billable = int(usage.get("total_billable_minutes") or 0)
-        connected = int(usage.get("connected_calls") or 0)
-
-        if is_subscription:
-            remaining = CampaignBillingSettlementService._allowance_remaining_minutes(db, order.org_id)
-            included_minutes = min(total_billable, remaining)
-            extra_minutes = max(0, total_billable - included_minutes)
+            costs = CampaignRunningCostService.compute_whatsapp(db, order, org, snapshot, actual_units=units)
         else:
-            included_minutes = 0
-            extra_minutes = total_billable
+            costs = CampaignRunningCostService.compute_voice(
+                db,
+                order,
+                org,
+                snapshot,
+                usage,
+                unmetered_billable=unmetered,
+                service_code=order.service_code or "",
+            )
+        return costs
 
-        conn_total = connection_fee * connected if not is_subscription else 0
-        minute_charge = extra_minutes * per_min if is_subscription else total_billable * per_min
-        final_minor = minute_charge + conn_total
+    @staticmethod
+    def _sync_overage_invoiced(db: Session, org_id: str, *, amount_minor: int) -> None:
+        if amount_minor <= 0:
+            return
+        from app.services.usage_wallet_service import UsageWalletService
 
-        return {
-            "channel": channel,
-            "total_billable_minutes": total_billable,
-            "included_minutes": included_minutes,
-            "extra_minutes": extra_minutes,
-            "connected_calls": connected,
-            "final_charge_minor": final_minor,
-            "connection_fee_minor": conn_total,
-            "per_min_rate_minor": per_min,
-            "is_subscription": is_subscription,
-        }
+        row = UsageWalletService.get_current(db, org_id)
+        if row is None:
+            return
+        row.overage_invoiced_pence = int(row.overage_invoiced_pence or 0) + amount_minor
+        row.last_overage_invoice_at = datetime.utcnow()
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        db.commit()
 
     @staticmethod
     def _issue_completion_invoice(
@@ -225,23 +205,30 @@ class CampaignBillingSettlementService:
         org: Organisation,
         *,
         amount_minor: int,
+        catalog_minor: int,
         currency: str,
         line_items: list[dict[str, Any]],
         description: str,
         collect_dd: bool,
     ) -> str | None:
-        if amount_minor <= 0:
-            return None
         from app.services.invoice_line_item_service import InvoiceLineItemService
         from app.services.invoice_service import InvoiceService
         from app.services.usage_wallet_service import UsageWalletService
+
+        if not line_items:
+            return None
 
         email = UsageWalletService.get_org_billing_email(db, org.id) or (org.contact_email or "")
         if not email:
             logger.warning("completion_invoice_no_email order_id=%s", order.id)
             return None
 
-        charge_amount = InvoiceLineItemService.gross_total_pence(line_items) or amount_minor
+        charge_amount = max(0, int(amount_minor))
+        due_total = InvoiceLineItemService.amount_due_pence(line_items)
+        if due_total > 0:
+            charge_amount = due_total
+        is_paid = charge_amount <= 0
+
         invoice = InvoiceService.create_from_payment(
             db,
             org_id=org.id,
@@ -249,16 +236,20 @@ class CampaignBillingSettlementService:
             subtotal_pence=charge_amount,
             currency=currency,
             description=description[:255],
-            provider="gocardless" if collect_dd else "internal",
+            provider="gocardless" if collect_dd and not is_paid else "internal",
             external_invoice_id=f"completion-{order.id}",
-            payment_method="gocardless" if collect_dd else "wallet",
-            status="pending",
+            payment_method="subscription_allowance" if is_paid else ("gocardless" if collect_dd else "wallet"),
+            status="paid" if is_paid else "pending",
             line_items=line_items,
             kind="campaign",
             order_id=order.id,
         )
+        if catalog_minor > charge_amount and is_paid:
+            invoice.description = (description[:200] + f" — campaign value {money_display(catalog_minor, currency)}")[:255]
+            db.add(invoice)
+            db.commit()
 
-        if collect_dd:
+        if collect_dd and not is_paid:
             from app.services.gocardless_service import (
                 BillingService,
                 GoCardlessConfigError,
@@ -308,8 +299,12 @@ class CampaignBillingSettlementService:
         snapshot = CampaignBillingSettlementService._load_snapshot(order)
         if snapshot.get("settlement"):
             return snapshot["settlement"]
-        if str(snapshot.get("billing_phase") or "") not in _DEFERRED_PHASES:
+        phase = str(snapshot.get("billing_phase") or "")
+        if phase not in _DEFERRED_PHASES:
             return None
+        if phase == "billing_failed":
+            snapshot.pop("billing_failure", None)
+            snapshot["billing_phase"] = "pending_settlement"
 
         org = db.get(Organisation, order.org_id)
         if org is None:
@@ -324,7 +319,8 @@ class CampaignBillingSettlementService:
         )
         costs = CampaignBillingSettlementService._compute_costs(db, order, snapshot, usage, trigger=trigger)
         currency = str(snapshot.get("currency") or resolve_org_currency(db, org))
-        final_minor = int(costs.get("final_charge_minor") or 0)
+        final_minor = int(costs.get("amount_due_minor") or costs.get("final_charge_minor") or 0)
+        catalog_minor = int(costs.get("catalog_cost_minor") or final_minor)
         payment_method = str(snapshot.get("payment_method") or order.payment_method or "").lower()
         is_subscription = bool(costs.get("is_subscription"))
         collect_dd = is_subscription and final_minor > 0 and payment_method in {
@@ -332,34 +328,42 @@ class CampaignBillingSettlementService:
             "gocardless_dd",
         }
 
+        has_activity = (
+            int(costs.get("total_billable_minutes") or 0) > 0
+            or int(costs.get("actual_units") or 0) > 0
+            or int(usage.get("connected_calls") or 0) > 0
+        )
+
         invoice_id = None
-        if final_minor > 0:
+        if has_activity:
             from app.services.invoice_line_item_service import InvoiceLineItemService
 
-            line_items = InvoiceLineItemService.from_actual_call_usage(
+            line_items = InvoiceLineItemService.from_campaign_settlement(
                 costs,
                 order_title=str(order.title or ""),
                 channel=channel,
+                service_code=str(order.service_code or ""),
             )
             if is_voice:
-                desc = (
-                    f"AI interview campaign — {order.title} "
-                    f"({costs.get('extra_minutes') or costs.get('total_billable_minutes')} min actual)"
-                )
+                sc = str(order.service_code or "").lower()
+                label = "AI interview" if sc == "interview" else "AI call survey"
+                mins = costs.get("total_billable_minutes") or 0
+                desc = f"{label} — {order.title} ({mins} min actual)"
             else:
-                desc = f"WhatsApp campaign — {order.title} ({costs.get('extra_units', 0)} extra recipients)"
+                desc = f"WhatsApp survey — {order.title} ({costs.get('actual_units', 0)} surveys)"
             invoice_id = CampaignBillingSettlementService._issue_completion_invoice(
                 db,
                 order,
                 org,
                 amount_minor=final_minor,
+                catalog_minor=catalog_minor,
                 currency=currency,
                 line_items=line_items,
                 description=desc,
                 collect_dd=collect_dd,
             )
-        elif is_subscription:
-            logger.info("completion_no_invoice order_id=%s within allowance", order.id)
+            if invoice_id and final_minor > 0:
+                CampaignBillingSettlementService._sync_overage_invoiced(db, order.org_id, amount_minor=final_minor)
 
         hold_minor = int(snapshot.get("wallet_hold_minor") or snapshot.get("wallet_charge_minor") or 0)
         hold_refund = 0
@@ -379,16 +383,27 @@ class CampaignBillingSettlementService:
                     trigger=trigger,
                 )
             elif final_minor > hold_minor:
-                from app.services.wallet_service import WalletService
+                from app.services.wallet_service import InsufficientWalletBalance, WalletService
 
-                WalletService.debit(
-                    db,
-                    org,
-                    amount_minor=final_minor - hold_minor,
-                    kind="launch_debit",
-                    description=f"Campaign completion top-up — {order.title}"[:500],
-                    order_id=order.id,
-                )
+                try:
+                    WalletService.debit(
+                        db,
+                        org,
+                        amount_minor=final_minor - hold_minor,
+                        kind="launch_debit",
+                        description=f"Campaign completion top-up — {order.title}"[:500],
+                        order_id=order.id,
+                    )
+                except InsufficientWalletBalance as exc:
+                    snapshot["billing_phase"] = "billing_failed"
+                    snapshot["billing_failure"] = {
+                        "reason": "insufficient_wallet",
+                        "message": str(exc),
+                        "failed_at": datetime.utcnow().isoformat(),
+                        "amount_minor": final_minor - hold_minor,
+                    }
+                    CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
+                    raise
 
         if is_voice:
             from app.services.interview_session_billing_service import unmetered_billable_minutes
@@ -417,6 +432,8 @@ class CampaignBillingSettlementService:
             "trigger": trigger,
             "settled_at": datetime.utcnow().isoformat(),
             "final_charge_minor": final_minor,
+            "catalog_cost_minor": catalog_minor,
+            "amount_due_minor": final_minor,
             "hold_minor": hold_minor,
             "hold_refund_minor": hold_refund,
             "invoice_id": invoice_id,
@@ -451,5 +468,21 @@ class CampaignBillingSettlementService:
                 from app.services.billing_reconciliation_service import BillingReconciliationService
 
                 BillingReconciliationService.reconcile_order(db, order, trigger=trigger)
-        except Exception:
+        except Exception as exc:
             logger.exception("campaign_billing_terminal_failed order_id=%s trigger=%s", order.id, trigger)
+            snapshot = CampaignBillingSettlementService._load_snapshot(order)
+            if str(snapshot.get("billing_phase") or "") in _DEFERRED_PHASES:
+                snapshot["billing_phase"] = "billing_failed"
+                snapshot["billing_failure"] = {
+                    "reason": type(exc).__name__,
+                    "message": str(exc)[:500],
+                    "failed_at": datetime.utcnow().isoformat(),
+                    "trigger": trigger,
+                }
+                CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
+            try:
+                from app.workers.billing_tasks import retry_campaign_settlement
+
+                retry_campaign_settlement.delay(order.id, trigger)
+            except Exception:
+                logger.exception("campaign_settlement_retry_enqueue_failed order_id=%s", order.id)

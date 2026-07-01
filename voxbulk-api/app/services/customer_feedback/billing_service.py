@@ -30,12 +30,23 @@ class FeedbackBillingError(ValueError):
 
 
 class FeedbackBillingService:
+    _USAGE_ELIGIBLE_STATUSES = frozenset({"active", "trial"})
+
     @staticmethod
     def get_active_subscription(db: Session, org_id: str) -> Subscription | None:
         sub = BillingAccessService.get_feedback_subscription(db, org_id)
         if sub is None:
             return None
         if str(sub.status or "").lower() in {"cancelled", "inactive"}:
+            return None
+        return sub
+
+    @staticmethod
+    def get_usage_eligible_subscription(db: Session, org_id: str) -> Subscription | None:
+        sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        if sub is None:
+            return None
+        if str(sub.status or "").lower() not in FeedbackBillingService._USAGE_ELIGIBLE_STATUSES:
             return None
         return sub
 
@@ -271,8 +282,13 @@ class FeedbackBillingService:
 
     @staticmethod
     def ensure_units_available(db: Session, org_id: str) -> tuple[bool, str | None]:
-        sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
         if sub is None:
+            active = FeedbackBillingService.get_active_subscription(db, org_id)
+            if active is not None:
+                status = str(active.status or "").lower()
+                if status in {"pending_first_payment", "past_due", "suspended"}:
+                    return False, "Your Customer feedback subscription payment is not active. Resolve billing before collecting responses."
             return False, "Subscribe to a Customer feedback package to start collecting responses."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
         if int(usage.get("wa_units_remaining") or 0) <= 0:
@@ -281,8 +297,13 @@ class FeedbackBillingService:
 
     @staticmethod
     def ensure_web_units_available(db: Session, org_id: str) -> tuple[bool, str | None]:
-        sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
         if sub is None:
+            active = FeedbackBillingService.get_active_subscription(db, org_id)
+            if active is not None:
+                status = str(active.status or "").lower()
+                if status in {"pending_first_payment", "past_due", "suspended"}:
+                    return False, "Your Customer feedback subscription payment is not active. Resolve billing before running web surveys."
             return False, "Subscribe to a Customer feedback package to run web surveys."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
         web_included = int(usage.get("web_units_included") or 0)

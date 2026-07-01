@@ -289,11 +289,6 @@ class FeedbackWhatsappService:
         db.commit()
         db.refresh(session)
 
-        FeedbackBillingService.consume_unit(db, location.org_id)
-        session.units_charged = True
-        db.add(session)
-        db.commit()
-
         steps = FeedbackWhatsappService._steps_for_location(db, location)
         if not steps:
             logger.error(
@@ -302,6 +297,9 @@ class FeedbackWhatsappService:
                 location.industry_id,
                 location.survey_type_id,
             )
+            session.status = "failed"
+            db.add(session)
+            db.commit()
             return {"handled": True, "reason": "missing_steps", "org_id": location.org_id}
 
         first_step = steps[0]
@@ -314,6 +312,9 @@ class FeedbackWhatsappService:
                 first_step,
                 session.detected_language,
             )
+            session.status = "failed"
+            db.add(session)
+            db.commit()
             return {"handled": True, "reason": "missing_template", "org_id": location.org_id}
 
         message = format_template_message(tpl)
@@ -326,6 +327,16 @@ class FeedbackWhatsappService:
             location=location,
             require_template=True,
         )
+        if not sent:
+            session.status = "failed"
+            db.add(session)
+            db.commit()
+            return {"handled": True, "reason": "send_failed", "org_id": location.org_id}
+
+        FeedbackBillingService.consume_unit(db, location.org_id)
+        session.units_charged = True
+        db.add(session)
+        db.commit()
         return {
             "handled": True,
             "session_id": session.id,

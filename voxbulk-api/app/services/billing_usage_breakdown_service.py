@@ -119,20 +119,37 @@ def _usage_from_launch(launch: dict[str, Any], order: ServiceOrder) -> tuple[int
     return quantity, unit_name, label
 
 
-def _cost_from_order(order: ServiceOrder, launch: dict[str, Any], wallet_tx: WalletTransaction | None) -> tuple[int, str]:
+def _cost_from_order(db: Session, order: ServiceOrder, org: Organisation, launch: dict[str, Any], wallet_tx: WalletTransaction | None) -> tuple[int, int, str]:
+    """Return (catalog_cost_minor, amount_due_minor, cost_kind)."""
+    from app.services.campaign_running_cost_service import CampaignRunningCostService
+
+    if launch.get("billing_phase") in {"held", "pending_settlement", "billing_failed"} or launch.get("settlement"):
+        payload = CampaignRunningCostService.compute_for_order(db, order)
+        catalog = int(payload.get("catalog_cost_minor") or 0)
+        due = int(payload.get("amount_due_minor") or 0)
+        kind = str(payload.get("cost_kind") or "running")
+        return catalog, due, kind
+
     wallet_charge = int(launch.get("wallet_charge_minor") or launch.get("wallet_charged_minor") or 0)
     dd_charge = int(launch.get("dd_charge_minor") or launch.get("dd_charged_minor") or 0)
-    total = wallet_charge + dd_charge
+    catalog = int(launch.get("catalog_cost_minor") or 0)
+    due = int(launch.get("amount_due_minor") or wallet_charge + dd_charge)
+    if catalog <= 0:
+        catalog = due
     kind = "actual"
-    if total <= 0 and wallet_tx is not None:
-        total = int(wallet_tx.amount_minor or 0)
+    if due <= 0 and wallet_tx is not None:
+        due = int(wallet_tx.amount_minor or 0)
+        if catalog <= 0:
+            catalog = due
         kind = "actual"
-    elif total <= 0 and int(order.quote_total_pence or 0) > 0 and str(order.payment_status or "").lower() == "approved":
-        total = int(order.quote_total_pence or 0)
+    elif due <= 0 and int(order.quote_total_pence or 0) > 0 and str(order.payment_status or "").lower() == "approved":
+        due = int(order.quote_total_pence or 0)
+        if catalog <= 0:
+            catalog = due
         kind = "estimated"
-    elif total <= 0:
+    elif due <= 0 and catalog <= 0:
         kind = "none"
-    return max(0, total), kind
+    return max(0, catalog), max(0, due), kind
 
 
 class BillingUsageBreakdownService:
@@ -218,12 +235,12 @@ class BillingUsageBreakdownService:
             channel = _survey_channel(config, launch)
             type_label, channel_label = _type_labels(order.service_code, channel)
             wallet_tx = wallet_by_order.get(order.id)
-            cost_minor, cost_kind = _cost_from_order(order, launch, wallet_tx)
+            catalog_minor, amount_due_minor, cost_kind = _cost_from_order(db, order, org, launch, wallet_tx)
             source_key, source_label = _map_billing_source(
                 launch=launch,
                 payment_method=order.payment_method,
                 payment_status=str(order.payment_status or ""),
-                cost_minor=cost_minor,
+                cost_minor=amount_due_minor,
             )
             if billing_source and source_key != billing_source.strip().lower():
                 continue
@@ -240,8 +257,10 @@ class BillingUsageBreakdownService:
                     "usage_quantity": qty,
                     "usage_unit": unit_name,
                     "usage_display": usage_display,
-                    "cost_minor": cost_minor,
-                    "cost_display": money_display(cost_minor, currency),
+                    "cost_minor": catalog_minor,
+                    "cost_display": money_display(catalog_minor, currency),
+                    "amount_due_minor": amount_due_minor,
+                    "amount_due_display": money_display(amount_due_minor, currency),
                     "cost_kind": cost_kind,
                     "billing_source": source_key,
                     "billing_source_label": source_label,
@@ -269,9 +288,20 @@ class BillingUsageBreakdownService:
             "cv_scans_remaining": max(0, cv_inc - cv_used_row) if cv_inc > 0 else 0,
             "overage_pending_pence": 0,
             "overage_pending_display": money_display(0, currency),
-            "wallet_paid_minor": sum(r["cost_minor"] for r in rows if r["billing_source"] == "wallet"),
+            "wallet_paid_minor": sum(r["amount_due_minor"] for r in rows if r["billing_source"] == "wallet"),
             "wallet_paid_display": money_display(
-                sum(r["cost_minor"] for r in rows if r["billing_source"] == "wallet"),
+                sum(r["amount_due_minor"] for r in rows if r["billing_source"] == "wallet"),
+                currency,
+            ),
+            "extra_due_at_completion_minor": sum(
+                r["amount_due_minor"] for r in rows if str(r.get("status") or "").lower() in {"running", "paid", "approved"}
+            ),
+            "extra_due_at_completion_display": money_display(
+                sum(
+                    r["amount_due_minor"]
+                    for r in rows
+                    if str(r.get("status") or "").lower() in {"running", "paid", "approved"}
+                ),
                 currency,
             ),
         }
@@ -292,9 +322,8 @@ class BillingUsageBreakdownService:
             "limit": limit,
             "offset": offset,
             "gaps": [
-                "Period overage is org-level and may not map to a single campaign.",
-                "Allowance launches show £0.00 with billing source Included in package.",
-                "Rows without launch_billing_json may show estimated cost from quote or wallet debit.",
+                "Cost shows campaign catalog value; Amount due is extra charges only (invoiced when the campaign completes).",
+                "Running campaigns update as sessions complete — refresh the page or wait for auto-refresh.",
             ],
         }
 
