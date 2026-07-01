@@ -74,9 +74,10 @@ describe("regionMenuLabel", () => {
 });
 
 describe("regionFlagImageUrl", () => {
-  it("returns flagcdn URL for Scotland only", () => {
+  it("returns flagcdn PNG URLs for all regions", () => {
     expect(regionFlagImageUrl("SC")).toContain("gb-sct");
-    expect(regionFlagImageUrl("GB")).toBeNull();
+    expect(regionFlagImageUrl("GB")).toContain("/gb.png");
+    expect(regionFlagImageUrl("IE")).toContain("/ie.png");
   });
 });
 

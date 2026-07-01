@@ -15,7 +15,7 @@ import {
   interviewAgentDisplayName,
   interviewAgentGenderLabel,
 } from "@/lib/interview-agents";
-import { regionFlagEmoji, regionFlagImageUrl } from "@/lib/interview-agent-regions";
+import { regionFlagImageUrl } from "@/lib/interview-agent-regions";
 
 type Props = {
   agents: InterviewAgent[];
@@ -26,30 +26,31 @@ type Props = {
 };
 
 function RoundFlag({ code, className }: { code: string; className?: string }) {
-  const imageUrl = regionFlagImageUrl(code);
-  const emoji = regionFlagEmoji(code);
-
+  const normalized = String(code || "GB").trim().toUpperCase();
   return (
     <span
       className={cn(
-        "inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/60 bg-background text-base leading-none",
+        "inline-flex size-6 shrink-0 overflow-hidden rounded-full border border-border/60 bg-muted/30",
         className,
       )}
       aria-hidden
     >
-      {imageUrl ? (
-        <img src={imageUrl} alt="" className="size-full object-cover" loading="lazy" />
-      ) : (
-        emoji
-      )}
+      <img
+        src={regionFlagImageUrl(normalized)}
+        alt=""
+        className="size-full object-cover"
+        loading="lazy"
+        decoding="async"
+      />
     </span>
   );
 }
 
 function RegionSelectItem({ code, label }: { code: string; label: string }) {
+  const normalized = String(code).trim().toUpperCase();
   return (
     <SelectPrimitive.Item
-      value={code}
+      value={normalized}
       textValue={label}
       className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
     >
@@ -59,7 +60,7 @@ function RegionSelectItem({ code, label }: { code: string; label: string }) {
         </SelectPrimitive.ItemIndicator>
       </span>
       <span className="inline-flex items-center gap-2">
-        <RoundFlag code={code} />
+        <RoundFlag code={normalized} />
         <SelectPrimitive.ItemText>{label}</SelectPrimitive.ItemText>
       </span>
     </SelectPrimitive.Item>
@@ -68,14 +69,12 @@ function RegionSelectItem({ code, label }: { code: string; label: string }) {
 
 function AgentRow({
   agent,
-  regionCode,
   selected,
   previewBusy,
   onSelect,
   onPreview,
 }: {
   agent: InterviewAgent;
-  regionCode: string;
   selected: boolean;
   previewBusy: boolean;
   onSelect: () => void;
@@ -108,7 +107,6 @@ function AgentRow({
         className="inline-flex h-full items-center gap-1.5 px-2.5 hover:bg-muted/50"
         onClick={onSelect}
       >
-        <RoundFlag code={regionCode} className="size-5 text-sm" />
         <span className="whitespace-nowrap font-medium">{name}</span>
         {genderTag ? (
           <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px] font-medium leading-none text-muted-foreground">
@@ -131,10 +129,10 @@ export function InterviewAgentPicker({
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   const regionOptions = React.useMemo(() => buildRegionMenuOptions(agents), [agents]);
-  const activeRegion = regionOptions.some((o) => o.code === selectedRegion)
-    ? selectedRegion
+  const normalizedSelected = String(selectedRegion || "GB").trim().toUpperCase();
+  const activeRegion = regionOptions.some((o) => o.code === normalizedSelected)
+    ? normalizedSelected
     : regionOptions[0]?.code || "GB";
-  const activeLabel = regionOptions.find((o) => o.code === activeRegion)?.label || activeRegion;
   const regionAgents = agentsForRegion(agents, activeRegion);
   const selectedAgent = regionAgents.find((a) => a.id === resolvedAgentId) || agents.find((a) => a.id === resolvedAgentId);
 
@@ -176,8 +174,9 @@ export function InterviewAgentPicker({
   };
 
   const handleRegionChange = (code: string) => {
-    onRegionChange(code);
-    const pool = agentsForRegion(agents, code);
+    const normalized = String(code).trim().toUpperCase();
+    onRegionChange(normalized);
+    const pool = agentsForRegion(agents, normalized);
     const next = pickDefaultInterviewAgent(pool) || pool[0];
     if (next) onSelectAgent(next.id);
   };
@@ -194,12 +193,9 @@ export function InterviewAgentPicker({
       ) : (
         <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-0.5">
           <Select value={activeRegion} onValueChange={handleRegionChange}>
-            <SelectTrigger className="h-9 w-auto min-w-[9.5rem] shrink-0 gap-2">
-              <span className="inline-flex items-center gap-2">
-                <RoundFlag code={activeRegion} />
-                <span className="whitespace-nowrap">{activeLabel}</span>
-              </span>
-              <SelectValue className="sr-only" aria-hidden />
+            <SelectTrigger className="h-9 w-auto min-w-[8.5rem] shrink-0 gap-2 pl-2">
+              <RoundFlag code={activeRegion} />
+              <SelectValue placeholder="Select accent" />
             </SelectTrigger>
             <SelectContent>
               {regionOptions.map((option) => (
@@ -215,7 +211,6 @@ export function InterviewAgentPicker({
               <AgentRow
                 key={agent.id}
                 agent={agent}
-                regionCode={activeRegion}
                 selected={resolvedAgentId === agent.id}
                 previewBusy={previewAgentId === agent.id}
                 onSelect={() => onSelectAgent(agent.id)}

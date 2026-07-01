@@ -87,7 +87,8 @@ export function interviewAgentGenderLabel(agent: InterviewAgent): string {
 }
 
 export function agentRegionCode(agent: InterviewAgent): string {
-  return agent.accent_region || resolveInterviewAgentDialect(agent).dialect_code;
+  const raw = agent.accent_region || resolveInterviewAgentDialect(agent).dialect_code;
+  return String(raw || "GB").trim().toUpperCase();
 }
 
 export type RegionMenuOption = {
@@ -103,32 +104,28 @@ export function buildRegionMenuOptions(agents: InterviewAgent[]): RegionMenuOpti
     codes.add(agentRegionCode(agent));
   }
   const options: RegionMenuOption[] = [];
-  for (const code of ENGLISH_REGION_ORDER) {
-    if (!codes.has(code)) continue;
+  const seen = new Set<string>();
+
+  const push = (code: string) => {
+    const normalized = code.trim().toUpperCase();
+    if (!codes.has(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
     options.push({
-      code,
-      label: regionMenuLabel(code),
-      flagEmoji: regionFlagEmoji(code),
-      language: "en",
+      code: normalized,
+      label: regionMenuLabel(normalized),
+      flagEmoji: regionFlagEmoji(normalized),
+      language: isArabicRegionCode(normalized) ? "ar" : "en",
     });
+  };
+
+  for (const code of ENGLISH_REGION_ORDER) {
+    push(code);
   }
   for (const code of ARABIC_REGION_ORDER) {
-    if (!codes.has(code)) continue;
-    options.push({
-      code,
-      label: regionMenuLabel(code),
-      flagEmoji: regionFlagEmoji(code),
-      language: "ar",
-    });
+    push(code);
   }
   for (const code of codes) {
-    if (options.some((o) => o.code === code)) continue;
-    options.push({
-      code,
-      label: regionMenuLabel(code),
-      flagEmoji: regionFlagEmoji(code),
-      language: isArabicRegionCode(code) ? "ar" : "en",
-    });
+    push(code);
   }
   return options;
 }

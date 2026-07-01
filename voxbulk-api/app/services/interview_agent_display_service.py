@@ -223,12 +223,22 @@ def voice_preview_status(
     *,
     runtime_cache: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[bool, str]:
+    """Fast list-time check — no Telnyx HTTP (preview endpoint resolves voice live)."""
+    del runtime_cache
     if not _elevenlabs_platform_enabled(db):
         return False, "ElevenLabs not configured in Admin → Integrations"
-    voice_id, _, hint = _resolve_elevenlabs_voice_for_preview(db, agent, runtime_cache=runtime_cache)
-    if voice_id:
+
+    dialect = interview_agent_dialect_meta(agent)
+    region = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
+    gender = _agent_gender(agent)
+    env_key = voice_env_key_for_region_gender(region, gender)
+    if os.environ.get(env_key, "").strip():
         return True, ""
-    return False, hint or "Voice preview unavailable"
+
+    if str(agent.telnyx_assistant_id or "").strip():
+        return True, ""
+
+    return False, "No Telnyx assistant — run provisioning or set voice env"
 
 
 def dashboard_agent_row(

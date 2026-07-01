@@ -45,8 +45,19 @@ export function regionFlagEmoji(code: string): string {
   return ARABIC_REGION_META[code]?.flagEmoji || INTERVIEW_REGIONS[code]?.flagEmoji || "🏳️";
 }
 
-/** Circular flag image URL for regions where emoji is poor (Scotland). */
-export function regionFlagImageUrl(code: string): string | null {
-  if (code === "SC") return "https://flagcdn.com/w40/gb-sct.png";
-  return null;
+/** ISO flag images (flagcdn) — reliable on Windows; emoji flags often show as "IE", "GB" letters. */
+const FLAGCDN_BY_REGION: Record<string, string> = {
+  GB: "https://flagcdn.com/w40/gb.png",
+  SC: "https://flagcdn.com/w40/gb-sct.png",
+  IE: "https://flagcdn.com/w40/ie.png",
+  US: "https://flagcdn.com/w40/us.png",
+  CA: "https://flagcdn.com/w40/ca.png",
+  AU: "https://flagcdn.com/w40/au.png",
+  SA: "https://flagcdn.com/w40/sa.png",
+  EG: "https://flagcdn.com/w40/eg.png",
+};
+
+export function regionFlagImageUrl(code: string): string {
+  const key = String(code || "GB").trim().toUpperCase();
+  return FLAGCDN_BY_REGION[key] || FLAGCDN_BY_REGION.GB;
 }
