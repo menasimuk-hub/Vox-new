@@ -63,6 +63,23 @@ def voice_settings_from_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
+def voice_settings_from_fallback(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """Build voice_settings from matrix fallback block, if present."""
+    fb = entry.get("fallback")
+    if not isinstance(fb, dict):
+        return None
+    voice = str(fb.get("voice") or "").strip()
+    if not voice:
+        return None
+    merged = {
+        "slug": entry.get("slug"),
+        "provider": fb.get("provider") or "telnyx",
+        "voice": voice,
+        "api_key_ref": fb.get("api_key_ref"),
+    }
+    return voice_settings_from_entry(merged)
+
+
 def _gender_score(blob: str, gender: str) -> int:
     g = str(gender or "").lower()
     b = blob.lower()
@@ -262,10 +279,20 @@ def apply_voice_to_assistant(
     voice_settings: dict[str, Any],
     dry_run: bool = False,
 ) -> None:
-    from app.services.telnyx_assistant_service import _update_telnyx_assistant, normalize_telnyx_assistant_id
+    import httpx
+
+    from app.services.telnyx_assistant_service import (
+        _telnyx_response_detail,
+        _update_telnyx_assistant,
+        normalize_telnyx_assistant_id,
+    )
 
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     body = {"voice_settings": dict(voice_settings), "promote_to_main": True}
     if dry_run:
         return
-    _update_telnyx_assistant(db, clean_id, body)
+    try:
+        _update_telnyx_assistant(db, clean_id, body)
+    except httpx.HTTPStatusError as exc:
+        detail = _telnyx_response_detail(exc.response)
+        raise RuntimeError(f"{exc} — {detail}") from exc

@@ -33,6 +33,7 @@ from app.services.interview_voice_matrix_service import (
     load_voice_matrix,
     matrix_entry_for_slug,
     voice_settings_from_entry,
+    voice_settings_from_fallback,
 )
 
 
@@ -117,6 +118,23 @@ def cmd_apply(db, *, dry_run: bool) -> int:
             if not dry_run:
                 print("    PATCH OK")
         except Exception as exc:  # noqa: BLE001
+            fb_settings = voice_settings_from_fallback(row)
+            if fb_settings and not dry_run:
+                print(f"    PATCH FAILED: {exc}")
+                print(f"    retry fallback voice {fb_settings.get('voice')}")
+                try:
+                    apply_voice_to_assistant(
+                        db,
+                        assistant_id=assistant_id,
+                        voice_settings=fb_settings,
+                        dry_run=dry_run,
+                    )
+                    print("    PATCH OK (fallback)")
+                    continue
+                except Exception as fb_exc:  # noqa: BLE001
+                    errors += 1
+                    print(f"    FALLBACK FAILED: {fb_exc}")
+                    continue
             errors += 1
             print(f"    PATCH FAILED: {exc}")
 

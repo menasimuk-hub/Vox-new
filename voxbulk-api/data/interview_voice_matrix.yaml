@@ -8,7 +8,7 @@ agents:
     region: GB
     gender: male
     provider: telnyx
-    voice: Telnyx.Ultra.Asher
+    voice: Telnyx.NaturalHD.albion
     accent_keywords: [british, uk, english, england]
     fallback:
       provider: elevenlabs

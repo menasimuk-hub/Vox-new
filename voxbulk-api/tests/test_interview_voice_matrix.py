@@ -23,7 +23,7 @@ def test_voice_settings_telnyx_no_api_key_ref():
     entry = matrix_entry_for_slug("interview-gb-leo")
     assert entry is not None
     settings = voice_settings_from_entry(entry)
-    assert settings["voice"] == "Telnyx.Ultra.Asher"
+    assert settings["voice"] == "Telnyx.NaturalHD.albion"
     assert "api_key_ref" not in settings
 
 
