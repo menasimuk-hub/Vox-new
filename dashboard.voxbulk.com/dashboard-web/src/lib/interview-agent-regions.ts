@@ -47,14 +47,14 @@ export function regionFlagEmoji(code: string): string {
 
 /** ISO flag images (flagcdn) — reliable on Windows; emoji flags often show as "IE", "GB" letters. */
 const FLAGCDN_BY_REGION: Record<string, string> = {
-  GB: "https://flagcdn.com/w40/gb.png",
-  SC: "https://flagcdn.com/w40/gb-sct.png",
-  IE: "https://flagcdn.com/w40/ie.png",
-  US: "https://flagcdn.com/w40/us.png",
-  CA: "https://flagcdn.com/w40/ca.png",
-  AU: "https://flagcdn.com/w40/au.png",
-  SA: "https://flagcdn.com/w40/sa.png",
-  EG: "https://flagcdn.com/w40/eg.png",
+  GB: "https://flagcdn.com/w20/gb.png",
+  SC: "https://flagcdn.com/w20/gb-sct.png",
+  IE: "https://flagcdn.com/w20/ie.png",
+  US: "https://flagcdn.com/w20/us.png",
+  CA: "https://flagcdn.com/w20/ca.png",
+  AU: "https://flagcdn.com/w20/au.png",
+  SA: "https://flagcdn.com/w20/sa.png",
+  EG: "https://flagcdn.com/w20/eg.png",
 };
 
 export function regionFlagImageUrl(code: string): string {

@@ -30,7 +30,7 @@ function RoundFlag({ code, className }: { code: string; className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex size-6 shrink-0 overflow-hidden rounded-full border border-border/60 bg-muted/30",
+        "inline-flex size-4 shrink-0 overflow-hidden rounded-full border border-border/50 bg-muted/20",
         className,
       )}
       aria-hidden
@@ -193,7 +193,7 @@ export function InterviewAgentPicker({
       ) : (
         <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-0.5">
           <Select value={activeRegion} onValueChange={handleRegionChange}>
-            <SelectTrigger className="h-9 w-auto min-w-[8.5rem] shrink-0 gap-2 pl-2">
+            <SelectTrigger className="h-9 w-auto min-w-[8rem] shrink-0 gap-1.5 pl-2">
               <RoundFlag code={activeRegion} />
               <SelectValue placeholder="Select accent" />
             </SelectTrigger>

@@ -174,7 +174,37 @@ def _resolve_elevenlabs_voice_for_preview(
     *,
     runtime_cache: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str | None, dict[str, Any], str]:
-    """Return (elevenlabs_voice_id, voice_settings, hint). voice_id is None when unavailable."""
+    """Return (elevenlabs_voice_id, voice_settings, hint). Admin assistant ID wins over server env."""
+    assistant_raw = str(agent.telnyx_assistant_id or "").strip()
+    if assistant_raw:
+        from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id, resolve_telnyx_assistant_runtime
+
+        try:
+            assistant_id = normalize_telnyx_assistant_id(assistant_raw)
+        except ValueError:
+            return None, {}, "Invalid assistant ID — check Admin → Agents"
+
+        cache = runtime_cache if runtime_cache is not None else {}
+        if assistant_id not in cache:
+            try:
+                cache[assistant_id] = resolve_telnyx_assistant_runtime(db, assistant_id)
+            except Exception as exc:
+                cache[assistant_id] = {"error": str(exc)}
+        runtime = cache[assistant_id]
+        if runtime.get("error"):
+            return None, {}, "Could not load voice for this assistant — verify the Assistant ID in Admin → Agents"
+
+        if str(runtime.get("tts_provider") or "").lower() != "elevenlabs":
+            return None, {}, "Voice preview needs an ElevenLabs voice on this assistant"
+
+        voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
+        if not voice_id:
+            return None, {}, "No ElevenLabs voice on this assistant — set voice in your AI assistant settings"
+
+        settings = dict(runtime.get("elevenlabs_voice_settings") or {})
+        settings.setdefault("model_id", "eleven_multilingual_v2")
+        return voice_id, settings, ""
+
     dialect = interview_agent_dialect_meta(agent)
     region = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
     gender = _agent_gender(agent)
@@ -189,32 +219,7 @@ def _resolve_elevenlabs_voice_for_preview(
             settings.setdefault("model_id", "eleven_multilingual_v2")
             return voice_id, settings, ""
 
-    assistant_id = str(agent.telnyx_assistant_id or "").strip()
-    if not assistant_id:
-        return None, {}, "No Telnyx assistant — run provisioning or set voice env"
-
-    cache = runtime_cache if runtime_cache is not None else {}
-    if assistant_id not in cache:
-        try:
-            from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
-
-            cache[assistant_id] = resolve_telnyx_assistant_runtime(db, assistant_id)
-        except Exception as exc:
-            cache[assistant_id] = {"error": str(exc)}
-    runtime = cache[assistant_id]
-    if runtime.get("error"):
-        return None, {}, f"Telnyx error: {runtime['error']}"
-
-    if str(runtime.get("tts_provider") or "").lower() != "elevenlabs":
-        return None, {}, "Configure an ElevenLabs voice on this Telnyx assistant"
-
-    voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
-    if not voice_id:
-        return None, {}, "ElevenLabs voice ID not found on this Telnyx assistant"
-
-    settings = dict(runtime.get("elevenlabs_voice_settings") or {})
-    settings.setdefault("model_id", "eleven_multilingual_v2")
-    return voice_id, settings, ""
+    return None, {}, "No assistant linked — set Assistant ID in Admin → Agents"
 
 
 def voice_preview_status(
@@ -228,6 +233,9 @@ def voice_preview_status(
     if not _elevenlabs_platform_enabled(db):
         return False, "ElevenLabs not configured in Admin → Integrations"
 
+    if str(agent.telnyx_assistant_id or "").strip():
+        return True, ""
+
     dialect = interview_agent_dialect_meta(agent)
     region = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
     gender = _agent_gender(agent)
@@ -235,10 +243,7 @@ def voice_preview_status(
     if os.environ.get(env_key, "").strip():
         return True, ""
 
-    if str(agent.telnyx_assistant_id or "").strip():
-        return True, ""
-
-    return False, "No Telnyx assistant — run provisioning or set voice env"
+    return False, "No assistant linked — set Assistant ID in Admin → Agents"
 
 
 def dashboard_agent_row(

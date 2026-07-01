@@ -144,17 +144,25 @@ export function sanitizeUserError(message: string): string {
   const raw = String(message || "").trim();
   if (!raw) return "Something went wrong. Please try again.";
   const lower = raw.toLowerCase();
-  if (
-    lower.includes("telnyx") ||
+  const isRecordingContext =
+    lower.includes("recording") ||
     lower.includes("amazonaws.com") ||
     lower.includes("s3.eu-") ||
-    lower.includes("403 forbidden") ||
-    lower.includes("could not fetch") && lower.includes("recording")
+    (lower.includes("could not fetch") && lower.includes("recording"));
+  if (
+    isRecordingContext &&
+    (lower.includes("telnyx") ||
+      lower.includes("403 forbidden") ||
+      lower.includes("amazonaws.com") ||
+      lower.includes("s3.eu-"))
   ) {
     if (lower.includes("processing") || lower.includes("not available yet") || lower.includes("not ready")) {
       return "Recording is still processing. Please try again shortly.";
     }
     return "Interview recording is temporarily unavailable. Please try again in a minute.";
+  }
+  if (lower.includes("telnyx")) {
+    return "Voice preview unavailable — check the Assistant ID and ElevenLabs voice in Admin → Agents.";
   }
   return raw;
 }
