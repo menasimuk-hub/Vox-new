@@ -217,6 +217,12 @@ export default function ServiceOrderDetail() {
                   <InfoRow label="Reference" value={order.reference_id || '—'} />
                   <InfoRow label="Campaign ID" value={order.campaign_id || '—'} />
                   <InfoRow label="Delivery" value={orderDeliveryLabel(order)} />
+                  {order.interview_sessions ? (
+                    <InfoRow
+                      label="Sessions"
+                      value={`${order.interview_sessions.interview_format_label || '—'} — ${order.interview_sessions.web_sessions || 0} web, ${order.interview_sessions.phone_sessions || 0} phone, ${order.interview_sessions.total_billable_minutes || 0} billable min`}
+                    />
+                  ) : null}
                   <InfoRow label="Channel" value={cfg.delivery || cfg.survey_channel || cfg.channel || order.quote_survey_channel || '—'} />
                   <InfoRow label="Est. minutes" value={estMin != null ? `${estMin} min` : '—'} />
                   <InfoRow label="Created" value={fmtWhen(order.created_at)} />

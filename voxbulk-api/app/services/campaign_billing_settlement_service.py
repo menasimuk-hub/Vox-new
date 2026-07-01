@@ -17,7 +17,7 @@ from app.services.billing_currency import money_display, resolve_org_currency
 logger = logging.getLogger(__name__)
 
 _DEFERRED_PHASES = frozenset({"held", "pending_settlement"})
-_PHONE_CHANNELS = frozenset({"ai_call", "phone", "call"})
+_VOICE_BILLING_CHANNELS = frozenset({"ai_call", "ai_meeting", "phone", "call", "meeting"})
 
 
 class CampaignBillingSettlementService:
@@ -110,12 +110,16 @@ class CampaignBillingSettlementService:
                     "recipient_id": recipient.id,
                     "name": recipient.name,
                     "phone": recipient.phone,
+                    "email": recipient.email,
                     "status": status,
                     "call_type": call_outcome_label(status=status, hangup_cause=hangup, voicemail=voicemail),
                     "hangup_cause": hangup or None,
                     "duration_seconds": secs,
                     "billable_minutes": bm,
                     "call_control_id": result.get("call_control_id"),
+                    "telnyx_conversation_id": result.get("telnyx_conversation_id") or result.get("conversation_id"),
+                    "call_channel": result.get("channel") or result.get("call_channel"),
+                    "transport": result.get("transport"),
                 }
             )
 
@@ -312,9 +316,10 @@ class CampaignBillingSettlementService:
             return None
 
         channel = str(snapshot.get("channel") or "").lower()
+        is_voice = channel in _VOICE_BILLING_CHANNELS or order.service_code == "interview"
         usage = (
             CampaignBillingSettlementService.aggregate_phone_calls(db, order, trigger=trigger)
-            if channel in _PHONE_CHANNELS
+            if is_voice
             else {"calls": [], "total_billable_minutes": 0, "connected_calls": 0, "total_duration_seconds": 0}
         )
         costs = CampaignBillingSettlementService._compute_costs(db, order, snapshot, usage, trigger=trigger)
@@ -336,9 +341,9 @@ class CampaignBillingSettlementService:
                 order_title=str(order.title or ""),
                 channel=channel,
             )
-            if channel in _PHONE_CHANNELS:
+            if is_voice:
                 desc = (
-                    f"AI call campaign — {order.title} "
+                    f"AI interview campaign — {order.title} "
                     f"({costs.get('extra_minutes') or costs.get('total_billable_minutes')} min actual)"
                 )
             else:
@@ -385,15 +390,20 @@ class CampaignBillingSettlementService:
                     order_id=order.id,
                 )
 
-        # Record actual usage against plan allowance
-        if channel in _PHONE_CHANNELS and int(usage.get("total_billable_minutes") or 0) > 0:
-            from app.services.usage_wallet_service import UsageWalletService
+        if is_voice:
+            from app.services.interview_session_billing_service import unmetered_billable_minutes
+            from app.services.platform_catalog_service import ServiceOrderService
 
-            UsageWalletService.record_call_usage(
-                db,
-                org_id=order.org_id,
-                units=int(usage.get("total_billable_minutes") or 0),
-            )
+            recipients = ServiceOrderService.get_recipients(db, order.id)
+            units = unmetered_billable_minutes(recipients)
+            if units > 0:
+                from app.services.usage_wallet_service import UsageWalletService
+
+                UsageWalletService.record_call_usage(
+                    db,
+                    org_id=order.org_id,
+                    units=units,
+                )
         elif channel == "whatsapp" and int(costs.get("actual_units") or 0) > 0:
             from app.services.usage_wallet_service import UsageWalletService
 

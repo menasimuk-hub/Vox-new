@@ -380,6 +380,12 @@ def _finalize_order_if_done(db: Session, order: ServiceOrder) -> ServiceOrder:
 
             NotificationService.create_campaign_completed_notification(db, order=order)
             db.commit()
+            try:
+                from app.services.billing_reconciliation_service import BillingReconciliationService
+
+                BillingReconciliationService.on_order_terminal(db, order, trigger="completion")
+            except Exception:
+                logger.exception("interview_billing_terminal_failed order_id=%s", order.id)
     return order
 
 

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, CheckCircle2, CreditCard, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
-import { formatDurationSeconds, sortServiceOrders } from '../lib/serviceOrderAdmin'
+import { formatDurationSeconds, orderDeliveryLabel, sortServiceOrders } from '../lib/serviceOrderAdmin'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -17,6 +17,12 @@ function orderSortTs(o) {
   if (!raw) return 0
   const t = new Date(raw).getTime()
   return Number.isNaN(t) ? 0 : t
+}
+
+function interviewFormatLabel(order) {
+  const sessions = order?.interview_sessions
+  if (sessions?.interview_format_label) return sessions.interview_format_label
+  return orderDeliveryLabel(order)
 }
 
 function interviewProgress(report) {
@@ -140,6 +146,7 @@ export default function RunningInterviews() {
   const [audit, setAudit] = useState([])
   const [panelTab, setPanelTab] = useState('overview')
   const [listTab, setListTab] = useState('finished')
+  const [formatFilter, setFormatFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState('amount_desc')
   const [dateFrom, setDateFrom] = useState('')
@@ -412,6 +419,12 @@ export default function RunningInterviews() {
         if (!LIVE_INTERVIEW_STATUSES.has(status)) return false
       } else if (listTab === 'finished') {
         if (!o.is_finished) return false
+      } else if (listTab === 'all') {
+        if (status === 'draft') return false
+      }
+      if (formatFilter === 'web') {
+        const fmt = String(o.interview_sessions?.interview_format || '').toLowerCase()
+        if (fmt !== 'web' && fmt !== 'mixed') return false
       }
       const ts = orderSortTs(o)
       if (fromTs != null && ts < fromTs) return false
@@ -425,7 +438,7 @@ export default function RunningInterviews() {
       )
     })
     return sortServiceOrders(rows, sortBy)
-  }, [orders, listTab, searchQuery, sortBy, dateFrom, dateTo])
+  }, [orders, listTab, formatFilter, searchQuery, sortBy, dateFrom, dateTo])
 
   return (
     <div className="opsTheme">
@@ -433,7 +446,8 @@ export default function RunningInterviews() {
         <div>
           <h1>Interviews</h1>
           <p>
-            Live and finished AI phone interview campaigns. Drafts are hidden — customers manage drafts in their dashboard.
+            Phone and web (browser) interview campaigns. Web sessions use the same per-minute + connection pricing as phone AI.
+            Drafts are hidden — customers manage drafts in their dashboard.
           </p>
         </div>
       </div>
@@ -448,6 +462,10 @@ export default function RunningInterviews() {
         />
         <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" className="h-9 w-auto shrink-0" />
         <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" className="h-9 w-auto shrink-0" />
+        <select className="h-9 rounded-md border px-2 text-sm" value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)} title="Format filter">
+          <option value="all">All formats</option>
+          <option value="web">Web / mixed only</option>
+        </select>
         <select
           className="h-9 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
           value={sortBy}
@@ -700,6 +718,7 @@ export default function RunningInterviews() {
           <div className="runningSurveyTabs">
             <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished</button>
             <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'all' ? ' on' : ''}`} onClick={() => setListTab('all')}>All</button>
           </div>
         </div>
         <div className="cardBody">
@@ -714,6 +733,7 @@ export default function RunningInterviews() {
                   <tr>
                     <th>Interview #</th>
                     <th>Name</th>
+                    <th>Format</th>
                     <th>Status</th>
                     <th>Candidates</th>
                     <th>Quote</th>
@@ -731,6 +751,7 @@ export default function RunningInterviews() {
                       >
                         <td><code>{o.reference_id || o.campaign_id || '—'}</code></td>
                         <td><strong>{o.title}</strong></td>
+                        <td>{interviewFormatLabel(o)}</td>
                         <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
                         <td>{total || '—'}</td>
                         <td>{o.quote_total_gbp || '—'}</td>

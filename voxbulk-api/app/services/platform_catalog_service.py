@@ -984,6 +984,11 @@ class ServiceOrderService:
         out["org_name"] = org.name if org else None
         out["org_phone"] = getattr(org, "contact_phone", None) if org else None
         out["owner_email"] = user.email if user else None
+        if order.service_code == "interview":
+            recs = recipients if recipients is not None else ServiceOrderService.get_recipients(db, order.id)
+            from app.services.interview_session_billing_service import summarize_interview_sessions
+
+            out["interview_sessions"] = summarize_interview_sessions(recs)
         return out
 
     @staticmethod

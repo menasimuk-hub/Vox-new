@@ -132,9 +132,17 @@ def _campaign_stats(db: Session, order: ServiceOrder) -> dict[str, int]:
     return {"total": total, "done": done, "failed": failed, "in_progress": inprog}
 
 
-def _order_channel(order: ServiceOrder) -> str:
+def _order_channel(order: ServiceOrder, recipients: list | None = None) -> str:
     config = _load_order_config(order)
     if order.service_code == "interview":
+        if recipients:
+            from app.services.interview_session_billing_service import summarize_interview_sessions
+
+            stats = summarize_interview_sessions(recipients)
+            if stats.get("interview_format") == "web":
+                return "meeting"
+            if stats.get("interview_format") == "mixed":
+                return "mixed"
         mode = str(config.get("delivery_mode") or config.get("delivery") or config.get("channel") or "ai_call").lower()
         if mode in {"ai_meeting", "meeting"}:
             return "meeting"
@@ -147,10 +155,14 @@ def _order_channel(order: ServiceOrder) -> str:
     return "call"
 
 
-def _service_label(order: ServiceOrder) -> str:
+def _service_label(order: ServiceOrder, recipients: list | None = None) -> str:
     if order.service_code == "interview":
-        ch = _order_channel(order)
-        return "Online meeting interview" if ch == "meeting" else "AI Interview"
+        ch = _order_channel(order, recipients)
+        if ch == "meeting":
+            return "Web interview"
+        if ch == "mixed":
+            return "Phone + web interview"
+        return "AI Interview"
     ch = _order_channel(order)
     if ch == "whatsapp":
         return "WhatsApp Survey"
@@ -534,13 +546,19 @@ class OrgControlCenterService:
         campaigns = []
         for order in orders:
             stats = _campaign_stats(db, order)
-            od = ServiceOrderService.order_to_admin_dict(db, order)
+            recs = ServiceOrderService.get_recipients(db, order.id) if order.service_code == "interview" else None
+            od = ServiceOrderService.order_to_admin_dict(
+                db,
+                order,
+                include_recipients=order.service_code == "interview",
+                recipients=recs,
+            )
             od["quote_display"] = money_for_org(db, org, int(order.quote_total_pence or 0))
             campaigns.append(
                 {
                     **od,
-                    "service_label": _service_label(order),
-                    "channel": _order_channel(order),
+                    "service_label": _service_label(order, recs),
+                    "channel": _order_channel(order, recs),
                     "progress": stats,
                 }
             )
