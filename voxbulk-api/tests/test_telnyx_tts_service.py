@@ -180,7 +180,33 @@ def test_probe_reports_reachable(monkeypatch):
     _patch_api_key(monkeypatch)
     _patch_client(monkeypatch, handler)
 
-    probe = probe_telnyx_tts_access(None, ultra_voice="Telnyx.Ultra.uuid")  # type: ignore[arg-type]
+    probe = probe_telnyx_tts_access(None, ultra_voice=None)  # type: ignore[arg-type]
     assert probe["verdict"] == "tts_api_reachable"
     assert probe["voices_list"]["ok"] is True
     assert probe["voices_list"]["count"] == 2
+
+
+def test_probe_stock_only_when_ultra_fails(monkeypatch):
+    from app.services.telnyx_tts_service import probe_telnyx_tts_access
+
+    audio = b"probe"
+    b64 = base64.b64encode(audio).decode("ascii")
+
+    def handler(method, url, kwargs):
+        if method == "GET" and "/text-to-speech/voices" in url:
+            return _MockResponse(200, json_body={"voices": [{"voice_id": "astra"}]})
+        if method == "POST":
+            payload = kwargs.get("json") or {}
+            voice = str(payload.get("voice") or "")
+            if "Ultra.uuid" in voice or voice.endswith(".uuid"):
+                return _MockResponse(500, json_body={"errors": [{"detail": "Internal Server Error"}]})
+            if url.endswith("/text-to-speech"):
+                return _MockResponse(200, json_body={"base64_audio": b64}, headers={"content-type": "application/json"})
+        return _MockResponse(404, json_body={"errors": [{"detail": "not found"}]})
+
+    _patch_api_key(monkeypatch)
+    _patch_client(monkeypatch, handler)
+
+    probe = probe_telnyx_tts_access(None, ultra_voice="Telnyx.Ultra.uuid")  # type: ignore[arg-type]
+    assert probe["verdict"] == "tts_stock_only"
+

@@ -358,12 +358,18 @@ def probe_telnyx_tts_access(
                     break
 
     any_ok = any(t.get("ok") for t in result["endpoint_tests"])
+    stock_ok = any(t.get("ok") and t.get("label") == "stock" for t in result["endpoint_tests"])
+    ultra_test = next((t for t in result["endpoint_tests"] if t.get("label") == "ultra"), None)
+    ultra_ran = ultra_test is not None
+    ultra_ok = bool(ultra_test and ultra_test.get("ok"))
     all_404 = bool(result["endpoint_tests"]) and all(
         t.get("status") == 404 or (not t.get("ok") and "not found" in str(t.get("error", "")).lower())
         for t in result["endpoint_tests"]
         if not t.get("ok")
     )
-    if any_ok:
+    if ultra_ran and stock_ok and not ultra_ok:
+        result["verdict"] = "tts_stock_only"
+    elif any_ok:
         result["verdict"] = "tts_api_reachable"
     elif all_404:
         result["verdict"] = "tts_api_404"

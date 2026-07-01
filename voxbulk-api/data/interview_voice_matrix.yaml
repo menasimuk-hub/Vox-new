@@ -1,0 +1,136 @@
+# English regional interview agents — Telnyx first, ElevenLabs fallback where no Telnyx accent match.
+# Arabic agents (interview-ar-*) are intentionally excluded.
+# api_key_ref only for ElevenLabs rows (match Jack's working Telnyx assistant ref).
+
+agents:
+  - slug: interview-gb-leo
+    region: GB
+    gender: male
+    provider: telnyx
+    voice: Telnyx.Ultra.Asher
+    accent_keywords: [british, uk, english, england]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-gb-jode
+    region: GB
+    gender: female
+    provider: telnyx
+    voice: Telnyx.Ultra.Callie
+    accent_keywords: [british, uk, english, england]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.Xb7hH8MSUJpSbSDYk0k2
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-sc-callum
+    region: SC
+    gender: male
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [scottish, scotland, british, uk]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.NaturalHD.albion
+
+  - slug: interview-sc-fiona
+    region: SC
+    gender: female
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.Xb7hH8MSUJpSbSDYk0k2
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [scottish, scotland, british, uk]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.NaturalHD.astra
+
+  - slug: interview-ie-sean
+    region: IE
+    gender: male
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.TX3LPaxmHKxFdv7VOQQH
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [irish, ireland]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.Ultra.Asher
+
+  - slug: interview-ie-niamh
+    region: IE
+    gender: female
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.Xb7hH8MSUJpSbSDYk0k2
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [irish, ireland]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.Ultra.Callie
+
+  - slug: interview-us-marcus
+    region: US
+    gender: male
+    provider: telnyx
+    voice: Telnyx.NaturalHD.albion
+    accent_keywords: [american, us, united states]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.cjVigY5qzO86Huf0OWal
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-us-elena
+    region: US
+    gender: female
+    provider: telnyx
+    voice: Telnyx.NaturalHD.luna
+    accent_keywords: [american, us, united states]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-ca-liam
+    region: CA
+    gender: male
+    provider: telnyx
+    voice: Telnyx.NaturalHD.albion
+    accent_keywords: [canadian, canada, north american]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.cjVigY5qzO86Huf0OWal
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-ca-maya
+    region: CA
+    gender: female
+    provider: telnyx
+    voice: Telnyx.NaturalHD.astra
+    accent_keywords: [canadian, canada, north american]
+    fallback:
+      provider: elevenlabs
+      voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
+      api_key_ref: elevenlabs-paid
+
+  - slug: interview-au-jack
+    region: AU
+    gender: male
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.DYkrAHD8iwork3YSUBbs
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [australian, australia]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.Ultra.Asher
+
+  - slug: interview-au-chloe
+    region: AU
+    gender: female
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.Xb7hH8MSUJpSbSDYk0k2
+    api_key_ref: elevenlabs-paid
+    accent_keywords: [australian, australia]
+    fallback:
+      provider: telnyx
+      voice: Telnyx.Ultra.Callie

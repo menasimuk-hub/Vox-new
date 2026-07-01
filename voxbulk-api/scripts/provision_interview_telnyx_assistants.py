@@ -35,6 +35,7 @@ from app.constants.interview_agent_regions import (
 )
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
+from app.services.interview_voice_matrix_service import matrix_entry_for_slug, voice_settings_from_entry
 from app.services.telnyx_assistant_service import (
     build_agent_greeting,
     create_telnyx_assistant,
@@ -47,12 +48,21 @@ DEFAULT_LEO_TELNYX = "assistant-6b6dbef2-8a40-442d-9e7a-9b11eaa7d9ed"
 
 
 def _voice_settings(spec) -> dict | None:
+    row = matrix_entry_for_slug(spec.slug)
+    if row:
+        try:
+            return voice_settings_from_entry(row)
+        except ValueError:
+            pass
     key = voice_env_key_for_region_gender(spec.accent_region, spec.gender)
     slug_key = spec.telnyx_env_key.replace("INTERVIEW_TELNYX_ASSISTANT_ID", "INTERVIEW_VOICE")
     voice = os.environ.get(key, "").strip() or os.environ.get(slug_key, "").strip()
     if not voice:
         return None
-    return {"voice": voice}
+    settings: dict = {"voice": voice}
+    if voice.lower().startswith("elevenlabs."):
+        settings["api_key_ref"] = os.environ.get("INTERVIEW_ELEVENLABS_API_KEY_REF", "elevenlabs-paid").strip()
+    return settings
 
 
 def _assistant_id_from_env(spec) -> str:

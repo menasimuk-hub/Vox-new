@@ -141,8 +141,14 @@ def _tts_probe(db, *, ultra_voice: str | None = None) -> None:
             print(f"  {label} TTS             FAILED {url}: {test.get('error') or test.get('status')}")
 
     verdict = str(probe.get("verdict") or "")
-    if verdict == "tts_api_reachable":
-        print("  VERDICT               TTS API reachable — preview should work after deploy")
+    if verdict == "tts_stock_only":
+        print("  VERDICT               tts_stock_only — use named Telnyx or ElevenLabs (not Ultra UUID clone)")
+    elif verdict == "tts_api_reachable":
+        ultra_test = next((t for t in (probe.get("endpoint_tests") or []) if t.get("label") == "ultra"), None)
+        if ultra_test and ultra_test.get("ok"):
+            print("  VERDICT               TTS API reachable — agent voice preview should work")
+        else:
+            print("  VERDICT               TTS API reachable (stock Telnyx voice OK)")
     elif verdict == "tts_api_404":
         print("  VERDICT               TTS API returns 404 on all endpoints")
         print("                        Enable Text-to-Speech on your Telnyx account or contact Telnyx support.")
@@ -153,6 +159,7 @@ def _tts_probe(db, *, ultra_voice: str | None = None) -> None:
         print(f"  VERDICT               {verdict}")
 
 
+def _preview_check(db, agent) -> None:
     from app.services.interview_agent_display_service import _resolve_voice_for_preview
     from app.services.providers.elevenlabs_service import ElevenLabsProviderService
     from app.services.telnyx_tts_service import synthesize_telnyx_speech
@@ -212,20 +219,22 @@ def main() -> int:
 
     sessionmaker = get_sessionmaker()
     with sessionmaker() as db:
-        if args.tts_probe:
-            ultra_voice = None
-            if args.agent:
-                agent = _resolve_agent_by_name(db, args.agent)
-                if agent is not None and agent.telnyx_assistant_id:
-                    try:
-                        from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+        ultra_voice = None
+        if args.agent:
+            agent_for_probe = _resolve_agent_by_name(db, args.agent)
+            if agent_for_probe is not None and agent_for_probe.telnyx_assistant_id:
+                try:
+                    from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
 
-                        runtime = resolve_telnyx_assistant_runtime(db, str(agent.telnyx_assistant_id))
-                        ultra_voice = str(runtime.get("voice") or "").strip() or None
-                    except Exception:
-                        pass
+                    runtime = resolve_telnyx_assistant_runtime(db, str(agent_for_probe.telnyx_assistant_id))
+                    ultra_voice = str(runtime.get("voice") or "").strip() or None
+                except Exception:
+                    pass
+
+        if args.tts_probe:
             _tts_probe(db, ultra_voice=ultra_voice)
-            return 0
+            if not args.preview and not args.order and not args.assistant_id and not args.agent:
+                return 0
 
         order = None
         agent = None
