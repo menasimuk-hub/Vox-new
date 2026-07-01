@@ -1878,12 +1878,6 @@ function CreateInterview() {
             onSelectAgent={setAgentId}
             onRegionChange={setSelectedRegion}
           />
-          <Field label="Interview format">
-            <p className="text-[11px] text-muted-foreground">
-              Candidates choose phone or online meeting on their booking page: a phone call when their
-              mobile is eligible for AI calling, otherwise a browser meeting room. No need to pick here.
-            </p>
-          </Field>
           <div className="md:col-span-2 space-y-1.5">
             <Label className={`text-xs ${showCriteriaError ? "text-destructive" : ""}`}>Screening criteria</Label>
             <Textarea rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="Must hold GDC registration, 3+ years experience, willing to travel…" className={inputErrorClass(showCriteriaError)} />

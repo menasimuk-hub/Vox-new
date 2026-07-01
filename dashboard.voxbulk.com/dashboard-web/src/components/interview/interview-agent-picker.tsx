@@ -17,12 +17,12 @@ import {
 } from "@/lib/interview-agents";
 import { regionFlagImageUrl } from "@/lib/interview-agent-regions";
 
-/** Shared chrome for region dropdown + agent pills (same height, border, focus ring). */
+/** Shared chrome for region dropdown + agent pills (same height, border, focus). */
 const PICKER_CONTROL =
-  "h-9 shrink-0 rounded-md border border-border bg-background shadow-sm transition-colors";
-const PICKER_SELECTED = "border-primary bg-primary/5 ring-1 ring-primary/20";
-const PICKER_FOCUS =
-  "focus-visible:outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary/20";
+  "h-9 shrink-0 rounded-md border border-border bg-background shadow-sm transition-[border-color,background-color,box-shadow] outline-none";
+const PICKER_SELECTED = "border-primary bg-primary/5 ring-1 ring-inset ring-primary/30";
+const PICKER_INTERACTIVE =
+  "focus-visible:outline-none focus-visible:bg-muted/50";
 
 type Props = {
   agents: InterviewAgent[];
@@ -104,7 +104,7 @@ function AgentRow({
         type="button"
         className={cn(
           "inline-flex h-full w-9 shrink-0 items-center justify-center border-r border-border/80 hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-40",
-          PICKER_FOCUS,
+          PICKER_INTERACTIVE,
         )}
         disabled={!previewAvailable || previewBusy}
         title={previewAvailable ? `Play ${name} sample` : previewHint}
@@ -117,7 +117,7 @@ function AgentRow({
         type="button"
         className={cn(
           "inline-flex h-full items-center gap-1.5 px-2.5 hover:bg-muted/50",
-          PICKER_FOCUS,
+          PICKER_INTERACTIVE,
         )}
         onClick={onSelect}
       >
@@ -210,9 +210,10 @@ export function InterviewAgentPicker({
             <SelectTrigger
               className={cn(
                 PICKER_CONTROL,
-                "w-auto min-w-[8rem] gap-1.5 pl-2 pr-2",
-                "data-[state=open]:border-primary data-[state=open]:bg-primary/5 data-[state=open]:ring-1 data-[state=open]:ring-primary/20",
-                "focus:border-primary focus:ring-1 focus:ring-primary/20",
+                "w-auto min-w-[8rem] max-w-none gap-1.5 pl-2 pr-2",
+                "border-border bg-background ring-0 ring-offset-0",
+                "focus:ring-1 focus:ring-inset focus:ring-primary/30 focus:ring-offset-0 focus:border-primary",
+                "data-[state=open]:border-primary data-[state=open]:bg-primary/5 data-[state=open]:ring-1 data-[state=open]:ring-inset data-[state=open]:ring-primary/30",
               )}
             >
               <RoundFlag code={activeRegion} />
