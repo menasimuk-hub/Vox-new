@@ -31,7 +31,8 @@ def main() -> int:
 
     from app.core.database import get_sessionmaker
     from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-    from app.services.interview_session_billing_service import InterviewSessionBillingService
+    from app.services.billing_call_minutes import billable_call_minutes
+    from app.services.interview_session_billing_service import meter_session_if_needed
 
     def _loads(raw: str | None) -> dict:
         try:
@@ -61,7 +62,9 @@ def main() -> int:
             if parsed.get("usage_metered_at"):
                 continue
             bm = int(parsed.get("billable_minutes") or 0)
-            if bm <= 0 and not parsed.get("duration_seconds"):
+            if bm <= 0:
+                bm = billable_call_minutes(parsed.get("duration_seconds"))
+            if bm <= 0:
                 continue
             order = db.get(ServiceOrder, recipient.order_id)
             if order is None:
@@ -70,11 +73,11 @@ def main() -> int:
                 print(
                     f"  would meter order={order.campaign_id or order.id[:8]} "
                     f"recipient={recipient.name or recipient.id[:8]} "
-                    f"bm={bm or parsed.get('duration_seconds')}"
+                    f"bm={bm}"
                 )
                 metered += 1
                 continue
-            units = InterviewSessionBillingService.meter_session_if_needed(db, order, recipient)
+            units = meter_session_if_needed(db, order, recipient)
             if units > 0:
                 metered += 1
                 print(f"  metered {units} min — {order.campaign_id or order.id} / {recipient.name or recipient.id}")

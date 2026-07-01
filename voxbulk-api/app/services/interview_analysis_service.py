@@ -356,9 +356,9 @@ class InterviewAnalysisService:
             db.refresh(recipient)
             run_interview_analysis_if_needed(db, order=order, recipient=recipient)
             try:
-                from app.services.interview_session_billing_service import InterviewSessionBillingService
+                from app.services.interview_session_billing_service import meter_session_if_needed
 
-                InterviewSessionBillingService.meter_session_if_needed(db, order, recipient)
+                meter_session_if_needed(db, order, recipient)
             except Exception:
                 logger.exception("%s session_usage_meter_failed", LOG_PREFIX)
             try:
