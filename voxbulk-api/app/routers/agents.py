@@ -96,6 +96,8 @@ def _apply_agent_payload(agent: AgentDefinition, payload: dict) -> None:
     text_fields = [
         "voice_label",
         "voice_type_label",
+        "accent_region",
+        "gender",
         "telnyx_assistant_id",
         "base_role",
         "service_survey_role",

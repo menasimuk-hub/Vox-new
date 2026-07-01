@@ -8,6 +8,8 @@ import { Pill } from '@/components/ui/Badge'
 export const voiceAgentDefaults = {
   voice_label: '',
   voice_type_label: '',
+  accent_region: '',
+  gender: '',
   telnyx_assistant_id: '',
   base_role: '',
   service_survey_role: '',
@@ -122,8 +124,20 @@ export function AgentVoiceFields({ draft, setField }) {
               <input className='input' value={draft.voice_label || ''} onChange={(e) => setField('voice_label', e.target.value)} placeholder='Sophie' />
             </label>
             <label>
-              <span className='label'>Voice type / gender label</span>
-              <input className='input' value={draft.voice_type_label || ''} onChange={(e) => setField('voice_type_label', e.target.value)} placeholder='Female' />
+              <span className='label'>Voice type / accent label</span>
+              <input className='input' value={draft.voice_type_label || ''} onChange={(e) => setField('voice_type_label', e.target.value)} placeholder='US English · professional female' />
+            </label>
+            <label>
+              <span className='label'>Accent region</span>
+              <input className='input' value={draft.accent_region || ''} onChange={(e) => setField('accent_region', e.target.value.toUpperCase())} placeholder='GB, US, CA, AU, IE, SC' />
+            </label>
+            <label>
+              <span className='label'>Gender</span>
+              <select className='input' value={draft.gender || ''} onChange={(e) => setField('gender', e.target.value)}>
+                <option value=''>—</option>
+                <option value='male'>Male</option>
+                <option value='female'>Female</option>
+              </select>
             </label>
             <label>
               <span className='label'>Telnyx Assistant ID</span>

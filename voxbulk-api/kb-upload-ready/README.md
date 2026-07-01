@@ -15,6 +15,31 @@ Upload these files to test the fixed voice prompt behaviour (no script repetitio
 
 Then **Save settings** → **Resync Telnyx**.
 
+## Interview (regional English phone AI — Leo, Jode, US/CA/AU/IE/SC)
+
+| Step | Command / action |
+|------|------------------|
+| 1. Migrate | `alembic upgrade head` (adds `accent_region`, `gender` on agents) |
+| 2. Provision Telnyx | `python scripts/provision_interview_telnyx_assistants.py --dry-run` then without `--dry-run` |
+| 3. Seed DB | `python scripts/seed_interview_regional_agents.py` |
+
+**KB files** (auto-loaded into agent `kb_context` by seed script):
+
+| File | Purpose |
+|------|---------|
+| `interview/interview-conduct-base.md` | Shared interview rules |
+| `interview/interview-region-accent-{GB,SC,IE,US,CA,AU}.md` | Regional accent notes |
+
+**Optional `.env` voice mapping** (ElevenLabs composite IDs from Telnyx):
+
+- `INTERVIEW_TELNYX_MODEL=openai/gpt-4o-mini`
+- `INTERVIEW_TELNYX_ASSISTANT_ID_GB_LEO=assistant-...` (Leo — existing)
+- `INTERVIEW_VOICE_{GB,SC,IE,US,CA,AU}_{MALE,FEMALE}=ElevenLabs.eleven_flash_v2_5.{voice_id}`
+
+Telnyx portal names follow: `VOXBULK Interview {REGION} {Name} {M|F}`.
+
+**Note:** Website **Jode** (Talk to us) is separate from interview **Jode** (`interview-gb-jode`).
+
 ## Sales (Adam — outbound)
 
 | File | Where it goes |

@@ -268,13 +268,15 @@ export default function Agents() {
               <TableHead>Agent</TableHead>
               <TableHead>Services</TableHead>
               <TableHead>Voice</TableHead>
+              <TableHead>Region</TableHead>
+              <TableHead>Gender</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableLoading colSpan={5}>Loading agents…</TableLoading>
+              <TableLoading colSpan={7}>Loading agents…</TableLoading>
             ) : (
               filtered.map((agent) => {
                 const chips = serviceChips(agent)
@@ -325,6 +327,8 @@ export default function Agents() {
                         <div className="text-[11px] text-muted-foreground">{agent.voice_type_label}</div>
                       ) : null}
                     </TableCell>
+                    <TableCell className="text-sm">{agent.accent_region || '—'}</TableCell>
+                    <TableCell className="text-sm capitalize">{agent.gender || '—'}</TableCell>
                     <TableCell>
                       <Pill tone={agent.is_active ? 'success' : 'neutral'}>
                         {agent.is_active ? 'Active' : 'Frozen'}
@@ -350,7 +354,7 @@ export default function Agents() {
                 )
               })
             )}
-            {!loading && filtered.length === 0 ? <TableEmpty colSpan={5}>No agents found.</TableEmpty> : null}
+            {!loading && filtered.length === 0 ? <TableEmpty colSpan={7}>No agents found.</TableEmpty> : null}
           </TableBody>
         </StripeTable>
       </Panel>

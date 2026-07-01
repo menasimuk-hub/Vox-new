@@ -178,6 +178,48 @@ def _telephony_with_web_and_dual_recording(existing: dict[str, Any]) -> tuple[di
     return telephony, changed
 
 
+def create_telnyx_assistant(
+    db: Session,
+    *,
+    name: str,
+    instructions: str,
+    model: str = "openai/gpt-4o-mini",
+    greeting: str | None = None,
+    voice_settings: dict[str, Any] | None = None,
+    telephony_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a Telnyx AI assistant. Returns assistant payload including id."""
+    clean_name = str(name or "").strip()
+    clean_instructions = str(instructions or "").strip()
+    if not clean_name:
+        raise ValueError("Assistant name is required")
+    if not clean_instructions:
+        raise ValueError("Assistant instructions are required")
+
+    api_key, _source = require_telnyx_api_key(db)
+    url = "https://api.telnyx.com/v2/ai/assistants"
+    body: dict[str, Any] = {
+        "name": clean_name,
+        "model": str(model or "openai/gpt-4o-mini").strip(),
+        "instructions": clean_instructions,
+    }
+    if greeting:
+        body["greeting"] = str(greeting).strip()
+    if voice_settings:
+        body["voice_settings"] = dict(voice_settings)
+    telephony, _ = _telephony_with_web_and_dual_recording(
+        {"telephony_settings": telephony_settings or {}}
+    )
+    body["telephony_settings"] = telephony
+
+    with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
+        response = client.post(url, json=body, headers=_telnyx_headers(api_key))
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, dict) else (payload if isinstance(payload, dict) else {})
+
+
 def enable_telnyx_assistant_web_calls(db: Session, assistant_id: str) -> dict[str, Any]:
     """Turn on browser/WebRTC and dual-channel call recording for this assistant."""
     clean_id = normalize_telnyx_assistant_id(assistant_id)

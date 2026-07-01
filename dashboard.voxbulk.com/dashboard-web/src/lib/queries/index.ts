@@ -1504,6 +1504,9 @@ export type InterviewAgent = {
   voice_type_label?: string;
   language?: "en" | "ar" | string;
   gender?: "male" | "female" | "unknown" | string;
+  accent_region?: string;
+  region_label?: string;
+  flag_emoji?: string;
   dialect_code?: string;
   dialect_label?: string;
   dialect_description?: string;
@@ -1533,6 +1536,7 @@ export function pickDefaultInterviewAgent(agents: InterviewAgent[]): InterviewAg
   if (!agents.length) return undefined;
   return (
     agents.find((a) => a.is_default_for_org) ||
+    agents.find((a) => a.is_zone_match && a.gender === "male") ||
     agents.find((a) => a.is_zone_match) ||
     agents.find((a) => a.is_platform_default) ||
     agents[0]

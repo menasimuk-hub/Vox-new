@@ -19,6 +19,19 @@ describe("resolveInterviewAgentDialect", () => {
     });
     expect(d.dialect_code).toBe("EG");
   });
+
+  it("uses accent_region for US agents", () => {
+    const d = resolveInterviewAgentDialect({
+      id: "3",
+      name: "interview_US-Elena",
+      voice_label: "Elena",
+      accent_region: "US",
+      flag_emoji: "🇺🇸",
+      language: "en",
+    });
+    expect(d.dialect_code).toBe("US");
+    expect(d.flag_emoji).toBe("🇺🇸");
+  });
 });
 
 describe("interviewAgentDisplayName", () => {

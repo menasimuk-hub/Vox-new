@@ -34,6 +34,8 @@ class AgentDefinition(Base):
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     voice_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     voice_type_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    accent_region: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
     telnyx_assistant_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     base_role: Mapped[str | None] = mapped_column(Text, nullable=True)
     service_survey_role: Mapped[str | None] = mapped_column(Text, nullable=True)

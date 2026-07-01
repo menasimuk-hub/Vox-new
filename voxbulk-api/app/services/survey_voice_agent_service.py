@@ -91,6 +91,8 @@ def agent_to_voice_dict(agent: AgentDefinition) -> dict[str, Any]:
         "description": agent.description,
         "voice_label": agent.voice_label or agent.name,
         "voice_type_label": agent.voice_type_label,
+        "accent_region": getattr(agent, "accent_region", None),
+        "gender": getattr(agent, "gender", None),
         "telnyx_assistant_id": agent.telnyx_assistant_id,
         "is_active": bool(agent.is_active),
         "supports_survey": bool(agent.supports_survey),
@@ -166,10 +168,23 @@ def list_agents_for_service(db: Session, *, service_key: str, org_id: str | None
 
 
 def _agent_zone_match(agent: AgentDefinition, zone: str) -> bool:
+    accent = str(getattr(agent, "accent_region", None) or "").upper()
     name = (agent.name or "").upper()
     z = str(zone or "gb").lower()
+    if accent:
+        region = accent
+        if z == "gb" and region in {"GB", "SC", "IE"}:
+            return True
+        if z == "us" and region == "US":
+            return True
+        if z == "ca" and region == "CA":
+            return True
+        if z == "au" and region == "AU":
+            return True
+        if z == "eu" and region == "IE":
+            return True
     if z == "gb":
-        return "GB" in name
+        return "GB" in name or "SC" in name or "IE" in name
     if z == "us":
         return "US" in name
     if z == "ca":
@@ -179,6 +194,19 @@ def _agent_zone_match(agent: AgentDefinition, zone: str) -> bool:
     return True
 
 
+def _agent_region_match(agent: AgentDefinition, org_country: str | None) -> bool:
+    from app.constants.interview_agent_regions import accent_region_from_org_country
+
+    if not org_country:
+        return False
+    preferred = accent_region_from_org_country(org_country)
+    accent = str(getattr(agent, "accent_region", None) or "").upper()
+    if accent and accent == preferred:
+        return True
+    name = (agent.name or "").upper()
+    return f"_{preferred}-" in name or name.startswith(f"INTERVIEW_{preferred}")
+
+
 def _agent_dashboard_language(agent: AgentDefinition) -> str:
     from app.services.voice_agent_runtime import agent_is_arabic
 
@@ -186,13 +214,16 @@ def _agent_dashboard_language(agent: AgentDefinition) -> str:
 
 
 def _agent_dashboard_gender(agent: AgentDefinition) -> str:
+    explicit = str(getattr(agent, "gender", None) or "").strip().lower()
+    if explicit in {"male", "female"}:
+        return explicit
     blob = " ".join(
         str(getattr(agent, attr, "") or "")
         for attr in ("voice_type_label", "voice_label", "name", "slug")
     ).lower()
-    if "female" in blob or any(n in blob for n in ("jodi", "amelia", "emily")):
+    if "female" in blob or any(n in blob for n in ("jodi", "jode", "amelia", "emily", "fiona", "niamh", "elena", "maya", "chloe")):
         return "female"
-    if "male" in blob or any(n in blob for n in ("leo", "james", "jamal", "jammal", "george")):
+    if "male" in blob or any(n in blob for n in ("leo", "james", "jamal", "jammal", "george", "callum", "sean", "marcus", "liam", "jack")):
         return "male"
     return "unknown"
 
@@ -203,16 +234,22 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
 
     org = OrganisationService.get_org(db, org_id)
     zone = country_to_zone(org.country if org else "United Kingdom")
+    org_country = org.country if org else None
     agents = list_agents_for_service(db, service_key=service_key, org_id=org_id)
     assigned = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=False)
     default_field = _default_field(service_key) or "is_default_survey"
     assigned_id = assigned.id if assigned else None
 
+    from app.constants.interview_agent_regions import accent_region_from_org_country
+
+    preferred_region = accent_region_from_org_country(org_country)
+
     def _sort_key(agent: AgentDefinition) -> tuple:
         assigned_prio = 0 if assigned and assigned.id == agent.id else 1
         platform_prio = 0 if getattr(agent, default_field, False) else 1
-        zone_prio = 0 if _agent_zone_match(agent, zone) else 1
-        return (assigned_prio, platform_prio, zone_prio, agent.name or "")
+        accent = str(getattr(agent, "accent_region", None) or "").upper()
+        region_prio = 0 if accent == preferred_region else (1 if _agent_region_match(agent, org_country) or _agent_zone_match(agent, zone) else 2)
+        return (assigned_prio, platform_prio, region_prio, agent.accent_region or "", agent.gender or "", agent.name or "")
 
     agents = sorted(agents, key=_sort_key)
     if service_key == SERVICE_INTERVIEW:
@@ -224,6 +261,7 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
                 assigned_id=assigned_id,
                 default_field=default_field,
                 zone=zone,
+                org_country=org_country,
             )
             for agent in agents
         ]
