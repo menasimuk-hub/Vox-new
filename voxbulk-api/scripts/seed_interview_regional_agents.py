@@ -121,10 +121,8 @@ def upsert_agent(db, spec, *, now: datetime) -> AgentDefinition:
     agent.accent_region = spec.accent_region
     agent.gender = spec.gender
     telnyx_id = _resolve_telnyx_id(spec)
-    if telnyx_id:
+    if telnyx_id and not str(agent.telnyx_assistant_id or "").strip():
         agent.telnyx_assistant_id = telnyx_id
-    elif not agent.telnyx_assistant_id:
-        pass
     agent.base_role = prompts["base_role"]
     agent.service_interview_role = prompts["service_interview_role"]
     agent.opening_disclosure_template = prompts["opening_disclosure_template"]

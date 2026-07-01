@@ -308,7 +308,11 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit &
   const data = text ? safeJson(text) : null;
 
   if (!res.ok) {
-    const message = sanitizeUserError(apiErrorMessage(data, `${res.status} ${res.statusText}`.trim()));
+    const rawMessage = apiErrorMessage(data, `${res.status} ${res.statusText}`.trim());
+    const message =
+      path.includes("/voice-preview") || path.includes("/voice_preview")
+        ? rawMessage
+        : sanitizeUserError(rawMessage);
     const err = new ApiError(message, { status: res.status, data });
     if (res.status === 401 && options.redirectOn401 !== false) handleUnauthorizedApiError(err);
     throw err;

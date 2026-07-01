@@ -192,10 +192,21 @@ def _resolve_elevenlabs_voice_for_preview(
                 cache[assistant_id] = {"error": str(exc)}
         runtime = cache[assistant_id]
         if runtime.get("error"):
-            return None, {}, "Could not load voice for this assistant — verify the Assistant ID in Admin → Agents"
+            err = str(runtime["error"])
+            if "404" in err:
+                return None, {}, "Assistant ID not found — check the ID in Admin → Agents matches your voice portal"
+            return None, {}, "Could not load voice for this assistant — check Assistant ID and platform API key in Admin → Integrations"
 
+        voice_raw = str(runtime.get("voice") or "").strip()
         if str(runtime.get("tts_provider") or "").lower() != "elevenlabs":
-            return None, {}, "Voice preview needs an ElevenLabs voice on this assistant"
+            voice_hint = voice_raw or "not configured"
+            if voice_hint.lower().startswith("telnyx."):
+                voice_hint = voice_hint.split(".")[-1] or voice_hint
+            return (
+                None,
+                {},
+                f"Voice preview needs an ElevenLabs voice. This assistant is set to: {voice_hint}",
+            )
 
         voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
         if not voice_id:

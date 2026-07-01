@@ -83,33 +83,74 @@ def _resolve_agent_by_name(db, name: str):
     ).scalar_one_or_none()
 
 
-def _print_live_runtime(db, assistant_id: str) -> None:
-    from app.services.telnyx_assistant_service import fetch_telnyx_assistant
+def _print_live_runtime(db, assistant_id: str) -> dict[str, Any] | None:
+    from app.services.telnyx_assistant_service import fetch_telnyx_assistant, parse_telnyx_assistant_voice, resolve_telnyx_assistant_runtime
 
     try:
         data = fetch_telnyx_assistant(db, assistant_id)
     except Exception as exc:  # noqa: BLE001
-        print(f"  live Telnyx fetch failed: {exc}")
-        return
+        print(f"  live fetch failed: {exc}")
+        return None
     voice_settings = data.get("voice_settings") if isinstance(data.get("voice_settings"), dict) else {}
     transcription = data.get("transcription") if isinstance(data.get("transcription"), dict) else {}
-    print(f"  live voice            {voice_settings.get('voice')}")
+    voice_raw = str(voice_settings.get("voice") or "")
+    provider, voice_id, _extras = parse_telnyx_assistant_voice(voice_raw, voice_settings=voice_settings)
+    print(f"  live voice            {voice_raw}")
+    print(f"  TTS provider          {provider}")
+    print(f"  ElevenLabs voice id   {voice_id or '(none)'}")
+    print(f"  api_key_ref           {voice_settings.get('api_key_ref')}")
     print(f"  live language_boost   {voice_settings.get('language_boost')}")
     print(f"  live model (LLM)      {data.get('model')}")
     print(f"  live STT model        {transcription.get('model')}")
     print(f"  live STT language     {transcription.get('language')}")
     greeting = str(data.get("greeting") or "").strip()
     print(f"  live greeting         {greeting[:200]}")
+    try:
+        runtime = resolve_telnyx_assistant_runtime(db, assistant_id)
+        print(f"  runtime tts_provider  {runtime.get('tts_provider')}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  runtime resolve failed: {exc}")
+    return data
+
+
+def _preview_check(db, agent) -> None:
+    from app.services.interview_agent_display_service import _resolve_elevenlabs_voice_for_preview
+    from app.services.providers.elevenlabs_service import ElevenLabsProviderService
+
+    print("\n=== Voice preview check ===")
+    voice_id, voice_settings, hint = _resolve_elevenlabs_voice_for_preview(db, agent)
+    if not voice_id:
+        print(f"  PREVIEW BLOCKED: {hint}")
+        return
+    print(f"  voice_id resolved     {voice_id}")
+    print(f"  model_id              {voice_settings.get('model_id')}")
+    sample = "Hello, this is a short voice test from VoxBulk."
+    try:
+        result = ElevenLabsProviderService.synthesize_text_result(
+            db,
+            text=sample,
+            voice_id=voice_id,
+            voice_settings=voice_settings,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ElevenLabs FAILED: {exc}")
+        return
+    if result.get("ok"):
+        print(f"  ElevenLabs OK         {len(result.get('audio_data') or b'')} bytes")
+    else:
+        print(f"  ElevenLabs FAILED: {result.get('error')}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Diagnose interview voice/language (read only)")
-    parser.add_argument("--agent", help="Agent name, e.g. Jammal")
+    parser.add_argument("--agent", help="Agent name, slug, or voice label, e.g. Jack, interview-au-jack")
+    parser.add_argument("--assistant-id", help="Telnyx assistant ID, e.g. assistant-d638feb0-...")
     parser.add_argument("--order", help="VB-CMP-… campaign id, VB-INT-… reference, or order UUID")
+    parser.add_argument("--preview", action="store_true", help="Run ElevenLabs preview synthesis test")
     args = parser.parse_args()
 
-    if not args.agent and not args.order:
-        parser.error("provide --agent NAME or --order REF")
+    if not args.agent and not args.order and not args.assistant_id:
+        parser.error("provide --agent NAME, --assistant-id ID, or --order REF")
 
     from app.core.database import get_sessionmaker
     from app.services.interview_voice_agent_service import (
@@ -132,6 +173,11 @@ def main() -> int:
                 return 2
             config = _loads(getattr(order, "config_json", None))
             assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
+        elif args.assistant_id:
+            assistant_id = str(args.assistant_id).strip()
+            agent = _resolve_agent_by_name(db, args.agent) if args.agent else None
+            if agent is None and args.agent:
+                print(f"Agent not found: {args.agent} (still checking assistant-id)")
         else:
             agent = _resolve_agent_by_name(db, args.agent)
             if agent is None:
@@ -140,16 +186,33 @@ def main() -> int:
             assistant_id = getattr(agent, "telnyx_assistant_id", "") or ""
 
         print("=== Agent ===")
-        print(f"  name                {getattr(agent, 'name', None)}")
-        print(f"  default_voice       {getattr(agent, 'default_voice', None)}")
-        print(f"  telnyx_assistant_id {assistant_id}")
-        print(f"  opening_disclosure  {str(getattr(agent, 'opening_disclosure_template', '') or '')[:160]}")
+        if agent is not None:
+            print(f"  slug                {getattr(agent, 'slug', None)}")
+            print(f"  name                {getattr(agent, 'name', None)}")
+            print(f"  default_voice       {getattr(agent, 'default_voice', None)}")
+            print(f"  telnyx_assistant_id {getattr(agent, 'telnyx_assistant_id', None)}")
+            print(f"  opening_disclosure  {str(getattr(agent, 'opening_disclosure_template', '') or '')[:160]}")
+        else:
+            print("  (no DB agent row — assistant-id only)")
 
         print("\n=== Live Telnyx assistant ===")
         if assistant_id:
             _print_live_runtime(db, assistant_id)
         else:
             print("  (no telnyx_assistant_id configured)")
+
+        if args.preview and agent is not None:
+            _preview_check(db, agent)
+        elif args.preview and assistant_id:
+            from app.models.agent import AgentDefinition
+
+            stub = AgentDefinition(
+                name="preview-stub",
+                slug="preview-stub",
+                system_prompt="x",
+                telnyx_assistant_id=assistant_id,
+            )
+            _preview_check(db, stub)
 
         script_text = str(
             config.get("approved_script")

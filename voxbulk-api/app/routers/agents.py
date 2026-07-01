@@ -118,7 +118,15 @@ def _apply_agent_payload(agent: AgentDefinition, payload: dict) -> None:
     for key in text_fields:
         if key in payload:
             raw = payload.get(key)
-            setattr(agent, key, str(raw).strip() if raw is not None and str(raw).strip() else None)
+            value = str(raw).strip() if raw is not None and str(raw).strip() else None
+            if key == "telnyx_assistant_id" and value:
+                from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
+
+                try:
+                    value = normalize_telnyx_assistant_id(value)
+                except ValueError:
+                    pass
+            setattr(agent, key, value)
 
     bool_fields = [
         "supports_survey",
