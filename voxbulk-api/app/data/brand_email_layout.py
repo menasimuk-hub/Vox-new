@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.brand_assets import BRAND_COLORS, email_logo_url
+from app.services.brand_assets import BRAND_COLORS, BRAND_TAGLINE, email_logo_url
 
 # Production logo URL (HTTPS, works in email clients — not data: URIs)
 EMAIL_LOGO_URL = "https://api.voxbulk.com/public/brand/logo-black"
@@ -27,6 +27,10 @@ def wrap_brand_email(
 ) -> str:
     logo = email_logo_html()
     c = BRAND_COLORS
+    tagline_html = (
+        f'<p style="margin:8px 0 0;font-size:12px;color:{c["ink_muted"]};letter-spacing:0.02em;">'
+        f"{BRAND_TAGLINE}</p>"
+    )
     badge_html = ""
     if badge:
         badge_html = (
@@ -48,6 +52,7 @@ def wrap_brand_email(
           <tr>
             <td style="padding:24px 28px 12px;border-bottom:1px solid {c['border']};">
               {logo}
+              {tagline_html}
               {badge_html}
             </td>
           </tr>
@@ -67,6 +72,27 @@ def wrap_brand_email(
   </table>
 </body>
 </html>"""
+
+
+def inject_brand_tagline(body: str) -> str | None:
+    """Insert tagline under the VOXBULK logo when missing (preserves admin-edited copy)."""
+    text = str(body or "")
+    if not text or BRAND_TAGLINE in text:
+        return None
+    marker = 'alt="VOXBULK"'
+    pos = text.find(marker)
+    if pos < 0:
+        return None
+    close_a = text.find("</a>", pos)
+    if close_a < 0:
+        return None
+    insert_at = close_a + len("</a>")
+    c = BRAND_COLORS
+    snippet = (
+        f'<p style="margin:8px 0 0;font-size:12px;color:{c["ink_muted"]};letter-spacing:0.02em;">'
+        f"{BRAND_TAGLINE}</p>"
+    )
+    return text[:insert_at] + snippet + text[insert_at:]
 
 
 def cta_button(*, href: str, label: str) -> str:

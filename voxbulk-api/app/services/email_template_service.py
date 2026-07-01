@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.email_template import EmailTemplate
 from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
+from app.data.brand_email_layout import inject_brand_tagline
 from app.services.uk_compliance_constants import (
     DEFAULT_COMPLIANCE_CONTACT_EMAIL,
     DEFAULT_LAWFUL_BASIS,
@@ -209,6 +210,25 @@ class EmailTemplateService:
                 and "<!DOCTYPE html><html><body" in body
                 and "wrap_brand_email" not in body
             )
+            needs_weekly_digest_refresh = (
+                key == "weekly_digest"
+                and default_body
+                and (
+                    "{{practice_name}}" in body
+                    or "Recovery queue" in body
+                    or "interviews_recommended_percent" in body
+                    or "{{usage_summary_html}}" not in body
+                    or "{{action_items}}" not in body
+                )
+            )
+            needs_sales_offer_refresh = (
+                key == "sales_offer"
+                and default_body
+                and (
+                    "#00C896" in body
+                    or 'alt="VOXBULK"' not in body
+                )
+            )
             if default_body and key.startswith("interview_") and (
                 "data:image" in body
                 or ("data:" in body and "base64" in body)
@@ -242,6 +262,20 @@ class EmailTemplateService:
                 row.updated_at = datetime.utcnow()
                 db.add(row)
                 changed = True
+            elif needs_weekly_digest_refresh or needs_sales_offer_refresh:
+                row.body = default_body
+                if default_subject:
+                    row.subject = default_subject
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                changed = True
+            else:
+                patched = inject_brand_tagline(body)
+                if patched:
+                    row.body = patched
+                    row.updated_at = datetime.utcnow()
+                    db.add(row)
+                    changed = True
         if changed:
             db.commit()
 

@@ -1,0 +1,27 @@
+---
+description: Never change layout or content without explicit user approval
+alwaysApply: true
+---
+
+# No changes without asking
+
+## Default behaviour
+
+- **Do not change anything** (code, copy, config, templates, UI, DB sync logic) unless the user **explicitly asked** for that change in the current task.
+- When unsure whether a change is wanted, **ask first** — do not assume or "improve" adjacent areas.
+
+## Layout and theme (strict)
+
+- **Never change layout, theme, or visual structure** without explicit approval.
+- Layout includes: HTML structure, wrapper markup, tables, sections, colours, fonts, spacing, padding, borders, buttons, logos, badges, and email wrapper (`wrap_brand_email`, admin UI layout, dashboard pages).
+- **Email templates:** keep the existing HTML/theme exactly as-is. Allowed only when the user explicitly requests it: fix **placeholders/variables**, missing data, or **text wording** — not restructure, retheme, or rewrite.
+- **Do not** auto-refresh or overwrite production `email_templates` DB rows, `ensure_system_templates` refresh rules, or admin-saved content unless the user asked for that sync.
+
+## When the user says "text only" or "keep theme"
+
+- Change **words and `{{placeholders}}` only**.
+- Do not swap wrappers, add/remove sections, inject taglines, or change colours unless they asked for that specific item.
+
+## Deliverables
+
+- If the user wants paste-ready content (e.g. Admin HTML), **output it in chat** for copy-paste — do not silently edit repo files unless they asked to commit code.

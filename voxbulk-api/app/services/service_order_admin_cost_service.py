@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrder
 from app.services.billing_currency import money_display, resolve_org_currency
 
@@ -13,7 +14,8 @@ from app.services.billing_currency import money_display, resolve_org_currency
 def enrich_admin_order_costs(db: Session, order: ServiceOrder, payload: dict[str, Any]) -> dict[str, Any]:
     launch = payload.get("launch_billing") if isinstance(payload.get("launch_billing"), dict) else {}
     settlement = payload.get("billing_settlement") if isinstance(payload.get("billing_settlement"), dict) else {}
-    currency = str(launch.get("currency") or settlement.get("currency") or resolve_org_currency(db, order.org_id))
+    org = db.get(Organisation, order.org_id)
+    currency = str(launch.get("currency") or settlement.get("currency") or resolve_org_currency(db, org))
     per_min = int(launch.get("unit_rate_minor") or 0)
     conn_fee = int(launch.get("connection_fee_minor") or 0)
 
