@@ -6,6 +6,58 @@ export function adminOrderViewPath(order) {
   return `/operations/orders/${encodeURIComponent(id)}`
 }
 
+/** Timestamp for list sorting (prefer last activity). */
+export function orderListSortTs(order) {
+  const raw = order?.updated_at || order?.completed_at || order?.started_at || order?.created_at
+  if (!raw) return 0
+  const t = new Date(raw).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+export function orderListSortKey(order) {
+  return String(order?.reference_id || order?.campaign_id || order?.title || order?.id || '')
+}
+
+/** @param {'completed'|'running'|'paid'|'all'} workflow */
+export function filterOrdersByWorkflow(rows, workflow = 'completed') {
+  const list = Array.isArray(rows) ? rows : []
+  if (workflow === 'all') return list
+  return list.filter((o) => {
+    const status = String(o.status || '').toLowerCase()
+    const payment = String(o.payment_status || '').toLowerCase()
+    if (workflow === 'completed') return status === 'completed'
+    if (workflow === 'running') return ['running', 'paused', 'scheduled'].includes(status)
+    if (workflow === 'paid') return payment === 'approved' && status !== 'draft'
+    return true
+  })
+}
+
+/**
+ * @param {'amount_desc'|'amount_asc'|'date_desc'|'date_asc'|'name_asc'|'name_desc'|'order_asc'} sortBy
+ */
+export function sortServiceOrders(rows, sortBy = 'amount_desc') {
+  const sorted = [...(Array.isArray(rows) ? rows : [])]
+  sorted.sort((a, b) => {
+    if (sortBy === 'amount_desc' || sortBy === 'amount_asc') {
+      const diff = (Number(a.quote_total_pence) || 0) - (Number(b.quote_total_pence) || 0)
+      if (diff !== 0) return sortBy === 'amount_desc' ? -diff : diff
+      const dateDiff = orderListSortTs(a) - orderListSortTs(b)
+      if (dateDiff !== 0) return sortBy === 'amount_desc' ? -dateDiff : dateDiff
+      return orderListSortKey(a).localeCompare(orderListSortKey(b))
+    }
+    if (sortBy === 'date_asc') return orderListSortTs(a) - orderListSortTs(b)
+    if (sortBy === 'date_desc') return orderListSortTs(b) - orderListSortTs(a)
+    if (sortBy === 'name_desc') return String(b.title || '').localeCompare(String(a.title || ''))
+    if (sortBy === 'order_asc') return orderListSortKey(a).localeCompare(orderListSortKey(b))
+    if (sortBy === 'name_asc') return String(a.title || '').localeCompare(String(b.title || ''))
+    return 0
+  })
+  return sorted
+}
+
+export const ORDER_PAYMENT_HELP =
+  'Pay status: unpaid = not paid yet · approved = cleared to launch (wallet, DD, allowance, or cash approved) · pending_approval = customer marked cash, awaiting admin · rejected = cash declined. Workflow status (draft/running/completed) is separate from payment.'
+
 export function formatDurationSeconds(secs) {
   const n = Number(secs)
   if (!Number.isFinite(n) || n <= 0) return '—'

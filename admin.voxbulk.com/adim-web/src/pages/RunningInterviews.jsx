@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, CheckCircle2, CreditCard, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
-import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
+import { formatDurationSeconds, sortServiceOrders } from '../lib/serviceOrderAdmin'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -139,9 +139,9 @@ export default function RunningInterviews() {
   const [selected, setSelected] = useState(null)
   const [audit, setAudit] = useState([])
   const [panelTab, setPanelTab] = useState('overview')
-  const [listTab, setListTab] = useState('running')
+  const [listTab, setListTab] = useState('finished')
   const [searchQuery, setSearchQuery] = useState('')
-  const [sortBy, setSortBy] = useState('date_desc')
+  const [sortBy, setSortBy] = useState('amount_desc')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -424,13 +424,7 @@ export default function RunningInterviews() {
         String(o.campaign_id || '').toLowerCase().includes(q)
       )
     })
-    rows.sort((a, b) => {
-      if (sortBy === 'name_asc') return String(a.title || '').localeCompare(String(b.title || ''))
-      if (sortBy === 'name_desc') return String(b.title || '').localeCompare(String(a.title || ''))
-      if (sortBy === 'date_asc') return orderSortTs(a) - orderSortTs(b)
-      return orderSortTs(b) - orderSortTs(a)
-    })
-    return rows
+    return sortServiceOrders(rows, sortBy)
   }, [orders, listTab, searchQuery, sortBy, dateFrom, dateTo])
 
   return (
@@ -459,8 +453,11 @@ export default function RunningInterviews() {
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
         >
+          <option value="amount_desc">Amount (high → low)</option>
+          <option value="amount_asc">Amount (low → high)</option>
           <option value="date_desc">Newest first</option>
           <option value="date_asc">Oldest first</option>
+          <option value="order_asc">Reference A–Z</option>
           <option value="name_asc">Name A–Z</option>
           <option value="name_desc">Name Z–A</option>
         </select>
@@ -701,8 +698,8 @@ export default function RunningInterviews() {
         <div className="cardHead runningSurveyListHead">
           <h3><Briefcase size={16} /> Interviews</h3>
           <div className="runningSurveyTabs">
-            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
             <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Live</button>
           </div>
         </div>
         <div className="cardBody">
@@ -719,6 +716,7 @@ export default function RunningInterviews() {
                     <th>Name</th>
                     <th>Status</th>
                     <th>Candidates</th>
+                    <th>Quote</th>
                     <th>Updated</th>
                   </tr>
                 </thead>
@@ -735,6 +733,7 @@ export default function RunningInterviews() {
                         <td><strong>{o.title}</strong></td>
                         <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
                         <td>{total || '—'}</td>
+                        <td>{o.quote_total_gbp || '—'}</td>
                         <td className="muted" style={{ fontSize: 12 }}>{fmtWhen(o.updated_at || o.started_at || o.created_at)}</td>
                       </tr>
                     )

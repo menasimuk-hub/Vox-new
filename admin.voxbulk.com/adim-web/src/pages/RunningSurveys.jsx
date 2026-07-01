@@ -5,7 +5,7 @@ import { apiFetch } from '../lib/api'
 import { isWaSurveyOrder, waSessionStatusPill, deliveryOkBadge } from '../lib/waSurveyOps'
 import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
-import { formatDurationSeconds } from '../lib/serviceOrderAdmin'
+import { formatDurationSeconds, sortServiceOrders } from '../lib/serviceOrderAdmin'
 import { KpiCard } from '@/components/ui/KpiCard'
 import '../styles/ops-theme.css'
 
@@ -57,7 +57,8 @@ export default function RunningSurveys() {
   const [selected, setSelected] = useState(null)
   const [audit, setAudit] = useState([])
   const [panelTab, setPanelTab] = useState('overview')
-  const [listTab, setListTab] = useState('running')
+  const [listTab, setListTab] = useState('finished')
+  const [sortBy, setSortBy] = useState('amount_desc')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -348,16 +349,18 @@ export default function RunningSurveys() {
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return orders.filter((o) => {
+    const rows = orders.filter((o) => {
       if (listTab === 'running' && !o.is_live) return false
       if (listTab === 'finished' && !o.is_finished) return false
       if (!q) return true
       return (
         String(o.title || '').toLowerCase().includes(q) ||
-        String(o.org_name || '').toLowerCase().includes(q)
+        String(o.org_name || '').toLowerCase().includes(q) ||
+        String(o.reference_id || '').toLowerCase().includes(q)
       )
     })
-  }, [orders, listTab, searchQuery])
+    return sortServiceOrders(rows, sortBy)
+  }, [orders, listTab, searchQuery, sortBy])
 
   return (
     <div className="opsTheme">
@@ -377,6 +380,19 @@ export default function RunningSurveys() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          <select
+            className="input runningSurveySearch"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{ width: 'auto', minWidth: 160 }}
+          >
+            <option value="amount_desc">Amount (high → low)</option>
+            <option value="amount_asc">Amount (low → high)</option>
+            <option value="date_desc">Date (newest)</option>
+            <option value="date_asc">Date (oldest)</option>
+            <option value="order_asc">Reference A–Z</option>
+            <option value="name_asc">Title A–Z</option>
+          </select>
           <button type="button" className="btn soft" onClick={load} disabled={loading}>
             <RefreshCw size={15} />
             Refresh
@@ -708,8 +724,8 @@ export default function RunningSurveys() {
         <div className="cardHead runningSurveyListHead">
           <h3><ClipboardList size={16} /> Surveys</h3>
           <div className="runningSurveyTabs">
-            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running surveys</button>
             <button type="button" className={`runningSurveyTab${listTab === 'finished' ? ' on' : ''}`} onClick={() => setListTab('finished')}>Finished surveys</button>
+            <button type="button" className={`runningSurveyTab${listTab === 'running' ? ' on' : ''}`} onClick={() => setListTab('running')}>Running surveys</button>
           </div>
         </div>
         <div className="cardBody">
@@ -724,10 +740,12 @@ export default function RunningSurveys() {
                   <tr>
                     <th>Survey</th>
                     <th>Organisation</th>
+                    <th>Ref</th>
                     <th>Owner</th>
                     <th>Status</th>
                     <th>Progress</th>
                     <th>Quote (est.)</th>
+                    <th>Updated</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -742,10 +760,12 @@ export default function RunningSurveys() {
                       >
                         <td><strong>{o.title}</strong></td>
                         <td>{o.org_name || o.org_id}</td>
+                        <td className="occ-mono">{o.reference_id || o.campaign_id || '—'}</td>
                         <td>{o.owner_email || '—'}</td>
                         <td><span className={statusPill(o.status, o.payment_status)}>{o.status_label || o.status}</span></td>
                         <td>{sent} / {total}</td>
                         <td>{o.quote_total_gbp || '—'}</td>
+                        <td className="muted">{fmtWhen(o.updated_at || o.created_at)}</td>
                       </tr>
                     )
                   })}

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, CircleCheck, CreditCard, FileText, Megaphone, Snowflake } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { adminOrderViewPath } from '../lib/serviceOrderAdmin'
+import { adminOrderViewPath, filterOrdersByWorkflow, sortServiceOrders, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
 import { KpiCard } from '@/components/ui/KpiCard'
 import './orgControlCenter.css'
@@ -345,6 +345,8 @@ export default function OrgControlCenter() {
   const [activityDeletionOnly, setActivityDeletionOnly] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleteAdminNotes, setDeleteAdminNotes] = useState('')
+  const [ordersWorkflowFilter, setOrdersWorkflowFilter] = useState('completed')
+  const [ordersSort, setOrdersSort] = useState('amount_desc')
 
   const pushToast = useCallback((message, type = '') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -472,6 +474,10 @@ export default function OrgControlCenter() {
   const org = detail?.organisation
   const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
+  const filteredOrders = useMemo(
+    () => sortServiceOrders(filterOrdersByWorkflow(campaigns, ordersWorkflowFilter), ordersSort),
+    [campaigns, ordersWorkflowFilter, ordersSort],
+  )
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const invoices = detail?.invoices || []
   const filteredInvoices = useMemo(() => {
@@ -1694,6 +1700,29 @@ export default function OrgControlCenter() {
           </div>
 
           <div className={`occ-tab-content ${activeTab === 'orders' ? 'active' : ''}`}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                Show
+                <select className="occ-filter-sel" value={ordersWorkflowFilter} onChange={(e) => setOrdersWorkflowFilter(e.target.value)}>
+                  <option value="completed">Completed (default)</option>
+                  <option value="running">Running / scheduled</option>
+                  <option value="paid">Paid — any workflow</option>
+                  <option value="all">All (incl. drafts)</option>
+                </select>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                Sort
+                <select className="occ-filter-sel" value={ordersSort} onChange={(e) => setOrdersSort(e.target.value)}>
+                  <option value="amount_desc">Amount (high → low)</option>
+                  <option value="amount_asc">Amount (low → high)</option>
+                  <option value="date_desc">Date (newest)</option>
+                  <option value="date_asc">Date (oldest)</option>
+                  <option value="order_asc">Reference A–Z</option>
+                  <option value="name_asc">Title A–Z</option>
+                </select>
+              </label>
+              <span className="muted" style={{ fontSize: 12, flex: '1 1 280px' }}>{ORDER_PAYMENT_HELP}</span>
+            </div>
             <div className="occ-table-wrap">
               <table className="occ-data-table">
                 <thead>
@@ -1710,16 +1739,16 @@ export default function OrgControlCenter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!campaigns.length ? (
+                  {!filteredOrders.length ? (
                     <tr>
                       <td colSpan={9}>
-                        <div className="occ-empty-state">No orders found.</div>
+                        <div className="occ-empty-state">No orders match this filter.</div>
                       </td>
                     </tr>
                   ) : (
-                    campaigns.map((ord) => (
+                    filteredOrders.map((ord) => (
                       <tr key={ord.id}>
-                        <td className="occ-mono">{ord.id?.slice(0, 8)}…</td>
+                        <td className="occ-mono">{ord.reference_id || ord.campaign_id || `${ord.id?.slice(0, 8)}…`}</td>
                         <td>{ord.service_label || ord.title || '—'}</td>
                         <td>{channelLabel(ord.channel)}</td>
                         <td className="occ-mono">{fmtN(ord.recipient_count)}</td>
