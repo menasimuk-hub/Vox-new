@@ -132,7 +132,6 @@ def _merge_recipient_result(db: Session, recipient: ServiceOrderRecipient, patch
     merged = _loads(recipient.result_json)
     merged.update(patch)
     recipient.result_json = json.dumps(merged, ensure_ascii=False)
-    recipient.updated_at = datetime.utcnow()
     db.add(recipient)
 
 

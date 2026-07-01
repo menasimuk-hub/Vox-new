@@ -52,7 +52,7 @@ def main() -> int:
                     ServiceOrder.service_code == "interview",
                     ServiceOrderRecipient.status.in_(("completed", "done")),
                 )
-                .order_by(ServiceOrderRecipient.updated_at.desc())
+                .order_by(ServiceOrder.updated_at.desc(), ServiceOrderRecipient.created_at.desc())
                 .limit(max(1, int(args.limit)))
             ).scalars()
         )
