@@ -21,6 +21,7 @@ from app.models.customer_feedback import (
 )
 from app.models.organisation import Organisation
 from app.services.customer_feedback.billing_service import FeedbackBillingService
+from app.services.customer_feedback.locale_service import map_stt_language_code
 from app.services.customer_feedback.feedback_marketing_policy import is_marketing_survey_step
 from app.services.customer_feedback.location_service import FeedbackLocationService, location_to_dict
 from app.services.customer_feedback.survey_config_service import (
@@ -193,7 +194,17 @@ class FeedbackWebSurveyService:
         return session
 
     @staticmethod
-    def _detect_language_from_text(text: str, session: FeedbackSession) -> str:
+    def _detect_language_from_text(
+        text: str,
+        session: FeedbackSession,
+        *,
+        stt_language: str | None = None,
+    ) -> str:
+        if stt_language:
+            mapped = map_stt_language_code(stt_language)
+            if mapped:
+                return mapped
+
         from app.utils.script_language import detect_script_language
 
         lang = detect_script_language(str(text or ""))
@@ -204,21 +215,46 @@ class FeedbackWebSurveyService:
         return str(session.detected_language or "en_GB")
 
     @staticmethod
+    def _apply_detected_language(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        text: str,
+        stt_language: str | None = None,
+    ) -> str:
+        detected = FeedbackWebSurveyService._detect_language_from_text(
+            text,
+            session,
+            stt_language=stt_language,
+        )
+        if detected != session.detected_language:
+            session.detected_language = detected
+            db.add(session)
+            db.flush()
+        return detected
+
+    @staticmethod
     def _voice_translation_fields(
         db: Session,
         *,
         text: str,
         session: FeedbackSession,
         tpl=None,
+        source_language: str | None = None,
     ) -> dict[str, str]:
         from app.services.customer_feedback.feedback_answer_service import translate_answer_to_english
 
-        detected = FeedbackWebSurveyService._detect_language_from_text(text, session)
+        detected = FeedbackWebSurveyService._detect_language_from_text(
+            text,
+            session,
+            stt_language=source_language,
+        )
         translated = translate_answer_to_english(
             db,
             answer=str(text or "").strip(),
             detected_language=detected,
             tpl=tpl,
+            source_language=source_language,
         )
         original = str(translated.get("original_text") or text or "").strip()
         answer_en = str(translated.get("answer_text_en") or original).strip()
@@ -226,6 +262,7 @@ class FeedbackWebSurveyService:
             "answer_text": answer_en,
             "original_text": original,
             "answer_text_en": answer_en,
+            "translation_status": str(translated.get("translation_status") or ""),
         }
 
     @staticmethod
@@ -290,6 +327,13 @@ class FeedbackWebSurveyService:
         tpl = template_for_step(db, location, current_step, language=session.detected_language)
 
         if str(answer).strip().lower() != "skip":
+            answer_text = str(answer or "").strip()
+            if answer_text and answer_source == "text":
+                FeedbackWebSurveyService._apply_detected_language(
+                    db,
+                    session=session,
+                    text=answer_text,
+                )
             FeedbackWhatsappService._save_answer(
                 db,
                 session=session,
@@ -447,23 +491,44 @@ class FeedbackWebSurveyService:
         )
         transcript = str(getattr(result, "transcript", "") or "").strip()
         stt_error = str(getattr(result, "error", "") or "").strip()
-        if not transcript:
+        stt_language = getattr(result, "detected_language", None)
+        transcode_ok = getattr(result, "transcode_ok", None)
+        stt_provider = getattr(result, "stt_provider", None)
+
+        if not transcript or not getattr(result, "ok", False):
             logger.warning(
-                "voice_web_transcription_empty session=%s mode=%s stt_error=%s storage=%s",
+                "voice_web_transcription_empty session=%s mode=%s stt_error=%s storage=%s "
+                "transcode_ok=%s stt_provider=%s stt_language=%s",
                 session_id,
                 mode,
                 stt_error or "empty_transcript",
                 getattr(result, "storage_path", None),
+                transcode_ok,
+                stt_provider,
+                stt_language,
             )
-            transcript = "[Voice message recorded — transcription unavailable]"
+            return {
+                "transcript": "",
+                "saved": False,
+                "stt_error": stt_error or "empty_transcript",
+                "transcode_ok": transcode_ok,
+                "stt_provider": stt_provider,
+            }
 
-        # Align session language with spoken content so voice answers translate to English in results.
-        if transcript and not transcript.startswith("["):
-            detected = FeedbackWebSurveyService._detect_language_from_text(transcript, session)
-            if detected != session.detected_language:
-                session.detected_language = detected
-                db.add(session)
-                db.flush()
+        FeedbackWebSurveyService._apply_detected_language(
+            db,
+            session=session,
+            text=transcript,
+            stt_language=stt_language,
+        )
+        logger.info(
+            "voice_web_transcription_ok session=%s chars=%s transcode_ok=%s stt_provider=%s stt_language=%s",
+            session_id,
+            len(transcript),
+            transcode_ok,
+            stt_provider,
+            stt_language,
+        )
 
         answer_value = str(answer).strip() if answer is not None else ""
         if answer_value:

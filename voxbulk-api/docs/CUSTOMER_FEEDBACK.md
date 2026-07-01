@@ -186,6 +186,24 @@ redis-cli LLEN celery   # pending tasks (if using default queue)
 
 Restart worker after deploy: `./vox.sh restart`
 
+### Web survey voice notes (STT + translation)
+
+Customer Feedback **web** voice notes are transcribed **inline** in the API (not Celery). Pipeline:
+
+1. Browser uploads `webm` → ffmpeg transcode to mono 16 kHz Ogg (requires `ffmpeg` on PATH)
+2. STT provider order (web): `deepinfra` → `deepgram` → `whisper_cpp` → `groq` (override with `VOICE_STT_PROVIDER_ORDER` for WhatsApp inbound only)
+3. Detected language from STT drives English translation; results store `answer_text_en` + `original_text`
+
+**VPS checks after deploy:**
+
+```bash
+which ffmpeg ffprobe
+# Admin → Integrations: DeepInfra and/or Deepgram configured
+# Admin → Integrations: DeepSeek/OpenAI for translation
+```
+
+Test: open `/survey/{qr_token}`, record a voice note in Spanish → dashboard **Customer feedback results** should show English transcript and **Original:** line.
+
 ## Known gaps (not yet shipped)
 
 | Gap | Notes |

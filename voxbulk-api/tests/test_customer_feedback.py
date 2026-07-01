@@ -1038,3 +1038,179 @@ def test_web_survey_results_visible_in_dashboard():
         assert rows
         assert rows[0].get("survey_type_id") == survey_type.id
         assert rows[0].get("answer_text")
+
+
+def test_map_stt_language_code():
+    from app.services.customer_feedback.locale_service import map_stt_language_code
+
+    assert map_stt_language_code("es") == "es"
+    assert map_stt_language_code("spanish") == "es"
+    assert map_stt_language_code("ar") == "ar"
+    assert map_stt_language_code("english") == "en_GB"
+    assert map_stt_language_code(None) is None
+
+
+def test_translate_answer_to_english_spanish_typed():
+    from unittest.mock import patch
+
+    from app.services.customer_feedback.feedback_answer_service import translate_answer_to_english
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        with patch(
+            "app.services.survey_wa_translation_service.SurveyWaTranslationService.translate_to_english",
+            return_value={
+                "original_text": "Muy bueno",
+                "translated_text": "Very good",
+                "translation_status": "completed",
+            },
+        ):
+            out = translate_answer_to_english(
+                db,
+                answer="Muy bueno",
+                detected_language="en_GB",
+            )
+        assert out["original_text"] == "Muy bueno"
+        assert out["answer_text_en"] == "Very good"
+        assert out["translation_status"] == "completed"
+
+
+def test_translate_answer_to_english_stt_arabic_voice():
+    from unittest.mock import patch
+
+    from app.services.customer_feedback.feedback_answer_service import translate_answer_to_english
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        with patch(
+            "app.services.survey_wa_translation_service.SurveyWaTranslationService.translate_to_english",
+            return_value={
+                "original_text": "الخدمة ممتازة",
+                "translated_text": "The service is excellent",
+                "translation_status": "completed",
+            },
+        ):
+            out = translate_answer_to_english(
+                db,
+                answer="الخدمة ممتازة",
+                detected_language="en_GB",
+                source_language="ar",
+            )
+        assert out["answer_text_en"] == "The service is excellent"
+        assert out["original_text"] == "الخدمة ممتازة"
+
+
+def test_translate_answer_to_english_failure_marks_unavailable():
+    from unittest.mock import patch
+
+    from app.services.customer_feedback.feedback_answer_service import (
+        TRANSLATION_UNAVAILABLE_EN,
+        translate_answer_to_english,
+    )
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        with patch(
+            "app.services.survey_wa_translation_service.SurveyWaTranslationService.translate_to_english",
+            return_value={
+                "original_text": "Hola",
+                "translated_text": None,
+                "translation_status": "failed",
+            },
+        ):
+            out = translate_answer_to_english(
+                db,
+                answer="Hola",
+                detected_language="es",
+            )
+        assert out["original_text"] == "Hola"
+        assert out["answer_text_en"] == TRANSLATION_UNAVAILABLE_EN
+        assert out["translation_status"] == "failed"
+
+
+def test_web_survey_voice_spanish_translates():
+    from unittest.mock import patch
+
+    from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+    from app.services.voice_transcription_service import VoiceTranscriptionResult
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        session_id = started["session_id"]
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        with patch(
+            "app.services.voice_transcription_service.VoiceTranscriptionService.transcribe_uploaded_audio",
+            return_value=VoiceTranscriptionResult(
+                ok=True,
+                transcript="Muy buena experiencia",
+                confidence=0.9,
+                detected_language="es",
+                stt_provider="deepinfra",
+                transcode_ok=True,
+            ),
+        ), patch(
+            "app.services.survey_wa_translation_service.SurveyWaTranslationService.translate_to_english",
+            return_value={
+                "original_text": "Muy buena experiencia",
+                "translated_text": "Very good experience",
+                "translation_status": "completed",
+            },
+        ):
+            result = FeedbackWebSurveyService.submit_voice(
+                db,
+                session_id=session_id,
+                audio_bytes=b"fake-audio",
+                filename="voice.webm",
+                content_type="audio/webm",
+                mode="answer",
+            )
+        assert result.get("completed") is True
+        responses = list(
+            db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
+        )
+        voice_rows = [r for r in responses if r.answer_source == "voice"]
+        assert voice_rows
+        assert voice_rows[0].original_text == "Muy buena experiencia"
+        assert voice_rows[0].answer_text_en == "Very good experience"
+
+
+def test_web_survey_voice_stt_failure_not_saved():
+    from unittest.mock import patch
+
+    from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+    from app.services.voice_transcription_service import VoiceTranscriptionResult
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        session_id = started["session_id"]
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        before = len(
+            list(
+                db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
+            )
+        )
+        with patch(
+            "app.services.voice_transcription_service.VoiceTranscriptionService.transcribe_uploaded_audio",
+            return_value=VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error="empty"),
+        ):
+            result = FeedbackWebSurveyService.submit_voice(
+                db,
+                session_id=session_id,
+                audio_bytes=b"fake-audio",
+                filename="voice.webm",
+                content_type="audio/webm",
+                mode="answer",
+            )
+        assert result.get("saved") is False
+        after = len(
+            list(
+                db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
+            )
+        )
+        assert after == before

@@ -72,6 +72,13 @@ def is_low_quality_transcript(text: str) -> bool:
 
 
 @dataclass(frozen=True)
+class SttTranscriptionResult:
+    text: str
+    detected_language: str | None = None
+    stt_provider: str | None = None
+
+
+@dataclass(frozen=True)
 class VoiceTranscriptionResult:
     ok: bool
     transcript: str
@@ -82,6 +89,9 @@ class VoiceTranscriptionResult:
     error: str | None = None
     file_size_bytes: int | None = None
     duration_seconds: float | None = None
+    detected_language: str | None = None
+    stt_provider: str | None = None
+    transcode_ok: bool | None = None
 
 
 def _duration_from_record(record: dict[str, Any] | None) -> float | None:
@@ -175,6 +185,18 @@ def _audio_content_type(audio_path: Path) -> str:
     return "application/octet-stream"
 
 
+def _deepgram_detected_language(body: dict[str, Any]) -> str | None:
+    try:
+        channels = (body.get("results") or {}).get("channels") or []
+        if channels and isinstance(channels[0], dict):
+            detected = channels[0].get("detected_language")
+            if detected:
+                return str(detected)
+    except (TypeError, ValueError, KeyError, IndexError):
+        pass
+    return None
+
+
 class VoiceTranscriptionService:
     @staticmethod
     def transcribe_inbound(
@@ -240,20 +262,23 @@ class VoiceTranscriptionService:
                 raise ValueError(str(last_dl_error) if last_dl_error else "Media download failed")
 
             duration_seconds = _duration_from_record(record) or _duration_from_file(path)
-            transcript = VoiceTranscriptionService._transcribe_file(
+            stt = VoiceTranscriptionService._transcribe_file(
                 main_db,
                 path,
                 language=stt_lang,
-            ).strip()
+            )
+            transcript = stt.text.strip()
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript) and not is_low_quality_transcript(transcript)
 
             logger.info(
-                "voice_transcription_ok phone=%s chars=%s confidence=%.2f ok=%s",
+                "voice_transcription_ok phone=%s chars=%s confidence=%.2f ok=%s stt_provider=%s stt_language=%s",
                 customer_phone,
                 len(transcript),
                 confidence,
                 ok,
+                stt.stt_provider,
+                stt.detected_language,
             )
 
             return VoiceTranscriptionResult(
@@ -266,6 +291,9 @@ class VoiceTranscriptionService:
                 error=None if ok else "low_confidence_or_empty",
                 file_size_bytes=file_size,
                 duration_seconds=duration_seconds,
+                detected_language=stt.detected_language,
+                stt_provider=stt.stt_provider,
+                transcode_ok=True,
             )
         except Exception as exc:
             logger.warning(
@@ -284,14 +312,16 @@ class VoiceTranscriptionService:
             )
 
     @staticmethod
-    def _transcode_to_ogg(src_path: Path) -> Path:
+    def _transcode_to_ogg(src_path: Path) -> tuple[Path, bool]:
         """Best-effort transcode of a browser recording (webm/mp4/wav) to mono 16k Ogg/Opus.
 
-        Returns the transcoded file path, or the original path if ffmpeg is unavailable or fails.
+        Returns (audio path, transcode_ok). When ffmpeg is unavailable or fails, returns
+        the original path and transcode_ok=False.
         """
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
-            return src_path
+            logger.warning("voice_transcode_skipped reason=ffmpeg_missing src=%s", src_path)
+            return src_path, False
         out_path = src_path.with_suffix(".ogg")
         if out_path == src_path:
             out_path = src_path.with_name(f"{src_path.stem}-t.ogg")
@@ -315,10 +345,10 @@ class VoiceTranscriptionService:
                 check=False,
             )
             if proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 128:
-                return out_path
+                return out_path, True
         except (OSError, subprocess.SubprocessError):
             logger.warning("voice_transcode_failed src=%s", src_path, exc_info=True)
-        return src_path
+        return src_path, False
 
     @staticmethod
     def transcribe_uploaded_audio(
@@ -347,18 +377,25 @@ class VoiceTranscriptionService:
         stt_lang = _stt_language(language)
         try:
             dest.write_bytes(audio_bytes)
-            audio_path = VoiceTranscriptionService._transcode_to_ogg(dest)
+            audio_path, transcode_ok = VoiceTranscriptionService._transcode_to_ogg(dest)
             duration_seconds = _duration_from_file(audio_path)
-            transcript = VoiceTranscriptionService._transcribe_file(
+            stt = VoiceTranscriptionService._transcribe_file(
                 main_db,
                 audio_path,
                 language=stt_lang,
                 provider_order=WEB_UPLOAD_STT_PROVIDER_ORDER,
-            ).strip()
+            )
+            transcript = stt.text.strip()
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript) and not is_low_quality_transcript(transcript)
             logger.info(
-                "voice_web_transcription chars=%s confidence=%.2f ok=%s", len(transcript), confidence, ok
+                "voice_web_transcription chars=%s confidence=%.2f ok=%s transcode_ok=%s stt_provider=%s stt_language=%s",
+                len(transcript),
+                confidence,
+                ok,
+                transcode_ok,
+                stt.stt_provider,
+                stt.detected_language,
             )
             return VoiceTranscriptionResult(
                 ok=ok,
@@ -369,13 +406,16 @@ class VoiceTranscriptionService:
                 error=None if ok else "low_confidence_or_empty",
                 file_size_bytes=len(audio_bytes),
                 duration_seconds=duration_seconds,
+                detected_language=stt.detected_language,
+                stt_provider=stt.stt_provider,
+                transcode_ok=transcode_ok,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("voice_web_transcription_failed err=%s", exc, exc_info=True)
             return VoiceTranscriptionResult(ok=False, transcript="", confidence=0.0, error=str(exc))
 
     @staticmethod
-    def _transcribe_deepgram(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+    def _transcribe_deepgram(main_db: Session, audio_path: Path, *, language: str | None) -> SttTranscriptionResult:
         stt_lang = _stt_language(language)
         payload = DeepgramProviderService.transcribe_audio_result(
             main_db,
@@ -387,10 +427,18 @@ class VoiceTranscriptionService:
         if not payload.get("ok", True) and not payload.get("text"):
             err = payload.get("error") or payload.get("status_code")
             raise RuntimeError(f"Deepgram STT failed: {err}")
-        return str(payload.get("text") or "").strip()
+        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        detected = _deepgram_detected_language(raw) if raw else None
+        if not detected and stt_lang not in {"auto"} and payload.get("language") not in {None, "auto"}:
+            detected = str(payload.get("language") or "")
+        return SttTranscriptionResult(
+            text=str(payload.get("text") or "").strip(),
+            detected_language=detected or None,
+            stt_provider="deepgram",
+        )
 
     @staticmethod
-    def _transcribe_deepinfra(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+    def _transcribe_deepinfra(main_db: Session, audio_path: Path, *, language: str | None) -> SttTranscriptionResult:
         stt_lang = _stt_language(language)
         result = DeepInfraProviderService.transcribe_audio_file(
             main_db,
@@ -398,18 +446,26 @@ class VoiceTranscriptionService:
             # None lets DeepInfra/Whisper auto-detect the spoken language.
             language=None if stt_lang == "auto" else stt_lang,
         )
-        return str(result.get("text") or "").strip()
+        return SttTranscriptionResult(
+            text=str(result.get("text") or "").strip(),
+            detected_language=str(result.get("detected_language") or "") or None,
+            stt_provider="deepinfra",
+        )
 
     @staticmethod
-    def _transcribe_whisper_cpp(audio_path: Path, *, language: str | None) -> str:
+    def _transcribe_whisper_cpp(audio_path: Path, *, language: str | None) -> SttTranscriptionResult:
         from app.services.survey_wa_whisper_service import transcribe_with_whisper_cpp
 
         whisper_lang = _stt_language(language) if _stt_language(language) in {"ar", "en"} else "auto"
         result = transcribe_with_whisper_cpp(audio_path, language=whisper_lang)
-        return str(result.get("text") or "").strip()
+        return SttTranscriptionResult(
+            text=str(result.get("text") or "").strip(),
+            detected_language=str(result.get("detected_language") or "") or None,
+            stt_provider="whisper_cpp",
+        )
 
     @staticmethod
-    def _transcribe_groq(main_db: Session, audio_path: Path, *, language: str | None) -> str:
+    def _transcribe_groq(main_db: Session, audio_path: Path, *, language: str | None) -> SttTranscriptionResult:
         stt_lang = _stt_language(language)
         with tempfile.NamedTemporaryFile(suffix=audio_path.suffix, delete=False) as tmp:
             tmp.write(audio_path.read_bytes())
@@ -425,8 +481,12 @@ class VoiceTranscriptionService:
                 language=stt_lang,
             )
             if not payload.get("ok", True) and not payload.get("text"):
-                return ""
-            return str(payload.get("text") or "").strip()
+                return SttTranscriptionResult(text="", stt_provider="groq")
+            return SttTranscriptionResult(
+                text=str(payload.get("text") or "").strip(),
+                detected_language=str(payload.get("language") or "") or None,
+                stt_provider="groq",
+            )
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
@@ -440,7 +500,7 @@ class VoiceTranscriptionService:
         *,
         language: str | None,
         provider_order: tuple[str, ...] | None = None,
-    ) -> str:
+    ) -> SttTranscriptionResult:
         providers = provider_order or stt_provider_order()
         deepgram_ready = DeepgramProviderService.is_configured(main_db)
         deepinfra_ready = DeepInfraProviderService.is_configured(main_db)
@@ -451,31 +511,31 @@ class VoiceTranscriptionService:
                     if not deepgram_ready:
                         failures.append("deepgram:not_configured")
                         continue
-                    text = VoiceTranscriptionService._transcribe_deepgram(main_db, audio_path, language=language)
-                    if text:
-                        logger.info("voice_stt_ok provider=deepgram chars=%s", len(text))
-                        return text
+                    stt = VoiceTranscriptionService._transcribe_deepgram(main_db, audio_path, language=language)
+                    if stt.text:
+                        logger.info("voice_stt_ok provider=deepgram chars=%s language=%s", len(stt.text), stt.detected_language)
+                        return stt
                     failures.append("deepgram:empty")
                 elif provider == "deepinfra":
                     if not deepinfra_ready:
                         failures.append("deepinfra:not_configured")
                         continue
-                    text = VoiceTranscriptionService._transcribe_deepinfra(main_db, audio_path, language=language)
-                    if text:
-                        logger.info("voice_stt_ok provider=deepinfra chars=%s", len(text))
-                        return text
+                    stt = VoiceTranscriptionService._transcribe_deepinfra(main_db, audio_path, language=language)
+                    if stt.text:
+                        logger.info("voice_stt_ok provider=deepinfra chars=%s language=%s", len(stt.text), stt.detected_language)
+                        return stt
                     failures.append("deepinfra:empty")
                 elif provider == "whisper_cpp":
-                    text = VoiceTranscriptionService._transcribe_whisper_cpp(audio_path, language=language)
-                    if text:
-                        logger.info("voice_stt_ok provider=whisper_cpp chars=%s", len(text))
-                        return text
+                    stt = VoiceTranscriptionService._transcribe_whisper_cpp(audio_path, language=language)
+                    if stt.text:
+                        logger.info("voice_stt_ok provider=whisper_cpp chars=%s language=%s", len(stt.text), stt.detected_language)
+                        return stt
                     failures.append("whisper_cpp:empty")
                 elif provider == "groq":
-                    text = VoiceTranscriptionService._transcribe_groq(main_db, audio_path, language=language)
-                    if text:
-                        logger.info("voice_stt_ok provider=groq chars=%s", len(text))
-                        return text
+                    stt = VoiceTranscriptionService._transcribe_groq(main_db, audio_path, language=language)
+                    if stt.text:
+                        logger.info("voice_stt_ok provider=groq chars=%s language=%s", len(stt.text), stt.detected_language)
+                        return stt
                     failures.append("groq:empty")
                 else:
                     failures.append(f"{provider}:unknown")
@@ -490,4 +550,4 @@ class VoiceTranscriptionService:
             deepinfra_ready,
             ",".join(failures) or "none",
         )
-        return ""
+        return SttTranscriptionResult(text="", detected_language=None, stt_provider=None)

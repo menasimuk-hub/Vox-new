@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -32,6 +33,27 @@ POOR_ANSWERS = frozenset(
 )
 OPT_IN_YES = frozenset({"yes", "yes please", "yes, please", "yes definitely", "yes, definitely"})
 OPT_IN_NO = frozenset({"no", "no thanks", "no thank you", "no, thanks"})
+
+TRANSLATION_UNAVAILABLE_EN = "[Translation unavailable]"
+
+_LATIN_FOREIGN_HINT_RE = re.compile(
+    r"\b("
+    r"muy|gracias|hola|bueno|buena|mal|servicio|excelente|"
+    r"bonjour|merci|très|mauvais|"
+    r"danke|gut|schlecht|"
+    r"obrigado|obrigada|"
+    r"grazie|molto|ciao"
+    r")\b",
+    re.I,
+)
+
+
+def _likely_non_english_latin(text: str) -> bool:
+    """Heuristic for Latin-script feedback typed without STT language hint."""
+    sample = str(text or "").strip()
+    if len(sample.split()) < 2:
+        return False
+    return bool(_LATIN_FOREIGN_HINT_RE.search(sample))
 
 
 def parse_template_buttons(tpl: FeedbackWaTemplate | None) -> list[str]:
@@ -161,6 +183,7 @@ def translate_answer_to_english(
     answer: str,
     detected_language: str | None,
     tpl: FeedbackWaTemplate | None = None,
+    source_language: str | None = None,
 ) -> dict[str, Any]:
     """Store English in results; keep original Arabic/other text."""
     original = str(answer or "").strip()
@@ -168,34 +191,56 @@ def translate_answer_to_english(
         return {"original_text": "", "answer_text_en": "", "translation_status": "skipped"}
 
     lang = resolve_template_language(detected_language)
-    if lang == "en_GB":
+    if source_language:
+        stt_lang = resolve_template_language(source_language)
+        if stt_lang != "en_GB":
+            lang = stt_lang
+
+    needs_translation = (
+        lang != "en_GB"
+        or SurveyWaTranslationService.needs_translation(original, None)
+        or _likely_non_english_latin(original)
+    )
+    if lang == "en_GB" and not needs_translation:
         return {
             "original_text": original,
             "answer_text_en": original,
             "translation_status": "not_needed",
         }
 
-    mapped = map_answer_to_english_label(
-        db,
-        answer=original,
-        tpl=tpl,
-        detected_language=detected_language,
-    )
-    if mapped and mapped != original.lower():
-        return {
-            "original_text": original,
-            "answer_text_en": mapped,
-            "translation_status": "button_mapped",
-        }
+    if lang != "en_GB" and not source_language:
+        local_buttons = parse_template_buttons(tpl)
+        if local_buttons:
+            mapped = map_answer_to_english_label(
+                db,
+                answer=original,
+                tpl=tpl,
+                detected_language=detected_language or lang,
+            )
+            if mapped and mapped != original.lower():
+                return {
+                    "original_text": original,
+                    "answer_text_en": mapped,
+                    "translation_status": "button_mapped",
+                }
 
     translated = SurveyWaTranslationService.translate_to_english(
         db,
         original,
-        detected_language=detected_language or lang,
+        detected_language=source_language or detected_language or lang,
     )
-    answer_en = str(translated.get("translated_text") or original).strip()
+    status = str(translated.get("translation_status") or "completed")
+    answer_en = str(translated.get("translated_text") or "").strip()
+    if status == "failed" or (lang != "en_GB" and not answer_en):
+        return {
+            "original_text": original,
+            "answer_text_en": TRANSLATION_UNAVAILABLE_EN,
+            "translation_status": "failed",
+        }
+    if not answer_en:
+        answer_en = original
     return {
         "original_text": original,
         "answer_text_en": answer_en,
-        "translation_status": translated.get("translation_status") or "completed",
+        "translation_status": status,
     }

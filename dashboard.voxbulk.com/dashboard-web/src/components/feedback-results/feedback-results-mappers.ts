@@ -49,7 +49,7 @@ export type Respondent = {
   answers: Array<
     | { qid: string; type: "Rating"; value: "poor" | "good" | "excellent" }
     | { qid: string; type: "Yes/No"; value: "yes" | "no" }
-    | { qid: string; type: "Voice"; value: string; original?: string }
+    | { qid: string; type: "Voice"; value: string; original?: string; translationPending?: true }
   >;
 };
 
@@ -59,9 +59,12 @@ export type VoiceComment = {
   tone: "destructive" | "success";
   transcript: string;
   originalTranscript?: string;
+  translationPending?: boolean;
   reason: string;
   question: string;
 };
+
+const TRANSLATION_UNAVAILABLE = "[Translation unavailable]";
 
 export type TextComment = {
   quote: string;
@@ -211,11 +214,13 @@ function mapRespondentAnswers(
     if (a.answer_source === "voice" || role.includes("voice") || role.includes("open") || q?.scale === "OPEN") {
       if (raw) {
         const original = String((a as { original_text?: string }).original_text || "").trim();
+        const translationPending = raw === TRANSLATION_UNAVAILABLE && Boolean(original);
         answers.push({
           qid,
           type: "Voice",
-          value: raw,
+          value: translationPending ? TRANSLATION_UNAVAILABLE : raw,
           ...(original && original !== raw ? { original } : {}),
+          ...(translationPending ? { translationPending: true as const } : {}),
         });
       }
       continue;
@@ -287,6 +292,9 @@ export function mapFeedbackResults(
         c.original_text && String(c.original_text).trim() !== String(c.text || "").trim()
           ? String(c.original_text)
           : undefined,
+      translationPending:
+        String(c.text || "").trim() === TRANSLATION_UNAVAILABLE &&
+        Boolean(c.original_text && String(c.original_text).trim()),
       reason: String(c.theme || "Feedback"),
       question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
     }));

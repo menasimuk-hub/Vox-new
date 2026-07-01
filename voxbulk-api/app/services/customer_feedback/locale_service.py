@@ -132,6 +132,36 @@ def normalize_session_language(lang: str | None) -> str:
     return canonical.get(code, "en_GB")
 
 
+def map_stt_language_code(stt_code: str | None) -> str | None:
+    """Map Whisper/DeepInfra/Deepgram detected language codes to session locale."""
+    raw = str(stt_code or "").strip().lower().replace("-", "_")
+    if not raw or raw in {"auto", "unknown", "multi", "und"}:
+        return None
+    name_map = {
+        "english": "en",
+        "arabic": "ar",
+        "french": "fr",
+        "spanish": "es",
+        "german": "de",
+        "italian": "it",
+        "portuguese": "pt",
+        "dutch": "nl",
+        "polish": "pl",
+        "turkish": "tr",
+        "hindi": "hi",
+        "japanese": "ja",
+        "korean": "ko",
+        "chinese": "zh_CN",
+        "irish": "en_GB",
+    }
+    if raw in name_map:
+        raw = name_map[raw]
+    if raw.startswith("en"):
+        return normalize_session_language(raw)
+    mapped = normalize_session_language(raw)
+    return mapped if mapped else None
+
+
 def resolve_session_language(
     *,
     phone: str,

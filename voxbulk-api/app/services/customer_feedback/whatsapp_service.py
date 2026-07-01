@@ -107,7 +107,7 @@ class FeedbackWhatsappService:
             if is_voice_inbound(record):
                 session = FeedbackWhatsappService._active_session(db, from_phone=from_phone)
                 lang = session.detected_language if session else None
-                transcript, ok = transcribe_inbound(
+                transcript, ok, stt_lang = transcribe_inbound(
                     db,
                     record=record or {},
                     customer_phone=from_phone,
@@ -116,6 +116,14 @@ class FeedbackWhatsappService:
                 if ok and transcript:
                     normalized_body = transcript
                     answer_source = "voice"
+                    if session and stt_lang:
+                        from app.services.customer_feedback.locale_service import map_stt_language_code
+
+                        mapped = map_stt_language_code(stt_lang)
+                        if mapped and mapped != session.detected_language:
+                            session.detected_language = mapped
+                            db.add(session)
+                            db.flush()
                 elif session:
                     FeedbackWhatsappService._send_wa(
                         db,

@@ -52,9 +52,9 @@ agents:
     region: IE
     gender: male
     provider: elevenlabs
-    voice: ElevenLabs.eleven_flash_v2_5.D38z5RcWu1voky8WS1ja
+    voice: ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9
     api_key_ref: elevenlabs-paid
-    accent_keywords: [irish, ireland, fin]
+    accent_keywords: [irish, ireland, daniel, british, male]
     fallback:
       provider: telnyx
       voice: Telnyx.Ultra.Asher

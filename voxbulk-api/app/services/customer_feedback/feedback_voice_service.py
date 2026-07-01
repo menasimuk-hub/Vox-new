@@ -47,8 +47,8 @@ def transcribe_inbound(
     record: dict[str, Any],
     customer_phone: str,
     language: str | None = None,
-) -> tuple[str, bool]:
-    """Return (transcript, ok)."""
+) -> tuple[str, bool, str | None]:
+    """Return (transcript, ok, stt_detected_language)."""
     result = VoiceTranscriptionService.transcribe_inbound(
         db,
         record=record,
@@ -57,5 +57,5 @@ def transcribe_inbound(
     )
     text = str(result.transcript or "").strip()
     if not result.ok or not text or is_low_quality_transcript(text):
-        return text, False
-    return text, True
+        return text, False, result.detected_language
+    return text, True, result.detected_language

@@ -48,9 +48,11 @@ def test_voice_settings_jode_elevenlabs_female():
 def test_voice_settings_ie_sean_valid_elevenlabs_id():
     entry = matrix_entry_for_slug("interview-ie-sean")
     assert entry is not None
+    assert entry["gender"] == "male"
     settings = voice_settings_from_entry(entry)
     assert "TX3LPaxmHKxFdv7VOQQH" not in settings["voice"]
-    assert "D38z5RcWu1voky8WS1ja" in settings["voice"]
+    assert "D38z5RcWu1voky8WS1ja" not in settings["voice"]
+    assert "onwK4e9ZLuTAKqWW03F9" in settings["voice"]
 
 
 def test_pick_telnyx_voice_skips_uuid():
