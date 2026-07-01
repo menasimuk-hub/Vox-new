@@ -20,8 +20,8 @@ Then **Save settings** → **Resync Telnyx**.
 | Step | Command / action |
 |------|------------------|
 | 1. Migrate | `alembic upgrade head` (adds `accent_region`, `gender` on agents) |
-| 2. Provision Telnyx | `python scripts/provision_interview_telnyx_assistants.py --dry-run` then without `--dry-run` |
-| 3. Seed DB | `python scripts/seed_interview_regional_agents.py` |
+| 2. Seed DB | `python scripts/seed_interview_regional_agents.py` |
+| 3. Provision Telnyx | `python scripts/provision_interview_telnyx_assistants.py --dry-run` then without `--dry-run` |
 
 **KB files** (auto-loaded into agent `kb_context` by seed script):
 
@@ -32,7 +32,7 @@ Then **Save settings** → **Resync Telnyx**.
 
 **Optional `.env` voice mapping** (ElevenLabs composite IDs from Telnyx):
 
-- `INTERVIEW_TELNYX_MODEL=openai/gpt-4o-mini`
+- `INTERVIEW_TELNYX_MODEL=openai/gpt-4o` (optional; defaults to Leo's model)
 - `INTERVIEW_TELNYX_ASSISTANT_ID_GB_LEO=assistant-...` (Leo — existing)
 - `INTERVIEW_VOICE_{GB,SC,IE,US,CA,AU}_{MALE,FEMALE}=ElevenLabs.eleven_flash_v2_5.{voice_id}`
 

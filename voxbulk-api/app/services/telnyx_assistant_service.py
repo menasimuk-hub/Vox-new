@@ -12,6 +12,8 @@ from app.services.telnyx_api_key import require_telnyx_api_key
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TELNYX_ASSISTANT_MODEL = "openai/gpt-4o"
+
 RECORDING_SUFFIX = "This call is recorded for quality — see voxbulk.com for privacy."
 
 
@@ -178,17 +180,45 @@ def _telephony_with_web_and_dual_recording(existing: dict[str, Any]) -> tuple[di
     return telephony, changed
 
 
+def _telnyx_response_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            errors = payload.get("errors")
+            if errors:
+                return str(errors)
+            return str(payload)
+    except Exception:
+        pass
+    return response.text or f"HTTP {response.status_code}"
+
+
+def template_assistant_create_defaults(db: Session, template_assistant_id: str) -> dict[str, Any]:
+    """Clone model + voice from an existing working Telnyx assistant (e.g. Leo)."""
+    assistant = fetch_telnyx_assistant(db, template_assistant_id)
+    voice_settings = _voice_settings_dict(assistant)
+    out_voice: dict[str, Any] | None = None
+    if voice_settings.get("voice"):
+        out_voice = {"voice": voice_settings.get("voice")}
+        for key in ("voice_speed", "speed", "api_key_ref"):
+            if voice_settings.get(key) is not None:
+                out_voice[key] = voice_settings.get(key)
+    model = str(assistant.get("model") or DEFAULT_TELNYX_ASSISTANT_MODEL).strip()
+    return {"model": model, "voice_settings": out_voice}
+
+
 def create_telnyx_assistant(
     db: Session,
     *,
     name: str,
     instructions: str,
-    model: str = "openai/gpt-4o-mini",
+    model: str | None = None,
     greeting: str | None = None,
     voice_settings: dict[str, Any] | None = None,
     telephony_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a Telnyx AI assistant. Returns assistant payload including id."""
+    del telephony_settings  # applied post-create via enable_telnyx_assistant_web_calls
     clean_name = str(name or "").strip()
     clean_instructions = str(instructions or "").strip()
     if not clean_name:
@@ -200,24 +230,27 @@ def create_telnyx_assistant(
     url = "https://api.telnyx.com/v2/ai/assistants"
     body: dict[str, Any] = {
         "name": clean_name,
-        "model": str(model or "openai/gpt-4o-mini").strip(),
+        "model": str(model or DEFAULT_TELNYX_ASSISTANT_MODEL).strip(),
         "instructions": clean_instructions,
     }
     if greeting:
         body["greeting"] = str(greeting).strip()
     if voice_settings:
         body["voice_settings"] = dict(voice_settings)
-    telephony, _ = _telephony_with_web_and_dual_recording(
-        {"telephony_settings": telephony_settings or {}}
-    )
-    body["telephony_settings"] = telephony
 
     with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
         response = client.post(url, json=body, headers=_telnyx_headers(api_key))
-    response.raise_for_status()
+    if response.status_code >= 400:
+        raise ValueError(
+            f"Telnyx assistant create failed ({response.status_code}): {_telnyx_response_detail(response)}"
+        )
     payload = response.json()
     data = payload.get("data") if isinstance(payload, dict) else None
-    return data if isinstance(data, dict) else (payload if isinstance(payload, dict) else {})
+    created = data if isinstance(data, dict) else (payload if isinstance(payload, dict) else {})
+    assistant_id = str(created.get("id") or "").strip()
+    if assistant_id:
+        enable_telnyx_assistant_web_calls(db, assistant_id)
+    return created
 
 
 def enable_telnyx_assistant_web_calls(db: Session, assistant_id: str) -> dict[str, Any]:
