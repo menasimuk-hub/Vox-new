@@ -14,6 +14,8 @@ type Props = {
   compact?: boolean;
   hideFooter?: boolean;
   className?: string;
+  /** Core billing card: show used count + bar only (no left / fraction line). */
+  usedOnlyKpis?: boolean;
 };
 
 export function AllowanceProductPanel({
@@ -24,6 +26,7 @@ export function AllowanceProductPanel({
   compact,
   hideFooter,
   className,
+  usedOnlyKpis,
 }: Props) {
   const period =
     periodLabel ||
@@ -39,7 +42,7 @@ export function AllowanceProductPanel({
       ) : null}
       <div className={cn("grid gap-2", compact ? "grid-cols-1 sm:grid-cols-2" : "sm:grid-cols-2")}>
         {rows.map((row) => (
-          <AnimatedAllowanceKpi key={row.key} row={row} compact={compact} />
+          <AnimatedAllowanceKpi key={row.key} row={row} compact={compact} usedOnly={usedOnlyKpis} />
         ))}
       </div>
       {!hideFooter && period ? (

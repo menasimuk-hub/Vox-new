@@ -2,6 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
 import { BarChart3 } from "lucide-react";
 
+import { BillingProductColumn } from "@/components/billing/billing-product-column";
+import { UsageKpiCard, UsageKpiCardSkeleton } from "@/components/billing/usage-kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +18,6 @@ import { orderDetailLink } from "@/lib/billing/usage-detail-link";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 import { usageServiceIcon } from "@/lib/billing/refund-timing";
-import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
 import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { useBillingUsageBreakdown } from "@/lib/queries";
 
@@ -29,6 +30,17 @@ export const Route = createFileRoute("/_app/account/usage")({
 });
 
 const PAGE_SIZE = 15;
+
+const FEEDBACK_BILLING_NOTE = (
+  <p className="text-xs leading-relaxed text-muted-foreground">
+    <span className="font-medium text-foreground">Separate Direct Debit subscription</span> — not included in Core
+    platform. Included WA + web survey units reset each billing period. No wallet or per-campaign invoices;{" "}
+    <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">
+      upgrade your plan
+    </Link>{" "}
+    when units run out.
+  </p>
+);
 
 type UsageRow = {
   order_id: string;
@@ -45,18 +57,6 @@ type UsageRow = {
   billing_source_label?: string;
   created_at?: string | null;
 };
-
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <Card>
-      <CardContent className="space-y-1 p-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-xl font-semibold tabular-nums">{value}</p>
-        {sub ? <p className="text-[11px] text-muted-foreground">{sub}</p> : null}
-      </CardContent>
-    </Card>
-  );
-}
 
 function AccountUsagePage() {
   const allowancesState = useUsageAllowances();
@@ -90,6 +90,19 @@ function AccountUsagePage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const highlight = useAssistantHighlight().highlight;
 
+  const plan = allowancesState.usage?.current_plan;
+  const showCoreColumn =
+    allowancesState.hasCoreSub ||
+    allowancesState.isPayg ||
+    allowancesState.coreRows.length > 0;
+  const showFeedbackColumn =
+    allowancesState.hasFeedbackSub || allowancesState.feedbackRows.length > 0;
+
+  const coreCallsRow = allowancesState.coreRows.find((r) => r.key === "calls");
+  const coreWaRow = allowancesState.coreRows.find((r) => r.key === "whatsapp");
+  const callsUsedDisplay = `${(coreCallsRow?.used ?? summary.calls_used ?? 0).toLocaleString()} ${coreCallsRow?.unit ?? "min"}`;
+  const waUsedDisplay = `${(coreWaRow?.used ?? summary.whatsapp_used ?? 0).toLocaleString()} ${coreWaRow?.unit ?? "recipients"}`;
+
   React.useEffect(() => {
     setPage(1);
   }, [serviceCode, status, billingSource, search]);
@@ -110,47 +123,95 @@ function AccountUsagePage() {
       />
 
       {allowancesState.loading ? (
-        <div className="grid gap-3 lg:grid-cols-2">
-          <Skeleton className="h-40" />
-          <Skeleton className="h-40" />
+        <div className="space-y-4">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Skeleton className="h-56" />
+            <Skeleton className="h-56" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <UsageKpiCardSkeleton />
+            <UsageKpiCardSkeleton />
+            <UsageKpiCardSkeleton />
+            <UsageKpiCardSkeleton />
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
           {allowancesState.periodLabel ? (
             <p className="text-xs text-muted-foreground">Billing period: {allowancesState.periodLabel}</p>
           ) : null}
-          <div className={cn("grid gap-4", allowancesState.coreRows.length && allowancesState.feedbackRows.length ? "lg:grid-cols-2" : "grid-cols-1")}>
-            {allowancesState.coreRows.length > 0 ? (
-              <AllowanceProductPanel meta={allowancesState.coreMeta} rows={allowancesState.coreRows} sharedPool={allowancesState.sharedPool} />
-            ) : null}
-            {allowancesState.feedbackRows.length > 0 ? (
-              <AllowanceProductPanel meta={allowancesState.feedbackMeta} rows={allowancesState.feedbackRows} />
-            ) : null}
-          </div>
-          {!breakdownQ.isLoading ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <KpiCard
-                label="AI minutes"
-                value={`${summary.calls_used ?? 0} / ${summary.calls_included ?? 0}`}
-                sub={`${summary.calls_remaining ?? 0} remaining`}
-              />
-              <KpiCard
-                label="WA surveys"
-                value={`${summary.whatsapp_used ?? 0} / ${summary.whatsapp_included ?? 0}`}
-                sub={`${summary.whatsapp_remaining ?? 0} remaining`}
-              />
-              <KpiCard
-                label="Extra due at completion"
-                value={String(summary.extra_due_at_completion_display || summary.overage_pending_display || "£0.00")}
-                sub="Estimated until campaign finishes"
-              />
-              <KpiCard
-                label="Wallet-paid usage"
-                value={String(summary.wallet_paid_display || "£0.00")}
-                sub="Campaign charges from wallet"
-              />
+
+          {showCoreColumn || showFeedbackColumn ? (
+            <div className={cn("grid gap-3", showCoreColumn && showFeedbackColumn ? "lg:grid-cols-2" : "grid-cols-1")}>
+              {showCoreColumn ? (
+                <BillingProductColumn
+                  meta={allowancesState.coreMeta}
+                  finance={allowancesState.coreFinance}
+                  allowanceRows={allowancesState.coreRows}
+                  planLabel={plan?.name || allowancesState.coreFinance?.plan_name || undefined}
+                  isPayg={allowancesState.isPayg && !allowancesState.snapshot.has_core_subscription}
+                  walletDisplay={allowancesState.walletDisplay}
+                  sharedPool={allowancesState.sharedPool}
+                  compact
+                  usedOnlyKpis
+                />
+              ) : null}
+              {showFeedbackColumn ? (
+                <BillingProductColumn
+                  meta={allowancesState.feedbackMeta}
+                  finance={allowancesState.feedbackFinance}
+                  allowanceRows={allowancesState.feedbackRows}
+                  planLabel={allowancesState.feedbackSub?.plan_name || allowancesState.feedbackFinance?.plan_name || undefined}
+                  billingInterval={allowancesState.feedbackSub?.billing_interval}
+                  badges={allowancesState.hasFeedbackSub ? [{ label: "Direct Debit", variant: "outline" as const }] : []}
+                  footerNote={FEEDBACK_BILLING_NOTE}
+                  compact
+                />
+              ) : null}
             </div>
           ) : null}
+
+          <div className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Campaign billing snapshot
+            </h2>
+            {breakdownQ.isLoading ? (
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <UsageKpiCardSkeleton />
+                <UsageKpiCardSkeleton />
+                <UsageKpiCardSkeleton />
+                <UsageKpiCardSkeleton />
+              </div>
+            ) : (
+              <div
+                className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+                data-assistant-highlight="usage-kpis"
+              >
+                <UsageKpiCard
+                  accent="primary"
+                  label="AI minutes"
+                  value={callsUsedDisplay}
+                />
+                <UsageKpiCard
+                  accent="success"
+                  label="WA surveys"
+                  value={waUsedDisplay}
+                />
+                <UsageKpiCard
+                  accent="warning"
+                  label="Extra due at completion"
+                  value={String(summary.extra_due_at_completion_display || summary.overage_pending_display || "£0.00")}
+                  sub="Estimated until campaign finishes"
+                />
+                <UsageKpiCard
+                  accent="violet"
+                  label="Wallet-paid usage"
+                  value={String(summary.wallet_paid_display || "£0.00")}
+                  sub="Campaign charges from wallet"
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -159,6 +220,7 @@ function AccountUsagePage() {
           <CardTitle>Campaign usage</CardTitle>
           <CardDescription>
             Each row shows campaign value (cost) and amount due. Extras are invoiced once when the campaign completes.
+            Customer Feedback usage is tracked in the product panel above, not in this table.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -16,9 +16,11 @@ type Props = {
   row: AllowanceRow;
   compact?: boolean;
   className?: string;
+  /** When true, hide remaining/left and the used/included fraction line (billing Core card). */
+  usedOnly?: boolean;
 };
 
-export function AnimatedAllowanceKpi({ row, compact, className }: Props) {
+export function AnimatedAllowanceKpi({ row, compact, className, usedOnly }: Props) {
   const Icon = KEY_ICONS[row.key] || Phone;
   const pct =
     row.included > 0 && !row.unlimited
@@ -50,19 +52,21 @@ export function AnimatedAllowanceKpi({ row, compact, className }: Props) {
             <span className="font-semibold text-blue-600 dark:text-blue-400">{row.used.toLocaleString()}</span>
             <span className="ml-1 text-xs text-muted-foreground">used</span>
           </span>
-          <span className="tabular-nums">
-            <span
-              className={cn(
-                "font-semibold text-emerald-600 dark:text-emerald-400",
-                lowRemaining && "motion-safe:animate-pulse",
-              )}
-            >
-              {remainingLabel}
+          {!usedOnly ? (
+            <span className="tabular-nums">
+              <span
+                className={cn(
+                  "font-semibold text-emerald-600 dark:text-emerald-400",
+                  lowRemaining && "motion-safe:animate-pulse",
+                )}
+              >
+                {remainingLabel}
+              </span>
+              <span className="ml-1 text-xs text-muted-foreground">
+                {row.unlimited ? "" : row.included > 0 ? "left" : ""}
+              </span>
             </span>
-            <span className="ml-1 text-xs text-muted-foreground">
-              {row.unlimited ? "" : row.included > 0 ? "left" : ""}
-            </span>
-          </span>
+          ) : null}
         </div>
         {row.included > 0 && !row.unlimited ? (
           <div className="space-y-1">
@@ -72,9 +76,11 @@ export function AnimatedAllowanceKpi({ row, compact, className }: Props) {
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <p className="text-[10px] tabular-nums text-muted-foreground">
-              {row.used.toLocaleString()} / {row.included.toLocaleString()} {row.unit}
-            </p>
+            {!usedOnly ? (
+              <p className="text-[10px] tabular-nums text-muted-foreground">
+                {row.used.toLocaleString()} / {row.included.toLocaleString()} {row.unit}
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="text-[10px] text-muted-foreground">{row.included <= 0 ? "Pay per use · wallet" : "Unlimited"}</p>

@@ -22,6 +22,8 @@ type Props = {
   badges?: Array<{ label: string; variant?: "default" | "secondary" | "outline" }>;
   onTopUp?: () => void;
   compact?: boolean;
+  footerNote?: React.ReactNode;
+  usedOnlyKpis?: boolean;
 };
 
 function formatSubDate(raw: unknown) {
@@ -42,6 +44,8 @@ export function BillingProductColumn({
   badges = [],
   onTopUp,
   compact,
+  footerNote,
+  usedOnlyKpis,
 }: Props) {
   const Icon = meta.product === "feedback" ? Smile : Sparkles;
   const planName = planLabel || finance?.plan_name || finance?.plan_code || (isPayg ? "Pay as you go" : "—");
@@ -109,7 +113,10 @@ export function BillingProductColumn({
           rows={allowanceRows}
           sharedPool={sharedPool}
           compact={compact}
+          hideFooter
+          usedOnlyKpis={usedOnlyKpis}
         />
+        {footerNote ? <div className="mt-3 border-t border-border/60 pt-3">{footerNote}</div> : null}
       </CardContent>
     </Card>
   );

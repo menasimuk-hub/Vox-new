@@ -423,6 +423,7 @@ function BillingPage() {
                 sharedPool={sharedPool}
                 badges={coreBadges}
                 onTopUp={() => setTopupOpen(true)}
+                usedOnlyKpis
               />
             ) : null}
             {showFeedbackColumn ? (
