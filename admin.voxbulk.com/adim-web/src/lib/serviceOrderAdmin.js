@@ -110,9 +110,82 @@ export function orderDeliveryLabel(order) {
   if (delivery === 'ai_call') return 'Phone AI call'
   const launch = order?.launch_billing || {}
   const channel = String(launch.channel || cfg.survey_channel || cfg.channel || order?.quote_survey_channel || '').toLowerCase()
+  if (channel === 'ai_meeting' || channel === 'meeting') return 'Web interview (browser)'
   if (channel === 'whatsapp' || channel === 'wa') return 'WhatsApp'
   if (channel === 'ai_call' || channel === 'phone' || channel === 'call') return 'Phone AI call'
   return channel || '—'
+}
+
+/** Interview list/detail label — prefers session stats, falls back to order config. */
+export function interviewFormatLabel(order) {
+  const cfg = order?.config || {}
+  const delivery = String(cfg.delivery || '').toLowerCase()
+  const launchChannel = String(order?.launch_billing?.channel || '').toLowerCase()
+  const sessions = order?.interview_sessions
+  const fmt = String(sessions?.interview_format || '').toLowerCase()
+  const sessionLabel = sessions?.interview_format_label
+
+  if (delivery === 'ai_meeting' || launchChannel === 'ai_meeting' || launchChannel === 'meeting') {
+    if (fmt === 'mixed') return sessionLabel || 'Phone + web'
+    if (fmt === 'phone') return sessionLabel || 'Web interview'
+    return sessionLabel || 'Web interview'
+  }
+  if (sessionLabel) return sessionLabel
+  return orderDeliveryLabel(order)
+}
+
+/** Match order against free-text search (IDs, refs, names). */
+export function orderMatchesSearch(order, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  const haystack = [
+    order?.id,
+    order?.title,
+    order?.org_name,
+    order?.owner_email,
+    order?.reference_id,
+    order?.campaign_id,
+    order?.service_code,
+    order?.status,
+    order?.status_label,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(q)
+}
+
+/**
+ * Generic column sort for admin order tables.
+ * @param {Record<string, (row: any) => any>} accessors
+ */
+export function sortRowsByColumn(rows, column, asc, accessors = {}) {
+  const get = accessors[column] || ((row) => row?.[column])
+  const sorted = [...(Array.isArray(rows) ? rows : [])]
+  sorted.sort((a, b) => {
+    let va = get(a)
+    let vb = get(b)
+    if (va == null) va = ''
+    if (vb == null) vb = ''
+    if (typeof va === 'number' && typeof vb === 'number') {
+      const diff = va - vb
+      return asc ? diff : -diff
+    }
+    const na = Number(va)
+    const nb = Number(vb)
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && String(va).trim() !== '' && String(vb).trim() !== '') {
+      const diff = na - nb
+      return asc ? diff : -diff
+    }
+    const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' })
+    return asc ? cmp : -cmp
+  })
+  return sorted
+}
+
+export function nextColumnSort(currentField, currentAsc, field) {
+  if (currentField === field) return { field, asc: !currentAsc }
+  return { field, asc: true }
 }
 
 export function recipientSessionChannel(row, order) {

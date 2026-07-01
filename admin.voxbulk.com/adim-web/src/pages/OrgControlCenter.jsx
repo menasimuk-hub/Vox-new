@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, CircleCheck, CreditCard, FileText, Megaphone, Snowflake } from 'lucide-react'
 import { apiFetch } from '../lib/api'
-import { adminOrderViewPath, filterOrdersByWorkflow, sortServiceOrders, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
+import { adminOrderViewPath, filterOrdersByWorkflow, interviewFormatLabel, nextColumnSort, orderMatchesSearch, sortRowsByColumn, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
 import { KpiCard } from '@/components/ui/KpiCard'
 import './orgControlCenter.css'
@@ -117,8 +117,11 @@ function resolveInvoiceLifecycle(inv) {
   return { can_edit: true, can_void: true, is_locked: false, lock_reason: null, suggested_action_label: null }
 }
 
-function channelLabel(channel) {
+function channelLabel(channel, order) {
+  if (order?.service_code === 'interview') return interviewFormatLabel(order)
   const ch = String(channel || '').toLowerCase()
+  if (ch === 'meeting' || ch === 'ai_meeting') return 'Web interview'
+  if (ch === 'mixed') return 'Phone + web'
   if (ch === 'whatsapp') return 'WhatsApp'
   if (ch === 'sms') return 'SMS'
   if (ch === 'ai_call') return 'AI call'
@@ -345,8 +348,11 @@ export default function OrgControlCenter() {
   const [activityDeletionOnly, setActivityDeletionOnly] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleteAdminNotes, setDeleteAdminNotes] = useState('')
-  const [ordersWorkflowFilter, setOrdersWorkflowFilter] = useState('completed')
-  const [ordersSort, setOrdersSort] = useState('amount_desc')
+  const [ordersWorkflowFilter, setOrdersWorkflowFilter] = useState('all')
+  const [ordersSort, setOrdersSort] = useState('date_desc')
+  const [ordersSearch, setOrdersSearch] = useState('')
+  const [ordersTableSortField, setOrdersTableSortField] = useState('created')
+  const [ordersTableSortAsc, setOrdersTableSortAsc] = useState(false)
 
   const pushToast = useCallback((message, type = '') => {
     const id = `${Date.now()}-${Math.random()}`
@@ -474,10 +480,52 @@ export default function OrgControlCenter() {
   const org = detail?.organisation
   const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
-  const filteredOrders = useMemo(
-    () => sortServiceOrders(filterOrdersByWorkflow(campaigns, ordersWorkflowFilter), ordersSort),
-    [campaigns, ordersWorkflowFilter, ordersSort],
+  const orderSortAccessors = useMemo(
+    () => ({
+      reference: (o) => o.reference_id || o.campaign_id || o.id || '',
+      service: (o) => o.service_label || o.title || o.service_code || '',
+      channel: (o) => channelLabel(o.channel, o),
+      recipients: (o) => Number(o.recipient_count) || 0,
+      quote: (o) => Number(o.quote_total_pence) || 0,
+      payment: (o) => o.payment_status || '',
+      workflow: (o) => o.workflow_label || o.workflow_state || o.status || '',
+      created: (o) => {
+        const raw = o.created_at || o.updated_at
+        const t = raw ? new Date(raw).getTime() : 0
+        return Number.isNaN(t) ? 0 : t
+      },
+    }),
+    [],
   )
+
+  const sortOrdersColumn = (field) => {
+    const next = nextColumnSort(ordersTableSortField, ordersTableSortAsc, field)
+    setOrdersTableSortField(next.field)
+    setOrdersTableSortAsc(next.asc)
+  }
+
+  useEffect(() => {
+    const map = {
+      amount_desc: ['quote', false],
+      amount_asc: ['quote', true],
+      date_desc: ['created', false],
+      date_asc: ['created', true],
+      order_asc: ['reference', true],
+      name_asc: ['service', true],
+    }
+    const [field, asc] = map[ordersSort] || ['created', false]
+    setOrdersTableSortField(field)
+    setOrdersTableSortAsc(asc)
+  }, [ordersSort])
+
+  const filteredOrders = useMemo(() => {
+    const workflowRows = filterOrdersByWorkflow(campaigns, ordersWorkflowFilter)
+    const q = ordersSearch.trim()
+    const searched = q
+      ? workflowRows.filter((o) => orderMatchesSearch(o, q))
+      : workflowRows
+    return sortRowsByColumn(searched, ordersTableSortField, ordersTableSortAsc, orderSortAccessors)
+  }, [campaigns, ordersWorkflowFilter, ordersSearch, ordersTableSortField, ordersTableSortAsc, orderSortAccessors])
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const invoices = detail?.invoices || []
   const filteredInvoices = useMemo(() => {
@@ -1701,13 +1749,21 @@ export default function OrgControlCenter() {
 
           <div className={`occ-tab-content ${activeTab === 'orders' ? 'active' : ''}`}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+              <input
+                type="search"
+                className="occ-filter-sel"
+                placeholder="Search order ID, VB-CMP, reference, title…"
+                value={ordersSearch}
+                onChange={(e) => setOrdersSearch(e.target.value)}
+                style={{ minWidth: 240, flex: '1 1 220px' }}
+              />
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 Show
                 <select className="occ-filter-sel" value={ordersWorkflowFilter} onChange={(e) => setOrdersWorkflowFilter(e.target.value)}>
-                  <option value="completed">Completed (default)</option>
+                  <option value="all">All (default)</option>
+                  <option value="completed">Completed</option>
                   <option value="running">Running / scheduled</option>
                   <option value="paid">Paid — any workflow</option>
-                  <option value="all">All (incl. drafts)</option>
                 </select>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -1727,14 +1783,14 @@ export default function OrgControlCenter() {
               <table className="occ-data-table">
                 <thead>
                   <tr>
-                    <th>Order</th>
-                    <th>Service</th>
-                    <th>Channel</th>
-                    <th>Recipients</th>
-                    <th>Quote</th>
-                    <th>Pay status</th>
-                    <th>Workflow</th>
-                    <th>Created</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('reference')}>Order</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('service')}>Service</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('channel')}>Channel</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('recipients')}>Recipients</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('quote')}>Quote</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('payment')}>Pay status</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('workflow')}>Workflow</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortOrdersColumn('created')}>Created</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1750,7 +1806,7 @@ export default function OrgControlCenter() {
                       <tr key={ord.id}>
                         <td className="occ-mono">{ord.reference_id || ord.campaign_id || `${ord.id?.slice(0, 8)}…`}</td>
                         <td>{ord.service_label || ord.title || '—'}</td>
-                        <td>{channelLabel(ord.channel)}</td>
+                        <td>{channelLabel(ord.channel, ord)}</td>
                         <td className="occ-mono">{fmtN(ord.recipient_count)}</td>
                         <td className="occ-mono">{fmtMoneyPence(ord.quote_total_pence)}</td>
                         <td>{statusBadge(ord.payment_status)}</td>

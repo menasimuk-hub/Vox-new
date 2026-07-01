@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import {
   formatDurationSeconds,
+  interviewFormatLabel,
   orderDeliveryLabel,
   orderEstimatedDurationMin,
   recipientSessionChannel,
@@ -216,7 +217,7 @@ export default function ServiceOrderDetail() {
                   <div className="occ-info-block-title">Order</div>
                   <InfoRow label="Reference" value={order.reference_id || '—'} />
                   <InfoRow label="Campaign ID" value={order.campaign_id || '—'} />
-                  <InfoRow label="Delivery" value={orderDeliveryLabel(order)} />
+                  <InfoRow label="Delivery" value={order.service_code === 'interview' ? interviewFormatLabel(order) : orderDeliveryLabel(order)} />
                   {order.interview_sessions ? (
                     <InfoRow
                       label="Sessions"

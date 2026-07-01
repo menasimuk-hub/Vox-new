@@ -988,7 +988,10 @@ class ServiceOrderService:
             recs = recipients if recipients is not None else ServiceOrderService.get_recipients(db, order.id)
             from app.services.interview_session_billing_service import summarize_interview_sessions
 
-            out["interview_sessions"] = summarize_interview_sessions(recs)
+            out["interview_sessions"] = summarize_interview_sessions(
+                recs,
+                order_config=ServiceOrderService._order_config_dict(order),
+            )
         return out
 
     @staticmethod

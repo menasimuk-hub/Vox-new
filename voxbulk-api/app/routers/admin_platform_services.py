@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_BILLING, CAP_ORG_OPS, require_cap
@@ -368,10 +368,13 @@ def admin_list_orders(
     service_code: str | None = None,
     org_id: str | None = None,
     live_only: bool = False,
+    search: str | None = None,
+    limit: int = 500,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    stmt = select(ServiceOrder).order_by(ServiceOrder.created_at.desc()).limit(200)
+    lim = max(1, min(int(limit or 500), 1000))
+    stmt = select(ServiceOrder).order_by(ServiceOrder.updated_at.desc()).limit(lim)
     if payment_status:
         stmt = stmt.where(ServiceOrder.payment_status == payment_status)
     if status_filter:
@@ -380,6 +383,17 @@ def admin_list_orders(
         stmt = stmt.where(ServiceOrder.service_code == service_code)
     if org_id:
         stmt = stmt.where(ServiceOrder.org_id == org_id)
+    q = str(search or "").strip()
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                ServiceOrder.id.ilike(like),
+                ServiceOrder.title.ilike(like),
+                ServiceOrder.campaign_id.ilike(like),
+                ServiceOrder.reference_id.ilike(like),
+            )
+        )
     rows = list(db.execute(stmt).scalars())
     if live_only:
         rows = [r for r in rows if r.service_code == "survey" and ServiceOrderService.is_live_survey(r)]

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { money } from '../lib/billingAdminUtils'
+import { adminOrderViewPath, interviewFormatLabel, nextColumnSort, orderListSortTs, orderMatchesSearch, sortRowsByColumn } from '../lib/serviceOrderAdmin'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
 
@@ -117,6 +118,9 @@ export default function OrganisationProfile() {
   const [pendingInvites, setPendingInvites] = useState(null)
   const [userActivity, setUserActivity] = useState(null)
   const [userActivityLoading, setUserActivityLoading] = useState(false)
+  const [userOrdersSearch, setUserOrdersSearch] = useState('')
+  const [userOrdersSortField, setUserOrdersSortField] = useState('updated')
+  const [userOrdersSortAsc, setUserOrdersSortAsc] = useState(false)
 
   const refreshFinancePreview = useCallback(async () => {
     if (!orgId) {
@@ -255,6 +259,32 @@ export default function OrganisationProfile() {
       setUserActivityLoading(false)
     }
   }, [orgId, selectedUserId])
+
+  const userOrderSortAccessors = useMemo(
+    () => ({
+      reference: (o) => o.reference_id || o.campaign_id || o.id || '',
+      title: (o) => o.title || '',
+      service: (o) => o.service_code || '',
+      format: (o) => (o.service_code === 'interview' ? interviewFormatLabel(o) : o.service_code || ''),
+      status: (o) => o.status || '',
+      quote: (o) => Number(o.quote_total_pence) || 0,
+      updated: (o) => orderListSortTs(o),
+    }),
+    [],
+  )
+
+  const filteredUserOrders = useMemo(() => {
+    const rows = userActivity?.service_orders || []
+    const q = userOrdersSearch.trim()
+    const filtered = q ? rows.filter((o) => orderMatchesSearch(o, q)) : rows
+    return sortRowsByColumn(filtered, userOrdersSortField, userOrdersSortAsc, userOrderSortAccessors)
+  }, [userActivity, userOrdersSearch, userOrdersSortField, userOrdersSortAsc, userOrderSortAccessors])
+
+  const sortUserOrdersColumn = (field) => {
+    const next = nextColumnSort(userOrdersSortField, userOrdersSortAsc, field)
+    setUserOrdersSortField(next.field)
+    setUserOrdersSortAsc(next.asc)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1125,25 +1155,50 @@ export default function OrganisationProfile() {
                     </div>
 
                     <div>
-                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Service orders ({userActivity.counts?.service_orders ?? 0})</h4>
-                      {(userActivity.service_orders || []).length ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                        <h4 style={{ margin: 0, fontSize: 14, flex: '1 1 auto' }}>Service orders ({userActivity.counts?.service_orders ?? 0})</h4>
+                        <input
+                          type='search'
+                          className='input'
+                          placeholder='Search order ID, VB-CMP, reference, title…'
+                          value={userOrdersSearch}
+                          onChange={(e) => setUserOrdersSearch(e.target.value)}
+                          style={{ minWidth: 220, maxWidth: 360 }}
+                        />
+                      </div>
+                      {filteredUserOrders.length ? (
                         <div className='tableWrap'>
                           <table className='table'>
-                            <thead><tr><th>Title</th><th>Service</th><th>Status</th><th>Updated</th></tr></thead>
+                            <thead>
+                              <tr>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('reference')}>Order ID</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('title')}>Title</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('service')}>Service</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('format')}>Format</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('status')}>Status</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('quote')}>Quote</th>
+                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('updated')}>Updated</th>
+                                <th>View</th>
+                              </tr>
+                            </thead>
                             <tbody>
-                              {userActivity.service_orders.map((o) => (
+                              {filteredUserOrders.map((o) => (
                                 <tr key={o.id}>
-                                  <td>{o.title || o.reference_id || o.id}</td>
+                                  <td className='muted'><code>{o.reference_id || o.campaign_id || o.id?.slice(0, 8)}</code></td>
+                                  <td>{o.title || '—'}</td>
                                   <td>{o.service_code}</td>
+                                  <td>{o.service_code === 'interview' ? interviewFormatLabel(o) : '—'}</td>
                                   <td><span className='pill p-cyan'>{o.status}</span></td>
+                                  <td>{o.quote_total_gbp || money(Number(o.quote_total_pence || 0))}</td>
                                   <td className='muted'>{o.updated_at ? new Date(o.updated_at).toLocaleString() : '—'}</td>
+                                  <td><Link className='btn soft bsm' to={adminOrderViewPath(o)}>Open</Link></td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
                       ) : (
-                        <p className='muted' style={{ fontSize: 13 }}>No surveys or interviews created by this user.</p>
+                        <p className='muted' style={{ fontSize: 13 }}>{userOrdersSearch.trim() ? 'No orders match your search.' : 'No surveys or interviews created by this user.'}</p>
                       )}
                     </div>
 

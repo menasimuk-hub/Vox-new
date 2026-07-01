@@ -20,7 +20,16 @@ def _loads(raw: str | None) -> dict[str, Any]:
         return {}
 
 
-def recipient_session_kind(result: dict[str, Any]) -> str:
+def _config_delivery(order_config: dict[str, Any] | None) -> str:
+    cfg = order_config if isinstance(order_config, dict) else {}
+    return str(cfg.get("delivery") or cfg.get("delivery_mode") or "").strip().lower()
+
+
+def recipient_session_kind(
+    result: dict[str, Any],
+    *,
+    config_delivery: str | None = None,
+) -> str:
     """web_meeting | phone_call | session_unknown | no_session"""
     ch = str(result.get("channel") or result.get("call_channel") or "").lower()
     tr = str(result.get("transport") or "").lower()
@@ -28,17 +37,31 @@ def recipient_session_kind(result: dict[str, Any]) -> str:
         return "web_meeting"
     if result.get("call_control_id") or ch in {"ai_call", "phone", "call"}:
         return "phone_call"
-    if result.get("duration_seconds"):
+    delivery = str(config_delivery or "").lower()
+    if result.get("duration_seconds") or result.get("meeting_started_at") or result.get("meeting_ended_at"):
+        if delivery == "ai_meeting":
+            return "web_meeting"
+        if delivery == "ai_call":
+            return "phone_call"
         return "session_unknown"
+    if delivery == "ai_meeting" and (
+        result.get("booking_token") or result.get("meeting_url") or result.get("meeting_started_at")
+    ):
+        return "web_meeting"
     return "no_session"
 
 
-def summarize_interview_sessions(recipients: list[ServiceOrderRecipient]) -> dict[str, Any]:
+def summarize_interview_sessions(
+    recipients: list[ServiceOrderRecipient],
+    *,
+    order_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    delivery = _config_delivery(order_config)
     web = phone = unknown = none = 0
     billable_minutes = 0
     for recipient in recipients:
         result = _loads(recipient.result_json)
-        kind = recipient_session_kind(result)
+        kind = recipient_session_kind(result, config_delivery=delivery)
         if kind == "web_meeting":
             web += 1
         elif kind == "phone_call":
@@ -61,11 +84,16 @@ def summarize_interview_sessions(recipients: list[ServiceOrderRecipient]) -> dic
     elif web > 0:
         interview_format = "web"
         format_label = "Web interview"
-    elif phone > 0 or unknown > 0:
+    elif phone > 0 or (unknown > 0 and delivery != "ai_meeting"):
         interview_format = "phone"
         format_label = "Phone AI"
+    elif unknown > 0 and delivery == "ai_meeting":
+        interview_format = "web"
+        format_label = "Web interview"
+    elif delivery == "ai_meeting":
+        interview_format = "web"
+        format_label = "Web interview"
     else:
-        cfg_delivery = ""
         interview_format = "none"
         format_label = "No sessions yet"
 

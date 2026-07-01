@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Activity, Briefcase, CheckCircle2, CreditCard, Download, Pause, Play, RefreshCw, Square, Users } from 'lucide-react'
 import { apiFetch, apiFetchBlob } from '../lib/api'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
-import { formatDurationSeconds, orderDeliveryLabel, sortServiceOrders } from '../lib/serviceOrderAdmin'
+import { formatDurationSeconds, interviewFormatLabel, nextColumnSort, orderMatchesSearch, sortRowsByColumn } from '../lib/serviceOrderAdmin'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -17,12 +17,6 @@ function orderSortTs(o) {
   if (!raw) return 0
   const t = new Date(raw).getTime()
   return Number.isNaN(t) ? 0 : t
-}
-
-function interviewFormatLabel(order) {
-  const sessions = order?.interview_sessions
-  if (sessions?.interview_format_label) return sessions.interview_format_label
-  return orderDeliveryLabel(order)
 }
 
 function interviewProgress(report) {
@@ -149,6 +143,8 @@ export default function RunningInterviews() {
   const [formatFilter, setFormatFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState('date_desc')
+  const [tableSortField, setTableSortField] = useState('updated')
+  const [tableSortAsc, setTableSortAsc] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -409,36 +405,69 @@ export default function RunningInterviews() {
 
   const timeline = audit.length ? audit : selected?.audit_timeline || []
 
+  const interviewSortAccessors = useMemo(
+    () => ({
+      reference: (o) => o.reference_id || o.campaign_id || o.id || '',
+      name: (o) => o.title || '',
+      format: (o) => interviewFormatLabel(o),
+      status: (o) => o.status_label || o.status || '',
+      candidates: (o) => Number(o.recipient_count) || 0,
+      quote: (o) => Number(o.quote_total_pence) || 0,
+      updated: (o) => orderSortTs(o),
+    }),
+    [],
+  )
+
+  const sortInterviewColumn = (field) => {
+    const next = nextColumnSort(tableSortField, tableSortAsc, field)
+    setTableSortField(next.field)
+    setTableSortAsc(next.asc)
+  }
+
+  useEffect(() => {
+    const map = {
+      amount_desc: ['quote', false],
+      amount_asc: ['quote', true],
+      date_desc: ['updated', false],
+      date_asc: ['updated', true],
+      order_asc: ['reference', true],
+      name_asc: ['name', true],
+      name_desc: ['name', false],
+    }
+    const [field, asc] = map[sortBy] || ['updated', false]
+    setTableSortField(field)
+    setTableSortAsc(asc)
+  }, [sortBy])
+
   const filteredOrders = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+    const q = searchQuery.trim()
+    const qLower = q.toLowerCase()
     const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
     const toTs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null
+    const searchActive = Boolean(q)
     const rows = orders.filter((o) => {
+      if (searchActive && orderMatchesSearch(o, qLower)) return true
       const status = String(o.status || '').toLowerCase()
       if (listTab === 'running') {
         if (!LIVE_INTERVIEW_STATUSES.has(status)) return false
       } else if (listTab === 'finished') {
-        if (!o.is_finished) return false
+        if (!o.is_finished && status !== 'completed') return false
       } else if (listTab === 'all') {
         if (status === 'draft') return false
       }
       if (formatFilter === 'web') {
         const fmt = String(o.interview_sessions?.interview_format || '').toLowerCase()
-        if (fmt !== 'web' && fmt !== 'mixed') return false
+        const delivery = String(o.config?.delivery || '').toLowerCase()
+        if (fmt !== 'web' && fmt !== 'mixed' && delivery !== 'ai_meeting') return false
       }
       const ts = orderSortTs(o)
       if (fromTs != null && ts < fromTs) return false
       if (toTs != null && ts > toTs) return false
       if (!q) return true
-      return (
-        String(o.title || '').toLowerCase().includes(q) ||
-        String(o.org_name || '').toLowerCase().includes(q) ||
-        String(o.reference_id || '').toLowerCase().includes(q) ||
-        String(o.campaign_id || '').toLowerCase().includes(q)
-      )
+      return orderMatchesSearch(o, qLower)
     })
-    return sortServiceOrders(rows, sortBy)
-  }, [orders, listTab, formatFilter, searchQuery, sortBy, dateFrom, dateTo])
+    return sortRowsByColumn(rows, tableSortField, tableSortAsc, interviewSortAccessors)
+  }, [orders, listTab, formatFilter, searchQuery, dateFrom, dateTo, tableSortField, tableSortAsc, interviewSortAccessors])
 
   return (
     <div className="opsTheme">
@@ -455,7 +484,7 @@ export default function RunningInterviews() {
       <div className="ds-scope flex w-full flex-wrap items-center gap-2">
         <Input
           type="search"
-          placeholder="Search name, reference, or company…"
+          placeholder="Search order ID, VB-CMP, reference, name, or company…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="h-9 min-w-[200px] flex-1"
@@ -731,13 +760,13 @@ export default function RunningInterviews() {
               <table className="table runningSurveyTable">
                 <thead>
                   <tr>
-                    <th>Interview #</th>
-                    <th>Name</th>
-                    <th>Format</th>
-                    <th>Status</th>
-                    <th>Candidates</th>
-                    <th>Quote</th>
-                    <th>Updated</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('reference')}>Interview #</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('name')}>Name</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('format')}>Format</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('status')}>Status</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('candidates')}>Candidates</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('quote')}>Quote</th>
+                    <th style={{ cursor: 'pointer' }} onClick={() => sortInterviewColumn('updated')}>Updated</th>
                   </tr>
                 </thead>
                 <tbody>

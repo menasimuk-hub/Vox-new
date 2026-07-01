@@ -138,7 +138,7 @@ def _order_channel(order: ServiceOrder, recipients: list | None = None) -> str:
         if recipients:
             from app.services.interview_session_billing_service import summarize_interview_sessions
 
-            stats = summarize_interview_sessions(recipients)
+            stats = summarize_interview_sessions(recipients, order_config=config)
             if stats.get("interview_format") == "web":
                 return "meeting"
             if stats.get("interview_format") == "mixed":
