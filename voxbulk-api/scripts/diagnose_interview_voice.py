@@ -113,7 +113,46 @@ def _print_live_runtime(db, assistant_id: str) -> dict[str, Any] | None:
     return data
 
 
-def _preview_check(db, agent) -> None:
+def _tts_probe(db, *, ultra_voice: str | None = None) -> None:
+    from app.services.telnyx_api_key import telnyx_key_fingerprint, resolve_telnyx_api_key
+    from app.services.telnyx_tts_service import STOCK_PROBE_VOICE, probe_telnyx_tts_access
+
+    print("\n=== Telnyx TTS probe (read only) ===")
+    api_key, source = resolve_telnyx_api_key(db)
+    fp = telnyx_key_fingerprint(api_key)
+    print(f"  key_source            {source or '(none)'}")
+    print(f"  key_fingerprint       {fp.get('prefix')} len={fp.get('length')} valid={fp.get('looks_valid')}")
+
+    probe = probe_telnyx_tts_access(db, ultra_voice=ultra_voice)
+    voices_list = probe.get("voices_list") or {}
+    if voices_list.get("ok"):
+        print(f"  voices API            OK ({voices_list.get('count')} telnyx voices)")
+    else:
+        detail = voices_list.get("detail") or voices_list.get("error") or f"HTTP {voices_list.get('status')}"
+        print(f"  voices API            FAILED: {detail}")
+
+    for test in probe.get("endpoint_tests") or []:
+        label = test.get("label")
+        voice = test.get("voice")
+        url = test.get("url")
+        if test.get("ok"):
+            print(f"  {label} TTS             OK via {url} ({test.get('bytes')} bytes, voice={voice})")
+        else:
+            print(f"  {label} TTS             FAILED {url}: {test.get('error') or test.get('status')}")
+
+    verdict = str(probe.get("verdict") or "")
+    if verdict == "tts_api_reachable":
+        print("  VERDICT               TTS API reachable — preview should work after deploy")
+    elif verdict == "tts_api_404":
+        print("  VERDICT               TTS API returns 404 on all endpoints")
+        print("                        Enable Text-to-Speech on your Telnyx account or contact Telnyx support.")
+        print(f"                        Stock voice tested: {STOCK_PROBE_VOICE}")
+    elif verdict == "invalid_api_key":
+        print("  VERDICT               No valid Telnyx API key — set Admin → Integrations → Telnyx")
+    else:
+        print(f"  VERDICT               {verdict}")
+
+
     from app.services.interview_agent_display_service import _resolve_voice_for_preview
     from app.services.providers.elevenlabs_service import ElevenLabsProviderService
     from app.services.telnyx_tts_service import synthesize_telnyx_speech
@@ -156,11 +195,12 @@ def main() -> int:
     parser.add_argument("--agent", help="Agent name, slug, or voice label, e.g. Jack, interview-au-jack")
     parser.add_argument("--assistant-id", help="Telnyx assistant ID, e.g. assistant-d638feb0-...")
     parser.add_argument("--order", help="VB-CMP-… campaign id, VB-INT-… reference, or order UUID")
-    parser.add_argument("--preview", action="store_true", help="Run ElevenLabs preview synthesis test")
+    parser.add_argument("--preview", action="store_true", help="Run voice preview synthesis test")
+    parser.add_argument("--tts-probe", action="store_true", help="Probe Telnyx TTS REST endpoints (read only)")
     args = parser.parse_args()
 
-    if not args.agent and not args.order and not args.assistant_id:
-        parser.error("provide --agent NAME, --assistant-id ID, or --order REF")
+    if not args.agent and not args.order and not args.assistant_id and not args.tts_probe:
+        parser.error("provide --agent NAME, --assistant-id ID, --order REF, or --tts-probe")
 
     from app.core.database import get_sessionmaker
     from app.services.interview_voice_agent_service import (
@@ -172,6 +212,21 @@ def main() -> int:
 
     sessionmaker = get_sessionmaker()
     with sessionmaker() as db:
+        if args.tts_probe:
+            ultra_voice = None
+            if args.agent:
+                agent = _resolve_agent_by_name(db, args.agent)
+                if agent is not None and agent.telnyx_assistant_id:
+                    try:
+                        from app.services.telnyx_assistant_service import resolve_telnyx_assistant_runtime
+
+                        runtime = resolve_telnyx_assistant_runtime(db, str(agent.telnyx_assistant_id))
+                        ultra_voice = str(runtime.get("voice") or "").strip() or None
+                    except Exception:
+                        pass
+            _tts_probe(db, ultra_voice=ultra_voice)
+            return 0
+
         order = None
         agent = None
         config: dict[str, Any] = {}
