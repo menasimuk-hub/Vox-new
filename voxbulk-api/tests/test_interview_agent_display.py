@@ -12,6 +12,7 @@ from app.services.interview_agent_display_service import (
     interview_agent_dialect_meta,
 )
 from app.services.survey_voice_agent_service import _agent_dashboard_gender, _agent_region_match, _agent_zone_match
+from app.services.telnyx_assistant_service import parse_telnyx_assistant_voice
 
 
 def _agent(**kwargs) -> AgentDefinition:
@@ -93,6 +94,42 @@ def test_filter_canonical_interview_agents_drops_legacy_gb_duplicate():
     kept = filter_canonical_interview_agents([legacy, canonical])
     assert len(kept) == 1
     assert kept[0].slug == "interview-gb-leo"
+
+
+def test_parse_telnyx_ultra_voice():
+    provider, voice_id, extras = parse_telnyx_assistant_voice("Telnyx.Ultra.00967b2f-88a6-4a31-8153-110a92134b9f")
+    assert provider == "telnyx"
+    assert voice_id == ""
+    assert extras == {}
+
+
+def test_resolve_voice_for_preview_telnyx_ultra(monkeypatch):
+    from app.services.interview_agent_display_service import _resolve_voice_for_preview
+
+    agent = _agent(
+        slug="interview-au-jack",
+        accent_region="AU",
+        gender="male",
+        voice_label="Jack",
+        name="interview_AU-Jack",
+    )
+    agent.telnyx_assistant_id = "assistant-911f6faf-913b-4ec5-9e2b-a79b7f610e32"
+
+    def _fake_runtime(db, assistant_id):
+        return {
+            "voice": "Telnyx.Ultra.00967b2f-88a6-4a31-8153-110a92134b9f",
+            "tts_provider": "telnyx",
+            "voice_speed": 1.0,
+        }
+
+    monkeypatch.setattr(
+        "app.services.telnyx_assistant_service.resolve_telnyx_assistant_runtime",
+        _fake_runtime,
+    )
+    provider, params, hint = _resolve_voice_for_preview(None, agent)  # type: ignore[arg-type]
+    assert hint == ""
+    assert provider == "telnyx"
+    assert params["voice"].startswith("Telnyx.Ultra.")
 
 
 def test_dashboard_agent_row_includes_voice_preview_fields():

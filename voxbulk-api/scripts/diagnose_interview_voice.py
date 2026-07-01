@@ -114,31 +114,41 @@ def _print_live_runtime(db, assistant_id: str) -> dict[str, Any] | None:
 
 
 def _preview_check(db, agent) -> None:
-    from app.services.interview_agent_display_service import _resolve_elevenlabs_voice_for_preview
+    from app.services.interview_agent_display_service import _resolve_voice_for_preview
     from app.services.providers.elevenlabs_service import ElevenLabsProviderService
+    from app.services.telnyx_tts_service import synthesize_telnyx_speech
 
     print("\n=== Voice preview check ===")
-    voice_id, voice_settings, hint = _resolve_elevenlabs_voice_for_preview(db, agent)
-    if not voice_id:
+    provider, params, hint = _resolve_voice_for_preview(db, agent)
+    if not provider:
         print(f"  PREVIEW BLOCKED: {hint}")
         return
-    print(f"  voice_id resolved     {voice_id}")
-    print(f"  model_id              {voice_settings.get('model_id')}")
+    print(f"  provider              {provider}")
     sample = "Hello, this is a short voice test from VoxBulk."
     try:
-        result = ElevenLabsProviderService.synthesize_text_result(
-            db,
-            text=sample,
-            voice_id=voice_id,
-            voice_settings=voice_settings,
-        )
+        if provider == "telnyx":
+            print(f"  telnyx voice          {params.get('voice')}")
+            result = synthesize_telnyx_speech(
+                db,
+                text=sample,
+                voice=str(params.get("voice") or ""),
+                voice_speed=params.get("voice_speed"),
+            )
+        else:
+            print(f"  elevenlabs voice_id   {params.get('voice_id')}")
+            result = ElevenLabsProviderService.synthesize_text_result(
+                db,
+                text=sample,
+                voice_id=str(params.get("voice_id") or ""),
+                voice_settings=dict(params.get("voice_settings") or {}),
+            )
     except Exception as exc:  # noqa: BLE001
-        print(f"  ElevenLabs FAILED: {exc}")
+        print(f"  TTS FAILED: {exc}")
         return
     if result.get("ok"):
-        print(f"  ElevenLabs OK         {len(result.get('audio_data') or b'')} bytes")
+        print(f"  TTS OK                {len(result.get('audio_data') or b'')} bytes")
     else:
-        print(f"  ElevenLabs FAILED: {result.get('error')}")
+        print(f"  TTS FAILED: {result.get('error')}")
 
 
 def main() -> int:

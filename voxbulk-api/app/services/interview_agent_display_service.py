@@ -168,13 +168,23 @@ def _elevenlabs_platform_enabled(db: Session) -> bool:
         return False
 
 
-def _resolve_elevenlabs_voice_for_preview(
+def _telnyx_platform_available(db: Session) -> bool:
+    from app.services.telnyx_api_key import require_telnyx_api_key
+
+    try:
+        require_telnyx_api_key(db)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_voice_for_preview(
     db: Session,
     agent: AgentDefinition,
     *,
     runtime_cache: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str | None, dict[str, Any], str]:
-    """Return (elevenlabs_voice_id, voice_settings, hint). Admin assistant ID wins over server env."""
+    """Return (provider, params, hint). provider is 'telnyx', 'elevenlabs', or None."""
     assistant_raw = str(agent.telnyx_assistant_id or "").strip()
     if assistant_raw:
         from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id, resolve_telnyx_assistant_runtime
@@ -198,23 +208,33 @@ def _resolve_elevenlabs_voice_for_preview(
             return None, {}, "Could not load voice for this assistant — check Assistant ID and platform API key in Admin → Integrations"
 
         voice_raw = str(runtime.get("voice") or "").strip()
-        if str(runtime.get("tts_provider") or "").lower() != "elevenlabs":
-            voice_hint = voice_raw or "not configured"
-            if voice_hint.lower().startswith("telnyx."):
-                voice_hint = voice_hint.split(".")[-1] or voice_hint
-            return (
-                None,
-                {},
-                f"Voice preview needs an ElevenLabs voice. This assistant is set to: {voice_hint}",
-            )
+        tts_provider = str(runtime.get("tts_provider") or "").lower()
 
-        voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
-        if not voice_id:
-            return None, {}, "No ElevenLabs voice on this assistant — set voice in your AI assistant settings"
+        if tts_provider == "telnyx" and voice_raw:
+            speed = runtime.get("voice_speed")
+            try:
+                speed_val = float(speed) if speed is not None else None
+            except (TypeError, ValueError):
+                speed_val = None
+            return "telnyx", {"voice": voice_raw, "voice_speed": speed_val}, ""
 
-        settings = dict(runtime.get("elevenlabs_voice_settings") or {})
-        settings.setdefault("model_id", "eleven_multilingual_v2")
-        return voice_id, settings, ""
+        if tts_provider == "elevenlabs":
+            voice_id = str(runtime.get("elevenlabs_voice_id") or "").strip()
+            if not voice_id:
+                return None, {}, "No voice configured on this assistant"
+            settings = dict(runtime.get("elevenlabs_voice_settings") or {})
+            settings.setdefault("model_id", "eleven_multilingual_v2")
+            return "elevenlabs", {"voice_id": voice_id, "voice_settings": settings}, ""
+
+        if voice_raw.lower().startswith("telnyx.") and voice_raw:
+            speed = runtime.get("voice_speed")
+            try:
+                speed_val = float(speed) if speed is not None else None
+            except (TypeError, ValueError):
+                speed_val = None
+            return "telnyx", {"voice": voice_raw, "voice_speed": speed_val}, ""
+
+        return None, {}, "No voice configured on this assistant — set a voice in your AI assistant settings"
 
     dialect = interview_agent_dialect_meta(agent)
     region = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
@@ -224,11 +244,13 @@ def _resolve_elevenlabs_voice_for_preview(
     if env_voice:
         from app.services.telnyx_assistant_service import parse_telnyx_assistant_voice
 
-        _, voice_id, extras = parse_telnyx_assistant_voice(env_voice)
-        if voice_id:
+        provider, voice_id, extras = parse_telnyx_assistant_voice(env_voice)
+        if provider == "elevenlabs" and voice_id:
             settings = dict(extras)
             settings.setdefault("model_id", "eleven_multilingual_v2")
-            return voice_id, settings, ""
+            return "elevenlabs", {"voice_id": voice_id, "voice_settings": settings}, ""
+        if env_voice.lower().startswith("telnyx.") and env_voice:
+            return "telnyx", {"voice": env_voice, "voice_speed": None}, ""
 
     return None, {}, "No assistant linked — set Assistant ID in Admin → Agents"
 
@@ -239,20 +261,23 @@ def voice_preview_status(
     *,
     runtime_cache: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[bool, str]:
-    """Fast list-time check — no Telnyx HTTP (preview endpoint resolves voice live)."""
+    """Fast list-time check — no live assistant fetch."""
     del runtime_cache
-    if not _elevenlabs_platform_enabled(db):
-        return False, "ElevenLabs not configured in Admin → Integrations"
-
     if str(agent.telnyx_assistant_id or "").strip():
-        return True, ""
+        if _telnyx_platform_available(db):
+            return True, ""
+        return False, "Voice API key not configured in Admin → Integrations"
 
     dialect = interview_agent_dialect_meta(agent)
     region = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
     gender = _agent_gender(agent)
     env_key = voice_env_key_for_region_gender(region, gender)
-    if os.environ.get(env_key, "").strip():
-        return True, ""
+    env_voice = os.environ.get(env_key, "").strip()
+    if env_voice:
+        if env_voice.lower().startswith("telnyx.") and _telnyx_platform_available(db):
+            return True, ""
+        if _elevenlabs_platform_enabled(db):
+            return True, ""
 
     return False, "No assistant linked — set Assistant ID in Admin → Agents"
 
@@ -324,8 +349,8 @@ def preview_interview_agent_voice(db: Session, *, agent_id: str, org_id: str) ->
     sample_text = dialect["sample_phrase"]
     assistant_id = str(agent.telnyx_assistant_id or "").strip()
 
-    voice_id, voice_settings, hint = _resolve_elevenlabs_voice_for_preview(db, agent)
-    if not voice_id:
+    provider, params, hint = _resolve_voice_for_preview(db, agent)
+    if not provider:
         logger.warning(
             "interview_voice_preview org=%s agent=%s slug=%s telnyx=%s result=unavailable hint=%s",
             org_id,
@@ -336,35 +361,58 @@ def preview_interview_agent_voice(db: Session, *, agent_id: str, org_id: str) ->
         )
         raise ValueError(hint or "Voice preview unavailable")
 
-    from app.services.providers.elevenlabs_service import ElevenLabsProviderService
+    if provider == "telnyx":
+        from app.services.telnyx_tts_service import synthesize_telnyx_speech
 
-    result = ElevenLabsProviderService.synthesize_text_result(
-        db,
-        text=sample_text,
-        voice_id=voice_id,
-        voice_settings=voice_settings,
-    )
-    if not result.get("ok"):
-        err = str(result.get("error") or "TTS failed")
-        logger.warning(
-            "interview_voice_preview org=%s agent=%s slug=%s telnyx=%s voice=%s result=tts_failed error=%s",
-            org_id,
-            agent_id,
-            agent.slug,
-            assistant_id or "(unset)",
-            voice_id,
-            err,
+        try:
+            result = synthesize_telnyx_speech(
+                db,
+                text=sample_text,
+                voice=str(params.get("voice") or ""),
+                voice_speed=params.get("voice_speed"),
+            )
+            voice_label_for_log = str(params.get("voice") or "")
+        except Exception as exc:
+            err = str(exc)
+            logger.warning(
+                "interview_voice_preview org=%s agent=%s slug=%s provider=telnyx voice=%s result=tts_failed error=%s",
+                org_id,
+                agent_id,
+                agent.slug,
+                params.get("voice"),
+                err,
+            )
+            raise ValueError(f"Could not generate voice sample: {err}") from exc
+    else:
+        from app.services.providers.elevenlabs_service import ElevenLabsProviderService
+
+        result = ElevenLabsProviderService.synthesize_text_result(
+            db,
+            text=sample_text,
+            voice_id=str(params.get("voice_id") or ""),
+            voice_settings=dict(params.get("voice_settings") or {}),
         )
-        raise ValueError(f"Could not generate voice sample: {err}")
+        voice_label_for_log = str(params.get("voice_id") or "")
+        if not result.get("ok"):
+            err = str(result.get("error") or "TTS failed")
+            logger.warning(
+                "interview_voice_preview org=%s agent=%s slug=%s provider=elevenlabs voice=%s result=tts_failed error=%s",
+                org_id,
+                agent_id,
+                agent.slug,
+                params.get("voice_id"),
+                err,
+            )
+            raise ValueError(f"Could not generate voice sample: {err}")
 
     audio = bytes(result.get("audio_data") or b"")
     logger.info(
-        "interview_voice_preview org=%s agent=%s slug=%s telnyx=%s voice=%s bytes=%d result=ok",
+        "interview_voice_preview org=%s agent=%s slug=%s provider=%s voice=%s bytes=%d result=ok",
         org_id,
         agent_id,
         agent.slug,
-        assistant_id or "(unset)",
-        voice_id,
+        provider,
+        voice_label_for_log,
         len(audio),
     )
     return {
