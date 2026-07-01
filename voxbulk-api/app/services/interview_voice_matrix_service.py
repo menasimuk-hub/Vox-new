@@ -63,24 +63,32 @@ def voice_settings_from_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
-def _gender_match(blob: str, gender: str) -> bool:
+def _gender_score(blob: str, gender: str) -> int:
     g = str(gender or "").lower()
     b = blob.lower()
     if g == "male":
-        return any(x in b for x in ("male", " man", "masc"))
-    if g == "female":
-        return any(x in b for x in ("female", " woman", "fem"))
-    return True
+        if any(x in b for x in ("female", " woman", "fem", "girl")):
+            return -8
+        if any(x in b for x in ("male", " man", "masc", "boy")):
+            return 2
+    elif g == "female":
+        if any(x in b for x in ("male", " man", "masc", "boy")):
+            return -8
+        if any(x in b for x in ("female", " woman", "fem", "girl")):
+            return 2
+    return 0
+
+
+def _gender_match(blob: str, gender: str) -> bool:
+    return _gender_score(blob, gender) >= 0
 
 
 def _score_voice(blob: str, keywords: list[str], gender: str) -> int:
-    score = 0
+    score = _gender_score(blob, gender)
     lower = blob.lower()
     for kw in keywords:
         if kw.lower() in lower:
             score += 2
-    if _gender_match(blob, gender):
-        score += 1
     return score
 
 

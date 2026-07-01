@@ -35,6 +35,24 @@ def test_voice_settings_elevenlabs_has_api_key_ref():
     assert settings["api_key_ref"] == "elevenlabs-paid"
 
 
+def test_voice_settings_jode_elevenlabs_female():
+    entry = matrix_entry_for_slug("interview-gb-jode")
+    assert entry is not None
+    assert entry["provider"] == "elevenlabs"
+    assert entry["gender"] == "female"
+    settings = voice_settings_from_entry(entry)
+    assert settings["voice"].startswith("ElevenLabs.")
+    assert "Xb7hH8MSUJpSbSDYk0k2" in settings["voice"]
+
+
+def test_voice_settings_ie_sean_valid_elevenlabs_id():
+    entry = matrix_entry_for_slug("interview-ie-sean")
+    assert entry is not None
+    settings = voice_settings_from_entry(entry)
+    assert "TX3LPaxmHKxFdv7VOQQH" not in settings["voice"]
+    assert "D38z5RcWu1voky8WS1ja" in settings["voice"]
+
+
 def test_pick_telnyx_voice_skips_uuid():
     voices = [
         {"voice_id": "00967b2f-88a6-4a31-8153-110a92134b9f", "gender": "male", "language": "en"},

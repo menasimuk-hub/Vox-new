@@ -17,6 +17,13 @@ import {
 } from "@/lib/interview-agents";
 import { regionFlagImageUrl } from "@/lib/interview-agent-regions";
 
+/** Shared chrome for region dropdown + agent pills (same height, border, focus ring). */
+const PICKER_CONTROL =
+  "h-9 shrink-0 rounded-md border border-border bg-background shadow-sm transition-colors";
+const PICKER_SELECTED = "border-primary bg-primary/5 ring-1 ring-primary/20";
+const PICKER_FOCUS =
+  "focus-visible:outline-none focus-visible:border-primary focus-visible:ring-1 focus-visible:ring-primary/20";
+
 type Props = {
   agents: InterviewAgent[];
   selectedRegion: string;
@@ -88,13 +95,17 @@ function AgentRow({
   return (
     <div
       className={cn(
-        "inline-flex h-9 shrink-0 items-center overflow-hidden rounded-md border text-sm",
-        selected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border bg-background",
+        PICKER_CONTROL,
+        "inline-flex items-center overflow-hidden text-sm",
+        selected ? PICKER_SELECTED : "hover:bg-muted/30",
       )}
     >
       <button
         type="button"
-        className="inline-flex h-full w-9 shrink-0 items-center justify-center border-r border-border/80 hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-40"
+        className={cn(
+          "inline-flex h-full w-9 shrink-0 items-center justify-center border-r border-border/80 hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-40",
+          PICKER_FOCUS,
+        )}
         disabled={!previewAvailable || previewBusy}
         title={previewAvailable ? `Play ${name} sample` : previewHint}
         aria-label={previewAvailable ? `Play ${name} voice sample` : previewHint}
@@ -104,7 +115,10 @@ function AgentRow({
       </button>
       <button
         type="button"
-        className="inline-flex h-full items-center gap-1.5 px-2.5 hover:bg-muted/50"
+        className={cn(
+          "inline-flex h-full items-center gap-1.5 px-2.5 hover:bg-muted/50",
+          PICKER_FOCUS,
+        )}
         onClick={onSelect}
       >
         <span className="whitespace-nowrap font-medium">{name}</span>
@@ -193,7 +207,14 @@ export function InterviewAgentPicker({
       ) : (
         <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-0.5">
           <Select value={activeRegion} onValueChange={handleRegionChange}>
-            <SelectTrigger className="h-9 w-auto min-w-[8rem] shrink-0 gap-1.5 pl-2">
+            <SelectTrigger
+              className={cn(
+                PICKER_CONTROL,
+                "w-auto min-w-[8rem] gap-1.5 pl-2 pr-2",
+                "data-[state=open]:border-primary data-[state=open]:bg-primary/5 data-[state=open]:ring-1 data-[state=open]:ring-primary/20",
+                "focus:border-primary focus:ring-1 focus:ring-primary/20",
+              )}
+            >
               <RoundFlag code={activeRegion} />
               <SelectValue placeholder="Select accent" />
             </SelectTrigger>
