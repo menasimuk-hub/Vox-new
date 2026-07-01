@@ -6,7 +6,11 @@ from app.constants.interview_agent_regions import (
     accent_region_from_org_country,
 )
 from app.models.agent import AgentDefinition
-from app.services.interview_agent_display_service import dashboard_agent_row, interview_agent_dialect_meta
+from app.services.interview_agent_display_service import (
+    dashboard_agent_row,
+    filter_canonical_interview_agents,
+    interview_agent_dialect_meta,
+)
 from app.services.survey_voice_agent_service import _agent_dashboard_gender, _agent_region_match, _agent_zone_match
 
 
@@ -69,3 +73,31 @@ def test_roster_has_twelve_english_agents():
 def test_gender_column_overrides_heuristic():
     agent = _agent(accent_region="GB", gender="female", voice_label="Leo", name="interview_GB-Leo")
     assert _agent_dashboard_gender(agent) == "female"
+
+
+def test_filter_canonical_interview_agents_drops_legacy_gb_duplicate():
+    canonical = _agent(
+        slug="interview-gb-leo",
+        accent_region="GB",
+        gender="male",
+        voice_label="Leo",
+        name="interview_GB-Leo",
+    )
+    legacy = _agent(
+        slug="legacy-gb-leo",
+        accent_region="GB",
+        gender="male",
+        voice_label="Leo",
+        name="interview_GB-Leo-old",
+    )
+    kept = filter_canonical_interview_agents([legacy, canonical])
+    assert len(kept) == 1
+    assert kept[0].slug == "interview-gb-leo"
+
+
+def test_dashboard_agent_row_includes_voice_preview_fields():
+    agent = _agent(accent_region="US", gender="male", voice_label="Marcus", name="interview_US-Marcus")
+    row = dashboard_agent_row(agent, assigned_id=None, default_field="is_default_interview", zone="us", org_country="United States")
+    assert "voice_preview_available" in row
+    assert "voice_preview_hint" in row
+    assert row["voice_preview_available"] is False

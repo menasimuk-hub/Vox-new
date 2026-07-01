@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { interviewAgentDisplayName, resolveInterviewAgentDialect } from "./interview-agents";
+import {
+  agentRegionCode,
+  buildRegionMenuOptions,
+  interviewAgentDisplayName,
+  resolveInterviewAgentDialect,
+} from "./interview-agents";
+import { regionMenuLabel } from "./interview-agent-regions";
 import type { InterviewAgent } from "@/lib/queries";
 
 describe("resolveInterviewAgentDialect", () => {
@@ -37,5 +43,38 @@ describe("resolveInterviewAgentDialect", () => {
 describe("interviewAgentDisplayName", () => {
   it("strips - Ar suffix", () => {
     expect(interviewAgentDisplayName({ id: "2", name: "Jammal - Ar" })).toBe("Jammal");
+  });
+});
+
+describe("buildRegionMenuOptions", () => {
+  it("builds English (GB) and English (US) labels with flags", () => {
+    const agents: InterviewAgent[] = [
+      { id: "1", name: "interview_GB-Leo", accent_region: "GB", language: "en" },
+      { id: "2", name: "interview_US-Marcus", accent_region: "US", language: "en" },
+    ];
+    const options = buildRegionMenuOptions(agents);
+    expect(options.map((o) => o.label)).toEqual(["English (GB)", "English (US)"]);
+    expect(options[0]?.flagEmoji).toBe("🇬🇧");
+  });
+
+  it("includes Arabic regions", () => {
+    const agents: InterviewAgent[] = [{ id: "3", name: "Sultan", accent_region: "SA", language: "ar" }];
+    const options = buildRegionMenuOptions(agents);
+    expect(options[0]?.label).toBe("Arabic (SA)");
+    expect(options[0]?.language).toBe("ar");
+  });
+});
+
+describe("regionMenuLabel", () => {
+  it("formats English and Arabic menu labels", () => {
+    expect(regionMenuLabel("GB")).toBe("English (GB)");
+    expect(regionMenuLabel("IE")).toBe("English (IE)");
+    expect(regionMenuLabel("SA")).toBe("Arabic (SA)");
+  });
+});
+
+describe("agentRegionCode", () => {
+  it("prefers accent_region", () => {
+    expect(agentRegionCode({ id: "1", name: "x", accent_region: "CA" })).toBe("CA");
   });
 });

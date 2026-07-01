@@ -1511,6 +1511,8 @@ export type InterviewAgent = {
   dialect_label?: string;
   dialect_description?: string;
   sample_phrase?: string;
+  voice_preview_available?: boolean;
+  voice_preview_hint?: string;
   is_default_for_org?: boolean;
   is_platform_default?: boolean;
   is_zone_match?: boolean;

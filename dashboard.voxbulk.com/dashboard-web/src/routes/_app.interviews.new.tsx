@@ -27,6 +27,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
+import { agentRegionCode, buildRegionMenuOptions } from "@/lib/interview-agents";
+import { isArabicRegionCode } from "@/lib/interview-agent-regions";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { AtsPreviewGateModal, InterviewPreviewQuoteModal, PackageUpgradeModal, type InterviewPreviewData } from "@/components/modals";
@@ -338,7 +340,8 @@ function CreateInterview() {
   const [expectedDurationMinutes, setExpectedDurationMinutes] = React.useState<number | undefined>();
   const [scriptApproved, setScriptApproved] = React.useState(false);
   const [agentId, setAgentId] = React.useState("");
-  const [interviewLanguage, setInterviewLanguage] = React.useState<InterviewLanguage>("en");
+  const [selectedRegion, setSelectedRegion] = React.useState("GB");
+  const interviewLanguage: InterviewLanguage = isArabicRegionCode(selectedRegion) ? "ar" : "en";
   const [delivery, setDelivery] = React.useState<"ai_call" | "ai_meeting">("ai_call");
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxCvCount, setMaxCvCount] = React.useState<number | "">("");
@@ -421,19 +424,36 @@ function CreateInterview() {
   }, [draftOrderId]);
 
   const agents = agentsQ.data || [];
-  const languageAgents = agentsForLanguage(agents, interviewLanguage);
-  const defaultAgent = pickDefaultInterviewAgent(languageAgents.length ? languageAgents : agents);
+  const regionAgents = React.useMemo(
+    () => agents.filter((a) => agentRegionCode(a) === selectedRegion),
+    [agents, selectedRegion],
+  );
+  const defaultAgent = pickDefaultInterviewAgent(regionAgents.length ? regionAgents : agents);
   const resolvedAgentId = agentId || defaultAgent?.id || "";
   const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
 
   React.useEffect(() => {
     if (!agents.length) return;
-    const pool = agentsForLanguage(agents, interviewLanguage);
-    if (!pool.length) return;
-    if (!pool.some((a) => a.id === agentId)) {
-      setAgentId(pool[0]?.id || "");
+    const pool = agents.filter((a) => agentRegionCode(a) === selectedRegion);
+    if (!pool.length) {
+      const first = buildRegionMenuOptions(agents)[0];
+      if (first && first.code !== selectedRegion) {
+        setSelectedRegion(first.code);
+      }
+      return;
     }
-  }, [interviewLanguage, agents, agentId]);
+    if (!pool.some((a) => a.id === agentId)) {
+      setAgentId(pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "");
+    }
+  }, [selectedRegion, agents, agentId]);
+
+  React.useEffect(() => {
+    if (!agentId || !agents.length) return;
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent) return;
+    const code = agentRegionCode(agent);
+    setSelectedRegion((prev) => (prev === code ? prev : code));
+  }, [agentId, agents]);
   const createStartedRef = React.useRef(false);
   const createFailedRef = React.useRef(false);
 
@@ -521,14 +541,17 @@ function CreateInterview() {
     setDelivery(savedDelivery === "ai_meeting" ? "ai_meeting" : "ai_call");
     const savedAgentId = String(config.agent_id || "").trim();
     const savedLang = String(config.script_language_code || config.language_code || "").toLowerCase();
-    if (savedLang.startsWith("ar")) {
-      setInterviewLanguage("ar");
-    } else {
-      setInterviewLanguage("en");
-    }
     const langPool = agentsForLanguage(agents, savedLang.startsWith("ar") ? "ar" : "en");
     const savedInPool = langPool.find((a) => a.id === savedAgentId);
     setAgentId(savedInPool?.id || savedAgentId || pickDefaultInterviewAgent(langPool.length ? langPool : agents)?.id || "");
+    const resolvedSavedAgent = savedInPool || agents.find((a) => a.id === savedAgentId);
+    if (resolvedSavedAgent) {
+      setSelectedRegion(agentRegionCode(resolvedSavedAgent));
+    } else if (savedLang.startsWith("ar")) {
+      setSelectedRegion(buildRegionMenuOptions(agents).find((o) => o.language === "ar")?.code || "SA");
+    } else {
+      setSelectedRegion("GB");
+    }
     setCollectionStartAt(toLocalInput(String(config.cv_collection_start_at || config.cv_email_start_at || "")));
     setCollectionCloseAt(toLocalInput(String(config.cv_collection_close_at || config.cv_collection_end_at || config.cv_email_end_at || "")));
     setMaxCvCount(config.cv_max_count != null && config.cv_max_count !== "" ? Number(config.cv_max_count) : "");
@@ -1850,12 +1873,10 @@ function CreateInterview() {
           </Field>
           <InterviewAgentPicker
             agents={agents}
-            allAgents={agents}
-            languageAgents={languageAgents}
-            interviewLanguage={interviewLanguage}
+            selectedRegion={selectedRegion}
             resolvedAgentId={resolvedAgentId}
             onSelectAgent={setAgentId}
-            onLanguageChange={setInterviewLanguage}
+            onRegionChange={setSelectedRegion}
           />
           <Field label="Interview format">
             <p className="text-[11px] text-muted-foreground">

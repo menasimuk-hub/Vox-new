@@ -1,5 +1,13 @@
 import type { InterviewAgent } from "@/lib/queries";
-import { ENGLISH_REGION_ORDER, genderLabel, INTERVIEW_REGIONS } from "@/lib/interview-agent-regions";
+import {
+  ARABIC_REGION_ORDER,
+  ENGLISH_REGION_ORDER,
+  genderLabel,
+  INTERVIEW_REGIONS,
+  isArabicRegionCode,
+  regionFlagEmoji,
+  regionMenuLabel,
+} from "@/lib/interview-agent-regions";
 
 export type AgentDialectDisplay = {
   dialect_code: string;
@@ -76,6 +84,59 @@ export function interviewAgentDisplayName(agent: InterviewAgent): string {
 
 export function interviewAgentGenderLabel(agent: InterviewAgent): string {
   return genderLabel(agent.gender);
+}
+
+export function agentRegionCode(agent: InterviewAgent): string {
+  return agent.accent_region || resolveInterviewAgentDialect(agent).dialect_code;
+}
+
+export type RegionMenuOption = {
+  code: string;
+  label: string;
+  flagEmoji: string;
+  language: "en" | "ar";
+};
+
+export function buildRegionMenuOptions(agents: InterviewAgent[]): RegionMenuOption[] {
+  const codes = new Set<string>();
+  for (const agent of agents) {
+    codes.add(agentRegionCode(agent));
+  }
+  const options: RegionMenuOption[] = [];
+  for (const code of ENGLISH_REGION_ORDER) {
+    if (!codes.has(code)) continue;
+    options.push({
+      code,
+      label: regionMenuLabel(code),
+      flagEmoji: regionFlagEmoji(code),
+      language: "en",
+    });
+  }
+  for (const code of ARABIC_REGION_ORDER) {
+    if (!codes.has(code)) continue;
+    options.push({
+      code,
+      label: regionMenuLabel(code),
+      flagEmoji: regionFlagEmoji(code),
+      language: "ar",
+    });
+  }
+  for (const code of codes) {
+    if (options.some((o) => o.code === code)) continue;
+    options.push({
+      code,
+      label: regionMenuLabel(code),
+      flagEmoji: regionFlagEmoji(code),
+      language: isArabicRegionCode(code) ? "ar" : "en",
+    });
+  }
+  return options;
+}
+
+export function agentsForRegion(agents: InterviewAgent[], regionCode: string): InterviewAgent[] {
+  return agents
+    .filter((agent) => agentRegionCode(agent) === regionCode)
+    .sort((a, b) => String(a.gender).localeCompare(String(b.gender)));
 }
 
 export function groupEnglishInterviewAgents(agents: InterviewAgent[]): { region: string; label: string; agents: InterviewAgent[] }[] {

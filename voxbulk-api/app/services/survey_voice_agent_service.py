@@ -253,8 +253,22 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
 
     agents = sorted(agents, key=_sort_key)
     if service_key == SERVICE_INTERVIEW:
-        from app.services.interview_agent_display_service import dashboard_agent_row
+        import logging
 
+        from app.services.interview_agent_display_service import (
+            dashboard_agent_row,
+            filter_canonical_interview_agents,
+        )
+
+        interview_logger = logging.getLogger(__name__)
+        agents = filter_canonical_interview_agents(agents)
+        interview_logger.info(
+            "interview_agents org=%s count=%d slugs=%s",
+            org_id,
+            len(agents),
+            [a.slug for a in agents],
+        )
+        runtime_cache: dict[str, dict] = {}
         return [
             dashboard_agent_row(
                 agent,
@@ -262,6 +276,8 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
                 default_field=default_field,
                 zone=zone,
                 org_country=org_country,
+                db=db,
+                runtime_cache=runtime_cache,
             )
             for agent in agents
         ]

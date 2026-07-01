@@ -21,7 +21,8 @@ Then **Save settings** → **Resync Telnyx**.
 |------|------------------|
 | 1. Migrate | `alembic upgrade head` (adds `accent_region`, `gender` on agents) |
 | 2. Seed DB | `python scripts/seed_interview_regional_agents.py` |
-| 3. Provision Telnyx | `python scripts/provision_interview_telnyx_assistants.py --dry-run` then without `--dry-run` |
+| 3. Cleanup duplicates | `python scripts/cleanup_legacy_interview_agents.py` then `--deactivate` if needed |
+| 4. Provision Telnyx | `python scripts/provision_interview_telnyx_assistants.py --dry-run` then without `--dry-run` |
 
 **KB files** (auto-loaded into agent `kb_context` by seed script):
 
