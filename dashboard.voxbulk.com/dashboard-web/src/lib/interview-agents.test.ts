@@ -6,7 +6,7 @@ import {
   interviewAgentDisplayName,
   resolveInterviewAgentDialect,
 } from "./interview-agents";
-import { regionMenuLabel } from "./interview-agent-regions";
+import { regionMenuLabel, regionFlagImageUrl } from "./interview-agent-regions";
 import type { InterviewAgent } from "@/lib/queries";
 
 describe("resolveInterviewAgentDialect", () => {
@@ -70,6 +70,13 @@ describe("regionMenuLabel", () => {
     expect(regionMenuLabel("GB")).toBe("English (GB)");
     expect(regionMenuLabel("IE")).toBe("English (IE)");
     expect(regionMenuLabel("SA")).toBe("Arabic (SA)");
+  });
+});
+
+describe("regionFlagImageUrl", () => {
+  it("returns flagcdn URL for Scotland only", () => {
+    expect(regionFlagImageUrl("SC")).toContain("gb-sct");
+    expect(regionFlagImageUrl("GB")).toBeNull();
   });
 });
 

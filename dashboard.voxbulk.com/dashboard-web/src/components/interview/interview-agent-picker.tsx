@@ -1,10 +1,11 @@
 import * as React from "react";
-import { Loader2, Play } from "lucide-react";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import { Check, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { InterviewAgent } from "@/lib/queries";
 import { pickDefaultInterviewAgent, previewInterviewAgentVoice } from "@/lib/queries";
@@ -14,7 +15,7 @@ import {
   interviewAgentDisplayName,
   interviewAgentGenderLabel,
 } from "@/lib/interview-agents";
-import { regionFlagEmoji } from "@/lib/interview-agent-regions";
+import { regionFlagEmoji, regionFlagImageUrl } from "@/lib/interview-agent-regions";
 
 type Props = {
   agents: InterviewAgent[];
@@ -24,28 +25,57 @@ type Props = {
   onRegionChange: (region: string) => void;
 };
 
-function RoundFlag({ emoji, className }: { emoji: string; className?: string }) {
+function RoundFlag({ code, className }: { code: string; className?: string }) {
+  const imageUrl = regionFlagImageUrl(code);
+  const emoji = regionFlagEmoji(code);
+
   return (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/80 text-sm leading-none",
+        "inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/60 bg-background text-base leading-none",
         className,
       )}
       aria-hidden
     >
-      {emoji}
+      {imageUrl ? (
+        <img src={imageUrl} alt="" className="size-full object-cover" loading="lazy" />
+      ) : (
+        emoji
+      )}
     </span>
+  );
+}
+
+function RegionSelectItem({ code, label }: { code: string; label: string }) {
+  return (
+    <SelectPrimitive.Item
+      value={code}
+      textValue={label}
+      className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+    >
+      <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
+        <SelectPrimitive.ItemIndicator>
+          <Check className="h-4 w-4" />
+        </SelectPrimitive.ItemIndicator>
+      </span>
+      <span className="inline-flex items-center gap-2">
+        <RoundFlag code={code} />
+        <SelectPrimitive.ItemText>{label}</SelectPrimitive.ItemText>
+      </span>
+    </SelectPrimitive.Item>
   );
 }
 
 function AgentRow({
   agent,
+  regionCode,
   selected,
   previewBusy,
   onSelect,
   onPreview,
 }: {
   agent: InterviewAgent;
+  regionCode: string;
   selected: boolean;
   previewBusy: boolean;
   onSelect: () => void;
@@ -59,13 +89,13 @@ function AgentRow({
   return (
     <div
       className={cn(
-        "inline-flex h-9 min-w-[8.5rem] items-center overflow-hidden rounded-md border text-sm",
+        "inline-flex h-9 shrink-0 items-center overflow-hidden rounded-md border text-sm",
         selected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border bg-background",
       )}
     >
       <button
         type="button"
-        className="inline-flex h-full w-10 shrink-0 items-center justify-center border-r border-border/80 hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-full w-9 shrink-0 items-center justify-center border-r border-border/80 hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!previewAvailable || previewBusy}
         title={previewAvailable ? `Play ${name} sample` : previewHint}
         aria-label={previewAvailable ? `Play ${name} voice sample` : previewHint}
@@ -75,10 +105,11 @@ function AgentRow({
       </button>
       <button
         type="button"
-        className="inline-flex h-full min-w-0 flex-1 items-center gap-1.5 px-3 hover:bg-muted/50"
+        className="inline-flex h-full items-center gap-1.5 px-2.5 hover:bg-muted/50"
         onClick={onSelect}
       >
-        <span className="truncate font-medium">{name}</span>
+        <RoundFlag code={regionCode} className="size-5 text-sm" />
+        <span className="whitespace-nowrap font-medium">{name}</span>
         {genderTag ? (
           <Badge variant="outline" className="h-4 shrink-0 px-1 text-[9px] font-medium leading-none text-muted-foreground">
             {genderTag}
@@ -103,6 +134,7 @@ export function InterviewAgentPicker({
   const activeRegion = regionOptions.some((o) => o.code === selectedRegion)
     ? selectedRegion
     : regionOptions[0]?.code || "GB";
+  const activeLabel = regionOptions.find((o) => o.code === activeRegion)?.label || activeRegion;
   const regionAgents = agentsForRegion(agents, activeRegion);
   const selectedAgent = regionAgents.find((a) => a.id === resolvedAgentId) || agents.find((a) => a.id === resolvedAgentId);
 
@@ -160,45 +192,38 @@ export function InterviewAgentPicker({
       ) : regionOptions.length === 0 ? (
         <p className="text-xs text-muted-foreground">No voice agents available.</p>
       ) : (
-        <>
+        <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-0.5">
           <Select value={activeRegion} onValueChange={handleRegionChange}>
-            <SelectTrigger className="h-9 w-full max-w-xs">
-              <SelectValue placeholder="Select accent">
-                <span className="inline-flex items-center gap-2">
-                  <RoundFlag emoji={regionFlagEmoji(activeRegion)} />
-                  <span>{regionOptions.find((o) => o.code === activeRegion)?.label || activeRegion}</span>
-                </span>
-              </SelectValue>
+            <SelectTrigger className="h-9 w-auto min-w-[9.5rem] shrink-0 gap-2">
+              <span className="inline-flex items-center gap-2">
+                <RoundFlag code={activeRegion} />
+                <span className="whitespace-nowrap">{activeLabel}</span>
+              </span>
+              <SelectValue className="sr-only" aria-hidden />
             </SelectTrigger>
             <SelectContent>
               {regionOptions.map((option) => (
-                <SelectItem key={option.code} value={option.code}>
-                  <span className="inline-flex items-center gap-2">
-                    <RoundFlag emoji={option.flagEmoji} />
-                    <span>{option.label}</span>
-                  </span>
-                </SelectItem>
+                <RegionSelectItem key={option.code} code={option.code} label={option.label} />
               ))}
             </SelectContent>
           </Select>
 
           {regionAgents.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No agents for this accent.</p>
+            <p className="text-xs text-muted-foreground whitespace-nowrap">No agents for this accent.</p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {regionAgents.map((agent) => (
-                <AgentRow
-                  key={agent.id}
-                  agent={agent}
-                  selected={resolvedAgentId === agent.id}
-                  previewBusy={previewAgentId === agent.id}
-                  onSelect={() => onSelectAgent(agent.id)}
-                  onPreview={(e) => void playPreview(agent, e)}
-                />
-              ))}
-            </div>
+            regionAgents.map((agent) => (
+              <AgentRow
+                key={agent.id}
+                agent={agent}
+                regionCode={activeRegion}
+                selected={resolvedAgentId === agent.id}
+                previewBusy={previewAgentId === agent.id}
+                onSelect={() => onSelectAgent(agent.id)}
+                onPreview={(e) => void playPreview(agent, e)}
+              />
+            ))
           )}
-        </>
+        </div>
       )}
 
       {selectedAgent?.sample_phrase ? (

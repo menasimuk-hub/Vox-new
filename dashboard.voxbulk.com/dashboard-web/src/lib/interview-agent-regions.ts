@@ -44,3 +44,9 @@ export function regionMenuLabel(code: string): string {
 export function regionFlagEmoji(code: string): string {
   return ARABIC_REGION_META[code]?.flagEmoji || INTERVIEW_REGIONS[code]?.flagEmoji || "🏳️";
 }
+
+/** Circular flag image URL for regions where emoji is poor (Scotland). */
+export function regionFlagImageUrl(code: string): string | null {
+  if (code === "SC") return "https://flagcdn.com/w40/gb-sct.png";
+  return null;
+}
