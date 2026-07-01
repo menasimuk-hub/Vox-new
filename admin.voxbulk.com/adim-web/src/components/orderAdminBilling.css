@@ -95,6 +95,68 @@
   padding: 6px 0 0;
 }
 
+.order-billing-economics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.order-billing-economics-block {
+  background: #fff;
+  border: 1px solid var(--occ-border, var(--b1, #e4e3e0));
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.order-billing-breakdown-list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--occ-text, var(--t1));
+}
+
+.order-activity-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.order-activity-timeline li {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--occ-border, var(--b1));
+}
+
+.order-activity-timeline li:last-child {
+  border-bottom: none;
+}
+
+.order-activity-time {
+  color: var(--occ-text3, var(--t3));
+  font-size: 11px;
+}
+
+.order-detail-ref-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.order-detail-ref-search input {
+  min-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--occ-border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
 .order-detail-footer {
   display: flex;
   flex-wrap: wrap;

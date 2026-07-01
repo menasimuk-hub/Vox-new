@@ -70,13 +70,33 @@ def _merge_token_into_parsed(parsed: dict[str, Any], token_row: InterviewBooking
 
 
 def _call_started_at(parsed: dict[str, Any]) -> str | None:
-    raw = parsed.get("call_started_at") or parsed.get("started_at")
+    transport = str(parsed.get("transport") or "").strip().lower()
+    channel = str(parsed.get("channel") or "").strip().lower()
+    if transport == "webrtc" or channel == "meeting":
+        raw = parsed.get("meeting_started_at") or parsed.get("started_at")
+    else:
+        raw = parsed.get("call_started_at") or parsed.get("started_at")
     return str(raw).strip() if raw else None
 
 
 def _call_completed_at(parsed: dict[str, Any]) -> str | None:
-    raw = parsed.get("call_completed_at") or parsed.get("ended_at")
+    transport = str(parsed.get("transport") or "").strip().lower()
+    channel = str(parsed.get("channel") or "").strip().lower()
+    if transport == "webrtc" or channel == "meeting":
+        raw = parsed.get("meeting_ended_at") or parsed.get("ended_at") or parsed.get("call_completed_at")
+    else:
+        raw = parsed.get("call_completed_at") or parsed.get("ended_at")
     return str(raw).strip() if raw else None
+
+
+def _session_channel_label(parsed: dict[str, Any]) -> str:
+    transport = str(parsed.get("transport") or "").strip().lower()
+    channel = str(parsed.get("channel") or "").strip().lower()
+    if transport == "webrtc":
+        return "webrtc"
+    if channel == "meeting":
+        return "meeting"
+    return channel or "ai_call"
 
 
 class InterviewActivityService:
@@ -207,8 +227,34 @@ class InterviewActivityService:
                 label="Appointment cancellation email sent",
                 detail="careers@voxbulk.com",
             ),
-            _event(_call_started_at(parsed), code="calling", label="AI interview call started"),
-            _event(_call_completed_at(parsed), code="call_done", label="AI interview call completed"),
+            _event(
+                parsed.get("ats_scanned_at") or parsed.get("ats_completed_at"),
+                code="ats_scan",
+                label="CV / ATS screening completed",
+                detail=(
+                    f"Score {recipient.ats_score}"
+                    if recipient.ats_score is not None
+                    else str(recipient.ats_status or "").strip() or None
+                ),
+            ),
+            _event(
+                _call_started_at(parsed),
+                code="calling",
+                label=(
+                    "Web interview started"
+                    if _session_channel_label(parsed) in {"meeting", "webrtc"}
+                    else "AI interview call started"
+                ),
+            ),
+            _event(
+                _call_completed_at(parsed),
+                code="call_done",
+                label=(
+                    "Web interview completed"
+                    if _session_channel_label(parsed) in {"meeting", "webrtc"}
+                    else "AI interview call completed"
+                ),
+            ),
             _event(parsed.get("analysis_saved_at"), code="analysis", label="Interview report ready"),
             _event(parsed.get("scheduling_url_sent_at") or parsed.get("scheduling_sent_at"), code="scheduling", label="Human interview link sent"),
         ):

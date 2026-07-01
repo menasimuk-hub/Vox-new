@@ -15,6 +15,13 @@ from app.services.platform_catalog_service import PlatformCatalogService, Servic
 router = APIRouter(prefix="/admin/platform-services", tags=["admin-platform-services"])
 
 
+def _admin_resolve_order(db: Session, order_ref: str) -> ServiceOrder:
+    order = ServiceOrderService.resolve_order_ref(db, order_ref)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    return order
+
+
 def _service_out(svc: PlatformService) -> dict:
     return {
         "id": svc.id,
@@ -164,9 +171,7 @@ def admin_appointments_org_detail(
 
 @router.get("/orders/{order_id}/audit")
 def admin_order_audit(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     return {"order_id": order.id, "timeline": ServiceOrderService.order_audit_timeline(order)}
 
 
@@ -182,9 +187,7 @@ def admin_download_recipient_cv(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.career_cv_storage_service import cv_media_type, resolve_cv_path
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.service_code != "interview":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CV download is only for interview orders")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -219,9 +222,7 @@ def admin_recipient_activity(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.interview_activity_service import InterviewActivityService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.service_code != "interview":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Activity timeline is only for interview orders")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -242,9 +243,7 @@ def admin_interview_candidate_report_html(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import HTMLResponse
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None or recipient.order_id != order.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -264,9 +263,7 @@ def admin_interview_candidate_report_pdf(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None or recipient.order_id != order.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -290,9 +287,7 @@ def admin_send_interview_invites(
 ):
     from app.services.interview_booking_service import InterviewBookingService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.service_code != "interview":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invites are only for interview orders")
     body = payload or {}
@@ -320,9 +315,7 @@ def admin_get_recipient_detail(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.survey_results_service import SurveyResultsService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -357,9 +350,7 @@ def admin_update_recipient(
 ):
     from app.models.service_order import ServiceOrderRecipient
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -397,9 +388,7 @@ def admin_list_orders(
 
 @router.get("/orders/{order_id}")
 def admin_get_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipients = ServiceOrderService.get_recipients(db, order.id)
     payload = ServiceOrderService.order_to_admin_dict(db, order, include_recipients=True, recipients=recipients)
     from app.services.service_order_admin_cost_service import enrich_admin_order_costs
@@ -411,9 +400,7 @@ def admin_get_order(order_id: str, db: Session = Depends(get_db), _admin=Depends
 def admin_dial_next(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     from app.services.survey_call_dispatch_service import SurveyCallDispatchService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.status != "running":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Survey must be running")
     row = SurveyCallDispatchService.dial_next_recipient(db, order)
@@ -434,9 +421,7 @@ def admin_call_recipient_now(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.survey_call_dispatch_service import SurveyCallDispatchService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -458,9 +443,7 @@ def admin_call_recipient_now(
 def admin_reanalyze_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
     from app.services.survey_analysis_service import SurveyAnalysisService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         result = SurveyAnalysisService.reanalyze_order(db, order=order)
         recipients = ServiceOrderService.get_recipients(db, order.id)
@@ -481,9 +464,7 @@ def admin_reanalyze_recipient(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.survey_analysis_service import SurveyAnalysisService
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
@@ -497,9 +478,7 @@ def admin_reanalyze_recipient(
 
 @router.post("/orders/{order_id}/start")
 def admin_start_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.start_order(db, order)
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -509,9 +488,7 @@ def admin_start_order(order_id: str, db: Session = Depends(get_db), _admin=Depen
 
 @router.post("/orders/{order_id}/pause")
 def admin_pause_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.pause_order(db, order)
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -521,9 +498,7 @@ def admin_pause_order(order_id: str, db: Session = Depends(get_db), _admin=Depen
 
 @router.post("/orders/{order_id}/resume")
 def admin_resume_order(order_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.resume_order(db, order)
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -533,9 +508,7 @@ def admin_resume_order(order_id: str, db: Session = Depends(get_db), _admin=Depe
 
 @router.post("/orders/{order_id}/stop")
 def admin_stop_order(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.stop_order(db, order, reason=str((payload or {}).get("reason") or "Stopped by admin"))
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -550,9 +523,7 @@ def admin_approve_order_payment(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.admin_approve_payment(db, order, note=str((payload or {}).get("note") or ""))
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -567,9 +538,7 @@ def admin_reject_order_payment(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     try:
         order = ServiceOrderService.admin_reject_payment(db, order, note=str((payload or {}).get("note") or ""))
         return ServiceOrderService.order_to_admin_dict(db, order)
@@ -597,9 +566,7 @@ def admin_approve_script_moderation(
 ):
     from app.services.script_moderation_service import admin_approve_script_moderation
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.service_code not in {"interview", "survey"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview or survey order")
     order = admin_approve_script_moderation(
@@ -620,9 +587,7 @@ def admin_reject_script_moderation(
 ):
     from app.services.script_moderation_service import admin_reject_script_moderation
 
-    order = ServiceOrderService.get_order(db, order_id)
-    if order is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    order = _admin_resolve_order(db, order_id)
     if order.service_code not in {"interview", "survey"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an interview or survey order")
     order = admin_reject_script_moderation(

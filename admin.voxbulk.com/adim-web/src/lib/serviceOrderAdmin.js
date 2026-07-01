@@ -102,3 +102,36 @@ export function orderCallUsageSummary(order) {
   }
   return { totalSeconds, connected, billableMinutes }
 }
+
+export function orderDeliveryLabel(order) {
+  const cfg = order?.config || {}
+  const delivery = String(cfg.delivery || '').toLowerCase()
+  if (delivery === 'ai_meeting') return 'Web interview (browser)'
+  if (delivery === 'ai_call') return 'Phone AI call'
+  const launch = order?.launch_billing || {}
+  const channel = String(launch.channel || cfg.survey_channel || cfg.channel || order?.quote_survey_channel || '').toLowerCase()
+  if (channel === 'whatsapp' || channel === 'wa') return 'WhatsApp'
+  if (channel === 'ai_call' || channel === 'phone' || channel === 'call') return 'Phone AI call'
+  return channel || '—'
+}
+
+export function recipientSessionChannel(row, order) {
+  const transport = String(row?.transport || '').toLowerCase()
+  const channel = String(row?.call_channel || '').toLowerCase()
+  if (transport === 'webrtc') return 'webrtc'
+  if (channel === 'meeting') return 'meeting'
+  const delivery = String(order?.config?.delivery || '').toLowerCase()
+  if (delivery === 'ai_meeting') return 'meeting'
+  return channel || 'ai_call'
+}
+
+export function orderHasBillableSessions(order) {
+  const cfg = order?.config || {}
+  const delivery = String(cfg.delivery || '').toLowerCase()
+  if (delivery === 'ai_meeting' || delivery === 'ai_call') return true
+  const launch = order?.launch_billing || {}
+  const channel = String(launch.channel || cfg.survey_channel || cfg.channel || '').toLowerCase()
+  if (['ai_call', 'phone', 'call'].includes(channel)) return true
+  const recipients = Array.isArray(order?.recipients) ? order.recipients : []
+  return recipients.some((r) => ['meeting', 'webrtc'].includes(recipientSessionChannel(r, order)))
+}

@@ -33,6 +33,28 @@ def resolve_script_text(cfg: dict[str, Any], *, fallback: dict[str, Any] | None 
     return ""
 
 
+def interview_script_looks_like_survey(text: str) -> str | None:
+    """Return a short reason when interview script text resembles patient/NPS survey copy."""
+    lower = str(text or "").lower()
+    if not lower.strip():
+        return None
+    checks = [
+        ("recommend us", "recommendation / NPS wording"),
+        ("how likely are you", "NPS likelihood question"),
+        ("scale of 0 to 10", "0–10 satisfaction scale"),
+        ("0-10", "0–10 satisfaction scale"),
+        ("0 to 10", "0–10 satisfaction scale"),
+        ("your visit", "patient visit survey wording"),
+        ("rate your experience", "experience rating survey"),
+        ("net promoter", "Net Promoter Score"),
+        ("hygienist", "dental hygiene survey topic"),
+    ]
+    for needle, reason in checks:
+        if needle in lower:
+            return reason
+    return None
+
+
 def script_moderation_blocks_launch(config: dict[str, Any]) -> str | None:
     status = str(config.get("script_moderation_status") or "").strip().lower()
     if status == "pending_admin_review":
@@ -73,6 +95,18 @@ def apply_script_moderation_gate(
         if wants_approve:
             patch["script_approved"] = False
         return patch
+
+    if service_code == "interview" and wants_approve:
+        survey_issue = interview_script_looks_like_survey(script_text)
+        if survey_issue:
+            patch["script_approved"] = False
+            patch["script_moderation_status"] = "rejected"
+            patch["script_moderation_category"] = "survey_mismatch"
+            patch["script_moderation_reason"] = (
+                f"Interview scripts cannot use survey questions ({survey_issue}). "
+                "Use screening questions about the role and candidate experience."
+            )
+            return patch
 
     lang_override = patch.get("script_language_code") or prev.get("script_language_code")
     script_lang = detect_script_language(script_text, override=str(lang_override or "") or None)

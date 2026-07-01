@@ -193,6 +193,58 @@ def main() -> int:
                 except Exception as exc:  # noqa: BLE001
                     print(f"  instructions build failed: {exc}")
 
+            print("\n=== Recipients (activity + cost) ===")
+            from sqlalchemy import select
+
+            from app.models.service_order import ServiceOrderRecipient
+            from app.services.platform_catalog_service import ServiceOrderService
+            from app.services.service_order_admin_cost_service import enrich_admin_order_costs
+
+            rec_rows = db.execute(
+                select(ServiceOrderRecipient)
+                .where(ServiceOrderRecipient.order_id == order.id)
+                .order_by(ServiceOrderRecipient.row_number.asc())
+            ).scalars().all()
+            payload = ServiceOrderService.order_to_admin_dict(
+                order, include_recipients=True, recipients=list(rec_rows)
+            )
+            payload = enrich_admin_order_costs(db, order, payload)
+            for row in payload.get("recipients") or []:
+                print(f"  --- {row.get('name') or row.get('id')} ---")
+                print(f"    status              {row.get('status')}")
+                print(f"    channel             {row.get('call_channel')}")
+                print(f"    transport           {row.get('transport')}")
+                print(f"    duration_seconds    {row.get('duration_seconds')}")
+                print(f"    billable_minutes    {row.get('billable_minutes')}")
+                print(f"    telnyx_conversation {row.get('telnyx_conversation_id')}")
+                print(f"    retail_cost         {row.get('retail_cost_display')}")
+                print(f"    operator_cost       {row.get('operator_cost_display')}")
+                print(f"    margin              {row.get('margin_display')}")
+                try:
+                    from app.services.interview_activity_service import InterviewActivityService
+
+                    rec = next((r for r in rec_rows if r.id == row.get("id")), None)
+                    if rec is not None:
+                        timeline = InterviewActivityService.timeline(db, order, rec)
+                        print(f"    activity_status     {timeline.get('activity_status')}")
+                        events = timeline.get("events") or []
+                        if events:
+                            last = events[-1]
+                            print(f"    last_event          {last.get('label')} @ {last.get('at')}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"    activity            (failed: {exc})")
+
+            fin = payload.get("financial_summary") or {}
+            if fin:
+                print("\n=== Order financial summary ===")
+                print(f"  quote               {fin.get('quote_total_display')}")
+                rates = fin.get("sales_rates") or {}
+                print(f"  sales per min       {rates.get('interview_per_min_display')}")
+                print(f"  connection          {rates.get('connection_fee_display')}")
+                print(f"  total R.cost        {fin.get('total_retail_cost_display')}")
+                print(f"  total O.cost        {fin.get('total_operator_cost_display')}")
+                print(f"  margin              {fin.get('margin_display')}")
+
     return 0
 
 

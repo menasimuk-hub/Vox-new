@@ -651,6 +651,7 @@ class ServiceOrderService:
             ),
             "hangup_cause": hangup or None,
             "call_channel": result.get("channel") or "ai_call",
+            "transport": result.get("transport"),
             "call_control_id": result.get("call_control_id"),
             "telnyx_conversation_id": result.get("telnyx_conversation_id") or result.get("conversation_id"),
             "call_session_id": result.get("call_session_id") or result.get("telnyx_session_id"),
@@ -1684,6 +1685,23 @@ class ServiceOrderService:
         if org_id:
             stmt = stmt.where(ServiceOrder.org_id == org_id)
         return db.execute(stmt).scalar_one_or_none()
+
+    @staticmethod
+    def resolve_order_ref(db: Session, ref: str, *, org_id: str | None = None) -> ServiceOrder | None:
+        """Match order UUID, campaign_id (VB-CMP-…), or reference_id (VB-INT-…)."""
+        key = str(ref or "").strip()
+        if not key:
+            return None
+        order = ServiceOrderService.get_order(db, key, org_id=org_id)
+        if order is not None:
+            return order
+        upper = key.upper()
+        stmt = select(ServiceOrder).where(
+            (ServiceOrder.campaign_id == upper) | (ServiceOrder.reference_id == upper)
+        )
+        if org_id:
+            stmt = stmt.where(ServiceOrder.org_id == org_id)
+        return db.execute(stmt.limit(1)).scalar_one_or_none()
 
     @staticmethod
     def get_recipients(db: Session, order_id: str) -> list[ServiceOrderRecipient]:

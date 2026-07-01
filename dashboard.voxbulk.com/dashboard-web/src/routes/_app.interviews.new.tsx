@@ -516,9 +516,9 @@ function CreateInterview() {
         : undefined,
     );
     setScriptApproved(Boolean(config.script_approved));
-    // Candidate-choice booking: every order is created as ai_call (dialer-eligible);
-    // the candidate's per-slot channel decides phone vs online meeting.
-    setDelivery("ai_call");
+    // Restore saved delivery (web meeting vs phone); default ai_call for new drafts.
+    const savedDelivery = String(config.delivery || "").toLowerCase();
+    setDelivery(savedDelivery === "ai_meeting" ? "ai_meeting" : "ai_call");
     const savedAgentId = String(config.agent_id || "").trim();
     const savedLang = String(config.script_language_code || config.language_code || "").toLowerCase();
     if (savedLang.startsWith("ar")) {
