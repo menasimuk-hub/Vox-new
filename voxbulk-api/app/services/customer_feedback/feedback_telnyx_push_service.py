@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.http_ssl import httpx_ssl_verify
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
 from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
+from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     normalize_wa_template_category,
