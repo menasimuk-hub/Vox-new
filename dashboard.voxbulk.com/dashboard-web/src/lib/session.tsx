@@ -183,6 +183,13 @@ function GoCardlessReturnHandler({
             await completeCardSubscription(pending.payment_intent_id);
             clearCardSubscriptionState();
             toast.success("Subscription activated");
+          } else if (pending.flow === "feedback_subscription") {
+            const { completeFeedbackCardSubscription, clearFeedbackCardSubscriptionState } = await import(
+              "@/lib/billing/feedback-subscription-payment"
+            );
+            await completeFeedbackCardSubscription(pending.payment_intent_id);
+            clearFeedbackCardSubscriptionState();
+            toast.success("Customer feedback subscription activated");
           } else {
             toast.error("Payment completed but checkout session was not found.");
             return;
@@ -204,12 +211,22 @@ function GoCardlessReturnHandler({
       }
       void (async () => {
         try {
-          const { completeCardSubscription, clearCardSubscriptionState } = await import(
-            "@/lib/billing/subscription-payment"
-          );
-          await completeCardSubscription(paymentIntentId);
-          clearCardSubscriptionState();
-          toast.success("Subscription activated");
+          const onFeedbackPackages = window.location.pathname.includes("/account/feedback/packages");
+          if (onFeedbackPackages) {
+            const { completeFeedbackCardSubscription, clearFeedbackCardSubscriptionState } = await import(
+              "@/lib/billing/feedback-subscription-payment"
+            );
+            await completeFeedbackCardSubscription(paymentIntentId);
+            clearFeedbackCardSubscriptionState();
+            toast.success("Customer feedback subscription activated");
+          } else {
+            const { completeCardSubscription, clearCardSubscriptionState } = await import(
+              "@/lib/billing/subscription-payment"
+            );
+            await completeCardSubscription(paymentIntentId);
+            clearCardSubscriptionState();
+            toast.success("Subscription activated");
+          }
           onComplete();
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "Could not activate subscription");

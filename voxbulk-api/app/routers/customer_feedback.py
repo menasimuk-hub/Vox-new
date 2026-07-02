@@ -64,6 +64,74 @@ def list_packages(db: Session = Depends(get_db), principal=Depends(get_current_p
     return {"ok": True, "items": FeedbackBillingService.list_customer_packages(db, org)}
 
 
+@router.get("/subscription/payment-providers")
+def get_feedback_payment_providers(
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return FeedbackBillingService.subscription_payment_options(db, org)
+
+
+@router.post("/subscription/card/start")
+def start_feedback_card(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    from app.models.user import User
+
+    plan_id = str(payload.get("plan_id") or "").strip()
+    if not plan_id:
+        raise HTTPException(status_code=400, detail="plan_id required")
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    user = db.get(User, principal.user_id)
+    user_email = str(user.email or "").strip() if user else ""
+    try:
+        checkout = FeedbackBillingService.start_card_signup(
+            db,
+            org=org,
+            user_email=user_email,
+            plan_id=plan_id,
+            billing_interval=billing_interval,
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    plan = checkout.pop("plan")
+    return {
+        "ok": True,
+        "plan_id": plan.id,
+        "plan_name": plan.name,
+        **checkout,
+    }
+
+
+@router.post("/subscription/card/complete")
+def complete_feedback_card(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    plan_id = str(payload.get("plan_id") or "").strip()
+    provider = str(payload.get("provider") or "").strip().lower()
+    payment_intent_id = str(payload.get("payment_intent_id") or "").strip()
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
+    if not plan_id or not payment_intent_id:
+        raise HTTPException(status_code=400, detail="plan_id and payment_intent_id required")
+    try:
+        FeedbackBillingService.complete_card_signup(
+            db,
+            org=org,
+            plan_id=plan_id,
+            provider=provider,
+            payment_intent_id=payment_intent_id,
+            billing_interval=billing_interval,
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "subscription": FeedbackBillingService.subscription_payload(db, principal.org_id)}
+
+
 @router.post("/subscription/gocardless/start")
 def start_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     plan_id = str(payload.get("plan_id") or "").strip()

@@ -19,8 +19,30 @@ from app.services.billing_event_email_service import BillingEventEmailService
 
 logger = logging.getLogger(__name__)
 
+# SMS allowance columns exist on plans/usage periods; metering is not wired yet.
+SMS_BILLING_ENABLED = False
+
 
 class UsageWalletService:
+    @staticmethod
+    def _warn_at_80(
+        calls_used: int,
+        calls_included: int,
+        wa_used: int,
+        wa_included: int,
+        sms_used: int,
+        sms_included: int,
+    ) -> bool:
+        def pct(used: int, included: int) -> float:
+            if included <= 0:
+                return 0.0
+            return (used / included) * 100
+
+        pairs = [(calls_used, calls_included), (wa_used, wa_included)]
+        if SMS_BILLING_ENABLED:
+            pairs.append((sms_used, sms_included))
+        return any(pct(used, included) >= 80 for used, included in pairs)
+
     @staticmethod
     def get_current(db: Session, org_id: str) -> OrgUsagePeriod | None:
         now = datetime.utcnow()
@@ -139,12 +161,6 @@ class UsageWalletService:
                 "remaining": max(0, wa_included - wa_used),
                 "percent": pct(wa_used, wa_included),
             },
-            "sms": {
-                "used": sms_used,
-                "included": sms_included,
-                "remaining": max(0, sms_included - sms_used),
-                "percent": pct(sms_used, sms_included),
-            },
             "cv_scans": {
                 "used": cv_used,
                 "included": cv_included,
@@ -161,10 +177,17 @@ class UsageWalletService:
             "wa_overage_unit_pence": int(breakdown.get("wa_extra_pence") or 49),
             "estimated_overage_gbp": round(est_overage_pence / 100, 2),
             "estimated_overage_pence": est_overage_pence,
-            "warn_at_80": any(
-                pct(x, y) >= 80 for x, y in ((calls_used, calls_included), (wa_used, wa_included), (sms_used, sms_included))
+            "warn_at_80": UsageWalletService._warn_at_80(
+                calls_used, calls_included, wa_used, wa_included, sms_used, sms_included
             ),
         }
+        if SMS_BILLING_ENABLED:
+            summary["sms"] = {
+                "used": sms_used,
+                "included": sms_included,
+                "remaining": max(0, sms_included - sms_used),
+                "percent": pct(sms_used, sms_included),
+            }
         if db is not None and org_id:
             from app.services.package_entitlement_service import PackageEntitlementService
 
@@ -340,11 +363,12 @@ class UsageWalletService:
             return []
 
         out: list[tuple[str, int, int, float]] = []
-        checks = (
+        checks: list[tuple[str, int, int]] = [
             ("Calls", int(row.calls_used or 0), int(row.calls_included or 0)),
             ("WhatsApp", int(row.whatsapp_used or 0), int(row.whatsapp_included or 0)),
-            ("SMS", int(row.sms_used or 0), int(row.sms_included or 0)),
-        )
+        ]
+        if SMS_BILLING_ENABLED:
+            checks.append(("SMS", int(row.sms_used or 0), int(row.sms_included or 0)))
         for label, used, included in checks:
             if included <= 0:
                 continue

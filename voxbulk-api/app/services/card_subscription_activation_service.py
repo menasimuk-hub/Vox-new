@@ -148,7 +148,13 @@ class CardSubscriptionActivationService:
                 )
 
         BillingAccessService.mark_first_payment_confirmed(db, org_id=org.id, sub=sub)
-        UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=sub)
+        if svc == "customer_feedback":
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            FeedbackBillingService.on_subscription_activated(db, org_id=org.id, subscription=sub, plan=plan)
+            FeedbackBillingService._tag_activation_invoice(db, org_id=org.id)
+        else:
+            UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=sub)
         db.refresh(sub)
         return sub
 

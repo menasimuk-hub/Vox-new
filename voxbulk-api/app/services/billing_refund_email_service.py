@@ -162,6 +162,29 @@ class BillingRefundEmailService:
         )
 
     @staticmethod
+    def send_plan_change_scheduled(
+        db: Session,
+        *,
+        org: Organisation,
+        user_id: str | None,
+        current_plan_name: str,
+        pending_plan_name: str,
+        effective_date: str,
+    ) -> None:
+        BillingRefundEmailService._send(
+            db,
+            template_key="billing_plan_change_scheduled",
+            org=org,
+            user_id=user_id,
+            variables={
+                **BillingRefundEmailService._base_vars(db, org),
+                "current_plan_name": current_plan_name,
+                "pending_plan_name": pending_plan_name,
+                "effective_date": effective_date,
+            },
+        )
+
+    @staticmethod
     def send_wallet_credit_issued(
         db: Session,
         *,

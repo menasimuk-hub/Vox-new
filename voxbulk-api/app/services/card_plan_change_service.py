@@ -42,14 +42,59 @@ class CardPlanChangeService:
         sub: Subscription,
         new_plan: Plan,
         billing_interval: str,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
+        org = db.get(Organisation, sub.org_id)
+        current_plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
         sub.pending_plan_id = new_plan.id
         sub.billing_interval = billing_interval
         sub.updated_at = datetime.utcnow()
         db.add(sub)
         db.commit()
         db.refresh(sub)
+        if org is not None:
+            CardPlanChangeService._notify_plan_change_scheduled(
+                db,
+                org=org,
+                sub=sub,
+                current_plan=current_plan,
+                pending_plan=new_plan,
+                user_id=user_id,
+            )
         return {"pending_plan_id": new_plan.id}
+
+    @staticmethod
+    def _notify_plan_change_scheduled(
+        db: Session,
+        *,
+        org: Organisation,
+        sub: Subscription,
+        current_plan: Plan | None,
+        pending_plan: Plan,
+        user_id: str | None = None,
+    ) -> None:
+        from app.services.billing_refund_email_service import BillingRefundEmailService
+
+        effective_date = (
+            sub.current_period_end.date().isoformat()
+            if sub.current_period_end
+            else "your next renewal date"
+        )
+        try:
+            BillingRefundEmailService.send_plan_change_scheduled(
+                db,
+                org=org,
+                user_id=user_id,
+                current_plan_name=(current_plan.name if current_plan else "Current plan"),
+                pending_plan_name=pending_plan.name,
+                effective_date=effective_date,
+            )
+        except Exception:
+            logger.exception(
+                "plan_change_scheduled_email_failed org_id=%s sub_id=%s",
+                org.id,
+                sub.id,
+            )
 
     @staticmethod
     def apply_upgrade_with_pro_rata(

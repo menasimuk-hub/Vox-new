@@ -116,8 +116,6 @@ class SalesOfferSendService:
             parts.append(f"{plan.calls_included} calls")
         if int(plan.whatsapp_included or 0) > 0:
             parts.append(f"{plan.whatsapp_included} WhatsApp")
-        if int(plan.sms_included or 0) > 0:
-            parts.append(f"{plan.sms_included} SMS")
         quota = ", ".join(parts) if parts else "usage limits apply"
         return f"{plan.name} · {price} · {quota}"
 

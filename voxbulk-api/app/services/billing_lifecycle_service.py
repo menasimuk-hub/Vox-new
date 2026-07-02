@@ -810,13 +810,17 @@ class BillingLifecycleService:
                 db.refresh(sub)
                 return sub, new_plan, direction, extra
             if direction == "downgrade":
-                sub.pending_plan_id = new_plan.id
-                sub.billing_interval = interval
-                sub.updated_at = datetime.utcnow()
+                from app.services.card_plan_change_service import CardPlanChangeService
+
+                extra = CardPlanChangeService.apply_downgrade(
+                    db, sub=sub, new_plan=new_plan, billing_interval=interval
+                )
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
                 db.add(sub)
                 db.commit()
                 db.refresh(sub)
-                return sub, new_plan, direction, {"pending_plan_id": new_plan.id}
+                return sub, new_plan, direction, extra
 
         sub, plan, dir2 = BillingService.change_plan(
             db, org_id=org_id, plan_id=plan_id, plan_code=plan_code, billing_interval=interval

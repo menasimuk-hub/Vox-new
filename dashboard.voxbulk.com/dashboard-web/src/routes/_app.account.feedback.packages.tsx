@@ -11,6 +11,11 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
+import {
+  feedbackUsesCardCheckout,
+  fetchFeedbackPaymentProviders,
+  startFeedbackCardSubscription,
+} from "@/lib/billing/feedback-subscription-payment";
 import { feedbackPlanButtonLabel, planChangeToast } from "@/lib/billing/plans";
 import { changeFeedbackPlan, useFeedbackPackages, useFeedbackSubscription, useOrganisation } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
@@ -75,6 +80,15 @@ function FeedbackPackagesPage() {
   const orgQ = useOrganisation();
   const packagesQ = useFeedbackPackages();
   const subscriptionQ = useFeedbackSubscription();
+  const [paymentProviders, setPaymentProviders] = React.useState<Record<string, unknown> | null>(null);
+
+  React.useEffect(() => {
+    void fetchFeedbackPaymentProviders()
+      .then(setPaymentProviders)
+      .catch(() => setPaymentProviders(null));
+  }, []);
+
+  const usesCardCheckout = feedbackUsesCardCheckout(paymentProviders);
 
   const orgCountry = String(orgQ.data?.country || "").trim() || "Not set";
   const subscription = subscriptionQ.data;
@@ -98,7 +112,11 @@ function FeedbackPackagesPage() {
         ]);
         return;
       }
-      await startFeedbackGoCardlessSubscription(pkg.plan_id, billingInterval);
+      if (usesCardCheckout) {
+        await startFeedbackCardSubscription(pkg.plan_id, billingInterval);
+      } else {
+        await startFeedbackGoCardlessSubscription(pkg.plan_id, billingInterval);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update subscription");
       setBusyPlanId(null);
@@ -115,7 +133,7 @@ function FeedbackPackagesPage() {
       <PageHeader
         eyebrow="Account"
         title="Customer feedback plans"
-        description="Direct Debit packages for WhatsApp and web QR feedback — locations, survey allowances, and monthly/yearly billing."
+        description="WhatsApp and web QR feedback packages — Direct Debit (UK/EU/US) or card (Gulf / other regions)."
         actions={
           <Button asChild variant="outline" className="gap-1.5">
             <Link to="/feedback/new">
@@ -128,7 +146,11 @@ function FeedbackPackagesPage() {
       <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
         <p className="font-medium">Customer feedback billing</p>
         <p className="text-xs text-muted-foreground">
-          Separate from Core platform (AI interviews &amp; outbound surveys). Direct Debit only — no wallet top-ups.
+          Separate from Core platform (AI interviews &amp; outbound surveys).
+          {usesCardCheckout
+            ? " Card checkout (Airwallex/Stripe) for your region."
+            : " Direct Debit (GoCardless) for your region."}
+          {" "}No wallet top-ups.
           Plan renames in Admin persist after deploy.
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
@@ -196,7 +218,8 @@ function FeedbackPackagesPage() {
             <MessageCircle className="size-8 text-muted-foreground" />
             <p className="font-medium">No active Customer feedback subscription</p>
             <p className="max-w-md text-sm text-muted-foreground">
-              Choose a package below to activate QR surveys. Billing is by Direct Debit (GoCardless) only.
+              Choose a package below to activate QR surveys.
+              {usesCardCheckout ? " Pay by card at checkout." : " Billing is by Direct Debit (GoCardless)."}
             </p>
           </CardContent>
         </Card>

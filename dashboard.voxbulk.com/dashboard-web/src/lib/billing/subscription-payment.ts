@@ -22,7 +22,7 @@ declare global {
   }
 }
 
-function loadScript(src: string) {
+export function loadScript(src: string) {
   return new Promise<void>((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) {
       resolve();

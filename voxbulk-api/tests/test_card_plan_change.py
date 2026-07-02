@@ -90,11 +90,39 @@ def _seed_plans(db) -> tuple[Organisation, Plan, Plan, Subscription]:
 
 def test_card_downgrade_schedules_pending_plan(db):
     org, starter, growth, sub = _seed_plans(db)
-    result = CardPlanChangeService.apply_downgrade(db, sub=sub, new_plan=growth, billing_interval="monthly")
+    with patch(
+        "app.services.billing_refund_email_service.BillingRefundEmailService.send_plan_change_scheduled"
+    ) as mock_email:
+        result = CardPlanChangeService.apply_downgrade(db, sub=sub, new_plan=growth, billing_interval="monthly")
     assert result["pending_plan_id"] == growth.id
     db.refresh(sub)
     assert sub.pending_plan_id == growth.id
     assert sub.plan_id == starter.id
+    mock_email.assert_called_once()
+    kwargs = mock_email.call_args.kwargs
+    assert kwargs["current_plan_name"] == "Starter"
+    assert kwargs["pending_plan_name"] == "Growth"
+    assert kwargs["org"].id == org.id
+
+
+@patch("app.services.billing_refund_email_service.BillingRefundEmailService.send_plan_change_scheduled")
+def test_change_subscription_plan_gc_downgrade_sends_email(mock_email, db):
+    org, starter, growth, sub = _seed_plans(db)
+    sub.payment_provider = "gocardless"
+    sub.plan_id = growth.id
+    sub.external_customer_id = "CU123"
+    sub.mandate_id = "MD123"
+    db.add(sub)
+    db.commit()
+
+    sub_out, plan_out, direction, extra = BillingLifecycleService.change_subscription_plan(
+        db, org_id=org.id, plan_id=starter.id, billing_interval="monthly"
+    )
+
+    assert direction == "downgrade"
+    assert plan_out.id == starter.id
+    assert sub_out.pending_plan_id == starter.id
+    mock_email.assert_called_once()
 
 
 @patch("app.services.billing_event_email_service.BillingEventEmailService.send_payment_receipt", return_value=(True, None))
