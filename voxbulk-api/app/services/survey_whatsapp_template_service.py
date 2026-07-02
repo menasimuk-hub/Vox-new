@@ -1171,13 +1171,21 @@ def _try_link_remote_and_resolve_branch(
     remote_items: list[dict[str, Any]],
 ) -> tuple[str, str | None, bool]:
     linked = False
-    if not _has_remote_telnyx_id(row):
+    if not _has_remote_telnyx_id(row) or str(row.local_sync_status or "") == SYNC_ERROR:
         linked = _link_existing_remote_template(
             db,
             row,
             language=language,
             remote_items=remote_items,
         )
+        if not linked:
+            all_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=False)
+            linked = _link_existing_remote_template(
+                db,
+                row,
+                language=language,
+                remote_items=all_items,
+            )
         if linked:
             db.commit()
             db.refresh(row)
@@ -1246,7 +1254,9 @@ def _recover_push_after_provider_conflict(
         template_id=str(row.id or ""),
     )
     if not _link_existing_remote_template(db, row, language=language, remote_items=items):
-        return None
+        all_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=False)
+        if not _link_existing_remote_template(db, row, language=language, remote_items=all_items):
+            return None
     db.commit()
     db.refresh(row)
     linked_branch, branch_error = resolve_template_sync_branch(row, raw_components)

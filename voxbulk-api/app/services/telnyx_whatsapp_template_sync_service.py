@@ -254,13 +254,13 @@ class TelnyxWhatsappTemplateSyncService:
             raise TelnyxWhatsappTemplateSyncError(str(e)) from e
 
     @staticmethod
-    def fetch_from_telnyx(db: Session) -> list[dict[str, Any]]:
+    def fetch_from_telnyx(db: Session, *, filter_waba_id: bool = True) -> list[dict[str, Any]]:
         config = TelnyxWhatsappTemplateSyncService._config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
 
-        waba_id = resolve_telnyx_whatsapp_waba_id(db, config)
+        waba_id = resolve_telnyx_whatsapp_waba_id(db, config) if filter_waba_id else None
         params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
         if waba_id:
             params["filter[waba_id]"] = waba_id
