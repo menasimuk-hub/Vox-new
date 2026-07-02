@@ -6,6 +6,20 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+UTILITY_BUTTON_MAX_CHARS = 20
+
+_BUTTON_SHORTEN_MAP: dict[str, str] = {
+    "very clean & hygienic": "Very hygienic",
+    "exceeded expectations": "Above expectations",
+    "completely transparent": "Fully transparent",
+    "very warm & welcoming": "Very welcoming",
+    "very warm & caring": "Very caring",
+    "very warm & helpful": "Very helpful",
+    "yes, fully transparent": "Fully transparent",
+    "very smooth & fair": "Very smooth",
+    "uncomfortable/noisy": "Too noisy",
+}
+
 _UTILITY_CONTEXT_PHRASES = (
     "recent visit",
     "recent interaction",
@@ -158,6 +172,27 @@ def lint_utility_body(
     return result
 
 
+def clamp_utility_button_label(label: str) -> str:
+    """Shorten a quick-reply label to Meta UTILITY limit (20 chars)."""
+    text = re.sub(r"\s+", " ", str(label or "").strip())
+    if not text:
+        return "Option"
+    if len(text) <= UTILITY_BUTTON_MAX_CHARS:
+        return text
+    mapped = _BUTTON_SHORTEN_MAP.get(text.lower())
+    if mapped and len(mapped) <= UTILITY_BUTTON_MAX_CHARS:
+        return mapped
+    if " & " in text:
+        shortened = text.split(" & ", 1)[0].strip()
+        if 3 <= len(shortened) <= UTILITY_BUTTON_MAX_CHARS:
+            return shortened
+    return text[:UTILITY_BUTTON_MAX_CHARS].rstrip()
+
+
+def clamp_utility_button_labels(labels: list[str]) -> list[str]:
+    return [clamp_utility_button_label(label) for label in labels or []]
+
+
 def lint_utility_buttons(buttons: list[str], *, language: str | None = None) -> UtilityLintResult:
     result = UtilityLintResult(ok=True)
     lang = _normalize_lang(language)
@@ -173,8 +208,12 @@ def lint_utility_buttons(buttons: list[str], *, language: str | None = None) -> 
         if not text:
             result.add("empty_button", f"Button {idx + 1} is empty", field=f"button_{idx + 1}")
             continue
-        if len(text) > 20:
-            result.add("button_too_long", f"Button {idx + 1} exceeds 20 characters", field=f"button_{idx + 1}")
+        if len(text) > UTILITY_BUTTON_MAX_CHARS:
+            result.add(
+                "button_too_long",
+                f"Button {idx + 1} exceeds {UTILITY_BUTTON_MAX_CHARS} characters",
+                field=f"button_{idx + 1}",
+            )
         _check_patterns(text, all_patterns, result, field=f"button_{idx + 1}")
     return result
 

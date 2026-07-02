@@ -23,7 +23,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _rule_based_utility_body,
     rewrite_body_for_utility,
 )
-from app.services.wa_template_utility_lint import assert_utility_template, lint_utility_template
+from app.services.wa_template_utility_lint import assert_utility_template, clamp_utility_button_labels, lint_utility_template
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def apply_utility_rewrite_to_feedback_row(
     if is_marketing_wa_template(row):
         raise ValueError(f"Marketing template excluded from utility migration: {row.template_key}")
 
-    buttons = _parse_buttons(row.buttons_json)
+    buttons = clamp_utility_button_labels(_parse_buttons(row.buttons_json))
     old_body = str(row.body_text or "").strip()
     if not old_body:
         raise ValueError(f"Missing body_text for {row.template_key}")
@@ -171,7 +171,7 @@ def process_feedback_industry(
 
     for row in rows:
         try:
-            buttons = _parse_buttons(row.buttons_json)
+            buttons = clamp_utility_button_labels(_parse_buttons(row.buttons_json))
             old_body = str(row.body_text or "").strip()
             if dry_run:
                 new_body = rewrite_feedback_body(

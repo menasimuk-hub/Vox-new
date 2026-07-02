@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.services.wa_template_utility_lint import (
+    clamp_utility_button_label,
+    clamp_utility_button_labels,
     lint_utility_body,
     lint_utility_template,
     merge_lint_results,
@@ -57,3 +59,18 @@ def test_merge_lint_results():
     merged = merge_lint_results(a, b)
     assert not merged.ok
     assert len(merged.issues) >= 2
+
+
+def test_clamp_utility_button_label_shortens_long_options():
+    assert len(clamp_utility_button_label("Very clean & hygienic")) <= 20
+    assert clamp_utility_button_label("Exceeded expectations") == "Above expectations"
+    assert clamp_utility_button_label("Completely transparent") == "Fully transparent"
+    assert clamp_utility_button_label("Very warm & welcoming") == "Very welcoming"
+    result = lint_utility_template(
+        body="Following your recent visit, how clean was it?",
+        buttons=clamp_utility_button_labels(
+            ["Needs improvement", "Clean", "Very clean & hygienic"]
+        ),
+        meta_category="utility",
+    )
+    assert result.ok

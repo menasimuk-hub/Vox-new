@@ -29,7 +29,7 @@ from app.services.survey_whatsapp_template_service import (
     _refresh_local_sync_status,
     normalize_wa_template_category,
 )
-from app.services.wa_template_utility_lint import lint_utility_template
+from app.services.wa_template_utility_lint import clamp_utility_button_labels, lint_utility_template
 from app.services.wa_template_meta_sync import (
     is_utility_clone_template_name,
     suggest_utility_clone_template_name,
@@ -280,6 +280,8 @@ def apply_utility_rewrite_to_row(
     old_body, buttons = _extract_body_and_buttons(components)
     if not old_body:
         raise SurveyWhatsappTemplateError(f"Missing BODY text for {row.name}")
+
+    buttons = clamp_utility_button_labels(buttons)
 
     new_body = rewrite_body_for_utility(
         db,
