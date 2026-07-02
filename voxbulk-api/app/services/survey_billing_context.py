@@ -76,6 +76,7 @@ def org_survey_billing_context(db: Session, org: Organisation) -> dict:
         "survey_credits": survey_credits,
         "payg_allowed": True,
         "shared_package_pool": bool(entitlement.get("shared_package_pool")),
+        "value_pool": entitlement.get("value_pool") or {},
         "package_included": int(entitlement.get("package_included") or 0),
         "package_used": int(entitlement.get("package_used") or 0),
         "package_remaining": int(entitlement.get("package_remaining") or 0),

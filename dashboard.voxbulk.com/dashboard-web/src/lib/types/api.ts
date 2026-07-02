@@ -162,6 +162,7 @@ export type BillingSubscription = {
 
 export type BillingMonitorPayload = {
   shared_package_pool?: boolean;
+  value_pool_active?: boolean;
   commercial?: {
     package_remaining_pence?: number;
     package_remaining_display?: string;
@@ -195,6 +196,7 @@ export type BillingMonitorPayload = {
     overage_pending_pence?: number;
     overage_pending_display?: string;
     overage_risk?: boolean;
+    in_soft_cap_grace?: boolean;
     next_action?: string;
     next_action_label?: string;
     next_invoice?: {

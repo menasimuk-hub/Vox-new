@@ -302,6 +302,41 @@ class SurveyLaunchEligibilityService:
         return base
 
     @staticmethod
+    def _enforce_value_pool_soft_cap(
+        db: Session,
+        org: Organisation,
+        billing: dict[str, Any],
+        est: dict[str, Any],
+        base: dict[str, Any],
+    ) -> dict[str, Any]:
+        value_pool = billing.get("value_pool") or {}
+        if not value_pool.get("value_pool_active") or not billing.get("can_launch_and_invoice"):
+            return base
+        from app.services.package_value_pool_service import PackageValuePoolService
+        from app.services.usage_wallet_service import UsageWalletService
+
+        row = UsageWalletService.get_current(db, org.id)
+        burn = int(est.get("catalog_cost_minor") or est.get("estimated_cost_minor") or 0)
+        cap = PackageValuePoolService.check_soft_cap(
+            row,
+            burn,
+            wa_unit_minor=int(value_pool.get("wa_unit_minor") or 0),
+            per_min_minor=int(value_pool.get("per_min_minor") or 0),
+        )
+        if not cap.get("allowed"):
+            blocked = SurveyLaunchEligibilityService._set_block(
+                base,
+                code="package_soft_cap_exceeded",
+                reason=str(cap.get("reason") or "Package allowance exceeded 110% grace."),
+                summary="Blocked — upgrade your plan or top up your wallet.",
+            )
+            blocked["launch_action"] = "topup_required"
+            return blocked
+        if cap.get("in_grace"):
+            base["soft_cap_grace"] = True
+        return base
+
+    @staticmethod
     def _compute_whatsapp(
         db: Session,
         order: ServiceOrder,
@@ -325,6 +360,10 @@ class SurveyLaunchEligibilityService:
         rate_display = str(est.get("unit_rate_display") or "")
 
         base = SurveyLaunchEligibilityService._apply_estimate(base, est)
+        soft = SurveyLaunchEligibilityService._enforce_value_pool_soft_cap(db, org, billing, est, base)
+        if soft.get("block_reason_code") == "package_soft_cap_exceeded":
+            return soft
+        base = soft
         base.update(
             {
                 "covered_by_allowance": covered,
@@ -471,6 +510,10 @@ class SurveyLaunchEligibilityService:
         per_call_display = str(est.get("per_call_display") or "")
 
         base = SurveyLaunchEligibilityService._apply_estimate(base, est)
+        soft = SurveyLaunchEligibilityService._enforce_value_pool_soft_cap(db, org, billing, est, base)
+        if soft.get("block_reason_code") == "package_soft_cap_exceeded":
+            return soft
+        base = soft
         base.update(
             {
                 "estimated_call_minutes": estimated_minutes,

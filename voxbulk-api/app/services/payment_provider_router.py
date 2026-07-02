@@ -64,30 +64,70 @@ class PaymentProviderRouter:
 
     @staticmethod
     def primary_subscription_provider(db: Session, org: Organisation | None) -> str:
-        """gocardless | airwallex | stripe"""
+        """gocardless | airwallex | stripe — country-based with optional org override."""
         if org is None:
             return "stripe"
         forced = str(getattr(org, "billing_payment_provider", None) or "").strip().lower()
         if forced in {"gocardless", "airwallex", "stripe"}:
             return forced
-        code = PaymentProviderRouter.org_country_code(db, org)
-        if code in AIRWALLEX_SUBSCRIPTION_COUNTRY_CODES:
-            from app.services.airwallex_payment_service import AirwallexPaymentService
 
-            if AirwallexPaymentService.is_available(db):
-                return "airwallex"
-            from app.services.stripe_payment_service import StripePaymentService
-
-            return "stripe" if StripePaymentService.is_available(db) else "airwallex"
-        if code in GOCARDLESS_COUNTRY_CODES:
-            return "gocardless"
         from app.services.airwallex_payment_service import AirwallexPaymentService
-
-        if AirwallexPaymentService.is_available(db):
-            return "airwallex"
+        from app.services.gocardless_service import BillingService
         from app.services.stripe_payment_service import StripePaymentService
 
-        return "stripe" if StripePaymentService.is_available(db) else "gocardless"
+        code = PaymentProviderRouter.org_country_code(db, org)
+        gc_opts = BillingService.payment_options(db)
+        gc_available = bool(gc_opts.get("gocardless_available"))
+        awx_available = AirwallexPaymentService.is_available(db)
+        stripe_available = StripePaymentService.is_available(db)
+
+        if code in GOCARDLESS_COUNTRY_CODES and gc_available:
+            return "gocardless"
+        if awx_available:
+            return "airwallex"
+        if stripe_available:
+            return "stripe"
+        if gc_available:
+            return "gocardless"
+        return "stripe"
+
+    @staticmethod
+    def routing_explain(db: Session, org: Organisation | None) -> dict:
+        """Human-readable routing decision for admin / debugging."""
+        from app.services.airwallex_payment_service import AirwallexPaymentService
+        from app.services.gocardless_service import BillingService
+        from app.services.stripe_payment_service import StripePaymentService
+
+        code = PaymentProviderRouter.org_country_code(db, org)
+        gc_opts = BillingService.payment_options(db)
+        gc_available = bool(gc_opts.get("gocardless_available"))
+        awx_available = AirwallexPaymentService.is_available(db)
+        stripe_available = StripePaymentService.is_available(db)
+        forced = str(getattr(org, "billing_payment_provider", None) or "").strip().lower() if org else ""
+        primary = PaymentProviderRouter.primary_subscription_provider(db, org)
+        if forced in {"gocardless", "airwallex", "stripe"}:
+            reason = f"Admin override: {forced}"
+        elif code in GOCARDLESS_COUNTRY_CODES and gc_available:
+            reason = f"Country {code} supports GoCardless Direct Debit"
+        elif awx_available:
+            reason = f"Country {code} — card checkout via Airwallex (GoCardless unavailable or unsupported)"
+        elif stripe_available:
+            reason = f"Country {code} — card checkout via Stripe"
+        elif gc_available:
+            reason = "GoCardless fallback (only configured provider)"
+        else:
+            reason = "No payment provider configured — defaulting to Stripe"
+        return {
+            "primary_provider": primary,
+            "country_code": code,
+            "reason": reason,
+            "gocardless_country": code in GOCARDLESS_COUNTRY_CODES,
+            "gocardless_available": gc_available,
+            "airwallex_available": awx_available,
+            "stripe_available": stripe_available,
+            "org_override": forced or None,
+            "policy": "GoCardless when org country supports it and GoCardless is enabled; otherwise Airwallex card checkout.",
+        }
 
     @staticmethod
     def subscription_options(db: Session, org: Organisation | None) -> dict:

@@ -290,6 +290,19 @@ function BillingPage() {
     return badges;
   }, [hasCoreSub, allowancesState.isPayg, pendingCorePlanName, cancellationScheduled]);
 
+  const coreValuePool =
+    sharedPool && monitor.value_pool_active && commercial.package_used_display && commercial.package_included_display
+      ? {
+          active: true,
+          usedDisplay: String(commercial.package_used_display),
+          includedDisplay: String(commercial.package_included_display),
+          remainingDisplay: commercial.package_remaining_display ? String(commercial.package_remaining_display) : undefined,
+          percent: Number(commercial.package_included_pence)
+            ? Math.round((Number(commercial.package_used_pence || 0) / Number(commercial.package_included_pence || 1)) * 100)
+            : 0,
+        }
+      : undefined;
+
   const smartAlerts = React.useMemo(() => {
     const items: BillingAlertItem[] = [];
     if (outstandingInvoices.length > 0) {
@@ -313,6 +326,16 @@ function BillingPage() {
       });
     }
     items.push(...allowanceAlertsToItems(allowancesState.allowanceAlerts));
+    if (status.in_soft_cap_grace) {
+      items.push({
+        id: "soft-cap-grace",
+        tone: "info",
+        title: "Within 110% package grace",
+        detail: "You can still launch campaigns; extras are invoiced when each campaign completes.",
+        actionLabel: "View usage",
+        href: "/account/usage",
+      });
+    }
     if (status.next_action === "top_up_wallet" || (exhausted && nextActionLabel)) {
       items.push({
         id: "top-up-wallet",
@@ -424,6 +447,7 @@ function BillingPage() {
                 badges={coreBadges}
                 onTopUp={() => setTopupOpen(true)}
                 usedOnlyKpis
+                valuePool={coreValuePool}
               />
             ) : null}
             {showFeedbackColumn ? (

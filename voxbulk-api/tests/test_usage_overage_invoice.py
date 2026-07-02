@@ -97,29 +97,17 @@ def test_one_wa_survey_overage_is_one_unit_not_forty(db):
 
 @patch("app.services.billing_event_email_service.BillingEventEmailService.create_invoice")
 @patch("app.services.usage_wallet_service.UsageWalletService._overage_breakdown_pence")
-def test_maybe_invoice_overage_emits_split_line_items(mock_breakdown, mock_create_invoice, db):
+def test_maybe_invoice_overage_retired(mock_breakdown, mock_create_invoice, db):
     org, row = _seed_usage_row(db, wa_used=2, wa_included=0, calls_used=5, calls_included=0)
-    mock_breakdown.return_value = {
-        "call_minutes_overage": 5,
-        "call_overage_pence": 100,
-        "wa_recipient_overage": 2,
-        "wa_overage_pence": 98,
-        "total_overage_pence": 198,
-        "wa_extra_pence": 49,
-    }
-    mock_create_invoice.return_value = (type("Inv", (), {"id": "inv-1"})(), True, False)
-    with patch("app.services.gocardless_service.BillingService.collect_mandate_payment", return_value={}):
-        UsageWalletService.maybe_invoice_overage(
-            db,
-            org_id=org.id,
-            client_email="billing@example.com",
-            row=row,
-            min_invoice_pence=1,
-        )
-    line_items = mock_create_invoice.call_args.kwargs["line_items"]
-    kinds = {item["kind"] for item in line_items}
-    assert "wa_survey" in kinds
-    assert "call_minutes" in kinds
+    result = UsageWalletService.maybe_invoice_overage(
+        db,
+        org_id=org.id,
+        client_email="billing@example.com",
+        row=row,
+        min_invoice_pence=1,
+    )
+    assert result is None
+    mock_create_invoice.assert_not_called()
 
 
 def test_send_whatsapp_meter_usage_false_does_not_increment(db):

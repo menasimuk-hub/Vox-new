@@ -23,6 +23,7 @@ from app.services.market_zone import country_column_matches_zone, country_to_zon
 from app.services.org_audit_service import OrgAuditService
 from app.services.country_vat_service import CountryVatService
 from app.services.org_billing_profile_service import money_for_org, resolve_org_billing_profile, sync_org_country_code
+from app.services.payment_provider_router import PaymentProviderRouter
 from app.services.org_control_center_actions_service import OrgControlCenterActionsService
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.usage_wallet_service import UsageWalletService
@@ -637,6 +638,8 @@ class OrgControlCenterService:
                 "billing_currency": currency,
                 "currency_symbol": profile.get("currency_symbol"),
                 "allow_overage": profile.get("allow_overage", True),
+                "billing_payment_provider": getattr(org, "billing_payment_provider", None),
+                "subscription_routing": PaymentProviderRouter.routing_explain(db, org),
                 "billing_start": usage.get("period_start"),
                 "billing_end": usage.get("period_end"),
                 "last_payment": (

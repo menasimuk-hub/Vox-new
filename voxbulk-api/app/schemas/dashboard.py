@@ -88,6 +88,35 @@ class BillingRedirectCompleteOut(BaseModel):
     plan: PlanOut | None = None
 
 
+class CardSubscriptionStartOut(BaseModel):
+    ok: bool = True
+    provider: str
+    currency: str
+    amount_minor: int
+    billing_interval: str
+    client_secret: str | None = None
+    payment_intent_id: str | None = None
+    publishable_key: str | None = None
+    plan_id: str
+    checkout: dict | None = None
+
+
+class CardSubscriptionCompleteIn(BaseModel):
+    plan_id: str
+    provider: str
+    payment_intent_id: str
+    billing_interval: str = "monthly"
+
+    @model_validator(mode="after")
+    def normalize(self):
+        self.provider = str(self.provider or "").strip().lower()
+        raw = str(self.billing_interval or "monthly").strip().lower()
+        self.billing_interval = "yearly" if raw == "yearly" else "monthly"
+        if self.provider not in {"airwallex", "stripe"}:
+            raise ValueError("provider must be airwallex or stripe")
+        return self
+
+
 class CashPlanSelectIn(BaseModel):
     plan_id: str | None = None
     plan_code: str | None = None

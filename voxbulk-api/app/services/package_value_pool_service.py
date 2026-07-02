@@ -13,6 +13,9 @@ from app.services.billing_currency import money_display
 from app.services.plan_price_service import PlanPriceService
 
 
+SOFT_CAP_MULTIPLIER = 1.1
+
+
 class PackageValuePoolService:
     @staticmethod
     def value_pool_active(usage_row: OrgUsagePeriod | None) -> bool:
@@ -108,3 +111,76 @@ class PackageValuePoolService:
         burn = max(0, int(units)) * max(0, int(per_min_minor))
         row.allowance_value_used_minor = int(getattr(row, "allowance_value_used_minor", 0) or 0) + burn
         return burn
+
+    @staticmethod
+    def adjust_value_used(
+        row: OrgUsagePeriod,
+        *,
+        delta_wa_units: int = 0,
+        delta_call_units: int = 0,
+        wa_unit_minor: int,
+        per_min_minor: int,
+    ) -> None:
+        delta = (int(delta_wa_units) * max(0, int(wa_unit_minor))) + (int(delta_call_units) * max(0, int(per_min_minor)))
+        if delta == 0:
+            return
+        next_used = int(getattr(row, "allowance_value_used_minor", 0) or 0) + delta
+        row.allowance_value_used_minor = max(0, next_used)
+
+    @staticmethod
+    def soft_cap_minor(included_minor: int) -> int:
+        return int(max(0, int(included_minor or 0)) * SOFT_CAP_MULTIPLIER)
+
+    @staticmethod
+    def check_soft_cap(
+        usage_row: OrgUsagePeriod | None,
+        projected_burn_minor: int,
+        *,
+        wa_unit_minor: int = 0,
+        per_min_minor: int = 0,
+    ) -> dict[str, Any]:
+        if usage_row is None or not PackageValuePoolService.value_pool_active(usage_row):
+            return {"allowed": True, "in_grace": False, "reason": None}
+        included = int(getattr(usage_row, "allowance_value_included_minor", 0) or 0)
+        used = PackageValuePoolService.computed_used_minor(
+            usage_row,
+            wa_unit_minor=max(0, int(wa_unit_minor)),
+            per_min_minor=max(0, int(per_min_minor)),
+        )
+        projected = used + max(0, int(projected_burn_minor or 0))
+        cap = PackageValuePoolService.soft_cap_minor(included)
+        if projected <= included:
+            return {"allowed": True, "in_grace": False, "reason": None}
+        if projected <= cap:
+            return {
+                "allowed": True,
+                "in_grace": True,
+                "reason": "Within 110% package grace — extras invoiced when campaigns complete.",
+            }
+        return {
+            "allowed": False,
+            "in_grace": False,
+            "reason": (
+                "Package allowance exceeded 110% grace. Upgrade your plan, top up your wallet, "
+                "or wait for the next billing period."
+            ),
+        }
+
+    @staticmethod
+    def in_soft_cap_grace(
+        usage_row: OrgUsagePeriod | None,
+        *,
+        wa_unit_minor: int = 0,
+        per_min_minor: int = 0,
+    ) -> bool:
+        if usage_row is None or not PackageValuePoolService.value_pool_active(usage_row):
+            return False
+        included = int(getattr(usage_row, "allowance_value_included_minor", 0) or 0)
+        if included <= 0:
+            return False
+        used = PackageValuePoolService.computed_used_minor(
+            usage_row,
+            wa_unit_minor=max(0, int(wa_unit_minor)),
+            per_min_minor=max(0, int(per_min_minor)),
+        )
+        return included < used <= PackageValuePoolService.soft_cap_minor(included)

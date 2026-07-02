@@ -336,6 +336,7 @@ export default function OrgControlCenter() {
   const [invoiceType, setInvoiceType] = useState('manual')
   const [promoCode, setPromoCode] = useState('')
   const [allowOverage, setAllowOverage] = useState(true)
+  const [billingPaymentProvider, setBillingPaymentProvider] = useState('auto')
   const [invoiceNote, setInvoiceNote] = useState('')
   const [editInvoice, setEditInvoice] = useState(null)
   const [editInvoiceAmount, setEditInvoiceAmount] = useState('')
@@ -405,6 +406,7 @@ export default function OrgControlCenter() {
       setDetail(res)
       setNotes(res?.organisation?.profile_notes || '')
       setAllowOverage(Boolean(res?.organisation?.allow_overage ?? true))
+      setBillingPaymentProvider(res?.organisation?.billing_payment_provider || 'auto')
       setWalletHistory(Array.isArray(res?.wallet_history) ? res.wallet_history : [])
     } catch (e) {
       pushToast(e?.message || 'Could not load organisation detail', 'danger')
@@ -478,6 +480,7 @@ export default function OrgControlCenter() {
   }, [items])
 
   const org = detail?.organisation
+  const subscriptionRouting = org?.subscription_routing
   const subscriptionFinance = detail?.subscription_finance
   const campaigns = detail?.campaigns || []
   const orderSortAccessors = useMemo(
@@ -896,6 +899,24 @@ export default function OrgControlCenter() {
       await refreshAll()
     } catch (e) {
       pushToast(e?.message || 'Overage update failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const saveBillingPaymentProvider = async (next) => {
+    if (!selectedId) return
+    setActionBusy('billing-provider')
+    try {
+      await occ('/billing-payment-provider', {
+        method: 'PATCH',
+        body: JSON.stringify({ billing_payment_provider: next === 'auto' ? null : next }),
+      })
+      setBillingPaymentProvider(next)
+      pushToast('Subscription checkout provider updated', 'success')
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Provider update failed', 'danger')
     } finally {
       setActionBusy('')
     }
@@ -2032,6 +2053,41 @@ export default function OrgControlCenter() {
                   </div>
                 </div>
               ) : null}
+              <div className="occ-info-block">
+                <div className="occ-info-block-title">Subscription checkout routing</div>
+                <div className="occ-info-row">
+                  <span className="occ-info-row-label">Provider override</span>
+                  <span className="occ-info-row-value">
+                    <select
+                      className="occ-input"
+                      value={billingPaymentProvider || 'auto'}
+                      disabled={actionBusy === 'billing-provider'}
+                      onChange={(e) => saveBillingPaymentProvider(e.target.value)}
+                      style={{ maxWidth: 220 }}
+                    >
+                      <option value="auto">Auto (country-based)</option>
+                      <option value="gocardless">Force GoCardless</option>
+                      <option value="airwallex">Force Airwallex</option>
+                      <option value="stripe">Force Stripe</option>
+                    </select>
+                  </span>
+                </div>
+                {subscriptionRouting ? (
+                  <>
+                    <div className="occ-info-row">
+                      <span className="occ-info-row-label">Resolved provider</span>
+                      <span className="occ-info-row-value">{subscriptionRouting.primary_provider || '—'}</span>
+                    </div>
+                    <div className="occ-info-row">
+                      <span className="occ-info-row-label">Reason</span>
+                      <span className="occ-info-row-value" style={{ fontSize: 12 }}>{subscriptionRouting.reason || '—'}</span>
+                    </div>
+                  </>
+                ) : null}
+                <p className="occ-muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  GoCardless when org country supports Direct Debit and GoCardless is enabled; otherwise Airwallex card checkout.
+                </p>
+              </div>
               <div className="occ-info-block">
                 <div className="occ-info-block-title">
                   Wallet ledger

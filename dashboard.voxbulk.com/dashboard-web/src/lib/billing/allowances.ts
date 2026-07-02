@@ -27,6 +27,10 @@ export type BillingSnapshot = {
   has_core_subscription?: boolean;
   is_payg?: boolean;
   shared_package_pool?: boolean;
+  value_pool_active?: boolean;
+  package_used_display?: string;
+  package_included_display?: string;
+  package_remaining_display?: string;
   wallet_balance_display?: string;
   wallet_balance_pence?: number;
 };

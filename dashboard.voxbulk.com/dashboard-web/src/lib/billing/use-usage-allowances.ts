@@ -64,6 +64,8 @@ export function useUsageAllowances() {
     return end ? fmt(end) : "";
   }, [data?.period_start, data?.period_end]);
 
+  const commercial = (data?.billing_monitor as { commercial?: Record<string, unknown> } | undefined)?.commercial;
+
   return {
     loading: usageQ.isLoading || feedbackSubQ.isLoading || subsSummaryQ.isLoading,
     usage: data as UsageSummary | undefined,
@@ -83,5 +85,18 @@ export function useUsageAllowances() {
     coreMeta: PRODUCT_PANEL_META.core,
     feedbackMeta: PRODUCT_PANEL_META.feedback,
     walletDisplay: snapshot.wallet_balance_display || data?.wallet_balance_gbp,
+    valuePool: snapshot.value_pool_active
+      ? {
+          active: true,
+          usedDisplay: snapshot.package_used_display || commercial?.package_used_display,
+          includedDisplay: snapshot.package_included_display || commercial?.package_included_display,
+          remainingDisplay: snapshot.package_remaining_display || commercial?.package_remaining_display,
+          percent: Number(commercial?.package_included_pence)
+            ? Math.round(
+                (Number(commercial?.package_used_pence || 0) / Number(commercial?.package_included_pence || 1)) * 100,
+              )
+            : undefined,
+        }
+      : undefined,
   };
 }

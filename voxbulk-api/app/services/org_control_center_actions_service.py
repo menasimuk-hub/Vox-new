@@ -391,6 +391,49 @@ class OrgControlCenterActionsService:
         return {"ok": True, "allow_overage": org.allow_overage}
 
     @staticmethod
+    def set_billing_payment_provider(
+        db: Session,
+        org_id: str,
+        *,
+        billing_payment_provider: str | None,
+        reason: str | None = None,
+        actor_user_id: str | None = None,
+        actor_email: str | None = None,
+    ) -> dict[str, Any]:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise ValueError("Organisation not found")
+        raw = str(billing_payment_provider or "").strip().lower()
+        if raw in {"", "auto", "country", "default"}:
+            org.billing_payment_provider = None
+        elif raw in {"gocardless", "airwallex", "stripe"}:
+            org.billing_payment_provider = raw
+        else:
+            raise ValueError("billing_payment_provider must be auto, gocardless, airwallex, or stripe")
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+        from app.services.payment_provider_router import PaymentProviderRouter
+
+        OrgAuditService.record_admin(
+            db,
+            org_id=org_id,
+            event_type="billing.payment_provider",
+            action=f"Subscription checkout provider set to {org.billing_payment_provider or 'auto (country)'}",
+            entity_type="organisation",
+            entity_id=org_id,
+            detail=reason,
+            metadata={"billing_payment_provider": org.billing_payment_provider},
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+        return {
+            "ok": True,
+            "billing_payment_provider": org.billing_payment_provider,
+            "subscription_routing": PaymentProviderRouter.routing_explain(db, org),
+        }
+
+    @staticmethod
     def create_invoice(
         db: Session,
         org_id: str,

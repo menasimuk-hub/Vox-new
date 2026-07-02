@@ -1856,6 +1856,50 @@ def admin_occ_set_overage(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.patch("/organisations/{org_id}/control-center/billing-payment-provider")
+def admin_occ_set_billing_payment_provider(
+    org_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_control_center_actions_service import OrgControlCenterActionsService
+
+    actor_id, actor_email = _control_center_actor(principal)
+    try:
+        return OrgControlCenterActionsService.set_billing_payment_provider(
+            db,
+            org_id,
+            billing_payment_provider=payload.get("billing_payment_provider"),
+            reason=str(payload.get("reason") or "").strip() or None,
+            actor_user_id=actor_id,
+            actor_email=actor_email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/billing/subscription-routing")
+def admin_subscription_routing_policy(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+    org_id: str | None = None,
+):
+    from app.models.organisation import Organisation
+    from app.services.payment_provider_router import (
+        GOCARDLESS_COUNTRY_CODES,
+        PaymentProviderRouter,
+    )
+
+    org = db.get(Organisation, org_id) if org_id else None
+    return {
+        "policy": "GoCardless Direct Debit when the organisation country supports it and GoCardless is enabled; otherwise Airwallex card checkout (Stripe as secondary fallback).",
+        "platform": PaymentProviderRouter.subscription_options(db, None),
+        "sample_routing": PaymentProviderRouter.routing_explain(db, org),
+        "gocardless_country_count": len(GOCARDLESS_COUNTRY_CODES),
+    }
+
+
 @router.post("/organisations/{org_id}/control-center/invoices")
 def admin_occ_create_invoice(
     org_id: str,

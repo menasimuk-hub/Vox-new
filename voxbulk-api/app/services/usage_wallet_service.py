@@ -192,6 +192,31 @@ class UsageWalletService:
                 pass
 
         if PackageEntitlementService.shared_pool_active(row, row.plan_code):
+            from app.services.package_value_pool_service import PackageValuePoolService
+
+            if PackageValuePoolService.value_pool_active(row):
+                org = db.get(Organisation, org_id) if db is not None and org_id else None
+                plan = None
+                if db is not None and org_id and row.plan_code:
+                    plan = db.execute(select(Plan).where(Plan.code == row.plan_code)).scalar_one_or_none()
+                rates = PackageValuePoolService.rates_for_row(db, org, plan) if db is not None else {}
+                wa_unit = int(rates.get("wa_unit_minor") or wa_extra_pence)
+                per_min = int(rates.get("per_min_minor") or int(row.overage_per_min_pence or 0))
+                included_minor = int(getattr(row, "allowance_value_included_minor", 0) or 0)
+                used_minor = PackageValuePoolService.computed_used_minor(
+                    row, wa_unit_minor=wa_unit, per_min_minor=per_min
+                )
+                overage_minor = max(0, used_minor - included_minor)
+                return {
+                    "call_minutes_overage": 0,
+                    "call_overage_pence": 0,
+                    "wa_recipient_overage": 0,
+                    "wa_overage_pence": 0,
+                    "value_pool_overage_pence": overage_minor,
+                    "total_overage_pence": overage_minor,
+                    "wa_extra_pence": wa_extra_pence,
+                }
+
             included = PackageEntitlementService.package_included_units(row)
             calls_used = int(row.calls_used or 0)
             wa_used = int(row.whatsapp_used or 0)
@@ -504,7 +529,21 @@ class UsageWalletService:
         row = UsageWalletService.get_current(db, org_id)
         if row is None:
             return None
-        row.whatsapp_used = max(0, int(row.whatsapp_used or 0) + int(delta))
+        delta_int = int(delta)
+        row.whatsapp_used = max(0, int(row.whatsapp_used or 0) + delta_int)
+        if delta_int != 0:
+            from app.services.package_value_pool_service import PackageValuePoolService
+
+            if PackageValuePoolService.value_pool_active(row):
+                org = db.get(Organisation, org_id)
+                plan = db.execute(select(Plan).where(Plan.code == row.plan_code)).scalar_one_or_none() if row.plan_code else None
+                rates = PackageValuePoolService.rates_for_row(db, org, plan)
+                PackageValuePoolService.adjust_value_used(
+                    row,
+                    delta_wa_units=delta_int,
+                    wa_unit_minor=int(rates["wa_unit_minor"]),
+                    per_min_minor=int(rates["per_min_minor"]),
+                )
         row.updated_at = datetime.utcnow()
         db.add(row)
         if commit:
@@ -594,177 +633,12 @@ class UsageWalletService:
         row: OrgUsagePeriod | None = None,
         min_invoice_pence: int = 100,
     ) -> dict | None:
-        """Invoice uninvoiced usage overage — GoCardless DD when available, else internal invoice email."""
-        em = (client_email or "").strip().lower()
-        if not em:
-            return None
-        row = row or UsageWalletService.get_current(db, org_id)
-        if row is None:
-            return None
-
-        org = db.get(Organisation, org_id)
-        if org is not None and not bool(getattr(org, "allow_overage", True)):
-            return None
-
-        total_overage = UsageWalletService._calc_overage_pence(row, db, org_id)
-        already = int(row.overage_invoiced_pence or 0)
-        delta = total_overage - already
-        if delta < int(min_invoice_pence):
-            return None
-
-        breakdown = UsageWalletService._overage_breakdown_pence(row, db, org_id)
-        already_breakdown = UsageWalletService._overage_breakdown_pence_from_invoiced(
-            already, breakdown["wa_extra_pence"], int(row.overage_per_min_pence or 0)
-        )
-        call_delta = max(0, breakdown["call_overage_pence"] - already_breakdown["call_overage_pence"])
-        wa_delta = max(0, breakdown["wa_overage_pence"] - already_breakdown["wa_overage_pence"])
-        line_items: list[dict[str, Any]] = []
-        if wa_delta > 0:
-            wa_units = breakdown["wa_recipient_overage"] - already_breakdown.get("wa_recipient_overage", 0)
-            unit = int(breakdown["wa_extra_pence"] or 49)
-            line_items.append(
-                {
-                    "description": f"WA survey overage ({max(1, wa_units)} extra recipient{'s' if wa_units != 1 else ''} × £{unit / 100:.2f})",
-                    "quantity": max(1, wa_units),
-                    "unit_pence": unit,
-                    "total_pence": wa_delta,
-                    "kind": "wa_survey",
-                }
-            )
-        if call_delta > 0:
-            mins = breakdown["call_minutes_overage"] - already_breakdown.get("call_minutes_overage", 0)
-            rate = int(row.overage_per_min_pence or 0)
-            line_items.append(
-                {
-                    "description": f"AI call minutes overage ({max(1, mins)} min × £{rate / 100:.2f}/min)",
-                    "quantity": max(1, mins),
-                    "unit_pence": rate,
-                    "total_pence": call_delta,
-                    "kind": "call_minutes",
-                }
-            )
-        if not line_items:
-            line_items = [
-                {
-                    "description": "Plan usage overage (WA survey recipients & call minutes)",
-                    "quantity": 1,
-                    "unit_pence": delta,
-                    "total_pence": delta,
-                    "kind": "combined",
-                }
-            ]
-
-        org = db.get(Organisation, org_id)
-        org_name = (org.name if org else "your organisation") or "your organisation"
-        org_label = org_name[:20].replace(" ", "")
-        description = f"VOXBULK usage overage — {org_name}"[:255]
-
-        gc_result: dict[str, Any] | None = None
-        try:
-            from app.services.gocardless_service import BillingService
-
-            gc_result = BillingService.collect_mandate_payment(
-                db,
-                org_id=org_id,
-                amount_pence=delta,
-                description=description,
-                metadata={"billing": "overage"},
-            )
-        except Exception as exc:
-            logger.warning(
-                "usage_overage_gocardless_collect_failed",
-                extra=safe_log_extra(org_id=org_id, amount_pence=delta, error=str(exc)[:500]),
-            )
-
-        payment_id = str((gc_result or {}).get("payment_id") or "").strip()
-        if payment_id:
-            from app.services.invoice_service import InvoiceService
-
-            payment_status = str((gc_result or {}).get("status") or "pending_submission").lower()
-            invoice_status = "paid" if payment_status == "confirmed" else "pending"
-            invoice_row, invoice_was_new, emailed = InvoiceService.issue_from_payment(
-                db,
-                org_id=org_id,
-                client_email=em,
-                subtotal_pence=delta,
-                currency="GBP",
-                description=description,
-                provider="gocardless",
-                external_invoice_id=payment_id,
-                payment_reference=payment_id,
-                payment_method="gocardless",
-                status=invoice_status,
-                line_items=line_items,
-            )
-            row.overage_invoiced_pence = already + delta
-            row.last_overage_invoice_at = datetime.utcnow()
-            row.updated_at = datetime.utcnow()
-            db.add(row)
-            db.commit()
-            logger.info(
-                "usage_overage_gocardless_invoiced",
-                extra=safe_log_extra(
-                    org_id=org_id,
-                    invoice_id=invoice_row.id,
-                    payment_id=payment_id,
-                    amount_gbp_pence=delta,
-                    invoice_was_new=invoice_was_new,
-                    emailed=emailed,
-                    payment_status=payment_status,
-                ),
-            )
-            return {
-                "invoice_id": invoice_row.id,
-                "external_invoice_id": payment_id,
-                "amount_gbp_pence": delta,
-                "provider": "gocardless",
-                "payment_id": payment_id,
-                "payment_status": payment_status,
-                "invoice_was_new": invoice_was_new,
-                "emailed": emailed,
-            }
-
-        ext_id = f"OVG-{org_label}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-        overage_desc = "Plan usage overage (WA survey recipients & call minutes)"
-        invoice_row, invoice_was_new, sent = BillingEventEmailService.create_invoice(
-            db,
-            provider="internal_overage",
-            external_invoice_id=ext_id,
-            org_id=org_id,
-            client_email=em,
-            amount_gbp_pence=delta,
-            currency="GBP",
-            status="issued",
-            description=overage_desc,
-            line_items=line_items,
-            payment_method="account_billing",
-            payment_reference=ext_id,
-            variables={
-                "invoice_id": ext_id,
-                "amount_gbp_pence": str(delta),
-                "amount": f"£{delta / 100:.2f}",
-                "currency": "GBP",
-                "invoice_status": "issued",
-                "message": f"Usage overage invoice for {org_name}",
-            },
-        )
-        row.overage_invoiced_pence = already + delta
-        row.last_overage_invoice_at = datetime.utcnow()
-        row.updated_at = datetime.utcnow()
-        db.add(row)
-        db.commit()
-        return {
-            "invoice_id": invoice_row.id,
-            "external_invoice_id": ext_id,
-            "amount_gbp_pence": delta,
-            "provider": "internal_overage",
-            "invoice_was_new": invoice_was_new,
-            "emailed": sent,
-        }
+        """Retired — usage overage is invoiced per campaign at completion, not on period rollover."""
+        return None
 
     @staticmethod
     def rollover_due_periods(db: Session, *, as_of: datetime | None = None) -> dict:
-        """Close expired usage periods, invoice remaining overage, and open fresh periods."""
+        """Close expired usage periods and open fresh periods (campaign extras settle at completion)."""
         now = as_of or datetime.utcnow()
         stats = {"closed": 0, "opened": 0, "overage_invoices": 0, "skipped": 0}
 
@@ -812,6 +686,11 @@ class UsageWalletService:
                 sub.updated_at = now
                 db.add(sub)
 
+            org = db.get(Organisation, row.org_id)
+            from app.services.package_value_pool_service import PackageValuePoolService
+
+            value_included = PackageValuePoolService.resolve_included_minor(db, org, plan)
+
             db.add(
                 OrgUsagePeriod(
                     org_id=row.org_id,
@@ -824,6 +703,8 @@ class UsageWalletService:
                     whatsapp_included=int(plan.whatsapp_included or 0),
                     sms_included=int(plan.sms_included or 0),
                     overage_per_min_pence=int(plan.overage_per_min_pence or 0),
+                    allowance_value_included_minor=value_included,
+                    allowance_value_used_minor=0,
                     warned_at_80=False,
                     warned_at_100=False,
                     created_at=now,

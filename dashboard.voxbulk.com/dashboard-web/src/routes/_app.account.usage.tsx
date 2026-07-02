@@ -154,6 +154,7 @@ function AccountUsagePage() {
                   sharedPool={allowancesState.sharedPool}
                   compact
                   usedOnlyKpis
+                  valuePool={allowancesState.valuePool}
                 />
               ) : null}
               {showFeedbackColumn ? (

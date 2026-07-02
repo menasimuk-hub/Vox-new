@@ -176,6 +176,13 @@ function GoCardlessReturnHandler({
               }),
             });
             toast.success("Invoice paid by card");
+          } else if (pending.flow === "subscription") {
+            const { completeCardSubscription, clearCardSubscriptionState } = await import(
+              "@/lib/billing/subscription-payment"
+            );
+            await completeCardSubscription(pending.payment_intent_id);
+            clearCardSubscriptionState();
+            toast.success("Subscription activated");
           } else {
             toast.error("Payment completed but checkout session was not found.");
             return;
@@ -188,7 +195,28 @@ function GoCardlessReturnHandler({
       return;
     }
 
-
+    if (params?.billing === "card_success") {
+      clearBillingQuery();
+      const paymentIntentId = new URLSearchParams(window.location.search).get("payment_intent") || "";
+      if (!paymentIntentId) {
+        toast.error("Payment completed but checkout session was not found.");
+        return;
+      }
+      void (async () => {
+        try {
+          const { completeCardSubscription, clearCardSubscriptionState } = await import(
+            "@/lib/billing/subscription-payment"
+          );
+          await completeCardSubscription(paymentIntentId);
+          clearCardSubscriptionState();
+          toast.success("Subscription activated");
+          onComplete();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not activate subscription");
+        }
+      })();
+      return;
+    }
 
     if (params?.orderBilling === "cancelled") {
 

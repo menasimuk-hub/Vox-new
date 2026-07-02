@@ -16,6 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
+import {
+  coreCheckoutAvailable,
+  primarySubscriptionProvider,
+  startCardSubscription,
+} from "@/lib/billing/subscription-payment";
 import { marketLabel } from "@/lib/billing/market";
 import {
   feedbackPlanButtonLabel,
@@ -198,6 +203,8 @@ function PackagesPage() {
   const pendingCorePlanId = subscription?.pending_plan?.id || subscription?.subscription?.pending_plan_id || null;
   const pendingCorePlan = (subscription?.pending_plan || null) as PlanRow | null;
   const gcReady = gocardlessAvailable(subscription as Record<string, unknown> | null);
+  const primaryProvider = primarySubscriptionProvider(subscription as Record<string, unknown> | null);
+  const checkoutReady = coreCheckoutAvailable(subscription as Record<string, unknown> | null);
   const coreSubStatus = String(subscription?.subscription?.status || "").toLowerCase();
   const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
   const hasActiveCoreGcSub =
@@ -272,8 +279,12 @@ function PackagesPage() {
       }
       return;
     }
-    if (!gcReady) {
-      toast.error("GoCardless checkout is not configured. Enable it in admin integrations.");
+    if (!checkoutReady) {
+      toast.error(
+        primaryProvider === "gocardless"
+          ? "GoCardless checkout is not configured. Enable it in admin integrations."
+          : "Card subscription checkout is not configured for your region.",
+      );
       return;
     }
     setBusyPlanId(String(plan.id));
@@ -288,7 +299,11 @@ function PackagesPage() {
         await invalidateBilling();
         return;
       }
-      await startGoCardlessSubscription(String(plan.id), coreBillingInterval);
+      if (primaryProvider === "gocardless") {
+        await startGoCardlessSubscription(String(plan.id), coreBillingInterval);
+      } else {
+        await startCardSubscription(String(plan.id), coreBillingInterval);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start checkout");
       setBusyPlanId(null);

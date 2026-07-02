@@ -152,6 +152,34 @@ class InterviewLaunchEligibilityService:
             }
         )
 
+        value_pool = survey_billing.get("value_pool") or {}
+        if value_pool.get("value_pool_active") and can_invoice:
+            from app.services.package_value_pool_service import PackageValuePoolService
+            from app.services.usage_wallet_service import UsageWalletService
+
+            row = UsageWalletService.get_current(db, org.id)
+            burn = int(est.get("catalog_cost_minor") or est.get("estimated_cost_minor") or 0)
+            cap = PackageValuePoolService.check_soft_cap(
+                row,
+                burn,
+                wa_unit_minor=int(value_pool.get("wa_unit_minor") or 0),
+                per_min_minor=int(value_pool.get("per_min_minor") or 0),
+            )
+            if not cap.get("allowed"):
+                base.update(
+                    {
+                        "can_launch": False,
+                        "mode": "blocked",
+                        "launch_action": "topup_required",
+                        "block_reason": str(cap.get("reason") or ""),
+                        "block_reason_code": "package_soft_cap_exceeded",
+                        "summary": "Blocked — upgrade your plan or top up your wallet.",
+                    }
+                )
+                return base
+            if cap.get("in_grace"):
+                base["soft_cap_grace"] = True
+
         if method == "wallet":
             hold = est.get("wallet_charge_display") or est.get("total_display")
             est_cost = est.get("estimated_cost_display") or est.get("total_display")

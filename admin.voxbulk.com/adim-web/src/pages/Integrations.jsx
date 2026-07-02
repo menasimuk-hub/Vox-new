@@ -688,6 +688,7 @@ export default function Integrations() {
   const [gocardlessTestResult, setGocardlessTestResult] = useState('')
   const [stripeTestResult, setStripeTestResult] = useState('')
   const [airwallexTestResult, setAirwallexTestResult] = useState('')
+  const [subscriptionRouting, setSubscriptionRouting] = useState(null)
   const [vapiTestResult, setVapiTestResult] = useState('')
   const [elevenLabsTestResult, setElevenLabsTestResult] = useState('')
   const [telnyxTestResult, setTelnyxTestResult] = useState('')
@@ -730,6 +731,36 @@ export default function Integrations() {
       setSummariesRefreshing(false)
     }
   }, [activeProvider])
+
+  useEffect(() => {
+    if (!['gocardless', 'stripe', 'airwallex'].includes(activeProvider || '')) {
+      setSubscriptionRouting(null)
+      return
+    }
+    apiFetch('/admin/billing/subscription-routing')
+      .then((data) => setSubscriptionRouting(data))
+      .catch(() => setSubscriptionRouting(null))
+  }, [activeProvider])
+
+  function renderSubscriptionRoutingNote() {
+    if (!subscriptionRouting) return null
+    const p = subscriptionRouting.platform || {}
+    return (
+      <div className='note' style={{ marginBottom: 12 }}>
+        <strong>Core subscription checkout (country-based)</strong>
+        <p className='muted' style={{ margin: '6px 0 0', fontSize: 12 }}>{subscriptionRouting.policy}</p>
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12 }}>
+          <li>GoCardless: {p.gocardless_available ? 'enabled' : 'off'}</li>
+          <li>Airwallex: {p.airwallex_available ? 'enabled' : 'off'}</li>
+          <li>Stripe: {p.stripe_available ? 'enabled' : 'off'}</li>
+        </ul>
+        <p className='muted' style={{ margin: '8px 0 0', fontSize: 12 }}>
+          Org country in GoCardless markets → Direct Debit when GoCardless is on; otherwise Airwallex card checkout.
+          Per-org override: Organisation Control Center → Billing tab.
+        </p>
+      </div>
+    )
+  }
 
   function formatTelnyxApiError(e) {
     const d = e?.data?.detail
@@ -2784,6 +2815,7 @@ export default function Integrations() {
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
+                  {renderSubscriptionRoutingNote()}
                   {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
                   <div className='stack' style={{ gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2840,6 +2872,7 @@ export default function Integrations() {
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
+                  {renderSubscriptionRoutingNote()}
                   {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
                   <div className='stack' style={{ gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2880,6 +2913,7 @@ export default function Integrations() {
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
+                  {renderSubscriptionRoutingNote()}
                   {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
                   <div className='stack' style={{ gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

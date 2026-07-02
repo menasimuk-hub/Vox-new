@@ -16,6 +16,7 @@ from app.services.billing_currency import money_display, resolve_org_currency
 from app.services.gocardless_service import BillingService
 from app.services.org_service_credit_service import OrgServiceCreditService
 from app.services.package_entitlement_service import PackageEntitlementService
+from app.services.package_value_pool_service import PackageValuePoolService
 from app.services.plan_price_service import PlanPriceService
 from app.services.usage_wallet_service import UsageWalletService
 
@@ -339,6 +340,7 @@ class BillingMonitorService:
 
         return {
             "shared_package_pool": shared_pool,
+            "value_pool_active": bool(value_pool.get("value_pool_active")),
             "currency": currency,
             "commercial": {
                 "package_remaining_pence": package_remaining_pence,
@@ -377,6 +379,13 @@ class BillingMonitorService:
                 "overage_pending_pence": pending_overage_pence,
                 "overage_pending_display": money_display(pending_overage_pence, currency),
                 "overage_risk": overage_risk,
+                "in_soft_cap_grace": PackageValuePoolService.in_soft_cap_grace(
+                    usage_row,
+                    wa_unit_minor=wa_unit_minor,
+                    per_min_minor=per_min_minor,
+                )
+                if value_pool.get("value_pool_active")
+                else False,
                 "usage_pct": round(usage_pct, 1),
                 "next_action": next_action,
                 "next_action_label": next_action_label,

@@ -3,6 +3,7 @@ import { Sparkles, Smile } from "lucide-react";
 import * as React from "react";
 
 import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
+import { PackageValuePoolBar } from "@/components/billing/package-value-pool-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -24,6 +25,13 @@ type Props = {
   compact?: boolean;
   footerNote?: React.ReactNode;
   usedOnlyKpis?: boolean;
+  valuePool?: {
+    active?: boolean;
+    usedDisplay?: string;
+    includedDisplay?: string;
+    remainingDisplay?: string;
+    percent?: number;
+  };
 };
 
 function formatSubDate(raw: unknown) {
@@ -46,6 +54,7 @@ export function BillingProductColumn({
   compact,
   footerNote,
   usedOnlyKpis,
+  valuePool,
 }: Props) {
   const Icon = meta.product === "feedback" ? Smile : Sparkles;
   const planName = planLabel || finance?.plan_name || finance?.plan_code || (isPayg ? "Pay as you go" : "—");
@@ -108,6 +117,15 @@ export function BillingProductColumn({
         ) : null}
       </CardHeader>
       <CardContent className="pt-0">
+        {valuePool?.active && valuePool.usedDisplay && valuePool.includedDisplay ? (
+          <PackageValuePoolBar
+            usedDisplay={valuePool.usedDisplay}
+            includedDisplay={valuePool.includedDisplay}
+            remainingDisplay={valuePool.remainingDisplay}
+            percent={valuePool.percent}
+            className="mb-3"
+          />
+        ) : null}
         <AllowanceProductPanel
           meta={meta}
           rows={allowanceRows}

@@ -12,10 +12,13 @@ from app.core.database import get_db
 from app.core.dependencies import require_billing_access
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.plan import Plan
+from app.models.organisation import Organisation
 from app.schemas.dashboard import (
     BillingRedirectCompleteIn,
     BillingRedirectCompleteOut,
     BillingRedirectStartOut,
+    CardSubscriptionCompleteIn,
+    CardSubscriptionStartOut,
     CashPlanSelectIn,
     PaymentOptionsOut,
     PlanOut,
@@ -25,6 +28,7 @@ from app.schemas.dashboard import (
     SubscriptionCancellationRequestIn,
 )
 from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
+from app.services.payment_provider_router import PaymentProviderRouter
 from app.services.provider_settings import ProviderSettingsService
 from app.services.usage_wallet_service import UsageWalletService
 
@@ -229,6 +233,147 @@ def get_payment_options(db: Session = Depends(get_db)):
     return PaymentOptionsOut.model_validate(BillingService.payment_options(db))
 
 
+@router.get("/subscription/payment-providers")
+def get_subscription_payment_providers(
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    org = db.get(Organisation, principal.org_id)
+    return PaymentProviderRouter.subscription_options(db, org)
+
+
+@router.post("/subscription/card/start", response_model=CardSubscriptionStartOut)
+def start_card_subscription_checkout(
+    payload: CashPlanSelectIn,
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    from app.models.user import User
+
+    user = db.get(User, principal.user_id)
+    user_email = str(user.email or "").strip() if user else ""
+    plan = None
+    if payload.plan_id:
+        plan = db.execute(select(Plan).where(Plan.id == payload.plan_id)).scalar_one_or_none()
+    elif payload.plan_code:
+        plan = db.execute(select(Plan).where(Plan.code == payload.plan_code)).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=400, detail="Plan not found")
+
+    provider = PaymentProviderRouter.primary_subscription_provider(db, org)
+    if provider == "gocardless":
+        raise HTTPException(
+            status_code=400,
+            detail="Direct Debit (GoCardless) is the subscription method for your region. Use /subscription/gocardless/start.",
+        )
+
+    from app.services.airwallex_subscription_service import AirwallexSubscriptionError, AirwallexSubscriptionService
+    from app.services.stripe_subscription_service import StripeSubscriptionError, StripeSubscriptionService
+
+    try:
+        if provider == "airwallex":
+            checkout = AirwallexSubscriptionService.start_subscription_checkout(
+                db,
+                org=org,
+                plan=plan,
+                user_email=user_email,
+                billing_interval=payload.billing_interval,
+            )
+        else:
+            checkout = StripeSubscriptionService.start_subscription_checkout(
+                db,
+                org=org,
+                plan=plan,
+                billing_interval=payload.billing_interval,
+            )
+    except (AirwallexSubscriptionError, StripeSubscriptionError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return CardSubscriptionStartOut(
+        provider=str(checkout.get("provider") or provider),
+        currency=str(checkout.get("currency") or "GBP"),
+        amount_minor=int(checkout.get("amount_minor") or 0),
+        billing_interval=str(checkout.get("billing_interval") or payload.billing_interval),
+        client_secret=checkout.get("client_secret"),
+        payment_intent_id=checkout.get("intent_id"),
+        publishable_key=(checkout.get("checkout") or {}).get("publishable_key"),
+        plan_id=str(plan.id),
+        checkout=checkout.get("checkout"),
+    )
+
+
+@router.post("/subscription/card/complete", response_model=BillingRedirectCompleteOut)
+def complete_card_subscription_checkout(
+    payload: CardSubscriptionCompleteIn,
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    plan = db.execute(select(Plan).where(Plan.id == payload.plan_id)).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=400, detail="Plan not found")
+
+    from datetime import datetime, timedelta
+
+    from app.services.airwallex_subscription_service import AirwallexSubscriptionService
+    from app.services.stripe_subscription_service import StripeSubscriptionService
+    from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
+    from app.services.airwallex_payment_service import AirwallexPaymentService
+
+    pid = str(payload.payment_intent_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="payment_intent_id required")
+
+    if payload.provider == "stripe":
+        try:
+            intent = StripePaymentService.retrieve_intent(db, pid)
+        except StripeProviderError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        if str(intent.get("status") or "").lower() not in {"succeeded", "processing", "requires_capture"}:
+            raise HTTPException(status_code=400, detail="Payment not completed yet")
+        sub = StripeSubscriptionService.activate_from_payment(
+            db,
+            org=org,
+            plan=plan,
+            provider_reference=pid,
+            billing_interval=payload.billing_interval,
+        )
+    else:
+        try:
+            intent = AirwallexPaymentService.retrieve_intent(db, pid)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        status_val = str((intent or {}).get("status") or "").lower()
+        if status_val not in {"succeeded", "success", "captured", "paid"}:
+            raise HTTPException(status_code=400, detail="Payment not completed yet")
+        sub = AirwallexSubscriptionService.activate_from_payment(
+            db,
+            org=org,
+            plan=plan,
+            provider_reference=pid,
+            billing_interval=payload.billing_interval,
+        )
+
+    if sub.current_period_end is None:
+        sub.current_period_end = datetime.utcnow() + timedelta(days=30)
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+
+    UsageWalletService.sync_plan_limits(db, org_id=principal.org_id, plan=plan, subscription=sub)
+    return BillingRedirectCompleteOut(
+        ok=True,
+        status="active",
+        subscription=SubscriptionOut.model_validate(sub),
+        plan=PlanOut.model_validate(plan),
+    )
+
+
 @router.post("/subscription/pay-as-you-go")
 def switch_subscription_to_pay_as_you_go(
     db: Session = Depends(get_db),
@@ -303,7 +448,10 @@ def get_my_subscription(db: Session = Depends(get_db), principal=Depends(require
         pending_plan=PlanOut.model_validate(pending_plan_row) if pending_plan_row else None,
         test_cash_billing_enabled=get_settings().test_cash_billing_allowed,
         gocardless_checkout_available=gocardless_checkout_available,
-        payment_options=BillingService.payment_options(db),
+        payment_options={
+            **BillingService.payment_options(db),
+            **PaymentProviderRouter.subscription_options(db, db.get(Organisation, principal.org_id)),
+        },
     )
 
 
@@ -872,6 +1020,10 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_b
             "has_core_subscription": has_core_sub,
             "is_payg": is_payg or not has_core_sub,
             "shared_package_pool": shared_pool,
+            "value_pool_active": bool(billing_monitor.get("value_pool_active")),
+            "package_used_display": commercial.get("package_used_display"),
+            "package_included_display": commercial.get("package_included_display"),
+            "package_remaining_display": commercial.get("package_remaining_display"),
             "wallet_balance_display": commercial.get("wallet_balance_display") or f"£{wallet_pence / 100:.2f}",
             "wallet_balance_pence": wallet_pence,
         },
