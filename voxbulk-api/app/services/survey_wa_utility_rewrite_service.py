@@ -196,12 +196,13 @@ def rewrite_body_for_utility(
     button_labels: list[str],
     template_name: str,
     display_name: str | None = None,
-    use_deepseek: bool = True,
+    use_llm: bool = True,
+    llm_provider: str = "openai",
 ) -> str:
     topic = _topic_from_template_name(template_name)
     label = display_name or template_name
     leading_emoji, _ = _extract_leading_emoji(original_body)
-    if not use_deepseek:
+    if not use_llm:
         return _rule_based_utility_body(
             original_body,
             topic_hint=topic,
@@ -213,6 +214,8 @@ def rewrite_body_for_utility(
         "(Feedback Survey sub-type). Return ONLY valid JSON: "
         '{"body":"rewritten question text","notes":"one line why this is utility-compliant"}'
         + _META_UTILITY_GUIDANCE
+        + "\nAvoid ALL marketing signals: sale, discount, offer, gift, reward, promotion, new, "
+        "loyalty, refer-a-friend, return intent, upsell, vague brand surveys."
     )
     emoji_hint = (
         f"Keep this leading emoji at the start: {leading_emoji}"
@@ -234,7 +237,7 @@ def rewrite_body_for_utility(
             messages=[AgentMessage(role="user", content=user_prompt)],
             max_tokens=400,
             temperature=0.2,
-            provider="deepseek",
+            provider=str(llm_provider or "openai").strip().lower(),
         )
         parsed = _parse_rewrite_json(result.assistant_text)
         body = str((parsed or {}).get("body") or "").strip()
@@ -251,7 +254,7 @@ def rewrite_body_for_utility(
             body = _prepend_leading_emoji(leading_emoji, body)
         return body
     except Exception as exc:
-        logger.warning("utility_rewrite_deepseek_fallback name=%s err=%s", template_name, str(exc)[:200])
+        logger.warning("utility_rewrite_llm_fallback name=%s err=%s", template_name, str(exc)[:200])
         return _rule_based_utility_body(
             original_body,
             topic_hint=topic,
@@ -263,7 +266,8 @@ def apply_utility_rewrite_to_row(
     db: Session,
     row: TelnyxWhatsappTemplate,
     *,
-    use_deepseek: bool = True,
+    use_llm: bool = True,
+    llm_provider: str = "openai",
 ) -> tuple[str, str]:
     components = _effective_components(row)
     if not components:
@@ -283,7 +287,8 @@ def apply_utility_rewrite_to_row(
         button_labels=buttons,
         template_name=row.name,
         display_name=row.display_name,
-        use_deepseek=use_deepseek,
+        use_llm=use_llm,
+        llm_provider=llm_provider,
     )
     lint = lint_utility_template(
         body=new_body,
@@ -401,9 +406,11 @@ def process_template_names(
     names: list[str],
     *,
     sync_remote: bool = False,
+    save: bool = False,
     push: bool = False,
     dry_run: bool = False,
-    use_deepseek: bool = True,
+    use_llm: bool = True,
+    llm_provider: str = "openai",
 ) -> list[UtilityRewriteResult]:
     results: list[UtilityRewriteResult] = []
     for name in names:
@@ -437,7 +444,8 @@ def process_template_names(
                     button_labels=buttons,
                     template_name=row.name,
                     display_name=row.display_name,
-                    use_deepseek=use_deepseek,
+                    use_llm=use_llm,
+                    llm_provider=llm_provider,
                 )
                 dry_msg = "dry-run"
                 if _needs_utility_clone_for_category_change(row):
@@ -456,11 +464,25 @@ def process_template_names(
                 )
                 continue
 
+            if not save and not push:
+                results.append(
+                    UtilityRewriteResult(
+                        template_name=row.name,
+                        ok=False,
+                        old_body=old_body,
+                        new_body="",
+                        message="Specify --save or --push to persist rewrite",
+                    )
+                )
+                continue
+
             renamed_to: str | None = None
             if push:
                 row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
 
-            old_body, new_body = apply_utility_rewrite_to_row(db, row, use_deepseek=use_deepseek)
+            old_body, new_body = apply_utility_rewrite_to_row(
+                db, row, use_llm=use_llm, llm_provider=llm_provider
+            )
             pushed = False
             msg = "rewritten"
             if renamed_to:

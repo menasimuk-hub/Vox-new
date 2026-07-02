@@ -62,6 +62,11 @@ def main() -> int:
         help="Refresh each template from Telnyx before rewriting (recommended)",
     )
     parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save rewritten templates to DB (without pushing)",
+    )
+    parser.add_argument(
         "--push",
         action="store_true",
         help="Push rewritten drafts to Telnyx/Meta after saving",
@@ -72,11 +77,18 @@ def main() -> int:
         help="Preview rewritten BODY text without saving or pushing",
     )
     parser.add_argument(
+        "--no-llm",
         "--no-deepseek",
         action="store_true",
-        help="Use rule-based rewrite only (no DeepSeek API call)",
+        dest="no_llm",
+        help="Use rule-based rewrite only (no OpenAI API call)",
     )
     args = parser.parse_args()
+
+    if args.push:
+        args.save = True
+    if not args.dry_run and not args.save and not args.push:
+        parser.error("Specify --dry-run, --save, and/or --push")
 
     if args.template_name:
         names = [n.strip() for n in args.template_name if str(n or "").strip()]
@@ -99,9 +111,11 @@ def main() -> int:
             db,
             names,
             sync_remote=bool(args.sync_remote),
+            save=bool(args.save) and not args.dry_run,
             push=bool(args.push) and not args.dry_run,
             dry_run=bool(args.dry_run),
-            use_deepseek=not args.no_deepseek,
+            use_llm=not args.no_llm,
+            llm_provider="openai",
         )
 
     for item in results:

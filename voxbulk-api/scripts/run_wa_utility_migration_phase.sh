@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
-# Run one WA UTILITY migration phase on VPS.
-# Prerequisite: Admin → Integrations → Telnyx → WhatsApp WABA ID = 1033532842963987
+# OpenAI 4-phase WA UTILITY migration (VPS).
+#
+# Prerequisite:
+#   Admin → Integrations → Telnyx → WhatsApp WABA ID = 1033532842963987
+#   Admin → Integrations → OpenAI configured
+#
 # Usage:
-#   bash scripts/run_wa_utility_migration_phase.sh survey 1 --dry-run
-#   bash scripts/run_wa_utility_migration_phase.sh feedback 1 --rewrite-only --translate-ar
-#   bash scripts/run_wa_utility_migration_phase.sh feedback 1 --push --languages en,ar
-#   bash scripts/run_wa_utility_migration_phase.sh interview --push
+#   bash scripts/run_wa_utility_migration_phase.sh 0          # seed DB from MD
+#   bash scripts/run_wa_utility_migration_phase.sh 1 --dry-run
+#   bash scripts/run_wa_utility_migration_phase.sh 1 --save --push --dedup
+#   bash scripts/run_wa_utility_migration_phase.sh 4 --save --push --translate-ar --dedup
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 source .venv/bin/activate
 
-python scripts/verify_wa_utility_waba.py || exit 1
-
-PRODUCT="${1:?product required: survey|feedback|interview}"
+PHASE="${1:?phase 0-4 required (0=seed only)}"
 shift || true
 
-if [[ "$PRODUCT" == "interview" ]]; then
-  exec python scripts/migrate_wa_templates_utility.py --product interview --sync-remote "$@"
+if [[ "$PHASE" == "0" ]]; then
+  python scripts/verify_wa_utility_waba.py || true
+  python scripts/seed_utility_templates_to_db.py --all
+  python scripts/audit_wa_template_db.py --json
+  exit 0
 fi
 
-PHASE="${1:?phase number required for survey/feedback}"
-shift || true
-exec python scripts/migrate_wa_templates_utility.py --product "$PRODUCT" --phase "$PHASE" --sync-remote "$@"
+python scripts/verify_wa_utility_waba.py
+exec python scripts/migrate_wa_templates_utility.py --phase "$PHASE" --audit "$@"

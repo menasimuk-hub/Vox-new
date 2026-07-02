@@ -83,7 +83,7 @@ def test_rewrite_without_deepseek():
         original_body="😊 Overall, how satisfied were you?",
         button_labels=["Dissatisfied", "Satisfied", "Very satisfied"],
         template_name="voxbulk_survey_customer_service_rating_abc_de3a48",
-        use_deepseek=False,
+        use_llm=False,
     )
     assert _mentions_recent_interaction(out)
     assert out.startswith("😊")

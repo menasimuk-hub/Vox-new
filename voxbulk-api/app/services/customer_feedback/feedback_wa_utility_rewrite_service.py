@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackIndustry, FeedbackWaTemplate
-from app.services.agents.base import AgentMessage
 from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
 from app.services.customer_feedback.feedback_telnyx_push_service import (
     FeedbackTelnyxPushError,
@@ -19,7 +17,6 @@ from app.services.customer_feedback.feedback_telnyx_push_service import (
     push_feedback_template_to_telnyx,
 )
 from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
-from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_wa_utility_rewrite_service import (
     _extract_leading_emoji,
     _prepend_leading_emoji,
@@ -29,6 +26,16 @@ from app.services.survey_wa_utility_rewrite_service import (
 from app.services.wa_template_utility_lint import assert_utility_template, lint_utility_template
 
 logger = logging.getLogger(__name__)
+
+FEEDBACK_INDUSTRY_SLUGS: tuple[str, ...] = (
+    "restaurant",
+    "retail",
+    "salon",
+    "hotel",
+    "fitness",
+    "events",
+    "others",
+)
 
 
 @dataclass
@@ -63,6 +70,7 @@ def rewrite_feedback_body(
     buttons: list[str],
     template_key: str,
     use_llm: bool = True,
+    llm_provider: str = "openai",
 ) -> str:
     if not use_llm:
         return _rule_based_utility_body(original_body, topic_hint=template_key.replace("_", " "))
@@ -72,7 +80,8 @@ def rewrite_feedback_body(
         button_labels=buttons,
         template_name=f"feedback_{template_key}",
         display_name=template_key,
-        use_deepseek=use_llm,
+        use_llm=use_llm,
+        llm_provider=llm_provider,
     )
 
 
@@ -81,6 +90,7 @@ def apply_utility_rewrite_to_feedback_row(
     row: FeedbackWaTemplate,
     *,
     use_llm: bool = True,
+    llm_provider: str = "openai",
     skip_lint: bool = False,
 ) -> tuple[str, str]:
     if is_marketing_wa_template(row):
@@ -97,6 +107,7 @@ def apply_utility_rewrite_to_feedback_row(
         buttons=buttons,
         template_key=str(row.template_key or ""),
         use_llm=use_llm,
+        llm_provider=llm_provider,
     )
     leading_emoji, _ = _extract_leading_emoji(old_body)
     new_body = _prepend_leading_emoji(leading_emoji, new_body)
@@ -136,6 +147,7 @@ def list_feedback_english_templates_for_industry(db: Session, industry_slug: str
         .where(
             FeedbackWaTemplate.id.in_(ids),
             FeedbackWaTemplate.language.in_(ENGLISH_TEMPLATE_LANGUAGES),
+            FeedbackWaTemplate.is_active.is_(True),
         )
         .order_by(FeedbackWaTemplate.step_order, FeedbackWaTemplate.template_key)
     ).scalars().all()
@@ -147,10 +159,11 @@ def process_feedback_industry(
     industry_slug: str,
     *,
     dry_run: bool = False,
-    rewrite_only: bool = False,
+    save: bool = False,
     push: bool = False,
     languages: list[str] | None = None,
     use_llm: bool = True,
+    llm_provider: str = "openai",
 ) -> list[FeedbackUtilityRewriteResult]:
     results: list[FeedbackUtilityRewriteResult] = []
     rows = list_feedback_english_templates_for_industry(db, industry_slug)
@@ -167,6 +180,7 @@ def process_feedback_industry(
                     buttons=buttons,
                     template_key=str(row.template_key or ""),
                     use_llm=use_llm,
+                    llm_provider=llm_provider,
                 )
                 lint = lint_utility_template(
                     body=new_body,
@@ -189,21 +203,37 @@ def process_feedback_industry(
                 )
                 continue
 
-            old_body, new_body = apply_utility_rewrite_to_feedback_row(db, row, use_llm=use_llm)
-            pushed = False
-            msg = "rewritten"
-            if push and not rewrite_only:
-                if "en" in lang_filter or str(row.language).lower().startswith("en"):
-                    assert_utility_template(
-                        body=new_body,
-                        buttons=buttons,
-                        language=row.language,
-                        meta_category="utility",
-                        template_key=row.template_key,
+            if not save and not push:
+                results.append(
+                    FeedbackUtilityRewriteResult(
+                        template_id=row.id,
+                        template_key=str(row.template_key or ""),
+                        language=str(row.language or ""),
+                        ok=False,
+                        old_body=old_body,
+                        new_body="",
+                        message="Specify --save or --push",
+                        lint_ok=False,
                     )
-                    push_feedback_template_to_telnyx(db, row)
-                    pushed = True
-                    msg = "rewritten and pushed"
+                )
+                continue
+
+            old_body, new_body = apply_utility_rewrite_to_feedback_row(
+                db, row, use_llm=use_llm, llm_provider=llm_provider
+            )
+            pushed = False
+            msg = "saved"
+            if push and ("en" in lang_filter or str(row.language).lower().startswith("en")):
+                assert_utility_template(
+                    body=new_body,
+                    buttons=buttons,
+                    language=row.language,
+                    meta_category="utility",
+                    template_key=row.template_key,
+                )
+                push_feedback_template_to_telnyx(db, row)
+                pushed = True
+                msg = "saved and pushed"
             results.append(
                 FeedbackUtilityRewriteResult(
                     template_id=row.id,
