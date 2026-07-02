@@ -24,6 +24,7 @@ BILLING_TEMPLATE_KEYS = frozenset(
         "payment_receipt",
         "billing_cancellation_requested",
         "billing_cancellation_reversed",
+        "billing_plan_change_scheduled",
         "billing_wallet_credit_issued",
         "billing_bank_refund_approved",
         "billing_refund_request_rejected",

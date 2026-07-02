@@ -305,6 +305,22 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             footer="Sent by VOXBULK Billing · billing@voxbulk.com",
         ),
     },
+    "billing_plan_change_scheduled": {
+        "title": "Plan change scheduled",
+        "subject": "Plan change scheduled — {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Plan change scheduled",
+            inner_html="""<p>Hi,</p>
+  <p>We received your request to change the VoxBulk plan for <strong>{{organisation_name}}</strong>.</p>
+  <p>Current plan: <strong>{{current_plan_name}}</strong><br/>
+  New plan (from next billing period): <strong>{{pending_plan_name}}</strong></p>
+  <p>Your current plan stays active until <strong>{{effective_date}}</strong>. The new plan and pricing apply from your next renewal date.</p>
+  """ + cta_button(href="{{packages_url}}", label="View packages") + """
+  <p style="font-size:13px;color:#6b6560;">You can change your plan again from Account → Packages before the effective date.</p>
+  """ + cta_button(href="{{billing_url}}", label="View billing") + "",
+            footer="Sent by VOXBULK Billing · billing@voxbulk.com",
+        ),
+    },
     "billing_wallet_credit_issued": {
         "title": "Wallet credit issued",
         "subject": "Wallet credit {{amount}} — {{organisation_name}}",

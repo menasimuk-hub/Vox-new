@@ -45,6 +45,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_thank_you",
     "billing_cancellation_requested",
     "billing_cancellation_reversed",
+    "billing_plan_change_scheduled",
     "billing_wallet_credit_issued",
     "billing_bank_refund_approved",
     "billing_refund_request_rejected",
