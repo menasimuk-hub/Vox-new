@@ -21,6 +21,7 @@ from app.services.customer_feedback.feedback_telnyx_push_service import (
 from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
 from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_wa_utility_rewrite_service import _extract_leading_emoji, _prepend_leading_emoji
+from app.services.wa_template_utility_lint import lint_utility_template
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,8 @@ _TRANSLATION_SCHEMA: dict[str, Any] = {
 _TRANSLATE_SYSTEM = (
     "You translate WhatsApp customer-feedback survey templates into Modern Standard Arabic "
     "for Gulf and Levant audiences. Tone: polite, concise, natural. "
+    "Meta UTILITY rules: tie to a specific recent visit/order/appointment; "
+    "no promotional language (no offers, discounts, loyalty, refer-a-friend, upsell). "
     "Do NOT include any emoji in body or buttons — emoji is added separately by the system. "
     "Translate only the text; preserve meaning and button count/order."
 )
@@ -346,6 +349,19 @@ def translate_templates_to_arabic(
             body_text=str(content.get("body") or ""),
             buttons=list(content.get("buttons") or []),
         )
+        ar_buttons = list(content.get("buttons") or [])
+        ar_lint = lint_utility_template(
+            body=row.body_text,
+            buttons=ar_buttons,
+            language=TARGET_LANGUAGE,
+            meta_category="utility",
+            template_key=source.template_key,
+            require_transaction_anchor=False,
+        )
+        if not ar_lint.ok:
+            msgs = "; ".join(i.message for i in ar_lint.issues)
+            errors.append({"template_key": label, "stage": "lint_ar", "error": msgs})
+            continue
         translated += 1
         results.append({"template_key": label, "status": "translated", "template_id": row.id})
 

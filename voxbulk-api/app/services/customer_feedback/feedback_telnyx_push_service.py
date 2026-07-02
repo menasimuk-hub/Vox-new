@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
-from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
+from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     normalize_wa_template_category,
@@ -24,6 +24,7 @@ from app.services.telnyx_api_key import normalize_telnyx_api_key, require_telnyx
 from app.services.telnyx_voice_service import _telnyx_config, _telnyx_headers, resolve_telnyx_whatsapp_waba_id
 from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService, TELNYX_WHATSAPP_TEMPLATES_URL
 from app.services.wa_template_meta_sync import META_SUBCODE_CONTENT_ALREADY_EXISTS, parse_meta_error_from_provider_detail
+from app.services.wa_template_utility_lint import assert_utility_template
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,18 @@ def push_feedback_template_to_telnyx(
     )
 
     raw_components = build_feedback_components(tpl)
+    if not is_marketing_wa_template(tpl):
+        try:
+            assert_utility_template(
+                body=str(tpl.body_text or ""),
+                buttons=parse_feedback_buttons(tpl.buttons_json),
+                language=tpl.language,
+                meta_category=tpl.meta_category or "utility",
+                template_key=tpl.template_key,
+                require_transaction_anchor=str(tpl.language or "").lower().startswith("en"),
+            )
+        except ValueError as exc:
+            raise FeedbackTelnyxPushError(str(exc)) from exc
     try:
         components = prepare_components_for_telnyx_push(raw_components, row=None)
     except SurveyWhatsappTemplateError as exc:

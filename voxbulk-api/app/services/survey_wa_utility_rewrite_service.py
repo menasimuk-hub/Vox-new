@@ -29,7 +29,7 @@ from app.services.survey_whatsapp_template_service import (
     _refresh_local_sync_status,
     normalize_wa_template_category,
 )
-from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+from app.services.wa_template_utility_lint import lint_utility_template
 from app.services.wa_template_meta_sync import (
     is_utility_clone_template_name,
     suggest_utility_clone_template_name,
@@ -285,6 +285,15 @@ def apply_utility_rewrite_to_row(
         display_name=row.display_name,
         use_deepseek=use_deepseek,
     )
+    lint = lint_utility_template(
+        body=new_body,
+        buttons=buttons,
+        language=row.language,
+        meta_category="utility",
+    )
+    if not lint.ok:
+        msgs = "; ".join(i.message for i in lint.issues)
+        raise SurveyWhatsappTemplateError(f"Utility lint failed for {row.name}: {msgs}")
     if not buttons:
         normalized = _normalize_draft_components(components)
         for comp in normalized:

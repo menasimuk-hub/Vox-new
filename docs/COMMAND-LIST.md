@@ -1,6 +1,6 @@
 # VoxBulk command list
 
-**Generated:** 2026-07-02 · **Total scripts:** 130
+**Generated:** 2026-07-02 · **Total scripts:** 136
 
 **Local repo:** `c:\Users\zaghlol\Downloads\voxbulk.com`
 **VPS repo:** `/www/voxbulk`
@@ -200,7 +200,7 @@ pytest tests/test_card_subscription_checkout.py tests/test_stripe_subscription_r
 | `scripts/write-admin-build-info.mjs` | Admin build metadata | `auto via npm prebuild` |
 | `scripts/write-dashboard-build-info.mjs` | Dashboard build metadata | `auto via npm prebuild` |
 
-### Test / smoke (8)
+### Test / smoke (9)
 
 | Path | Description | Example command |
 |------|-------------|-----------------|
@@ -211,9 +211,10 @@ pytest tests/test_card_subscription_checkout.py tests/test_stripe_subscription_r
 | `voxbulk-api/scripts/send_invites_for_order_test.py` | Run send_invites for one order (same path as dashboard launch). | `python scripts/send_invites_for_order_test.py --help` |
 | `voxbulk-api/scripts/test_interview_email_lifecycle.py` | Send every interview lifecycle email to one inbox and (optionally) verify arrival. | `python scripts/test_interview_email_lifecycle.py --help` |
 | `voxbulk-api/scripts/verify_wa_telnyx_push_deploy.sh` | verify wa telnyx push deploy | `bash voxbulk-api/scripts/verify_wa_telnyx_push_deploy.sh` |
+| `voxbulk-api/scripts/verify_wa_utility_waba.py` | Verify Telnyx integration WABA matches the expected Voxbulk Ltd WABA for UTILITY migration. | `python scripts/verify_wa_utility_waba.py --help` |
 | `voxbulk-api/scripts/workflow_smoke_test.py` | VoxBulk workflow smoke — API routes, email readiness, UI pages, and optional live auth. | `python scripts/workflow_smoke_test.py --help` |
 
-### WhatsApp / Telnyx (18)
+### WhatsApp / Telnyx (23)
 
 | Path | Description | Example command |
 |------|-------------|-----------------|
@@ -221,7 +222,11 @@ pytest tests/test_card_subscription_checkout.py tests/test_stripe_subscription_r
 | `voxbulk-api/scripts/audit_wa_survey_templates.py` | Audit and repair all WA Survey WhatsApp templates — sync Telnyx, fix drafts, push, refresh status. | `python scripts/audit_wa_survey_templates.py --help` |
 | `voxbulk-api/scripts/build_wa_survey_master_md.py` | Build master Markdown file from WA_SURVEY_ABC_CATALOG. | `python scripts/build_wa_survey_master_md.py --help` |
 | `voxbulk-api/scripts/bulk_generate_wa_survey_library_templates.py` | Bulk-generate normal WA Survey library templates (one per industry survey type). | `python scripts/bulk_generate_wa_survey_library_templates.py --help` |
+| `voxbulk-api/scripts/expand_wa_utility_template_seeds.py` | Expand WA Survey + Feedback seed catalogs to 25 utility-safe topics per industry. | `python scripts/expand_wa_utility_template_seeds.py --help` |
+| `voxbulk-api/scripts/export_wa_template_baseline.py` | Export baseline WA template inventory (survey + feedback) for migration diff. | `python scripts/export_wa_template_baseline.py --help` |
 | `voxbulk-api/scripts/export_wa_templates_industry_map.py` | export wa templates industry map | `python scripts/export_wa_templates_industry_map.py --help` |
+| `voxbulk-api/scripts/migrate_wa_templates_utility.py` | Orchestrate Meta UTILITY migration for WA Survey, Customer Feedback, and AI Interview templates. | `python scripts/migrate_wa_templates_utility.py --help` |
+| `voxbulk-api/scripts/migrate_wa_templates_utility.sh` | migrate wa templates utility | `bash voxbulk-api/scripts/migrate_wa_templates_utility.sh` |
 | `voxbulk-api/scripts/provision_interview_telnyx_assistants.py` | Create or sync Telnyx assistants for English regional interview agents. | `python scripts/provision_interview_telnyx_assistants.py --help` |
 | `voxbulk-api/scripts/push_feedback_industry_to_telnyx.py` | Push all Customer Feedback WhatsApp templates for one industry to Telnyx/Meta. | `python scripts/push_feedback_industry_to_telnyx.py --help` |
 | `voxbulk-api/scripts/push_feedback_industry_to_telnyx.sh` | push feedback industry to telnyx | `bash voxbulk-api/scripts/push_feedback_industry_to_telnyx.sh` |
@@ -231,6 +236,7 @@ pytest tests/test_card_subscription_checkout.py tests/test_stripe_subscription_r
 | `voxbulk-api/scripts/push_wa_survey_templates_to_telnyx.sh` | push wa survey templates to telnyx | `bash voxbulk-api/scripts/push_wa_survey_templates_to_telnyx.sh` |
 | `voxbulk-api/scripts/rewrite_wa_survey_templates_for_utility.py` | Rewrite WA survey templates for Meta UTILITY (Feedback Survey) and optionally push via Telnyx. | `python scripts/rewrite_wa_survey_templates_for_utility.py --help` |
 | `voxbulk-api/scripts/rewrite_wa_survey_templates_for_utility.sh` | rewrite wa survey templates for utility | `bash voxbulk-api/scripts/rewrite_wa_survey_templates_for_utility.sh` |
+| `voxbulk-api/scripts/run_wa_utility_migration_phase.sh` | run wa utility migration phase | `bash voxbulk-api/scripts/run_wa_utility_migration_phase.sh` |
 | `voxbulk-api/scripts/sync_interview_email_templates.py` | Push latest interview email templates from code defaults into the database (VPS one-off). | `python scripts/sync_interview_email_templates.py --help` |
 | `voxbulk-api/scripts/telnyx_sms_setup.py` | Configure Telnyx SMS for VoxBulk inbound (Meta verification codes, Admin Refresh inbound). | `python scripts/telnyx_sms_setup.py --help` |
 | `voxbulk-api/scripts/translate_feedback_templates_to_ar.py` | Translate Customer Feedback templates to Arabic (OpenAI JSON API) and push to Telnyx. | `python scripts/translate_feedback_templates_to_ar.py --help` |
