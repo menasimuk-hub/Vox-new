@@ -31,12 +31,12 @@ def audit_all_wa_templates(db: Session) -> dict[str, Any]:
     feedback_rows = list(db.execute(select(FeedbackWaTemplate)).scalars())
 
     active_survey_type_ids = {
-        str(row.id)
-        for row in db.execute(select(SurveyType.id).where(SurveyType.is_active.is_(True))).scalars()
+        str(type_id)
+        for type_id in db.execute(select(SurveyType.id).where(SurveyType.is_active.is_(True))).scalars()
     }
     active_feedback_survey_ids = {
-        str(row.id)
-        for row in db.execute(select(FeedbackSurveyType.id).where(FeedbackSurveyType.is_active.is_(True))).scalars()
+        str(type_id)
+        for type_id in db.execute(select(FeedbackSurveyType.id).where(FeedbackSurveyType.is_active.is_(True))).scalars()
     }
 
     survey_abc = [r for r in survey_rows if str(r.step_role or "") == "abc_choice"]
@@ -139,8 +139,8 @@ def deactivate_duplicate_and_orphan_templates(
         ).scalars()
     )
     active_survey_type_ids = {
-        str(row.id)
-        for row in db.execute(select(SurveyType.id).where(SurveyType.is_active.is_(True))).scalars()
+        str(type_id)
+        for type_id in db.execute(select(SurveyType.id).where(SurveyType.is_active.is_(True))).scalars()
     }
 
     for row in survey_abc:
@@ -165,8 +165,8 @@ def deactivate_duplicate_and_orphan_templates(
 
     feedback_rows = list(db.execute(select(FeedbackWaTemplate)).scalars())
     active_feedback_survey_ids = {
-        str(row.id)
-        for row in db.execute(select(FeedbackSurveyType.id).where(FeedbackSurveyType.is_active.is_(True))).scalars()
+        str(type_id)
+        for type_id in db.execute(select(FeedbackSurveyType.id).where(FeedbackSurveyType.is_active.is_(True))).scalars()
     }
 
     for row in feedback_rows:
