@@ -17,6 +17,7 @@ from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_wa_md_seed_service import _build_abc_choice_components, _sanitize_body
 from app.services.survey_whatsapp_template_service import (
     META_BODY_HARD_MAX_CHARS,
+    SYNC_ERROR,
     SYNC_LOCAL_CHANGES,
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -321,6 +322,19 @@ def apply_utility_rewrite_to_row(
     return old_body, new_body
 
 
+def _already_submitted_utility_migration(row: TelnyxWhatsappTemplate) -> bool:
+    """True when UTILITY row is already on Meta (PENDING/APPROVED) — safe to skip re-push."""
+    if str(row.category or "").upper() != "UTILITY":
+        return False
+    if not _has_remote_telnyx_id(row):
+        return False
+    if str(row.local_sync_status or "") == SYNC_ERROR:
+        return False
+    if str(row.last_push_error or "").strip():
+        return False
+    return str(row.status or "").upper() in {"PENDING", "APPROVED"}
+
+
 def _find_template_row(db: Session, name: str) -> TelnyxWhatsappTemplate | None:
     clean = str(name or "").strip()
     if not clean:
@@ -413,7 +427,12 @@ def process_template_names(
     dry_run: bool = False,
     use_llm: bool = True,
     llm_provider: str = "openai",
+    skip_already_pushed: bool = True,
+    push_delay_seconds: float = 0.0,
 ) -> list[UtilityRewriteResult]:
+    import sys
+    import time
+
     results: list[UtilityRewriteResult] = []
     for name in names:
         clean = str(name or "").strip()
@@ -432,6 +451,27 @@ def process_template_names(
             )
             continue
         try:
+            if (
+                push
+                and save
+                and not dry_run
+                and skip_already_pushed
+                and _already_submitted_utility_migration(row)
+            ):
+                components = _effective_components(row)
+                old_body, _buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
+                results.append(
+                    UtilityRewriteResult(
+                        template_name=row.name,
+                        ok=True,
+                        old_body=old_body,
+                        new_body=old_body,
+                        message="already on Meta (skipped)",
+                        pushed=True,
+                    )
+                )
+                continue
+
             if sync_remote and _has_remote_telnyx_id(row):
                 refresh_row_from_telnyx(db, row)
                 db.refresh(row)
@@ -490,6 +530,8 @@ def process_template_names(
             if renamed_to:
                 msg = f"renamed to {renamed_to}"
             if push:
+                if push_delay_seconds > 0:
+                    time.sleep(push_delay_seconds)
                 push_result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
                 pushed = True
                 push_msg = str(push_result.get("sync_message") or push_result.get("message") or "pushed")
@@ -510,6 +552,7 @@ def process_template_names(
             provider_error = str(payload.get("provider_error") or "").strip()
             if provider_error:
                 msg = f"{msg} | provider: {provider_error[:400]}"
+            print(f"FAIL {clean}: {msg}", file=sys.stderr, flush=True)
             results.append(
                 UtilityRewriteResult(
                     template_name=clean,
@@ -520,6 +563,7 @@ def process_template_names(
                 )
             )
         except Exception as exc:
+            print(f"FAIL {clean}: {exc}", file=sys.stderr, flush=True)
             results.append(
                 UtilityRewriteResult(
                     template_name=clean,

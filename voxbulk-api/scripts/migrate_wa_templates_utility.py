@@ -155,6 +155,8 @@ def _run_survey_phase(
     sync_remote: bool,
     use_llm: bool,
     llm_provider: str,
+    skip_already_pushed: bool,
+    push_delay_seconds: float,
 ) -> dict[str, Any]:
     names: list[str] = []
     for slug in industries:
@@ -171,6 +173,8 @@ def _run_survey_phase(
         dry_run=dry_run,
         use_llm=use_llm,
         llm_provider=llm_provider,
+        skip_already_pushed=skip_already_pushed,
+        push_delay_seconds=push_delay_seconds,
     )
     return {
         "kind": "survey",
@@ -179,6 +183,7 @@ def _run_survey_phase(
         "template_count": len(names),
         "ok_count": sum(1 for r in results if r.ok),
         "failed_count": sum(1 for r in results if not r.ok),
+        "skipped_count": sum(1 for r in results if r.ok and "skipped" in str(r.message or "").lower()),
         "results": [
             {
                 "template_name": r.template_name,
@@ -348,6 +353,17 @@ def main() -> int:
     parser.add_argument("--no-llm", action="store_true", help="Rule-based rewrite only (no OpenAI)")
     parser.add_argument("--llm-provider", default="openai", help="LLM provider (default: openai)")
     parser.add_argument("--skip-waba-check", action="store_true")
+    parser.add_argument(
+        "--no-skip-already-pushed",
+        action="store_true",
+        help="Re-push templates already PENDING/APPROVED on Meta (default: skip them)",
+    )
+    parser.add_argument(
+        "--push-delay",
+        type=float,
+        default=1.5,
+        help="Seconds to wait between Telnyx pushes (default: 1.5)",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -381,6 +397,8 @@ def main() -> int:
                 sync_remote=args.sync_remote,
                 use_llm=use_llm,
                 llm_provider=llm_provider,
+                skip_already_pushed=not args.no_skip_already_pushed,
+                push_delay_seconds=max(0.0, float(args.push_delay or 0)),
             )
         else:
             report = _run_feedback_interview_phase(
@@ -420,6 +438,7 @@ def main() -> int:
     print(
         f"Phase {args.phase} kind={report.get('kind')} "
         f"templates={report.get('template_count') or report.get('en_count')} "
+        f"skipped={report.get('skipped_count', 0)} "
         f"failed={report.get('failed_count')}"
     )
     if args.json:
