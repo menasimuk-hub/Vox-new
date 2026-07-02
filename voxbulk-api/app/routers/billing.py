@@ -287,6 +287,7 @@ def start_card_subscription_checkout(
                 db,
                 org=org,
                 plan=plan,
+                user_email=user_email,
                 billing_interval=payload.billing_interval,
             )
     except (AirwallexSubscriptionError, StripeSubscriptionError) as e:
@@ -318,24 +319,36 @@ def complete_card_subscription_checkout(
     if plan is None:
         raise HTTPException(status_code=400, detail="Plan not found")
 
-    from datetime import datetime, timedelta
-
     from app.services.airwallex_subscription_service import AirwallexSubscriptionService
     from app.services.stripe_subscription_service import StripeSubscriptionService
     from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
     from app.services.airwallex_payment_service import AirwallexPaymentService
 
+    from app.services.card_subscription_activation_service import (
+        CardSubscriptionActivationError,
+        CardSubscriptionActivationService,
+    )
+
     pid = str(payload.payment_intent_id or "").strip()
     if not pid:
         raise HTTPException(status_code=400, detail="payment_intent_id required")
 
-    if payload.provider == "stripe":
+    provider = payload.provider
+    if provider == "stripe":
         try:
             intent = StripePaymentService.retrieve_intent(db, pid)
         except StripeProviderError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
         if str(intent.get("status") or "").lower() not in {"succeeded", "processing", "requires_capture"}:
             raise HTTPException(status_code=400, detail="Payment not completed yet")
+        try:
+            CardSubscriptionActivationService.verify_intent_metadata(
+                intent.get("metadata") or {},
+                org_id=org.id,
+                plan_id=payload.plan_id,
+            )
+        except CardSubscriptionActivationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         sub = StripeSubscriptionService.activate_from_payment(
             db,
             org=org,
@@ -343,7 +356,8 @@ def complete_card_subscription_checkout(
             provider_reference=pid,
             billing_interval=payload.billing_interval,
         )
-    else:
+        StripeSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
+    elif provider == "airwallex":
         try:
             intent = AirwallexPaymentService.retrieve_intent(db, pid)
         except Exception as e:
@@ -351,6 +365,14 @@ def complete_card_subscription_checkout(
         status_val = str((intent or {}).get("status") or "").lower()
         if status_val not in {"succeeded", "success", "captured", "paid"}:
             raise HTTPException(status_code=400, detail="Payment not completed yet")
+        try:
+            CardSubscriptionActivationService.verify_intent_metadata(
+                (intent or {}).get("metadata") or {},
+                org_id=org.id,
+                plan_id=payload.plan_id,
+            )
+        except CardSubscriptionActivationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         sub = AirwallexSubscriptionService.activate_from_payment(
             db,
             org=org,
@@ -358,12 +380,9 @@ def complete_card_subscription_checkout(
             provider_reference=pid,
             billing_interval=payload.billing_interval,
         )
-
-    if sub.current_period_end is None:
-        sub.current_period_end = datetime.utcnow() + timedelta(days=30)
-        db.add(sub)
-        db.commit()
-        db.refresh(sub)
+        AirwallexSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
+    else:
+        raise HTTPException(status_code=400, detail="provider must be stripe or airwallex")
 
     UsageWalletService.sync_plan_limits(db, org_id=principal.org_id, plan=plan, subscription=sub)
     return BillingRedirectCompleteOut(

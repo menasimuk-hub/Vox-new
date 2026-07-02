@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
+from app.models.subscription import Subscription
 from app.services.billing_currency import resolve_org_currency
 from app.services.provider_settings import ProviderSettingsService
 
@@ -205,6 +206,46 @@ class AirwallexPaymentService:
         )
 
     @staticmethod
+    def create_subscription_checkout_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        amount_minor: int,
+        plan_id: str,
+        billing_interval: str,
+        service_code: str = "voxbulk",
+        customer_email: str = "",
+    ) -> dict[str, Any]:
+        from app.services.airwallex_billing_service import AirwallexBillingService
+
+        payload = AirwallexBillingService.subscription_checkout_payload(
+            db,
+            org,
+            amount_minor=amount_minor,
+            plan_id=plan_id,
+            billing_interval=billing_interval,
+            service_code=service_code,
+            customer_email=customer_email,
+        )
+        intent = AirwallexPaymentService._request(
+            db,
+            "POST",
+            "/api/v1/pa/payment_intents/create",
+            payload=payload,
+        )
+        currency = str(payload.get("currency") or "GBP")
+        return {
+            "provider": "airwallex",
+            "payment_intent_id": str(intent.get("id") or ""),
+            "client_secret": str(intent.get("client_secret") or ""),
+            "amount_minor": int(amount_minor),
+            "currency": currency,
+            "status": str(intent.get("status") or ""),
+            "environment": str(AirwallexPaymentService.get_config(db).get("environment") or "demo"),
+            "customer_id": payload.get("customer_id"),
+        }
+
+    @staticmethod
     def create_topup_intent(db: Session, org: Organisation, *, amount_minor: int) -> dict[str, Any]:
         currency = resolve_org_currency(db, org, persist=True)
         request_id = str(uuid.uuid4())
@@ -310,13 +351,39 @@ class AirwallexPaymentService:
         from app.services.wallet_service import WalletService
 
         name = str(event.get("name") or "")
-        if name != "payment_intent.succeeded":
-            return {"ok": True, "ignored": True, "name": name}
         intent = (event.get("data") or {}).get("object") or {}
         pid = str(intent.get("id") or "")
         meta = intent.get("metadata") or {}
         org_id = str(meta.get("voxbulk_org_id") or "")
         payment_kind = str(meta.get("voxbulk_kind") or "")
+
+        from app.services.airwallex_billing_service import SUBSCRIPTION_RENEWAL_KIND
+        from app.services.card_plan_change_service import PRO_RATA_UPGRADE_KIND
+
+        if name in {"payment_intent.failed", "payment_intent.cancelled"} and payment_kind in {
+            SUBSCRIPTION_RENEWAL_KIND,
+            PRO_RATA_UPGRADE_KIND,
+        }:
+            if not org_id:
+                return {"ok": True, "ignored": True, "reason": "missing_org"}
+            org = db.get(Organisation, org_id)
+            if org is None:
+                return {"ok": True, "ignored": True, "reason": "org_not_found"}
+            reason = str(intent.get("failure_reason") or intent.get("cancellation_reason") or "Card payment declined")
+            if payment_kind == PRO_RATA_UPGRADE_KIND:
+                from app.services.card_plan_change_service import CardPlanChangeService
+
+                return CardPlanChangeService.handle_pro_rata_webhook_failure(
+                    db, org=org, intent=intent, provider="airwallex", failure_reason=reason
+                )
+            from app.services.card_renewal_lifecycle_service import CardRenewalLifecycleService
+
+            return CardRenewalLifecycleService.handle_renewal_webhook_failure(
+                db, org=org, intent=intent, provider="airwallex", failure_reason=reason
+            )
+
+        if name != "payment_intent.succeeded":
+            return {"ok": True, "ignored": True, "name": name}
         if not org_id:
             return {"ok": True, "ignored": True, "reason": "missing_org"}
         org = db.get(Organisation, org_id)
@@ -344,6 +411,32 @@ class AirwallexPaymentService:
                 user_id=None,
             )
             return {"ok": True, "paid": True, "invoice_id": invoice_id}
+
+        if payment_kind == "subscription_checkout":
+            from app.services.card_subscription_activation_service import CardSubscriptionActivationService
+            from app.services.airwallex_billing_service import AirwallexBillingService
+
+            result = CardSubscriptionActivationService.activate_from_webhook_intent(
+                db, org=org, intent=intent, provider="airwallex"
+            )
+            sub_id = result.get("subscription_id")
+            if sub_id:
+                sub = db.get(Subscription, sub_id)
+                if sub is not None:
+                    AirwallexBillingService.sync_credentials_from_intent(db, sub, payment_intent_id=pid)
+            return result
+
+        if payment_kind == "subscription_renewal":
+            from app.services.airwallex_billing_service import AirwallexBillingService
+
+            return AirwallexBillingService.handle_renewal_payment_success(db, org=org, intent=intent)
+
+        if payment_kind == PRO_RATA_UPGRADE_KIND:
+            from app.services.card_plan_change_service import CardPlanChangeService
+
+            return CardPlanChangeService.handle_pro_rata_webhook_success(
+                db, org=org, intent=intent, provider="airwallex"
+            )
 
         if payment_kind != "wallet_topup":
             return {"ok": True, "ignored": True, "reason": "not_a_wallet_topup"}

@@ -79,6 +79,12 @@ class SubscriptionCancellationService:
             return False
 
     @staticmethod
+    def _clear_card_credentials_if_needed(db: Session, sub: Subscription) -> bool:
+        from app.services.card_plan_change_service import CardPlanChangeService
+
+        return CardPlanChangeService.clear_stored_credentials(db, sub)
+
+    @staticmethod
     def _notify_subscription_ended(
         db: Session,
         *,
@@ -660,6 +666,8 @@ class SubscriptionCancellationService:
                 user_id=requesting_user,
                 ended_at=now,
             )
+        SubscriptionCancellationService._cancel_gocardless_if_needed(db, sub)
+        SubscriptionCancellationService._clear_card_credentials_if_needed(db, sub)
         db.commit()
         db.refresh(sub)
         open_review = SubscriptionCancellationService.get_open_refund_review(db, org_id)
@@ -694,6 +702,7 @@ class SubscriptionCancellationService:
                 and refund_type in {REFUND_TYPE_WALLET, REFUND_TYPE_EITHER}
             )
             SubscriptionCancellationService._cancel_gocardless_if_needed(db, sub)
+            SubscriptionCancellationService._clear_card_credentials_if_needed(db, sub)
             if org and plan and should_auto_wallet:
                 outstanding = BillingAccessService.outstanding_invoice_minor(db, org.id)
                 if outstanding > 0:

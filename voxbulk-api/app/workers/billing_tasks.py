@@ -52,8 +52,12 @@ def send_pending_invoice_reminders_task() -> dict:
 
 @celery_app.task(name="billing.retry_failed_dd_payments")
 def retry_failed_dd_payments_task() -> dict:
+    from app.services.card_renewal_lifecycle_service import CardRenewalLifecycleService
+
     with get_sessionmaker()() as db:
         stats = BillingLifecycleService.retry_due_dd_invoices(db)
+        card_stats = CardRenewalLifecycleService.retry_due_renewals(db)
+        stats = {**stats, **{f"card_{k}": v for k, v in card_stats.items()}}
     logger.info("dd_retry_billing_complete", extra=stats)
     return stats
 

@@ -434,6 +434,34 @@ class BillingLifecycleService:
                 stats["skipped"] += 1
                 continue
 
+            if BillingLifecycleService._airwallex_managed_subscription(sub):
+                from app.services.airwallex_subscription_service import AirwallexSubscriptionService
+
+                renewal = AirwallexSubscriptionService.process_due_renewal(
+                    db, sub=sub, org=org, plan=plan, as_of=now
+                )
+                if int(renewal.get("renewal_charged") or 0):
+                    stats["invoiced"] += 1
+                else:
+                    stats["skipped"] += 1
+                continue
+
+            if BillingLifecycleService._stripe_managed_subscription(sub):
+                from app.services.stripe_subscription_service import StripeSubscriptionService
+
+                renewal = StripeSubscriptionService.process_due_renewal(
+                    db, sub=sub, org=org, plan=plan, as_of=now
+                )
+                if int(renewal.get("renewal_charged") or 0):
+                    stats["invoiced"] += 1
+                else:
+                    stats["skipped"] += 1
+                continue
+
+            if str(sub.payment_provider or "").lower() in {"airwallex", "stripe"}:
+                stats["skipped"] += 1
+                continue
+
             email = UsageWalletService.get_org_billing_email(db, sub.org_id) or (org.contact_email or "")
             if not email:
                 stats["skipped"] += 1
@@ -522,6 +550,18 @@ class BillingLifecycleService:
         mandate_id = str(sub.mandate_id or "").strip()
         mandate_status = str(sub.mandate_status or "").strip().lower()
         return bool(mandate_id and mandate_status not in {"cancelled", "failed", "expired"})
+
+    @staticmethod
+    def _airwallex_managed_subscription(sub: Subscription) -> bool:
+        from app.services.airwallex_billing_service import AirwallexBillingService
+
+        return AirwallexBillingService.is_managed_subscription(sub)
+
+    @staticmethod
+    def _stripe_managed_subscription(sub: Subscription) -> bool:
+        from app.services.stripe_billing_service import StripeBillingService
+
+        return StripeBillingService.is_managed_subscription(sub)
 
     @staticmethod
     def _advance_subscription_period(db: Session, sub: Subscription, plan: Plan) -> None:
@@ -713,6 +753,49 @@ class BillingLifecycleService:
             direction = "same"
 
         extra: dict[str, Any] | None = None
+        if sub is not None and sub.status in {"active", "trial", "past_due"} and str(sub.payment_provider or "").lower() in {
+            "stripe",
+            "airwallex",
+        }:
+            from app.services.card_plan_change_service import CardPlanChangeError, CardPlanChangeService
+
+            if not CardPlanChangeService.is_managed(sub):
+                raise ValueError("Saved payment method is missing — update billing and try again")
+            if direction == "upgrade" and old_plan is not None:
+                try:
+                    extra = CardPlanChangeService.apply_upgrade_with_pro_rata(
+                        db, org_id=org_id, sub=sub, old_plan=old_plan, new_plan=new_plan
+                    )
+                except CardPlanChangeError as exc:
+                    raise ValueError(str(exc)) from exc
+                sub.billing_interval = interval
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
+                sub.updated_at = datetime.utcnow()
+                db.add(sub)
+                db.commit()
+                db.refresh(sub)
+                return sub, new_plan, direction, extra
+            if direction == "downgrade":
+                extra = CardPlanChangeService.apply_downgrade(
+                    db, sub=sub, new_plan=new_plan, billing_interval=interval
+                )
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
+                db.add(sub)
+                db.commit()
+                db.refresh(sub)
+                return sub, new_plan, direction, extra
+            if direction == "same":
+                sub.billing_interval = interval
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
+                sub.updated_at = datetime.utcnow()
+                db.add(sub)
+                db.commit()
+                db.refresh(sub)
+                return sub, new_plan, direction, extra
+
         if sub is not None and sub.status in {"active", "trial"} and sub.payment_provider == "gocardless":
             if direction == "upgrade" and old_plan is not None:
                 extra = BillingLifecycleService.apply_upgrade_with_pro_rata(

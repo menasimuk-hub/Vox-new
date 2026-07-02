@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
+from app.models.subscription import Subscription
 from app.services.billing_currency import resolve_org_currency
 from app.services.provider_settings import ProviderSettingsService
 
@@ -88,6 +89,42 @@ class StripePaymentService:
             "environment": str(cfg.get("environment") or "test"),
             "livemode": bool(balance.get("livemode")),
             "currencies": sorted({str(b.get("currency") or "").upper() for b in available if b.get("currency")}),
+        }
+
+    @staticmethod
+    def create_subscription_checkout_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        amount_minor: int,
+        plan_id: str,
+        billing_interval: str,
+        service_code: str = "voxbulk",
+        customer_email: str = "",
+    ) -> dict[str, Any]:
+        from app.services.billing_currency import resolve_org_currency
+        from app.services.stripe_billing_service import StripeBillingService
+
+        data = StripeBillingService.subscription_checkout_data(
+            db,
+            org,
+            amount_minor=amount_minor,
+            plan_id=plan_id,
+            billing_interval=billing_interval,
+            service_code=service_code,
+            customer_email=customer_email,
+        )
+        intent = StripePaymentService._request(db, "POST", "/payment_intents", data=data)
+        currency = resolve_org_currency(db, org, persist=True)
+        return {
+            "provider": "stripe",
+            "payment_intent_id": str(intent.get("id") or ""),
+            "client_secret": str(intent.get("client_secret") or ""),
+            "publishable_key": StripePaymentService.publishable_key(db),
+            "amount_minor": int(intent.get("amount") or amount_minor),
+            "currency": currency,
+            "status": str(intent.get("status") or ""),
+            "customer_id": data.get("customer"),
         }
 
     @staticmethod
@@ -319,13 +356,35 @@ class StripePaymentService:
         from app.services.wallet_service import WalletService
 
         kind = str(event.get("type") or "")
-        if kind != "payment_intent.succeeded":
-            return {"ok": True, "ignored": True, "type": kind}
         intent = (event.get("data") or {}).get("object") or {}
         pid = str(intent.get("id") or "")
         meta = intent.get("metadata") or {}
         org_id = str(meta.get("voxbulk_org_id") or "")
         payment_kind = str(meta.get("voxbulk_kind") or "")
+
+        from app.services.card_plan_change_service import PRO_RATA_UPGRADE_KIND
+        from app.services.stripe_billing_service import SUBSCRIPTION_RENEWAL_KIND
+
+        if kind == "payment_intent.payment_failed" and payment_kind in {SUBSCRIPTION_RENEWAL_KIND, PRO_RATA_UPGRADE_KIND}:
+            org = db.get(Organisation, org_id)
+            if org is None:
+                return {"ok": True, "ignored": True, "reason": "org_not_found"}
+            last_error = intent.get("last_payment_error") or {}
+            reason = str(last_error.get("message") or "Card payment declined")
+            if payment_kind == PRO_RATA_UPGRADE_KIND:
+                from app.services.card_plan_change_service import CardPlanChangeService
+
+                return CardPlanChangeService.handle_pro_rata_webhook_failure(
+                    db, org=org, intent=intent, provider="stripe", failure_reason=reason
+                )
+            from app.services.card_renewal_lifecycle_service import CardRenewalLifecycleService
+
+            return CardRenewalLifecycleService.handle_renewal_webhook_failure(
+                db, org=org, intent=intent, provider="stripe", failure_reason=reason
+            )
+
+        if kind != "payment_intent.succeeded":
+            return {"ok": True, "ignored": True, "type": kind}
         org = db.get(Organisation, org_id)
         if org is None:
             logger.warning("stripe_webhook_unknown_org org_id=%s intent=%s", org_id, pid)
@@ -352,6 +411,30 @@ class StripePaymentService:
                 user_id=None,
             )
             return {"ok": True, "paid": True, "invoice_id": invoice_id}
+
+        if payment_kind == "subscription_checkout":
+            from app.services.card_subscription_activation_service import CardSubscriptionActivationService
+            from app.services.stripe_billing_service import StripeBillingService
+
+            result = CardSubscriptionActivationService.activate_from_webhook_intent(
+                db, org=org, intent=intent, provider="stripe"
+            )
+            sub_id = result.get("subscription_id")
+            if sub_id:
+                sub = db.get(Subscription, sub_id)
+                if sub is not None:
+                    StripeBillingService.sync_credentials_from_intent(db, sub, payment_intent_id=pid)
+            return result
+
+        if payment_kind == "subscription_renewal":
+            from app.services.stripe_billing_service import StripeBillingService
+
+            return StripeBillingService.handle_renewal_payment_success(db, org=org, intent=intent)
+
+        if payment_kind == PRO_RATA_UPGRADE_KIND:
+            from app.services.card_plan_change_service import CardPlanChangeService
+
+            return CardPlanChangeService.handle_pro_rata_webhook_success(db, org=org, intent=intent, provider="stripe")
 
         if payment_kind != "wallet_topup":
             return {"ok": True, "ignored": True, "reason": "unsupported_kind"}
