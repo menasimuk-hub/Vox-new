@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
@@ -2588,10 +2589,27 @@ class SurveyWhatsappTemplateService:
                     )
                 except SurveyTypeTemplateError:
                     continue
+                except IntegrityError:
+                    db.rollback()
+                    # Mapping already exists — still attach ownership for industry cards.
+                    if not str(template.survey_type_id or "").strip():
+                        template.survey_type_id = st.id
+                    if not str(template.industry_id or "").strip():
+                        template.industry_id = st.industry_id
+                    db.add(template)
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    linked = True
+                    continue
                 linked = True
             else:
                 linked = True
-            apply_industry_to_template(template, st)
+            try:
+                apply_industry_to_template(template, st)
+            except Exception:
+                pass
             if variant == VARIANT_ANONYMOUS:
                 template.variant_type = VARIANT_ANONYMOUS
             elif not template.variant_type:
