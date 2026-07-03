@@ -1512,6 +1512,58 @@ def survey_template_to_dict(
 
 class SurveyWhatsappTemplateService:
     @staticmethod
+    def list_for_industry(db: Session, industry_id: str) -> list[dict[str, Any]]:
+        """All templates for an industry (linked mappings + industry_id), including rejected."""
+        from app.services.industry_service import _template_ids_for_industry
+
+        ids = _template_ids_for_industry(db, industry_id)
+        if not ids:
+            return []
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(TelnyxWhatsappTemplate.id.in_(ids))
+                .order_by(TelnyxWhatsappTemplate.name.asc())
+            ).scalars()
+        )
+        # Also include REJECTED rows that still reference a survey type in this industry
+        # but lost industry_id / mapping during an earlier sync wipe.
+        type_ids = list(
+            db.execute(select(SurveyType.id).where(SurveyType.industry_id == industry_id)).scalars()
+        )
+        if type_ids:
+            extra = list(
+                db.execute(
+                    select(TelnyxWhatsappTemplate).where(
+                        TelnyxWhatsappTemplate.survey_type_id.in_(type_ids),
+                        func.upper(TelnyxWhatsappTemplate.status) == "REJECTED",
+                    )
+                ).scalars()
+            )
+            seen = {int(r.id) for r in rows}
+            for row in extra:
+                if int(row.id) not in seen:
+                    rows.append(row)
+                    seen.add(int(row.id))
+
+        payload: list[dict[str, Any]] = []
+        for row in rows:
+            st = db.get(SurveyType, row.survey_type_id) if row.survey_type_id else None
+            linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
+            item = survey_template_to_dict(row, linked_survey_type_count=linked)
+            item["survey_type_id"] = row.survey_type_id
+            item["survey_type_name"] = st.name if st else None
+            payload.append(item)
+        payload.sort(
+            key=lambda item: (
+                0 if str(item.get("status") or "").upper() == "REJECTED" else 1,
+                0 if item.get("active_for_survey") is not False else 2,
+                str(item.get("name") or ""),
+            )
+        )
+        return payload
+
+    @staticmethod
     def list_for_survey_type(
         db: Session,
         survey_type_id: str,

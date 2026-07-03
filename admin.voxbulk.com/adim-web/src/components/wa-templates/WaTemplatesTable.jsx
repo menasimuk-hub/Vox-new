@@ -33,16 +33,45 @@ export default function WaTemplatesTable({
     return counts
   }, [templates])
 
-  const filtered = useMemo(
-    () =>
-      templates.filter((t) => {
-        if (statusFilter !== 'all' && t.status !== statusFilter) return false
-        if (cat !== 'all' && t.category !== cat) return false
-        if (q && !String(t.name || '').toLowerCase().includes(q.toLowerCase())) return false
-        return true
-      }),
-    [templates, q, cat, statusFilter],
-  )
+  const categoryCounts = useMemo(() => {
+    const counts = { all: templates.length, Utility: 0, Marketing: 0 }
+    for (const t of templates) {
+      if (t.category === 'Marketing') counts.Marketing += 1
+      else counts.Utility += 1
+    }
+    return counts
+  }, [templates])
+
+  const filtered = useMemo(() => {
+    const list = templates.filter((t) => {
+      if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      if (cat !== 'all' && t.category !== cat) return false
+      if (q && !String(t.name || '').toLowerCase().includes(q.toLowerCase())) return false
+      return true
+    })
+    // Disabled always sink to the bottom.
+    return list.sort((a, b) => {
+      if (a.status === 'disabled' && b.status !== 'disabled') return 1
+      if (b.status === 'disabled' && a.status !== 'disabled') return -1
+      if (a.status === 'rejected' && b.status !== 'rejected') return -1
+      if (b.status === 'rejected' && a.status !== 'rejected') return 1
+      return String(a.name).localeCompare(String(b.name))
+    })
+  }, [templates, q, cat, statusFilter])
+
+  const chipClass = (active, tone) =>
+    cn(
+      'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition',
+      active
+        ? tone === 'rejected'
+          ? 'bg-destructive text-destructive-foreground shadow-sm'
+          : tone === 'approved'
+            ? 'bg-success text-success-foreground shadow-sm'
+            : tone === 'marketing'
+              ? 'bg-warning text-warning-foreground shadow-sm'
+              : 'bg-background text-foreground shadow-sm ring-1 ring-border'
+        : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+    )
 
   return (
     <div className="animate-fade-in">
@@ -55,16 +84,7 @@ export default function WaTemplatesTable({
               key={f.id}
               type="button"
               onClick={() => setStatusFilter(f.id)}
-              className={cn(
-                'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition',
-                active
-                  ? f.id === 'rejected'
-                    ? 'bg-destructive text-destructive-foreground shadow-sm'
-                    : f.id === 'approved'
-                      ? 'bg-success text-success-foreground shadow-sm'
-                      : 'bg-background text-foreground shadow-sm ring-1 ring-border'
-                  : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
-              )}
+              className={chipClass(active, f.id)}
             >
               {f.label}
               <span
@@ -76,6 +96,26 @@ export default function WaTemplatesTable({
               >
                 {count}
               </span>
+            </button>
+          )
+        })}
+        <span className="mx-1 h-4 w-px bg-border" />
+        {[
+          { id: 'all', label: 'All cats' },
+          { id: 'Utility', label: 'Utility' },
+          { id: 'Marketing', label: 'Marketing' },
+        ].map((f) => {
+          const count = categoryCounts[f.id] ?? 0
+          const active = cat === f.id
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setCat(f.id)}
+              className={chipClass(active, f.id === 'Marketing' ? 'marketing' : 'default')}
+            >
+              {f.label}
+              <span className={cn('tabular-nums', active ? 'opacity-90' : 'text-muted-foreground')}>{count}</span>
             </button>
           )
         })}
@@ -91,15 +131,6 @@ export default function WaTemplatesTable({
             className="h-8 bg-background pl-8 text-xs"
           />
         </div>
-        <select
-          value={cat}
-          onChange={(e) => setCat(e.target.value)}
-          className="h-8 w-[140px] rounded-md border border-input bg-background px-2 text-xs"
-        >
-          <option value="all">All categories</option>
-          <option value="Utility">Utility</option>
-          <option value="Marketing">Marketing</option>
-        </select>
         <div className="text-xs tabular-nums text-muted-foreground">
           {filtered.length} / {templates.length}
         </div>
@@ -139,7 +170,7 @@ export default function WaTemplatesTable({
                   className={cn(
                     'border-t border-border/60 transition-colors hover:bg-accent/40',
                     i % 2 === 1 && 'bg-surface-muted/20',
-                    t.status === 'disabled' && 'opacity-60',
+                    t.status === 'disabled' && 'bg-muted/40 opacity-50',
                     t.status === 'rejected' && 'bg-destructive/5 hover:bg-destructive/10',
                     t.status === 'approved' && 'bg-success/5',
                   )}
@@ -199,8 +230,15 @@ export default function WaTemplatesTable({
                       />
                       <IconBtn
                         icon={Power}
-                        label={t.status === 'disabled' ? 'Enable' : 'Disable'}
+                        label={t.status === 'disabled' ? 'Enable template' : 'Disable template'}
                         onClick={() => onToggle?.(t)}
+                        disabled={syncingId != null}
+                        className={
+                          t.status === 'disabled'
+                            ? 'bg-destructive/15 text-destructive hover:bg-destructive/25 hover:text-destructive'
+                            : undefined
+                        }
+                        tone={t.status === 'disabled' ? 'danger' : 'default'}
                       />
                       <IconBtn icon={Trash2} label="Delete" onClick={() => onDelete?.(t)} tone="danger" />
                     </div>

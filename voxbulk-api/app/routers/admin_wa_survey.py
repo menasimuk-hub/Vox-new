@@ -136,6 +136,36 @@ def get_industry(
     }
 
 
+@router.get("/industries/{industry_id}/templates")
+def list_industry_templates(
+    industry_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """All templates for an industry including rejected (for admin hub cards)."""
+    row = IndustryService.get_industry(db, industry_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
+    templates = SurveyWhatsappTemplateService.list_for_industry(db, industry_id)
+    types = SurveyTypeService.list_types(db, industry_id=industry_id)
+    linked_type_ids = {
+        str(t.get("survey_type_id") or "")
+        for t in templates
+        if t.get("survey_type_id")
+    }
+    unlinked_types = [
+        {"id": t["id"], "slug": t.get("slug"), "name": t.get("name")}
+        for t in types
+        if str(t.get("id") or "") not in linked_type_ids
+    ]
+    return {
+        "ok": True,
+        "industry_id": industry_id,
+        "templates": templates,
+        "unlinked_types": unlinked_types,
+    }
+
+
 @router.put("/industries/{industry_id}")
 def update_industry(
     industry_id: str,
@@ -155,6 +185,7 @@ def update_industry(
         "industry": industry_to_dict(
             updated,
             survey_type_count=IndustryService.survey_type_count(db, updated.id),
+            org_ids=IndustryService.industry_org_ids(db, updated.id),
         ),
     }
 
