@@ -30,6 +30,7 @@ from app.services.survey_whatsapp_template_service import (
     _refresh_local_sync_status,
     normalize_wa_template_category,
 )
+from app.services.wa_migration_progress import migration_progress
 from app.services.wa_template_utility_lint import clamp_utility_button_labels, lint_utility_template
 from app.services.wa_template_meta_sync import (
     is_utility_clone_template_name,
@@ -430,19 +431,10 @@ def process_template_names(
     skip_already_pushed: bool = True,
     push_delay_seconds: float = 0.0,
 ) -> list[UtilityRewriteResult]:
-    import os
     import sys
     import time
 
-    progress_log = str(os.getenv("WA_MIGRATION_PROGRESS_LOG") or "").strip()
     total = len([n for n in names if str(n or "").strip()])
-
-    def _progress(msg: str) -> None:
-        print(msg, flush=True)
-        if progress_log:
-            with open(progress_log, "a", encoding="utf-8") as handle:
-                handle.write(msg + "\n")
-
     results: list[UtilityRewriteResult] = []
     index = 0
     for name in names:
@@ -450,7 +442,7 @@ def process_template_names(
         if not clean:
             continue
         index += 1
-        _progress(f"[{index}/{total}] {clean} …")
+        migration_progress(f"[{index}/{total}] {clean} …")
         row = _find_template_row(db, clean)
         if row is None:
             results.append(
@@ -473,18 +465,18 @@ def process_template_names(
             ):
                 components = _effective_components(row)
                 old_body, _buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
-            results.append(
-                UtilityRewriteResult(
-                    template_name=row.name,
-                    ok=True,
-                    old_body=old_body,
-                    new_body=old_body,
-                    message="already on Meta (skipped)",
-                    pushed=True,
+                results.append(
+                    UtilityRewriteResult(
+                        template_name=row.name,
+                        ok=True,
+                        old_body=old_body,
+                        new_body=old_body,
+                        message="already on Meta (skipped)",
+                        pushed=True,
+                    )
                 )
-            )
-            _progress(f"  -> OK skipped (already on Meta)")
-            continue
+                migration_progress("  -> OK skipped (already on Meta)")
+                continue
 
             if sync_remote and _has_remote_telnyx_id(row):
                 refresh_row_from_telnyx(db, row)
@@ -560,7 +552,7 @@ def process_template_names(
                     pushed=pushed,
                 )
             )
-            _progress(f"  -> OK {msg}")
+            migration_progress(f"  -> OK {msg}")
         except SurveyWhatsappTemplateError as exc:
             msg = str(exc)
             payload = getattr(exc, "payload", None) or {}
@@ -568,7 +560,7 @@ def process_template_names(
             if provider_error:
                 msg = f"{msg} | provider: {provider_error[:400]}"
             print(f"FAIL {clean}: {msg}", file=sys.stderr, flush=True)
-            _progress(f"  -> FAIL {msg[:200]}")
+            migration_progress(f"  -> FAIL {msg[:200]}")
             results.append(
                 UtilityRewriteResult(
                     template_name=clean,
@@ -580,7 +572,7 @@ def process_template_names(
             )
         except Exception as exc:
             print(f"FAIL {clean}: {exc}", file=sys.stderr, flush=True)
-            _progress(f"  -> FAIL {exc}")
+            migration_progress(f"  -> FAIL {exc}")
             results.append(
                 UtilityRewriteResult(
                     template_name=clean,

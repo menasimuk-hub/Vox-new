@@ -53,7 +53,7 @@ from app.services.customer_feedback.feedback_wa_utility_rewrite_service import (
 from app.services.interview_whatsapp_template_service import InterviewWhatsappTemplateService
 from app.services.survey_wa_utility_rewrite_service import process_template_names
 from app.services.telnyx_voice_service import _telnyx_config, resolve_telnyx_whatsapp_waba_id
-from app.services.wa_template_utility_lint import lint_utility_template
+from app.services.wa_migration_progress import migration_banner, migration_progress
 from app.services.wa_template_utility_migration_service import (
     audit_all_wa_templates,
     deactivate_duplicate_and_orphan_templates,
@@ -217,6 +217,7 @@ def _run_feedback_interview_phase(
     total_ar = 0
 
     for slug in industries:
+        migration_banner(f"Phase {phase} feedback: {slug}")
         rewrite_results = process_feedback_industry(
             db,
             slug,
@@ -232,6 +233,7 @@ def _run_feedback_interview_phase(
         translate_summary = None
 
         if translate_ar and save and not dry_run:
+            migration_progress(f">>> Translating {slug} EN -> AR …")
             translate_summary = translate_templates_to_arabic(
                 db,
                 industry_slug=slug,
@@ -242,8 +244,10 @@ def _run_feedback_interview_phase(
                 dry_run=False,
             )
             ar_count = int(translate_summary.get("translated") or 0) + int(translate_summary.get("skipped") or 0)
+            migration_progress(f"  -> AR translate: {translate_summary}")
 
         if push and not dry_run:
+            migration_progress(f">>> Pushing {slug} Arabic templates …")
             for source in list_english_source_templates(db, industry_slug=slug):
                 ar_row = find_translated_template(db, source, language="ar")
                 if ar_row is None or not ar_row.is_active:
@@ -310,7 +314,9 @@ def _run_interview(db, *, dry_run: bool, push: bool) -> dict[str, Any]:
     )
     results: list[dict[str, Any]] = []
     failed = 0
-    for row in rows:
+    migration_banner(f"Phase interview templates ({len(rows)})")
+    for index, row in enumerate(rows, start=1):
+        migration_progress(f"[{index}/{len(rows)}] interview {row.name} …")
         spec = next(
             (s for s in INTERVIEW_WA_TEMPLATE_SPECS if s["sales_template_key"] == row.sales_template_key),
             None,
@@ -334,8 +340,10 @@ def _run_interview(db, *, dry_run: bool, push: bool) -> dict[str, Any]:
             try:
                 InterviewWhatsappTemplateService.push_to_telnyx(db, row)
                 item["pushed"] = True
+                migration_progress(f"  -> OK pushed {row.name}")
             except Exception as exc:
                 item["error"] = str(exc)
+                migration_progress(f"  -> FAIL {row.name}: {exc}")
                 failed += 1
         results.append(item)
     return {"template_count": len(rows), "failed_count": failed, "results": results}
@@ -378,18 +386,23 @@ def main() -> int:
     use_llm = not args.no_llm
     progress_log = Path(f"/tmp/wa-phase{args.phase}.progress.log")
     os.environ["WA_MIGRATION_PROGRESS_LOG"] = str(progress_log)
-    print(f"Live progress log: {progress_log}")
-    print(f"  tail -f {progress_log}")
+    migration_banner(f"WA UTILITY migration phase {args.phase} starting")
+    migration_progress(f"save={args.save} push={args.push} dry_run={args.dry_run}")
+    migration_progress(f"Live log file: {progress_log}")
 
     with get_sessionmaker()() as db:
+        if args.audit:
+            migration_progress("Running DB audit (may take ~30s) …")
         if args.push and not args.skip_waba_check:
             ok, msg = _verify_waba_id(db)
             if not ok:
                 print(f"ERROR: {msg}", file=sys.stderr)
                 return 1
-            print(f"WABA OK: {msg}")
+            migration_progress(f"WABA OK: {msg}")
 
         audit_before = audit_all_wa_templates(db) if args.audit else None
+        if args.audit:
+            migration_progress("DB audit complete.")
 
         if phase_cfg["kind"] == "survey":
             report = _run_survey_phase(

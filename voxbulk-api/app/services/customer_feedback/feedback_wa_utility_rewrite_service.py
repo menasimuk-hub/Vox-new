@@ -23,6 +23,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _rule_based_utility_body,
     rewrite_body_for_utility,
 )
+from app.services.wa_migration_progress import migration_progress
 from app.services.wa_template_utility_lint import assert_utility_template, clamp_utility_button_labels, lint_utility_template
 
 logger = logging.getLogger(__name__)
@@ -168,9 +169,13 @@ def process_feedback_industry(
     results: list[FeedbackUtilityRewriteResult] = []
     rows = list_feedback_english_templates_for_industry(db, industry_slug)
     lang_filter = {str(x).strip().lower() for x in (languages or ["en", "ar"])}
+    total = len(rows)
+    migration_progress(f"\n>>> Feedback industry: {industry_slug} ({total} EN templates)")
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
+        template_key = str(row.template_key or "")
         try:
+            migration_progress(f"[{index}/{total}] {industry_slug}/{template_key} ({row.language}) …")
             buttons = clamp_utility_button_labels(_parse_buttons(row.buttons_json))
             old_body = str(row.body_text or "").strip()
             if dry_run:
@@ -234,6 +239,7 @@ def process_feedback_industry(
                 push_feedback_template_to_telnyx(db, row)
                 pushed = True
                 msg = "saved and pushed"
+            migration_progress(f"  -> OK {msg}")
             results.append(
                 FeedbackUtilityRewriteResult(
                     template_id=row.id,
@@ -247,6 +253,7 @@ def process_feedback_industry(
                 )
             )
         except (FeedbackTelnyxPushError, ValueError) as exc:
+            migration_progress(f"  -> FAIL {exc}")
             results.append(
                 FeedbackUtilityRewriteResult(
                     template_id=row.id,

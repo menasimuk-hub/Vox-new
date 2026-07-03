@@ -12,6 +12,7 @@
 #   bash scripts/run_wa_utility_migration_phase.sh 4 --save --push --translate-ar --dedup
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 source .venv/bin/activate
