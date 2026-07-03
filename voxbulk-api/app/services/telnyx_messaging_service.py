@@ -381,6 +381,25 @@ class TelnyxMessagingService:
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
     ) -> TelnyxMessageResult:
+        from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+        if is_meta_whatsapp_primary(db):
+            from app.services.meta_whatsapp_service import MetaWhatsappService
+
+            return MetaWhatsappService.send_whatsapp(
+                db,
+                to_number=to_number,
+                body=body,
+                from_number=from_number,
+                template_name=template_name,
+                template_id=template_id,
+                template_language=template_language,
+                template_components=template_components,
+                org_id=org_id,
+                meter_usage=meter_usage,
+                messaging_profile_id=messaging_profile_id,
+            )
+
         config = TelnyxMessagingService._config(db)
         _, wa_from = TelnyxMessagingService._from_numbers(config)
         from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService

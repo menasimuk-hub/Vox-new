@@ -1141,7 +1141,7 @@ def _prefetch_remote_templates_for_push(
     if remote_items is not None:
         return remote_items
     try:
-        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        return TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
     except Exception as exc:
         logger.warning(
             "survey_wa_template_prefetch_remote_failed",
@@ -2330,7 +2330,7 @@ class SurveyWhatsappTemplateService:
             "Only Telnyx templates whose names contain “survey” are imported into the WA Survey library."
         )
         try:
-            remote = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         except Exception as exc:
             from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncError
 

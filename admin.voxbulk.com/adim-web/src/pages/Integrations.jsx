@@ -730,6 +730,16 @@ export default function Integrations() {
   const [metaTestNumber, setMetaTestNumber] = useState('')
   const [metaTemplateName, setMetaTemplateName] = useState('')
   const [metaTemplateLang, setMetaTemplateLang] = useState('en')
+  const [metaInboundMessages, setMetaInboundMessages] = useState([])
+  const [metaMessageFilters, setMetaMessageFilters] = useState({
+    date_from: '',
+    date_to: '',
+    from_number: '',
+    to_number: '',
+    q: '',
+  })
+  const [metaWaSyncBusy, setMetaWaSyncBusy] = useState(false)
+  const [metaWaSyncResult, setMetaWaSyncResult] = useState(null)
   const [summariesRefreshing, setSummariesRefreshing] = useState(false)
 
   const reloadSummaries = useCallback(async () => {
@@ -1777,6 +1787,38 @@ export default function Integrations() {
     }
   }
 
+  const loadMetaInboundMessages = async (silent = false, filters = metaMessageFilters) => {
+    if (!silent) setProviderError('')
+    try {
+      const params = new URLSearchParams({ limit: '50' })
+      if (filters?.date_from) params.set('date_from', filters.date_from)
+      if (filters?.date_to) params.set('date_to', filters.date_to)
+      if (filters?.from_number) params.set('from_number', filters.from_number.trim())
+      if (filters?.to_number) params.set('to_number', filters.to_number.trim())
+      if (filters?.q) params.set('q', filters.q.trim())
+      const result = await apiFetch(`/admin/integrations/meta_whatsapp/inbound-messages?${params.toString()}`)
+      const rows = Array.isArray(result.messages) ? result.messages : []
+      setMetaInboundMessages(rows)
+    } catch (e) {
+      if (!silent) setProviderError(e?.message || 'Failed to load Meta WhatsApp messages')
+      setMetaInboundMessages([])
+    }
+  }
+
+  const syncMetaWhatsappTemplates = async () => {
+    setMetaWaSyncBusy(true)
+    setProviderError('')
+    setMetaWaSyncResult(null)
+    try {
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', { method: 'POST' })
+      setMetaWaSyncResult(result)
+    } catch (e) {
+      setProviderError(e?.message || 'Meta template sync failed')
+    } finally {
+      setMetaWaSyncBusy(false)
+    }
+  }
+
   const testTelnyxAllSenders = async () => {
     const toNumber = telnyxTestNumber.trim()
     if (!toNumber) {
@@ -2087,6 +2129,13 @@ export default function Integrations() {
             probeMetaWebhook={probeMetaWebhook}
             loadMetaTemplates={loadMetaTemplates}
             testMetaSend={testMetaSend}
+            metaInboundMessages={metaInboundMessages}
+            metaMessageFilters={metaMessageFilters}
+            setMetaMessageFilters={setMetaMessageFilters}
+            loadMetaInboundMessages={loadMetaInboundMessages}
+            syncMetaWhatsappTemplates={syncMetaWhatsappTemplates}
+            metaWaSyncBusy={metaWaSyncBusy}
+            metaWaSyncResult={metaWaSyncResult}
           />
         </div>
       ) : isKpiRoute ? (

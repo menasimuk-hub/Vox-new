@@ -1495,6 +1495,51 @@ def test_meta_whatsapp_send(payload: dict | None = None, db: Session = Depends(g
     return result
 
 
+@router.post("/integrations/meta_whatsapp/whatsapp-templates/sync")
+def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncError,
+        TelnyxWhatsappTemplateSyncService,
+    )
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    if not is_meta_whatsapp_primary(db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
+        )
+    try:
+        result = TelnyxWhatsappTemplateSyncService.sync(db)
+        result["provider"] = "meta_whatsapp"
+        return result
+    except TelnyxWhatsappTemplateSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get("/integrations/meta_whatsapp/inbound-messages")
+def list_meta_whatsapp_inbound_messages(
+    limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    from_number: str | None = None,
+    to_number: str | None = None,
+    q: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    rows = LogService.list_platform_message_logs(
+        db,
+        limit=limit,
+        date_from=date_from,
+        date_to=date_to,
+        from_number=from_number,
+        to_number=to_number,
+        q=q,
+        provider="meta_whatsapp",
+    )
+    return {"ok": True, "messages": rows[: max(1, min(limit, 200))]}
+
+
 @router.get("/integrations/meta_whatsapp/webhook-probe")
 def probe_meta_whatsapp_webhook(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     import httpx

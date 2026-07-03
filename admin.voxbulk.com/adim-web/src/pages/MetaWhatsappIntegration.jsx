@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Info,
+  Inbox,
   KeyRound,
   MessageSquare,
   Plug,
@@ -67,8 +68,25 @@ function CopyInline({ value }) {
 const META_TABS = [
   { id: 'credentials', label: 'Meta credentials', icon: KeyRound },
   { id: 'webhooks', label: 'Webhooks', icon: ShieldCheck },
+  { id: 'messages', label: 'Messages', icon: Inbox },
   { id: 'test', label: 'Test send', icon: MessageSquare },
 ]
+
+function fmtTime(value) {
+  if (!value) return '—'
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return String(value)
+  }
+}
+
+function messageStatusClass(status) {
+  const s = String(status || '').toLowerCase()
+  if (s.includes('fail') || s.includes('error')) return 'p-red'
+  if (s.includes('deliver') || s === 'sent' || s === 'received') return 'p-green'
+  return 'p-amber'
+}
 
 export default function MetaWhatsappIntegration({
   activeSummary,
@@ -99,6 +117,13 @@ export default function MetaWhatsappIntegration({
   probeMetaWebhook,
   loadMetaTemplates,
   testMetaSend,
+  metaInboundMessages,
+  metaMessageFilters,
+  setMetaMessageFilters,
+  loadMetaInboundMessages,
+  syncMetaWhatsappTemplates,
+  metaWaSyncBusy,
+  metaWaSyncResult,
 }) {
   const pill = statusPill(activeSummary)
   const [activeTab, setActiveTab] = React.useState('credentials')
@@ -299,6 +324,79 @@ export default function MetaWhatsappIntegration({
         </div>
       ) : null}
 
+      {activeTab === 'messages' ? (
+        <div className='card telnyxInboundCard'>
+          <div className='cardHead'>
+            <div className='cardHeadText'>
+              <h3>Messages</h3>
+              <p className='cardSub'>Inbound &amp; outbound WhatsApp via Meta Cloud API</p>
+            </div>
+            <div className='actions tsh-msg-toolbar'>
+              <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => loadMetaInboundMessages(false)} disabled={providerSaving || !activeSummary?.exists}>
+                Search
+              </button>
+              <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => loadMetaInboundMessages(true)} disabled={providerSaving || !activeSummary?.exists}>
+                <RefreshCw size={14} aria-hidden />
+              </button>
+            </div>
+          </div>
+          <div className='cardBody'>
+            <div className='telnyxMessageFilters'>
+              <Field label='From date'>
+                <input className='input' type='datetime-local' value={metaMessageFilters?.date_from || ''} onChange={(e) => setMetaMessageFilters((s) => ({ ...s, date_from: e.target.value }))} />
+              </Field>
+              <Field label='To date'>
+                <input className='input' type='datetime-local' value={metaMessageFilters?.date_to || ''} onChange={(e) => setMetaMessageFilters((s) => ({ ...s, date_to: e.target.value }))} />
+              </Field>
+              <Field label='From number'>
+                <input className='input' value={metaMessageFilters?.from_number || ''} onChange={(e) => setMetaMessageFilters((s) => ({ ...s, from_number: e.target.value }))} placeholder='+447…' />
+              </Field>
+              <Field label='To number'>
+                <input className='input' value={metaMessageFilters?.to_number || ''} onChange={(e) => setMetaMessageFilters((s) => ({ ...s, to_number: e.target.value }))} placeholder='+447…' />
+              </Field>
+            </div>
+            {metaInboundMessages?.length ? (
+              <div className='tableWrap'>
+                <table className='table telnyxInboundTable'>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Direction</th>
+                      <th>From</th>
+                      <th>To</th>
+                      <th>Message</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metaInboundMessages.map((m) => (
+                      <tr key={m.id}>
+                        <td className='muted'>{fmtTime(m.created_at)}</td>
+                        <td>
+                          <span className={`pill ${String(m.direction || '').toLowerCase() === 'outbound' ? 'p-cyan' : 'p-green'}`}>
+                            {m.direction || 'inbound'}
+                          </span>
+                        </td>
+                        <td>{m.from_number || '—'}</td>
+                        <td>{m.to_number || '—'}</td>
+                        <td className='telnyxMessageBody'>{String(m.body || '').trim() || '—'}</td>
+                        <td>
+                          <span className={`pill ${messageStatusClass(m.status)}`}>{m.status || 'received'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className='note telnyxEmptyInbound'>
+                No Meta WhatsApp messages yet. Send a test template or reply from WhatsApp, then refresh.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {activeTab === 'test' ? (
         <div className='card'>
           <div className='cardHead'>
@@ -309,10 +407,19 @@ export default function MetaWhatsappIntegration({
           </div>
           <div className='cardBody stack'>
             <div className='actions'>
+              <button type='button' className='btn soft' onClick={syncMetaWhatsappTemplates} disabled={metaWaSyncBusy || providerSaving}>
+                {metaWaSyncBusy ? 'Syncing…' : 'Sync templates from Meta'}
+              </button>
               <button type='button' className='btn soft' onClick={loadMetaTemplates} disabled={metaTemplatesBusy}>
-                {metaTemplatesBusy ? 'Loading…' : 'Load approved templates'}
+                {metaTemplatesBusy ? 'Loading…' : 'Preview approved templates'}
               </button>
             </div>
+            {metaWaSyncResult ? (
+              <div className='note'>
+                Synced {metaWaSyncResult.synced ?? metaWaSyncResult.approved ?? 0} template(s) from Meta WABA
+                {metaWaSyncResult.approved != null ? <> · {metaWaSyncResult.approved} approved</> : null}
+              </div>
+            ) : null}
             {metaTemplates?.length ? (
               <div className='muted telnyxFieldHint'>
                 First template: <code>{metaTemplates[0]?.name}</code> ({metaTemplates[0]?.language})

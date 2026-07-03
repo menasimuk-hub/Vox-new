@@ -177,6 +177,94 @@ def detect_start_matcher(
     return None, None
 
 
+def parse_meta_wa_inbound_message(
+    msg: dict[str, Any],
+    *,
+    sender_phone: str = "",
+) -> NormalizedWaInboundReply:
+    """Parse Meta Cloud API inbound message into one normalized survey reply object."""
+    from app.services.survey_wa_open_text_service import is_voice_message_type
+    from app.services.survey_wa_voice_note_media_service import extract_media_items
+
+    msg_type = _clean(msg.get("type")).lower()
+    raw_text = ""
+    button_id = ""
+    button_title = ""
+    button_payload = ""
+
+    if msg_type == "text":
+        text = msg.get("text")
+        if isinstance(text, dict):
+            raw_text = _clean(text.get("body"))
+    elif msg_type == "button":
+        button = msg.get("button")
+        if isinstance(button, dict):
+            button_payload = _clean(button.get("payload"))
+            button_title = _clean(button.get("text"))
+            raw_text = button_title or button_payload
+    elif msg_type == "interactive":
+        interactive = msg.get("interactive")
+        if isinstance(interactive, dict):
+            reply = interactive.get("button_reply") or interactive.get("list_reply")
+            if isinstance(reply, dict):
+                button_id = _clean(reply.get("id"))
+                button_title = _clean(reply.get("title"))
+                raw_text = button_title or button_id
+    elif msg_type in {"audio", "voice"}:
+        audio = msg.get("audio") or msg.get("voice")
+        media_id = ""
+        if isinstance(audio, dict):
+            media_id = _clean(audio.get("id"))
+        raw_text = media_id
+
+    button_text = button_title or raw_text
+    normalized_answer = button_title or raw_text or button_id or button_payload
+
+    pseudo_record = {
+        "type": msg_type,
+        "text": raw_text,
+        "body": {"payload": button_payload, "id": button_id} if (button_payload or button_id) else raw_text,
+        "button": {"text": button_title, "payload": button_payload} if button_title else None,
+        "interactive": msg,
+    }
+    media_items = extract_media_items(pseudo_record)
+
+    reply = NormalizedWaInboundReply(
+        sender_phone=_clean(sender_phone),
+        message_type=msg_type or "unknown",
+        raw_text=raw_text,
+        button_text=button_text,
+        button_title=button_title,
+        button_payload=button_payload,
+        button_id=button_id or button_payload,
+        normalized_answer=normalized_answer,
+        extracted_fields={
+            "provider": "meta_whatsapp",
+            "message_type": msg_type,
+            "button_reply": {"id": button_id, "title": button_title},
+            "media_items": media_items,
+            "inbound_record": msg,
+        },
+    )
+    reply.is_voice_note = bool(
+        is_voice_message_type(reply.message_type)
+        or (isinstance(media_items, list) and len(media_items) > 0 and not normalized_answer.strip())
+    )
+    if reply.is_voice_note and isinstance(media_items, list) and media_items:
+        caption = _clean(raw_text)
+        media_ids = {
+            str(item.get("provider_media_id") or "")
+            for item in media_items
+            if isinstance(item, dict) and item.get("provider_media_id")
+        }
+        if caption and caption not in media_ids:
+            reply.normalized_answer = caption
+        else:
+            reply.normalized_answer = ""
+    reply.normalized_action = detect_start_action(reply)
+    return reply
+
+
 def parse_telnyx_wa_inbound_record(
     record: dict[str, Any],
     *,

@@ -245,6 +245,22 @@ def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
     }
 
 
+def _normalize_meta_template_item(item: dict[str, Any], *, waba_id: str | None = None) -> dict[str, Any]:
+    """Normalize Meta Graph message_templates row to Telnyx sync shape."""
+    meta_id = str(item.get("id") or "").strip()
+    record_id = f"meta-{meta_id}" if meta_id else ""
+    return {
+        "id": record_id,
+        "template_id": meta_id,
+        "name": str(item.get("name") or "").strip(),
+        "language": _remote_language_code(str(item.get("language") or "en_US")),
+        "status": str(item.get("status") or "UNKNOWN").strip().upper(),
+        "category": str(item.get("category") or "").strip() or None,
+        "components": item.get("components"),
+        "whatsapp_business_account": {"id": waba_id} if waba_id else None,
+    }
+
+
 class TelnyxWhatsappTemplateSyncService:
     @staticmethod
     def _config(db: Session) -> dict[str, Any]:
@@ -296,6 +312,34 @@ class TelnyxWhatsappTemplateSyncService:
         return rows
 
     @staticmethod
+    def fetch_from_meta(db: Session) -> list[dict[str, Any]]:
+        from app.services.meta_whatsapp_config_service import MetaWhatsappConfigError
+        from app.services.meta_whatsapp_service import MetaWhatsappService
+
+        try:
+            config, enabled = MetaWhatsappService._config(db)
+        except Exception as exc:
+            raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
+        if not enabled:
+            raise TelnyxWhatsappTemplateSyncError("Meta WhatsApp integration is disabled")
+        waba_id = str(config.get("waba_id") or "").strip()
+        try:
+            remote = MetaWhatsappService.fetch_all_templates(db)
+        except MetaWhatsappConfigError as exc:
+            raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
+        except Exception as exc:
+            raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
+        return [_normalize_meta_template_item(item, waba_id=waba_id or None) for item in remote if isinstance(item, dict)]
+
+    @staticmethod
+    def fetch_remote_templates(db: Session, *, filter_waba_id: bool = True) -> list[dict[str, Any]]:
+        from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+        if is_meta_whatsapp_primary(db):
+            return TelnyxWhatsappTemplateSyncService.fetch_from_meta(db)
+        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=filter_waba_id)
+
+    @staticmethod
     def fetch_template_by_record_id(db: Session, record_id: str) -> dict[str, Any]:
         """Fetch a single WhatsApp template from Telnyx by Telnyx record id (UUID)."""
         rid = str(record_id or "").strip()
@@ -333,7 +377,7 @@ class TelnyxWhatsappTemplateSyncService:
         remote_items: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Find an existing Telnyx/Meta template by name (+ optional language)."""
-        items = remote_items if remote_items is not None else TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        items = remote_items if remote_items is not None else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         name_set = {str(n or "").strip().lower() for n in names if str(n or "").strip()}
         if sales_template_key:
             canonical = canonical_telnyx_name_for_sales_key(sales_template_key)
@@ -447,7 +491,7 @@ class TelnyxWhatsappTemplateSyncService:
 
     @staticmethod
     def sync(db: Session) -> dict[str, Any]:
-        remote = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         now = _now()
         synced = 0
         approved = 0

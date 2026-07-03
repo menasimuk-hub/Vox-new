@@ -167,6 +167,7 @@ class LogService:
         from_number: str | None = None,
         to_number: str | None = None,
         q: str | None = None,
+        provider: str | None = None,
     ) -> list[dict]:
         from datetime import datetime
 
@@ -178,6 +179,7 @@ class LogService:
         needle = str(q or "").strip().lower()
         from_filter = str(from_number or "").strip()
         to_filter = str(to_number or "").strip()
+        provider_filter = str(provider or "").strip().lower()
         start = None
         end = None
         if date_from:
@@ -191,6 +193,8 @@ class LogService:
             except Exception:
                 end = None
         for row in rows:
+            if provider_filter and str(row.provider or "").lower() != provider_filter:
+                continue
             if start and row.created_at and row.created_at < start:
                 continue
             if end and row.created_at and row.created_at > end:
