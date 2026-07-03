@@ -103,11 +103,29 @@ function isLocalDraftTemplate(tpl) {
   return status === 'LOCAL_DRAFT' || status === 'DRAFT'
 }
 
+function buttonsFromFeedbackTpl(tpl) {
+  const fromComponents = buttonsFromComponents(
+    parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components),
+  )
+  if (fromComponents.length) return fromComponents
+  const raw = tpl?.buttons
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((b) => {
+      if (typeof b === 'string') return { type: 'quick_reply', text: b }
+      const text = String(b?.text || b?.title || '').trim()
+      if (!text) return null
+      return { type: 'quick_reply', text }
+    })
+    .filter(Boolean)
+}
+
 function apiTemplateToDraft(tpl, product) {
   const components = parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components)
   const body = bodyFromComponents(components) || tpl?.body || tpl?.body_text || ''
   const footer = footerFromComponents(components) || tpl?.footer || ''
-  const buttons = buttonsFromComponents(components)
+  const buttons =
+    product === 'feedback' ? buttonsFromFeedbackTpl(tpl) : buttonsFromComponents(components)
   const lang = langCodeToChip(tpl?.language)
   const metaName = String(tpl?.name || '').trim()
   return {

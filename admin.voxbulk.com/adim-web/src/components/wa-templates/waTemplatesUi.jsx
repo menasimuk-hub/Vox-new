@@ -107,12 +107,18 @@ function isLocalOnlyRow(tpl) {
 
 /** Map API row → StatusDot status. Prefer Meta approval_status / status. */
 export function mapApprovalStatus(tpl) {
-  const meta = String(tpl?.approval_status || tpl?.status || tpl?.telnyx_sync_status || '')
-    .toUpperCase()
-    .trim()
+  const candidates = [
+    tpl?.status,
+    tpl?.approval_status,
+    tpl?.telnyx_sync_status,
+  ]
+    .map((v) => String(v || '').toUpperCase().trim())
+    .filter(Boolean)
 
-  // Rejection always wins for monitoring / fix workflow
-  if (meta === 'REJECTED' || meta.includes('REJECT')) return 'rejected'
+  // Rejection always wins — even when primary language row is APPROVED.
+  if (candidates.some((meta) => meta === 'REJECTED' || meta.includes('REJECT'))) return 'rejected'
+
+  const meta = candidates[0] || ''
 
   if (
     tpl?.active_for_survey === false ||

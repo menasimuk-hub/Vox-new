@@ -1547,18 +1547,17 @@ class SurveyWhatsappTemplateService:
             groups.setdefault(key, []).append(row)
 
         def _pick_primary(group: list[TelnyxWhatsappTemplate]) -> TelnyxWhatsappTemplate:
+            # Rejected always surfaces first so the list matches card health.
+            rejected = [r for r in group if str(r.status or "").upper() == "REJECTED"]
+            pool = rejected or group
             for lang in ENGLISH_TEMPLATE_LANGUAGES if ENGLISH_TEMPLATE_LANGUAGES else ("en_GB", "en"):
-                for row in group:
+                for row in pool:
                     if str(row.language or "").strip() == lang:
                         return row
-            for row in group:
+            for row in pool:
                 if str(row.language or "").strip().lower().startswith("en"):
                     return row
-            # Prefer rejected so it surfaces on the card list.
-            for row in group:
-                if str(row.status or "").upper() == "REJECTED":
-                    return row
-            return group[0]
+            return pool[0]
 
         payload: list[dict[str, Any]] = []
         for key, group in groups.items():
@@ -1577,12 +1576,14 @@ class SurveyWhatsappTemplateService:
             item["name"] = item["display_name"]
             item["language_count"] = len({str(r.language or "") for r in group})
             item["languages"] = sorted({str(r.language or "en_GB") for r in group})
-            # Worst status in the language group wins for health.
+            # Worst status in the group wins — must match card health.
             statuses = {str(r.status or "").upper() for r in group}
             if "REJECTED" in statuses:
                 item["status"] = "REJECTED"
+                item["approval_status"] = "REJECTED"
             elif "PENDING" in statuses or "SUBMITTED" in statuses:
                 item["status"] = "PENDING"
+                item["approval_status"] = "PENDING"
             payload.append(item)
         payload.sort(
             key=lambda item: (

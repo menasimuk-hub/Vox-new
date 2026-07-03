@@ -355,6 +355,15 @@ class FeedbackCatalogService:
             "open_question": "Share your feedback",
         }
         label = key_labels.get(key) or key.replace("_", " ").title() or "Template"
+        # Normalize buttons for admin UI (always list of {text}).
+        norm_buttons: list[dict[str, str]] = []
+        for b in buttons:
+            if isinstance(b, str) and b.strip():
+                norm_buttons.append({"type": "QUICK_REPLY", "text": b.strip()[:25]})
+            elif isinstance(b, dict):
+                text = str(b.get("text") or b.get("title") or "").strip()
+                if text:
+                    norm_buttons.append({"type": "QUICK_REPLY", "text": text[:25]})
         return {
             "id": row.id,
             "industry_id": row.industry_id,
@@ -365,12 +374,14 @@ class FeedbackCatalogService:
             "display_name": label,
             "body_text": row.body_text,
             "body_preview": row.body_text,
+            "body": row.body_text,
             "step_role": row.step_role,
             "language": row.language,
-            "buttons": buttons,
+            "buttons": norm_buttons,
             "meta_category": row.meta_category,
             "telnyx_sync_status": row.telnyx_sync_status,
             "status": row.telnyx_sync_status,
+            "approval_status": str(row.telnyx_sync_status or "").upper(),
             "is_active": row.is_active,
         }
 
@@ -401,23 +412,42 @@ class FeedbackCatalogService:
     def upsert_industry(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         now = datetime.utcnow()
         row_id = str(payload.get("id") or "").strip()
+        desired_slug = _slugify(payload.get("slug") or payload.get("name") or "")
         if row_id:
             row = db.get(FeedbackIndustry, row_id)
             if row is None:
                 raise ValueError("Industry not found")
         else:
-            row = FeedbackIndustry(
-                id=str(uuid.uuid4()),
-                slug=_slugify(payload.get("slug") or payload.get("name")),
-                created_at=now,
-            )
-            db.add(row)
+            existing = None
+            if desired_slug:
+                existing = db.execute(
+                    select(FeedbackIndustry).where(FeedbackIndustry.slug == desired_slug).limit(1)
+                ).scalar_one_or_none()
+            if existing is not None:
+                # Reactivate / update existing slug instead of duplicate insert.
+                row = existing
+            else:
+                row = FeedbackIndustry(
+                    id=str(uuid.uuid4()),
+                    slug=desired_slug or _slugify(payload.get("name") or "industry"),
+                    created_at=now,
+                )
+                db.add(row)
         row.name = str(payload.get("name") or row.name).strip()
-        if payload.get("slug"):
-            row.slug = _slugify(payload["slug"])
+        if payload.get("slug") or desired_slug:
+            new_slug = _slugify(payload.get("slug") or desired_slug or row.slug)
+            clash = db.execute(
+                select(FeedbackIndustry).where(
+                    FeedbackIndustry.slug == new_slug,
+                    FeedbackIndustry.id != row.id,
+                ).limit(1)
+            ).scalar_one_or_none()
+            if clash is not None:
+                raise ValueError(f"An industry with slug “{new_slug}” already exists")
+            row.slug = new_slug
         if "description" in payload:
             row.description = payload.get("description")
-        row.is_active = bool(payload.get("is_active", row.is_active if row_id else True))
+        row.is_active = bool(payload.get("is_active", True))
         row.sort_order = int(payload.get("sort_order", row.sort_order or 100))
         visibility_mode = str(payload.get("visibility_mode") or getattr(row, "visibility_mode", None) or "all").strip().lower()
         if visibility_mode not in {"all", "restricted"}:

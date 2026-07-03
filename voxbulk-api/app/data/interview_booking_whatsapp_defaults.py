@@ -57,9 +57,10 @@ INTERVIEW_BOOKING_INVITE_BUTTONS: list[dict[str, str]] = [
     {"label": "❌ Cancel", "type": "quick_reply"},
 ]
 
+# Plain labels only — Meta rejects some emoji-only / emoji-prefixed quick replies (error 100).
 INTERVIEW_BOOKING_CONFIRMATION_BUTTONS: list[dict[str, str]] = [
-    {"label": "🔄 Reschedule", "type": "quick_reply"},
-    {"label": "❌ Cancel", "type": "quick_reply"},
+    {"label": "Reschedule", "type": "quick_reply"},
+    {"label": "Cancel", "type": "quick_reply"},
 ]
 
 # Legacy alias — booking invite shows all three actions in preview

@@ -275,7 +275,13 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
     seen.add(id)
     rows.push(
       toHubRow(
-        { ...tpl, body: tpl.body_text, status: tpl.telnyx_sync_status || tpl.status },
+        {
+          ...tpl,
+          body: tpl.body_text || tpl.body,
+          status: tpl.telnyx_sync_status || tpl.status,
+          approval_status: tpl.approval_status || tpl.telnyx_sync_status || tpl.status,
+          buttons: Array.isArray(tpl.buttons) ? tpl.buttons : [],
+        },
         {
           rowKind: 'feedback_template',
           product: 'feedback',
