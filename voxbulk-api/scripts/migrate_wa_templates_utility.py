@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -375,6 +376,10 @@ def main() -> int:
     phase_cfg = MIGRATION_PHASES[args.phase - 1]
     llm_provider = str(args.llm_provider or "openai").strip().lower()
     use_llm = not args.no_llm
+    progress_log = Path(f"/tmp/wa-phase{args.phase}.progress.log")
+    os.environ["WA_MIGRATION_PROGRESS_LOG"] = str(progress_log)
+    print(f"Live progress log: {progress_log}")
+    print(f"  tail -f {progress_log}")
 
     with get_sessionmaker()() as db:
         if args.push and not args.skip_waba_check:

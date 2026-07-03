@@ -27,4 +27,7 @@ if [[ "$PHASE" == "0" ]]; then
 fi
 
 python scripts/verify_wa_utility_waba.py
-exec python scripts/migrate_wa_templates_utility.py --phase "$PHASE" --audit "$@"
+PROGRESS_LOG="/tmp/wa-phase${PHASE}.progress.log"
+echo "Live log: tail -f ${PROGRESS_LOG}"
+python scripts/migrate_wa_templates_utility.py --phase "$PHASE" --audit "$@" 2>&1 | tee -a "${PROGRESS_LOG}"
+exit "${PIPESTATUS[0]}"
