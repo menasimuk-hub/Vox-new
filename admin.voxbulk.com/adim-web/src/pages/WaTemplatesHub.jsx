@@ -17,6 +17,7 @@ import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedbac
 import WaIndustryBrowser from '../components/wa-templates/WaIndustryBrowser'
 import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
 import WaEditSheet from '../components/wa-templates/WaEditSheet'
+import WaRejectedDialog from '../components/wa-templates/WaRejectedDialog'
 import { summarizeCatalog, toHubRow } from '../components/wa-templates/waTemplatesUi'
 import '../styles/wa-templates-hub.css'
 
@@ -100,6 +101,8 @@ export default function WaTemplatesHub() {
   const [feedbackIndustriesLoading, setFeedbackIndustriesLoading] = useState(false)
 
   const [editTarget, setEditTarget] = useState(null)
+  const [syncingId, setSyncingId] = useState(null)
+  const [rejectRow, setRejectRow] = useState(null)
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams)
@@ -257,9 +260,15 @@ export default function WaTemplatesHub() {
 
   const pushSurveyType = async (row) => {
     setError('')
+    setSyncingId(row.id)
     try {
       if (row.rowKind === 'survey_template') {
-        const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, { method: 'POST', body: '{}' })
+        const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
+          method: 'POST',
+          body: '{}',
+          timeoutMs: 180000,
+          quietNetworkHint: true,
+        })
         setMsg(formatActionSuccess(result, 'Synced with Meta').message)
         await loadTemplateCounts()
         return
@@ -267,20 +276,30 @@ export default function WaTemplatesHub() {
       if (row.rowKind === 'feedback_template') {
         const result = await apiFetch(`/admin/customer-feedback/survey-types/${row.surveyTypeId}/sync-telnyx`, {
           method: 'POST',
+          timeoutMs: 180000,
+          quietNetworkHint: true,
         })
         setMsg(formatActionSuccess(result, 'Synced with Meta').message)
         return
       }
+      // Sync only this survey type / topic (not the whole industry).
       const typeId = row.surveyTypeId || row.id
       const path =
         row.rowKind === 'feedback_type'
           ? `/admin/customer-feedback/survey-types/${typeId}/sync-telnyx`
           : `/admin/wa-survey/types/${typeId}/templates/push-all`
-      const result = await apiFetch(path, { method: 'POST', body: '{}' })
-      setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+      const result = await apiFetch(path, {
+        method: 'POST',
+        body: '{}',
+        timeoutMs: 300000,
+        quietNetworkHint: true,
+      })
+      setMsg(formatActionSuccess(result, 'Synced survey type with Meta').message)
       await loadTemplateCounts()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Sync failed').detailText)
+    } finally {
+      setSyncingId(null)
     }
   }
 
@@ -355,12 +374,21 @@ export default function WaTemplatesHub() {
   }
 
   const pushInterview = async (row) => {
+    setError('')
+    setSyncingId(row.id)
     try {
-      const result = await apiFetch(`/admin/wa-interview/templates/${row.id}/push`, { method: 'POST', body: '{}' })
+      const result = await apiFetch(`/admin/wa-interview/templates/${row.id}/push`, {
+        method: 'POST',
+        body: '{}',
+        timeoutMs: 180000,
+        quietNetworkHint: true,
+      })
       setMsg(formatActionSuccess(result, 'Synced with Meta').message)
       await loadInterview()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Sync failed').detailText)
+      setError(formatWaSurveyError(e, 'Sync failed').detailText || e?.message)
+    } finally {
+      setSyncingId(null)
     }
   }
 
@@ -465,11 +493,15 @@ export default function WaTemplatesHub() {
         ) : null}
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="h-9 border bg-surface-muted">
+          <TabsList className="h-9 gap-1 rounded-lg border bg-surface-muted p-1">
             {TAGS.map((tg) => {
               const Icon = tg.icon
               return (
-                <TabsTrigger key={tg.id} value={tg.id} className="h-7 gap-1.5 text-xs data-[state=active]:bg-background">
+                <TabsTrigger
+                  key={tg.id}
+                  value={tg.id}
+                  className="h-7 gap-1.5 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                >
                   <Icon className="h-3.5 w-3.5" />
                   {tg.label}
                 </TabsTrigger>
@@ -490,6 +522,8 @@ export default function WaTemplatesHub() {
                     onSyncRow={(row) => void pushSurveyType(row)}
                     onToggleRow={(row) => void toggleSurveyType(row)}
                     onDeleteRow={(row) => void deleteSurveyType(row)}
+                    onRejectRow={setRejectRow}
+                    syncingId={syncingId}
                     onOpenSystemTemplate={setEditTarget}
                     onError={setError}
                     onMessage={setMsg}
@@ -506,6 +540,8 @@ export default function WaTemplatesHub() {
                     onSyncRow={(row) => void pushSurveyType(row)}
                     onToggleRow={(row) => void toggleSurveyType(row)}
                     onDeleteRow={(row) => void deleteSurveyType(row)}
+                    onRejectRow={setRejectRow}
+                    syncingId={syncingId}
                     onOpenSystemTemplate={setEditTarget}
                     onError={setError}
                     onMessage={setMsg}
@@ -520,6 +556,9 @@ export default function WaTemplatesHub() {
                     onSync={(row) => void pushInterview(row)}
                     onToggle={(row) => void toggleInterview(row)}
                     onDelete={(row) => void deleteInterview(row)}
+                    onReject={setRejectRow}
+                    syncingId={syncingId}
+                    plainNames
                     showNew={false}
                     emptyLabel="No templates yet."
                   />
@@ -559,6 +598,20 @@ export default function WaTemplatesHub() {
           if (editTarget?.product === 'interview') void loadInterview()
           setEditTarget(null)
         }}
+      />
+
+      <WaRejectedDialog
+        open={Boolean(rejectRow)}
+        row={rejectRow}
+        onClose={() => setRejectRow(null)}
+        onDone={(message) => {
+          setMsg(message)
+          void loadTemplateCounts()
+          if (tab === 'ai') void loadInterview()
+          if (tab === 'survey') void loadSurveyIndustries()
+          if (tab === 'feedback') void loadFeedbackIndustries()
+        }}
+        onError={setError}
       />
     </div>
   )

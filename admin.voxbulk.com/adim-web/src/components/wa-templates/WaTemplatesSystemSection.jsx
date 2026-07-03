@@ -50,7 +50,12 @@ function templatesForCategory(kinds, product, category) {
       rowKind: 'system_template',
       product,
       systemKind: sectionKey,
-      name: tpl.name || tpl.display_name,
+      name:
+        tpl.display_name ||
+        tpl.name ||
+        tpl.template_key ||
+        category.label ||
+        'Template',
     }),
   )
 }
@@ -177,18 +182,16 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
                   key={`${sectionKey}-${category.label}`}
                   type="button"
                   onClick={() => openCategory(category)}
-                  className="rounded-lg border bg-surface px-2.5 py-2 text-left transition hover:border-primary/40 hover:shadow-sm"
+                  className="inline-flex h-8 items-center justify-between gap-2 rounded-md border bg-background px-2.5 text-left text-xs font-medium shadow-sm transition hover:border-primary/40 hover:bg-accent/40"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[11px] font-medium">{category.label}</span>
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                        count > 0 ? 'bg-success-soft text-success' : 'bg-surface-muted text-muted-foreground'
-                      }`}
-                    >
-                      {count}
-                    </span>
-                  </div>
+                  <span className="truncate">{category.label}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                      count > 0 ? 'bg-success-soft text-success' : 'bg-surface-muted text-muted-foreground'
+                    }`}
+                  >
+                    {count}
+                  </span>
                 </button>
               )
             })}
@@ -219,6 +222,7 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
               onSync={handleEdit}
               onToggle={handleEdit}
               onDelete={() => {}}
+              plainNames
               showNew={false}
               emptyLabel="No system templates in this category."
             />

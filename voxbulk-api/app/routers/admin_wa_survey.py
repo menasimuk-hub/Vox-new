@@ -757,6 +757,22 @@ def push_template_to_telnyx(
     return result
 
 
+@router.post("/templates/{template_id}/regenerate")
+def regenerate_rejected_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Rewrite a rejected template body, assign a new Meta name, and push again."""
+    row = SurveyWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    try:
+        return SurveyWhatsappTemplateService.regenerate_rejected_template(db, row)
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
+
+
 @router.post("/templates/{template_id}/rename-for-sync")
 def rename_template_for_sync(
     template_id: int,

@@ -7,11 +7,20 @@ function shortenText(text: string, maxLen = 60): string {
 
 function isInternalTemplateName(value: string): boolean {
   const v = String(value || "").trim().toLowerCase();
-  return (
+  if (
     v.startsWith("voxbulk_") ||
     v.startsWith("voxbulk_survey_") ||
     v.startsWith("voxbulk_sales_") ||
     v.startsWith("voxbulk_interview_")
+  ) {
+    return true;
+  }
+  // Category labels that must never appear as a welcome/question title.
+  return (
+    v === "share your feedback" ||
+    v === "open question" ||
+    v === "opt in" ||
+    v === "marketing opt in"
   );
 }
 

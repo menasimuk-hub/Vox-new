@@ -1881,6 +1881,68 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
+    def regenerate_rejected_template(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+        """Rewrite body to avoid Meta rejection reasons, rename if needed, and push again."""
+        from app.services.survey_wa_utility_rewrite_service import apply_utility_rewrite_to_row
+
+        reason = str(row.rejection_reason or row.last_push_error or "").strip()
+        status = str(row.status or "").upper()
+        if status != "REJECTED" and "reject" not in reason.lower():
+            # Still allow regenerate for stuck/error rows.
+            pass
+
+        # Detach from rejected remote id so Meta accepts a fresh submission.
+        record_id = str(row.telnyx_record_id or "").strip()
+        if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+            local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
+            row.telnyx_record_id = local_id
+            row.template_id = local_id
+            row.status = "LOCAL_DRAFT"
+            row.rejection_reason = None
+            row.last_push_error = None
+
+        # New unique name suffix so Meta does not block the old rejected name.
+        base = re.sub(r"_r\d+$", "", str(row.name or "voxbulk_survey_tpl").strip().lower())
+        base = re.sub(r"[^a-z0-9_]+", "_", base).strip("_")[:100] or "voxbulk_survey_tpl"
+        new_name = f"{base}_r{uuid.uuid4().hex[:4]}"
+        clean, name_error = validate_wa_template_name(new_name)
+        if name_error:
+            raise SurveyWhatsappTemplateError(name_error)
+        row.name = clean or new_name
+        row.local_sync_status = SYNC_DRAFT
+        row.updated_at = _now()
+        db.add(row)
+        db.flush()
+
+        try:
+            apply_utility_rewrite_to_row(db, row, use_llm=False)
+        except Exception as exc:
+            logger.warning("regenerate_rewrite_failed", extra={"template_id": row.id, "error": str(exc)})
+            # Fallback: strip marketing-ish phrases that Meta often rejects.
+            components = _effective_components(row)
+            for comp in components:
+                if not isinstance(comp, dict):
+                    continue
+                if str(comp.get("type") or "").upper() != "BODY":
+                    continue
+                text = str(comp.get("text") or "")
+                text = re.sub(r"\b(buy|sale|discount|promo|offer|free|win)\b", "", text, flags=re.I)
+                text = re.sub(r"\s{2,}", " ", text).strip()
+                if text:
+                    comp["text"] = text
+            if components:
+                row.draft_components_json = _dumps(_normalize_draft_components(components))
+                row.body_preview = _body_preview(components)
+                db.add(row)
+                db.flush()
+
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        result["regenerated"] = True
+        result["previous_rejection_reason"] = reason or None
+        result["new_name"] = row.name
+        return result
+
+    @staticmethod
     def push_to_telnyx(
         db: Session,
         row: TelnyxWhatsappTemplate,

@@ -118,13 +118,27 @@ class FeedbackCatalogService:
         template_q = select(FeedbackWaTemplate).where(FeedbackWaTemplate.industry_id == row.id)
         templates = list(db.execute(template_q).scalars().all())
         approved = sum(1 for t in templates if str(t.telnyx_sync_status or "").lower() in {"approved", "synced", "live"})
+        rejected = sum(1 for t in templates if str(t.telnyx_sync_status or "").lower() == "rejected")
         pending = sum(1 for t in templates if str(t.telnyx_sync_status or "").lower() in {"draft", "pending", "submitted"})
+        total = len(templates)
+        if total <= 0:
+            health = "empty"
+        elif rejected > 0:
+            health = "rejected"
+        elif approved >= total:
+            health = "approved"
+        else:
+            health = "pending"
         base.update(
             {
                 "survey_type_count": survey_type_count,
-                "template_count": len(templates),
+                "template_count": total,
                 "approved_count": approved,
+                "approved_template_count": approved,
                 "pending_count": pending,
+                "pending_template_count": pending,
+                "rejected_template_count": rejected,
+                "approval_health": health,
             }
         )
         return base
@@ -190,18 +204,30 @@ class FeedbackCatalogService:
                     buttons = parsed
             except json.JSONDecodeError:
                 buttons = []
+        key = str(row.template_key or "").strip()
+        key_labels = {
+            "thank_you": "Thank you",
+            "tell_us_more": "Tell us more",
+            "marketing_opt_in": "Opt in",
+            "open_question": "Share your feedback",
+        }
+        label = key_labels.get(key) or key.replace("_", " ").title() or "Template"
         return {
             "id": row.id,
             "industry_id": row.industry_id,
             "survey_type_id": row.survey_type_id,
             "step_order": row.step_order,
             "template_key": row.template_key,
+            "name": label,
+            "display_name": label,
             "body_text": row.body_text,
+            "body_preview": row.body_text,
             "step_role": row.step_role,
             "language": row.language,
             "buttons": buttons,
             "meta_category": row.meta_category,
             "telnyx_sync_status": row.telnyx_sync_status,
+            "status": row.telnyx_sync_status,
             "is_active": row.is_active,
         }
 

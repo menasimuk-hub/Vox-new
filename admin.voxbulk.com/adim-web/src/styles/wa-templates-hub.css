@@ -80,6 +80,33 @@
   background: transparent !important;
 }
 
+/* Plain template names (manage lists) — no hover underline / button chrome. */
+.waTemplatesHub button.wa-hub-name-plain {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ds-foreground, inherit);
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  cursor: pointer;
+}
+
+.waTemplatesHub button.wa-hub-name-plain:hover {
+  text-decoration: none;
+  background: transparent !important;
+  color: var(--ds-foreground, inherit);
+}
+
 /* Design-source primary / ghost buttons (hub header + portaled drawer). */
 .waTemplatesHub button.wa-hub-primary-btn {
   display: inline-flex !important;

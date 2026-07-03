@@ -1,12 +1,36 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { apiFetch } from '../../lib/api'
-import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
+import { formatActionSuccess, formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
 import { toHubRow } from './waTemplatesUi'
+
+function industryHealthClass(ind) {
+  const health = ind.approval_health
+  if (health === 'approved') return 'border-success/40 bg-success/5'
+  if (health === 'rejected') return 'border-destructive/40 bg-destructive/5'
+  if (health === 'pending') return 'border-warning/40 bg-warning-soft/40'
+  return 'bg-surface'
+}
+
+function industryHealthDot(ind) {
+  const health = ind.approval_health
+  if (health === 'approved') return 'bg-success'
+  if (health === 'rejected') return 'bg-destructive'
+  if (health === 'pending') return 'bg-warning'
+  return 'bg-muted-foreground/40'
+}
+
+function industryHealthLabel(ind) {
+  const health = ind.approval_health
+  if (health === 'approved') return 'All approved'
+  if (health === 'rejected') return 'Some rejected'
+  if (health === 'pending') return 'Pending approval'
+  return 'No templates'
+}
 
 function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
   const [saving, setSaving] = useState(false)
@@ -176,6 +200,8 @@ export default function WaIndustryBrowser({
   onSyncRow,
   onToggleRow,
   onDeleteRow,
+  onRejectRow,
+  syncingId,
   onOpenSystemTemplate,
   onError,
   onMessage,
@@ -185,6 +211,8 @@ export default function WaIndustryBrowser({
   const [unlinkedTypes, setUnlinkedTypes] = useState([])
   const [loadingRows, setLoadingRows] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [industrySyncing, setIndustrySyncing] = useState(false)
+  const [deletingIndustry, setDeletingIndustry] = useState(false)
 
   const loadIndustryRows = useCallback(
     async (ind) => {
@@ -218,9 +246,60 @@ export default function WaIndustryBrowser({
     return 'Open'
   }
 
+  const syncIndustry = async () => {
+    if (!industry?.id) return
+    setIndustrySyncing(true)
+    try {
+      const path =
+        product === 'feedback'
+          ? `/admin/customer-feedback/industries/${industry.id}/sync-telnyx`
+          : `/admin/wa-survey/industries/${industry.id}/templates/push-all`
+      const result = await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 300000, quietNetworkHint: true })
+      onMessage?.(formatActionSuccess(result, `Synced ${industry.name} with Meta`).message)
+      await loadIndustryRows(industry)
+      onReloadIndustries?.()
+    } catch (e) {
+      onError?.(formatWaSurveyError(e, 'Industry sync failed').detailText || e?.message)
+    } finally {
+      setIndustrySyncing(false)
+    }
+  }
+
+  const deleteIndustry = async () => {
+    if (!industry?.id) return
+    if (
+      !window.confirm(
+        `Delete industry “${industry.name}” and ALL its templates from local DB and Meta? This cannot be undone.`,
+      )
+    ) {
+      return
+    }
+    setDeletingIndustry(true)
+    try {
+      const path =
+        product === 'feedback'
+          ? `/admin/customer-feedback/industries/${industry.id}`
+          : `/admin/wa-survey/industries/${industry.id}`
+      const result = await apiFetch(path, { method: 'DELETE', timeoutMs: 180000, quietNetworkHint: true })
+      onMessage?.(
+        formatActionSuccess(
+          result,
+          `Deleted industry and ${result.deleted_templates ?? 0} template(s)`,
+        ).message,
+      )
+      setIndustry(null)
+      onReloadIndustries?.()
+    } catch (e) {
+      onError?.(formatWaSurveyError(e, 'Could not delete industry').message)
+    } finally {
+      setDeletingIndustry(false)
+    }
+  }
+
   if (industry) {
     const rejectedCount = rows.filter((r) => r.status === 'rejected').length
     const approvedCount = rows.filter((r) => r.status === 'approved').length
+    const pendingCount = rows.filter((r) => r.status === 'pending' || r.status === 'local').length
     return (
       <div className="animate-fade-in">
         <WaTemplatesSystemSection
@@ -236,20 +315,61 @@ export default function WaIndustryBrowser({
           <span className="text-sm font-medium">{industry.name}</span>
           <span className="text-xs text-muted-foreground">· {rows.length} linked templates</span>
           <span className="text-xs text-success">· {approvedCount} approved</span>
+          {pendingCount > 0 ? <span className="text-xs text-warning">· {pendingCount} pending</span> : null}
           {rejectedCount > 0 ? (
             <span className="text-xs font-medium text-destructive">· {rejectedCount} rejected — fix</span>
           ) : null}
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={industrySyncing || deletingIndustry}
+              onClick={() => void syncIndustry()}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', industrySyncing && 'animate-spin')} />
+              {industrySyncing ? 'Syncing industry…' : 'Sync this industry'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={industrySyncing || deletingIndustry}
+              onClick={() => void deleteIndustry()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {deletingIndustry ? 'Deleting…' : 'Delete industry'}
+            </Button>
+          </div>
         </div>
         {unlinkedTypes.length > 0 ? (
           <div className="border-b bg-warning-soft/40 px-3 py-2 text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground">{unlinkedTypes.length} survey type(s) have no WA templates linked</span>
-            {' — '}
-            {unlinkedTypes
-              .slice(0, 8)
-              .map((t) => t.slug || t.name)
-              .join(', ')}
-            {unlinkedTypes.length > 8 ? ` +${unlinkedTypes.length - 8} more` : ''}
-            . They are not listed below (only real Meta/local templates are editable).
+            <div className="font-medium text-foreground">
+              {unlinkedTypes.length} survey type(s) have no WA templates linked
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {unlinkedTypes.map((t) => (
+                <Button
+                  key={t.id}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-6 gap-1 px-2 text-[10px]"
+                  disabled={syncingId === t.id || industrySyncing}
+                  onClick={() =>
+                    onSyncRow?.({
+                      id: t.id,
+                      surveyTypeId: t.id,
+                      rowKind: product === 'feedback' ? 'feedback_type' : 'survey_type',
+                      name: t.name || t.slug,
+                    })
+                  }
+                >
+                  <RefreshCw className={cn('h-3 w-3', syncingId === t.id && 'animate-spin')} />
+                  Sync {t.slug || t.name}
+                </Button>
+              ))}
+            </div>
           </div>
         ) : null}
         <WaTemplatesTable
@@ -259,6 +379,9 @@ export default function WaIndustryBrowser({
           onSync={onSyncRow}
           onToggle={onToggleRow}
           onDelete={onDeleteRow}
+          onReject={onRejectRow}
+          syncingId={syncingId}
+          plainNames
           showNew={false}
           emptyLabel="No WhatsApp templates linked in this industry yet."
         />
@@ -300,14 +423,20 @@ export default function WaIndustryBrowser({
                 type="button"
                 onClick={() => openIndustry(ind)}
                 className={cn(
-                  'group relative flex items-center justify-between rounded-lg border bg-surface px-3 py-2.5 text-left',
-                  'transition-all hover:border-primary/40 hover:shadow-sm hover-scale',
+                  'group relative flex items-center justify-between rounded-lg border px-3 py-2.5 text-left',
+                  'transition-all hover:shadow-sm hover-scale',
+                  industryHealthClass(ind),
                 )}
                 style={{ animation: `wa-hub-fade-in 0.25s ease-out ${i * 15}ms both` }}
+                title={industryHealthLabel(ind)}
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{ind.name}</div>
-                  <div className="text-[11px] text-muted-foreground">{typeCountLabel(ind)}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full', industryHealthDot(ind))} />
+                    <div className="truncate text-sm font-medium">{ind.name}</div>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{typeCountLabel(ind)}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{industryHealthLabel(ind)}</div>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
               </button>

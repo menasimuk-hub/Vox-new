@@ -58,7 +58,7 @@ export function LangChip({ langs, title }) {
   )
 }
 
-export function IconBtn({ icon: Icon, label, onClick, tone = 'default', disabled = false }) {
+export function IconBtn({ icon: Icon, label, onClick, tone = 'default', disabled = false, className, spinning = false }) {
   return (
     <button
       type="button"
@@ -69,11 +69,12 @@ export function IconBtn({ icon: Icon, label, onClick, tone = 'default', disabled
         'hover:bg-accent hover:text-foreground active:scale-95 disabled:pointer-events-none disabled:opacity-40',
         tone === 'danger' && 'hover:bg-destructive/10 hover:text-destructive',
         tone === 'success' && 'hover:bg-success/10 hover:text-success',
+        className,
       )}
       aria-label={label}
       title={label}
     >
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className={cn('h-3.5 w-3.5', spinning && 'animate-spin')} />
     </button>
   )
 }

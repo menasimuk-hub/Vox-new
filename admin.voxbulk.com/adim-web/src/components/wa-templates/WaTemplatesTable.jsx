@@ -12,11 +12,14 @@ export default function WaTemplatesTable({
   onSync,
   onToggle,
   onDelete,
+  onReject,
+  syncingId = null,
   onNew,
   newLabel = 'New',
   showNew = true,
   emptyLabel = 'No templates match your filters.',
   defaultStatusFilter = 'all',
+  plainNames = false,
 }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
@@ -142,13 +145,23 @@ export default function WaTemplatesTable({
                   )}
                 >
                   <td className="px-3 py-1.5">
-                    <button type="button" onClick={() => onEdit?.(t)} className="wa-hub-name-btn">
+                    <button
+                      type="button"
+                      onClick={() => (t.status === 'rejected' && onReject ? onReject(t) : onEdit?.(t))}
+                      className={cn(plainNames ? 'wa-hub-name-plain' : 'wa-hub-name-btn')}
+                      title={t.name}
+                    >
                       {t.name}
                     </button>
-                    {t.status === 'rejected' && t.rejectionReason ? (
-                      <div className="mt-0.5 max-w-[280px] truncate text-[10px] text-destructive" title={t.rejectionReason}>
-                        {t.rejectionReason}
-                      </div>
+                    {t.status === 'rejected' ? (
+                      <button
+                        type="button"
+                        className="mt-0.5 block max-w-[280px] truncate text-left text-[10px] font-medium text-destructive hover:underline"
+                        title={t.rejectionReason || 'View rejection details'}
+                        onClick={() => onReject?.(t)}
+                      >
+                        {t.rejectionReason || 'Rejected — click for details'}
+                      </button>
                     ) : null}
                   </td>
                   <td className="px-2 py-1.5">
@@ -173,8 +186,17 @@ export default function WaTemplatesTable({
                         icon={Pencil}
                         label={t.status === 'rejected' ? 'Fix / edit' : 'Edit'}
                         onClick={() => onEdit?.(t)}
+                        disabled={syncingId != null}
                       />
-                      <IconBtn icon={RefreshCw} label="Sync" onClick={() => onSync?.(t)} tone="success" />
+                      <IconBtn
+                        icon={RefreshCw}
+                        label={syncingId === t.id ? 'Syncing…' : 'Sync'}
+                        onClick={() => onSync?.(t)}
+                        tone="success"
+                        disabled={syncingId != null}
+                        spinning={syncingId === t.id}
+                        className={syncingId === t.id ? 'text-success' : undefined}
+                      />
                       <IconBtn
                         icon={Power}
                         label={t.status === 'disabled' ? 'Enable' : 'Disable'}

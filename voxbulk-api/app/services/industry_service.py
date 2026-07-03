@@ -46,6 +46,7 @@ def industry_to_dict(
     template_count: int | None = None,
     approved_template_count: int | None = None,
     pending_template_count: int | None = None,
+    rejected_template_count: int | None = None,
     org_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = {
@@ -69,6 +70,20 @@ def industry_to_dict(
         payload["approved_template_count"] = int(approved_template_count)
     if pending_template_count is not None:
         payload["pending_template_count"] = int(pending_template_count)
+    if rejected_template_count is not None:
+        payload["rejected_template_count"] = int(rejected_template_count)
+    # green = all approved, red = any rejected, orange = pending/none rejected
+    total = int(payload.get("template_count") or 0)
+    approved = int(payload.get("approved_template_count") or 0)
+    rejected = int(payload.get("rejected_template_count") or 0)
+    if total <= 0:
+        payload["approval_health"] = "empty"
+    elif rejected > 0:
+        payload["approval_health"] = "rejected"
+    elif approved >= total:
+        payload["approval_health"] = "approved"
+    else:
+        payload["approval_health"] = "pending"
     if org_ids is not None:
         payload["org_ids"] = org_ids
     return payload
@@ -107,6 +122,7 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             "template_count": 0,
             "approved_template_count": 0,
             "pending_template_count": 0,
+            "rejected_template_count": 0,
         }
     rows = list(
         db.execute(
@@ -114,11 +130,14 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
         ).scalars()
     )
     approved = sum(1 for row in rows if _is_template_approved(row))
+    rejected = sum(1 for row in rows if str(row.status or "").strip().upper() == "REJECTED")
     total = len(rows)
+    pending = max(0, total - approved - rejected)
     return {
         "template_count": total,
         "approved_template_count": approved,
-        "pending_template_count": total - approved,
+        "pending_template_count": pending,
+        "rejected_template_count": rejected,
     }
 
 
@@ -253,6 +272,7 @@ class IndustryService:
                     template_count=counts["template_count"],
                     approved_template_count=counts["approved_template_count"],
                     pending_template_count=counts["pending_template_count"],
+                    rejected_template_count=counts["rejected_template_count"],
                 )
             )
 

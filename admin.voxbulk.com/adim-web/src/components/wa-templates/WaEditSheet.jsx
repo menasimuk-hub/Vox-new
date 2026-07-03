@@ -476,7 +476,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                     hint={metaNameReadOnly ? 'Meta name (read-only)' : 'Local draft'}
                   >
                     <Input
-                      value={t.name}
+                      value={t.name || ''}
                       onChange={(e) => {
                         if (metaNameReadOnly) return
                         update('name', e.target.value)
@@ -500,6 +500,14 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                     </select>
                   </Field>
                 </div>
+                <Field label="Display label">
+                  <Input
+                    value={t.display_name || t.name || ''}
+                    onChange={(e) => update('display_name', e.target.value)}
+                    className="h-8 text-xs"
+                    placeholder="Friendly label shown in admin lists"
+                  />
+                </Field>
 
                 <Field label="Languages" hint={`${t.langs.length} enabled`}>
                   <div className="flex flex-wrap gap-1.5">

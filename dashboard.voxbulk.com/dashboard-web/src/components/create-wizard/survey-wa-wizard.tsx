@@ -204,11 +204,11 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
     generateErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [props.generateErrors]);
   const welcomeTemplateRows = React.useMemo(
-    () => mapSystemTemplates(props.welcomeTemplates),
+    () => mapSystemTemplates(props.welcomeTemplates, { fallback: "Welcome message" }),
     [props.welcomeTemplates],
   );
   const thankYouTemplateRows = React.useMemo(
-    () => mapSystemTemplates(props.thankYouTemplates),
+    () => mapSystemTemplates(props.thankYouTemplates, { fallback: "Thank you message" }),
     [props.thankYouTemplates],
   );
 
