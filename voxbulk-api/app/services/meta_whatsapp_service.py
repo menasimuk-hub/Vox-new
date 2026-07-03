@@ -224,8 +224,11 @@ class MetaWhatsappService:
             raise MetaWhatsappConfigError("waba_id is required")
         rows: list[dict[str, Any]] = []
         after: str | None = None
+        # Explicit fields — without `components`, body_preview is wiped and the dashboard
+        # shows Meta template names instead of question text.
+        fields = "id,name,language,status,category,components,rejected_reason"
         while True:
-            params: dict[str, Any] = {"limit": 250}
+            params: dict[str, Any] = {"limit": 250, "fields": fields}
             if after:
                 params["after"] = after
             payload = MetaWhatsappService._graph_request(

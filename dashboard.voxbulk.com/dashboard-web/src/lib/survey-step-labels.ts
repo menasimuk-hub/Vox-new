@@ -5,6 +5,16 @@ function shortenText(text: string, maxLen = 60): string {
   return `${cleaned.slice(0, maxLen - 1).trim()}…`;
 }
 
+function isInternalTemplateName(value: string): boolean {
+  const v = String(value || "").trim().toLowerCase();
+  return (
+    v.startsWith("voxbulk_") ||
+    v.startsWith("voxbulk_survey_") ||
+    v.startsWith("voxbulk_sales_") ||
+    v.startsWith("voxbulk_interview_")
+  );
+}
+
 function normalizeCompare(value: string): string {
   return String(value || "")
     .toLowerCase()
@@ -47,13 +57,17 @@ export function resolveSurveyStepLabel(
 
   for (const key of ["display_name", "template_name", "title", "name"] as const) {
     const fromRow = String(row?.[key] || "").trim();
-    if (fromRow && !isCampaignCopyLabel(fromRow, rejectTitles)) {
+    if (
+      fromRow &&
+      !isInternalTemplateName(fromRow) &&
+      !isCampaignCopyLabel(fromRow, rejectTitles)
+    ) {
       return fromRow.split(" — ")[0].trim();
     }
   }
 
   const rawText = String(row?.text || row?.body || row?.body_preview || "").trim();
-  if (rawText && !isCampaignCopyLabel(rawText, rejectTitles)) {
+  if (rawText && !isInternalTemplateName(rawText) && !isCampaignCopyLabel(rawText, rejectTitles)) {
     const fromText = shortenText(rawText);
     if (fromText && !isCampaignCopyLabel(fromText, rejectTitles)) return fromText;
   }
@@ -67,16 +81,18 @@ export function resolveSurveyStepLabel(
   return "Question 1";
 }
 
-/** Wizard Step 3 — admin `display_name` only (no body preview or internal names). */
+/** Wizard Step 3 — friendly label (never Meta/internal template names). */
 export function wizardTemplateDisplayName(
   row: Record<string, unknown> | null | undefined,
   fallback: string,
   questionNumber?: number,
 ): string {
   const display = String(row?.display_name || "").trim();
-  if (display) return display.split(" — ")[0].trim();
+  if (display && !isInternalTemplateName(display)) return display.split(" — ")[0].trim();
+  const body = String(row?.body_preview || row?.body || row?.body_text || "").trim();
+  if (body && !isInternalTemplateName(body)) return shortenText(body, 48);
   const fb = String(fallback || "").trim();
-  if (fb) return fb.split(" — ")[0].trim();
+  if (fb && !isInternalTemplateName(fb)) return fb.split(" — ")[0].trim();
   if (questionNumber && questionNumber > 0) return `Question ${questionNumber}`;
   return "Template";
 }

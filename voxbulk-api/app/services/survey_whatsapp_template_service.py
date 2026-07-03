@@ -1456,6 +1456,11 @@ def survey_template_to_dict(
     else:
         examples = _example_values_for_storage(components, override=examples)
     workflow = template_workflow_state(row)
+    # Always expose a real BODY preview (never fall back to Meta template name alone).
+    effective_preview = str(row.body_preview or "").strip() or _body_preview(components)
+    if effective_preview and not str(row.body_preview or "").strip():
+        row.body_preview = effective_preview
+    base["body_preview"] = effective_preview
     payload = {
         **base,
         "display_name": row.display_name or row.name,
@@ -2566,10 +2571,13 @@ class SurveyWhatsappTemplateService:
                 ):
                     existing.survey_type_id = owner.id
                     apply_industry_to_template(existing, owner)
-                existing.components_json = components_json
-                existing.body_preview = _body_preview(components if isinstance(components, list) else None)
-                existing.example_values_json = _dumps(_extract_example_values(components if isinstance(components, list) else None))
-                existing.remote_content_hash = remote_hash
+                if isinstance(components, list) and components:
+                    existing.components_json = components_json
+                    preview = _body_preview(components)
+                    if preview:
+                        existing.body_preview = preview
+                    existing.example_values_json = _dumps(_extract_example_values(components))
+                    existing.remote_content_hash = remote_hash
                 existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
                 existing.synced_at = now
                 existing.updated_at = now
@@ -2631,6 +2639,58 @@ class SurveyWhatsappTemplateService:
         summary = format_sync_summary(raw_summary)
         logger.info("survey_wa_template_sync_end", extra=summary.get("counts", raw_summary))
         return summary
+
+    @staticmethod
+    def repair_body_previews(db: Session) -> dict[str, Any]:
+        """Rebuild body_preview from stored components when missing or equal to the template name."""
+        rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
+        repaired = 0
+        for row in rows:
+            components = _effective_components(row)
+            preview = _body_preview(components)
+            if not preview:
+                continue
+            current = str(row.body_preview or "").strip()
+            name = str(row.name or "").strip()
+            display = str(row.display_name or "").strip()
+            if current and current not in {name, display} and not current.startswith("voxbulk_"):
+                continue
+            if current == preview:
+                continue
+            row.body_preview = preview
+            db.add(row)
+            repaired += 1
+        if repaired:
+            db.commit()
+        return {"ok": True, "repaired": repaired}
+
+    @staticmethod
+    def ensure_sales_offer_marketing_category(db: Session) -> dict[str, Any]:
+        """Sales offer templates must be MARKETING (not UTILITY) for the Marketing hub tab."""
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    (TelnyxWhatsappTemplate.sales_template_key == "sales_offer")
+                    | (TelnyxWhatsappTemplate.name.ilike("%sales_offer%"))
+                )
+            ).scalars()
+        )
+        updated = 0
+        for row in rows:
+            key = str(row.sales_template_key or "").strip().lower()
+            name = str(row.name or "").strip().lower()
+            if key != "sales_offer" and "sales_offer" not in name and name != "voxbulk_sales_offer":
+                continue
+            if str(row.category or "").strip().upper() == "MARKETING":
+                continue
+            row.category = "MARKETING"
+            if not row.sales_template_key:
+                row.sales_template_key = "sales_offer"
+            db.add(row)
+            updated += 1
+        if updated:
+            db.commit()
+        return {"ok": True, "updated": updated}
 
     @staticmethod
     def repair_survey_type_mappings(db: Session) -> dict[str, Any]:
@@ -2746,8 +2806,30 @@ class SurveyWhatsappTemplateService:
 
         catalog = TelnyxWhatsappTemplateSyncService.sync(db)
         # Catalog already refreshed statuses — link/repair without another Meta list call.
+        body_repair = SurveyWhatsappTemplateService.repair_body_previews(db)
+        sales_cat = SurveyWhatsappTemplateService.ensure_sales_offer_marketing_category(db)
         repair = SurveyWhatsappTemplateService.repair_survey_type_mappings(db)
         relink = SurveyWhatsappTemplateService.relink_survey_templates(db)
+
+        system_kinds: dict[str, int] = {}
+        try:
+            from app.services.survey_system_template_service import (
+                SYSTEM_TEMPLATE_KINDS,
+                SurveySystemTemplateService,
+            )
+
+            SurveySystemTemplateService.ensure_system_survey_types(db)
+            builder = SurveySystemTemplateService.list_templates_for_builder(db)
+            templates_by_kind = builder.get("templates") or {}
+            for kind in SYSTEM_TEMPLATE_KINDS:
+                rows = templates_by_kind.get(kind) or []
+                system_kinds[kind] = len(rows)
+                # Ensure at least one draft exists so dashboard can pick thank-you / tell-us-more.
+                if not rows and kind in {"welcome", "thank_you", "tell_us_more"}:
+                    SurveySystemTemplateService.create_draft(db, kind=kind, payload=None)
+                    system_kinds[kind] = 1
+        except Exception as exc:
+            logger.warning("hub_meta_sync_system_templates_failed", extra={"error": str(exc)})
 
         interview_linked = 0
         appointment_linked = 0
@@ -2825,6 +2907,9 @@ class SurveyWhatsappTemplateService:
             "unlinked_survey_types": unlinked_types,
             "unlinked_survey_templates": int(relink.get("unlinked_survey_templates") or 0),
             "repaired_mappings": int(repair.get("repaired") or 0),
+            "repaired_body_previews": int(body_repair.get("repaired") or 0),
+            "sales_offer_marketing_updated": int(sales_cat.get("updated") or 0),
+            "system_templates": system_kinds,
             "catalog": {k: v for k, v in catalog.items() if k != "templates"},
             "survey": relink,
             "interview": {"ok": True, "linked": interview_linked},

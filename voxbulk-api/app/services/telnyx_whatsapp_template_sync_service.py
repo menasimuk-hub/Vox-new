@@ -590,17 +590,23 @@ class TelnyxWhatsappTemplateSyncService:
             existing.telnyx_record_id = record_id
             existing.name = local_name
             existing.language = language
-            existing.category = category
+            if category:
+                existing.category = category
             existing.status = status
             existing.sales_template_key = sales_key or existing.sales_template_key
-            existing.body_preview = _body_preview(components if isinstance(components, list) else None)
-            existing.components_json = components_json
-            if components_json and not existing.draft_components_json:
-                existing.draft_components_json = components_json
-            if components_json:
-                existing.remote_content_hash = _components_content_hash(
-                    components if isinstance(components, list) else None
-                )
+            # Never wipe body/components when Meta omits them — that makes the UI show
+            # template names instead of question body text.
+            if isinstance(components, list) and components:
+                preview = _body_preview(components)
+                if preview:
+                    existing.body_preview = preview
+                existing.components_json = components_json
+                if not existing.draft_components_json:
+                    existing.draft_components_json = components_json
+                existing.remote_content_hash = _components_content_hash(components)
+            elif not existing.body_preview:
+                # Last resort: keep name out of body_preview (leave null for repair pass).
+                existing.body_preview = existing.body_preview
             existing.local_sync_status = "in_sync"
             existing.last_push_error = None
             existing.waba_id = waba_id

@@ -34,7 +34,22 @@ function templateFromApiRow(
   questionNumber?: number,
   fallback = "",
 ): WaBuilderTemplateRow {
-  const body = String(row.body_preview || row.body || row.body_text || "").trim();
+  const name = String(row.name || "").trim();
+  let body = String(row.body_preview || row.body || row.body_text || "").trim();
+  if (!body || body === name || body.startsWith("voxbulk_")) {
+    for (const key of ["draft_components", "remote_components", "components"] as const) {
+      const comps = row[key];
+      if (!Array.isArray(comps)) continue;
+      for (const comp of comps) {
+        if (!comp || typeof comp !== "object") continue;
+        if (String((comp as Record<string, unknown>).type || "").toUpperCase() === "BODY") {
+          body = String((comp as Record<string, unknown>).text || "").trim();
+          if (body) break;
+        }
+      }
+      if (body) break;
+    }
+  }
   const title = wizardTemplateDisplayName(row, fallback, questionNumber);
   return {
     id: String(row.id),

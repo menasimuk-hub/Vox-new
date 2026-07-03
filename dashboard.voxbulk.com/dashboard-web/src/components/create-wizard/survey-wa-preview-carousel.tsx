@@ -46,8 +46,31 @@ function personalize(text: string, firstName: string, businessName?: string): st
   return out;
 }
 
+function bodyFromComponents(raw: unknown): string {
+  if (!Array.isArray(raw)) return "";
+  for (const comp of raw) {
+    if (!comp || typeof comp !== "object") continue;
+    const type = String((comp as Record<string, unknown>).type || "").toUpperCase();
+    if (type === "BODY") {
+      return String((comp as Record<string, unknown>).text || "").trim();
+    }
+  }
+  return "";
+}
+
 function templateBody(row: Record<string, unknown>): string {
-  return String(row.body_preview || row.body || row.body_text || "").trim();
+  const direct = String(row.body_preview || row.body || row.body_text || "").trim();
+  const name = String(row.name || "").trim();
+  // Never treat Meta template name as the message body.
+  if (direct && direct !== name && !direct.startsWith("voxbulk_survey_") && !direct.startsWith("voxbulk_sales_")) {
+    return direct;
+  }
+  return (
+    bodyFromComponents(row.draft_components) ||
+    bodyFromComponents(row.remote_components) ||
+    bodyFromComponents(row.components) ||
+    (direct && direct !== name ? direct : "")
+  );
 }
 
 function templateTitle(
