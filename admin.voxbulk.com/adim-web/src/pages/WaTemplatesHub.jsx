@@ -190,8 +190,16 @@ export default function WaTemplatesHub() {
     try {
       const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', { method: 'POST' })
       const rows = Array.isArray(result.templates) ? result.templates : []
-      setMsg(formatActionSuccess(result, `Synced ${result.synced ?? rows.length} template(s) with Meta`).message)
-      await loadTemplateCounts()
+      const fallback =
+        `Synced ${result.synced ?? rows.length} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · ` +
+        `Rejected ${result.rejected ?? 0} · Linked ${result.linked_to_survey_type ?? 0} · ` +
+        `Unlinked types ${result.unlinked_survey_types ?? 0}`
+      setMsg(formatActionSuccess(result, fallback).message)
+      if (rows.length) {
+        setTemplateCounts(summarizeCatalog(rows))
+      } else {
+        await loadTemplateCounts()
+      }
       refreshTabData()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Meta sync failed').detailText || e?.message || 'Meta sync failed')
@@ -410,7 +418,12 @@ export default function WaTemplatesHub() {
                 <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> total
               </span>
             </div>
-            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => void syncFromMeta()} disabled={syncing}>
+            <Button
+              size="sm"
+              className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
+              onClick={() => void syncFromMeta()}
+              disabled={syncing}
+            >
               <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
               {syncing ? 'Syncing…' : 'Sync with Meta'}
             </Button>

@@ -57,8 +57,8 @@ def test_scoped_sync_does_not_link_unrelated_templates(monkeypatch):
         {"id": str(uuid.uuid4()), "template_id": "888", "name": "generic_survey_reminder", "language": "en_US", "status": "APPROVED", "components": []},
     ]
     monkeypatch.setattr(
-        "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
-        lambda db: remote,
+        "app.services.survey_whatsapp_template_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        lambda db, filter_waba_id=True: remote,
     )
 
     with get_sessionmaker()() as db:
@@ -210,3 +210,128 @@ def test_admin_list_includes_mapped_meta_rows_without_name_match():
         assert len(admin) == 1
         assert admin[0]["id"] == meta_row.id
         assert str(admin[0]["status"]).upper() == "APPROVED"
+
+
+def test_repair_creates_mapping_for_owned_template_without_mapping():
+    """Templates with survey_type_id but no mapping row get repaired."""
+    with get_sessionmaker()() as db:
+        cs, _ = _seed_types(db)
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"meta-{uuid.uuid4().hex[:8]}",
+            template_id="555",
+            name="voxbulk_survey_customer_satisfaction_abc_de3a48",
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=cs.id,
+            industry_id=cs.industry_id,
+            active_for_survey=True,
+        )
+        db.add(row)
+        db.commit()
+
+        assert SurveyTypeTemplateService.list_for_survey_type(db, cs.id) == []
+        result = SurveyWhatsappTemplateService.repair_survey_type_mappings(db)
+        assert result["repaired"] == 1
+        links = SurveyTypeTemplateService.list_for_survey_type(db, cs.id)
+        assert len(links) == 1
+        assert links[0].template_id == row.id
+
+
+def test_shared_slug_links_only_matching_industry():
+    """Shared topic slug across industries links via industry_id, not inventing a link."""
+    from app.services.industry_service import IndustryService
+
+    with get_sessionmaker()() as db:
+        ind_a = IndustryService.create_industry(db, {"name": "Industry A", "slug": "industry_a_link"})
+        ind_b = IndustryService.create_industry(db, {"name": "Industry B", "slug": "industry_b_link"})
+        type_a = SurveyTypeService.create_type(
+            db,
+            {"name": "Would Recommend", "slug": "would_recommend", "industry_id": ind_a.id},
+        )
+        type_b = SurveyTypeService.create_type(
+            db,
+            {"name": "Would Recommend", "slug": "would_recommend", "industry_id": ind_b.id},
+        )
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"meta-{uuid.uuid4().hex[:8]}",
+            template_id="777",
+            name="voxbulk_survey_would_recommend_abc_a7145a",
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=None,
+            industry_id=ind_a.id,
+            active_for_survey=True,
+        )
+        db.add(row)
+        db.commit()
+
+        linked = SurveyWhatsappTemplateService._ensure_mapping_for_sync(
+            db,
+            template=row,
+            name=row.name,
+            survey_type_id=None,
+        )
+        db.commit()
+        assert linked is True
+        assert len(SurveyTypeTemplateService.list_for_survey_type(db, type_a.id)) == 1
+        assert len(SurveyTypeTemplateService.list_for_survey_type(db, type_b.id)) == 0
+        assert str(row.survey_type_id) == str(type_a.id)
+
+
+def test_shared_slug_without_ownership_does_not_invent_link():
+    """Ambiguous shared slug with no survey_type_id / industry_id must not invent a mapping."""
+    from app.services.industry_service import IndustryService
+
+    with get_sessionmaker()() as db:
+        ind_a = IndustryService.create_industry(db, {"name": "Industry A2", "slug": "industry_a2_link"})
+        ind_b = IndustryService.create_industry(db, {"name": "Industry B2", "slug": "industry_b2_link"})
+        SurveyTypeService.create_type(
+            db,
+            {"name": "Viewing Experience", "slug": "viewing_experience", "industry_id": ind_a.id},
+        )
+        SurveyTypeService.create_type(
+            db,
+            {"name": "Viewing Experience", "slug": "viewing_experience", "industry_id": ind_b.id},
+        )
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"meta-{uuid.uuid4().hex[:8]}",
+            template_id="888",
+            name="voxbulk_survey_viewing_experience_abc_111111",
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=None,
+            industry_id=None,
+            active_for_survey=True,
+        )
+        db.add(row)
+        db.commit()
+
+        linked = SurveyWhatsappTemplateService._ensure_mapping_for_sync(
+            db,
+            template=row,
+            name=row.name,
+            survey_type_id=None,
+        )
+        assert linked is False
+        assert row.survey_type_id is None
+
+
+def test_relink_repairs_owned_templates():
+    with get_sessionmaker()() as db:
+        cs, _ = _seed_types(db)
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"meta-{uuid.uuid4().hex[:8]}",
+            template_id="999",
+            name="voxbulk_survey_customer_satisfaction_utu_abcdef",
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=cs.id,
+            industry_id=cs.industry_id,
+            active_for_survey=True,
+        )
+        db.add(row)
+        db.commit()
+
+        result = SurveyWhatsappTemplateService.relink_survey_templates(db)
+        assert result["linked_to_survey_type"] >= 1
+        assert len(SurveyTypeTemplateService.list_for_survey_type(db, cs.id)) == 1

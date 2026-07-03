@@ -95,16 +95,25 @@ function buildComponents(draft) {
   return components
 }
 
+function isLocalDraftTemplate(tpl) {
+  const recordId = String(tpl?.telnyx_record_id || tpl?.record_id || '').trim()
+  if (recordId.startsWith('local-')) return true
+  if (tpl?.is_local_only === true) return true
+  const status = String(tpl?.status || '').toUpperCase()
+  return status === 'LOCAL_DRAFT' || status === 'DRAFT'
+}
+
 function apiTemplateToDraft(tpl, product) {
   const components = parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components)
   const body = bodyFromComponents(components) || tpl?.body || tpl?.body_text || ''
   const footer = footerFromComponents(components) || tpl?.footer || ''
   const buttons = buttonsFromComponents(components)
   const lang = langCodeToChip(tpl?.language)
+  const metaName = String(tpl?.name || '').trim()
   return {
     id: tpl.id,
-    name: tpl.name || tpl.display_name || '',
-    display_name: tpl.display_name || tpl.name || '',
+    name: metaName || String(tpl?.display_name || '').trim(),
+    display_name: String(tpl?.display_name || '').trim(),
     langs: [lang],
     category: mapCategory(tpl),
     status: mapApprovalStatus(tpl),
@@ -125,6 +134,8 @@ function apiTemplateToDraft(tpl, product) {
           : tpl.active_for_survey !== false,
     step_role: tpl.step_role || null,
     components,
+    is_local_only: isLocalDraftTemplate(tpl),
+    telnyx_record_id: tpl?.telnyx_record_id || null,
   }
 }
 
@@ -279,11 +290,12 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
       const category = draft.category === 'Marketing' ? 'MARKETING' : 'UTILITY'
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
 
+      const displayName = draft.display_name || draft.name
       if (product === 'survey') {
         await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
-            display_name: draft.display_name || draft.name,
+            display_name: displayName,
             category,
             language: draft.language || 'en_GB',
             active_for_survey: draft.active,
@@ -296,7 +308,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
         await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
-            display_name: draft.display_name || draft.name,
+            display_name: displayName,
             category,
             language: draft.language || 'en_GB',
             active_for_interview: draft.active,
@@ -308,7 +320,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
         await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
-            display_name: draft.display_name || draft.name,
+            display_name: displayName,
             category,
             language: draft.language || 'en_GB',
             active_for_appointment: draft.active,
@@ -400,10 +412,14 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
 
   const t = draft
   const showUsage = (editTarget?.product === 'survey' || editTarget?.product === 'system') && !editTarget?.systemMode
+  const metaNameReadOnly = Boolean(t && !t.is_local_only)
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose?.()}>
-      <SheetContent side="right" className="w-full overflow-hidden border-l p-0 sm:max-w-[960px]">
+      <SheetContent
+        side="right"
+        className="waTemplatesHub ds-scope w-full overflow-hidden border-l p-0 sm:max-w-[960px]"
+      >
         {loading ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Loading template…</div>
         ) : null}
@@ -415,18 +431,31 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold">Edit template</div>
-                <div className="truncate font-mono text-[11px] text-muted-foreground">{t.name}</div>
+                <div className="truncate font-mono text-[11px] text-muted-foreground" title={t.name}>
+                  {t.name}
+                </div>
               </div>
               <div className="ml-auto flex items-center gap-1">
-                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => void sync()} disabled={syncing}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="wa-hub-ghost-btn h-7 gap-1 text-xs"
+                  onClick={() => void sync()}
+                  disabled={syncing}
+                >
                   <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} /> Sync
                 </Button>
                 <SheetClose asChild>
-                  <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs">
+                  <Button size="sm" variant="ghost" className="wa-hub-ghost-btn h-7 gap-1 text-xs">
                     <X className="h-3.5 w-3.5" /> Cancel
                   </Button>
                 </SheetClose>
-                <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => void save()} disabled={saving}>
+                <Button
+                  size="sm"
+                  className="wa-hub-primary-btn h-7 gap-1 text-xs"
+                  onClick={() => void save()}
+                  disabled={saving}
+                >
                   <Save className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Save'}
                 </Button>
               </div>
@@ -442,14 +471,22 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_340px]">
               <div className="space-y-4 overflow-y-auto p-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Template name">
+                  <Field
+                    label="Template name"
+                    hint={metaNameReadOnly ? 'Meta name (read-only)' : 'Local draft'}
+                  >
                     <Input
-                      value={t.display_name || t.name}
+                      value={t.name}
                       onChange={(e) => {
-                        update('display_name', e.target.value)
+                        if (metaNameReadOnly) return
                         update('name', e.target.value)
                       }}
-                      className="h-8 font-mono text-xs"
+                      readOnly={metaNameReadOnly}
+                      className={cn(
+                        'h-8 font-mono text-xs',
+                        metaNameReadOnly && 'cursor-default bg-surface-muted/50 text-muted-foreground',
+                      )}
+                      title={t.name}
                     />
                   </Field>
                   <Field label="Category">

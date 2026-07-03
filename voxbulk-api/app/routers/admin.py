@@ -1497,10 +1497,8 @@ def test_meta_whatsapp_send(payload: dict | None = None, db: Session = Depends(g
 
 @router.post("/integrations/meta_whatsapp/whatsapp-templates/sync")
 def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.telnyx_whatsapp_template_sync_service import (
-        TelnyxWhatsappTemplateSyncError,
-        TelnyxWhatsappTemplateSyncService,
-    )
+    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncError
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
     if not is_meta_whatsapp_primary(db):
@@ -1509,10 +1507,10 @@ def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(r
             detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
         )
     try:
-        result = TelnyxWhatsappTemplateSyncService.sync(db)
-        result["provider"] = "meta_whatsapp"
-        return result
+        return SurveyWhatsappTemplateService.sync_hub_from_meta(db)
     except TelnyxWhatsappTemplateSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 

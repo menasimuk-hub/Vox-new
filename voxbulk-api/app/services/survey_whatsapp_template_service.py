@@ -2366,24 +2366,50 @@ class SurveyWhatsappTemplateService:
         scoped = str(survey_type_id or "").strip()
         all_types = list(db.execute(select(SurveyType)).scalars().all())
         known_slugs = [str(st.slug or "") for st in all_types]
+        variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
 
+        # 1. Explicit scoped survey type (API / industry editor) — do not fall through
+        #    to other types when a scope is provided.
         if scoped:
             st = db.get(SurveyType, scoped)
             if st is not None and template_belongs_to_survey_type(template, st):
-                variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
                 target_types.append((st, variant))
         else:
-            legacy = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)$", lower)
-            if legacy:
-                st = SurveyTypeService.resolve_unique_by_slug(db, legacy.group(1))
+            # 2. Prefer existing ownership on the template row (set at create time).
+            owned_id = str(template.survey_type_id or "").strip()
+            if owned_id:
+                st = db.get(SurveyType, owned_id)
                 if st is not None:
-                    target_types.append((st, legacy.group(2)))
+                    target_types.append((st, variant))
 
+            # 3. Shared topic slugs: resolve by industry_id + name slug.
             if not target_types:
-                candidates = SurveyTypeService.survey_types_matching_name_slug(db, name, known_slugs=known_slugs)
-                if len(candidates) == 1:
-                    variant = VARIANT_ANONYMOUS if "anonymous" in lower else VARIANT_STANDARD
-                    target_types.append((candidates[0], variant))
+                industry_id = str(template.industry_id or "").strip()
+                name_slug = template_name_survey_slug(name, known_slugs=known_slugs)
+                if industry_id and name_slug:
+                    st = SurveyTypeService.get_by_slug(
+                        db,
+                        name_slug,
+                        industry_id=industry_id,
+                        default_industry_fallback=False,
+                    )
+                    if st is not None:
+                        target_types.append((st, variant))
+
+            # 4. Unique-slug only (never invent a link when the slug spans industries).
+            if not target_types:
+                legacy = re.search(r"voxbulk_survey_([a-z0-9_]+)_(standard|anonymous)$", lower)
+                if legacy:
+                    st = SurveyTypeService.resolve_unique_by_slug(db, legacy.group(1))
+                    if st is not None:
+                        target_types.append((st, legacy.group(2)))
+
+                if not target_types:
+                    candidates = SurveyTypeService.survey_types_matching_name_slug(
+                        db, name, known_slugs=known_slugs
+                    )
+                    if len(candidates) == 1:
+                        target_types.append((candidates[0], variant))
 
         for st, variant in target_types:
             existing = db.execute(
@@ -2515,16 +2541,29 @@ class SurveyWhatsappTemplateService:
                     str(st.slug or "")
                     for st in db.execute(select(SurveyType)).scalars().all()
                 ]
+                owner = None
                 if scoped_type_id:
                     owner = db.get(SurveyType, scoped_type_id)
+                elif str(existing.survey_type_id or "").strip():
+                    owner = db.get(SurveyType, str(existing.survey_type_id).strip())
                 else:
                     name_slug = template_name_survey_slug(name, known_slugs=all_slugs)
-                    owner = (
-                        SurveyTypeService.resolve_unique_by_slug(db, name_slug)
-                        if name_slug
-                        else None
-                    )
-                if owner is not None and template_belongs_to_survey_type(existing, owner):
+                    industry_id = str(existing.industry_id or "").strip()
+                    if industry_id and name_slug:
+                        owner = SurveyTypeService.get_by_slug(
+                            db,
+                            name_slug,
+                            industry_id=industry_id,
+                            default_industry_fallback=False,
+                        )
+                    elif name_slug:
+                        owner = SurveyTypeService.resolve_unique_by_slug(db, name_slug)
+                # Only claim ownership when the row already belongs to this type (id or name).
+                # Scoped sync must not attach unrelated remote templates to the open survey type.
+                if owner is not None and (
+                    str(existing.survey_type_id or "").strip() == str(owner.id)
+                    or template_belongs_to_survey_type(existing, owner)
+                ):
                     existing.survey_type_id = owner.id
                     apply_industry_to_template(existing, owner)
                 existing.components_json = components_json
@@ -2592,6 +2631,205 @@ class SurveyWhatsappTemplateService:
         summary = format_sync_summary(raw_summary)
         logger.info("survey_wa_template_sync_end", extra=summary.get("counts", raw_summary))
         return summary
+
+    @staticmethod
+    def repair_survey_type_mappings(db: Session) -> dict[str, Any]:
+        """Create mappings for active survey templates that have survey_type_id but no mapping row."""
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.active_for_survey.is_(True),
+                    TelnyxWhatsappTemplate.survey_type_id.isnot(None),
+                )
+            ).scalars()
+        )
+        repaired = 0
+        for row in rows:
+            st_id = str(row.survey_type_id or "").strip()
+            if not st_id:
+                continue
+            existing = db.execute(
+                select(SurveyTypeTemplate).where(
+                    SurveyTypeTemplate.survey_type_id == st_id,
+                    SurveyTypeTemplate.template_id == row.id,
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                continue
+            if SurveyWhatsappTemplateService._ensure_mapping_for_sync(
+                db,
+                template=row,
+                name=str(row.name or ""),
+                survey_type_id=st_id,
+            ):
+                repaired += 1
+        if repaired:
+            db.commit()
+        return {"ok": True, "repaired": repaired}
+
+    @staticmethod
+    def relink_survey_templates(db: Session) -> dict[str, Any]:
+        """Re-link stored survey templates to survey types using ownership / industry / unique slug."""
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.name.ilike("%survey%"),
+                )
+            ).scalars()
+        )
+        all_types = list(db.execute(select(SurveyType)).scalars().all())
+        known_slugs = [str(st.slug or "") for st in all_types]
+        linked = 0
+        for row in rows:
+            if not str(row.survey_type_id or "").strip():
+                name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
+                industry_id = str(row.industry_id or "").strip()
+                owner = None
+                if industry_id and name_slug:
+                    owner = SurveyTypeService.get_by_slug(
+                        db,
+                        name_slug,
+                        industry_id=industry_id,
+                        default_industry_fallback=False,
+                    )
+                elif name_slug:
+                    owner = SurveyTypeService.resolve_unique_by_slug(db, name_slug)
+                if owner is not None:
+                    row.survey_type_id = owner.id
+                    apply_industry_to_template(row, owner)
+                    db.add(row)
+            if SurveyWhatsappTemplateService._ensure_mapping_for_sync(
+                db,
+                template=row,
+                name=str(row.name or ""),
+                survey_type_id=str(row.survey_type_id or "").strip() or None,
+            ):
+                linked += 1
+        db.commit()
+
+        mapped_ids = select(SurveyTypeTemplate.template_id)
+        unlinked_templates = int(
+            db.execute(
+                select(func.count())
+                .select_from(TelnyxWhatsappTemplate)
+                .where(
+                    TelnyxWhatsappTemplate.name.ilike("%survey%"),
+                    TelnyxWhatsappTemplate.id.not_in(mapped_ids),
+                )
+            ).scalar_one()
+            or 0
+        )
+        unlinked_types = 0
+        for st in all_types:
+            if not SurveyTypeTemplateService.list_for_survey_type(db, st.id):
+                unlinked_types += 1
+        return {
+            "ok": True,
+            "linked_to_survey_type": linked,
+            "unlinked_survey_templates": unlinked_templates,
+            "unlinked_survey_types": unlinked_types,
+        }
+
+    @staticmethod
+    def sync_hub_from_meta(db: Session) -> dict[str, Any]:
+        """Full WA Templates hub sync: Meta catalog status + product linking/repair."""
+        from app.services.appointment_whatsapp_template_service import (
+            APPOINTMENT_WA_TEMPLATE_KEYS,
+            AppointmentWhatsappTemplateService,
+            appointment_spec_by_key,
+        )
+        from app.services.interview_whatsapp_template_service import (
+            INTERVIEW_WA_TEMPLATE_KEYS,
+            InterviewWhatsappTemplateService,
+            interview_spec_by_key,
+        )
+        from app.services.wa_template_language import default_wa_template_language, normalize_wa_template_language
+
+        catalog = TelnyxWhatsappTemplateSyncService.sync(db)
+        # Catalog already refreshed statuses — link/repair without another Meta list call.
+        repair = SurveyWhatsappTemplateService.repair_survey_type_mappings(db)
+        relink = SurveyWhatsappTemplateService.relink_survey_templates(db)
+
+        interview_linked = 0
+        appointment_linked = 0
+        try:
+            InterviewWhatsappTemplateService.ensure_catalog_seeded(db)
+            for key in INTERVIEW_WA_TEMPLATE_KEYS:
+                spec = interview_spec_by_key(key)
+                if not spec:
+                    continue
+                row = InterviewWhatsappTemplateService._find_row_for_spec(
+                    db, key, str(spec.get("telnyx_name") or "")
+                )
+                if row is None or not _is_local_row(row):
+                    continue
+                lang_code, _ = normalize_wa_template_language(row.language, db=db)
+                if _try_link_existing_remote_template(
+                    db, row, language=lang_code or default_wa_template_language(db)
+                ):
+                    interview_linked += 1
+        except Exception as exc:
+            logger.warning("hub_meta_sync_interview_failed", extra={"error": str(exc)})
+
+        try:
+            AppointmentWhatsappTemplateService.ensure_catalog_seeded(db)
+            for key in APPOINTMENT_WA_TEMPLATE_KEYS:
+                spec = appointment_spec_by_key(key)
+                if not spec:
+                    continue
+                row = AppointmentWhatsappTemplateService._find_row_for_spec(
+                    db, key, str(spec.get("telnyx_name") or "")
+                )
+                if row is None or not _is_local_row(row):
+                    continue
+                lang_code, _ = normalize_wa_template_language(row.language, db=db)
+                if _try_link_existing_remote_template(
+                    db, row, language=lang_code or default_wa_template_language(db)
+                ):
+                    appointment_linked += 1
+        except Exception as exc:
+            logger.warning("hub_meta_sync_appointment_failed", extra={"error": str(exc)})
+
+        if interview_linked or appointment_linked:
+            db.commit()
+
+        templates = catalog.get("templates") or []
+        approved = sum(1 for t in templates if str(t.get("status") or "").upper() == "APPROVED")
+        pending = sum(1 for t in templates if str(t.get("status") or "").upper() == "PENDING")
+        rejected = sum(1 for t in templates if str(t.get("status") or "").upper() == "REJECTED")
+        local_only = sum(
+            1
+            for t in templates
+            if str(t.get("status") or "").upper() in {"LOCAL_DRAFT", "DRAFT", ""}
+            or str(t.get("telnyx_record_id") or "").startswith("local-")
+        )
+        linked = int(relink.get("linked_to_survey_type") or 0)
+        unlinked_types = int(relink.get("unlinked_survey_types") or 0)
+        synced = int(catalog.get("synced") or len(templates))
+
+        message = (
+            f"Synced {synced} · Approved {approved} · Pending {pending} · Rejected {rejected} "
+            f"· Linked {linked} · Unlinked types {unlinked_types}"
+        )
+        return {
+            "ok": bool(catalog.get("ok", True)),
+            "provider": "meta_whatsapp",
+            "message": message,
+            "synced": synced,
+            "approved": approved,
+            "pending": pending,
+            "rejected": rejected,
+            "local_only": local_only,
+            "linked_to_survey_type": linked,
+            "unlinked_survey_types": unlinked_types,
+            "unlinked_survey_templates": int(relink.get("unlinked_survey_templates") or 0),
+            "repaired_mappings": int(repair.get("repaired") or 0),
+            "catalog": {k: v for k, v in catalog.items() if k != "templates"},
+            "survey": relink,
+            "interview": {"ok": True, "linked": interview_linked},
+            "appointment": {"ok": True, "linked": appointment_linked},
+            "templates": templates,
+        }
 
     @staticmethod
     def _messaging_org_id(db: Session) -> str:
