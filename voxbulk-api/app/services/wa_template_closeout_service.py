@@ -330,9 +330,17 @@ class WaTemplateCloseoutService:
                 else:
                     pushed += 1
             except SurveyWhatsappTemplateError as exc:
-                failed.append({"id": row.id, "name": row.name, "error": str(exc)[:300]})
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                failed.append({"id": getattr(row, "id", None), "name": getattr(row, "name", None), "error": str(exc)[:300]})
             except Exception as exc:  # noqa: BLE001
-                failed.append({"id": row.id, "name": row.name, "error": str(exc)[:300]})
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                failed.append({"id": getattr(row, "id", None), "name": getattr(row, "name", None), "error": str(exc)[:300]})
         return {
             "ok": True,
             "pushed": pushed,
