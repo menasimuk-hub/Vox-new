@@ -963,9 +963,12 @@ export default function Integrations() {
           if (base.toLowerCase().endsWith('/webhooks/meta/whatsapp')) {
             base = base.slice(0, -'/webhooks/meta/whatsapp'.length).replace(/\/+$/, '')
           }
-          return base || DEFAULT_WEBHOOK_BASE
+          return base
         }
-        const webhookBase = stripMetaPath(config.webhook_base_url || config.webhook_url || DEFAULT_WEBHOOK_BASE)
+        const telnyxBase = stripMetaPath(summaries?.telnyx?.config?.webhook_base_url || '')
+        const webhookBase = stripMetaPath(
+          config.webhook_base_url || config.webhook_url || telnyxBase || 'https://api.voxbulk.com'
+        )
         config.webhook_base_url = webhookBase
         config.webhook_url = `${webhookBase}/webhooks/meta/whatsapp`
         if (!config.graph_api_version) config.graph_api_version = 'v25.0'
@@ -1141,7 +1144,12 @@ export default function Integrations() {
   const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const elevenLabsStatus = activeProvider === 'elevenlabs' ? elevenLabsValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const metaStatus = activeProvider === 'meta_whatsapp' ? metaWhatsappValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const metaStatus =
+    activeProvider === 'meta_whatsapp'
+      ? metaWhatsappValidation(activeConfig, activeDraft, activeSummary, {
+          telnyxWebhookBase: summaries?.telnyx?.config?.webhook_base_url || 'https://api.voxbulk.com',
+        })
+      : { errors: {}, valid: true }
   const telnyxWebhookBase = String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
   const metaWebhookBase = String(
     activeProvider === 'meta_whatsapp' ? activeConfig.webhook_base_url : summaries?.meta_whatsapp?.config?.webhook_base_url || DEFAULT_WEBHOOK_BASE
@@ -2070,7 +2078,7 @@ export default function Integrations() {
             setMetaTemplateLang={setMetaTemplateLang}
             providerError={providerError}
             providerSaving={providerSaving}
-            defaultWebhookBase={DEFAULT_WEBHOOK_BASE}
+            defaultWebhookBase={summaries?.telnyx?.config?.webhook_base_url || 'https://api.voxbulk.com'}
             setProviderEnabled={setProviderEnabled}
             setProviderField={setProviderField}
             setProviderDrafts={setProviderDrafts}

@@ -144,12 +144,18 @@ export default function MetaWhatsappIntegration({
           <button type='button' className='tsh-btn tsh-btn-outline' onClick={testMetaConnection}>
             <RefreshCw size={14} aria-hidden /> Test connection
           </button>
-          <button type='button' className='tsh-btn tsh-btn-primary' onClick={() => saveIntegrationProvider('meta_whatsapp')} disabled={providerSaving || !metaStatus.valid}>
+          <button type='button' className='tsh-btn tsh-btn-primary' onClick={() => saveIntegrationProvider('meta_whatsapp')} disabled={providerSaving}>
             <Save size={14} aria-hidden /> {providerSaving ? 'Saving…' : 'Save Meta WhatsApp'}
           </button>
         </div>
       </div>
 
+      {!metaStatus.valid && Object.keys(metaStatus.errors).length ? (
+        <div className='tsh-banner tsh-banner-info'>
+          <Info size={14} aria-hidden />{' '}
+          Complete before save: {Object.values(metaStatus.errors).join(' · ')}
+        </div>
+      ) : null}
       {providerError ? (
         <div className='tsh-banner tsh-banner-danger'>
           <Info size={14} aria-hidden /> {providerError}
@@ -254,7 +260,7 @@ export default function MetaWhatsappIntegration({
               <input
                 className='input'
                 style={metaStatus.errors.webhook_base_url ? invalidInputStyle : undefined}
-                value={String(activeConfig.webhook_base_url || defaultWebhookBase)}
+                value={String(activeConfig.webhook_base_url || defaultWebhookBase || 'https://api.voxbulk.com')}
                 onChange={(e) => setProviderField('meta_whatsapp', 'webhook_base_url', e.target.value)}
               />
             </Field>
@@ -336,18 +342,18 @@ export default function MetaWhatsappIntegration({
   )
 }
 
-export function metaWhatsappValidation(config, draft, summary) {
+export function metaWhatsappValidation(config, draft, summary, { telnyxWebhookBase } = {}) {
   const errors = {}
   const has = (key, draftKey) => Boolean(summary?.secret_set?.[key]) || Boolean(String(draft?.[draftKey] || '').trim())
-  if (!has('access_token', 'access_token_draft')) errors.access_token = 'Permanent access token is required.'
-  if (!has('app_secret', 'app_secret_draft')) errors.app_secret = 'App secret is required.'
-  if (!has('webhook_verify_token', 'webhook_verify_token_draft')) errors.webhook_verify_token = 'Webhook verify token is required.'
-  if (!String(config?.phone_number_id || '').trim()) errors.phone_number_id = 'Phone number ID is required.'
-  if (!String(config?.waba_id || '').trim()) errors.waba_id = 'WABA ID is required.'
-  const webhookBase = String(config?.webhook_base_url || '').trim()
-  if (!webhookBase) errors.webhook_base_url = 'Webhook base URL is required.'
+  if (!has('access_token', 'access_token_draft')) errors.access_token = 'Permanent access token (Secrets tab)'
+  if (!has('app_secret', 'app_secret_draft')) errors.app_secret = 'App secret (Secrets tab)'
+  if (!has('webhook_verify_token', 'webhook_verify_token_draft')) errors.webhook_verify_token = 'Webhook verify token (Secrets tab)'
+  if (!String(config?.phone_number_id || '').trim()) errors.phone_number_id = 'Phone number ID'
+  if (!String(config?.waba_id || '').trim()) errors.waba_id = 'WABA ID'
+  const webhookBase = String(config?.webhook_base_url || telnyxWebhookBase || '').trim()
+  if (!webhookBase) errors.webhook_base_url = 'Webhook base URL (Webhooks tab)'
   else if (/^https?:\/\/localhost/i.test(webhookBase)) {
-    errors.webhook_base_url = 'Use your ngrok HTTPS URL or production API host (not localhost).'
+    errors.webhook_base_url = 'Use https://api.voxbulk.com or ngrok (not localhost)'
   }
   return { errors, valid: Object.keys(errors).length === 0 }
 }
