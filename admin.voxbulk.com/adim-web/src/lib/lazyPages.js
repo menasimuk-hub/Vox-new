@@ -32,6 +32,7 @@ export const MeetingRoomSettings = lazy(() => import('../pages/MeetingRoomSettin
 export const WaSurveySystemTemplates = lazy(() => import('../pages/WaSurveySystemTemplates'))
 export const WaInterviewTemplates = lazy(() => import('../pages/WaInterviewTemplates'))
 export const WaTemplatesHub = lazy(() => import('../pages/WaTemplatesHub'))
+export const WaInboundMessages = lazy(() => import('../pages/WaInboundMessages'))
 export const WaSurveyTypes = lazy(() => import('../pages/WaSurveyTypes'))
 export const WaSurveyTypeEdit = lazy(() => import('../pages/WaSurveyTypeEdit'))
 export const WaSurveyIndustries = lazy(() => import('../pages/WaSurveyIndustries'))

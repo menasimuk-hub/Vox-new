@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   BarChart3,
   Building2,
@@ -467,6 +467,12 @@ export default function WaTemplatesHub() {
                 <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> total
               </span>
             </div>
+            <Link
+              to="/ai/wa-messages"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Inbound messages
+            </Link>
             <Button
               size="sm"
               className="wa-hub-primary-btn h-8 gap-1.5 text-xs"

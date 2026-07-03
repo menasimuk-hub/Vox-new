@@ -164,6 +164,7 @@ export default function App() {
         <Route path='/support/sla' element={<P.SupportSLA />} />
 
         <Route path='/ai/wa-templates' element={<P.WaTemplatesHub />} />
+        <Route path='/ai/wa-messages' element={<P.WaInboundMessages />} />
         <Route path='/ai/scripts' element={G('Call scripts')} />
         <Route path='/ai/agents' element={<P.Agents />} />
         <Route path='/ai/agents/new' element={<P.Agents />} />

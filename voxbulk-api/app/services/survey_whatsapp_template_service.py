@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
@@ -1513,8 +1513,10 @@ def survey_template_to_dict(
 class SurveyWhatsappTemplateService:
     @staticmethod
     def list_for_industry(db: Session, industry_id: str) -> list[dict[str, Any]]:
-        """All templates for an industry (linked mappings + industry_id), including rejected."""
+        """One primary template per survey type (English preferred), including rejected orphans."""
+        from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
         from app.services.industry_service import _template_ids_for_industry
+        from app.services.survey_type_template_service import template_name_survey_slug
 
         ids = _template_ids_for_industry(db, industry_id)
         if not ids:
@@ -1526,33 +1528,60 @@ class SurveyWhatsappTemplateService:
                 .order_by(TelnyxWhatsappTemplate.name.asc())
             ).scalars()
         )
-        # Also include REJECTED rows that still reference a survey type in this industry
-        # but lost industry_id / mapping during an earlier sync wipe.
-        type_ids = list(
-            db.execute(select(SurveyType.id).where(SurveyType.industry_id == industry_id)).scalars()
+        type_rows = list(
+            db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
         )
-        if type_ids:
-            extra = list(
-                db.execute(
-                    select(TelnyxWhatsappTemplate).where(
-                        TelnyxWhatsappTemplate.survey_type_id.in_(type_ids),
-                        func.upper(TelnyxWhatsappTemplate.status) == "REJECTED",
-                    )
-                ).scalars()
-            )
-            seen = {int(r.id) for r in rows}
-            for row in extra:
-                if int(row.id) not in seen:
-                    rows.append(row)
-                    seen.add(int(row.id))
+        type_by_id = {st.id: st for st in type_rows}
+        known_slugs = [str(st.slug or "") for st in type_rows]
+        slug_to_type = {str(st.slug or "").strip().lower(): st for st in type_rows if st.slug}
+
+        # Group by survey type (ownership or name slug).
+        groups: dict[str, list[TelnyxWhatsappTemplate]] = {}
+        for row in rows:
+            st = type_by_id.get(str(row.survey_type_id or ""))
+            if st is None:
+                name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
+                st = slug_to_type.get(str(name_slug or ""))
+            key = str(st.id) if st is not None else f"row:{row.id}"
+            groups.setdefault(key, []).append(row)
+
+        def _pick_primary(group: list[TelnyxWhatsappTemplate]) -> TelnyxWhatsappTemplate:
+            for lang in ENGLISH_TEMPLATE_LANGUAGES if ENGLISH_TEMPLATE_LANGUAGES else ("en_GB", "en"):
+                for row in group:
+                    if str(row.language or "").strip() == lang:
+                        return row
+            for row in group:
+                if str(row.language or "").strip().lower().startswith("en"):
+                    return row
+            # Prefer rejected so it surfaces on the card list.
+            for row in group:
+                if str(row.status or "").upper() == "REJECTED":
+                    return row
+            return group[0]
 
         payload: list[dict[str, Any]] = []
-        for row in rows:
-            st = db.get(SurveyType, row.survey_type_id) if row.survey_type_id else None
-            linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
-            item = survey_template_to_dict(row, linked_survey_type_count=linked)
-            item["survey_type_id"] = row.survey_type_id
+        for key, group in groups.items():
+            primary = _pick_primary(group)
+            st = type_by_id.get(str(primary.survey_type_id or ""))
+            if st is None and not key.startswith("row:"):
+                st = type_by_id.get(key)
+            if st is None:
+                name_slug = template_name_survey_slug(str(primary.name or ""), known_slugs=known_slugs)
+                st = slug_to_type.get(str(name_slug or ""))
+            linked = SurveyTypeTemplateService.linked_survey_type_count(db, primary.id)
+            item = survey_template_to_dict(primary, linked_survey_type_count=linked)
+            item["survey_type_id"] = st.id if st else primary.survey_type_id
             item["survey_type_name"] = st.name if st else None
+            item["display_name"] = (st.name if st else None) or item.get("display_name") or item.get("name")
+            item["name"] = item["display_name"]
+            item["language_count"] = len({str(r.language or "") for r in group})
+            item["languages"] = sorted({str(r.language or "en_GB") for r in group})
+            # Worst status in the language group wins for health.
+            statuses = {str(r.status or "").upper() for r in group}
+            if "REJECTED" in statuses:
+                item["status"] = "REJECTED"
+            elif "PENDING" in statuses or "SUBMITTED" in statuses:
+                item["status"] = "PENDING"
             payload.append(item)
         payload.sort(
             key=lambda item: (
@@ -2527,8 +2556,11 @@ class SurveyWhatsappTemplateService:
                     candidates = SurveyTypeService.survey_types_matching_name_slug(
                         db, name, known_slugs=known_slugs
                     )
-                    if len(candidates) == 1:
-                        target_types.append((candidates[0], variant))
+                    owner = SurveyWhatsappTemplateService._pick_owner_survey_type(
+                        db, candidates, template=template
+                    )
+                    if owner is not None:
+                        target_types.append((owner, variant))
 
         for st, variant in target_types:
             existing = db.execute(
@@ -2842,6 +2874,36 @@ class SurveyWhatsappTemplateService:
         return {"ok": True, "repaired": repaired}
 
     @staticmethod
+    def _pick_owner_survey_type(
+        db: Session,
+        candidates: list[SurveyType],
+        *,
+        template: TelnyxWhatsappTemplate,
+    ) -> SurveyType | None:
+        """Pick one survey type when a slug exists in multiple industries."""
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        # Prefer a type that already has an approved template for the same slug.
+        scored: list[tuple[int, str, SurveyType]] = []
+        for st in candidates:
+            approved = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(TelnyxWhatsappTemplate)
+                    .where(
+                        TelnyxWhatsappTemplate.survey_type_id == st.id,
+                        func.upper(TelnyxWhatsappTemplate.status) == "APPROVED",
+                    )
+                ).scalar_one()
+                or 0
+            )
+            scored.append((approved, str(st.name or ""), st))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return scored[0][2]
+
+    @staticmethod
     def relink_survey_templates(db: Session) -> dict[str, Any]:
         """Re-link stored survey templates to survey types using ownership / industry / unique slug."""
         rows = list(
@@ -2854,6 +2916,7 @@ class SurveyWhatsappTemplateService:
         all_types = list(db.execute(select(SurveyType)).scalars().all())
         known_slugs = [str(st.slug or "") for st in all_types]
         linked = 0
+        ownership_set = 0
         for row in rows:
             if not str(row.survey_type_id or "").strip():
                 name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
@@ -2868,10 +2931,23 @@ class SurveyWhatsappTemplateService:
                     )
                 elif name_slug:
                     owner = SurveyTypeService.resolve_unique_by_slug(db, name_slug)
+                    if owner is None:
+                        candidates = SurveyTypeService.survey_types_matching_name_slug(
+                            db, str(row.name or ""), known_slugs=known_slugs
+                        )
+                        owner = SurveyWhatsappTemplateService._pick_owner_survey_type(
+                            db, candidates, template=row
+                        )
                 if owner is not None:
                     row.survey_type_id = owner.id
-                    apply_industry_to_template(row, owner)
+                    # Orphans may be claimed by one industry for ownership; cards also
+                    # resolve orphans by name slug via _template_ids_for_industry.
+                    if not str(row.industry_id or "").strip():
+                        apply_industry_to_template(row, owner)
+                    else:
+                        row.survey_type_id = owner.id
                     db.add(row)
+                    ownership_set += 1
             if SurveyWhatsappTemplateService._ensure_mapping_for_sync(
                 db,
                 template=row,
@@ -2900,6 +2976,7 @@ class SurveyWhatsappTemplateService:
         return {
             "ok": True,
             "linked_to_survey_type": linked,
+            "ownership_set": ownership_set,
             "unlinked_survey_templates": unlinked_templates,
             "unlinked_survey_types": unlinked_types,
         }
@@ -2924,6 +3001,25 @@ class SurveyWhatsappTemplateService:
         sales_cat = SurveyWhatsappTemplateService.ensure_sales_offer_marketing_category(db)
         repair = SurveyWhatsappTemplateService.repair_survey_type_mappings(db)
         relink = SurveyWhatsappTemplateService.relink_survey_templates(db)
+
+        closeout: dict[str, Any] = {}
+        try:
+            from app.services.wa_template_closeout_service import WaTemplateCloseoutService
+
+            closeout["survey_repair"] = WaTemplateCloseoutService.repair_all_survey_content(db)
+            closeout["feedback_repair"] = WaTemplateCloseoutService.repair_feedback_content(db)
+            # Re-link after ownership fields may have been set during repair.
+            closeout["relink"] = SurveyWhatsappTemplateService.relink_survey_templates(db)
+            closeout["interview_push"] = WaTemplateCloseoutService.push_all_interview(db)
+            closeout["survey_push"] = WaTemplateCloseoutService.push_local_and_needs_resubmit(db)
+            closeout["feedback_push"] = WaTemplateCloseoutService.push_all_feedback(db)
+            closeout["clean"] = WaTemplateCloseoutService.clean_dead_orphan_rejected(db, dry_run=False)
+            # Refresh statuses once more after pushes.
+            catalog = TelnyxWhatsappTemplateSyncService.sync(db)
+            closeout["relink_final"] = SurveyWhatsappTemplateService.relink_survey_templates(db)
+        except Exception as exc:
+            logger.warning("hub_meta_sync_closeout_failed", extra={"error": str(exc)})
+            closeout["error"] = str(exc)[:300]
 
         system_kinds: dict[str, int] = {}
         try:
@@ -2992,19 +3088,28 @@ class SurveyWhatsappTemplateService:
         approved = sum(1 for t in templates if str(t.get("status") or "").upper() == "APPROVED")
         pending = sum(1 for t in templates if str(t.get("status") or "").upper() == "PENDING")
         rejected = sum(1 for t in templates if str(t.get("status") or "").upper() == "REJECTED")
-        local_only = sum(
-            1
-            for t in templates
-            if str(t.get("status") or "").upper() in {"LOCAL_DRAFT", "DRAFT", ""}
-            or str(t.get("telnyx_record_id") or "").startswith("local-")
+        # Count local-only from DB (authoritative for hub "Local only" filter).
+        local_only = int(
+            db.execute(
+                select(func.count())
+                .select_from(TelnyxWhatsappTemplate)
+                .where(
+                    or_(
+                        func.upper(TelnyxWhatsappTemplate.status).in_(["LOCAL_DRAFT", "DRAFT", ""]),
+                        TelnyxWhatsappTemplate.telnyx_record_id.like("local-%"),
+                    )
+                )
+            ).scalar_one()
+            or 0
         )
-        linked = int(relink.get("linked_to_survey_type") or 0)
-        unlinked_types = int(relink.get("unlinked_survey_types") or 0)
+        final_relink = closeout.get("relink_final") or closeout.get("relink") or relink
+        linked = int(final_relink.get("linked_to_survey_type") or 0)
+        unlinked_types = int(final_relink.get("unlinked_survey_types") or 0)
         synced = int(catalog.get("synced") or len(templates))
 
         message = (
             f"Synced {synced} · Approved {approved} · Pending {pending} · Rejected {rejected} "
-            f"· Linked {linked} · Unlinked types {unlinked_types}"
+            f"· Local only {local_only} · Linked {linked}"
         )
         # Do not return the full template catalog — hundreds of rows make the browser abort
         # waiting for a multi‑MB JSON body. Hub reloads counts via a separate list call.
@@ -3019,15 +3124,16 @@ class SurveyWhatsappTemplateService:
             "local_only": local_only,
             "linked_to_survey_type": linked,
             "unlinked_survey_types": unlinked_types,
-            "unlinked_survey_templates": int(relink.get("unlinked_survey_templates") or 0),
+            "unlinked_survey_templates": int(final_relink.get("unlinked_survey_templates") or 0),
             "repaired_mappings": int(repair.get("repaired") or 0),
             "repaired_body_previews": int(body_repair.get("repaired") or 0),
             "sales_offer_marketing_updated": int(sales_cat.get("updated") or 0),
             "system_templates": system_kinds,
             "catalog": {k: v for k, v in catalog.items() if k != "templates"},
-            "survey": relink,
-            "interview": {"ok": True, "linked": interview_linked},
+            "survey": final_relink,
+            "interview": closeout.get("interview_push") or {"ok": True, "linked": interview_linked},
             "appointment": {"ok": True, "linked": appointment_linked},
+            "closeout": closeout,
             "templates": [],
         }
 

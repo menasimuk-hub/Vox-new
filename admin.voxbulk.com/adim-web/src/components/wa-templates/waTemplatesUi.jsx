@@ -178,7 +178,11 @@ export function langCodeToChip(language) {
 
 export function toHubRow(tpl, overrides = {}) {
   const lang = langCodeToChip(tpl.language)
-  const langs = tpl.langs || [lang]
+  const languageList = overrides.languages || tpl.languages || tpl.langs
+  const langs = Array.isArray(languageList) && languageList.length
+    ? languageList.map((l) => langCodeToChip(l))
+    : [lang]
+  const languageCount = overrides.languageCount || tpl.language_count || langs.length || 1
   const templateCount =
     tpl.template_count ??
     tpl.templates_count ??
@@ -188,7 +192,8 @@ export function toHubRow(tpl, overrides = {}) {
     id: tpl.id,
     name: tpl.name || tpl.display_name || tpl.slug || String(tpl.id),
     langs,
-    langsTitle: langs.join(' · '),
+    languageCount,
+    langsTitle: languageCount > 1 ? `${languageCount} langs · ${langs.join(' · ')}` : langs.join(' · '),
     category: mapCategory(tpl),
     used: tpl.usage_count ?? tpl.used_count ?? tpl.sent_count ?? templateCount ?? 0,
     updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at || tpl.synced_at || tpl.last_synced_at),

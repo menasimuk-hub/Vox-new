@@ -189,6 +189,8 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
   const [toast, setToast] = useState('')
   const [surveyTypes, setSurveyTypes] = useState([])
   const [usageOpen, setUsageOpen] = useState(false)
+  const [langVariants, setLangVariants] = useState([])
+  const [activeTemplateId, setActiveTemplateId] = useState(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -223,9 +225,17 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           const kinds = Array.isArray(data?.kinds) ? data.kinds : []
           const all = kinds.flatMap((k) => (Array.isArray(k.templates) ? k.templates : []))
           tpl = all.find((t) => String(t.id) === String(editTarget.templateId))
+          setLangVariants([])
         } else {
           const data = await apiFetch(`/admin/customer-feedback/survey-types/${editTarget.surveyTypeId}`)
           const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
+          setLangVariants(
+            templates.map((row) => ({
+              id: row.id,
+              language: row.language || 'en_GB',
+              tpl: row.body || row.body_text ? { ...row, body: row.body || row.body_text } : row,
+            })),
+          )
           tpl = templates.find((t) => String(t.id) === String(editTarget.templateId)) || templates[0]
         }
         if (!tpl) throw new Error('Template not found')
@@ -233,6 +243,30 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
       } else {
         throw new Error('Unknown product')
       }
+      if ((product === 'survey' || product === 'system') && editTarget.surveyTypeId && !editTarget.systemMode) {
+        try {
+          const typeData = await apiFetch(`/admin/wa-survey/types/${editTarget.surveyTypeId}`)
+          const templates = Array.isArray(typeData?.templates) ? typeData.templates : []
+          if (templates.length) {
+            setLangVariants(
+              templates.map((row) => ({
+                id: row.id,
+                language: row.language || 'en_GB',
+                tpl: row,
+              })),
+            )
+            const match = templates.find((t) => String(t.id) === String(editTarget.templateId))
+            if (match) tpl = match
+          } else {
+            setLangVariants([{ id: tpl.id, language: tpl.language || 'en_GB', tpl }])
+          }
+        } catch {
+          setLangVariants([{ id: tpl.id, language: tpl.language || 'en_GB', tpl }])
+        }
+      } else if (product !== 'feedback' || editTarget.systemMode) {
+        setLangVariants(tpl ? [{ id: tpl.id, language: tpl.language || 'en_GB', tpl }] : [])
+      }
+      setActiveTemplateId(tpl?.id ?? editTarget.templateId)
       setDraft(apiTemplateToDraft(tpl, product === 'system' ? 'survey' : product))
       setSurveyTypes(types)
     } catch (e) {
@@ -286,13 +320,17 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     setSaving(true)
     setError('')
     try {
+      const templateId = activeTemplateId || editTarget.templateId
       const components = buildComponents(draft)
+      if (!(draft.buttons || []).length) {
+        throw new Error('Add at least one quick-reply button before saving.')
+      }
       const category = draft.category === 'Marketing' ? 'MARKETING' : 'UTILITY'
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
 
       const displayName = draft.display_name || draft.name
       if (product === 'survey') {
-        await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}`, {
+        await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
             display_name: displayName,
@@ -305,7 +343,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           }),
         })
       } else if (product === 'interview') {
-        await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}`, {
+        await apiFetch(`/admin/wa-interview/templates/${templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
             display_name: displayName,
@@ -317,7 +355,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           }),
         })
       } else if (product === 'appointment') {
-        await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}`, {
+        await apiFetch(`/admin/wa-appointment/templates/${templateId}`, {
           method: 'PUT',
           body: JSON.stringify({
             display_name: displayName,
@@ -332,7 +370,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
         await apiFetch('/admin/customer-feedback/wa-templates', {
           method: 'POST',
           body: JSON.stringify({
-            id: editTarget.templateId,
+            id: templateId,
             body_text: draft.body,
             meta_category: category.toLowerCase(),
             language: draft.language || 'en_GB',
@@ -357,17 +395,30 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     setError('')
     try {
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
+      const ids =
+        langVariants.length > 1
+          ? langVariants.map((v) => v.id)
+          : [activeTemplateId || editTarget.templateId]
       if (product === 'survey') {
-        await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+        for (const id of ids) {
+          await apiFetch(`/admin/wa-survey/templates/${id}/push`, { method: 'POST', body: '{}', timeoutMs: 180000 })
+        }
       } else if (product === 'interview') {
-        await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+        await apiFetch(`/admin/wa-interview/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
       } else if (product === 'appointment') {
-        await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+        await apiFetch(`/admin/wa-appointment/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
+      } else if (product === 'feedback') {
+        for (const id of ids) {
+          await apiFetch(`/admin/customer-feedback/wa-templates/${id}/push`, {
+            method: 'POST',
+            timeoutMs: 180000,
+          })
+        }
       } else {
         showToast('Synced with Meta')
         return
       }
-      showToast('Synced with Meta')
+      showToast(ids.length > 1 ? `Synced ${ids.length} languages with Meta` : 'Synced with Meta')
       onSaved?.()
       await load()
     } catch (e) {
@@ -466,6 +517,41 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
             ) : null}
             {toast ? (
               <div className="border-b border-success/30 bg-success-soft px-4 py-2 text-xs text-success">{toast}</div>
+            ) : null}
+
+            {langVariants.length > 1 ? (
+              <div className="flex flex-wrap items-center gap-1.5 border-b bg-surface-muted/30 px-4 py-2">
+                <span className="mr-1 text-[10px] uppercase tracking-wider text-muted-foreground">Language</span>
+                {langVariants.map((v) => {
+                  const active = String(v.id) === String(activeTemplateId)
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      className={cn(
+                        'h-7 rounded-md border px-2.5 text-[11px] font-medium',
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-input bg-background text-muted-foreground hover:bg-accent',
+                      )}
+                      onClick={() => {
+                        setActiveTemplateId(v.id)
+                        setDraft(
+                          apiTemplateToDraft(
+                            v.tpl,
+                            editTarget?.product === 'system' ? 'survey' : editTarget?.product,
+                          ),
+                        )
+                      }}
+                    >
+                      {langCodeToChip(v.language)}
+                    </button>
+                  )
+                })}
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {langVariants.length} langs · save/sync each language
+                </span>
+              </div>
             ) : null}
 
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_340px]">

@@ -1527,7 +1527,7 @@ def list_meta_whatsapp_inbound_messages(
 ):
     rows = LogService.list_platform_message_logs(
         db,
-        limit=limit,
+        limit=max(limit, 200),
         date_from=date_from,
         date_to=date_to,
         from_number=from_number,
@@ -1535,7 +1535,38 @@ def list_meta_whatsapp_inbound_messages(
         q=q,
         provider="meta_whatsapp",
     )
-    return {"ok": True, "messages": rows[: max(1, min(limit, 200))]}
+    inbound = [r for r in rows if str(r.get("direction") or "").lower() in {"inbound", "in", "incoming"}]
+    return {"ok": True, "messages": inbound[: max(1, min(limit, 200))]}
+
+
+@router.get("/wa-messages/inbound")
+def list_all_wa_inbound_messages(
+    limit: int = 100,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    from_number: str | None = None,
+    to_number: str | None = None,
+    q: str | None = None,
+    provider: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """All inbound WhatsApp messages (Meta primary; includes legacy providers)."""
+    rows = LogService.list_platform_message_logs(
+        db,
+        limit=500,
+        date_from=date_from,
+        date_to=date_to,
+        from_number=from_number,
+        to_number=to_number,
+        q=q,
+        provider=provider,
+    )
+    inbound = [r for r in rows if str(r.get("direction") or "").lower() in {"inbound", "in", "incoming"}]
+    if not inbound:
+        # Legacy rows may omit direction — include recent non-outbound logs.
+        inbound = [r for r in rows if str(r.get("direction") or "").lower() not in {"outbound", "out"}]
+    return {"ok": True, "messages": inbound[: max(1, min(limit, 200))]}
 
 
 @router.get("/integrations/meta_whatsapp/webhook-probe")

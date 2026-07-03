@@ -94,6 +94,8 @@ def _is_template_approved(row: TelnyxWhatsappTemplate) -> bool:
 
 
 def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
+    from app.services.survey_type_template_service import template_name_survey_slug
+
     ids: set[int] = set()
     for tid in db.execute(
         select(TelnyxWhatsappTemplate.id).where(TelnyxWhatsappTemplate.industry_id == industry_id)
@@ -103,9 +105,10 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
         select(SurveyTypeTemplate.template_id).where(SurveyTypeTemplate.industry_id == industry_id)
     ).scalars():
         ids.add(int(tid))
-    survey_type_ids = list(
-        db.execute(select(SurveyType.id).where(SurveyType.industry_id == industry_id)).scalars()
+    survey_types = list(
+        db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
     )
+    survey_type_ids = [st.id for st in survey_types]
     if survey_type_ids:
         for tid in db.execute(
             select(TelnyxWhatsappTemplate.id).where(
@@ -113,6 +116,22 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
             )
         ).scalars():
             ids.add(int(tid))
+    # Orphans (industry_id/survey_type_id null) whose Meta name matches a type slug in this industry.
+    known_slugs = [str(st.slug or "").strip().lower() for st in survey_types if str(st.slug or "").strip()]
+    if known_slugs:
+        slug_set = set(known_slugs)
+        orphans = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
+                    TelnyxWhatsappTemplate.industry_id.is_(None),
+                )
+            ).scalars()
+        )
+        for row in orphans:
+            name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
+            if name_slug and name_slug in slug_set:
+                ids.add(int(row.id))
     return ids
 
 
@@ -472,6 +491,8 @@ class IndustryService:
         db.execute(delete(SurveyTypeTemplate).where(SurveyTypeTemplate.industry_id == industry_id))
         db.flush()
 
+        from app.services.survey_type_template_service import template_name_survey_slug
+
         template_ids: set[int] = set()
         for st in survey_types:
             for mapping in SurveyTypeTemplateService.list_for_survey_type(db, st.id):
@@ -480,6 +501,19 @@ class IndustryService:
             select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.industry_id == industry_id)
         ).scalars():
             template_ids.add(int(tpl.id))
+        # Orphans named for this industry's survey type slugs.
+        known_slugs = [str(st.slug or "").strip().lower() for st in survey_types if str(st.slug or "").strip()]
+        slug_set = set(known_slugs)
+        if known_slugs:
+            for tpl in db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
+                    TelnyxWhatsappTemplate.industry_id.is_(None),
+                )
+            ).scalars():
+                name_slug = template_name_survey_slug(str(tpl.name or ""), known_slugs=known_slugs)
+                if name_slug and name_slug in slug_set:
+                    template_ids.add(int(tpl.id))
 
         deleted_templates = 0
         for tid in sorted(template_ids):

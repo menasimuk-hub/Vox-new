@@ -636,3 +636,22 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     db.commit()
     db.refresh(row)
     return {"ok": True, "item": FeedbackCatalogService.template_to_dict(row)}
+
+
+@router.post("/wa-templates/{template_id}/push")
+def push_wa_template(template_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_feedback_template_to_telnyx,
+    )
+    from app.services.wa_template_closeout_service import WaTemplateCloseoutService
+
+    row = db.get(FeedbackWaTemplate, template_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    WaTemplateCloseoutService.repair_feedback_content(db)
+    row = db.get(FeedbackWaTemplate, template_id)
+    try:
+        return push_feedback_template_to_telnyx(db, row)
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

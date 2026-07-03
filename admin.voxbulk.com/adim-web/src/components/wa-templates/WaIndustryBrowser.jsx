@@ -244,8 +244,10 @@ async function loadSurveyTemplatesForIndustry(industryId) {
       product: 'survey',
       surveyTypeId: tpl.survey_type_id,
       surveyTypeName: tpl.survey_type_name,
-      name: tpl.name || tpl.display_name,
+      name: tpl.display_name || tpl.name || tpl.survey_type_name,
       rejectionReason: tpl.rejection_reason,
+      languageCount: tpl.language_count || (tpl.languages || []).length || 1,
+      languages: tpl.languages || [],
     }),
   )
   rows.sort((a, b) => {
@@ -280,6 +282,8 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
           surveyTypeId: tpl.survey_type_id,
           surveyTypeName: tpl.survey_type_name,
           name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
+          languageCount: tpl.language_count || 1,
+          languages: tpl.languages || [tpl.language].filter(Boolean),
         },
       ),
     )
@@ -356,6 +360,7 @@ export default function WaIndustryBrowser({
         product === 'feedback'
           ? `/admin/customer-feedback/industries/${industry.id}/sync-telnyx`
           : `/admin/wa-survey/industries/${industry.id}/templates/push-all`
+      // Labels say Meta; endpoints keep legacy paths for compatibility.
       const result = await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 300000, quietNetworkHint: true })
       onMessage?.(formatActionSuccess(result, `Synced ${industry.name} with Meta`).message)
       await loadIndustryRows(industry)
@@ -466,32 +471,11 @@ export default function WaIndustryBrowser({
         </div>
         {unlinkedTypes.length > 0 ? (
           <div className="border-b bg-warning-soft/40 px-3 py-2 text-[11px] text-muted-foreground">
-            <div className="font-medium text-foreground">
-              {unlinkedTypes.length} survey type(s) have no WA templates linked
-            </div>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {unlinkedTypes.map((t) => (
-                <Button
-                  key={t.id}
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-6 gap-1 px-2 text-[10px]"
-                  disabled={syncingId === t.id || industrySyncing}
-                  onClick={() =>
-                    onSyncRow?.({
-                      id: t.id,
-                      surveyTypeId: t.id,
-                      rowKind: product === 'feedback' ? 'feedback_type' : 'survey_type',
-                      name: t.name || t.slug,
-                    })
-                  }
-                >
-                  <RefreshCw className={cn('h-3 w-3', syncingId === t.id && 'animate-spin')} />
-                  Sync {t.slug || t.name}
-                </Button>
-              ))}
-            </div>
+            <span className="font-medium text-foreground">
+              {unlinkedTypes.length} survey type(s) have no WA templates linked.
+            </span>{' '}
+            Use <span className="font-medium text-foreground">Sync this industry</span> or the hub{' '}
+            <span className="font-medium text-foreground">Sync with Meta</span> button — do not sync types one-by-one.
           </div>
         ) : null}
         <WaTemplatesTable
