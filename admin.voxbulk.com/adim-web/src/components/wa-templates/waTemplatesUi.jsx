@@ -10,6 +10,7 @@ export function StatusDot({ status }) {
     pending: { c: 'bg-warning', label: 'Pending' },
     disabled: { c: 'bg-muted-foreground/50', label: 'Disabled' },
     rejected: { c: 'bg-destructive', label: 'Rejected' },
+    local: { c: 'bg-info', label: 'Local only' },
   }
   const s = map[status] || map.pending
   return (
@@ -86,15 +87,54 @@ export function formatRelativeWhen(iso) {
   }
 }
 
+function isLocalOnlyRow(tpl) {
+  if (tpl?.is_local_only === true) return true
+  const rid = String(tpl?.telnyx_record_id || '')
+  if (rid.startsWith('local-')) return true
+  const status = String(tpl?.status || tpl?.approval_status || '').toUpperCase()
+  return status === 'LOCAL_DRAFT' || status === 'DRAFT'
+}
+
+/** Map API row → StatusDot status. Prefer Meta approval_status / status. */
 export function mapApprovalStatus(tpl) {
-  if (tpl?.active_for_survey === false || tpl?.active_for_interview === false || tpl?.active_for_appointment === false || tpl?.is_active === false) {
+  if (
+    tpl?.active_for_survey === false ||
+    tpl?.active_for_interview === false ||
+    tpl?.active_for_appointment === false ||
+    tpl?.is_active === false
+  ) {
     return 'disabled'
   }
-  const raw = String(tpl?.approval_status || tpl?.status || tpl?.sync_status || tpl?.telnyx_sync_status || '').toLowerCase()
-  if (raw.includes('reject')) return 'rejected'
-  if (raw.includes('disable')) return 'disabled'
-  if (raw.includes('pend') || raw.includes('submit')) return 'pending'
-  if (raw.includes('approv') || raw.includes('sync') || raw.includes('live')) return 'approved'
+
+  const meta = String(tpl?.approval_status || tpl?.status || '').toUpperCase().trim()
+  if (meta === 'APPROVED') return 'approved'
+  if (meta === 'REJECTED') return 'rejected'
+  if (meta === 'DISABLED' || meta === 'PAUSED') return 'disabled'
+  if (meta === 'PENDING' || meta === 'PENDING_APPROVAL' || meta === 'IN_APPEAL' || meta === 'SUBMITTED') {
+    return 'pending'
+  }
+  if (meta === 'LOCAL_DRAFT' || meta === 'DRAFT' || meta === 'UNKNOWN') {
+    return isLocalOnlyRow(tpl) ? 'local' : 'pending'
+  }
+
+  if (isLocalOnlyRow(tpl)) return 'local'
+
+  const label = String(tpl?.status_label || '').toLowerCase()
+  if (label.includes('ready')) return 'approved'
+  if (label.includes('need')) return 'local'
+  if (label.includes('pending')) return 'pending'
+
+  if (Number(tpl?.approved_template_count) > 0) return 'approved'
+  if (Number(tpl?.pending_template_count) > 0) return 'pending'
+  if (Number(tpl?.template_count) > 0 && Number(tpl?.approved_template_count) === 0) return 'pending'
+
+  const sync = String(tpl?.local_sync_status || tpl?.sync_status || tpl?.telnyx_sync_status || '').toLowerCase()
+  if (sync === 'in_sync' || sync === 'synced') return 'approved'
+  if (sync.includes('draft') || sync.includes('local') || sync.includes('error')) return 'local'
+
+  if (!meta && !label && !sync) return 'pending'
+  if (meta.includes('APPROV')) return 'approved'
+  if (meta.includes('REJECT')) return 'rejected'
   return 'pending'
 }
 
@@ -122,6 +162,10 @@ export function langCodeToChip(language) {
 export function toHubRow(tpl, overrides = {}) {
   const lang = langCodeToChip(tpl.language)
   const langs = tpl.langs || [lang]
+  const templateCount =
+    tpl.template_count ??
+    tpl.templates_count ??
+    (Number(tpl.standard_template_count || 0) + Number(tpl.anonymous_template_count || 0) || undefined)
   return {
     id: tpl.id,
     name: tpl.name || tpl.display_name || tpl.slug || String(tpl.id),
@@ -129,14 +173,34 @@ export function toHubRow(tpl, overrides = {}) {
     langsTitle: langs.join(' · '),
     category: mapCategory(tpl),
     status: mapApprovalStatus(tpl),
-    used: tpl.usage_count ?? tpl.used_count ?? tpl.sent_count ?? tpl.template_count ?? tpl.templates_count ?? 0,
-    updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at || tpl.synced_at),
+    used: tpl.usage_count ?? tpl.used_count ?? tpl.sent_count ?? templateCount ?? 0,
+    updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at || tpl.synced_at || tpl.last_synced_at),
     body: tpl.body || tpl.body_text || '',
     footer: tpl.footer || '',
     buttons: Array.isArray(tpl.buttons) ? tpl.buttons : [],
     variables: Array.isArray(tpl.variables) ? tpl.variables : Array.isArray(tpl.example_values) ? tpl.example_values : [],
     header: tpl.header,
+    isLocalOnly: isLocalOnlyRow(tpl),
     raw: tpl,
     ...overrides,
   }
+}
+
+export function summarizeCatalog(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  let approved = 0
+  let localOnly = 0
+  let pending = 0
+  for (const t of list) {
+    const status = String(t.status || '').toUpperCase()
+    const rid = String(t.telnyx_record_id || '')
+    if (rid.startsWith('local-') || status === 'LOCAL_DRAFT' || status === 'DRAFT') {
+      localOnly += 1
+    } else if (status === 'APPROVED') {
+      approved += 1
+    } else if (status === 'PENDING' || status === 'SUBMITTED' || status === 'UNKNOWN') {
+      pending += 1
+    }
+  }
+  return { total: list.length, approved, localOnly, pending }
 }

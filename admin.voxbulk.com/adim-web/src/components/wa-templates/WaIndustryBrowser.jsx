@@ -88,6 +88,104 @@ function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
   )
 }
 
+async function loadSurveyTemplatesForIndustry(industryId) {
+  const data = await apiFetch(`/admin/wa-survey/types?industry_id=${encodeURIComponent(industryId)}`)
+  const types = Array.isArray(data?.types) ? data.types : []
+  const rows = []
+  await Promise.all(
+    types.map(async (type) => {
+      try {
+        const detail = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(type.id)}`)
+        const templates = Array.isArray(detail?.templates) ? detail.templates : []
+        if (templates.length) {
+          for (const tpl of templates) {
+            rows.push(
+              toHubRow(tpl, {
+                rowKind: 'survey_template',
+                product: 'survey',
+                surveyTypeId: type.id,
+                surveyTypeName: type.name,
+                name: tpl.name || tpl.display_name,
+              }),
+            )
+          }
+        } else {
+          rows.push(
+            toHubRow(type, {
+              rowKind: 'survey_type',
+              product: 'survey',
+              surveyTypeId: type.id,
+              name: type.slug || type.name,
+              used: type.template_count ?? 0,
+            }),
+          )
+        }
+      } catch {
+        rows.push(
+          toHubRow(type, {
+            rowKind: 'survey_type',
+            product: 'survey',
+            surveyTypeId: type.id,
+            name: type.slug || type.name,
+          }),
+        )
+      }
+    }),
+  )
+  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+  return rows
+}
+
+async function loadFeedbackTemplatesForIndustry(industryId) {
+  const data = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(industryId)}`)
+  const types = Array.isArray(data?.item?.survey_types) ? data.item.survey_types : []
+  const rows = []
+  await Promise.all(
+    types.map(async (type) => {
+      try {
+        const detail = await apiFetch(`/admin/customer-feedback/survey-types/${encodeURIComponent(type.id)}`)
+        const templates = Array.isArray(detail?.item?.templates) ? detail.item.templates : []
+        if (templates.length) {
+          for (const tpl of templates) {
+            rows.push(
+              toHubRow(
+                { ...tpl, body: tpl.body_text, status: tpl.telnyx_sync_status || tpl.status },
+                {
+                  rowKind: 'feedback_template',
+                  product: 'feedback',
+                  surveyTypeId: type.id,
+                  name: tpl.template_key || tpl.name || tpl.id,
+                },
+              ),
+            )
+          }
+        } else {
+          rows.push(
+            toHubRow(type, {
+              rowKind: 'feedback_type',
+              product: 'feedback',
+              surveyTypeId: type.id,
+              name: type.slug || type.name,
+              used: type.template_count ?? 0,
+            }),
+          )
+        }
+      } catch {
+        rows.push(
+          toHubRow(type, {
+            rowKind: 'feedback_type',
+            product: 'feedback',
+            surveyTypeId: type.id,
+            name: type.slug || type.name,
+          }),
+        )
+      }
+    }),
+  )
+  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+  return rows
+}
+
 export default function WaIndustryBrowser({
   product,
   industries,
@@ -110,33 +208,13 @@ export default function WaIndustryBrowser({
     async (ind) => {
       setLoadingRows(true)
       try {
-        if (product === 'survey') {
-          const data = await apiFetch(`/admin/wa-survey/types?industry_id=${encodeURIComponent(ind.id)}`)
-          const types = Array.isArray(data?.types) ? data.types : []
-          setRows(
-            types.map((type) =>
-              toHubRow(type, {
-                rowKind: 'survey_type',
-                name: type.slug || type.name,
-                used: type.template_count ?? type.templates_count ?? 0,
-              }),
-            ),
-          )
-        } else {
-          const data = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(ind.id)}`)
-          const types = Array.isArray(data?.item?.survey_types) ? data.item.survey_types : []
-          setRows(
-            types.map((type) =>
-              toHubRow(type, {
-                rowKind: 'feedback_type',
-                name: type.slug || type.name,
-                used: type.template_count ?? 0,
-              }),
-            ),
-          )
-        }
+        const next =
+          product === 'survey'
+            ? await loadSurveyTemplatesForIndustry(ind.id)
+            : await loadFeedbackTemplatesForIndustry(ind.id)
+        setRows(next)
       } catch (e) {
-        onError?.(formatWaSurveyError(e, 'Could not load survey types').message)
+        onError?.(formatWaSurveyError(e, 'Could not load templates').message)
         setRows([])
       } finally {
         setLoadingRows(false)
@@ -163,7 +241,6 @@ export default function WaIndustryBrowser({
           product={product}
           embedded
           onOpenTemplate={onOpenSystemTemplate}
-          onBrowse={(kind) => onOpenSystemTemplate?.({ product, kind, browse: true })}
         />
         <div className="flex items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
           <Button variant="ghost" size="sm" className="-ml-2 h-7 gap-1 text-xs" onClick={() => setIndustry(null)}>
@@ -171,7 +248,7 @@ export default function WaIndustryBrowser({
           </Button>
           <ChevronRight className="h-3 w-3 text-muted-foreground" />
           <span className="text-sm font-medium">{industry.name}</span>
-          <span className="text-xs text-muted-foreground">· {rows.length} survey types</span>
+          <span className="text-xs text-muted-foreground">· {rows.length} templates</span>
         </div>
         <WaTemplatesTable
           templates={rows}
@@ -181,7 +258,7 @@ export default function WaIndustryBrowser({
           onToggle={onToggleRow}
           onDelete={onDeleteRow}
           showNew={false}
-          emptyLabel="No survey types in this industry yet."
+          emptyLabel="No templates linked in this industry yet."
         />
       </div>
     )
@@ -193,14 +270,13 @@ export default function WaIndustryBrowser({
         product={product}
         embedded
         onOpenTemplate={onOpenSystemTemplate}
-        onBrowse={(kind) => onOpenSystemTemplate?.({ product, kind, browse: true })}
       />
       <div className="p-3">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="text-sm font-medium">Choose an industry</div>
             <div className="text-xs text-muted-foreground">
-              {industries.length} industries · Click to open survey types
+              {industries.length} industries · Click to open templates
             </div>
           </div>
           <div className="flex items-center gap-2">

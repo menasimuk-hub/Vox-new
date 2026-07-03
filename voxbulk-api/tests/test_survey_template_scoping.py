@@ -175,3 +175,38 @@ def test_template_belongs_uses_survey_type_id():
             active_for_survey=True,
         )
         assert template_belongs_to_survey_type(row, cs) is True
+
+
+def test_admin_list_includes_mapped_meta_rows_without_name_match():
+    """Meta-synced rows may lack survey_type_id / matching name; admin must still list mappings."""
+    with get_sessionmaker()() as db:
+        cs, _ = _seed_types(db)
+        meta_row = TelnyxWhatsappTemplate(
+            telnyx_record_id="meta-12345",
+            template_id="12345",
+            name="generic_meta_template_name",
+            language="en_US",
+            status="APPROVED",
+            survey_type_id=None,
+            industry_id=None,
+            active_for_survey=True,
+        )
+        db.add(meta_row)
+        db.flush()
+        db.add(
+            SurveyTypeTemplate(
+                industry_id=cs.industry_id,
+                survey_type_id=cs.id,
+                template_id=meta_row.id,
+                usable_as_standard=True,
+            )
+        )
+        db.commit()
+
+        strict = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id, strict_scope=True)
+        assert len(strict) == 0
+
+        admin = SurveyWhatsappTemplateService.list_for_survey_type(db, cs.id, strict_scope=False)
+        assert len(admin) == 1
+        assert admin[0]["id"] == meta_row.id
+        assert str(admin[0]["status"]).upper() == "APPROVED"

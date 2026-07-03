@@ -1513,7 +1513,15 @@ class SurveyWhatsappTemplateService:
         *,
         privacy_mode: str | None = None,
         include_inactive: bool = True,
+        strict_scope: bool = True,
     ) -> list[dict[str, Any]]:
+        """List templates linked to a survey type.
+
+        ``strict_scope=True`` (default) hides mappings that fail name/industry ownership
+        checks — used by dashboard/runtime. Admin catalog uses ``strict_scope=False`` so
+        every explicit mapping is editable even when Meta-synced rows lack survey_type_id
+        or industry_id.
+        """
         payload: list[dict[str, Any]] = []
         survey_type = db.get(SurveyType, survey_type_id)
         target_privacy = normalize_privacy_mode(privacy_mode) if privacy_mode else None
@@ -1523,9 +1531,9 @@ class SurveyWhatsappTemplateService:
                 continue
             if not include_inactive and not bool(row.active_for_survey):
                 continue
-            if survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
+            if strict_scope and survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
-            if survey_type is not None and not template_matches_survey_industry(row, survey_type, mapping=mapping):
+            if strict_scope and survey_type is not None and not template_matches_survey_industry(row, survey_type, mapping=mapping):
                 continue
             if target_privacy is not None:
                 row_pm = resolve_row_privacy_mode(row)

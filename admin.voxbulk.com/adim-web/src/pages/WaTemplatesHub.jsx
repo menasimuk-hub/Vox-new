@@ -17,7 +17,7 @@ import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedbac
 import WaIndustryBrowser from '../components/wa-templates/WaIndustryBrowser'
 import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
 import WaEditSheet from '../components/wa-templates/WaEditSheet'
-import { toHubRow } from '../components/wa-templates/waTemplatesUi'
+import { summarizeCatalog, toHubRow } from '../components/wa-templates/waTemplatesUi'
 import '../styles/wa-templates-hub.css'
 
 const TAGS = [
@@ -28,13 +28,49 @@ const TAGS = [
   { id: 'marketing', label: 'Marketing', icon: Megaphone },
 ]
 
-const SALES_TEMPLATE_KEYS = new Set([
+/** Lead-sales / marketing only — never interview keys. */
+const MARKETING_TEMPLATE_KEYS = new Set([
+  'sales_opt_in',
   'sales_offer',
   'sales_offer_followup',
-  'sales_subscription',
-  'sales_survey',
-  'sales_interview',
+  'sales_offer_keyword_confirm',
 ])
+
+const INTERVIEW_TEMPLATE_KEYS = new Set([
+  'interview_email_sent',
+  'interview_booking_confirm',
+  'interview_booking_cancel',
+  'interview_job_closed',
+  'interview_booking_invite',
+])
+
+function templateKey(t) {
+  return String(t?.sales_template_key || t?.sales_key || '').toLowerCase().trim()
+}
+
+function templateName(t) {
+  return String(t?.name || t?.telnyx_name || t?.display_name || '').toLowerCase().trim()
+}
+
+function isInterviewTemplate(t) {
+  const key = templateKey(t)
+  const name = templateName(t)
+  if (INTERVIEW_TEMPLATE_KEYS.has(key)) return true
+  if (key.startsWith('interview_')) return true
+  if (name.startsWith('voxbulk_interview_')) return true
+  if (name.includes('interview_') || name.includes('_interview')) return true
+  return false
+}
+
+function isMarketingTemplate(t) {
+  if (isInterviewTemplate(t)) return false
+  const key = templateKey(t)
+  const name = templateName(t)
+  if (MARKETING_TEMPLATE_KEYS.has(key)) return true
+  if (key.startsWith('sales_')) return true
+  if (name.startsWith('voxbulk_sales_')) return true
+  return false
+}
 
 const TAB_ALIASES = { interview: 'ai', appointment: 'ai' }
 
@@ -46,7 +82,7 @@ export default function WaTemplatesHub() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-  const [templateCounts, setTemplateCounts] = useState({ total: 0, sent: 0 })
+  const [templateCounts, setTemplateCounts] = useState({ total: 0, approved: 0, localOnly: 0, pending: 0 })
 
   const [interviewTemplates, setInterviewTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
@@ -69,12 +105,9 @@ export default function WaTemplatesHub() {
     try {
       const data = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
       const rows = Array.isArray(data?.templates) ? data.templates : []
-      setTemplateCounts({
-        total: rows.length,
-        sent: rows.reduce((sum, t) => sum + (Number(t.usage_count) || 0), 0),
-      })
+      setTemplateCounts(summarizeCatalog(rows))
     } catch {
-      setTemplateCounts({ total: 0, sent: 0 })
+      setTemplateCounts({ total: 0, approved: 0, localOnly: 0, pending: 0 })
     }
   }, [])
 
@@ -82,7 +115,8 @@ export default function WaTemplatesHub() {
     setFlatLoading(true)
     try {
       const data = await apiFetch('/admin/wa-interview/templates')
-      setInterviewTemplates((Array.isArray(data?.templates) ? data.templates : []).map((t) => toHubRow(t, { rowKind: 'interview' })))
+      const rows = (Array.isArray(data?.templates) ? data.templates : []).filter(isInterviewTemplate)
+      setInterviewTemplates(rows.map((t) => toHubRow(t, { rowKind: 'interview' })))
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load interview templates').message)
     } finally {
@@ -93,34 +127,9 @@ export default function WaTemplatesHub() {
   const loadMarketing = useCallback(async () => {
     setFlatLoading(true)
     try {
-      const [health, stored] = await Promise.all([
-        apiFetch('/admin/integrations/telnyx/whatsapp-templates/health'),
-        apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false'),
-      ])
-      const rows = (Array.isArray(stored?.templates) ? stored.templates : []).filter((t) => {
-        const key = String(t.sales_template_key || '').toLowerCase()
-        if (key && SALES_TEMPLATE_KEYS.has(key)) return true
-        return String(t.name || '').toLowerCase().startsWith('voxbulk_sales_')
-      })
-      if (!rows.length && Array.isArray(health?.templates)) {
-        setMarketingTemplates(
-          health.templates.map((t) =>
-            toHubRow(
-              {
-                id: t.sales_key,
-                display_name: t.sales_key,
-                name: t.telnyx_name,
-                sales_template_key: t.sales_key,
-                status: t.status,
-                language: t.language,
-              },
-              { rowKind: 'marketing' },
-            ),
-          ),
-        )
-      } else {
-        setMarketingTemplates(rows.map((t) => toHubRow(t, { rowKind: 'marketing' })))
-      }
+      const stored = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
+      const rows = (Array.isArray(stored?.templates) ? stored.templates : []).filter(isMarketingTemplate)
+      setMarketingTemplates(rows.map((t) => toHubRow(t, { rowKind: 'marketing' })))
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load marketing templates').message)
     } finally {
@@ -186,12 +195,29 @@ export default function WaTemplatesHub() {
   }
 
   const openSurveyTypeEditor = async (row) => {
+    setError('')
     try {
+      if (row.rowKind === 'survey_template') {
+        setEditTarget({
+          product: 'survey',
+          templateId: row.id,
+          surveyTypeId: row.surveyTypeId,
+        })
+        return
+      }
+      if (row.rowKind === 'feedback_template') {
+        setEditTarget({
+          product: 'feedback',
+          templateId: row.id,
+          surveyTypeId: row.surveyTypeId,
+        })
+        return
+      }
       if (row.rowKind === 'feedback_type') {
         const data = await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`)
         const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
         if (!templates.length) {
-          setError('No templates on this survey type yet.')
+          setError(`“${row.name}” has no WhatsApp templates linked yet. Link or create templates for this survey type first.`)
           return
         }
         setEditTarget({
@@ -201,13 +227,14 @@ export default function WaTemplatesHub() {
         })
         return
       }
-      const data = await apiFetch(`/admin/wa-survey/types/${row.id}`)
+      const typeId = row.surveyTypeId || row.id
+      const data = await apiFetch(`/admin/wa-survey/types/${typeId}`)
       const templates = Array.isArray(data?.templates) ? data.templates : []
       if (!templates.length) {
-        setError('No templates on this survey type yet.')
+        setError(`“${row.name}” has no WhatsApp templates linked yet. Link or create templates for this survey type first.`)
         return
       }
-      setEditTarget({ product: 'survey', templateId: templates[0].id, surveyTypeId: row.id })
+      setEditTarget({ product: 'survey', templateId: templates[0].id, surveyTypeId: typeId })
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not open editor').message)
     }
@@ -216,12 +243,27 @@ export default function WaTemplatesHub() {
   const pushSurveyType = async (row) => {
     setError('')
     try {
+      if (row.rowKind === 'survey_template') {
+        const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, { method: 'POST', body: '{}' })
+        setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+        await loadTemplateCounts()
+        return
+      }
+      if (row.rowKind === 'feedback_template') {
+        const result = await apiFetch(`/admin/customer-feedback/survey-types/${row.surveyTypeId}/sync-telnyx`, {
+          method: 'POST',
+        })
+        setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+        return
+      }
+      const typeId = row.surveyTypeId || row.id
       const path =
         row.rowKind === 'feedback_type'
-          ? `/admin/customer-feedback/survey-types/${row.id}/sync-telnyx`
-          : `/admin/wa-survey/types/${row.id}/templates/push-all`
+          ? `/admin/customer-feedback/survey-types/${typeId}/sync-telnyx`
+          : `/admin/wa-survey/types/${typeId}/templates/push-all`
       const result = await apiFetch(path, { method: 'POST', body: '{}' })
       setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+      await loadTemplateCounts()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Sync failed').detailText)
     }
@@ -230,6 +272,23 @@ export default function WaTemplatesHub() {
   const toggleSurveyType = async (row) => {
     setError('')
     try {
+      if (row.rowKind === 'survey_template') {
+        const active = row.raw?.active_for_survey !== false
+        await apiFetch(`/admin/wa-survey/templates/${row.id}/set-active`, {
+          method: 'POST',
+          body: JSON.stringify({ active_for_survey: !active }),
+        })
+        setMsg(active ? 'Template disabled for surveys' : 'Template enabled for surveys')
+        return
+      }
+      if (row.rowKind === 'feedback_template') {
+        await apiFetch('/admin/customer-feedback/wa-templates', {
+          method: 'POST',
+          body: JSON.stringify({ id: row.id, is_active: row.raw?.is_active === false }),
+        })
+        setMsg('Template visibility updated')
+        return
+      }
       if (row.rowKind === 'feedback_type') {
         await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, {
           method: 'PUT',
@@ -252,9 +311,25 @@ export default function WaTemplatesHub() {
     if (!window.confirm(`Delete “${row.name}”? This cannot be undone.`)) return
     setError('')
     try {
-      if (row.rowKind === 'feedback_type') {
-        await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, { method: 'DELETE' })
-        setMsg('Survey type deleted')
+      if (row.rowKind === 'survey_template') {
+        const typeId = row.surveyTypeId
+        if (typeId) {
+          await apiFetch(`/admin/wa-survey/types/${typeId}/templates/${row.id}`, { method: 'DELETE' })
+        } else {
+          setError('Cannot delete: missing survey type link')
+          return
+        }
+        setMsg('Template deleted')
+        await loadTemplateCounts()
+        return
+      }
+      if (row.rowKind === 'feedback_type' || row.rowKind === 'feedback_template') {
+        if (row.rowKind === 'feedback_type') {
+          await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, { method: 'DELETE' })
+          setMsg('Survey type deleted')
+        } else {
+          setError('Delete feedback templates from the survey type editor.')
+        }
         return
       }
       await apiFetch(`/admin/wa-survey/types/${row.id}`, { method: 'DELETE' })
@@ -332,16 +407,16 @@ export default function WaTemplatesHub() {
 
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden items-center gap-3 text-[11px] text-muted-foreground md:flex">
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" title="Approved on Meta">
                 <ClipboardList className="h-3 w-3" />
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> templates
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.approved}</span> approved
               </span>
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" title="Local only — not on Meta yet">
                 <BarChart3 className="h-3 w-3" />
-                <span className="font-medium tabular-nums text-foreground">
-                  {templateCounts.sent.toLocaleString()}
-                </span>{' '}
-                sent
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.localOnly}</span> local
+              </span>
+              <span className="inline-flex items-center gap-1" title="All rows in catalog (Meta + local)">
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> total
               </span>
             </div>
             <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => void syncFromMeta()} disabled={syncing}>

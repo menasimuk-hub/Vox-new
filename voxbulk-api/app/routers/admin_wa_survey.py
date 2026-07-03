@@ -284,7 +284,12 @@ def get_survey_type(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Survey type not found")
     counts = SurveyTypeService._template_counts(db, row.id)
     industry = db.get(Industry, row.industry_id) if row.industry_id else None
-    templates = SurveyWhatsappTemplateService.list_for_survey_type(db, row.id, privacy_mode=privacy_mode)
+    templates = SurveyWhatsappTemplateService.list_for_survey_type(
+        db,
+        row.id,
+        privacy_mode=privacy_mode,
+        strict_scope=False,
+    )
     return {
         "ok": True,
         "type": survey_type_to_dict(row, template_counts=counts, industry=industry),

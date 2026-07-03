@@ -192,6 +192,9 @@ class SurveyTypeService:
                 data["status_label"] = "Needs templates"
             wa_count = int(counts.get("standard") or 0) + int(counts.get("anonymous") or 0)
             data["has_wa_template"] = wa_count > 0
+            data["template_count"] = len(linked_ids)
+            data["approved_template_count"] = int(approved or 0)
+            data["pending_template_count"] = int(pending or 0)
             payload.append(data)
         return payload
 
