@@ -188,21 +188,42 @@ export default function WaTemplatesHub() {
     setError('')
     setMsg('')
     try {
-      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', { method: 'POST' })
+      // Full Meta catalog + link repair can take several minutes (hundreds of templates).
+      // Default apiFetch timeout is 90s and aborts with "signal is aborted without reason".
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', {
+        method: 'POST',
+        timeoutMs: 300000,
+        quietNetworkHint: true,
+      })
       const rows = Array.isArray(result.templates) ? result.templates : []
       const fallback =
         `Synced ${result.synced ?? rows.length} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · ` +
         `Rejected ${result.rejected ?? 0} · Linked ${result.linked_to_survey_type ?? 0} · ` +
         `Unlinked types ${result.unlinked_survey_types ?? 0}`
       setMsg(formatActionSuccess(result, fallback).message)
-      if (rows.length) {
+      // Prefer summary counts from sync payload (full catalog is not returned — too large).
+      if (result.synced != null || result.approved != null) {
+        setTemplateCounts({
+          total: Number(result.synced ?? rows.length) || 0,
+          approved: Number(result.approved ?? 0) || 0,
+          localOnly: Number(result.local_only ?? 0) || 0,
+          pending: Number(result.pending ?? 0) || 0,
+          rejected: Number(result.rejected ?? 0) || 0,
+        })
+      } else if (rows.length) {
         setTemplateCounts(summarizeCatalog(rows))
       } else {
         await loadTemplateCounts()
       }
       refreshTabData()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Meta sync failed').detailText || e?.message || 'Meta sync failed')
+      const raw = e?.message || String(e)
+      const aborted = e?.name === 'AbortError' || /aborted|abort/i.test(raw)
+      setError(
+        aborted
+          ? 'Meta sync timed out in the browser. The server may still be finishing — wait 1–2 minutes, refresh this page, and check template statuses. If it keeps failing, raise nginx proxy_read_timeout for /api/ to 300s.'
+          : formatWaSurveyError(e, 'Meta sync failed').detailText || raw || 'Meta sync failed',
+      )
     } finally {
       setSyncing(false)
     }

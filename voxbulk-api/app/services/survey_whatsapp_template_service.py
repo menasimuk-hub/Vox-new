@@ -2810,6 +2810,8 @@ class SurveyWhatsappTemplateService:
             f"Synced {synced} · Approved {approved} · Pending {pending} · Rejected {rejected} "
             f"· Linked {linked} · Unlinked types {unlinked_types}"
         )
+        # Do not return the full template catalog — hundreds of rows make the browser abort
+        # waiting for a multi‑MB JSON body. Hub reloads counts via a separate list call.
         return {
             "ok": bool(catalog.get("ok", True)),
             "provider": "meta_whatsapp",
@@ -2827,7 +2829,7 @@ class SurveyWhatsappTemplateService:
             "survey": relink,
             "interview": {"ok": True, "linked": interview_linked},
             "appointment": {"ok": True, "linked": appointment_linked},
-            "templates": templates,
+            "templates": [],
         }
 
     @staticmethod

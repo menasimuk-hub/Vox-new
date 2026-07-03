@@ -595,16 +595,28 @@ export async function apiFetch(path, options = {}) {
     res = await fetchWithTimeout(joined, { ...options, headers }, timeoutMs)
   } catch (e) {
     const msg = e?.message || String(e)
+    const isAbort =
+      (typeof e?.name === 'string' && e.name === 'AbortError') || /aborted/i.test(msg)
     const isNet =
-      /failed to fetch|networkerror|network request failed|load failed|aborted/i.test(msg) ||
-      (typeof e?.name === 'string' && (e.name === 'TypeError' || e.name === 'AbortError'))
+      isAbort ||
+      /failed to fetch|networkerror|network request failed|load failed/i.test(msg) ||
+      (typeof e?.name === 'string' && e.name === 'TypeError')
     const m = (options.method || 'GET').toString().toUpperCase()
-    const hint = isNet && !quietNetworkHint
-      ? `\n${networkFailureHelp()}\n(Request was ${m} ${joined})`
-      : isNet
-        ? `\n(Request timed out or could not reach the API. Try again in a moment.)`
-        : `\n(Request was ${m} ${joined})`
-    const err = new Error(`${msg}.${hint}`)
+    const secs = Math.max(1, Math.round(timeoutMs / 1000))
+    const abortMsg = isAbort
+      ? `Request timed out after ${secs}s`
+      : msg
+    const hint = isAbort
+      ? quietNetworkHint
+        ? `\n(Long-running admin jobs can exceed the browser wait — try again or raise the call timeoutMs.)`
+        : `\n(Timed out after ${secs}s. For Meta template sync, wait and refresh; nginx proxy_read_timeout should be ≥300s.)\n(Request was ${m} ${joined})`
+      : isNet && !quietNetworkHint
+        ? `\n${networkFailureHelp()}\n(Request was ${m} ${joined})`
+        : isNet
+          ? `\n(Request timed out or could not reach the API. Try again in a moment.)`
+          : `\n(Request was ${m} ${joined})`
+    const err = new Error(`${abortMsg}.${hint}`)
+    err.name = isAbort ? 'AbortError' : e?.name || 'Error'
     err.cause = e
     throw err
   }
