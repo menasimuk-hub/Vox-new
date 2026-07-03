@@ -474,6 +474,19 @@ class DisabledWaTemplateService:
         return {"ok": True, "items": DisabledWaTemplateService.list_rows(db)}
 
     @staticmethod
+    def clear_all(db: Session) -> dict[str, Any]:
+        """Remove every disabled-WA blocklist row (legacy account names). Does not delete Meta templates."""
+        rows = db.query(DisabledWaTemplate).all()
+        removed = 0
+        for row in rows:
+            if row.disabled:
+                _apply_enable(db, row)
+            db.delete(row)
+            removed += 1
+        db.commit()
+        return {"ok": True, "removed": removed, "items": DisabledWaTemplateService.list_rows(db)}
+
+    @staticmethod
     def parse_upload_content(filename: str, content: bytes) -> list[str]:
         lower = str(filename or "").lower()
         names: list[str] = []

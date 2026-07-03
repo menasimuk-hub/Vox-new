@@ -162,8 +162,6 @@ const NAV = [
 
       ['Results', '/customer-feedback/results'],
 
-      ['WhatsApp templates', '/customer-feedback/wa-templates'],
-
     ],
 
   ],
@@ -212,8 +210,6 @@ const NAV = [
 
       ['Running appointments', '/operations/running-appointments'],
 
-      ['WA Appointment templates', '/settings/wa-appointment'],
-
     ],
 
   ],
@@ -227,8 +223,6 @@ const NAV = [
       ['Running interviews', '/operations/running-interviews'],
 
       ['Script moderation', '/operations/script-moderation'],
-
-      ['WA Interview templates', '/settings/wa-interview'],
 
       ['Call queue', '/operations/call-queue'],
 
@@ -405,6 +399,8 @@ const NAV = [
 
     [
 
+      ['WA Templates', '/ai/wa-templates'],
+
       ['Call scripts', '/ai/scripts'],
 
       ['Agents', '/ai/agents'],
@@ -480,8 +476,6 @@ const NAV = [
       ['Meeting room', '/settings/meeting-room'],
 
       ['Legal pages', '/settings/legal'],
-
-      ['Disabled WA templates', '/settings/disabled-wa-templates'],
 
     ],
 

@@ -98,7 +98,7 @@ def set_appointment_template_active(
     message = (
         "Template enabled for Appointment Manager."
         if active
-        else "Template hidden from customers — you can still sync it to Telnyx."
+        else "Template hidden from customers — you can still push it to Meta."
     )
     return {"ok": True, "message": message, "template": tpl}
 
@@ -143,7 +143,7 @@ def rename_appointment_template_for_sync(
     tpl = appointment_template_to_dict(updated)
     return {
         "ok": True,
-        "message": f"Template renamed to {updated.name}. Save any edits, then sync to Telnyx.",
+        "message": f"Template renamed to {updated.name}. Save any edits, then push to Meta.",
         "template": tpl,
         "template_name": updated.name,
     }

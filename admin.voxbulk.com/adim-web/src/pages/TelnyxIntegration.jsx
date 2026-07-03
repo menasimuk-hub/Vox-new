@@ -293,6 +293,7 @@ export default function TelnyxIntegration({
   onSelectTelnyxWaTemplate,
   syncTelnyxWaTemplates,
   loadTelnyxWaTemplates,
+  metaWaPrimary = false,
   telnyxWaTemplateLang,
   setTelnyxWaTemplateLang,
   telnyxTestResult,
@@ -1234,25 +1235,37 @@ export default function TelnyxIntegration({
           <div className='cardHead'>
             <div className='cardHeadText'>
               <h3>Templates</h3>
-              <p className='cardSub'>Synced from Telnyx · only Approved are usable</p>
+              <p className='cardSub'>
+                {metaWaPrimary
+                  ? 'WhatsApp templates are managed in AI → WA Templates (Meta Graph). Use this list for test sends only.'
+                  : 'Synced from Telnyx · only Approved are usable'}
+              </p>
             </div>
             <div className='actions'>
-              <button
-                type='button'
-                className='tsh-btn tsh-btn-outline'
-                onClick={syncTelnyxWaTemplates}
-                disabled={providerSaving || telnyxWaSyncBusy || !activeSummary?.exists}
-              >
-                <RefreshCw size={14} aria-hidden /> {telnyxWaSyncBusy ? 'Syncing…' : 'Sync'}
-              </button>
-              <button
-                type='button'
-                className='tsh-btn tsh-btn-outline'
-                onClick={() => loadTelnyxWaTemplates(false)}
-                disabled={providerSaving || !activeSummary?.exists}
-              >
-                Reload
-              </button>
+              {metaWaPrimary ? (
+                <Link to='/ai/wa-templates' className='tsh-btn tsh-btn-primary' style={{ textDecoration: 'none' }}>
+                  Open WA Templates hub
+                </Link>
+              ) : (
+                <>
+                  <button
+                    type='button'
+                    className='tsh-btn tsh-btn-outline'
+                    onClick={syncTelnyxWaTemplates}
+                    disabled={providerSaving || telnyxWaSyncBusy || !activeSummary?.exists}
+                  >
+                    <RefreshCw size={14} aria-hidden /> {telnyxWaSyncBusy ? 'Syncing…' : 'Sync'}
+                  </button>
+                  <button
+                    type='button'
+                    className='tsh-btn tsh-btn-outline'
+                    onClick={() => loadTelnyxWaTemplates(false)}
+                    disabled={providerSaving || !activeSummary?.exists}
+                  >
+                    Reload
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div className='cardBody telnyxWaTemplatesBody'>

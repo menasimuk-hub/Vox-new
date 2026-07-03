@@ -405,7 +405,7 @@ export default function WaSurveySystemTemplates() {
           disabled={working === `push-${tpl.id}`}
           onClick={() => void pushOne(tpl)}
         >
-          {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync to Telnyx'}
+          {working === `push-${tpl.id}` ? 'Pushing…' : 'Push to Meta'}
         </button>
         <button
           type="button"
@@ -422,7 +422,7 @@ export default function WaSurveySystemTemplates() {
   return (
     <div className="content" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="breadcrumb">
-        <Link to="/settings/wa-survey">WA Survey</Link>
+        <Link to="/ai/wa-templates?tab=survey">WA Templates</Link>
         <span> / Global System Templates</span>
       </div>
 

@@ -282,3 +282,37 @@ def test_disabled_platform_template_hides_wa_survey_type():
         assert all(t["id"] != survey_type.id for t in after)
     finally:
         db.close()
+
+
+def test_clear_all_removes_blocklist():
+    db = _session()
+    try:
+        tpl_name = f"voxbulk_survey_clear_all_{uuid.uuid4().hex[:8]}"
+        tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=f"rec-{uuid.uuid4().hex[:8]}",
+            template_id=f"tpl-{uuid.uuid4().hex[:8]}",
+            name=tpl_name,
+            language="en_US",
+            status="APPROVED",
+            active_for_survey=True,
+        )
+        db.add(tpl)
+        db.commit()
+
+        added = DisabledWaTemplateService.add_names(db, [tpl_name, f"legacy_{uuid.uuid4().hex[:6]}"])
+        assert added["added"] >= 2
+        row = next(item for item in added["items"] if item["raw_name"] == tpl_name)
+        DisabledWaTemplateService.set_disabled(db, row["id"], True)
+        db.refresh(tpl)
+        assert tpl.active_for_survey is False
+
+        result = DisabledWaTemplateService.clear_all(db)
+        assert result["ok"] is True
+        assert result["removed"] >= 2
+        assert result["items"] == []
+        assert db.query(DisabledWaTemplate).count() == 0
+
+        db.refresh(tpl)
+        assert tpl.active_for_survey is True
+    finally:
+        db.close()

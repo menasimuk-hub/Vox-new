@@ -53,6 +53,7 @@ export default function App() {
         <Route path='/customer-feedback/industries/:industryId' element={<P.FeedbackIndustryEdit />} />
         <Route path='/customer-feedback/packages' element={<P.FeedbackPackagesPricing />} />
         <Route path='/customer-feedback/survey-types/:typeId' element={<P.FeedbackSurveyTypeEdit />} />
+        <Route path='/customer-feedback/system-templates' element={<P.FeedbackSystemTemplates />} />
         <Route path='/customer-feedback/:tab' element={<P.CustomerFeedbackHub />} />
 
         <Route path='/campaigns' element={<P.CampaignsHub />} />
@@ -162,6 +163,7 @@ export default function App() {
         <Route path='/support/faq' element={<P.FAQManagement />} />
         <Route path='/support/sla' element={<P.SupportSLA />} />
 
+        <Route path='/ai/wa-templates' element={<P.WaTemplatesHub />} />
         <Route path='/ai/scripts' element={G('Call scripts')} />
         <Route path='/ai/agents' element={<P.Agents />} />
         <Route path='/ai/agents/new' element={<P.Agents />} />
@@ -216,6 +218,9 @@ export default function App() {
         <Route path='/settings/legal' element={<P.LegalPages />} />
         <Route path='/settings/meeting-room' element={<P.MeetingRoomSettings />} />
         <Route path='/settings/legal/:slug/edit' element={<P.LegalPageEdit />} />
+        <Route path='/settings/wa-interview' element={<Navigate to='/ai/wa-templates?tab=interview' replace />} />
+        <Route path='/settings/wa-appointment' element={<Navigate to='/ai/wa-templates?tab=appointment' replace />} />
+        <Route path='/customer-feedback/wa-templates' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/settings/disabled-wa-templates' element={<P.DisabledWaTemplates />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />
 

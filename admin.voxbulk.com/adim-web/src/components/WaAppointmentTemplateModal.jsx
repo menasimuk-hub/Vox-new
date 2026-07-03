@@ -290,7 +290,7 @@ export default function WaAppointmentTemplateModal({ templateId, open, onClose, 
       setToast(formatActionSuccess(data, 'Pushed to Telnyx').message)
       onSaved?.(data?.template)
     } catch (e) {
-      showSyncError(e, 'Telnyx push failed')
+      showSyncError(e, 'Push to Meta failed')
     } finally {
       setWorking('')
       setSyncing(false)
@@ -511,7 +511,7 @@ export default function WaAppointmentTemplateModal({ templateId, open, onClose, 
             disabled={!!working}
             onClick={() => void pushToTelnyx()}
           >
-            {working === 'push' ? 'Syncing…' : 'Sync to Telnyx'}
+            {working === 'push' ? 'Pushing…' : 'Push to Meta'}
           </button>
         </div>
       </div>

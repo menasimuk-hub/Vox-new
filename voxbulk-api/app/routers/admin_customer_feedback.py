@@ -523,6 +523,37 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
     }
 
 
+@router.get("/system-templates")
+def list_system_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
+
+    return FeedbackSystemTemplateService.list_grouped_admin(db)
+
+
+@router.post("/system-templates/push-all")
+def push_all_system_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
+
+    return FeedbackSystemTemplateService.push_all(db)
+
+
+@router.post("/system-templates/{template_id}/push")
+def push_system_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_system_template_service import (
+        FeedbackSystemTemplateError,
+        FeedbackSystemTemplateService,
+    )
+
+    try:
+        return FeedbackSystemTemplateService.push_one(db, template_id)
+    except FeedbackSystemTemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/wa-templates")
 def list_wa_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template

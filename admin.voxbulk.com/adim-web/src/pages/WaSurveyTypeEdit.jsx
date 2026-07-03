@@ -141,7 +141,7 @@ export default function WaSurveyTypeEdit() {
       showSyncResult(summary)
       await load()
     } catch (e) {
-      showError(e, 'Sync from Telnyx failed')
+      showError(e, 'Sync from Meta failed')
     } finally {
       setWorking('')
     }
@@ -210,10 +210,10 @@ export default function WaSurveyTypeEdit() {
     clearFeedback()
     try {
       const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
-      showOk({ message: data.sync_message || data.message || `Synced “${tpl.display_name || tpl.name}” to Telnyx.` })
+      showOk({ message: data.sync_message || data.message || `Pushed “${tpl.display_name || tpl.name}” to Meta.` })
       await load()
     } catch (e) {
-      showError(e, `Could not sync “${tpl.display_name || tpl.name}” to Telnyx`)
+      showError(e, `Could not push “${tpl.display_name || tpl.name}” to Meta`)
     } finally {
       setWorking('')
     }
@@ -238,11 +238,11 @@ export default function WaSurveyTypeEdit() {
             .join('\n')
         )
       } else {
-        showOk({ message: summary.message || `Pushed ${summary.pushed} template(s) to Telnyx.` })
+        showOk({ message: summary.message || `Pushed ${summary.pushed} template(s) to Meta.` })
       }
       await load()
     } catch (e) {
-      showError(e, 'Sync all to Telnyx failed')
+      showError(e, 'Push all to Meta failed')
     } finally {
       setWorking('')
     }
@@ -339,10 +339,10 @@ export default function WaSurveyTypeEdit() {
             Simulator setup
           </Link>
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
-            Sync from Telnyx
+            Sync from Meta
           </button>
-          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push every linked template — use row Sync for one template only">
-            {working === 'push-all' ? 'Syncing all…' : 'Sync all to Telnyx'}
+          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push every linked template — use row Push for one template only">
+            {working === 'push-all' ? 'Pushing all…' : 'Push all to Meta'}
           </button>
         </div>
       </div>
@@ -432,7 +432,7 @@ export default function WaSurveyTypeEdit() {
                   <th>Shared by</th>
                   <th>Language</th>
                   <th>Privacy</th>
-                  <th>Telnyx</th>
+                  <th>Meta</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -473,7 +473,7 @@ export default function WaSurveyTypeEdit() {
                           className="btn sm soft"
                           disabled={working === `active-${tpl.id}`}
                           onClick={() => void toggleTemplateActive(tpl)}
-                          title={tpl.active_for_survey === false ? 'Show in survey flows again' : 'Hide from surveys — Telnyx sync still works'}
+                          title={tpl.active_for_survey === false ? 'Show in survey flows again' : 'Hide from surveys — Meta push still works'}
                         >
                           {working === `active-${tpl.id}`
                             ? 'Updating…'
@@ -486,7 +486,7 @@ export default function WaSurveyTypeEdit() {
                           className="btn sm soft"
                           disabled={working === `push-${tpl.id}`}
                           onClick={() => pushOneToTelnyx(tpl)}
-                          title="Push only this template to Telnyx"
+                          title="Push only this template to Meta"
                         >
                           {working === `push-${tpl.id}` ? 'Syncing…' : 'Sync'}
                         </button>

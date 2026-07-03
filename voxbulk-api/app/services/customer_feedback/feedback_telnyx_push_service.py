@@ -283,9 +283,9 @@ def push_feedback_template_to_telnyx(
     prefetched = remote_items
     if prefetched is None and not dry_run:
         try:
-            prefetched = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+            prefetched = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         except Exception as exc:
-            logger.warning("feedback_telnyx_prefetch_failed: %s", str(exc)[:200])
+            logger.warning("feedback_meta_prefetch_failed: %s", str(exc)[:200])
             prefetched = []
 
     category = resolve_feedback_push_category(tpl, prefetched or [], meta_name=name)
@@ -307,7 +307,7 @@ def push_feedback_template_to_telnyx(
             "category": category,
             "language": language,
             "payload": payload,
-            "message": "Dry run — payload validated, not sent to Telnyx.",
+            "message": "Dry run — payload validated, not sent to Meta.",
         }
 
     existing_remote = find_remote_feedback_template(prefetched or [], name=name, language=language)
@@ -324,7 +324,36 @@ def push_feedback_template_to_telnyx(
             "language": language,
             "telnyx_record_id": existing_remote.get("id"),
             "telnyx_sync_status": tpl.telnyx_sync_status,
-            "message": "Already on Telnyx/Meta for this language — linked, not re-created.",
+            "message": "Already on Meta for this language — linked, not re-created.",
+        }
+
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    if is_meta_whatsapp_primary(db):
+        from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
+
+        try:
+            item = MetaWhatsappTemplateService.push_template_payload(
+                db,
+                name=name,
+                language=language,
+                category=category,
+                components=components,
+            )
+        except MetaWhatsappTemplateError as exc:
+            raise FeedbackTelnyxPushError(str(exc), payload=getattr(exc, "payload", None)) from exc
+        _mark_template_submitted(db, tpl)
+        return {
+            "ok": True,
+            "dry_run": False,
+            "template_id": tpl.id,
+            "template_key": tpl.template_key,
+            "meta_name": name,
+            "category": category,
+            "language": language,
+            "telnyx_record_id": item.get("id"),
+            "telnyx_sync_status": tpl.telnyx_sync_status,
+            "message": "Template submitted to Meta for approval.",
         }
 
     config = _telnyx_config(db)
@@ -547,7 +576,7 @@ def push_all_feedback_templates_for_industry(
     remote_items: list[dict[str, Any]] | None = None
     if not dry_run:
         try:
-            remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         except Exception as exc:
             logger.warning("feedback_telnyx_bulk_prefetch_failed: %s", str(exc)[:200])
             remote_items = []

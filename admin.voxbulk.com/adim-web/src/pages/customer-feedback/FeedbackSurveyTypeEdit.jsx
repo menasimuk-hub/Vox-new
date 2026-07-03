@@ -267,7 +267,7 @@ export default function FeedbackSurveyTypeEdit() {
             <div className={`meta-bar${isApproved ? ' ok' : ''}`}>
               {isApproved
                 ? 'This template is approved on Meta. Editing the body will require re-approval.'
-                : 'Meta reviews this template. Sync to Telnyx checks for approval updates — it does not send content changes.'}
+                : 'Meta reviews this template. Push to Meta checks for approval updates — it does not send content changes.'}
             </div>
 
             <div className="editor-fields">
@@ -467,7 +467,7 @@ export default function FeedbackSurveyTypeEdit() {
         action={
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" className="h-8" disabled={Boolean(busy)} onClick={syncTelnyx}>
-              {busy === 'sync' ? 'Syncing…' : 'Sync to Telnyx'}
+              {busy === 'sync' ? 'Pushing…' : 'Push to Meta'}
             </Button>
             <Button type="button" size="sm" className="h-8" disabled={busy === 'save-type'} onClick={saveSurveyType}>
               {busy === 'save-type' ? 'Saving…' : 'Save changes'}

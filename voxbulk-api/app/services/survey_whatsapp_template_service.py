@@ -1179,7 +1179,7 @@ def _try_link_remote_and_resolve_branch(
             remote_items=remote_items,
         )
         if not linked:
-            all_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=False)
+            all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
             linked = _link_existing_remote_template(
                 db,
                 row,
@@ -1191,6 +1191,83 @@ def _try_link_remote_and_resolve_branch(
             db.refresh(row)
     branch, branch_error = resolve_template_sync_branch(row, raw_components)
     return branch, branch_error, linked
+
+
+def _push_row_to_meta(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    components: list[Any],
+    category: str,
+    lang_code: str,
+    branch: str,
+    prefetched: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
+
+    meta_request_mode = "create_or_update_template"
+    logger.info(
+        "survey_wa_template_meta_push_start",
+        extra={
+            "template_id": row.id,
+            "template_name": row.name,
+            "meta_request_mode": meta_request_mode,
+            "sync_branch": branch,
+        },
+    )
+    try:
+        item = MetaWhatsappTemplateService.push_template_payload(
+            db,
+            name=str(row.name or "").strip(),
+            language=lang_code,
+            category=category,
+            components=components,
+        )
+    except MetaWhatsappTemplateError as exc:
+        detail = str(exc)
+        meta_payload = exc.payload if isinstance(exc.payload, dict) else {}
+        recoverable = meta_payload.get("requires_rename") or meta_payload.get("meta_error_kind") in {
+            "content_already_exists",
+            "language_deletion_lock",
+        }
+        if recoverable and prefetched is not None:
+            recovered = _recover_push_after_provider_conflict(
+                db,
+                row,
+                raw_components=components,
+                language=lang_code,
+                remote_items=prefetched,
+            )
+            if recovered is not None:
+                return recovered
+        row.last_push_error = detail
+        row.local_sync_status = SYNC_ERROR
+        row.updated_at = _now()
+        db.add(row)
+        db.commit()
+        raise SurveyWhatsappTemplateError(
+            detail,
+            payload=meta_payload or {"message": detail, "template_name": row.name, "sync_branch": branch},
+        ) from exc
+
+    _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+    record_id = str(row.telnyx_record_id or "").strip()
+    if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+        try:
+            remote_item = MetaWhatsappTemplateService.fetch_by_record_id(db, record_id)
+            _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
+        except Exception as exc:
+            logger.warning(
+                "survey_wa_template_meta_refresh_after_push_failed",
+                extra={"template_id": row.id, "record_id": record_id, "error": str(exc)},
+            )
+
+    return _push_success_response(
+        db,
+        row,
+        telnyx_request_mode=meta_request_mode,
+        sync_branch=branch,
+    )
 
 
 def _push_result_for_sync_branch(
@@ -1225,8 +1302,8 @@ def _push_result_for_sync_branch(
         raise SurveyWhatsappTemplateError(
             branch_error
             or "This template is APPROVED on Meta. Local draft content differs from the approved version — "
-            "either reset the draft from Telnyx (repair_wa_survey_template_drafts.py --reset-from-remote) "
-            "or clone/rename the template if you need new copy, then Push to Telnyx.",
+            "either reset the draft from Meta (repair_wa_survey_template_drafts.py --reset-from-remote) "
+            "or clone/rename the template if you need new copy, then Push to Meta.",
             payload={
                 "message": branch_error
                 or "This template is APPROVED on Meta. Local draft content differs from the approved version.",
@@ -1254,7 +1331,7 @@ def _recover_push_after_provider_conflict(
         template_id=str(row.id or ""),
     )
     if not _link_existing_remote_template(db, row, language=language, remote_items=items):
-        all_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=False)
+        all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         if not _link_existing_remote_template(db, row, language=language, remote_items=all_items):
             return None
     db.commit()
@@ -1907,6 +1984,19 @@ class SurveyWhatsappTemplateService:
                 payload={"message": var_error, "template_name": row.name, "sync_branch": branch},
             )
 
+        from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+        if is_meta_whatsapp_primary(db):
+            return _push_row_to_meta(
+                db,
+                row,
+                components=components,
+                category=normalize_wa_template_category(row.category, required=True),
+                lang_code=lang_code,
+                branch=branch,
+                prefetched=prefetched,
+            )
+
         config = SurveyWhatsappTemplateService._telnyx_config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
@@ -2065,8 +2155,8 @@ class SurveyWhatsappTemplateService:
         record_id = str(row.telnyx_record_id or "").strip()
         if not record_id or record_id.startswith(_LOCAL_ID_PREFIX):
             raise SurveyWhatsappTemplateError(
-                "Template has not been synced to Telnyx yet. Use Sync to Telnyx first.",
-                payload={"message": "Template has not been synced to Telnyx yet. Use Sync to Telnyx first."},
+                "Template has not been synced to Meta yet. Use Push to Meta first.",
+                payload={"message": "Template has not been synced to Meta yet. Use Push to Meta first."},
             )
         try:
             remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)

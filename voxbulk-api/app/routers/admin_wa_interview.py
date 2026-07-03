@@ -96,7 +96,7 @@ def set_interview_template_active(
     message = (
         "Template enabled for AI Interview."
         if active
-        else "Template hidden from AI Interview — you can still sync it to Telnyx."
+        else "Template hidden from AI Interview — you can still push it to Meta."
     )
     return {"ok": True, "message": message, "template": tpl}
 
@@ -141,7 +141,7 @@ def rename_interview_template_for_sync(
     tpl = interview_template_to_dict(updated)
     return {
         "ok": True,
-        "message": f"Template renamed to {updated.name}. Save any edits, then sync to Telnyx.",
+        "message": f"Template renamed to {updated.name}. Save any edits, then push to Meta.",
         "template": tpl,
         "template_name": updated.name,
     }

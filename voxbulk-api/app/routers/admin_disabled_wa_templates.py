@@ -68,6 +68,12 @@ def enable_all(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INT
     return DisabledWaTemplateService.enable_all(db)
 
 
+@router.post("/clear-all")
+def clear_all_blocklist(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Remove all disabled-WA blocklist rows (legacy account names). Does not delete templates from Meta."""
+    return DisabledWaTemplateService.clear_all(db)
+
+
 @router.delete("/{row_id}")
 def remove_row(row_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     try:

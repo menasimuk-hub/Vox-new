@@ -289,7 +289,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
       setToast(formatActionSuccess(data, 'Pushed to Telnyx').message)
       onSaved?.(data?.template)
     } catch (e) {
-      showSyncError(e, 'Telnyx push failed')
+      showSyncError(e, 'Push to Meta failed')
     } finally {
       setWorking('')
       setSyncing(false)
@@ -511,7 +511,7 @@ export default function WaInterviewTemplateModal({ templateId, open, onClose, on
             disabled={!!working}
             onClick={() => void pushToTelnyx()}
           >
-            {working === 'push' ? 'Syncing…' : 'Sync to Telnyx'}
+            {working === 'push' ? 'Pushing…' : 'Push to Meta'}
           </button>
         </div>
       </div>

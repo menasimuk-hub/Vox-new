@@ -1,4 +1,4 @@
-/** WhatsApp template category + Telnyx sync labels (must match backend). */
+/** WhatsApp template category + Meta sync labels (must match backend). */
 
 export const WA_TEMPLATE_CATEGORY_OPTIONS = [
   { value: 'MARKETING', label: 'Marketing' },
@@ -14,7 +14,7 @@ export const LOCAL_STATUS_LABELS = {
 export const TELNYX_SYNC_LABELS = {
   NOT_SYNCED: 'Not synced',
   SYNCING: 'Syncing',
-  SYNCED: 'Synced to Telnyx',
+  SYNCED: 'Synced to Meta',
   PENDING: 'Pending approval',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
@@ -29,7 +29,7 @@ export function isValidWaTemplateCategory(value) {
 export function validateCategoryBeforeSync(category) {
   const cat = String(category || '').trim().toUpperCase()
   if (!cat) {
-    return 'Template Category is required before syncing to Telnyx.'
+    return 'Template Category is required before pushing to Meta.'
   }
   if (!isValidWaTemplateCategory(cat)) {
     return 'Template Category must be MARKETING, UTILITY, or AUTHENTICATION.'
@@ -77,8 +77,8 @@ export function templateSyncIsStatusRefreshOnly(template) {
 export function templateSyncButtonLabel(template, { isDirty = false, syncing = false } = {}) {
   if (syncing) return 'Syncing…'
   if (templateSyncIsStatusRefreshOnly(template)) return 'Refresh status'
-  if (isDirty) return 'Save & sync to Telnyx'
-  return 'Sync this to Telnyx'
+  if (isDirty) return 'Save & push to Meta'
+  return 'Push to Meta'
 }
 
 export function telnyxSyncPillClass(label) {

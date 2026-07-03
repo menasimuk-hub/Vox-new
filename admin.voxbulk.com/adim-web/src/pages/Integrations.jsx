@@ -1160,6 +1160,13 @@ export default function Integrations() {
           telnyxWebhookBase: summaries?.telnyx?.config?.webhook_base_url || 'https://api.voxbulk.com',
         })
       : { errors: {}, valid: true }
+  const metaWaPrimary = Boolean(
+    summaries?.meta_whatsapp?.enabled &&
+      summaries?.meta_whatsapp?.exists &&
+      summaries?.meta_whatsapp?.config?.waba_id &&
+      summaries?.meta_whatsapp?.config?.phone_number_id &&
+      summaries?.meta_whatsapp?.secret_set?.access_token,
+  )
   const telnyxWebhookBase = String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
   const metaWebhookBase = String(
     activeProvider === 'meta_whatsapp' ? activeConfig.webhook_base_url : summaries?.meta_whatsapp?.config?.webhook_base_url || DEFAULT_WEBHOOK_BASE
@@ -2077,6 +2084,7 @@ export default function Integrations() {
           telnyxTestAllResults={telnyxTestAllResults}
           telnyxTestAllBusy={telnyxTestAllBusy}
           testTelnyxAllSenders={testTelnyxAllSenders}
+          metaWaPrimary={metaWaPrimary}
           providerError={providerError}
           providerSaving={providerSaving}
           defaultWebhookBase={DEFAULT_WEBHOOK_BASE}
