@@ -1,0 +1,44 @@
+@keyframes wa-hub-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.waTemplatesHub .animate-fade-in {
+  animation: wa-hub-fade-in 0.25s ease-out both;
+}
+
+.waTemplatesHub .hover-scale {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.waTemplatesHub .hover-scale:hover {
+  transform: scale(1.01);
+}
+
+.waTplEd-overlay.waTplEd-overlay--sheet {
+  justify-content: flex-end;
+  align-items: stretch;
+}
+
+.waTplEd-overlay.waTplEd-overlay--sheet .waTplEd {
+  max-width: 960px;
+  width: 100%;
+  margin: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.12);
+  animation: wa-sheet-in 0.28s ease-out;
+}
+
+@keyframes wa-sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

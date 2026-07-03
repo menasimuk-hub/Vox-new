@@ -193,6 +193,7 @@ export default function WaSurveyTemplateModal({
   onSaved,
   systemTemplateMode = false,
   systemTemplateKind = '',
+  sheetLayout = false,
 }) {
   const [loading, setLoading] = useState(false)
   const [working, setWorking] = useState('')
@@ -613,7 +614,12 @@ export default function WaSurveyTemplateModal({
   const syncError = template?.sync_error || template?.last_push_error
 
   return (
-    <div className="waTplEd-overlay" role="dialog" aria-modal="true" aria-label="Edit WhatsApp template">
+    <div
+      className={`waTplEd-overlay${sheetLayout ? ' waTplEd-overlay--sheet' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit WhatsApp template"
+    >
       <div className="waTplEd">
         <header className="waTplEd-topbar">
           <div className="waTplEd-topbar-left">
