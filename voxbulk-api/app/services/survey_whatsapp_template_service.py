@@ -2743,7 +2743,6 @@ class SurveyWhatsappTemplateService:
             InterviewWhatsappTemplateService,
             interview_spec_by_key,
         )
-        from app.services.wa_template_language import default_wa_template_language, normalize_wa_template_language
 
         catalog = TelnyxWhatsappTemplateSyncService.sync(db)
         # Catalog already refreshed statuses — link/repair without another Meta list call.
