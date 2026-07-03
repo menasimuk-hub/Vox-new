@@ -1,6 +1,7 @@
 export const INTEGRATION_PROVIDERS = [
   { key: 'dentally', label: 'Dentally', icon: 'ti-building-hospital', blurb: 'Practice management sync and API.' },
-  { key: 'telnyx', label: 'Telnyx', icon: 'ti-phone', blurb: 'Voice, SMS, and WhatsApp messaging.' },
+  { key: 'telnyx', label: 'Telnyx', icon: 'ti-phone', blurb: 'Voice and SMS (Telnyx Call Control + messaging).' },
+  { key: 'meta_whatsapp', label: 'Meta WhatsApp', icon: 'ti-brand-whatsapp', blurb: 'Direct WhatsApp Cloud API — templates, send, inbound webhooks.' },
   { key: 'azure_speech', label: 'Azure Speech', icon: 'ti-microphone', blurb: 'Speech-to-text and text-to-speech.' },
   { key: 'openai', label: 'OpenAI', icon: 'ti-brain', blurb: 'Realtime call reasoning models.' },
   { key: 'deepseek', label: 'DeepSeek', icon: 'ti-sparkles', blurb: 'LLM for demos and sales outcomes.' },

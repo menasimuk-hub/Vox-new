@@ -1435,6 +1435,101 @@ def test_telnyx_whatsapp(payload: dict | None = None, db: Session = Depends(get_
     }
 
 
+@router.post("/integrations/meta_whatsapp/test")
+def test_meta_whatsapp_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.meta_whatsapp_service import MetaWhatsappService
+
+    result = MetaWhatsappService.test_connection(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    return result
+
+
+@router.get("/integrations/meta_whatsapp/templates")
+def list_meta_whatsapp_templates(
+    limit: int = 5,
+    status: str = "APPROVED",
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.meta_whatsapp_config_service import MetaWhatsappConfigError
+    from app.services.meta_whatsapp_service import MetaWhatsappService
+
+    try:
+        return MetaWhatsappService.list_templates(db, limit=limit, status=status)
+    except MetaWhatsappConfigError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/integrations/meta_whatsapp/test-send")
+def test_meta_whatsapp_send(payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.meta_whatsapp_config_service import MetaWhatsappConfigError
+    from app.services.meta_whatsapp_service import MetaWhatsappService, MetaWhatsappServiceError
+
+    payload = payload or {}
+    to_number = str(payload.get("to_number") or "").strip()
+    template_name = str(payload.get("template_name") or "").strip()
+    template_language = str(payload.get("template_language") or "").strip()
+    if not to_number:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="to_number is required")
+    if not template_name:
+        try:
+            listed = MetaWhatsappService.list_templates(db, limit=1, status="APPROVED")
+            rows = listed.get("templates") if isinstance(listed.get("templates"), list) else []
+            if rows:
+                template_name = str(rows[0].get("name") or "").strip()
+                template_language = str(rows[0].get("language") or template_language or "en").strip()
+        except (MetaWhatsappConfigError, MetaWhatsappServiceError):
+            pass
+    if not template_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_name is required")
+    try:
+        result = MetaWhatsappService.send_template(
+            db,
+            to_number=to_number,
+            template_name=template_name,
+            template_language=template_language or "en",
+        )
+    except (MetaWhatsappConfigError, MetaWhatsappServiceError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return result
+
+
+@router.get("/integrations/meta_whatsapp/webhook-probe")
+def probe_meta_whatsapp_webhook(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    import httpx
+
+    from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+
+    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
+    config = validate_meta_whatsapp_config(cfg or {})
+    webhook_url = str(config.get("webhook_url") or "").strip()
+    verify_token = str(config.get("webhook_verify_token") or "").strip()
+    if not webhook_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="webhook_url is not configured — save webhook base URL first")
+    if not verify_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="webhook_verify_token is not configured")
+    params = {
+        "hub.mode": "subscribe",
+        "hub.verify_token": verify_token,
+        "hub.challenge": "voxbulk_probe_ok",
+    }
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+            response = client.get(webhook_url, params=params)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Webhook probe failed: {exc}") from exc
+    body = (response.text or "").strip()
+    ok = response.status_code == 200 and body == "voxbulk_probe_ok"
+    return {
+        "ok": ok,
+        "status_code": response.status_code,
+        "body": body[:200],
+        "webhook_url": webhook_url,
+        "enabled": enabled,
+    }
+
+
 @router.get("/integrations/telnyx/inbound-messages")
 def list_telnyx_inbound_messages(
     limit: int = 50,

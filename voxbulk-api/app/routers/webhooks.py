@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+import json
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.core.config import get_settings
 from app.core.security import (
@@ -13,8 +16,12 @@ from sqlalchemy.orm import Session
 from fastapi import Depends
 from app.services.provider_settings import ProviderSettingsService
 from app.services.recovery_service import WebhookEventService
+from app.services.meta_webhook_security import MetaWebhookVerificationError, verify_meta_webhook_signature
+from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+from app.services.meta_whatsapp_inbound_service import MetaWhatsappInboundService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+logger = logging.getLogger(__name__)
 
 def _missing_sig() -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
@@ -111,3 +118,68 @@ async def airwallex_webhook(request: Request, db: Session = Depends(get_db)):
         db, provider="airwallex", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
     )
     return AirwallexPaymentService.handle_webhook_event(db, event)
+
+
+def _meta_whatsapp_verify_token(db: Session) -> str:
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
+    config = validate_meta_whatsapp_config(cfg or {})
+    return str(config.get("webhook_verify_token") or "").strip()
+
+
+def _meta_whatsapp_app_secret(db: Session) -> str:
+    cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
+    config = validate_meta_whatsapp_config(cfg or {})
+    return str(config.get("app_secret") or "").strip()
+
+
+@router.get("/meta/whatsapp")
+@router.head("/meta/whatsapp")
+async def meta_whatsapp_webhook_verify(
+    request: Request,
+    db: Session = Depends(get_db),
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+):
+    if request.method == "HEAD":
+        return Response(status_code=status.HTTP_200_OK)
+    mode = str(hub_mode or "").strip()
+    token = str(hub_verify_token or "").strip()
+    challenge = str(hub_challenge or "").strip()
+    expected = _meta_whatsapp_verify_token(db)
+    if mode == "subscribe" and expected and token == expected and challenge:
+        return Response(content=challenge, media_type="text/plain", status_code=status.HTTP_200_OK)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Webhook verification failed")
+
+
+@router.post("/meta/whatsapp")
+async def meta_whatsapp_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    raw_body = await request.body()
+    app_secret = _meta_whatsapp_app_secret(db)
+    if app_secret:
+        try:
+            verify_meta_webhook_signature(
+                app_secret=app_secret,
+                raw_body=raw_body,
+                signature_header=request.headers.get("X-Hub-Signature-256"),
+            )
+        except MetaWebhookVerificationError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid payload")
+    WebhookEventService.persist_received(
+        db,
+        provider="meta_whatsapp",
+        raw_body=raw_body,
+        external_event_id=None,
+        signature_valid=True,
+    )
+    result = MetaWhatsappInboundService.handle_webhook(db, payload=payload)
+    return result

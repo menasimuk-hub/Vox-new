@@ -291,6 +291,7 @@ const NAV = [
       ['Dentally', '/integrations/dentally'],
 
       ['Telnyx voice agent', '/integrations/telnyx'],
+      ['Meta WhatsApp', '/integrations/meta_whatsapp'],
 
       ['Azure Speech', '/integrations/azure_speech'],
 

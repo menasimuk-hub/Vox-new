@@ -96,6 +96,7 @@ export default function App() {
         <Route path='/integrations/kpi' element={<P.Integrations />} />
         <Route path='/integrations/dentally' element={<P.Integrations />} />
         <Route path='/integrations/telnyx' element={<P.Integrations />} />
+        <Route path='/integrations/meta_whatsapp' element={<P.Integrations />} />
         <Route path='/integrations/azure_speech' element={<P.Integrations />} />
         <Route path='/integrations/openai' element={<P.Integrations />} />
         <Route path='/integrations/deepseek' element={<P.Integrations />} />

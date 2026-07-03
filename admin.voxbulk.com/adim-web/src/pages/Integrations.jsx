@@ -5,6 +5,7 @@ import { providerLabel } from '../lib/integrationsCatalog'
 import IntegrationKpiHub from './IntegrationKpiHub'
 import IntegrationProviderShell from './IntegrationProviderShell'
 import TelnyxIntegration, { compactRouteRows } from './TelnyxIntegration'
+import MetaWhatsappIntegration, { metaWhatsappValidation } from './MetaWhatsappIntegration'
 
 const SOCIAL_PROVIDERS = [
   { key: 'google', label: 'Google' },
@@ -40,6 +41,7 @@ function defaultSocialProviderState(key) {
 const PROVIDERS = [
   { key: 'dentally', label: 'Dentally' },
   { key: 'telnyx', label: 'Telnyx' },
+  { key: 'meta_whatsapp', label: 'Meta WhatsApp' },
   { key: 'azure_speech', label: 'Azure Speech' },
   { key: 'openai', label: 'OpenAI' },
   { key: 'deepseek', label: 'DeepSeek' },
@@ -318,8 +320,9 @@ function WebhooksOverview({ summaries }) {
 
   const rows = [
     { label: 'Telnyx voice', url: telnyx.voice_webhook_url || `${webhookBase}/telnyx/webhooks/voice` },
-    { label: 'Telnyx messaging (SMS / WhatsApp)', url: telnyx.messaging_webhook_url || `${webhookBase}/telnyx/webhooks/messages` },
+    { label: 'Telnyx messaging (SMS)', url: telnyx.messaging_webhook_url || `${webhookBase}/telnyx/webhooks/messages` },
     { label: 'Telnyx call status', url: telnyx.status_callback_url || `${webhookBase}/telnyx/webhooks/status` },
+    { label: 'Meta WhatsApp', url: summaries?.meta_whatsapp?.config?.webhook_url || `${webhookBase}/webhooks/meta/whatsapp` },
     { label: 'GoCardless billing', url: gc.webhook_url || 'https://your-api-host/webhooks/gocardless' },
     { label: 'Vapi call events', url: 'Configure in Vapi dashboard → Server URL (see Vapi integration)' },
   ]
@@ -333,7 +336,7 @@ function WebhooksOverview({ summaries }) {
         </div>
         <div className='cardBody stack' style={{ gap: 14 }}>
           <div className='note'>
-            Paste these URLs into Telnyx, GoCardless, and Vapi. Telnyx URLs update when you save Telnyx with your public API base URL (ngrok or production).
+            Paste these URLs into Telnyx (SMS/voice), Meta (WhatsApp), GoCardless, and Vapi.
           </div>
           {rows.map((row) => (
             <div key={row.label} className='integrationWebhookRow'>
@@ -719,6 +722,14 @@ export default function Integrations() {
   const [telnyxTestFromWa, setTelnyxTestFromWa] = useState('')
   const [telnyxTestAllResults, setTelnyxTestAllResults] = useState([])
   const [telnyxTestAllBusy, setTelnyxTestAllBusy] = useState(false)
+  const [metaTestResult, setMetaTestResult] = useState(null)
+  const [metaSendResult, setMetaSendResult] = useState(null)
+  const [metaProbeResult, setMetaProbeResult] = useState(null)
+  const [metaTemplates, setMetaTemplates] = useState([])
+  const [metaTemplatesBusy, setMetaTemplatesBusy] = useState(false)
+  const [metaTestNumber, setMetaTestNumber] = useState('')
+  const [metaTemplateName, setMetaTemplateName] = useState('')
+  const [metaTemplateLang, setMetaTemplateLang] = useState('en')
   const [summariesRefreshing, setSummariesRefreshing] = useState(false)
 
   const reloadSummaries = useCallback(async () => {
@@ -946,6 +957,25 @@ export default function Integrations() {
         const token = String(draft.api_key_draft || '').trim()
         if (token) config.api_key = token
       }
+      if (providerKey === 'meta_whatsapp') {
+        const stripMetaPath = (raw) => {
+          let base = String(raw || '').trim().replace(/\/+$/, '')
+          if (base.toLowerCase().endsWith('/webhooks/meta/whatsapp')) {
+            base = base.slice(0, -'/webhooks/meta/whatsapp'.length).replace(/\/+$/, '')
+          }
+          return base || DEFAULT_WEBHOOK_BASE
+        }
+        const webhookBase = stripMetaPath(config.webhook_base_url || config.webhook_url || DEFAULT_WEBHOOK_BASE)
+        config.webhook_base_url = webhookBase
+        config.webhook_url = `${webhookBase}/webhooks/meta/whatsapp`
+        if (!config.graph_api_version) config.graph_api_version = 'v25.0'
+        const accessToken = String(draft.access_token_draft || '').trim()
+        if (accessToken) config.access_token = accessToken
+        const appSecret = String(draft.app_secret_draft || '').trim()
+        if (appSecret) config.app_secret = appSecret
+        const verifyToken = String(draft.webhook_verify_token_draft || '').trim()
+        if (verifyToken) config.webhook_verify_token = verifyToken
+      }
       if (providerKey === 'azure_speech') {
         if (config.default_voice_id == null || String(config.default_voice_id).trim() === '') config.default_voice_id = 'en-GB-AbbiNeural'
         if (config.tts_enabled == null) config.tts_enabled = true
@@ -1111,7 +1141,12 @@ export default function Integrations() {
   const vapiStatus = activeProvider === 'vapi' ? vapiValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const elevenLabsStatus = activeProvider === 'elevenlabs' ? elevenLabsValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxStatus = activeProvider === 'telnyx' ? telnyxValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const metaStatus = activeProvider === 'meta_whatsapp' ? metaWhatsappValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const telnyxWebhookBase = String(activeConfig.webhook_base_url || DEFAULT_WEBHOOK_BASE).replace(/\/+$/, '')
+  const metaWebhookBase = String(
+    activeProvider === 'meta_whatsapp' ? activeConfig.webhook_base_url : summaries?.meta_whatsapp?.config?.webhook_base_url || DEFAULT_WEBHOOK_BASE
+  ).replace(/\/+$/, '')
+  const metaWebhookUrl = activeConfig.webhook_url || `${metaWebhookBase}/webhooks/meta/whatsapp`
   const telnyxWebhookUrl = activeConfig.voice_webhook_url || `${telnyxWebhookBase}/telnyx/webhooks/voice`
   const telnyxMessagingWebhookUrl = activeConfig.messaging_webhook_url || `${telnyxWebhookBase}/telnyx/webhooks/messages`
   const telnyxMediaStreamUrl = activeConfig.media_stream_url || `${httpBaseToWs(telnyxWebhookBase)}/telnyx/media-stream`
@@ -1672,6 +1707,68 @@ export default function Integrations() {
     }
   }
 
+  const testMetaConnection = async () => {
+    setProviderError('')
+    setMetaTestResult(null)
+    try {
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/test', { method: 'POST' })
+      setMetaTestResult(result)
+    } catch (e) {
+      setMetaTestResult({ ok: false, detail: e?.message || 'Meta connection test failed' })
+    }
+  }
+
+  const probeMetaWebhook = async () => {
+    setProviderError('')
+    setMetaProbeResult(null)
+    try {
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/webhook-probe')
+      setMetaProbeResult(result)
+    } catch (e) {
+      setMetaProbeResult({ ok: false, body: e?.message || 'Probe failed' })
+    }
+  }
+
+  const loadMetaTemplates = async () => {
+    setMetaTemplatesBusy(true)
+    setProviderError('')
+    try {
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/templates?limit=5&status=APPROVED')
+      const rows = Array.isArray(result.templates) ? result.templates : []
+      setMetaTemplates(rows)
+      if (rows[0]?.name && !metaTemplateName.trim()) {
+        setMetaTemplateName(String(rows[0].name))
+        setMetaTemplateLang(String(rows[0].language || 'en'))
+      }
+    } catch (e) {
+      setProviderError(e?.message || 'Failed to load Meta templates')
+    } finally {
+      setMetaTemplatesBusy(false)
+    }
+  }
+
+  const testMetaSend = async () => {
+    const toNumber = metaTestNumber.trim()
+    if (!toNumber) {
+      window.alert('Enter your WhatsApp number in E.164 format (+44…).')
+      return
+    }
+    setProviderError('')
+    setMetaSendResult(null)
+    try {
+      const payload = { to_number: toNumber }
+      if (metaTemplateName.trim()) payload.template_name = metaTemplateName.trim()
+      if (metaTemplateLang.trim()) payload.template_language = metaTemplateLang.trim()
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/test-send', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      setMetaSendResult(result)
+    } catch (e) {
+      setMetaSendResult({ ok: false, detail: e?.message || 'Meta test send failed' })
+    }
+  }
+
   const testTelnyxAllSenders = async () => {
     const toNumber = telnyxTestNumber.trim()
     if (!toNumber) {
@@ -1949,6 +2046,39 @@ export default function Integrations() {
           loadTelnyxInboundMessages={() => loadTelnyxInboundMessages(false)}
           telnyxMessageFilters={telnyxMessageFilters}
           setTelnyxMessageFilters={setTelnyxMessageFilters}
+          />
+        </div>
+      ) : activeProvider === 'meta_whatsapp' ? (
+        <div className='pageShell telnyxPageShell'>
+          <MetaWhatsappIntegration
+            activeSummary={activeSummary}
+            activeConfig={activeConfig}
+            activeDraft={activeDraft}
+            activeEnabled={activeEnabled}
+            metaStatus={metaStatus}
+            metaWebhookUrl={metaWebhookUrl}
+            metaTestResult={metaTestResult}
+            metaSendResult={metaSendResult}
+            metaTemplates={metaTemplates}
+            metaTemplatesBusy={metaTemplatesBusy}
+            metaProbeResult={metaProbeResult}
+            metaTestNumber={metaTestNumber}
+            setMetaTestNumber={setMetaTestNumber}
+            metaTemplateName={metaTemplateName}
+            setMetaTemplateName={setMetaTemplateName}
+            metaTemplateLang={metaTemplateLang}
+            setMetaTemplateLang={setMetaTemplateLang}
+            providerError={providerError}
+            providerSaving={providerSaving}
+            defaultWebhookBase={DEFAULT_WEBHOOK_BASE}
+            setProviderEnabled={setProviderEnabled}
+            setProviderField={setProviderField}
+            setProviderDrafts={setProviderDrafts}
+            saveIntegrationProvider={saveIntegrationProvider}
+            testMetaConnection={testMetaConnection}
+            probeMetaWebhook={probeMetaWebhook}
+            loadMetaTemplates={loadMetaTemplates}
+            testMetaSend={testMetaSend}
           />
         </div>
       ) : isKpiRoute ? (

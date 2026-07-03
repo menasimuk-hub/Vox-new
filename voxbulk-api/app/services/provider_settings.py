@@ -37,6 +37,7 @@ class ProviderSettingsService:
         "stripe",
         "airwallex",
         "telnyx",
+        "meta_whatsapp",
         "azure_speech",
         "openai",
         "google",
@@ -69,6 +70,14 @@ class ProviderSettingsService:
         "stripe": {"secret_key", "publishable_key"},
         "airwallex": {"client_id", "api_key"},
         "telnyx": {"api_key", "connection_id", "default_outbound_number", "fallback_caller_id", "media_stream_url"},
+        "meta_whatsapp": {
+            "access_token",
+            "app_secret",
+            "webhook_verify_token",
+            "phone_number_id",
+            "waba_id",
+            "webhook_base_url",
+        },
         "azure_speech": {"api_key", "region", "default_voice_id"},
         "openai": {"api_key", "default_model", "realtime_model", "temperature", "max_output_tokens"},
         # Social OAuth providers. These settings are consumed by the FastAPI OAuth start/callback flow.
@@ -101,6 +110,7 @@ class ProviderSettingsService:
         "stripe": {"secret_key", "webhook_secret"},
         "airwallex": {"api_key", "webhook_secret"},
         "telnyx": {"api_key"},
+        "meta_whatsapp": {"access_token", "app_secret", "webhook_verify_token"},
         "azure_speech": {"api_key"},
         "openai": {"api_key"},
         "google": {"client_secret"},
@@ -212,6 +222,10 @@ class ProviderSettingsService:
                         "You may have pasted the Connection ID or another value by mistake."
                     )
                 config["api_key"] = incoming_key
+        if provider == "meta_whatsapp":
+            from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+
+            config = validate_meta_whatsapp_config(config)
         if provider == "stripe":
             config = ProviderSettingsService._validate_stripe_config(config)
         if provider == "airwallex":
@@ -1065,6 +1079,22 @@ class ProviderSettingsService:
             if not str(cfg.get("media_stream_url") or "").strip():
                 missing.append("media_stream_url")
             return missing
+        if provider.lower() == "meta_whatsapp":
+            from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+
+            cfg = validate_meta_whatsapp_config(config or {})
+            missing: list[str] = []
+            for key in (
+                "access_token",
+                "app_secret",
+                "webhook_verify_token",
+                "phone_number_id",
+                "waba_id",
+                "webhook_base_url",
+            ):
+                if not str(cfg.get(key) or "").strip():
+                    missing.append(key)
+            return missing
         if provider.lower() == "azure_speech":
             cfg = config or {}
             missing: list[str] = []
@@ -1116,6 +1146,10 @@ class ProviderSettingsService:
             api_key, _source = resolve_telnyx_api_key(db, cfg)
             if api_key:
                 cfg = {**cfg, "api_key": api_key}
+        if provider == "meta_whatsapp":
+            from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+
+            cfg = validate_meta_whatsapp_config(cfg)
         missing = ProviderSettingsService._missing_fields(provider, cfg)
         configured = bool(enabled) and len(missing) == 0
         return {
@@ -1142,6 +1176,10 @@ class ProviderSettingsService:
         cfg = decrypted or {}
         if provider == "telnyx":
             cfg = ProviderSettingsService._validate_telnyx_config(cfg)
+        if provider == "meta_whatsapp":
+            from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+
+            cfg = validate_meta_whatsapp_config(cfg)
         secret_keys = ProviderSettingsService._secret_keys(provider)
 
         safe_config: dict[str, Any] = {}
