@@ -15,22 +15,19 @@ from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, F
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.wa_template_utility_content import (
-    DEFAULT_EMOJI,
     build_utility_components,
-    default_buttons_for_key,
+    buttons_for_language,
     ensure_leading_emoji,
     extract_buttons_from_components,
     has_leading_emoji,
     is_promo_wording,
+    meta_name_has_promo,
     parse_components_json,
+    utility_body_ar_for_topic,
     utility_body_for_topic,
 )
 
 logger = logging.getLogger(__name__)
-
-AR_RATING_BUTTONS = ["ممتاز", "جيد", "ضعيف"]
-AR_YES_NO_BUTTONS = ["نعم", "لا"]
-AR_THANKS_BUTTONS = ["تم"]
 
 
 def _loads(raw: str | None) -> list[dict[str, Any]]:
@@ -58,20 +55,18 @@ def _is_arabic_lang(lang: str | None) -> bool:
     return str(lang or "").strip().lower().startswith("ar")
 
 
-def _buttons_for_lang(template_key: str | None, *, name: str | None, language: str | None) -> list[str]:
-    key = str(template_key or name or "").strip().lower()
-    if _is_arabic_lang(language):
-        if any(token in key for token in ("thank", "done", "confirm_book", "booked")):
-            return list(AR_THANKS_BUTTONS)
-        if any(token in key for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
-            return list(AR_YES_NO_BUTTONS)
-        return list(AR_RATING_BUTTONS)
-    return default_buttons_for_key(template_key, name=name)
-
-
-def _utility_body_ar(topic: str) -> str:
-    topic = (topic or "زيارتك الأخيرة").strip()
-    return f"{DEFAULT_EMOJI} كيف كانت {topic} في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
+def _is_our_product_template(row: TelnyxWhatsappTemplate) -> bool:
+    name = str(row.name or "").lower()
+    key = str(row.sales_template_key or "").lower()
+    if key.startswith("sales_"):
+        return False
+    return (
+        name.startswith("voxbulk_survey_")
+        or name.startswith("voxbulk_cf_")
+        or bool(row.survey_type_id)
+        or key.startswith("interview_")
+        or bool(row.active_for_interview)
+    )
 
 
 def _parse_feedback_buttons(row: FeedbackWaTemplate) -> list[str]:
@@ -97,13 +92,14 @@ def _parse_feedback_buttons(row: FeedbackWaTemplate) -> list[str]:
 class WaTemplateCloseoutService:
     @staticmethod
     def repair_survey_template_content(db: Session, row: TelnyxWhatsappTemplate, *, force: bool = False) -> bool:
-        """Ensure Utility category, leading emoji, and quick-reply buttons."""
+        """Ensure Utility category, leading emoji, buttons, and no marketing words."""
+        if not _is_our_product_template(row) and not force:
+            return False
         components = _loads(row.draft_components_json)
         body = _body_from_components(components) or str(row.body_preview or "").strip()
         buttons = extract_buttons_from_components(components)
-        # Strip emoji from button labels (Meta rejects some emoji buttons).
         buttons = [re.sub(r"[^\w\s\-/'&]", "", b).strip()[:25] for b in buttons if b.strip()]
-        buttons = [b for b in buttons if b]
+        buttons = [b for b in buttons if b and not is_promo_wording(b)]
         topic = None
         if row.survey_type_id:
             st = db.get(SurveyType, row.survey_type_id)
@@ -113,32 +109,31 @@ class WaTemplateCloseoutService:
 
         status = str(row.status or "").upper()
         category = str(row.category or "").upper()
-        needs = force or status == "REJECTED" or not buttons or not has_leading_emoji(body) or is_promo_wording(body)
-        if category == "MARKETING" and "sales" not in str(row.name or "").lower() and not str(
-            row.sales_template_key or ""
-        ).startswith("sales_"):
-            if "voxbulk_survey_" in str(row.name or "").lower() or row.survey_type_id:
-                row.category = "UTILITY"
-                needs = True
-
+        needs = (
+            force
+            or status == "REJECTED"
+            or not buttons
+            or not has_leading_emoji(body)
+            or is_promo_wording(body)
+            or is_promo_wording(row.name)
+            or is_promo_wording(row.display_name)
+            or (category == "MARKETING" and not str(row.sales_template_key or "").startswith("sales_"))
+        )
         if not needs:
             return False
 
-        if status == "REJECTED" or is_promo_wording(body) or not body or force:
-            if _is_arabic_lang(row.language):
-                body = _utility_body_ar(topic)
-            else:
-                body = utility_body_for_topic(topic)
+        if _is_arabic_lang(row.language):
+            body = utility_body_ar_for_topic(topic)
         else:
-            body = ensure_leading_emoji(body)
-        if not buttons or force:
-            buttons = _buttons_for_lang(row.sales_template_key, name=row.name, language=row.language)
-
-        new_components = build_utility_components(body=body, buttons=buttons)
+            body = utility_body_for_topic(topic)
+        buttons = buttons_for_language(row.sales_template_key, name=row.name, language=row.language)
+        new_components = build_utility_components(
+            body=body, buttons=buttons, language=row.language
+        )
         row.draft_components_json = _dumps(new_components)
         row.body_preview = body
         row.category = "UTILITY"
-        row.local_sync_status = "needs_resubmit" if status == "REJECTED" else "draft"
+        row.local_sync_status = "needs_resubmit" if status in {"REJECTED", "APPROVED"} or is_promo_wording(row.name) else "draft"
         row.updated_at = datetime.utcnow()
         db.add(row)
         return True
@@ -169,7 +164,7 @@ class WaTemplateCloseoutService:
 
     @staticmethod
     def regenerate_all_feedback_templates(db: Session) -> dict[str, Any]:
-        """Force every feedback template (en + ar) to Utility body + buttons + emoji."""
+        """Force every feedback template (en + ar) to Utility body + buttons + emoji (no marketing words)."""
         rows = list(db.execute(select(FeedbackWaTemplate)).scalars().all())
         changed = 0
         for row in rows:
@@ -180,45 +175,49 @@ class WaTemplateCloseoutService:
             if not topic:
                 topic = str(row.template_key or "your recent visit").replace("_", " ")
             if _is_arabic_lang(row.language):
-                body = _utility_body_ar(topic)
+                body = utility_body_ar_for_topic(topic)
             else:
                 body = utility_body_for_topic(topic)
-            buttons = _buttons_for_lang(row.template_key, name=row.template_key, language=row.language)
+            buttons = buttons_for_language(row.template_key, name=row.template_key, language=row.language)
             row.body_text = body
             row.buttons_json = _dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons])
             row.meta_category = "utility"
-            if str(row.telnyx_sync_status or "").lower() in {"rejected", "approved", "synced", "live", "submitted"}:
-                # Force resubmit path for content change.
+            if str(row.telnyx_sync_status or "").lower() in {
+                "rejected",
+                "approved",
+                "synced",
+                "live",
+                "submitted",
+                "marketing",
+            }:
                 row.telnyx_sync_status = "draft"
             row.is_active = True
             row.updated_at = datetime.utcnow()
             db.add(row)
             changed += 1
 
-        # Ensure Arabic sibling exists for every English industry/type template.
         en_rows = [
             r
             for r in rows
-            if r.survey_type_id
-            and not _is_arabic_lang(r.language)
-            and r.industry_id is not None
+            if r.survey_type_id and not _is_arabic_lang(r.language) and r.industry_id is not None
         ]
         created_ar = 0
         now = datetime.utcnow()
         for en in en_rows:
             existing_ar = db.execute(
-                select(FeedbackWaTemplate).where(
+                select(FeedbackWaTemplate)
+                .where(
                     FeedbackWaTemplate.survey_type_id == en.survey_type_id,
                     FeedbackWaTemplate.template_key == en.template_key,
                     FeedbackWaTemplate.language.in_(["ar", "ar_SA", "ar_EG"]),
-                ).limit(1)
+                )
+                .limit(1)
             ).scalar_one_or_none()
             if existing_ar is not None:
                 continue
-            topic = None
             st = db.get(FeedbackSurveyType, en.survey_type_id) if en.survey_type_id else None
             topic = st.name if st else str(en.template_key or "").replace("_", " ")
-            buttons = _buttons_for_lang(en.template_key, name=en.template_key, language="ar")
+            buttons = buttons_for_language(en.template_key, name=en.template_key, language="ar")
             db.add(
                 FeedbackWaTemplate(
                     id=str(__import__("uuid").uuid4()),
@@ -226,7 +225,7 @@ class WaTemplateCloseoutService:
                     survey_type_id=en.survey_type_id,
                     step_order=en.step_order or 1,
                     template_key=en.template_key,
-                    body_text=_utility_body_ar(topic or "زيارتك"),
+                    body_text=utility_body_ar_for_topic(topic),
                     step_role=en.step_role,
                     language="ar",
                     buttons_json=_dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons]),
@@ -507,23 +506,221 @@ class WaTemplateCloseoutService:
         return {"ok": True, "deleted": deleted, "warnings": warnings, "dry_run": dry_run}
 
     @staticmethod
+    def link_missing_survey_types(db: Session) -> dict[str, Any]:
+        """Create Utility draft + mapping for every active survey type with no template."""
+        from app.services.survey_type_template_service import SurveyTypeTemplateService
+        from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+        types = list(db.execute(select(SurveyType)).scalars().all())
+        created = 0
+        for st in types:
+            if getattr(st, "system_template_kind", None):
+                continue
+            if not st.is_active:
+                continue
+            existing = db.execute(
+                select(TelnyxWhatsappTemplate.id)
+                .where(TelnyxWhatsappTemplate.survey_type_id == st.id)
+                .limit(1)
+            ).scalar_one_or_none()
+            mappings = SurveyTypeTemplateService.list_for_survey_type(db, st.id)
+            if existing or mappings:
+                continue
+            row = SurveyWhatsappTemplateService.create_standard_draft(
+                db, survey_type=st, language="en_GB", category="UTILITY"
+            )
+            WaTemplateCloseoutService.repair_survey_template_content(db, row, force=True)
+            created += 1
+        if created:
+            db.commit()
+        return {"ok": True, "created": created}
+
+    @staticmethod
+    def link_missing_feedback_types(db: Session) -> dict[str, Any]:
+        """Create en+ar Utility templates for every active feedback survey type missing them."""
+        types = list(
+            db.execute(
+                select(FeedbackSurveyType).where(
+                    FeedbackSurveyType.is_active.is_(True),
+                    FeedbackSurveyType.archived_at.is_(None),
+                )
+            ).scalars().all()
+        )
+        created = 0
+        now = datetime.utcnow()
+        for st in types:
+            existing = list(
+                db.execute(
+                    select(FeedbackWaTemplate).where(FeedbackWaTemplate.survey_type_id == st.id)
+                ).scalars().all()
+            )
+            has_en = any(not _is_arabic_lang(r.language) for r in existing)
+            has_ar = any(_is_arabic_lang(r.language) for r in existing)
+            topic = st.name or st.slug
+            key = str(st.slug or "topic").strip() or "topic"
+            if not has_en:
+                buttons = buttons_for_language(key, name=key, language="en_GB")
+                db.add(
+                    FeedbackWaTemplate(
+                        id=str(__import__("uuid").uuid4()),
+                        industry_id=st.industry_id,
+                        survey_type_id=st.id,
+                        step_order=1,
+                        template_key=key,
+                        body_text=utility_body_for_topic(topic),
+                        language="en_GB",
+                        buttons_json=_dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons]),
+                        meta_category="utility",
+                        telnyx_sync_status="draft",
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                created += 1
+            if not has_ar:
+                buttons = buttons_for_language(key, name=key, language="ar")
+                db.add(
+                    FeedbackWaTemplate(
+                        id=str(__import__("uuid").uuid4()),
+                        industry_id=st.industry_id,
+                        survey_type_id=st.id,
+                        step_order=1,
+                        template_key=key,
+                        body_text=utility_body_ar_for_topic(topic),
+                        language="ar",
+                        buttons_json=_dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons]),
+                        meta_category="utility",
+                        telnyx_sync_status="draft",
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                created += 1
+        if created:
+            db.commit()
+        return {"ok": True, "created": created}
+
+    @staticmethod
+    def delete_meta_rejected_ours(db: Session) -> dict[str, Any]:
+        """Delete rejected templates we own from Meta WABA (clears Meta Manager rejected count)."""
+        from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+        try:
+            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "deleted": 0, "error": str(exc)[:300]}
+
+        deleted = 0
+        failed: list[str] = []
+        prefixes = (
+            "voxbulk_survey_",
+            "voxbulk_cf_",
+            "voxbulk_interview_",
+            "interview_",
+        )
+        for item in remote or []:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "").upper()
+            name = str(item.get("name") or "").strip()
+            if status != "REJECTED" or not name:
+                continue
+            if not any(name.lower().startswith(p) for p in prefixes):
+                continue
+            try:
+                MetaWhatsappTemplateService.delete_message_template(db, name=name)
+                deleted += 1
+            except Exception as exc:  # noqa: BLE001
+                failed.append(f"{name}: {exc}"[:200])
+        return {"ok": True, "deleted": deleted, "failed": len(failed), "errors": failed[:30]}
+
+    @staticmethod
+    def rename_promo_meta_names(db: Session) -> dict[str, Any]:
+        """Rename local rows whose Meta name contains marketing words so we can resubmit as Utility."""
+        from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    or_(
+                        TelnyxWhatsappTemplate.name.ilike("%promotion%"),
+                        TelnyxWhatsappTemplate.name.ilike("%discount%"),
+                        TelnyxWhatsappTemplate.name.ilike("%loyalty%"),
+                        TelnyxWhatsappTemplate.name.ilike("%offer%"),
+                    )
+                )
+            ).scalars()
+        )
+        renamed = 0
+        for row in rows:
+            if not _is_our_product_template(row):
+                continue
+            if not meta_name_has_promo(row.name):
+                continue
+            base = re.sub(
+                r"(promotion|promotions|discount|discounts|loyalty|offer|offers)",
+                "service",
+                str(row.name or "voxbulk_template"),
+                flags=re.I,
+            )
+            new_name = re.sub(r"[^a-z0-9_]", "_", base.lower())
+            new_name = re.sub(r"_+", "_", new_name).strip("_")[:500]
+            if new_name == str(row.name or ""):
+                new_name = f"{new_name}_util"
+            try:
+                WaTemplateCloseoutService.repair_survey_template_content(db, row, force=True)
+                SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
+                renamed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("rename_promo_failed id=%s err=%s", row.id, exc)
+        return {"ok": True, "renamed": renamed}
+
+    @staticmethod
     def run_full_closeout(db: Session) -> dict[str, Any]:
         from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 
+        link_survey = WaTemplateCloseoutService.link_missing_survey_types(db)
+        link_feedback = WaTemplateCloseoutService.link_missing_feedback_types(db)
         survey_repair = WaTemplateCloseoutService.repair_all_survey_content(db, force_rejected=True)
+        # Force rewrite anything with marketing words.
+        promo_rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
+        promo_fixed = 0
+        for row in promo_rows:
+            if not _is_our_product_template(row):
+                continue
+            body = _body_from_components(_loads(row.draft_components_json)) or str(row.body_preview or "")
+            if (
+                is_promo_wording(body)
+                or is_promo_wording(row.name)
+                or str(row.category or "").upper() == "MARKETING"
+            ):
+                if WaTemplateCloseoutService.repair_survey_template_content(db, row, force=True):
+                    promo_fixed += 1
+        if promo_fixed:
+            db.commit()
+        rename_promo = WaTemplateCloseoutService.rename_promo_meta_names(db)
         feedback_repair = WaTemplateCloseoutService.regenerate_all_feedback_templates(db)
         relink = SurveyWhatsappTemplateService.relink_survey_templates(db)
         interview = WaTemplateCloseoutService.push_all_interview(db)
         survey_push = WaTemplateCloseoutService.push_local_and_needs_resubmit(db)
         feedback_push = WaTemplateCloseoutService.push_all_feedback(db)
+        meta_rejected = WaTemplateCloseoutService.delete_meta_rejected_ours(db)
         clean = WaTemplateCloseoutService.clean_dead_orphan_rejected(db, dry_run=False)
         return {
             "ok": True,
+            "link_survey": link_survey,
+            "link_feedback": link_feedback,
             "survey_repair": survey_repair,
+            "promo_fixed": promo_fixed,
+            "rename_promo": rename_promo,
             "feedback_repair": feedback_repair,
             "relink": relink,
             "interview": interview,
             "survey_push": survey_push,
             "feedback_push": feedback_push,
+            "meta_rejected_deleted": meta_rejected,
             "clean": clean,
         }

@@ -1818,6 +1818,39 @@ class SurveyWhatsappTemplateService:
 
     @staticmethod
     def save_draft(db: Session, row: TelnyxWhatsappTemplate, payload: dict[str, Any]) -> TelnyxWhatsappTemplate:
+        from app.services.wa_template_utility_content import is_promo_wording
+
+        # Survey/feedback product templates must stay Utility (Meta auto-reclassifies marketing words).
+        sales_key = str(row.sales_template_key or "")
+        if not sales_key.startswith("sales_"):
+            for key in ("display_name", "customer_description"):
+                if key in payload and is_promo_wording(payload.get(key)):
+                    raise SurveyWhatsappTemplateError(
+                        "Marketing words are not allowed in Utility survey templates "
+                        "(e.g. promotion, discount, offer, sale, loyalty)."
+                    )
+            comps = payload.get("components")
+            if isinstance(comps, list):
+                for comp in comps:
+                    if not isinstance(comp, dict):
+                        continue
+                    if is_promo_wording(comp.get("text")):
+                        raise SurveyWhatsappTemplateError(
+                            "Marketing words are not allowed in Utility survey templates "
+                            "(e.g. promotion, discount, offer, sale, loyalty)."
+                        )
+                    for btn in comp.get("buttons") or []:
+                        if isinstance(btn, dict) and is_promo_wording(btn.get("text") or btn.get("title")):
+                            raise SurveyWhatsappTemplateError(
+                                "Marketing words are not allowed on Utility template buttons."
+                            )
+            if "category" in payload:
+                cat = str(payload.get("category") or "").upper()
+                if cat == "MARKETING" and (
+                    row.survey_type_id or str(row.name or "").startswith("voxbulk_survey_")
+                ):
+                    payload = {**payload, "category": "UTILITY"}
+
         if "display_name" in payload:
             row.display_name = str(payload.get("display_name") or row.display_name or row.name).strip() or row.name
         if "customer_description" in payload:
@@ -3025,15 +3058,8 @@ class SurveyWhatsappTemplateService:
         try:
             from app.services.wa_template_closeout_service import WaTemplateCloseoutService
 
-            closeout["survey_repair"] = WaTemplateCloseoutService.repair_all_survey_content(db)
-            closeout["feedback_repair"] = WaTemplateCloseoutService.repair_feedback_content(db)
-            # Re-link after ownership fields may have been set during repair.
-            closeout["relink"] = SurveyWhatsappTemplateService.relink_survey_templates(db)
-            closeout["interview_push"] = WaTemplateCloseoutService.push_all_interview(db)
-            closeout["survey_push"] = WaTemplateCloseoutService.push_local_and_needs_resubmit(db)
-            closeout["feedback_push"] = WaTemplateCloseoutService.push_all_feedback(db)
-            closeout["clean"] = WaTemplateCloseoutService.clean_dead_orphan_rejected(db, dry_run=False)
-            # Refresh statuses once more after pushes.
+            # Link missing types, Utility-only rewrite (EN+AR), push, delete Meta rejects.
+            closeout = WaTemplateCloseoutService.run_full_closeout(db)
             catalog = TelnyxWhatsappTemplateSyncService.sync(db)
             closeout["relink_final"] = SurveyWhatsappTemplateService.relink_survey_templates(db)
         except Exception as exc:

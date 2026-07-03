@@ -621,12 +621,21 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     row.step_order = int(payload.get("step_order") or row.step_order or 1)
     row.template_key = str(payload.get("template_key") or row.template_key or "question")
     row.body_text = str(payload.get("body_text") or row.body_text or "")
+    from app.services.wa_template_utility_content import is_promo_wording
+
+    if is_promo_wording(row.body_text) or is_promo_wording(payload.get("template_key")):
+        raise HTTPException(
+            status_code=400,
+            detail="Marketing words are not allowed in Utility feedback templates "
+            "(e.g. promotion, discount, offer, sale, loyalty / خصم، عرض).",
+        )
     if payload.get("step_role") is not None:
         row.step_role = str(payload.get("step_role") or "") or None
     if payload.get("language"):
         row.language = str(payload.get("language"))
     if payload.get("meta_category"):
-        row.meta_category = str(payload.get("meta_category"))
+        cat = str(payload.get("meta_category") or "utility").strip().lower()
+        row.meta_category = "utility" if cat == "marketing" else cat
     if "buttons" in payload:
         buttons = payload.get("buttons")
         row.buttons_json = json.dumps(buttons) if isinstance(buttons, list) else None
