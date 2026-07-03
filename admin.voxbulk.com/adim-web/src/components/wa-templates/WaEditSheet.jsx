@@ -1,0 +1,756 @@
+import React, { useCallback, useEffect, useState } from 'react'
+import {
+  ChevronDown,
+  Globe,
+  Image as ImageIcon,
+  Link2,
+  Pencil,
+  Phone,
+  Plus,
+  RefreshCw,
+  Reply,
+  Save,
+  Trash2,
+  Type as TypeIcon,
+  X,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Switch } from '@/components/ui/Switch'
+import { Sheet, SheetClose, SheetContent } from '@/components/ui/Sheet'
+import { apiFetch } from '../../lib/api'
+import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
+import WaPhonePreview from './WaPhonePreview'
+import { IconBtn, LANGS, StatusDot, formatRelativeWhen, langCodeToChip, mapApprovalStatus, mapCategory } from './waTemplatesUi'
+
+function parseComponents(raw) {
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function bodyFromComponents(components) {
+  const body = (components || []).find((c) => String(c?.type || '').toUpperCase() === 'BODY')
+  return body?.text || ''
+}
+
+function footerFromComponents(components) {
+  const footer = (components || []).find((c) => String(c?.type || '').toUpperCase() === 'FOOTER')
+  return footer?.text || ''
+}
+
+function headerFromComponents(components) {
+  const header = (components || []).find((c) => String(c?.type || '').toUpperCase() === 'HEADER')
+  if (!header) return undefined
+  const format = String(header.format || header.type || '').toUpperCase()
+  if (format === 'IMAGE') return { type: 'image', text: '' }
+  if (header.text) return { type: 'text', text: header.text }
+  return undefined
+}
+
+function buttonsFromComponents(components) {
+  const comp = (components || []).find((c) => String(c?.type || '').toUpperCase() === 'BUTTONS')
+  const list = Array.isArray(comp?.buttons) ? comp.buttons : []
+  return list.map((b) => {
+    const kind = String(b.type || '').toUpperCase()
+    if (kind === 'URL') return { type: 'url', text: b.text || '', url: b.url || '' }
+    if (kind === 'PHONE_NUMBER') return { type: 'phone', text: b.text || '', phone: b.phone_number || '' }
+    return { type: 'quick_reply', text: b.text || '' }
+  })
+}
+
+function buildComponents(draft) {
+  const components = []
+  if (draft.header?.type === 'text' && draft.header.text) {
+    components.push({ type: 'HEADER', format: 'TEXT', text: draft.header.text })
+  } else if (draft.header?.type === 'image') {
+    components.push({ type: 'HEADER', format: 'IMAGE' })
+  }
+  const vars = draft.variables || []
+  const body = {
+    type: 'BODY',
+    text: draft.body || '',
+  }
+  if (vars.length) body.example = { body_text: [vars] }
+  components.push(body)
+  if (draft.footer) components.push({ type: 'FOOTER', text: draft.footer })
+  if ((draft.buttons || []).length) {
+    const buttons = draft.buttons.map((b) => {
+      if (b.type === 'url') return { type: 'URL', text: b.text, url: b.url || 'https://' }
+      if (b.type === 'phone') return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phone || '+1' }
+      return { type: 'QUICK_REPLY', text: b.text }
+    })
+    components.push({ type: 'BUTTONS', buttons })
+  }
+  return components
+}
+
+function apiTemplateToDraft(tpl, product) {
+  const components = parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components)
+  const body = bodyFromComponents(components) || tpl?.body || tpl?.body_text || ''
+  const footer = footerFromComponents(components) || tpl?.footer || ''
+  const buttons = buttonsFromComponents(components)
+  const lang = langCodeToChip(tpl?.language)
+  return {
+    id: tpl.id,
+    name: tpl.name || tpl.display_name || '',
+    display_name: tpl.display_name || tpl.name || '',
+    langs: [lang],
+    category: mapCategory(tpl),
+    status: mapApprovalStatus(tpl),
+    used: tpl.usage_count ?? tpl.used_count ?? 0,
+    updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at),
+    header: headerFromComponents(components),
+    body,
+    footer,
+    buttons,
+    variables: Array.isArray(tpl.example_values) ? [...tpl.example_values] : [],
+    language: tpl.language || 'en_GB',
+    product,
+    active:
+      product === 'interview'
+        ? tpl.active_for_interview !== false
+        : product === 'appointment'
+          ? tpl.active_for_appointment !== false
+          : tpl.active_for_survey !== false,
+    step_role: tpl.step_role || null,
+    components,
+  }
+}
+
+function Field({ label, hint, children }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</Label>
+        {hint ? <span className="text-[10px] text-muted-foreground">{hint}</span> : null}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Section({ title, icon: Icon, right, children }) {
+  return (
+    <div className="rounded-lg border bg-surface p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-semibold">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          {title}
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Stat({ label, value }) {
+  return (
+    <div className="rounded-md border bg-surface px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-xs font-medium">{value}</div>
+    </div>
+  )
+}
+
+/**
+ * Design EditSheet wired to real template APIs.
+ * editTarget: { product: 'survey'|'interview'|'appointment'|'feedback', templateId, surveyTypeId?, systemMode? }
+ */
+export default function WaEditSheet({ editTarget, onClose, onSaved }) {
+  const open = Boolean(editTarget?.templateId)
+  const [draft, setDraft] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [error, setError] = useState('')
+  const [toast, setToast] = useState('')
+  const [surveyTypes, setSurveyTypes] = useState([])
+  const [usageOpen, setUsageOpen] = useState(false)
+
+  const showToast = (msg) => {
+    setToast(msg)
+    window.setTimeout(() => setToast(''), 2500)
+  }
+
+  const load = useCallback(async () => {
+    if (!editTarget?.templateId) return
+    setLoading(true)
+    setError('')
+    setUsageOpen(false)
+    try {
+      const product = editTarget.product
+      let tpl
+      let types = []
+      if (product === 'survey' || product === 'system') {
+        const data = await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}`)
+        tpl = data.template
+        types = Array.isArray(data.survey_types) ? data.survey_types : []
+        if (editTarget.systemMode && editTarget.surveyTypeId) {
+          types = types.filter((row) => String(row.survey_type_id) === String(editTarget.surveyTypeId))
+        }
+      } else if (product === 'interview') {
+        const data = await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}`)
+        tpl = data.template || data
+      } else if (product === 'appointment') {
+        const data = await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}`)
+        tpl = data.template || data
+      } else if (product === 'feedback') {
+        if (editTarget.systemMode) {
+          const data = await apiFetch('/admin/customer-feedback/system-templates')
+          const kinds = Array.isArray(data?.kinds) ? data.kinds : []
+          const all = kinds.flatMap((k) => (Array.isArray(k.templates) ? k.templates : []))
+          tpl = all.find((t) => String(t.id) === String(editTarget.templateId))
+        } else {
+          const data = await apiFetch(`/admin/customer-feedback/survey-types/${editTarget.surveyTypeId}`)
+          const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
+          tpl = templates.find((t) => String(t.id) === String(editTarget.templateId)) || templates[0]
+        }
+        if (!tpl) throw new Error('Template not found')
+        if (!tpl.body && tpl.body_text) tpl = { ...tpl, body: tpl.body_text }
+      } else {
+        throw new Error('Unknown product')
+      }
+      setDraft(apiTemplateToDraft(tpl, product === 'system' ? 'survey' : product))
+      setSurveyTypes(types)
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not load template').message)
+      setDraft(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [editTarget])
+
+  useEffect(() => {
+    if (open) void load()
+    else {
+      setDraft(null)
+      setError('')
+      setSurveyTypes([])
+    }
+  }, [open, load])
+
+  const update = (k, v) => setDraft((d) => (d ? { ...d, [k]: v } : d))
+
+  const addVariable = () =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            variables: [...d.variables, `Variable ${d.variables.length + 1}`],
+            body: `${d.body} {{${d.variables.length + 1}}}`,
+          }
+        : d,
+    )
+
+  const addButton = (type) =>
+    setDraft((d) => {
+      if (!d) return d
+      if (d.buttons.length >= 3) {
+        setError('Max 3 buttons allowed by WhatsApp')
+        return d
+      }
+      const nb =
+        type === 'url'
+          ? { type: 'url', text: 'Visit site', url: 'https://' }
+          : type === 'phone'
+            ? { type: 'phone', text: 'Call us', phone: '+1' }
+            : { type: 'quick_reply', text: 'Reply' }
+      return { ...d, buttons: [...d.buttons, nb] }
+    })
+
+  const save = async () => {
+    if (!draft || !editTarget) return
+    setSaving(true)
+    setError('')
+    try {
+      const components = buildComponents(draft)
+      const category = draft.category === 'Marketing' ? 'MARKETING' : 'UTILITY'
+      const product = editTarget.product === 'system' ? 'survey' : editTarget.product
+
+      if (product === 'survey') {
+        await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: draft.display_name || draft.name,
+            category,
+            language: draft.language || 'en_GB',
+            active_for_survey: draft.active,
+            components,
+            example_values: draft.variables,
+            step_role: draft.step_role || null,
+          }),
+        })
+      } else if (product === 'interview') {
+        await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: draft.display_name || draft.name,
+            category,
+            language: draft.language || 'en_GB',
+            active_for_interview: draft.active,
+            components,
+            example_values: draft.variables,
+          }),
+        })
+      } else if (product === 'appointment') {
+        await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: draft.display_name || draft.name,
+            category,
+            language: draft.language || 'en_GB',
+            active_for_appointment: draft.active,
+            components,
+            example_values: draft.variables,
+          }),
+        })
+      } else if (product === 'feedback') {
+        await apiFetch('/admin/customer-feedback/wa-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: editTarget.templateId,
+            body_text: draft.body,
+            meta_category: category.toLowerCase(),
+            language: draft.language || 'en_GB',
+            is_active: draft.active,
+            buttons: draft.buttons,
+            survey_type_id: editTarget.surveyTypeId,
+          }),
+        })
+      }
+      showToast('Template saved')
+      onSaved?.(draft)
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not save template').message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const sync = async () => {
+    if (!editTarget) return
+    setSyncing(true)
+    setError('')
+    try {
+      const product = editTarget.product === 'system' ? 'survey' : editTarget.product
+      if (product === 'survey') {
+        await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+      } else if (product === 'interview') {
+        await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+      } else if (product === 'appointment') {
+        await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}/push`, { method: 'POST', body: '{}' })
+      } else {
+        showToast('Synced with Meta')
+        return
+      }
+      showToast('Synced with Meta')
+      onSaved?.()
+      await load()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Sync failed').detailText || e?.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const saveMappings = async () => {
+    if (!editTarget?.templateId) return
+    setSaving(true)
+    try {
+      const mappings = surveyTypes
+        .filter((st) => st.linked || st.usable_as_standard || st.usable_as_anonymous || st.is_default_standard || st.is_default_anonymous)
+        .map((st) => ({
+          survey_type_id: st.survey_type_id,
+          usable_as_standard: Boolean(st.usable_as_standard),
+          usable_as_anonymous: Boolean(st.usable_as_anonymous),
+          is_default_standard: Boolean(st.is_default_standard),
+          is_default_anonymous: Boolean(st.is_default_anonymous),
+        }))
+      const data = await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}/mappings`, {
+        method: 'PUT',
+        body: JSON.stringify({ mappings }),
+      })
+      setSurveyTypes(data.survey_types || [])
+      showToast('Mappings saved')
+      onSaved?.()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not save mappings').message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleSurveyType = (id, field) => {
+    setSurveyTypes((rows) =>
+      rows.map((st) => (String(st.survey_type_id) === String(id) ? { ...st, [field]: !st[field], linked: true } : st)),
+    )
+  }
+
+  const t = draft
+  const showUsage = (editTarget?.product === 'survey' || editTarget?.product === 'system') && !editTarget?.systemMode
+
+  return (
+    <Sheet open={open} onOpenChange={(o) => !o && onClose?.()}>
+      <SheetContent side="right" className="w-full overflow-hidden border-l p-0 sm:max-w-[960px]">
+        {loading ? (
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Loading template…</div>
+        ) : null}
+        {t && !loading ? (
+          <div className="flex h-full flex-col">
+            <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-surface-muted/50 px-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Pencil className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">Edit template</div>
+                <div className="truncate font-mono text-[11px] text-muted-foreground">{t.name}</div>
+              </div>
+              <div className="ml-auto flex items-center gap-1">
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => void sync()} disabled={syncing}>
+                  <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} /> Sync
+                </Button>
+                <SheetClose asChild>
+                  <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs">
+                    <X className="h-3.5 w-3.5" /> Cancel
+                  </Button>
+                </SheetClose>
+                <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => void save()} disabled={saving}>
+                  <Save className="h-3.5 w-3.5" /> {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>
+            ) : null}
+            {toast ? (
+              <div className="border-b border-success/30 bg-success-soft px-4 py-2 text-xs text-success">{toast}</div>
+            ) : null}
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_340px]">
+              <div className="space-y-4 overflow-y-auto p-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Template name">
+                    <Input
+                      value={t.display_name || t.name}
+                      onChange={(e) => {
+                        update('display_name', e.target.value)
+                        update('name', e.target.value)
+                      }}
+                      className="h-8 font-mono text-xs"
+                    />
+                  </Field>
+                  <Field label="Category">
+                    <select
+                      value={t.category}
+                      onChange={(e) => update('category', e.target.value)}
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    >
+                      <option value="Utility">Utility</option>
+                      <option value="Marketing">Marketing</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <Field label="Languages" hint={`${t.langs.length} enabled`}>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LANGS.map((l) => {
+                      const on = t.langs.includes(l)
+                      return (
+                        <button
+                          key={l}
+                          type="button"
+                          onClick={() =>
+                            update('langs', on ? t.langs.filter((x) => x !== l) : [...t.langs, l])
+                          }
+                          className={cn(
+                            'h-6 rounded-md px-2 text-[11px] font-medium ring-1 ring-inset transition-all',
+                            on
+                              ? 'bg-primary text-primary-foreground ring-primary'
+                              : 'bg-background text-muted-foreground ring-border hover:ring-primary/40',
+                          )}
+                        >
+                          {l}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Field>
+
+                <Section title="Header" icon={TypeIcon}>
+                  <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+                    <select
+                      value={t.header?.type ?? 'none'}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        update(
+                          'header',
+                          v === 'none' ? undefined : { type: v, text: t.header?.text ?? '' },
+                        )
+                      }}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                    >
+                      <option value="none">None</option>
+                      <option value="text">Text</option>
+                      <option value="image">Image</option>
+                    </select>
+                    {t.header?.type === 'text' ? (
+                      <Input
+                        value={t.header.text ?? ''}
+                        onChange={(e) => update('header', { type: 'text', text: e.target.value })}
+                        maxLength={60}
+                        placeholder="Header text (max 60 chars)"
+                        className="h-8 text-xs"
+                      />
+                    ) : null}
+                    {t.header?.type === 'image' ? (
+                      <div className="flex h-8 items-center justify-center gap-1 rounded-md border border-dashed text-[11px] text-muted-foreground">
+                        <ImageIcon className="h-3.5 w-3.5" /> Upload media on sync
+                      </div>
+                    ) : null}
+                  </div>
+                </Section>
+
+                <Section
+                  title="Body"
+                  icon={TypeIcon}
+                  right={
+                    <Button size="sm" variant="outline" className="h-6 gap-1 text-[11px]" onClick={addVariable}>
+                      <Plus className="h-3 w-3" /> Variable
+                    </Button>
+                  }
+                >
+                  <Textarea
+                    value={t.body}
+                    onChange={(e) => update('body', e.target.value)}
+                    rows={5}
+                    maxLength={1024}
+                    className="resize-none font-mono text-xs"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                    <span>Use *bold*, _italic_, ~strike~, ```mono```</span>
+                    <span className="tabular-nums">{t.body.length}/1024</span>
+                  </div>
+                  {t.variables.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {t.variables.map((v, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="inline-flex h-6 min-w-[36px] items-center justify-center rounded bg-primary/10 px-1.5 font-mono text-[11px] text-primary">
+                            {`{{${i + 1}}}`}
+                          </span>
+                          <Input
+                            value={v}
+                            onChange={(e) => {
+                              const next = [...t.variables]
+                              next[i] = e.target.value
+                              update('variables', next)
+                            }}
+                            className="h-7 text-xs"
+                            placeholder="Sample value / description"
+                          />
+                          <IconBtn
+                            icon={Trash2}
+                            label="Remove"
+                            tone="danger"
+                            onClick={() => update('variables', t.variables.filter((_, x) => x !== i))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </Section>
+
+                <Section title="Footer" icon={TypeIcon}>
+                  <Input
+                    value={t.footer ?? ''}
+                    onChange={(e) => update('footer', e.target.value)}
+                    maxLength={60}
+                    placeholder="Optional footer (max 60 chars)"
+                    className="h-8 text-xs"
+                  />
+                </Section>
+
+                <Section
+                  title="Buttons"
+                  icon={Reply}
+                  right={
+                    <div className="relative">
+                      <details className="group">
+                        <summary className="flex h-6 cursor-pointer list-none items-center gap-1 rounded-md border px-2 text-[11px] font-medium">
+                          <Plus className="h-3 w-3" /> Add button <ChevronDown className="h-3 w-3" />
+                        </summary>
+                        <div className="absolute right-0 z-10 mt-1 min-w-[140px] rounded-md border bg-background p-1 shadow-md">
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent" onClick={() => addButton('quick_reply')}>
+                            <Reply className="h-3.5 w-3.5" /> Quick reply
+                          </button>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent" onClick={() => addButton('url')}>
+                            <Link2 className="h-3.5 w-3.5" /> URL
+                          </button>
+                          <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent" onClick={() => addButton('phone')}>
+                            <Phone className="h-3.5 w-3.5" /> Phone
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  }
+                >
+                  {t.buttons.length === 0 ? (
+                    <div className="text-[11px] italic text-muted-foreground">No buttons yet.</div>
+                  ) : null}
+                  <div className="space-y-1.5">
+                    {t.buttons.map((b, i) => (
+                      <div key={i} className="animate-fade-in grid grid-cols-[90px_1fr_auto] items-center gap-2">
+                        <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                          {b.type === 'quick_reply' ? <Reply className="h-3 w-3" /> : null}
+                          {b.type === 'url' ? <Link2 className="h-3 w-3" /> : null}
+                          {b.type === 'phone' ? <Phone className="h-3 w-3" /> : null}
+                          {String(b.type).replace('_', ' ')}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            value={b.text}
+                            onChange={(e) => {
+                              const next = [...t.buttons]
+                              next[i] = { ...b, text: e.target.value }
+                              update('buttons', next)
+                            }}
+                            className="h-7 text-xs"
+                            placeholder="Button text"
+                          />
+                          {b.type === 'url' ? (
+                            <Input
+                              value={b.url || ''}
+                              onChange={(e) => {
+                                const next = [...t.buttons]
+                                next[i] = { ...b, url: e.target.value }
+                                update('buttons', next)
+                              }}
+                              className="h-7 font-mono text-xs"
+                              placeholder="https://…"
+                            />
+                          ) : null}
+                          {b.type === 'phone' ? (
+                            <Input
+                              value={b.phone || ''}
+                              onChange={(e) => {
+                                const next = [...t.buttons]
+                                next[i] = { ...b, phone: e.target.value }
+                                update('buttons', next)
+                              }}
+                              className="h-7 font-mono text-xs"
+                              placeholder="+1 555…"
+                            />
+                          ) : null}
+                        </div>
+                        <IconBtn
+                          icon={Trash2}
+                          label="Remove"
+                          tone="danger"
+                          onClick={() => update('buttons', t.buttons.filter((_, x) => x !== i))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+
+                <div className="flex items-center justify-between rounded-lg border bg-surface p-3">
+                  <div>
+                    <div className="text-xs font-medium">Template enabled</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Disabled templates cannot be sent from any workflow.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={t.active && t.status !== 'disabled'}
+                    onCheckedChange={(v) => {
+                      update('active', v)
+                      update('status', v ? 'approved' : 'disabled')
+                    }}
+                    className="data-[state=checked]:bg-success data-[state=unchecked]:bg-destructive"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <Stat label="Used" value={Number(t.used || 0).toLocaleString()} />
+                  <Stat label="Status" value={<StatusDot status={t.status} />} />
+                  <Stat label="Updated" value={t.updated} />
+                </div>
+
+                {showUsage ? (
+                  <div className="rounded-lg border bg-surface">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left"
+                      onClick={() => setUsageOpen((v) => !v)}
+                    >
+                      <div className="flex items-center gap-1.5 text-xs font-semibold">
+                        <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        Survey type usage
+                        <span className="font-normal text-muted-foreground">
+                          ({surveyTypes.length} types)
+                        </span>
+                      </div>
+                      <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition', usageOpen && 'rotate-180')} />
+                    </button>
+                    {usageOpen ? (
+                      <div className="space-y-2 border-t px-3 py-3">
+                        <p className="text-[11px] text-muted-foreground">
+                          Which survey types can use this template as standard/anonymous launch, and which defaults apply.
+                        </p>
+                        {surveyTypes.map((st) => (
+                          <div key={st.survey_type_id} className="flex flex-wrap items-center gap-3 text-xs">
+                            <strong className="min-w-[120px]">{st.name}</strong>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={Boolean(st.usable_as_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_standard')} /> Std
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={Boolean(st.usable_as_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'usable_as_anonymous')} disabled={!st.supports_anonymous} /> Anon
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={Boolean(st.is_default_standard)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_standard')} /> Def std
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={Boolean(st.is_default_anonymous)} onChange={() => toggleSurveyType(st.survey_type_id, 'is_default_anonymous')} disabled={!st.supports_anonymous} /> Def anon
+                            </label>
+                          </div>
+                        ))}
+                        <Button size="sm" className="h-7 text-xs" onClick={() => void saveMappings()} disabled={saving}>
+                          Save mappings
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {editTarget?.systemMode ? (
+                  <div className="rounded-lg border bg-surface p-3 text-[11px] text-muted-foreground">
+                    System template scope — linked to the hidden system survey type. Use Save for content changes.
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="hidden overflow-y-auto border-l bg-gradient-to-br from-surface-muted/60 to-surface p-4 lg:block">
+                <div className="mb-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Globe className="h-3 w-3" /> Live preview · iPhone 17 Pro Max
+                </div>
+                <WaPhonePreview template={t} />
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </SheetContent>
+    </Sheet>
+  )
+}

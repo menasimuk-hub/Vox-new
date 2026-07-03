@@ -6,48 +6,14 @@ import { apiFetch } from '../../lib/api'
 import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
-import { formatRelativeWhen, mapApprovalStatus, mapCategory } from './waTemplatesUi'
-
-function mapSurveyTypeRow(type) {
-  const langs = type.language ? [String(type.language).toUpperCase()] : ['EN']
-  return {
-    id: type.id,
-    rowKind: 'survey_type',
-    name: type.slug || type.name,
-    langs,
-    langsTitle: langs.join(' · '),
-    category: mapCategory(type),
-    status: type.is_active === false ? 'disabled' : mapApprovalStatus(type),
-    used: type.template_count ?? type.templates_count ?? 0,
-    updated: formatRelativeWhen(type.updated_at),
-    raw: type,
-  }
-}
-
-function mapFeedbackTypeRow(type) {
-  const langs = type.language ? [String(type.language).toUpperCase()] : ['EN']
-  return {
-    id: type.id,
-    rowKind: 'feedback_type',
-    name: type.slug || type.name,
-    langs,
-    langsTitle: langs.join(' · '),
-    category: mapCategory(type),
-    status: type.is_active === false ? 'disabled' : mapApprovalStatus(type),
-    used: type.template_count ?? 0,
-    updated: formatRelativeWhen(type.updated_at),
-    raw: type,
-  }
-}
+import { toHubRow } from './waTemplatesUi'
 
 function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', slug: '', description: '', sort_order: 100, is_active: true })
 
   useEffect(() => {
-    if (open) {
-      setForm({ name: '', slug: '', description: '', sort_order: 100, is_active: true })
-    }
+    if (open) setForm({ name: '', slug: '', description: '', sort_order: 100, is_active: true })
   }, [open])
 
   if (!open) return null
@@ -57,9 +23,7 @@ function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
     setSaving(true)
     try {
       const path =
-        product === 'feedback'
-          ? '/admin/customer-feedback/industries'
-          : '/admin/wa-survey/industries'
+        product === 'feedback' ? '/admin/customer-feedback/industries' : '/admin/wa-survey/industries'
       const body =
         product === 'feedback'
           ? { name: form.name.trim(), slug: form.slug.trim() || undefined, is_active: form.is_active }
@@ -83,22 +47,15 @@ function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-      role="presentation"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={onClose}>
       <form
         className="w-full max-w-md rounded-xl border bg-surface p-4 shadow-lg"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="addIndustryTitle"
         onSubmit={save}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 id="addIndustryTitle" className="text-sm font-semibold">
-          Add industry
-        </h3>
+        <h3 className="text-sm font-semibold">Add industry</h3>
         <div className="mt-3 space-y-3">
           <label className="block space-y-1">
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Name</span>
@@ -117,16 +74,6 @@ function AddIndustryModal({ open, product, onClose, onSaved, onError }) {
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
             />
           </label>
-          {product === 'survey' ? (
-            <label className="block space-y-1">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Description</span>
-              <input
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </label>
-          ) : null}
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={onClose}>
@@ -148,6 +95,9 @@ export default function WaIndustryBrowser({
   onReloadIndustries,
   onEditRow,
   onSyncRow,
+  onToggleRow,
+  onDeleteRow,
+  onOpenSystemTemplate,
   onError,
   onMessage,
 }) {
@@ -163,11 +113,27 @@ export default function WaIndustryBrowser({
         if (product === 'survey') {
           const data = await apiFetch(`/admin/wa-survey/types?industry_id=${encodeURIComponent(ind.id)}`)
           const types = Array.isArray(data?.types) ? data.types : []
-          setRows(types.map(mapSurveyTypeRow))
+          setRows(
+            types.map((type) =>
+              toHubRow(type, {
+                rowKind: 'survey_type',
+                name: type.slug || type.name,
+                used: type.template_count ?? type.templates_count ?? 0,
+              }),
+            ),
+          )
         } else {
           const data = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(ind.id)}`)
           const types = Array.isArray(data?.item?.survey_types) ? data.item.survey_types : []
-          setRows(types.map(mapFeedbackTypeRow))
+          setRows(
+            types.map((type) =>
+              toHubRow(type, {
+                rowKind: 'feedback_type',
+                name: type.slug || type.name,
+                used: type.template_count ?? 0,
+              }),
+            ),
+          )
         }
       } catch (e) {
         onError?.(formatWaSurveyError(e, 'Could not load survey types').message)
@@ -193,7 +159,12 @@ export default function WaIndustryBrowser({
   if (industry) {
     return (
       <div className="animate-fade-in">
-        <WaTemplatesSystemSection product={product} embedded />
+        <WaTemplatesSystemSection
+          product={product}
+          embedded
+          onOpenTemplate={onOpenSystemTemplate}
+          onBrowse={(kind) => onOpenSystemTemplate?.({ product, kind, browse: true })}
+        />
         <div className="flex items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
           <Button variant="ghost" size="sm" className="-ml-2 h-7 gap-1 text-xs" onClick={() => setIndustry(null)}>
             <ChevronLeft className="h-3.5 w-3.5" /> Industries
@@ -207,6 +178,8 @@ export default function WaIndustryBrowser({
           loading={loadingRows}
           onEdit={onEditRow}
           onSync={onSyncRow}
+          onToggle={onToggleRow}
+          onDelete={onDeleteRow}
           showNew={false}
           emptyLabel="No survey types in this industry yet."
         />
@@ -216,7 +189,12 @@ export default function WaIndustryBrowser({
 
   return (
     <div className="animate-fade-in">
-      <WaTemplatesSystemSection product={product} embedded />
+      <WaTemplatesSystemSection
+        product={product}
+        embedded
+        onOpenTemplate={onOpenSystemTemplate}
+        onBrowse={(kind) => onOpenSystemTemplate?.({ product, kind, browse: true })}
+      />
       <div className="p-3">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -238,27 +216,24 @@ export default function WaIndustryBrowser({
           <p className="py-8 text-center text-xs text-muted-foreground">No industries yet.</p>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {industries.map((name, i) => {
-              const ind = typeof name === 'string' ? { id: name, name } : name
-              return (
-                <button
-                  key={ind.id}
-                  type="button"
-                  onClick={() => openIndustry(ind)}
-                  className={cn(
-                    'group relative flex items-center justify-between rounded-lg border bg-surface px-3 py-2.5 text-left',
-                    'transition-all hover:border-primary/40 hover:shadow-sm hover-scale',
-                  )}
-                  style={{ animation: `wa-hub-fade-in 0.25s ease-out ${i * 15}ms both` }}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{ind.name}</div>
-                    <div className="text-[11px] text-muted-foreground">{typeCountLabel(ind)}</div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-                </button>
-              )
-            })}
+            {industries.map((ind, i) => (
+              <button
+                key={ind.id}
+                type="button"
+                onClick={() => openIndustry(ind)}
+                className={cn(
+                  'group relative flex items-center justify-between rounded-lg border bg-surface px-3 py-2.5 text-left',
+                  'transition-all hover:border-primary/40 hover:shadow-sm hover-scale',
+                )}
+                style={{ animation: `wa-hub-fade-in 0.25s ease-out ${i * 15}ms both` }}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{ind.name}</div>
+                  <div className="text-[11px] text-muted-foreground">{typeCountLabel(ind)}</div>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+              </button>
+            ))}
           </div>
         )}
       </div>

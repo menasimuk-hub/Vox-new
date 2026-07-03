@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
-  Ban,
   BarChart3,
   Building2,
-  Calendar,
   ClipboardList,
   Megaphone,
   MessageSquareHeart,
@@ -13,25 +11,21 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
-import DisabledWaTemplatesPanel from '../components/DisabledWaTemplatesPanel'
-import WaInterviewTemplateModal from '../components/WaInterviewTemplateModal'
-import WaAppointmentTemplateModal from '../components/WaAppointmentTemplateModal'
-import WaSurveyTemplateModal from '../components/WaSurveyTemplateModal'
 import WaIndustryBrowser from '../components/wa-templates/WaIndustryBrowser'
 import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
-import { formatRelativeWhen, mapApprovalStatus, mapCategory } from '../components/wa-templates/waTemplatesUi'
+import WaEditSheet from '../components/wa-templates/WaEditSheet'
+import { toHubRow } from '../components/wa-templates/waTemplatesUi'
 import '../styles/wa-templates-hub.css'
 
-const HUB_TABS = [
-  { id: 'interview', label: 'AI Interview', icon: Sparkles },
+const TAGS = [
+  { id: 'ai', label: 'AI Interview', icon: Sparkles },
   { id: 'survey', label: 'Survey', icon: ClipboardList },
   { id: 'feedback', label: 'Customer Feedback', icon: MessageSquareHeart },
   { id: 'companies', label: 'Companies', icon: Building2 },
   { id: 'marketing', label: 'Marketing', icon: Megaphone },
-  { id: 'appointment', label: 'Appointment', icon: Calendar },
-  { id: 'disabled', label: 'Disabled', icon: Ban },
 ]
 
 const SALES_TEMPLATE_KEYS = new Set([
@@ -42,48 +36,28 @@ const SALES_TEMPLATE_KEYS = new Set([
   'sales_interview',
 ])
 
-function mapFlatTemplate(tpl, overrides = {}) {
-  const langs = tpl.language ? [String(tpl.language).toUpperCase()] : tpl.langs || ['EN']
-  return {
-    id: tpl.id,
-    name: tpl.name || tpl.display_name,
-    langs,
-    langsTitle: langs.join(' · '),
-    category: mapCategory(tpl),
-    status: mapApprovalStatus(tpl),
-    used: tpl.usage_count ?? tpl.used_count ?? tpl.sent_count ?? 0,
-    updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at || tpl.synced_at),
-    raw: tpl,
-    ...overrides,
-  }
-}
+const TAB_ALIASES = { interview: 'ai', appointment: 'ai' }
 
 export default function WaTemplatesHub() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') || 'survey'
+  const rawTab = searchParams.get('tab') || 'survey'
+  const tab = TAB_ALIASES[rawTab] || (TAGS.some((t) => t.id === rawTab) ? rawTab : 'survey')
 
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-  const [working, setWorking] = useState('')
-
   const [templateCounts, setTemplateCounts] = useState({ total: 0, sent: 0 })
 
   const [interviewTemplates, setInterviewTemplates] = useState([])
-  const [appointmentTemplates, setAppointmentTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
   const [flatLoading, setFlatLoading] = useState(false)
 
   const [surveyIndustries, setSurveyIndustries] = useState([])
   const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(false)
-
   const [feedbackIndustries, setFeedbackIndustries] = useState([])
   const [feedbackIndustriesLoading, setFeedbackIndustriesLoading] = useState(false)
 
-  const [interviewEditId, setInterviewEditId] = useState(null)
-  const [appointmentEditId, setAppointmentEditId] = useState(null)
-  const [surveyEdit, setSurveyEdit] = useState(null)
+  const [editTarget, setEditTarget] = useState(null)
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams)
@@ -104,42 +78,13 @@ export default function WaTemplatesHub() {
     }
   }, [])
 
-  const syncFromMeta = async () => {
-    setSyncing(true)
-    setError('')
-    setMsg('')
-    try {
-      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', { method: 'POST' })
-      const rows = Array.isArray(result.templates) ? result.templates : []
-      setMsg(formatActionSuccess(result, `Synced ${result.synced ?? rows.length} template(s) with Meta`).message)
-      await loadTemplateCounts()
-      refreshTabData()
-    } catch (e) {
-      setError(formatWaSurveyError(e, 'Meta sync failed').detailText || e?.message || 'Meta sync failed')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   const loadInterview = useCallback(async () => {
     setFlatLoading(true)
     try {
       const data = await apiFetch('/admin/wa-interview/templates')
-      setInterviewTemplates((Array.isArray(data?.templates) ? data.templates : []).map((t) => mapFlatTemplate(t)))
+      setInterviewTemplates((Array.isArray(data?.templates) ? data.templates : []).map((t) => toHubRow(t, { rowKind: 'interview' })))
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load interview templates').message)
-    } finally {
-      setFlatLoading(false)
-    }
-  }, [])
-
-  const loadAppointment = useCallback(async () => {
-    setFlatLoading(true)
-    try {
-      const data = await apiFetch('/admin/wa-appointment/templates')
-      setAppointmentTemplates((Array.isArray(data?.templates) ? data.templates : []).map((t) => mapFlatTemplate(t)))
-    } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not load appointment templates').message)
     } finally {
       setFlatLoading(false)
     }
@@ -160,18 +105,21 @@ export default function WaTemplatesHub() {
       if (!rows.length && Array.isArray(health?.templates)) {
         setMarketingTemplates(
           health.templates.map((t) =>
-            mapFlatTemplate({
-              id: t.sales_key,
-              display_name: t.sales_key,
-              name: t.telnyx_name,
-              sales_template_key: t.sales_key,
-              status: t.status,
-              language: t.language,
-            }),
+            toHubRow(
+              {
+                id: t.sales_key,
+                display_name: t.sales_key,
+                name: t.telnyx_name,
+                sales_template_key: t.sales_key,
+                status: t.status,
+                language: t.language,
+              },
+              { rowKind: 'marketing' },
+            ),
           ),
         )
       } else {
-        setMarketingTemplates(rows.map((t) => mapFlatTemplate(t)))
+        setMarketingTemplates(rows.map((t) => toHubRow(t, { rowKind: 'marketing' })))
       }
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load marketing templates').message)
@@ -205,12 +153,11 @@ export default function WaTemplatesHub() {
   }, [])
 
   const refreshTabData = useCallback(() => {
-    if (tab === 'interview') void loadInterview()
-    else if (tab === 'appointment') void loadAppointment()
+    if (tab === 'ai') void loadInterview()
     else if (tab === 'marketing') void loadMarketing()
     else if (tab === 'survey') void loadSurveyIndustries()
     else if (tab === 'feedback') void loadFeedbackIndustries()
-  }, [tab, loadInterview, loadAppointment, loadMarketing, loadSurveyIndustries, loadFeedbackIndustries])
+  }, [tab, loadInterview, loadMarketing, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
     void loadTemplateCounts()
@@ -221,29 +168,52 @@ export default function WaTemplatesHub() {
     refreshTabData()
   }, [refreshTabData])
 
-  const openSurveyTypeEditor = async (row) => {
-    if (row.rowKind === 'feedback_type') {
-      navigate(`/customer-feedback/survey-types/${row.id}`)
-      return
-    }
-    setWorking(`edit-${row.id}`)
+  const syncFromMeta = async () => {
+    setSyncing(true)
+    setError('')
+    setMsg('')
     try {
+      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', { method: 'POST' })
+      const rows = Array.isArray(result.templates) ? result.templates : []
+      setMsg(formatActionSuccess(result, `Synced ${result.synced ?? rows.length} template(s) with Meta`).message)
+      await loadTemplateCounts()
+      refreshTabData()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Meta sync failed').detailText || e?.message || 'Meta sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const openSurveyTypeEditor = async (row) => {
+    try {
+      if (row.rowKind === 'feedback_type') {
+        const data = await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`)
+        const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
+        if (!templates.length) {
+          setError('No templates on this survey type yet.')
+          return
+        }
+        setEditTarget({
+          product: 'feedback',
+          templateId: templates[0].id,
+          surveyTypeId: row.id,
+        })
+        return
+      }
       const data = await apiFetch(`/admin/wa-survey/types/${row.id}`)
       const templates = Array.isArray(data?.templates) ? data.templates : []
       if (!templates.length) {
         setError('No templates on this survey type yet.')
         return
       }
-      setSurveyEdit({ templateId: templates[0].id, surveyTypeId: row.id, product: row.rowKind })
+      setEditTarget({ product: 'survey', templateId: templates[0].id, surveyTypeId: row.id })
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not open editor').message)
-    } finally {
-      setWorking('')
     }
   }
 
   const pushSurveyType = async (row) => {
-    setWorking(`sync-${row.id}`)
     setError('')
     try {
       const path =
@@ -254,39 +224,57 @@ export default function WaTemplatesHub() {
       setMsg(formatActionSuccess(result, 'Synced with Meta').message)
     } catch (e) {
       setError(formatWaSurveyError(e, 'Sync failed').detailText)
-    } finally {
-      setWorking('')
+    }
+  }
+
+  const toggleSurveyType = async (row) => {
+    setError('')
+    try {
+      if (row.rowKind === 'feedback_type') {
+        await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_active: row.raw?.is_active === false }),
+        })
+        void loadFeedbackIndustries()
+        return
+      }
+      await apiFetch(`/admin/wa-survey/types/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: row.raw?.is_active === false }),
+      })
+      void loadSurveyIndustries()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not update status').message)
+    }
+  }
+
+  const deleteSurveyType = async (row) => {
+    if (!window.confirm(`Delete “${row.name}”? This cannot be undone.`)) return
+    setError('')
+    try {
+      if (row.rowKind === 'feedback_type') {
+        await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, { method: 'DELETE' })
+        setMsg('Survey type deleted')
+        return
+      }
+      await apiFetch(`/admin/wa-survey/types/${row.id}`, { method: 'DELETE' })
+      setMsg('Survey type deleted')
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Delete failed').message)
     }
   }
 
   const pushInterview = async (row) => {
-    setWorking(`sync-${row.id}`)
     try {
       const result = await apiFetch(`/admin/wa-interview/templates/${row.id}/push`, { method: 'POST', body: '{}' })
       setMsg(formatActionSuccess(result, 'Synced with Meta').message)
       await loadInterview()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Sync failed').detailText)
-    } finally {
-      setWorking('')
-    }
-  }
-
-  const pushAppointment = async (row) => {
-    setWorking(`sync-${row.id}`)
-    try {
-      const result = await apiFetch(`/admin/wa-appointment/templates/${row.id}/push`, { method: 'POST', body: '{}' })
-      setMsg(formatActionSuccess(result, 'Synced with Meta').message)
-      await loadAppointment()
-    } catch (e) {
-      setError(formatWaSurveyError(e, 'Sync failed').detailText)
-    } finally {
-      setWorking('')
     }
   }
 
   const toggleInterview = async (row) => {
-    setWorking(`toggle-${row.id}`)
     try {
       const active = row.raw?.active_for_interview !== false
       await apiFetch(`/admin/wa-interview/templates/${row.id}/set-active`, {
@@ -296,33 +284,37 @@ export default function WaTemplatesHub() {
       await loadInterview()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not update status').message)
-    } finally {
-      setWorking('')
     }
   }
 
-  const toggleAppointment = async (row) => {
-    setWorking(`toggle-${row.id}`)
+  const deleteInterview = async (row) => {
+    if (!window.confirm(`Delete “${row.name}”?`)) return
     try {
-      const active = row.raw?.active_for_appointment !== false
-      await apiFetch(`/admin/wa-appointment/templates/${row.id}/set-active`, {
-        method: 'POST',
-        body: JSON.stringify({ active_for_appointment: !active }),
-      })
-      await loadAppointment()
+      await apiFetch(`/admin/wa-interview/templates/${row.id}`, { method: 'DELETE' })
+      setMsg('Template deleted')
+      await loadInterview()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not update status').message)
-    } finally {
-      setWorking('')
+      setError(formatWaSurveyError(e, 'Delete failed').message)
     }
+  }
+
+  const marketingAction = async (row, action) => {
+    if (action === 'edit') {
+      setError('Marketing templates are managed in Lead sales settings.')
+      return
+    }
+    if (action === 'sync') {
+      await syncFromMeta()
+      return
+    }
+    setError(`Cannot ${action} marketing templates from this list. Use Lead sales settings.`)
   }
 
   const flatTemplates = useMemo(() => {
-    if (tab === 'interview') return interviewTemplates
-    if (tab === 'appointment') return appointmentTemplates
+    if (tab === 'ai') return interviewTemplates
     if (tab === 'marketing') return marketingTemplates
     return []
-  }, [tab, interviewTemplates, appointmentTemplates, marketingTemplates])
+  }, [tab, interviewTemplates, marketingTemplates])
 
   return (
     <div className="waTemplatesHub ds-scope min-h-full bg-background">
@@ -372,113 +364,102 @@ export default function WaTemplatesHub() {
           </div>
         ) : null}
 
-        <div className="mb-3 inline-flex h-9 flex-wrap gap-0.5 rounded-lg border bg-surface-muted p-1">
-          {HUB_TABS.map((tg) => {
-            const Icon = tg.icon
-            const active = tab === tg.id
-            return (
-              <button
-                key={tg.id}
-                type="button"
-                onClick={() => setTab(tg.id)}
-                className={cn(
-                  'inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition',
-                  active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {tg.label}
-              </button>
-            )
-          })}
-        </div>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="h-9 border bg-surface-muted">
+            {TAGS.map((tg) => {
+              const Icon = tg.icon
+              return (
+                <TabsTrigger key={tg.id} value={tg.id} className="h-7 gap-1.5 text-xs data-[state=active]:bg-background">
+                  <Icon className="h-3.5 w-3.5" />
+                  {tg.label}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
 
-        <div className="overflow-hidden rounded-xl border bg-surface shadow-sm">
-          {tab === 'survey' ? (
-            <WaIndustryBrowser
-              product="survey"
-              industries={surveyIndustries}
-              loadingIndustries={surveyIndustriesLoading}
-              onReloadIndustries={loadSurveyIndustries}
-              onEditRow={(row) => void openSurveyTypeEditor(row)}
-              onSyncRow={(row) => void pushSurveyType(row)}
-              onError={setError}
-              onMessage={setMsg}
-            />
-          ) : null}
+          {TAGS.map((tg) => (
+            <TabsContent key={tg.id} value={tg.id} className="mt-3">
+              <div className="overflow-hidden rounded-xl border bg-surface shadow-sm">
+                {tg.id === 'survey' ? (
+                  <WaIndustryBrowser
+                    product="survey"
+                    industries={surveyIndustries}
+                    loadingIndustries={surveyIndustriesLoading}
+                    onReloadIndustries={loadSurveyIndustries}
+                    onEditRow={(row) => void openSurveyTypeEditor(row)}
+                    onSyncRow={(row) => void pushSurveyType(row)}
+                    onToggleRow={(row) => void toggleSurveyType(row)}
+                    onDeleteRow={(row) => void deleteSurveyType(row)}
+                    onOpenSystemTemplate={setEditTarget}
+                    onError={setError}
+                    onMessage={setMsg}
+                  />
+                ) : null}
 
-          {tab === 'feedback' ? (
-            <WaIndustryBrowser
-              product="feedback"
-              industries={feedbackIndustries}
-              loadingIndustries={feedbackIndustriesLoading}
-              onReloadIndustries={loadFeedbackIndustries}
-              onEditRow={(row) => void openSurveyTypeEditor(row)}
-              onSyncRow={(row) => void pushSurveyType(row)}
-              onError={setError}
-              onMessage={setMsg}
-            />
-          ) : null}
+                {tg.id === 'feedback' ? (
+                  <WaIndustryBrowser
+                    product="feedback"
+                    industries={feedbackIndustries}
+                    loadingIndustries={feedbackIndustriesLoading}
+                    onReloadIndustries={loadFeedbackIndustries}
+                    onEditRow={(row) => void openSurveyTypeEditor(row)}
+                    onSyncRow={(row) => void pushSurveyType(row)}
+                    onToggleRow={(row) => void toggleSurveyType(row)}
+                    onDeleteRow={(row) => void deleteSurveyType(row)}
+                    onOpenSystemTemplate={setEditTarget}
+                    onError={setError}
+                    onMessage={setMsg}
+                  />
+                ) : null}
 
-          {tab === 'interview' || tab === 'appointment' || tab === 'marketing' ? (
-            <WaTemplatesTable
-              templates={flatTemplates}
-              loading={flatLoading}
-              onEdit={(row) => {
-                if (tab === 'interview') setInterviewEditId(row.id)
-                else if (tab === 'appointment') setAppointmentEditId(row.id)
-              }}
-              onSync={
-                tab === 'interview' ? pushInterview : tab === 'appointment' ? pushAppointment : null
-              }
-              onToggle={
-                tab === 'interview' ? toggleInterview : tab === 'appointment' ? toggleAppointment : null
-              }
-              showNew={false}
-              emptyLabel="No templates yet."
-            />
-          ) : null}
+                {tg.id === 'ai' ? (
+                  <WaTemplatesTable
+                    templates={flatTemplates}
+                    loading={flatLoading}
+                    onEdit={(row) => setEditTarget({ product: 'interview', templateId: row.id })}
+                    onSync={(row) => void pushInterview(row)}
+                    onToggle={(row) => void toggleInterview(row)}
+                    onDelete={(row) => void deleteInterview(row)}
+                    showNew={false}
+                    emptyLabel="No templates yet."
+                  />
+                ) : null}
 
-          {tab === 'companies' ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-              <Building2 className="h-9 w-9 text-muted-foreground/60" />
-              <p className="max-w-md text-xs text-muted-foreground">
-                Customer Feedback Companies service — WhatsApp templates are not configured yet.
-              </p>
-            </div>
-          ) : null}
+                {tg.id === 'marketing' ? (
+                  <WaTemplatesTable
+                    templates={flatTemplates}
+                    loading={flatLoading}
+                    onEdit={(row) => void marketingAction(row, 'edit')}
+                    onSync={(row) => void marketingAction(row, 'sync')}
+                    onToggle={(row) => void marketingAction(row, 'disable')}
+                    onDelete={(row) => void marketingAction(row, 'delete')}
+                    showNew={false}
+                    emptyLabel="No templates yet."
+                  />
+                ) : null}
 
-          {tab === 'disabled' ? (
-            <div className="p-3">
-              <DisabledWaTemplatesPanel embedded onToast={(message, isError) => (isError ? setError(message) : setMsg(message))} />
-            </div>
-          ) : null}
-        </div>
+                {tg.id === 'companies' ? (
+                  <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+                    <Building2 className="h-9 w-9 text-muted-foreground/60" />
+                    <p className="max-w-md text-xs text-muted-foreground">
+                      Customer Feedback Companies service — WhatsApp templates are not configured yet.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </TabsContent>
+          ))}
+        </Tabs>
       </main>
 
-      <WaInterviewTemplateModal
-        templateId={interviewEditId}
-        open={Boolean(interviewEditId)}
-        onClose={() => setInterviewEditId(null)}
-        onSaved={() => void loadInterview()}
+      <WaEditSheet
+        editTarget={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => {
+          if (editTarget?.product === 'interview') void loadInterview()
+          setEditTarget(null)
+        }}
       />
-      <WaAppointmentTemplateModal
-        templateId={appointmentEditId}
-        open={Boolean(appointmentEditId)}
-        onClose={() => setAppointmentEditId(null)}
-        onSaved={() => void loadAppointment()}
-      />
-
-      {surveyEdit ? (
-        <WaSurveyTemplateModal
-          templateId={surveyEdit.templateId}
-          surveyTypeId={surveyEdit.surveyTypeId}
-          open
-          sheetLayout
-          onClose={() => setSurveyEdit(null)}
-          onSaved={() => setSurveyEdit(null)}
-        />
-      ) : null}
     </div>
   )
 }

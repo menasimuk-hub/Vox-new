@@ -58,7 +58,9 @@ export default function WaTemplatesTable({
           <Button size="sm" variant="outline" className="ml-auto h-8 gap-1.5 text-xs" onClick={onNew}>
             <Plus className="h-3.5 w-3.5" /> {newLabel}
           </Button>
-        ) : null}
+        ) : (
+          <div className="ml-auto" />
+        )}
       </div>
 
       <div className="overflow-x-auto">
@@ -92,11 +94,7 @@ export default function WaTemplatesTable({
                   )}
                 >
                   <td className="px-3 py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onEdit?.(t)}
-                      className="block max-w-[280px] truncate text-left font-mono text-[13px] text-foreground hover:text-primary hover:underline underline-offset-4"
-                    >
+                    <button type="button" onClick={() => onEdit?.(t)} className="wa-hub-name-btn">
                       {t.name}
                     </button>
                   </td>
@@ -119,19 +117,13 @@ export default function WaTemplatesTable({
                   <td className="px-3 py-1.5">
                     <div className="flex items-center justify-end gap-0.5">
                       <IconBtn icon={Pencil} label="Edit" onClick={() => onEdit?.(t)} />
-                      {onSync ? (
-                        <IconBtn icon={RefreshCw} label="Sync" onClick={() => onSync(t)} tone="success" />
-                      ) : null}
-                      {onToggle ? (
-                        <IconBtn
-                          icon={Power}
-                          label={t.status === 'disabled' ? 'Enable' : 'Disable'}
-                          onClick={() => onToggle(t)}
-                        />
-                      ) : null}
-                      {onDelete ? (
-                        <IconBtn icon={Trash2} label="Delete" onClick={() => onDelete(t)} tone="danger" />
-                      ) : null}
+                      <IconBtn icon={RefreshCw} label="Sync" onClick={() => onSync?.(t)} tone="success" />
+                      <IconBtn
+                        icon={Power}
+                        label={t.status === 'disabled' ? 'Enable' : 'Disable'}
+                        onClick={() => onToggle?.(t)}
+                      />
+                      <IconBtn icon={Trash2} label="Delete" onClick={() => onDelete?.(t)} tone="danger" />
                     </div>
                   </td>
                 </tr>

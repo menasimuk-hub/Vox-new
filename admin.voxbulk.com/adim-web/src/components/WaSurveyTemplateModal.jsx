@@ -208,6 +208,7 @@ export default function WaSurveyTemplateModal({
   const [syncing, setSyncing] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
   const [toast, setToast] = useState('')
+  const [usageOpen, setUsageOpen] = useState(false)
 
   const localStatus = useMemo(
     () => resolveLocalStatus(template, { isDirty }),
@@ -366,7 +367,10 @@ export default function WaSurveyTemplateModal({
   }, [templateId, initialTemplate, surveyTypeId])
 
   useEffect(() => {
-    if (open && templateId) load()
+    if (open && templateId) {
+      setUsageOpen(false)
+      load()
+    }
   }, [open, templateId, load])
 
   useEffect(() => {
@@ -1021,11 +1025,27 @@ export default function WaSurveyTemplateModal({
 
                 {!systemTemplateMode ? (
                 <div className="waTplEd-field-card">
-                  <div className="waTplEd-field-hdr">
+                  <button
+                    type="button"
+                    className="waTplEd-field-hdr"
+                    style={{ width: '100%', cursor: 'pointer', background: 'transparent', border: 0, textAlign: 'left' }}
+                    onClick={() => setUsageOpen((v) => !v)}
+                    aria-expanded={usageOpen}
+                  >
                     <div className="waTplEd-ficon"><i className="ti ti-link" /></div>
-                    <span className="waTplEd-ftitle">Survey type usage</span>
-                  </div>
+                    <span className="waTplEd-ftitle">
+                      Survey type usage
+                      <span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>
+                        ({surveyTypes.length} types)
+                      </span>
+                    </span>
+                    <i className={`ti ti-chevron-${usageOpen ? 'up' : 'down'}`} style={{ marginLeft: 'auto' }} />
+                  </button>
+                  {usageOpen ? (
                   <div className="waTplEd-field-body">
+                    <p className="waTplEd-hint" style={{ marginTop: 0 }}>
+                      Which survey types can use this template as standard/anonymous launch, and which defaults apply.
+                    </p>
                     {surveyTypes.map((st) => (
                       <div key={st.survey_type_id} className="waTplEd-mapping-row">
                         <strong>{st.name}</strong>
@@ -1049,6 +1069,7 @@ export default function WaSurveyTemplateModal({
                       </button>
                     </div>
                   </div>
+                  ) : null}
                 </div>
                 ) : (
                   <div className="waTplEd-field-card">
