@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -132,18 +133,24 @@ function AddIndustryModal({ open, product, industry, onClose, onSaved, onError }
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={onClose}>
       <form
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border bg-surface p-4 shadow-lg"
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-surface shadow-lg"
         role="dialog"
         aria-modal="true"
         onSubmit={save}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-sm font-semibold">{isEdit ? 'Edit industry' : 'Add industry'}</h3>
-        <p className="mt-1 text-[11px] text-muted-foreground">Saved to the database immediately.</p>
-        <div className="mt-3 space-y-3">
+        <div className="shrink-0 border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">{isEdit ? 'Edit visibility' : 'Add industry'}</h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {isEdit
+              ? 'Choose which organisations can see and use this industry.'
+              : 'Create a new industry. Saved to the database immediately.'}
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
           <label className="block space-y-1">
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Name</span>
             <input
@@ -220,16 +227,159 @@ function AddIndustryModal({ open, product, industry, onClose, onSaved, onError }
             </div>
           ) : null}
         </div>
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t bg-surface px-4 py-3">
           <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" size="sm" className="h-8 text-xs" disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add industry'}
+            {saving ? 'Saving…' : isEdit ? 'Save visibility' : 'Add industry'}
           </Button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
+  )
+}
+
+function AddIndustryTemplateModal({ open, product, industry, onClose, onCreated, onError }) {
+  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState('')
+  const [language, setLanguage] = useState('en_GB')
+
+  useEffect(() => {
+    if (open) {
+      setName('')
+      setLanguage('en_GB')
+    }
+  }, [open])
+
+  if (!open || !industry?.id) return null
+
+  const save = async (e) => {
+    e.preventDefault()
+    const topic = name.trim()
+    if (!topic) return
+    setSaving(true)
+    try {
+      if (product === 'feedback') {
+        const typeRes = await apiFetch('/admin/customer-feedback/survey-types', {
+          method: 'POST',
+          body: JSON.stringify({ industry_id: industry.id, name: topic }),
+        })
+        const typeId = typeRes?.item?.id
+        if (!typeId) throw new Error('Could not create survey topic')
+        const bodyText =
+          language.startsWith('ar')
+            ? `📋 كيف كانت هذه الخدمة في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه.`
+            : `📋 How was ${topic.toLowerCase()} for your recent visit with us? Reply with one option below.`
+        const buttons = language.startsWith('ar')
+          ? [
+              { type: 'QUICK_REPLY', text: 'ممتاز' },
+              { type: 'QUICK_REPLY', text: 'جيد' },
+              { type: 'QUICK_REPLY', text: 'ضعيف' },
+            ]
+          : [
+              { type: 'QUICK_REPLY', text: 'Excellent' },
+              { type: 'QUICK_REPLY', text: 'Good' },
+              { type: 'QUICK_REPLY', text: 'Poor' },
+            ]
+        const tplRes = await apiFetch('/admin/customer-feedback/wa-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            industry_id: industry.id,
+            survey_type_id: typeId,
+            template_key: topic.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'topic',
+            body_text: bodyText,
+            language,
+            meta_category: 'utility',
+            buttons,
+            is_active: true,
+          }),
+        })
+        const templateId = tplRes?.item?.id
+        onCreated?.({
+          product: 'feedback',
+          templateId,
+          surveyTypeId: typeId,
+          rowKind: 'feedback_template',
+        })
+      } else {
+        const typeRes = await apiFetch('/admin/wa-survey/types', {
+          method: 'POST',
+          body: JSON.stringify({ industry_id: industry.id, name: topic }),
+        })
+        const typeId = typeRes?.type?.id
+        if (!typeId) throw new Error('Could not create survey topic')
+        const tplRes = await apiFetch(`/admin/wa-survey/types/${typeId}/templates/standard`, {
+          method: 'POST',
+          body: JSON.stringify({ language, category: 'UTILITY' }),
+        })
+        const templateId = tplRes?.template?.id
+        onCreated?.({
+          product: 'survey',
+          templateId,
+          surveyTypeId: typeId,
+          rowKind: 'survey_template',
+        })
+      }
+      onClose()
+    } catch (err) {
+      onError?.(formatWaSurveyError(err, 'Could not add template').message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" role="presentation" onClick={onClose}>
+      <form
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-xl border bg-surface shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        onSubmit={save}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b px-4 py-3">
+          <h3 className="text-sm font-semibold">Add template</h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            New topic + WhatsApp template in <span className="font-medium text-foreground">{industry.name}</span>.
+          </p>
+        </div>
+        <div className="space-y-3 px-4 py-3">
+          <label className="block space-y-1">
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Topic name</span>
+            <input
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Staff friendliness"
+              required
+              autoFocus
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Language</span>
+            <select
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              <option value="en_GB">English (UK)</option>
+              <option value="ar">Arabic</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 border-t px-4 py-3">
+          <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" className="h-8 text-xs" disabled={saving || !name.trim()}>
+            {saving ? 'Creating…' : 'Add template'}
+          </Button>
+        </div>
+      </form>
+    </div>,
+    document.body,
   )
 }
 
@@ -323,6 +473,7 @@ export default function WaIndustryBrowser({
   const [loadingRows, setLoadingRows] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [editIndustry, setEditIndustry] = useState(null)
+  const [addTemplateOpen, setAddTemplateOpen] = useState(false)
   const [industrySyncing, setIndustrySyncing] = useState(false)
   const [deletingIndustry, setDeletingIndustry] = useState(false)
 
@@ -352,9 +503,63 @@ export default function WaIndustryBrowser({
     void loadIndustryRows(ind)
   }
 
+  const openEditVisibility = async () => {
+    if (!industry?.id) return
+    try {
+      if (product === 'survey') {
+        const detail = await apiFetch(`/admin/wa-survey/industries/${industry.id}`)
+        setEditIndustry(detail?.industry || industry)
+      } else {
+        const detail = await apiFetch(`/admin/customer-feedback/industries/${industry.id}`)
+        setEditIndustry(detail?.item || industry)
+      }
+    } catch {
+      setEditIndustry(industry)
+    }
+  }
+
+  const modals = (
+    <>
+      <AddIndustryModal
+        open={addOpen || Boolean(editIndustry)}
+        product={product}
+        industry={editIndustry}
+        onClose={() => {
+          setAddOpen(false)
+          setEditIndustry(null)
+        }}
+        onSaved={(message) => {
+          onMessage?.(message || 'Industry saved')
+          onReloadIndustries?.()
+        }}
+        onError={onError}
+      />
+      <AddIndustryTemplateModal
+        open={addTemplateOpen}
+        product={product}
+        industry={industry}
+        onClose={() => setAddTemplateOpen(false)}
+        onCreated={(target) => {
+          onMessage?.('Template added — edit body and sync to Meta')
+          onReloadIndustries?.()
+          if (industry) void loadIndustryRows(industry)
+          if (target?.templateId) {
+            onEditRow?.({
+              id: target.templateId,
+              surveyTypeId: target.surveyTypeId,
+              product: target.product,
+              rowKind: target.rowKind,
+            })
+          }
+        }}
+        onError={onError}
+      />
+    </>
+  )
+
   const typeCountLabel = (ind) => {
-    const n = ind.survey_type_count ?? ind.template_count
-    if (n != null) return `${n} types`
+    const n = ind.template_count ?? ind.survey_type_count
+    if (n != null) return `${n} templates`
     return 'Open'
   }
 
@@ -432,24 +637,23 @@ export default function WaIndustryBrowser({
           {rejectedCount > 0 ? (
             <span className="text-xs font-medium text-destructive">· {rejectedCount} rejected — fix</span>
           ) : null}
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <Button
               size="sm"
               variant="outline"
               className="h-7 gap-1 text-xs"
               disabled={industrySyncing || deletingIndustry}
-              onClick={async () => {
-                try {
-                  if (product === 'survey') {
-                    const detail = await apiFetch(`/admin/wa-survey/industries/${industry.id}`)
-                    setEditIndustry(detail?.industry || industry)
-                  } else {
-                    setEditIndustry(industry)
-                  }
-                } catch {
-                  setEditIndustry(industry)
-                }
-              }}
+              onClick={() => setAddTemplateOpen(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add template
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={industrySyncing || deletingIndustry}
+              onClick={() => void openEditVisibility()}
             >
               Edit visibility
             </Button>
@@ -501,8 +705,9 @@ export default function WaIndustryBrowser({
           syncingId={syncingId}
           plainNames
           showNew={false}
-          emptyLabel="No WhatsApp templates linked in this industry yet. Click Rejected filter if you expected rejected rows."
+          emptyLabel="No WhatsApp templates linked in this industry yet. Use Add template."
         />
+        {modals}
       </div>
     )
   }
@@ -569,24 +774,7 @@ export default function WaIndustryBrowser({
           </div>
         )}
       </div>
-      <AddIndustryModal
-        open={addOpen || Boolean(editIndustry)}
-        product={product}
-        industry={editIndustry}
-        onClose={() => {
-          setAddOpen(false)
-          setEditIndustry(null)
-        }}
-        onSaved={(message) => {
-          onMessage?.(message || 'Industry saved')
-          onReloadIndustries?.()
-          if (editIndustry && industry?.id === editIndustry.id) {
-            // refresh open industry card data from list after edit
-            onReloadIndustries?.()
-          }
-        }}
-        onError={onError}
-      />
+      {modals}
     </div>
   )
 }

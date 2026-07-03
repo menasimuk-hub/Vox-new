@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronRight, Layers } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { ChevronRight, Layers, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Sheet, SheetContent, SheetClose } from '@/components/ui/Sheet'
-import { X } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
+import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaTemplatesTable from './WaTemplatesTable'
 import { toHubRow } from './waTemplatesUi'
 
@@ -67,6 +68,9 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetCategory, setSheetCategory] = useState(null)
   const [sheetRows, setSheetRows] = useState([])
+  const [addOpen, setAddOpen] = useState(false)
+  const [addKind, setAddKind] = useState(product === 'feedback' ? 'thank_you' : 'welcome')
+  const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -135,6 +139,85 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
     })
   }
 
+  const addSystemTemplate = async (e) => {
+    e.preventDefault()
+    setAdding(true)
+    setError('')
+    try {
+      if (product === 'feedback') {
+        const labels = {
+          thank_you: 'Thank you',
+          tell_us_more: 'Tell us more',
+          marketing_opt_in: 'Opt in',
+          open_question: 'Share your feedback',
+        }
+        const bodyText = `📋 ${labels[addKind] || 'Thanks for your feedback.'} Reply with one option below.`
+        const tplRes = await apiFetch('/admin/customer-feedback/wa-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            template_key: addKind,
+            body_text: bodyText,
+            language: 'en_GB',
+            meta_category: 'utility',
+            buttons: [
+              { type: 'QUICK_REPLY', text: 'Excellent' },
+              { type: 'QUICK_REPLY', text: 'Good' },
+              { type: 'QUICK_REPLY', text: 'Poor' },
+            ],
+            is_active: true,
+          }),
+        })
+        const templateId = tplRes?.item?.id
+        setAddOpen(false)
+        await load()
+        if (templateId) {
+          onOpenTemplate?.({
+            product: 'feedback',
+            templateId,
+            systemMode: true,
+            systemKind: addKind,
+          })
+        }
+      } else {
+        const data = await apiFetch('/admin/wa-survey/system-templates', {
+          method: 'POST',
+          body: JSON.stringify({
+            system_template_kind: addKind,
+            category: 'UTILITY',
+            language: 'en_GB',
+          }),
+        })
+        const templateId = data?.template?.id
+        const surveyTypeId = data?.survey_type_id || data?.template?.survey_type_id
+        setAddOpen(false)
+        await load()
+        if (templateId) {
+          onOpenTemplate?.({
+            product: 'system',
+            templateId,
+            surveyTypeId,
+            systemMode: true,
+            systemKind: addKind,
+          })
+        }
+      }
+    } catch (err) {
+      setError(formatWaSurveyError(err, 'Could not add system template').message)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const kindOptions =
+    product === 'feedback'
+      ? FEEDBACK_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))
+      : [
+          { value: 'welcome', label: 'Welcome' },
+          { value: 'thank_you', label: 'Thank you' },
+          { value: 'tell_us_more', label: 'Tell us more' },
+          { value: 'final_feedback', label: 'Closing question' },
+        ]
+
   return (
     <>
       <div className={embedded ? 'border-b bg-surface-muted/20 p-3' : 'rounded-lg border bg-surface p-3'}>
@@ -157,6 +240,10 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
                 {totalCount} saved
               </span>
             ) : null}
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => setAddOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Add template
+            </Button>
             <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={openAll}>
               Manage
               <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -229,6 +316,56 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
           </div>
         </SheetContent>
       </Sheet>
+
+      {addOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+              role="presentation"
+              onClick={() => setAddOpen(false)}
+            >
+              <form
+                className="w-full max-w-md rounded-xl border bg-surface shadow-lg"
+                role="dialog"
+                aria-modal="true"
+                onSubmit={addSystemTemplate}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b px-4 py-3">
+                  <h3 className="text-sm font-semibold">Add system template</h3>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Creates a new shared Utility template. Edit body and sync to Meta after.
+                  </p>
+                </div>
+                <div className="space-y-3 px-4 py-3">
+                  <label className="block space-y-1">
+                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Category</span>
+                    <select
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      value={addKind}
+                      onChange={(e) => setAddKind(e.target.value)}
+                    >
+                      {kindOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 border-t px-4 py-3">
+                  <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAddOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" className="h-8 text-xs" disabled={adding}>
+                    {adding ? 'Creating…' : 'Add template'}
+                  </Button>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   )
 }
