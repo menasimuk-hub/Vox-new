@@ -92,6 +92,7 @@ async function loadSurveyTemplatesForIndustry(industryId) {
   const data = await apiFetch(`/admin/wa-survey/types?industry_id=${encodeURIComponent(industryId)}`)
   const types = Array.isArray(data?.types) ? data.types : []
   const rows = []
+  const unlinkedTypes = []
   await Promise.all(
     types.map(async (type) => {
       try {
@@ -110,36 +111,27 @@ async function loadSurveyTemplatesForIndustry(industryId) {
             )
           }
         } else {
-          rows.push(
-            toHubRow(type, {
-              rowKind: 'survey_type',
-              product: 'survey',
-              surveyTypeId: type.id,
-              name: type.slug || type.name,
-              used: type.template_count ?? 0,
-            }),
-          )
+          unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
         }
       } catch {
-        rows.push(
-          toHubRow(type, {
-            rowKind: 'survey_type',
-            product: 'survey',
-            surveyTypeId: type.id,
-            name: type.slug || type.name,
-          }),
-        )
+        unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
       }
     }),
   )
-  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)))
-  return rows
+  rows.sort((a, b) => {
+    // Rejected first so they are easy to monitor, then name
+    if (a.status === 'rejected' && b.status !== 'rejected') return -1
+    if (b.status === 'rejected' && a.status !== 'rejected') return 1
+    return String(a.name).localeCompare(String(b.name))
+  })
+  return { rows, unlinkedTypes }
 }
 
 async function loadFeedbackTemplatesForIndustry(industryId) {
   const data = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(industryId)}`)
   const types = Array.isArray(data?.item?.survey_types) ? data.item.survey_types : []
   const rows = []
+  const unlinkedTypes = []
   await Promise.all(
     types.map(async (type) => {
       try {
@@ -160,30 +152,19 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
             )
           }
         } else {
-          rows.push(
-            toHubRow(type, {
-              rowKind: 'feedback_type',
-              product: 'feedback',
-              surveyTypeId: type.id,
-              name: type.slug || type.name,
-              used: type.template_count ?? 0,
-            }),
-          )
+          unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
         }
       } catch {
-        rows.push(
-          toHubRow(type, {
-            rowKind: 'feedback_type',
-            product: 'feedback',
-            surveyTypeId: type.id,
-            name: type.slug || type.name,
-          }),
-        )
+        unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
       }
     }),
   )
-  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)))
-  return rows
+  rows.sort((a, b) => {
+    if (a.status === 'rejected' && b.status !== 'rejected') return -1
+    if (b.status === 'rejected' && a.status !== 'rejected') return 1
+    return String(a.name).localeCompare(String(b.name))
+  })
+  return { rows, unlinkedTypes }
 }
 
 export default function WaIndustryBrowser({
@@ -201,6 +182,7 @@ export default function WaIndustryBrowser({
 }) {
   const [industry, setIndustry] = useState(null)
   const [rows, setRows] = useState([])
+  const [unlinkedTypes, setUnlinkedTypes] = useState([])
   const [loadingRows, setLoadingRows] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
 
@@ -212,10 +194,12 @@ export default function WaIndustryBrowser({
           product === 'survey'
             ? await loadSurveyTemplatesForIndustry(ind.id)
             : await loadFeedbackTemplatesForIndustry(ind.id)
-        setRows(next)
+        setRows(next.rows)
+        setUnlinkedTypes(next.unlinkedTypes)
       } catch (e) {
         onError?.(formatWaSurveyError(e, 'Could not load templates').message)
         setRows([])
+        setUnlinkedTypes([])
       } finally {
         setLoadingRows(false)
       }
@@ -235,6 +219,8 @@ export default function WaIndustryBrowser({
   }
 
   if (industry) {
+    const rejectedCount = rows.filter((r) => r.status === 'rejected').length
+    const approvedCount = rows.filter((r) => r.status === 'approved').length
     return (
       <div className="animate-fade-in">
         <WaTemplatesSystemSection
@@ -242,14 +228,30 @@ export default function WaIndustryBrowser({
           embedded
           onOpenTemplate={onOpenSystemTemplate}
         />
-        <div className="flex items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
           <Button variant="ghost" size="sm" className="-ml-2 h-7 gap-1 text-xs" onClick={() => setIndustry(null)}>
             <ChevronLeft className="h-3.5 w-3.5" /> Industries
           </Button>
           <ChevronRight className="h-3 w-3 text-muted-foreground" />
           <span className="text-sm font-medium">{industry.name}</span>
-          <span className="text-xs text-muted-foreground">· {rows.length} templates</span>
+          <span className="text-xs text-muted-foreground">· {rows.length} linked templates</span>
+          <span className="text-xs text-success">· {approvedCount} approved</span>
+          {rejectedCount > 0 ? (
+            <span className="text-xs font-medium text-destructive">· {rejectedCount} rejected — fix</span>
+          ) : null}
         </div>
+        {unlinkedTypes.length > 0 ? (
+          <div className="border-b bg-warning-soft/40 px-3 py-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">{unlinkedTypes.length} survey type(s) have no WA templates linked</span>
+            {' — '}
+            {unlinkedTypes
+              .slice(0, 8)
+              .map((t) => t.slug || t.name)
+              .join(', ')}
+            {unlinkedTypes.length > 8 ? ` +${unlinkedTypes.length - 8} more` : ''}
+            . They are not listed below (only real Meta/local templates are editable).
+          </div>
+        ) : null}
         <WaTemplatesTable
           templates={rows}
           loading={loadingRows}
@@ -258,7 +260,7 @@ export default function WaIndustryBrowser({
           onToggle={onToggleRow}
           onDelete={onDeleteRow}
           showNew={false}
-          emptyLabel="No templates linked in this industry yet."
+          emptyLabel="No WhatsApp templates linked in this industry yet."
         />
       </div>
     )

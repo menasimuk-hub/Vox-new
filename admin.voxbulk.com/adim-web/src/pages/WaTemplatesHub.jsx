@@ -82,7 +82,13 @@ export default function WaTemplatesHub() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-  const [templateCounts, setTemplateCounts] = useState({ total: 0, approved: 0, localOnly: 0, pending: 0 })
+  const [templateCounts, setTemplateCounts] = useState({
+    total: 0,
+    approved: 0,
+    localOnly: 0,
+    pending: 0,
+    rejected: 0,
+  })
 
   const [interviewTemplates, setInterviewTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
@@ -107,7 +113,7 @@ export default function WaTemplatesHub() {
       const rows = Array.isArray(data?.templates) ? data.templates : []
       setTemplateCounts(summarizeCatalog(rows))
     } catch {
-      setTemplateCounts({ total: 0, approved: 0, localOnly: 0, pending: 0 })
+      setTemplateCounts({ total: 0, approved: 0, localOnly: 0, pending: 0, rejected: 0 })
     }
   }, [])
 
@@ -213,28 +219,8 @@ export default function WaTemplatesHub() {
         })
         return
       }
-      if (row.rowKind === 'feedback_type') {
-        const data = await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`)
-        const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
-        if (!templates.length) {
-          setError(`“${row.name}” has no WhatsApp templates linked yet. Link or create templates for this survey type first.`)
-          return
-        }
-        setEditTarget({
-          product: 'feedback',
-          templateId: templates[0].id,
-          surveyTypeId: row.id,
-        })
-        return
-      }
-      const typeId = row.surveyTypeId || row.id
-      const data = await apiFetch(`/admin/wa-survey/types/${typeId}`)
-      const templates = Array.isArray(data?.templates) ? data.templates : []
-      if (!templates.length) {
-        setError(`“${row.name}” has no WhatsApp templates linked yet. Link or create templates for this survey type first.`)
-        return
-      }
-      setEditTarget({ product: 'survey', templateId: templates[0].id, surveyTypeId: typeId })
+      // Empty survey types are no longer listed as fake template rows.
+      setError('Select a real WhatsApp template row (not a survey type name).')
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not open editor').message)
     }
@@ -406,11 +392,16 @@ export default function WaTemplatesHub() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
-            <div className="hidden items-center gap-3 text-[11px] text-muted-foreground md:flex">
-              <span className="inline-flex items-center gap-1" title="Approved on Meta">
+            <div className="hidden items-center gap-3 text-[11px] text-muted-foreground lg:flex">
+              <span className="inline-flex items-center gap-1 text-success" title="Approved on Meta">
                 <ClipboardList className="h-3 w-3" />
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.approved}</span> approved
+                <span className="font-medium tabular-nums">{templateCounts.approved}</span> approved
               </span>
+              {templateCounts.rejected > 0 ? (
+                <span className="inline-flex items-center gap-1 font-medium text-destructive" title="Rejected on Meta — needs fix">
+                  <span className="tabular-nums">{templateCounts.rejected}</span> rejected
+                </span>
+              ) : null}
               <span className="inline-flex items-center gap-1" title="Local only — not on Meta yet">
                 <BarChart3 className="h-3 w-3" />
                 <span className="font-medium tabular-nums text-foreground">{templateCounts.localOnly}</span> local

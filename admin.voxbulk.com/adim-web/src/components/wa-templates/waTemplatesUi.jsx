@@ -4,18 +4,27 @@ import { cn } from '@/lib/utils'
 
 export const LANGS = ['EN', 'AR', 'FR', 'ES', 'DE', 'PT', 'IT', 'TR', 'RU', 'HI']
 
+export const STATUS_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'local', label: 'Local only' },
+  { id: 'disabled', label: 'Disabled' },
+]
+
 export function StatusDot({ status }) {
   const map = {
-    approved: { c: 'bg-success', label: 'Approved' },
-    pending: { c: 'bg-warning', label: 'Pending' },
-    disabled: { c: 'bg-muted-foreground/50', label: 'Disabled' },
-    rejected: { c: 'bg-destructive', label: 'Rejected' },
-    local: { c: 'bg-info', label: 'Local only' },
+    approved: { c: 'bg-success', label: 'Approved', className: 'text-success' },
+    pending: { c: 'bg-warning', label: 'Pending', className: 'text-warning-foreground' },
+    disabled: { c: 'bg-muted-foreground/50', label: 'Disabled', className: 'text-muted-foreground' },
+    rejected: { c: 'bg-destructive', label: 'Rejected · fix', className: 'text-destructive font-medium' },
+    local: { c: 'bg-info', label: 'Local only', className: 'text-info' },
   }
   const s = map[status] || map.pending
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className={cn('h-1.5 w-1.5 rounded-full', s.c)} />
+    <span className={cn('inline-flex items-center gap-1.5 text-xs', s.className)}>
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', s.c)} />
       {s.label}
     </span>
   )
@@ -97,44 +106,51 @@ function isLocalOnlyRow(tpl) {
 
 /** Map API row → StatusDot status. Prefer Meta approval_status / status. */
 export function mapApprovalStatus(tpl) {
+  const meta = String(tpl?.approval_status || tpl?.status || tpl?.telnyx_sync_status || '')
+    .toUpperCase()
+    .trim()
+
+  // Rejection always wins for monitoring / fix workflow
+  if (meta === 'REJECTED' || meta.includes('REJECT')) return 'rejected'
+
   if (
     tpl?.active_for_survey === false ||
     tpl?.active_for_interview === false ||
     tpl?.active_for_appointment === false ||
     tpl?.is_active === false
   ) {
+    if (meta === 'APPROVED' || meta.includes('APPROV')) {
+      // still approved on Meta but hidden locally
+      return 'disabled'
+    }
     return 'disabled'
   }
 
-  const meta = String(tpl?.approval_status || tpl?.status || '').toUpperCase().trim()
-  if (meta === 'APPROVED') return 'approved'
-  if (meta === 'REJECTED') return 'rejected'
+  if (meta === 'APPROVED' || meta.includes('APPROV')) return 'approved'
   if (meta === 'DISABLED' || meta === 'PAUSED') return 'disabled'
   if (meta === 'PENDING' || meta === 'PENDING_APPROVAL' || meta === 'IN_APPEAL' || meta === 'SUBMITTED') {
     return 'pending'
   }
-  if (meta === 'LOCAL_DRAFT' || meta === 'DRAFT' || meta === 'UNKNOWN') {
-    return isLocalOnlyRow(tpl) ? 'local' : 'pending'
-  }
+  if (meta === 'LOCAL_DRAFT' || meta === 'DRAFT') return 'local'
+  if (meta === 'UNKNOWN' && isLocalOnlyRow(tpl)) return 'local'
+  if (meta === 'UNKNOWN') return 'pending'
 
   if (isLocalOnlyRow(tpl)) return 'local'
 
   const label = String(tpl?.status_label || '').toLowerCase()
   if (label.includes('ready')) return 'approved'
+  if (label.includes('reject')) return 'rejected'
   if (label.includes('need')) return 'local'
   if (label.includes('pending')) return 'pending'
 
   if (Number(tpl?.approved_template_count) > 0) return 'approved'
   if (Number(tpl?.pending_template_count) > 0) return 'pending'
-  if (Number(tpl?.template_count) > 0 && Number(tpl?.approved_template_count) === 0) return 'pending'
 
-  const sync = String(tpl?.local_sync_status || tpl?.sync_status || tpl?.telnyx_sync_status || '').toLowerCase()
+  const sync = String(tpl?.local_sync_status || tpl?.sync_status || '').toLowerCase()
   if (sync === 'in_sync' || sync === 'synced') return 'approved'
-  if (sync.includes('draft') || sync.includes('local') || sync.includes('error')) return 'local'
+  if (sync.includes('draft') || sync.includes('local')) return 'local'
+  if (sync.includes('error')) return 'rejected'
 
-  if (!meta && !label && !sync) return 'pending'
-  if (meta.includes('APPROV')) return 'approved'
-  if (meta.includes('REJECT')) return 'rejected'
   return 'pending'
 }
 
@@ -166,13 +182,13 @@ export function toHubRow(tpl, overrides = {}) {
     tpl.template_count ??
     tpl.templates_count ??
     (Number(tpl.standard_template_count || 0) + Number(tpl.anonymous_template_count || 0) || undefined)
+  const status = overrides.status || mapApprovalStatus(tpl)
   return {
     id: tpl.id,
     name: tpl.name || tpl.display_name || tpl.slug || String(tpl.id),
     langs,
     langsTitle: langs.join(' · '),
     category: mapCategory(tpl),
-    status: mapApprovalStatus(tpl),
     used: tpl.usage_count ?? tpl.used_count ?? tpl.sent_count ?? templateCount ?? 0,
     updated: formatRelativeWhen(tpl.updated_at || tpl.last_pushed_at || tpl.synced_at || tpl.last_synced_at),
     body: tpl.body || tpl.body_text || '',
@@ -181,8 +197,10 @@ export function toHubRow(tpl, overrides = {}) {
     variables: Array.isArray(tpl.variables) ? tpl.variables : Array.isArray(tpl.example_values) ? tpl.example_values : [],
     header: tpl.header,
     isLocalOnly: isLocalOnlyRow(tpl),
+    rejectionReason: tpl.rejection_reason || tpl.last_push_error || '',
     raw: tpl,
     ...overrides,
+    status,
   }
 }
 
@@ -191,16 +209,13 @@ export function summarizeCatalog(rows) {
   let approved = 0
   let localOnly = 0
   let pending = 0
+  let rejected = 0
   for (const t of list) {
-    const status = String(t.status || '').toUpperCase()
-    const rid = String(t.telnyx_record_id || '')
-    if (rid.startsWith('local-') || status === 'LOCAL_DRAFT' || status === 'DRAFT') {
-      localOnly += 1
-    } else if (status === 'APPROVED') {
-      approved += 1
-    } else if (status === 'PENDING' || status === 'SUBMITTED' || status === 'UNKNOWN') {
-      pending += 1
-    }
+    const status = mapApprovalStatus(t)
+    if (status === 'approved') approved += 1
+    else if (status === 'local') localOnly += 1
+    else if (status === 'rejected') rejected += 1
+    else if (status === 'pending') pending += 1
   }
-  return { total: list.length, approved, localOnly, pending }
+  return { total: list.length, approved, localOnly, pending, rejected }
 }
