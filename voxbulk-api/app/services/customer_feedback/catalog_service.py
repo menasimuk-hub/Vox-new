@@ -424,7 +424,9 @@ class FeedbackCatalogService:
                     select(FeedbackIndustry).where(FeedbackIndustry.slug == desired_slug).limit(1)
                 ).scalar_one_or_none()
             if existing is not None:
-                # Reactivate / update existing slug instead of duplicate insert.
+                if existing.is_active:
+                    raise ValueError(f"An industry with slug “{desired_slug}” already exists")
+                # Inactive leftover — reactivate instead of duplicate insert.
                 row = existing
             else:
                 row = FeedbackIndustry(
