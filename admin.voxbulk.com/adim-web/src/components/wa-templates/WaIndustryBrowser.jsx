@@ -69,14 +69,12 @@ function AddIndustryModal({ open, product, industry, onClose, onSaved, onError }
         org_ids: [],
       })
     }
-    if (product !== 'feedback') {
-      apiFetch('/admin/organisations?limit=500')
-        .then((data) => {
-          const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
-          setOrgs(list)
-        })
-        .catch(() => setOrgs([]))
-    }
+    apiFetch('/admin/organisations?limit=500')
+      .then((data) => {
+        const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+        setOrgs(list)
+      })
+      .catch(() => setOrgs([]))
   }, [open, isEdit, industry, product])
 
   if (!open) return null
@@ -96,40 +94,34 @@ function AddIndustryModal({ open, product, industry, onClose, onSaved, onError }
     e.preventDefault()
     setSaving(true)
     try {
+      const visibility_mode = form.visibility_mode === 'restricted' ? 'restricted' : 'all'
+      const body = {
+        name: form.name.trim(),
+        slug: form.slug.trim() || undefined,
+        description: form.description.trim() || undefined,
+        sort_order: Number(form.sort_order) || 100,
+        is_active: Boolean(form.is_active),
+        visibility_mode,
+        org_ids: visibility_mode === 'restricted' ? form.org_ids : [],
+      }
       if (product === 'feedback') {
         const path = isEdit
           ? `/admin/customer-feedback/industries/${industry.id}`
           : '/admin/customer-feedback/industries'
         await apiFetch(path, {
           method: isEdit ? 'PUT' : 'POST',
-          body: JSON.stringify({
-            name: form.name.trim(),
-            slug: form.slug.trim() || undefined,
-            is_active: form.is_active,
-          }),
+          body: JSON.stringify(body),
+        })
+      } else if (isEdit) {
+        await apiFetch(`/admin/wa-survey/industries/${industry.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body),
         })
       } else {
-        const visibility_mode = form.visibility_mode === 'restricted' ? 'restricted' : 'all'
-        const body = {
-          name: form.name.trim(),
-          slug: form.slug.trim() || undefined,
-          description: form.description.trim() || undefined,
-          sort_order: Number(form.sort_order) || 100,
-          is_active: Boolean(form.is_active),
-          visibility_mode,
-          org_ids: visibility_mode === 'restricted' ? form.org_ids : [],
-        }
-        if (isEdit) {
-          await apiFetch(`/admin/wa-survey/industries/${industry.id}`, {
-            method: 'PUT',
-            body: JSON.stringify(body),
-          })
-        } else {
-          await apiFetch('/admin/wa-survey/industries', {
-            method: 'POST',
-            body: JSON.stringify(body),
-          })
-        }
+        await apiFetch('/admin/wa-survey/industries', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
       }
       onSaved?.(isEdit ? 'Industry updated' : 'Industry added')
       onClose()
@@ -169,64 +161,63 @@ function AddIndustryModal({ open, product, industry, onClose, onSaved, onError }
               onChange={(e) => setForm({ ...form, slug: e.target.value })}
             />
           </label>
-          {product !== 'feedback' ? (
-            <>
-              <label className="block space-y-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Description</span>
-                <input
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                />
-              </label>
-              <div className="space-y-1.5">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Who can see this industry</span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className={cn(
-                      'h-7 rounded-md border px-2.5 text-[11px] font-medium',
-                      form.visibility_mode === 'all'
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-input bg-background text-muted-foreground',
-                    )}
-                    onClick={() => setForm({ ...form, visibility_mode: 'all', org_ids: [] })}
-                  >
-                    All organisations
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'h-7 rounded-md border px-2.5 text-[11px] font-medium',
-                      form.visibility_mode === 'restricted'
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-input bg-background text-muted-foreground',
-                    )}
-                    onClick={() => setForm({ ...form, visibility_mode: 'restricted' })}
-                  >
-                    Selected organisations only
-                  </button>
-                </div>
-              </div>
-              {form.visibility_mode === 'restricted' ? (
-                <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
-                  {orgs.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">No organisations found.</p>
-                  ) : (
-                    orgs.map((org) => {
-                      const oid = String(org.id)
-                      const checked = form.org_ids.includes(oid)
-                      return (
-                        <label key={oid} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-accent/40">
-                          <input type="checkbox" checked={checked} onChange={() => toggleOrg(oid)} />
-                          <span className="truncate">{org.name || org.trading_name || org.email || oid}</span>
-                        </label>
-                      )
-                    })
-                  )}
-                </div>
-              ) : null}
-            </>
+          <label className="block space-y-1">
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Description</span>
+            <input
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </label>
+          <div className="space-y-1.5">
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Who can see this industry</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={cn(
+                  'h-7 rounded-md border px-2.5 text-[11px] font-medium',
+                  form.visibility_mode === 'all'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-input bg-background text-muted-foreground',
+                )}
+                onClick={() => setForm({ ...form, visibility_mode: 'all', org_ids: [] })}
+              >
+                All organisations
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'h-7 rounded-md border px-2.5 text-[11px] font-medium',
+                  form.visibility_mode === 'restricted'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-input bg-background text-muted-foreground',
+                )}
+                onClick={() => setForm({ ...form, visibility_mode: 'restricted' })}
+              >
+                Selected organisations only
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Restricted industries are only visible to the organisations you select (and their users).
+            </p>
+          </div>
+          {form.visibility_mode === 'restricted' ? (
+            <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+              {orgs.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No organisations found.</p>
+              ) : (
+                orgs.map((org) => {
+                  const oid = String(org.id)
+                  const checked = form.org_ids.includes(oid)
+                  return (
+                    <label key={oid} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-accent/40">
+                      <input type="checkbox" checked={checked} onChange={() => toggleOrg(oid)} />
+                      <span className="truncate">{org.name || org.trading_name || org.email || oid}</span>
+                    </label>
+                  )
+                })
+              )}
+            </div>
           ) : null}
         </div>
         <div className="mt-4 flex justify-end gap-2">
@@ -268,37 +259,31 @@ async function loadSurveyTemplatesForIndustry(industryId) {
 }
 
 async function loadFeedbackTemplatesForIndustry(industryId) {
-  const data = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(industryId)}`)
-  const types = Array.isArray(data?.item?.survey_types) ? data.item.survey_types : []
-  const rows = []
-  const unlinkedTypes = []
-  await Promise.all(
-    types.map(async (type) => {
-      try {
-        const detail = await apiFetch(`/admin/customer-feedback/survey-types/${encodeURIComponent(type.id)}`)
-        const templates = Array.isArray(detail?.item?.templates) ? detail.item.templates : []
-        if (templates.length) {
-          for (const tpl of templates) {
-            rows.push(
-              toHubRow(
-                { ...tpl, body: tpl.body_text, status: tpl.telnyx_sync_status || tpl.status },
-                {
-                  rowKind: 'feedback_template',
-                  product: 'feedback',
-                  surveyTypeId: type.id,
-                  name: tpl.template_key || tpl.name || tpl.id,
-                },
-              ),
-            )
-          }
-        } else {
-          unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
-        }
-      } catch {
-        unlinkedTypes.push({ id: type.id, slug: type.slug, name: type.name })
-      }
-    }),
+  // One primary template per survey type (English preferred) — avoids en/ar duplicates.
+  const data = await apiFetch(
+    `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/templates`,
   )
+  const templates = Array.isArray(data?.templates) ? data.templates : []
+  const unlinkedTypes = Array.isArray(data?.unlinked_types) ? data.unlinked_types : []
+  const seen = new Set()
+  const rows = []
+  for (const tpl of templates) {
+    const id = String(tpl.id || '')
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    rows.push(
+      toHubRow(
+        { ...tpl, body: tpl.body_text, status: tpl.telnyx_sync_status || tpl.status },
+        {
+          rowKind: 'feedback_template',
+          product: 'feedback',
+          surveyTypeId: tpl.survey_type_id,
+          surveyTypeName: tpl.survey_type_name,
+          name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
+        },
+      ),
+    )
+  }
   rows.sort((a, b) => {
     if (a.status === 'rejected' && b.status !== 'rejected') return -1
     if (b.status === 'rejected' && a.status !== 'rejected') return 1
@@ -580,6 +565,13 @@ export default function WaIndustryBrowser({
                   </div>
                   <div className="mt-0.5 text-[11px] text-muted-foreground">{typeCountLabel(ind)}</div>
                   <div className="mt-0.5 text-[10px] text-muted-foreground">{industryHealthLabel(ind)}</div>
+                  {ind.visibility_mode === 'restricted' ? (
+                    <div className="mt-0.5 text-[10px] font-medium text-primary">
+                      {(ind.org_ids || []).length === 1
+                        ? '1 organisation only'
+                        : `${(ind.org_ids || []).length} organisations only`}
+                    </div>
+                  ) : null}
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
               </button>

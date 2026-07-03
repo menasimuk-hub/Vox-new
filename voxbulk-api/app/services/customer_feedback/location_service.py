@@ -211,6 +211,12 @@ class FeedbackLocationService:
         primary_type_id = selected_ids[0] if selected_ids else str(payload.get("survey_type_id") or "").strip()
         if not industry_id or not primary_type_id:
             raise ValueError("industry_id and at least one survey topic are required")
+        from app.models.customer_feedback import FeedbackIndustry
+        from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+
+        industry = db.get(FeedbackIndustry, industry_id)
+        if industry is None or not FeedbackCatalogService._industry_visible_to_org(db, industry, org_id):
+            raise ValueError("Industry is not available for this organisation.")
         open_question = bool(payload.get("open_question_enabled", True))
         marketing_opt_in = effective_marketing_opt_in_enabled(payload.get("marketing_opt_in_enabled", False))
         survey_config = build_survey_config(

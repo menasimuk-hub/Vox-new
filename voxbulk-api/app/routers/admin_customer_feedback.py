@@ -25,14 +25,17 @@ router = APIRouter(prefix="/admin/customer-feedback", tags=["admin-customer-feed
 @router.get("/overview")
 def overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     FeedbackCatalogService.ensure_ready(db)
-    industries = FeedbackCatalogService.list_industries(db, include_inactive=True)
+    industries = FeedbackCatalogService.list_industries(db, include_inactive=False)
     packages = FeedbackCatalogService.list_packages(db, active_only=False)
     return {"ok": True, "industries": len(industries), "packages": len(packages)}
 
 
 @router.get("/industries")
 def list_industries(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    return {"ok": True, "items": FeedbackCatalogService.list_industries(db, include_inactive=True)}
+    return {
+        "ok": True,
+        "items": FeedbackCatalogService.list_industries(db, include_inactive=False, include_org_ids=True),
+    }
 
 
 @router.get("/industries/{industry_id}")
@@ -43,23 +46,36 @@ def get_industry(industry_id: str, db: Session = Depends(get_db), _admin=Depends
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.get("/industries/{industry_id}/templates")
+def list_industry_templates(
+    industry_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return {"ok": True, **FeedbackCatalogService.list_industry_hub_templates(db, industry_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.put("/industries/{industry_id}")
+def update_industry(industry_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    body = dict(payload or {})
+    body["id"] = industry_id
+    try:
+        return {"ok": True, "item": FeedbackCatalogService.upsert_industry(db, body)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.delete("/industries/{industry_id}")
 def delete_industry(industry_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.models.customer_feedback import FeedbackLocation
-
-    row = db.get(FeedbackIndustry, industry_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Industry not found")
-    in_use = db.execute(
-        select(func.count()).select_from(FeedbackLocation).where(FeedbackLocation.industry_id == industry_id)
-    ).scalar_one()
-    if int(in_use or 0) > 0:
-        raise HTTPException(status_code=400, detail="Industry has active locations and cannot be deleted.")
-    row.is_active = False
-    row.updated_at = datetime.utcnow()
-    db.add(row)
-    db.commit()
-    return {"ok": True}
+    try:
+        return FeedbackCatalogService.delete_industry(db, industry_id)
+    except ValueError as e:
+        detail = str(e)
+        code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=code, detail=detail) from e
 
 
 @router.post("/industries/{industry_id}/sync-telnyx")

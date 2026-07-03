@@ -22,9 +22,22 @@ class FeedbackIndustry(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    visibility_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="all")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackIndustryOrganisation(Base):
+    """Orgs allowed to see a restricted feedback industry."""
+
+    __tablename__ = "feedback_industry_organisations"
+    __table_args__ = (UniqueConstraint("industry_id", "org_id", name="uq_feedback_industry_org"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    industry_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_industries.id"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class FeedbackSurveyType(Base):

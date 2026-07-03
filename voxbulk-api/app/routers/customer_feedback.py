@@ -37,7 +37,10 @@ def _require_feedback_enabled(db: Session, org_id: str) -> None:
 @router.get("/catalog/industries")
 def list_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)
-    return {"ok": True, "items": FeedbackCatalogService.list_industries(db)}
+    return {
+        "ok": True,
+        "items": FeedbackCatalogService.list_industries(db, org_id=principal.org_id),
+    }
 
 
 @router.get("/catalog/survey-types")
@@ -47,10 +50,19 @@ def list_survey_types(
     principal=Depends(get_current_principal),
 ):
     _require_feedback_enabled(db, principal.org_id)
-    return {
-        "ok": True,
-        "items": FeedbackCatalogService.list_survey_types(db, industry_id=industry_id, exclude_disabled=True),
-    }
+    visible = FeedbackCatalogService.list_industries(db, org_id=principal.org_id)
+    visible_ids = {str(item["id"]) for item in visible}
+    if industry_id:
+        if str(industry_id) not in visible_ids:
+            return {"ok": True, "items": []}
+        return {
+            "ok": True,
+            "items": FeedbackCatalogService.list_survey_types(
+                db, industry_id=industry_id, exclude_disabled=True
+            ),
+        }
+    items = FeedbackCatalogService.list_survey_types(db, exclude_disabled=True)
+    return {"ok": True, "items": [row for row in items if str(row.get("industry_id")) in visible_ids]}
 
 
 @router.get("/subscription")
