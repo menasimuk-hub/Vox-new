@@ -14,7 +14,7 @@ from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_con
 from app.services.provider_settings import ProviderSettingsService
 from app.services.survey_wa_inbound_parse_service import (
     NormalizedWaInboundReply,
-    log_raw_telnyx_inbound,
+    log_raw_wa_inbound,
     parse_meta_wa_inbound_message,
 )
 
@@ -365,7 +365,7 @@ class MetaWhatsappInboundService:
             if not inbound_text and str(msg.get("type") or "").lower() not in {"audio", "voice"}:
                 inbound_text = f"[{msg.get('type') or 'message'}]"
 
-            log_raw_telnyx_inbound(
+            log_raw_wa_inbound(
                 record=msg,
                 org_id=org_id,
                 message_id=message_id,

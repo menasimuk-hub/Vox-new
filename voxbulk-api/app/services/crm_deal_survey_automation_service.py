@@ -844,6 +844,8 @@ def _dispatch_automation_recipient(db: Session, *, order: ServiceOrder, event: C
         SurveyCallDispatchService.tick_running_order(db, order)
         return {"recipient_id": recipient.id, "channel": "ai_call", "status": recipient.status}
 
+    from app.services.whatsapp_provider_service import whatsapp_messaging_ready
+
     org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
     organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
     intro_template = _survey_intro_text(config)
@@ -856,7 +858,7 @@ def _dispatch_automation_recipient(db: Session, *, order: ServiceOrder, event: C
         org_name=org_name,
         organiser=organiser,
         prefer_whatsapp=True,
-        telnyx_ready=TelnyxMessagingService.is_configured(db),
+        messaging_ready=whatsapp_messaging_ready(db),
     )
     db.commit()
     return {"recipient_id": recipient.id, "channel": "whatsapp", **result}

@@ -344,14 +344,14 @@ def parse_telnyx_wa_inbound_record(
     return reply
 
 
-def log_raw_telnyx_inbound(
+def log_raw_wa_inbound(
     *,
     record: dict[str, Any],
     org_id: str | None = None,
     message_id: str | None = None,
     sender_phone: str | None = None,
 ) -> None:
-    """Log full inbound payload before parsing (truncated for safety)."""
+    """Log full inbound WhatsApp webhook payload before parsing (truncated for safety)."""
     try:
         raw_json = json.dumps(record, ensure_ascii=False)
     except Exception:
@@ -364,6 +364,10 @@ def log_raw_telnyx_inbound(
         sender_phone,
         raw_json[:4000],
     )
+
+
+# Legacy name — inbound logging is provider-agnostic (Meta or Telnyx webhook shape).
+log_raw_telnyx_inbound = log_raw_wa_inbound
 
 
 def log_normalized_inbound(

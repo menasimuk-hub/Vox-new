@@ -13,6 +13,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.survey_builder_runtime_service import has_builder_runtime
 from app.services.telnyx_messaging_service import TelnyxMessagingService
+from app.services.whatsapp_provider_service import whatsapp_messaging_ready
 
 
 def _first_name(full_name: str) -> str:
@@ -78,7 +79,7 @@ class SurveyDispatchService:
         organiser = str(config.get("survey_organiser_name") or config.get("organiser_name") or org_name).strip()
         intro_template = _survey_intro_text(config)
         prefer_whatsapp = _uses_whatsapp(config)
-        telnyx_ready = TelnyxMessagingService.is_configured(db)
+        messaging_ready = whatsapp_messaging_ready(db)
 
         recipients = ServiceOrderService.get_recipients(db, order.id)
         sent = failed = skipped = 0
@@ -99,7 +100,7 @@ class SurveyDispatchService:
                 org_name=org_name,
                 organiser=organiser,
                 prefer_whatsapp=prefer_whatsapp,
-                telnyx_ready=telnyx_ready,
+                messaging_ready=messaging_ready,
             )
             rows.append(row_result)
             if row_result["status"] == "sent":
@@ -111,9 +112,9 @@ class SurveyDispatchService:
 
         report = {
             "dispatch_at": datetime.utcnow().isoformat(),
-            "provider": "telnyx",
+            "provider": messaging_ready.get("provider") or "none",
             "prefer_whatsapp": prefer_whatsapp,
-            "telnyx": telnyx_ready,
+            "messaging_ready": messaging_ready,
             "intro_preview": _personalize(intro_template, first_name="Alex", org_name=org_name, organiser=organiser)[:280],
             "sent": sent,
             "failed": failed,
@@ -144,7 +145,7 @@ class SurveyDispatchService:
         org_name: str,
         organiser: str,
         prefer_whatsapp: bool,
-        telnyx_ready: dict[str, bool],
+        messaging_ready: dict[str, Any],
     ) -> dict[str, Any]:
         first = _first_name(recipient.name)
 
@@ -195,10 +196,13 @@ class SurveyDispatchService:
                 "error": skip_reason,
             }
 
-        if not telnyx_ready.get("enabled"):
+        if not messaging_ready.get("enabled"):
             recipient.status = "pending_telnyx"
             recipient.result_json = json.dumps(
-                {"error": "telnyx_not_configured", "detail": "Configure Telnyx in admin Integrations."},
+                {
+                    "error": "whatsapp_not_configured",
+                    "detail": "Configure Meta WhatsApp (or Telnyx for SMS) in admin Integrations.",
+                },
                 ensure_ascii=False,
             )
             db.add(recipient)
@@ -207,16 +211,16 @@ class SurveyDispatchService:
                 "recipient_id": recipient.id,
                 "name": recipient.name,
                 "status": "skipped",
-                "error": "telnyx_not_configured",
+                "error": "whatsapp_not_configured",
             }
 
-        can_send = telnyx_ready.get("whatsapp") if prefer_whatsapp else telnyx_ready.get("sms")
+        can_send = messaging_ready.get("whatsapp") if prefer_whatsapp else messaging_ready.get("sms")
         if not can_send:
             recipient.status = "pending_number"
             recipient.result_json = json.dumps(
                 {
                     "error": "sender_not_approved",
-                    "detail": "Waiting for Telnyx mobile/WhatsApp number approval.",
+                    "detail": "WhatsApp sender is not ready — check Meta WhatsApp credentials in admin Integrations.",
                 },
                 ensure_ascii=False,
             )
@@ -294,7 +298,7 @@ class SurveyDispatchService:
             prefer_whatsapp
             and template_row is not None
             and template_components is not None
-            and telnyx_ready.get("whatsapp")
+            and messaging_ready.get("whatsapp")
         ):
             from app.services.telnyx_whatsapp_template_sync_service import send_template_id_for_row
 

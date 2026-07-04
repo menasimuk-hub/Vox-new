@@ -204,7 +204,7 @@ def test_live_dispatch_uses_send_survey_opening_for_builder(mock_ready, mock_sen
             org_name="Clinic",
             organiser="Clinic",
             prefer_whatsapp=True,
-            telnyx_ready={"enabled": True, "whatsapp": True, "sms": True},
+            messaging_ready={"enabled": True, "whatsapp": True, "sms": True, "provider": "meta_whatsapp"},
         )
 
     assert mock_opening.called
