@@ -508,12 +508,33 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     const templateId = activeTemplateId || editTarget.templateId
     setFixSyncing(true)
     setError('')
+    const payload = {
+      fix_and_sync: true,
+      repair: true,
+      utility_rewrite: true,
+      force_push: true,
+    }
+    const pushPath = `/admin/wa-survey/templates/${templateId}/push`
+    const fixPath = `/admin/wa-survey/templates/${templateId}/fix-and-sync`
     try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/fix-and-sync`, {
-        method: 'POST',
-        body: JSON.stringify({ repair: true, utility_rewrite: true, force_push: true }),
-        timeoutMs: 240000,
-      })
+      let data
+      try {
+        data = await apiFetch(pushPath, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          timeoutMs: 240000,
+        })
+      } catch (firstErr) {
+        if (firstErr?.status === 404) {
+          data = await apiFetch(fixPath, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            timeoutMs: 240000,
+          })
+        } else {
+          throw firstErr
+        }
+      }
       const action = String(data?.action || 'ok')
       const steps = Array.isArray(data?.steps) ? data.steps.join(' → ') : ''
       showToast(
@@ -530,7 +551,14 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
       onSaved?.()
       await load()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Fix & sync failed').detailText || e?.message)
+      const msg = formatWaSurveyError(e, 'Fix & sync failed')
+      if (e?.status === 404) {
+        setError(
+          `${msg.detailText || msg.message}\n\nThe API may not be restarted after deploy. On VPS: git pull && VOX_SKIP_BUILD=1 ./deploy-vps.sh`,
+        )
+      } else {
+        setError(msg.detailText || e?.message)
+      }
     } finally {
       setFixSyncing(false)
     }

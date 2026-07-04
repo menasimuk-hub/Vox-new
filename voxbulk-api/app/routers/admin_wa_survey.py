@@ -799,17 +799,42 @@ def send_template_test(
         _raise_wa_survey_error(e)
 
 
+def _run_template_fix_and_sync(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    payload: dict | None,
+) -> dict:
+    from app.services.survey_wa_template_fix_sync_service import fix_and_sync_survey_template as run_fix
+
+    body = payload or {}
+    return run_fix(
+        db,
+        row,
+        repair=bool(body.get("repair", True)),
+        utility_rewrite=bool(body.get("utility_rewrite", True)),
+        force_push=bool(body.get("force_push", True)),
+    )
+
+
 @router.post("/templates/{template_id}/push")
 def push_template_to_telnyx(
     template_id: int,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     row = SurveyWhatsappTemplateService.get_template(db, template_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    body = payload or {}
     try:
-        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        if body.get("fix_and_sync") or body.get("fixAndSync"):
+            return _run_template_fix_and_sync(db, row, body)
+        result = SurveyWhatsappTemplateService.push_to_telnyx(
+            db,
+            row,
+            force_approved_update=bool(body.get("force_push", True)),
+        )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
     return result
@@ -823,20 +848,11 @@ def fix_and_sync_survey_template(
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     """Repair draft, UTILITY-rewrite (when buttoned), push/link to Meta — single-template ops."""
-    from app.services.survey_wa_template_fix_sync_service import fix_and_sync_survey_template as run_fix
-
     row = SurveyWhatsappTemplateService.get_template(db, template_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
-    body = payload or {}
     try:
-        return run_fix(
-            db,
-            row,
-            repair=bool(body.get("repair", True)),
-            utility_rewrite=bool(body.get("utility_rewrite", True)),
-            force_push=bool(body.get("force_push", True)),
-        )
+        return _run_template_fix_and_sync(db, row, payload)
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
 
