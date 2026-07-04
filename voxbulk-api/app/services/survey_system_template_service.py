@@ -128,8 +128,24 @@ def _body_text_from_template(row: TelnyxWhatsappTemplate) -> str:
     return str(row.display_name or row.name or "").strip()
 
 
-def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
+def _default_components_for_kind(kind: str, *, privacy_mode: str = PRIVACY_MODE_OFF) -> list[dict[str, Any]]:
+    privacy = normalize_privacy_mode(privacy_mode)
     if kind == "welcome":
+        if privacy == PRIVACY_MODE_ON:
+            return [
+                {
+                    "type": "BODY",
+                    "text": (
+                        "👋 Tap below to start a short anonymous survey — "
+                        "it only takes a minute and is not linked to you."
+                    ),
+                },
+                {"type": "FOOTER", "text": "Reply STOP to opt out"},
+                {
+                    "type": "BUTTONS",
+                    "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}],
+                },
+            ]
         return [
             {
                 "type": "BODY",
@@ -149,8 +165,7 @@ def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
         return [
             {
                 "type": "BODY",
-                "text": "Thank you {{1}} for sharing your feedback. We really appreciate your time.",
-                "example": {"body_text": [["Alex"]]},
+                "text": "🙏 Thank you for sharing your feedback. We really appreciate your time.",
             },
             {"type": "FOOTER", "text": "Reply STOP to opt out"},
         ]
@@ -158,11 +173,11 @@ def _default_components_for_kind(kind: str) -> list[dict[str, Any]]:
         return [
             {
                 "type": "BODY",
-                "text": "Please share anything else you'd like us to know.",
-                "example": {"body_text": [["there"]]},
+                "text": "📝 Please share anything else you'd like us to know.",
             },
             {"type": "FOOTER", "text": "Reply STOP to opt out"},
         ]
+    # tell_us_more
     return [
         {
             "type": "BODY",
@@ -526,13 +541,20 @@ class SurveySystemTemplateService:
             )
         ).scalar_one_or_none()
         if row is None:
+            # Fall back to any active welcome with matching privacy mode.
+            row = SurveySystemTemplateService.resolve_system_template_for_kind(
+                db,
+                "welcome",
+                config={"anonymous_responses": anonymous},
+            )
+        if row is None:
             logger.error("survey_welcome_template_missing name=%s anonymous=%s", template_name, anonymous)
             return None
         status = str(row.status or "").upper()
         if status != "APPROVED":
             logger.error(
                 "survey_welcome_template_not_approved name=%s status=%s",
-                template_name,
+                row.name,
                 status,
             )
         return row
@@ -674,6 +696,8 @@ class SurveySystemTemplateService:
         meta = SurveySystemTemplateService.list_admin(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
         SurveySystemTemplateService.ensure_system_survey_types(db)
+        # Recreate missing named/anonymous welcome and other system drafts.
+        SurveySystemTemplateService.ensure_required_system_templates(db)
         type_by_kind = {
             kind: SurveySystemTemplateService.survey_type_for_kind(db, kind)
             for kind in SYSTEM_TEMPLATE_KINDS
@@ -697,17 +721,37 @@ class SurveySystemTemplateService:
         }
 
     @staticmethod
+    def _canonical_welcome_name(privacy_mode: str) -> str:
+        if normalize_privacy_mode(privacy_mode) == PRIVACY_MODE_ON:
+            return WELCOME_TEMPLATE_ANONYMOUS_NAME
+        return WELCOME_TEMPLATE_NAMED_NAME
+
+    @staticmethod
+    def _name_is_free(db: Session, name: str, *, exclude_id: int | None = None) -> bool:
+        q = select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == name)
+        row = db.execute(q).scalar_one_or_none()
+        if row is None:
+            return True
+        return exclude_id is not None and int(row.id) == int(exclude_id)
+
+    @staticmethod
     def create_draft(db: Session, *, kind: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         kind = normalize_system_template_kind(kind)
         body = payload or {}
         survey_type = SurveySystemTemplateService.survey_type_for_kind(db, kind)
-        language = str(body.get("language") or "en_US").strip() or "en_US"
+        language = str(body.get("language") or "en_GB").strip() or "en_GB"
         category = str(body.get("category") or "UTILITY").strip() or "UTILITY"
-        display_name = str(body.get("display_name") or "").strip() or KIND_LABELS[kind].rstrip("s")
-        customer_description = str(body.get("customer_description") or "").strip() or None
         privacy_mode = normalize_privacy_mode(
             body.get("privacy_mode") or body.get("variant_type") or PRIVACY_MODE_OFF
         )
+        default_labels = {
+            "welcome": "Anonymous survey welcome" if privacy_mode == PRIVACY_MODE_ON else "Welcome",
+            "thank_you": "Thank you",
+            "tell_us_more": "Tell us more",
+            "final_feedback": "Closing question",
+        }
+        display_name = str(body.get("display_name") or "").strip() or default_labels.get(kind) or kind
+        customer_description = str(body.get("customer_description") or "").strip() or None
         row = SurveyWhatsappTemplateService.create_standard_draft(
             db,
             survey_type=survey_type,
@@ -724,7 +768,7 @@ class SurveySystemTemplateService:
             parent = db.get(TelnyxWhatsappTemplate, parent_id)
             if parent is not None:
                 SurveyWhatsappTemplateService.delete_template_local(db, parent)
-        components = _default_components_for_kind(kind)
+        components = _default_components_for_kind(kind, privacy_mode=privacy_mode)
         row = SurveyWhatsappTemplateService.save_draft(
             db,
             row,
@@ -740,6 +784,11 @@ class SurveySystemTemplateService:
         if kind == "thank_you":
             row.outcome_key = "neutral"
         row.industry_id = survey_type.industry_id
+        # Prefer canonical Meta names so live survey resolver finds them.
+        if kind == "welcome":
+            canonical = SurveySystemTemplateService._canonical_welcome_name(privacy_mode)
+            if SurveySystemTemplateService._name_is_free(db, canonical, exclude_id=int(row.id)):
+                row.name = canonical
         db.add(row)
         SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=row)
         db.commit()
@@ -755,6 +804,99 @@ class SurveySystemTemplateService:
                 survey_type=survey_type,
             ),
         }
+
+    @staticmethod
+    def _item_is_anonymous(item: dict[str, Any]) -> bool:
+        return (
+            str(item.get("privacy_mode") or "").lower() == "on"
+            or str(item.get("variant_type") or "").lower() == "anonymous"
+        )
+
+    @staticmethod
+    def ensure_required_system_templates(db: Session) -> dict[str, Any]:
+        """Create any missing system templates (named + anonymous welcome, thank_you, etc.)."""
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        created: list[dict[str, Any]] = []
+        existing: list[dict[str, Any]] = []
+
+        welcome_st = SurveySystemTemplateService.survey_type_for_kind(db, "welcome")
+        welcome_rows = SurveySystemTemplateService._templates_for_kind(db, welcome_st, "welcome")
+        has_named = any(not SurveySystemTemplateService._item_is_anonymous(i) for i in welcome_rows)
+        has_anon = any(SurveySystemTemplateService._item_is_anonymous(i) for i in welcome_rows)
+
+        if not has_named:
+            created.append(
+                SurveySystemTemplateService.create_draft(
+                    db,
+                    kind="welcome",
+                    payload={
+                        "privacy_mode": PRIVACY_MODE_OFF,
+                        "display_name": "Welcome",
+                        "language": "en_GB",
+                        "category": "UTILITY",
+                    },
+                )
+            )
+        else:
+            existing.append({"kind": "welcome", "privacy_mode": PRIVACY_MODE_OFF})
+
+        if not has_anon:
+            created.append(
+                SurveySystemTemplateService.create_draft(
+                    db,
+                    kind="welcome",
+                    payload={
+                        "privacy_mode": PRIVACY_MODE_ON,
+                        "display_name": "Anonymous survey welcome",
+                        "language": "en_GB",
+                        "category": "UTILITY",
+                    },
+                )
+            )
+        else:
+            existing.append({"kind": "welcome", "privacy_mode": PRIVACY_MODE_ON})
+
+        for kind in ("thank_you", "tell_us_more", "final_feedback"):
+            st = SurveySystemTemplateService.survey_type_for_kind(db, kind)
+            rows = SurveySystemTemplateService._templates_for_kind(db, st, kind)
+            if rows:
+                existing.append({"kind": kind, "count": len(rows)})
+                continue
+            created.append(
+                SurveySystemTemplateService.create_draft(
+                    db,
+                    kind=kind,
+                    payload={
+                        "privacy_mode": PRIVACY_MODE_OFF,
+                        "language": "en_GB",
+                        "category": "UTILITY",
+                    },
+                )
+            )
+
+        # Align canonical welcome names when free.
+        for privacy, canonical in (
+            (PRIVACY_MODE_OFF, WELCOME_TEMPLATE_NAMED_NAME),
+            (PRIVACY_MODE_ON, WELCOME_TEMPLATE_ANONYMOUS_NAME),
+        ):
+            if not SurveySystemTemplateService._name_is_free(db, canonical):
+                continue
+            welcome_rows = SurveySystemTemplateService._templates_for_kind(db, welcome_st, "welcome")
+            for item in welcome_rows:
+                is_anon = SurveySystemTemplateService._item_is_anonymous(item)
+                if privacy == PRIVACY_MODE_ON and not is_anon:
+                    continue
+                if privacy == PRIVACY_MODE_OFF and is_anon:
+                    continue
+                tpl = db.get(TelnyxWhatsappTemplate, int(item["id"]))
+                if tpl is None:
+                    continue
+                tpl.name = canonical
+                db.add(tpl)
+                db.commit()
+                break
+
+        return {"ok": True, "created": len(created), "existing": existing, "items": created}
 
     @staticmethod
     def delete_template(db: Session, template_id: int) -> dict[str, Any]:

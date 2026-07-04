@@ -17,6 +17,28 @@ const SURVEY_CATEGORIES = [
   { kind: 'welcome', label: 'Quick anonymous survey', anonymousOnly: true },
 ]
 
+/** Every system card option for Add template (including anonymous welcome). */
+const SURVEY_ADD_OPTIONS = [
+  { value: 'welcome', label: 'Welcome', kind: 'welcome', privacy_mode: 'off' },
+  {
+    value: 'welcome_anonymous',
+    label: 'Anonymous survey welcome',
+    kind: 'welcome',
+    privacy_mode: 'on',
+    display_name: 'Anonymous survey welcome',
+  },
+  {
+    value: 'welcome_anonymous_quick',
+    label: 'Quick anonymous survey',
+    kind: 'welcome',
+    privacy_mode: 'on',
+    display_name: 'Quick anonymous survey',
+  },
+  { value: 'thank_you', label: 'Thank you', kind: 'thank_you', privacy_mode: 'off' },
+  { value: 'tell_us_more', label: 'Tell us more', kind: 'tell_us_more', privacy_mode: 'off' },
+  { value: 'final_feedback', label: 'Closing question', kind: 'final_feedback', privacy_mode: 'off' },
+]
+
 const FEEDBACK_CATEGORIES = [
   { key: 'thank_you', label: 'Thank you' },
   { key: 'tell_us_more', label: 'Tell us more' },
@@ -184,12 +206,20 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
           })
         }
       } else {
+        const option =
+          SURVEY_ADD_OPTIONS.find((o) => o.value === addKind) || {
+            kind: addKind,
+            privacy_mode: 'off',
+            display_name: undefined,
+          }
         const data = await apiFetch('/admin/wa-survey/system-templates', {
           method: 'POST',
           body: JSON.stringify({
-            system_template_kind: addKind,
+            system_template_kind: option.kind || addKind,
             category: 'UTILITY',
             language: 'en_GB',
+            privacy_mode: option.privacy_mode || 'off',
+            display_name: option.display_name || option.label,
           }),
         })
         const templateId = data?.template?.id
@@ -202,7 +232,7 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
             templateId,
             surveyTypeId,
             systemMode: true,
-            systemKind: addKind,
+            systemKind: option.kind || addKind,
           })
         }
       }
@@ -216,12 +246,7 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   const kindOptions =
     product === 'feedback'
       ? FEEDBACK_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))
-      : [
-          { value: 'welcome', label: 'Welcome' },
-          { value: 'thank_you', label: 'Thank you' },
-          { value: 'tell_us_more', label: 'Tell us more' },
-          { value: 'final_feedback', label: 'Closing question' },
-        ]
+      : SURVEY_ADD_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
 
   return (
     <>

@@ -270,13 +270,23 @@ def list_survey_template_rows(
     limit: int | None = None,
     one_per_topic_lang: bool = True,
 ) -> list[TelnyxWhatsappTemplate]:
+    system_type_ids = {
+        str(st.id)
+        for st in db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind.is_not(None))
+        ).scalars().all()
+    }
     q = select(TelnyxWhatsappTemplate).where(
         or_(
             TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
             TelnyxWhatsappTemplate.survey_type_id.is_not(None),
         )
     ).order_by(TelnyxWhatsappTemplate.id.asc())
-    rows = [r for r in db.execute(q).scalars().all() if _is_survey_product_row(r)]
+    rows = [
+        r
+        for r in db.execute(q).scalars().all()
+        if _is_survey_product_row(r) and str(r.survey_type_id or "") not in system_type_ids
+    ]
     if industry_slug:
         slug = str(industry_slug).strip().lower()
         filtered: list[TelnyxWhatsappTemplate] = []
@@ -505,6 +515,13 @@ def dedupe_survey_templates(
     from app.services.survey_type_template_service import SurveyTypeTemplateService
     from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
 
+    # Never touch global system templates (named + anonymous welcome share one survey type).
+    system_type_ids = {
+        str(st.id)
+        for st in db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind.is_not(None))
+        ).scalars().all()
+    }
     rows = [
         r
         for r in db.execute(
@@ -513,7 +530,7 @@ def dedupe_survey_templates(
                 TelnyxWhatsappTemplate.survey_type_id.is_not(None),
             )
         ).scalars().all()
-        if _is_survey_product_row(r)
+        if _is_survey_product_row(r) and str(r.survey_type_id or "") not in system_type_ids
     ]
     groups: dict[tuple[str, str], list[TelnyxWhatsappTemplate]] = {}
     for row in rows:
