@@ -137,18 +137,19 @@ function isLocalOnlyRow(tpl) {
   return status === 'LOCAL_DRAFT' || status === 'DRAFT'
 }
 
-/** Map API row → StatusDot status. Prefer Meta approval_status / status. */
+/** Map API row → StatusDot status. Only Meta/Telnyx status counts as rejected — never local push errors. */
 export function mapApprovalStatus(tpl) {
+  // Prefer live Meta fields when present.
   const candidates = [
+    tpl?.live_status,
     tpl?.status,
     tpl?.approval_status,
-    tpl?.telnyx_sync_status,
   ]
     .map((v) => String(v || '').toUpperCase().trim())
     .filter(Boolean)
 
-  // Rejection always wins — even when primary language row is APPROVED.
-  if (candidates.some((meta) => meta === 'REJECTED' || meta.includes('REJECT'))) return 'rejected'
+  // Rejection only from explicit Meta/Telnyx REJECTED status — not local_sync_status / push errors.
+  if (candidates.some((meta) => meta === 'REJECTED')) return 'rejected'
 
   const meta = candidates[0] || ''
 
@@ -159,7 +160,6 @@ export function mapApprovalStatus(tpl) {
     tpl?.is_active === false
   ) {
     if (meta === 'APPROVED' || meta.includes('APPROV')) {
-      // still approved on Meta but hidden locally
       return 'disabled'
     }
     return 'disabled'
@@ -178,7 +178,8 @@ export function mapApprovalStatus(tpl) {
 
   const label = String(tpl?.status_label || '').toLowerCase()
   if (label.includes('ready')) return 'approved'
-  if (label.includes('reject')) return 'rejected'
+  // Do not treat status_label "reject" from local errors as Meta rejection.
+  if (label === 'rejected' || label.startsWith('rejected ')) return 'rejected'
   if (label.includes('need')) return 'local'
   if (label.includes('pending')) return 'pending'
 
@@ -188,7 +189,8 @@ export function mapApprovalStatus(tpl) {
   const sync = String(tpl?.local_sync_status || tpl?.sync_status || '').toLowerCase()
   if (sync === 'in_sync' || sync === 'synced') return 'approved'
   if (sync.includes('draft') || sync.includes('local')) return 'local'
-  if (sync.includes('error')) return 'rejected'
+  // Push/sync errors are local problems — show as local, never as Meta rejected.
+  if (sync.includes('error') || sync.includes('needs_resubmit')) return 'local'
 
   return 'pending'
 }

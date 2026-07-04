@@ -25,6 +25,7 @@ export const SupportTicketDetail = lazy(() => import('../pages/SupportTicketDeta
 export const Permissions = lazy(() => import('../pages/Permissions'))
 export const GenericPage = lazy(() => import('../pages/GenericPage'))
 export const ComplianceSettings = lazy(() => import('../pages/ComplianceSettings'))
+export const ComplianceOptOuts = lazy(() => import('../pages/ComplianceOptOuts'))
 export const ComplianceAudit = lazy(() => import('../pages/ComplianceAudit'))
 export const AccountDeletionsAdmin = lazy(() => import('../pages/AccountDeletionsAdmin'))
 export const EmailSettings = lazy(() => import('../pages/EmailSettings'))

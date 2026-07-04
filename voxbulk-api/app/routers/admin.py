@@ -1164,14 +1164,57 @@ def test_telnyx_sms(payload: dict | None = None, db: Session = Depends(get_db), 
 @router.get("/integrations/telnyx/whatsapp-templates")
 def list_telnyx_whatsapp_templates(
     approved_only: bool = False,
+    live: bool = True,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    """List WA templates. Default live=true applies Meta/Telnyx statuses (not stale local REJECTED)."""
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncError,
+        TelnyxWhatsappTemplateSyncService,
+    )
 
+    if live:
+        try:
+            return TelnyxWhatsappTemplateSyncService.list_with_live_status(db, approved_only=approved_only)
+        except TelnyxWhatsappTemplateSyncError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return {
         "ok": True,
+        "live": False,
         "templates": TelnyxWhatsappTemplateSyncService.list_stored(db, approved_only=approved_only),
+    }
+
+
+@router.get("/integrations/meta_whatsapp/whatsapp-templates/live-summary")
+def meta_whatsapp_templates_live_summary(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Header counts from live Meta only (rejected = currently rejected on Meta)."""
+    from app.services.telnyx_whatsapp_template_sync_service import (
+        TelnyxWhatsappTemplateSyncError,
+        TelnyxWhatsappTemplateSyncService,
+    )
+
+    try:
+        summary = TelnyxWhatsappTemplateSyncService.apply_live_statuses(db)
+    except TelnyxWhatsappTemplateSyncError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "live": True,
+        "summary": {
+            "total": summary["total"],
+            "approved": summary["approved"],
+            "localOnly": summary["local_only"],
+            "pending": summary["pending"],
+            "rejected": summary["rejected"],
+            "utility": summary["utility"],
+            "marketing": summary["marketing"],
+        },
+        "cleared_stale_rejected": summary["cleared_stale_rejected"],
+        "updated": summary["updated"],
     }
 
 
@@ -1633,6 +1676,128 @@ def sync_meta_whatsapp_templates_step(
         except Exception:
             pass
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/wa-templates/cleanup-and-sync")
+def wa_templates_cleanup_and_sync(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Clean unused survey/CF templates (local+Meta) and push buttoned keepers only.
+
+    Never touches AI Interview or Sales templates. Writes a JSON deletion-proof report.
+    """
+    from app.services.wa_template_cleanup_sync_service import WaTemplateCleanupSyncService
+
+    body = payload if isinstance(payload, dict) else {}
+    dry_run = bool(body.get("dry_run"))
+    step = str(body.get("step") or "").strip().lower()
+    try:
+        if step:
+            result = WaTemplateCleanupSyncService.run_step(db, step, dry_run=dry_run)
+        else:
+            result = WaTemplateCleanupSyncService.run_full(db, dry_run=dry_run)
+        if not result.get("ok") and result.get("error"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/wa-templates/ensure-sales")
+def wa_templates_ensure_sales(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Seed the four lead-sales templates locally if missing (no Meta push)."""
+    from app.services.wa_template_cleanup_sync_service import WaTemplateCleanupSyncService
+
+    return WaTemplateCleanupSyncService.ensure_sales_templates(db)
+
+
+@router.get("/opt-outs")
+def admin_list_opt_outs(
+    page: int = 1,
+    page_size: int = 20,
+    org_id: str | None = None,
+    phone: str | None = None,
+    reason: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    def _parse_dt(raw: str | None) -> datetime | None:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            return None
+
+    return OrgOptOutService.list_all_admin(
+        db,
+        page=page,
+        page_size=page_size,
+        org_id=org_id,
+        phone_q=phone,
+        reason_q=reason,
+        from_date=_parse_dt(from_date),
+        to_date=_parse_dt(to_date),
+    )
+
+
+@router.post("/opt-outs")
+def admin_add_opt_out(
+    payload: dict,
+    db: Session = Depends(get_db),
+    admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    org_id = str((payload or {}).get("org_id") or "").strip()
+    phone = str((payload or {}).get("phone") or (payload or {}).get("phone_e164") or "").strip()
+    if not org_id or not phone:
+        raise HTTPException(status_code=400, detail="org_id and phone are required")
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    try:
+        row = OrgOptOutService.add_opt_out(
+            db,
+            org_id=org_id,
+            phone=phone,
+            contact_name=str((payload or {}).get("name") or (payload or {}).get("contact_name") or "").strip() or None,
+            reason=str((payload or {}).get("reason") or "").strip() or None,
+            created_by_user_id=getattr(admin, "id", None),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "item": row}
+
+
+@router.delete("/opt-outs/{opt_out_id}")
+def admin_remove_opt_out(
+    opt_out_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    ok = OrgOptOutService.remove_opt_out_admin(db, opt_out_id=opt_out_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Opt-out not found")
+    return {"ok": True, "id": opt_out_id}
 
 
 @router.get("/integrations/meta_whatsapp/inbound-messages")

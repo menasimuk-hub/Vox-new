@@ -150,10 +150,6 @@ const NAV = [
 
       ['Overview', '/customer-feedback/overview'],
 
-      ['Industries', '/customer-feedback/industries'],
-
-      ['Survey types', '/customer-feedback/survey-types'],
-
       ['Packages', '/customer-feedback/packages'],
 
       ['Subscriptions', '/customer-feedback/subscriptions'],
@@ -189,14 +185,6 @@ const NAV = [
       ['Running surveys', '/operations/running-surveys'],
 
       ['WA Survey insights', '/operations/wa-survey-insights'],
-
-      ['Survey types', '/settings/wa-survey'],
-
-      ['System templates', '/settings/wa-survey/system-templates'],
-
-      ['Industries', '/settings/wa-survey/industries'],
-
-      ['Flow simulator', '/settings/wa-survey/simulator'],
 
     ],
 
@@ -422,6 +410,8 @@ const NAV = [
       ['Account deletions', '/compliance/account-deletions'],
 
       ['Consent / opt-out', '/compliance/consent'],
+
+      ['STOP opt-out list', '/compliance/opt-outs'],
 
       ['Recording disclosure', '/compliance/recording'],
 

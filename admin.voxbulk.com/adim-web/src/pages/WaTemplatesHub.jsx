@@ -7,7 +7,9 @@ import {
   Megaphone,
   MessageSquareHeart,
   RefreshCw,
+  ShoppingBag,
   Sparkles,
+  Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -27,7 +29,15 @@ const TAGS = [
   { id: 'feedback', label: 'Customer Feedback', icon: MessageSquareHeart },
   { id: 'companies', label: 'Companies', icon: Building2 },
   { id: 'marketing', label: 'Marketing', icon: Megaphone },
+  { id: 'sales', label: 'Sales', icon: ShoppingBag },
 ]
+
+const SALES_TEMPLATE_KEYS = new Set([
+  'sales_opt_in',
+  'sales_offer',
+  'sales_offer_followup',
+  'sales_offer_keyword_confirm',
+])
 
 /** Lead-sales / marketing only — never interview keys. */
 const MARKETING_TEMPLATE_KEYS = new Set([
@@ -63,13 +73,22 @@ function isInterviewTemplate(t) {
   return false
 }
 
-function isMarketingTemplate(t) {
+function isSalesTemplate(t) {
   if (isInterviewTemplate(t)) return false
   const key = templateKey(t)
   const name = templateName(t)
-  if (MARKETING_TEMPLATE_KEYS.has(key)) return true
+  if (SALES_TEMPLATE_KEYS.has(key)) return true
   if (key.startsWith('sales_')) return true
   if (name.startsWith('voxbulk_sales_')) return true
+  return false
+}
+
+function isMarketingTemplate(t) {
+  if (isInterviewTemplate(t)) return false
+  if (isSalesTemplate(t)) return false
+  const key = templateKey(t)
+  const name = templateName(t)
+  if (MARKETING_TEMPLATE_KEYS.has(key)) return true
   return false
 }
 
@@ -96,7 +115,9 @@ export default function WaTemplatesHub() {
 
   const [interviewTemplates, setInterviewTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
+  const [salesTemplates, setSalesTemplates] = useState([])
   const [flatLoading, setFlatLoading] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
 
   const [surveyIndustries, setSurveyIndustries] = useState([])
   const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(false)
@@ -115,9 +136,32 @@ export default function WaTemplatesHub() {
 
   const loadTemplateCounts = useCallback(async () => {
     try {
-      const data = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
-      const rows = Array.isArray(data?.templates) ? data.templates : []
-      setTemplateCounts(summarizeCatalog(rows))
+      // Live Meta/Telnyx statuses — rejected count matches Meta Manager, not stale local rows.
+      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/live-summary', {
+        timeoutMs: 120000,
+        quietNetworkHint: true,
+      })
+      if (data?.summary) {
+        setTemplateCounts({
+          total: data.summary.total ?? 0,
+          approved: data.summary.approved ?? 0,
+          localOnly: data.summary.localOnly ?? 0,
+          pending: data.summary.pending ?? 0,
+          rejected: data.summary.rejected ?? 0,
+          utility: data.summary.utility ?? 0,
+          marketing: data.summary.marketing ?? 0,
+        })
+        return
+      }
+      const fallback = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false&live=true', {
+        timeoutMs: 120000,
+        quietNetworkHint: true,
+      })
+      if (fallback?.summary) {
+        setTemplateCounts(fallback.summary)
+        return
+      }
+      setTemplateCounts(summarizeCatalog(Array.isArray(fallback?.templates) ? fallback.templates : []))
     } catch {
       setTemplateCounts({
         total: 0,
@@ -157,6 +201,20 @@ export default function WaTemplatesHub() {
     }
   }, [])
 
+  const loadSales = useCallback(async () => {
+    setFlatLoading(true)
+    try {
+      await apiFetch('/admin/wa-templates/ensure-sales', { method: 'POST', quietNetworkHint: true })
+      const stored = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false')
+      const rows = (Array.isArray(stored?.templates) ? stored.templates : []).filter(isSalesTemplate)
+      setSalesTemplates(rows.map((t) => toHubRow(t, { rowKind: 'sales' })))
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not load sales templates').message)
+    } finally {
+      setFlatLoading(false)
+    }
+  }, [])
+
   const loadSurveyIndustries = useCallback(async () => {
     setSurveyIndustriesLoading(true)
     try {
@@ -184,18 +242,23 @@ export default function WaTemplatesHub() {
   const refreshTabData = useCallback(() => {
     if (tab === 'ai') void loadInterview()
     else if (tab === 'marketing') void loadMarketing()
+    else if (tab === 'sales') void loadSales()
     else if (tab === 'survey') void loadSurveyIndustries()
     else if (tab === 'feedback') void loadFeedbackIndustries()
-  }, [tab, loadInterview, loadMarketing, loadSurveyIndustries, loadFeedbackIndustries])
+  }, [tab, loadInterview, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
-    void loadTemplateCounts()
-  }, [loadTemplateCounts])
-
-  useEffect(() => {
+    let cancelled = false
     setError('')
-    refreshTabData()
-  }, [refreshTabData])
+    ;(async () => {
+      // Apply live Meta statuses first so tab lists do not show stale REJECTED.
+      await loadTemplateCounts()
+      if (!cancelled) refreshTabData()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadTemplateCounts, refreshTabData])
 
   const syncFromMeta = async () => {
     setSyncing(true)
@@ -444,11 +507,75 @@ export default function WaTemplatesHub() {
     setError(`Cannot ${action} marketing templates from this list. Use Lead sales settings.`)
   }
 
+  const salesAction = async (row, action) => {
+    if (action === 'edit') {
+      setEditTarget({ product: 'survey', templateId: row.id })
+      return
+    }
+    if (action === 'sync') {
+      setSyncingId(row.id)
+      setError('')
+      try {
+        await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
+          method: 'POST',
+          timeoutMs: 120000,
+          quietNetworkHint: true,
+        })
+        setMsg(formatActionSuccess(null, 'Sales template submitted to Meta').message)
+        await loadSales()
+        await loadTemplateCounts()
+      } catch (e) {
+        setError(formatWaSurveyError(e, 'Sales sync failed').detailText || e?.message)
+      } finally {
+        setSyncingId(null)
+      }
+      return
+    }
+    setError(`Cannot ${action} sales templates from this list yet. Review and sync when ready.`)
+  }
+
+  const runCleanupAndSync = async ({ dryRun = false } = {}) => {
+    const label = dryRun ? 'Dry-run cleanup' : 'Cleanup and sync'
+    if (
+      !dryRun &&
+      !window.confirm(
+        'Delete unused survey/feedback templates from local DB and Meta, then push buttoned keepers only? Interview and Sales are not touched.',
+      )
+    ) {
+      return
+    }
+    setCleaning(true)
+    setError('')
+    setMsg('')
+    try {
+      const result = await apiFetch('/admin/wa-templates/cleanup-and-sync', {
+        method: 'POST',
+        body: JSON.stringify({ dry_run: dryRun }),
+        timeoutMs: 600000,
+        quietNetworkHint: true,
+      })
+      const parts = [
+        result?.message || label,
+        result?.report_path ? `Report: ${result.report_path}` : null,
+      ].filter(Boolean)
+      setMsg(parts.join(' · '))
+      await loadTemplateCounts()
+      refreshTabData()
+    } catch (e) {
+      setError(formatWaSurveyError(e, `${label} failed`).detailText || e?.message)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
   const flatTemplates = useMemo(() => {
     if (tab === 'ai') return interviewTemplates
     if (tab === 'marketing') return marketingTemplates
+    if (tab === 'sales') return salesTemplates
     return []
-  }, [tab, interviewTemplates, marketingTemplates])
+  }, [tab, interviewTemplates, marketingTemplates, salesTemplates])
+
+  const showCleanupActions = tab === 'survey' || tab === 'feedback'
 
   return (
     <div className="waTemplatesHub ds-scope min-h-full bg-background">
@@ -502,11 +629,35 @@ export default function WaTemplatesHub() {
             >
               Inbound messages
             </Link>
+            {showCleanupActions ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => void runCleanupAndSync({ dryRun: true })}
+                  disabled={cleaning || syncing}
+                >
+                  <Trash2 className={cn('h-3.5 w-3.5', cleaning && 'animate-pulse')} />
+                  Dry-run cleanup
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => void runCleanupAndSync({ dryRun: false })}
+                  disabled={cleaning || syncing}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {cleaning ? 'Cleaning…' : 'Cleanup + push buttoned'}
+                </Button>
+              </>
+            ) : null}
             <Button
               size="sm"
               className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
               onClick={() => void syncFromMeta()}
-              disabled={syncing}
+              disabled={syncing || cleaning}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
               {syncing ? (syncProgress ? `Syncing ${syncProgress}` : 'Syncing…') : 'Sync with Meta'}
@@ -609,6 +760,20 @@ export default function WaTemplatesHub() {
                     onDelete={(row) => void marketingAction(row, 'delete')}
                     showNew={false}
                     emptyLabel="No templates yet."
+                  />
+                ) : null}
+
+                {tg.id === 'sales' ? (
+                  <WaTemplatesTable
+                    templates={flatTemplates}
+                    loading={flatLoading}
+                    onEdit={(row) => void salesAction(row, 'edit')}
+                    onSync={(row) => void salesAction(row, 'sync')}
+                    onToggle={(row) => void salesAction(row, 'disable')}
+                    onDelete={(row) => void salesAction(row, 'delete')}
+                    syncingId={syncingId}
+                    showNew={false}
+                    emptyLabel="No sales templates yet — open this tab to seed the four lead-sales templates."
                   />
                 ) : null}
 

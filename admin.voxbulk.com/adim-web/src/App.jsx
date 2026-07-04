@@ -48,12 +48,13 @@ export default function App() {
         <Route path='/onboarding/numbers' element={<Navigate to='/integrations/telnyx' replace />} />
         <Route path='/onboarding/checklist' element={G('Go-live checklist')} />
 
-        <Route path='/customer-feedback' element={<Navigate to='/customer-feedback/industries' replace />} />
-        <Route path='/customer-feedback/industries' element={<P.FeedbackIndustriesList />} />
-        <Route path='/customer-feedback/industries/:industryId' element={<P.FeedbackIndustryEdit />} />
+        <Route path='/customer-feedback' element={<Navigate to='/customer-feedback/overview' replace />} />
+        <Route path='/customer-feedback/industries' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
+        <Route path='/customer-feedback/industries/:industryId' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/customer-feedback/packages' element={<P.FeedbackPackagesPricing />} />
-        <Route path='/customer-feedback/survey-types/:typeId' element={<P.FeedbackSurveyTypeEdit />} />
-        <Route path='/customer-feedback/system-templates' element={<P.FeedbackSystemTemplates />} />
+        <Route path='/customer-feedback/survey-types' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
+        <Route path='/customer-feedback/survey-types/:typeId' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
+        <Route path='/customer-feedback/system-templates' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/customer-feedback/:tab' element={<P.CustomerFeedbackHub />} />
 
         <Route path='/campaigns' element={<P.CampaignsHub />} />
@@ -178,6 +179,7 @@ export default function App() {
         <Route path='/compliance/audit' element={<P.ComplianceAudit />} />
         <Route path='/compliance/account-deletions' element={<P.AccountDeletionsAdmin />} />
         <Route path='/compliance/consent' element={<P.ComplianceSettings />} />
+        <Route path='/compliance/opt-outs' element={<P.ComplianceOptOuts />} />
         <Route path='/compliance/recording' element={G('Recording disclosure')} />
         <Route path='/compliance/ofcom' element={G('OFCOM rules')} />
         <Route path='/compliance/gdpr' element={G('GDPR logs')} />
@@ -207,15 +209,15 @@ export default function App() {
         <Route path='/settings/email/whatsapp/:templateKey/edit' element={<P.WhatsAppTemplateEdit />} />
         <Route path='/settings/email/sms/new' element={<P.SmsTemplateEdit />} />
         <Route path='/settings/email/sms/:templateKey/edit' element={<P.SmsTemplateEdit />} />
-        <Route path='/settings/wa-survey' element={<P.WaSurveyTypes />} />
-        <Route path='/settings/wa-survey/system-templates' element={<P.WaSurveySystemTemplates />} />
+        <Route path='/settings/wa-survey' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
+        <Route path='/settings/wa-survey/system-templates' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
         <Route path='/settings/wa-interview' element={<P.WaInterviewTemplates />} />
         <Route path='/settings/wa-appointment' element={<P.WaAppointmentTemplates />} />
-        <Route path='/settings/wa-survey/simulator' element={<P.WaSurveyFlowSimulator />} />
-        <Route path='/settings/wa-survey/industries/:industryId' element={<P.WaSurveyIndustryEdit />} />
-        <Route path='/settings/wa-survey/industries' element={<P.WaSurveyIndustries />} />
-        <Route path='/settings/wa-survey/:typeId/flows' element={<P.WaSurveyFlows />} />
-        <Route path='/settings/wa-survey/:typeId' element={<P.WaSurveyTypeEdit />} />
+        <Route path='/settings/wa-survey/simulator' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
+        <Route path='/settings/wa-survey/industries/:industryId' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
+        <Route path='/settings/wa-survey/industries' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
+        <Route path='/settings/wa-survey/:typeId/flows' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
+        <Route path='/settings/wa-survey/:typeId' element={<Navigate to='/ai/wa-templates?tab=survey' replace />} />
         <Route path='/settings/legal' element={<P.LegalPages />} />
         <Route path='/settings/meeting-room' element={<P.MeetingRoomSettings />} />
         <Route path='/settings/legal/:slug/edit' element={<P.LegalPageEdit />} />

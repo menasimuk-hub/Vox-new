@@ -179,6 +179,9 @@ class FeedbackWhatsappService:
     def _handle_stop(db: Session, *, from_phone: str) -> dict[str, Any]:
         # Telnyx already blocks this number profile-wide for STOP keywords, so we
         # deactivate every active promo subscription for the phone to stay in sync.
+        # Also record org-level opt-outs so admin STOP list stays complete.
+        from app.services.org_opt_out_service import OrgOptOutService
+
         rows = list(
             db.execute(
                 select(FeedbackMarketingSubscriber).where(
@@ -189,6 +192,11 @@ class FeedbackWhatsappService:
             .scalars()
             .all()
         )
+        session = FeedbackWhatsappService._active_session(db, from_phone=from_phone)
+        org_ids: set[str] = {str(r.org_id) for r in rows if r.org_id}
+        if session is not None and session.org_id:
+            org_ids.add(str(session.org_id))
+
         now = datetime.utcnow()
         for row in rows:
             row.is_active = False
@@ -196,11 +204,25 @@ class FeedbackWhatsappService:
             db.add(row)
         if rows:
             db.commit()
+
+        for org_id in org_ids:
+            try:
+                OrgOptOutService.add_opt_out(
+                    db,
+                    org_id=org_id,
+                    phone=from_phone,
+                    reason="whatsapp_keyword_opt_out",
+                )
+            except Exception:
+                logger.exception("feedback_opt_out_org_record_failed org=%s", org_id)
+
+        if org_ids:
+            reply_org = str(rows[0].org_id) if rows else next(iter(org_ids))
             FeedbackWhatsappService._send_wa(
                 db,
                 to_number=from_phone,
                 body="You have been unsubscribed from promotional messages.",
-                org_id=rows[0].org_id,
+                org_id=reply_org,
             )
             return {"handled": True, "opted_out": True}
         return {"handled": False, "reason": "no_subscriber"}

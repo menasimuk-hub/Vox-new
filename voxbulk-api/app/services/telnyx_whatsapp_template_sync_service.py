@@ -670,6 +670,191 @@ class TelnyxWhatsappTemplateSyncService:
         return [template_to_dict(row) for row in rows]
 
     @staticmethod
+    def _live_index(remote: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[tuple[str, str], dict[str, Any]]]:
+        by_record: dict[str, dict[str, Any]] = {}
+        by_name_lang: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in remote or []:
+            if not isinstance(item, dict):
+                continue
+            rid = str(item.get("id") or "").strip()
+            name = str(item.get("name") or "").strip().lower()
+            lang = _remote_language_code(str(item.get("language") or "en_US"))
+            if rid:
+                by_record[rid] = item
+            if name:
+                by_name_lang[(name, lang)] = item
+        return by_record, by_name_lang
+
+    @staticmethod
+    def _match_live_item(
+        row: TelnyxWhatsappTemplate,
+        *,
+        by_record: dict[str, dict[str, Any]],
+        by_name_lang: dict[tuple[str, str], dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        rid = str(row.telnyx_record_id or "").strip()
+        if rid and not rid.startswith(_LOCAL_ID_PREFIX) and rid in by_record:
+            return by_record[rid]
+        name = str(row.name or "").strip().lower()
+        lang = _remote_language_code(str(row.language or "en_US"))
+        if name and (name, lang) in by_name_lang:
+            return by_name_lang[(name, lang)]
+        # Name-only fallback when language codes differ slightly (en vs en_GB).
+        if name:
+            for (n, _lang), item in by_name_lang.items():
+                if n == name:
+                    return item
+        return None
+
+    @staticmethod
+    def summarize_live_remote(remote: list[dict[str, Any]]) -> dict[str, int]:
+        """Counts from live Meta/Telnyx only — never from stale local rows."""
+        approved = pending = rejected = utility = marketing = 0
+        for item in remote or []:
+            if not isinstance(item, dict):
+                continue
+            # Meta lists one row per language; count each language variant.
+            status = str(item.get("status") or "").strip().upper()
+            if status in _SKIP_REMOTE_STATUSES:
+                continue
+            category = str(item.get("category") or "").strip().upper()
+            if "MARKET" in category:
+                marketing += 1
+            else:
+                utility += 1
+            if status == "APPROVED":
+                approved += 1
+            elif status == "REJECTED" or "REJECT" in status:
+                rejected += 1
+            elif status in {"PENDING", "PENDING_APPROVAL", "IN_APPEAL", "SUBMITTED", "UNKNOWN", ""}:
+                pending += 1
+            else:
+                pending += 1
+        return {
+            "approved": approved,
+            "pending": pending,
+            "rejected": rejected,
+            "utility": utility,
+            "marketing": marketing,
+            "remote_total": approved + pending + rejected,
+        }
+
+    @staticmethod
+    def apply_live_statuses(db: Session, *, remote: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Overwrite local status fields from live Meta/Telnyx. Clears stale REJECTED."""
+        from datetime import datetime as _dt
+
+        try:
+            items = remote if remote is not None else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:  # noqa: BLE001
+            raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
+
+        by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(items)
+        live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(items)
+        now = _dt.utcnow()
+        updated = 0
+        cleared_stale_rejected = 0
+        local_only = 0
+
+        rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+        for row in rows:
+            live = TelnyxWhatsappTemplateSyncService._match_live_item(
+                row, by_record=by_record, by_name_lang=by_name_lang
+            )
+            if live is not None:
+                status = str(live.get("status") or "UNKNOWN").strip().upper()
+                if status in _SKIP_REMOTE_STATUSES:
+                    continue
+                prev = str(row.status or "").upper()
+                row.status = status
+                row.rejection_reason = str(live.get("rejection_reason") or "").strip() or None
+                if status == "APPROVED":
+                    row.last_push_error = None
+                    row.local_sync_status = "in_sync"
+                elif status == "REJECTED":
+                    row.local_sync_status = "needs_resubmit"
+                elif status in {"PENDING", "PENDING_APPROVAL", "IN_APPEAL", "SUBMITTED"}:
+                    row.local_sync_status = "pending"
+                row.synced_at = now
+                row.updated_at = now
+                db.add(row)
+                if prev != status:
+                    updated += 1
+                continue
+
+            # Not on Meta/Telnyx right now.
+            if _is_local_draft_row(row):
+                local_only += 1
+                if str(row.status or "").upper() == "REJECTED":
+                    # Stale rejection — template is local-only, not rejected on Meta.
+                    row.status = "LOCAL_DRAFT"
+                    row.rejection_reason = None
+                    row.local_sync_status = "draft"
+                    row.updated_at = now
+                    db.add(row)
+                    cleared_stale_rejected += 1
+                continue
+
+            # Had a remote id but Meta no longer lists it — not a live rejection.
+            if str(row.status or "").upper() == "REJECTED":
+                row.status = "LOCAL_DRAFT"
+                row.rejection_reason = None
+                row.telnyx_record_id = f"{_LOCAL_ID_PREFIX}{row.id}"
+                row.template_id = row.telnyx_record_id
+                row.local_sync_status = "draft"
+                row.updated_at = now
+                db.add(row)
+                cleared_stale_rejected += 1
+                local_only += 1
+            elif str(row.status or "").upper() not in {"LOCAL_DRAFT", "DRAFT"}:
+                # Pending/approved ghost — treat as local until re-pushed.
+                row.status = "LOCAL_DRAFT"
+                row.local_sync_status = "draft"
+                row.updated_at = now
+                db.add(row)
+                local_only += 1
+            else:
+                local_only += 1
+
+        db.commit()
+        return {
+            "ok": True,
+            "live": True,
+            "updated": updated,
+            "cleared_stale_rejected": cleared_stale_rejected,
+            "local_only": local_only,
+            "approved": live_summary["approved"],
+            "pending": live_summary["pending"],
+            "rejected": live_summary["rejected"],
+            "utility": live_summary["utility"],
+            "marketing": live_summary["marketing"],
+            "total": live_summary["remote_total"] + local_only,
+            "remote_total": live_summary["remote_total"],
+        }
+
+    @staticmethod
+    def list_with_live_status(db: Session, *, approved_only: bool = False) -> dict[str, Any]:
+        """List templates after applying live Meta/Telnyx statuses. Summary is live-only."""
+        summary = TelnyxWhatsappTemplateSyncService.apply_live_statuses(db)
+        templates = TelnyxWhatsappTemplateSyncService.list_stored(db, approved_only=approved_only)
+        return {
+            "ok": True,
+            "live": True,
+            "templates": templates,
+            "summary": {
+                "total": summary["total"],
+                "approved": summary["approved"],
+                "localOnly": summary["local_only"],
+                "pending": summary["pending"],
+                "rejected": summary["rejected"],
+                "utility": summary["utility"],
+                "marketing": summary["marketing"],
+            },
+            "cleared_stale_rejected": summary["cleared_stale_rejected"],
+            "updated": summary["updated"],
+        }
+
+    @staticmethod
     def get_for_sales_key(db: Session, template_key: str) -> TelnyxWhatsappTemplate | None:
         key = str(template_key or "").strip().lower()
         if not key:
