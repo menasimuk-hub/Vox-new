@@ -574,6 +574,21 @@ class TelnyxWhatsappTemplateSyncService:
                     )
                     db.add(existing)
 
+            # If a merge candidate would steal a record_id another row already owns, keep the owner.
+            owner_conflict = db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.telnyx_record_id == record_id,
+                    TelnyxWhatsappTemplate.id != existing.id,
+                )
+            ).scalar_one_or_none()
+            if owner_conflict is not None:
+                if str(existing.telnyx_record_id or "").startswith(_LOCAL_ID_PREFIX):
+                    if not owner_conflict.survey_type_id and existing.survey_type_id:
+                        owner_conflict.survey_type_id = existing.survey_type_id
+                    _detach_template_references(db, int(existing.id))
+                    db.delete(existing)
+                existing = owner_conflict
+
             duplicate_rows = list(
                 db.execute(
                     select(TelnyxWhatsappTemplate).where(
@@ -586,33 +601,38 @@ class TelnyxWhatsappTemplateSyncService:
                 _detach_template_references(db, int(duplicate.id))
                 db.delete(duplicate)
 
-            existing.template_id = send_template_id
-            existing.telnyx_record_id = record_id
-            existing.name = local_name
-            existing.language = language
-            if category:
-                existing.category = category
-            existing.status = status
-            existing.sales_template_key = sales_key or existing.sales_template_key
-            # Never wipe body/components when Meta omits them — that makes the UI show
-            # template names instead of question body text.
-            if isinstance(components, list) and components:
-                preview = _body_preview(components)
-                if preview:
-                    existing.body_preview = preview
-                existing.components_json = components_json
-                if not existing.draft_components_json:
-                    existing.draft_components_json = components_json
-                existing.remote_content_hash = _components_content_hash(components)
-            elif not existing.body_preview:
-                # Last resort: keep name out of body_preview (leave null for repair pass).
-                existing.body_preview = existing.body_preview
-            existing.local_sync_status = "in_sync"
-            existing.last_push_error = None
-            existing.waba_id = waba_id
-            existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
-            existing.synced_at = now
-            existing.updated_at = now
+            try:
+                with db.begin_nested():
+                    existing.template_id = send_template_id
+                    existing.telnyx_record_id = record_id
+                    existing.name = local_name
+                    existing.language = language
+                    if category:
+                        existing.category = category
+                    existing.status = status
+                    existing.sales_template_key = sales_key or existing.sales_template_key
+                    # Never wipe body/components when Meta omits them — that makes the UI show
+                    # template names instead of question body text.
+                    if isinstance(components, list) and components:
+                        preview = _body_preview(components)
+                        if preview:
+                            existing.body_preview = preview
+                        existing.components_json = components_json
+                        if not existing.draft_components_json:
+                            existing.draft_components_json = components_json
+                        existing.remote_content_hash = _components_content_hash(components)
+                    elif not existing.body_preview:
+                        # Last resort: keep name out of body_preview (leave null for repair pass).
+                        existing.body_preview = existing.body_preview
+                    existing.local_sync_status = "in_sync"
+                    existing.last_push_error = None
+                    existing.waba_id = waba_id
+                    existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
+                    existing.synced_at = now
+                    existing.updated_at = now
+                    db.flush()
+            except Exception:
+                continue
             synced += 1
             if status == "APPROVED":
                 approved += 1

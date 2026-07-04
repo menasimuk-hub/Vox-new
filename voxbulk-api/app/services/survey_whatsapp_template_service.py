@@ -1001,7 +1001,7 @@ def _patch_remote_template_on_telnyx(
     item = body.get("data") if isinstance(body, dict) else None
     if not isinstance(item, dict):
         return None, "Telnyx returned an unexpected PATCH response"
-    _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+    _apply_remote_telnyx_item(db, row, item, overwrite_draft=False)
     return (
         _push_success_response(
             db,
@@ -1110,17 +1110,53 @@ def _link_existing_remote_template(
     if remote_item is None:
         return False
 
-    _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
-    remote_lang = str(remote_item.get("language") or "").strip()
-    if remote_lang:
-        row.language = remote_lang
-    if not row.sales_template_key:
-        from app.services.sales_whatsapp_telnyx_service import template_key_for_telnyx_name
+    record_id = str(remote_item.get("id") or "").strip()
+    if record_id:
+        # Avoid unique constraint on telnyx_record_id when another local row already owns it.
+        owner = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .where(
+                TelnyxWhatsappTemplate.telnyx_record_id == record_id,
+                TelnyxWhatsappTemplate.id != row.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if owner is not None:
+            # Copy status only; do not steal the remote id (uq_telnyx_wa_tpl_record).
+            row.status = owner.status or remote_item.get("status") or row.status
+            if not row.body_preview and owner.body_preview:
+                row.body_preview = owner.body_preview
+            row.updated_at = _now()
+            db.add(row)
+            try:
+                with db.begin_nested():
+                    db.flush()
+            except Exception:
+                return False
+            return False
 
-        row.sales_template_key = template_key_for_telnyx_name(str(remote_item.get("name") or row.name))
-    row.updated_at = _now()
-    db.add(row)
-    db.flush()
+    try:
+        with db.begin_nested():
+            claimed = _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
+            if not claimed:
+                # Another row owns this Meta id — status already copied; do not link.
+                db.add(row)
+                db.flush()
+                return False
+            remote_lang = str(remote_item.get("language") or "").strip()
+            if remote_lang:
+                row.language = remote_lang
+            if not row.sales_template_key:
+                from app.services.sales_whatsapp_telnyx_service import template_key_for_telnyx_name
+
+                row.sales_template_key = template_key_for_telnyx_name(
+                    str(remote_item.get("name") or row.name)
+                )
+            row.updated_at = _now()
+            db.add(row)
+            db.flush()
+    except Exception:
+        return False
     logger.info(
         "survey_wa_template_linked_existing_remote",
         extra={
@@ -1251,12 +1287,12 @@ def _push_row_to_meta(
             payload=meta_payload or {"message": detail, "template_name": row.name, "sync_branch": branch},
         ) from exc
 
-    _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+    _apply_remote_telnyx_item(db, row, item, overwrite_draft=False)
     record_id = str(row.telnyx_record_id or "").strip()
     if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
         try:
             remote_item = MetaWhatsappTemplateService.fetch_by_record_id(db, record_id)
-            _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
+            _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
         except Exception as exc:
             logger.warning(
                 "survey_wa_template_meta_refresh_after_push_failed",
@@ -1375,19 +1411,44 @@ def _try_link_existing_remote_template(
 
 
 def _apply_remote_telnyx_item(
+    db: Session,
     row: TelnyxWhatsappTemplate,
     item: dict[str, Any],
     *,
     overwrite_draft: bool = False,
-) -> None:
+) -> bool:
+    """Apply remote Meta/Telnyx fields onto a local row.
+
+    Never assigns ``telnyx_record_id`` when another row already owns it
+    (unique constraint ``uq_telnyx_wa_tpl_record``). Returns False when the
+    remote id was skipped for that reason; status/body may still update.
+    """
     record_id = str(item.get("id") or "").strip()
     send_id = _send_template_id_from_api_item(item)
+    claimed_record = True
     if record_id:
-        row.telnyx_record_id = record_id
-    if send_id:
+        owner = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .where(
+                TelnyxWhatsappTemplate.telnyx_record_id == record_id,
+                TelnyxWhatsappTemplate.id != row.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if owner is not None:
+            # Do not steal the unique remote id — copy status/body only.
+            claimed_record = False
+            if not row.body_preview and owner.body_preview:
+                row.body_preview = owner.body_preview
+        else:
+            row.telnyx_record_id = record_id
+    if send_id and claimed_record:
         row.template_id = send_id
+    elif send_id and not row.template_id:
+        # Keep a send id only when we did not claim the remote record.
+        pass
     remote_lang = str(item.get("language") or "").strip()
-    if remote_lang:
+    if remote_lang and claimed_record:
         row.language = remote_lang
     row.status = str(item.get("status") or row.status or "PENDING").upper()
     remote_category = normalize_wa_template_category(item.get("category"), required=False)
@@ -1395,18 +1456,23 @@ def _apply_remote_telnyx_item(
         row.category = remote_category
     components = item.get("components")
     if isinstance(components, list):
-        row.components_json = _dumps(components)
-        if overwrite_draft:
-            row.draft_components_json = _dumps(_normalize_draft_components(components))
-        row.remote_content_hash = _sync_content_hash(components)
-        row.body_preview = _body_preview(components)
-        row.example_values_json = _dumps(_extract_example_values(components))
+        # Only overwrite remote components when we own (or claim) the record.
+        if claimed_record or not row.components_json:
+            row.components_json = _dumps(components)
+            if overwrite_draft:
+                row.draft_components_json = _dumps(_normalize_draft_components(components))
+            row.remote_content_hash = _sync_content_hash(components)
+            preview = _body_preview(components)
+            if preview:
+                row.body_preview = preview
+            row.example_values_json = _dumps(_extract_example_values(components))
     row.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
     waba = item.get("whatsapp_business_account")
     if isinstance(waba, dict):
         waba_id = str(waba.get("id") or "").strip()
-        if waba_id:
+        if waba_id and claimed_record:
             row.waba_id = waba_id
+    return claimed_record
 
 
 def _refresh_local_sync_status(row: TelnyxWhatsappTemplate) -> str:
@@ -2322,12 +2388,12 @@ class SurveyWhatsappTemplateService:
         if not isinstance(item, dict):
             raise SurveyWhatsappTemplateError("Telnyx returned an unexpected response")
 
-        _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+        _apply_remote_telnyx_item(db, row, item, overwrite_draft=False)
         record_id = str(row.telnyx_record_id or "").strip()
         if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
             try:
                 remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
-                _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
+                _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
             except Exception as exc:
                 logger.warning(
                     "survey_wa_template_refresh_after_push_failed",
@@ -2368,7 +2434,7 @@ class SurveyWhatsappTemplateService:
                 ),
             ) from exc
 
-        _apply_remote_telnyx_item(row, remote_item, overwrite_draft=False)
+        _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
         row.last_push_error = None
         row.local_sync_status = _refresh_local_sync_status(row)
         row.synced_at = _now()
@@ -3064,6 +3130,10 @@ class SurveyWhatsappTemplateService:
             closeout["relink_final"] = SurveyWhatsappTemplateService.relink_survey_templates(db)
         except Exception as exc:
             logger.warning("hub_meta_sync_closeout_failed", extra={"error": str(exc)})
+            try:
+                db.rollback()
+            except Exception:
+                pass
             closeout["error"] = str(exc)[:300]
 
         system_kinds: dict[str, int] = {}
@@ -3401,23 +3471,45 @@ class SurveyWhatsappTemplateService:
         db: Session,
         row: TelnyxWhatsappTemplate,
     ) -> dict[str, Any]:
-        """Delete template from Telnyx (when synced) and remove DB row + mappings."""
+        """Delete template from Meta/Telnyx (when synced) and remove DB row + mappings."""
         record_id = str(row.telnyx_record_id or "").strip()
+        template_name = str(row.name or "").strip()
         template_id = int(row.id)
+        meta_deleted = False
         if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
             try:
-                TelnyxWhatsappTemplateSyncService.delete_remote_template(db, record_id)
+                TelnyxWhatsappTemplateSyncService.delete_remote_template(
+                    db, record_id, template_name=template_name or None
+                )
+                meta_deleted = True
             except TelnyxWhatsappTemplateSyncError as exc:
-                raise SurveyWhatsappTemplateError(
-                    f"Telnyx delete failed: {exc}",
-                    payload={"message": str(exc), "provider_error": str(exc)},
-                ) from exc
+                # Still remove locally if Meta already gone.
+                if "404" not in str(exc).lower() and "not found" not in str(exc).lower():
+                    raise SurveyWhatsappTemplateError(
+                        f"Meta delete failed: {exc}",
+                        payload={"message": str(exc), "provider_error": str(exc)},
+                    ) from exc
+        elif template_name:
+            try:
+                from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService
+                from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+                if is_meta_whatsapp_primary(db):
+                    MetaWhatsappTemplateService.delete_message_template(db, name=template_name)
+                    meta_deleted = True
+            except Exception:
+                pass
 
         for mapping in SurveyTypeTemplateService.list_for_template(db, template_id):
             db.delete(mapping)
         db.delete(row)
         db.commit()
-        return {"ok": True, "message": "Template deleted from Telnyx and database.", "template_id": template_id}
+        return {
+            "ok": True,
+            "message": "Template deleted from Meta and database." if meta_deleted else "Template deleted from database.",
+            "template_id": template_id,
+            "meta_deleted": meta_deleted,
+        }
 
     @staticmethod
     def delete_template_local(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:

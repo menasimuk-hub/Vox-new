@@ -103,6 +103,39 @@ function isLocalDraftTemplate(tpl) {
   return status === 'LOCAL_DRAFT' || status === 'DRAFT'
 }
 
+/** Thank-you / open-text templates accept free text or voice — buttons are optional. */
+const BUTTONS_OPTIONAL_KINDS = new Set([
+  'thank_you',
+  'tell_us_more',
+  'open_question',
+  'final_feedback',
+  'final_feedback_text',
+  'reason',
+])
+
+function buttonsAreOptional(draft, editTarget) {
+  const role = String(
+    draft?.step_role ||
+      draft?.template_key ||
+      editTarget?.systemKind ||
+      editTarget?.templateKey ||
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  if (BUTTONS_OPTIONAL_KINDS.has(role)) return true
+  const name = String(draft?.name || draft?.display_name || '').toLowerCase()
+  if (/thank_you|tell_us_more|open_question|final_feedback/.test(name)) return true
+  return false
+}
+
+function shortMetaName(name, max = 28) {
+  const full = String(name || '').trim()
+  if (!full) return '—'
+  if (full.length <= max) return full
+  return `${full.slice(0, max - 1)}…`
+}
+
 function buttonsFromFeedbackTpl(tpl) {
   const fromComponents = buttonsFromComponents(
     parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components),
@@ -150,7 +183,8 @@ function apiTemplateToDraft(tpl, product) {
         : product === 'appointment'
           ? tpl.active_for_appointment !== false
           : tpl.active_for_survey !== false,
-    step_role: tpl.step_role || null,
+    step_role: tpl.step_role || tpl.template_key || null,
+    template_key: tpl.template_key || null,
     components,
     is_local_only: isLocalDraftTemplate(tpl),
     telnyx_record_id: tpl?.telnyx_record_id || null,
@@ -209,6 +243,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
   const [usageOpen, setUsageOpen] = useState(false)
   const [langVariants, setLangVariants] = useState([])
   const [activeTemplateId, setActiveTemplateId] = useState(null)
+  const [metaNameExpanded, setMetaNameExpanded] = useState(false)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -287,6 +322,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
       setActiveTemplateId(tpl?.id ?? editTarget.templateId)
       setDraft(apiTemplateToDraft(tpl, product === 'system' ? 'survey' : product))
       setSurveyTypes(types)
+      setMetaNameExpanded(false)
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not load template').message)
       setDraft(null)
@@ -340,7 +376,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     try {
       const templateId = activeTemplateId || editTarget.templateId
       const components = buildComponents(draft)
-      if (!(draft.buttons || []).length) {
+      if (!(draft.buttons || []).length && !buttonsAreOptional(draft, editTarget)) {
         throw new Error('Add at least one quick-reply button before saving.')
       }
       const category = draft.category === 'Marketing' ? 'MARKETING' : 'UTILITY'
@@ -579,19 +615,26 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                     label="Template name"
                     hint={metaNameReadOnly ? 'Meta name (read-only)' : 'Local draft'}
                   >
-                    <Input
-                      value={t.name || ''}
-                      onChange={(e) => {
-                        if (metaNameReadOnly) return
-                        update('name', e.target.value)
-                      }}
-                      readOnly={metaNameReadOnly}
-                      className={cn(
-                        'h-8 font-mono text-xs',
-                        metaNameReadOnly && 'cursor-default bg-surface-muted/50 text-muted-foreground',
-                      )}
-                      title={t.name}
-                    />
+                    {metaNameReadOnly ? (
+                      <span
+                        role="text"
+                        className={cn(
+                          'block min-h-8 cursor-pointer select-text break-all font-mono text-xs leading-8 text-muted-foreground',
+                          !metaNameExpanded && 'truncate',
+                        )}
+                        title={metaNameExpanded ? 'Click to shorten' : (t.name || 'Click to show full name')}
+                        onClick={() => setMetaNameExpanded((v) => !v)}
+                      >
+                        {metaNameExpanded ? t.name || '—' : shortMetaName(t.name)}
+                      </span>
+                    ) : (
+                      <Input
+                        value={t.name || ''}
+                        onChange={(e) => update('name', e.target.value)}
+                        className="h-8 font-mono text-xs"
+                        title={t.name}
+                      />
+                    )}
                   </Field>
                   <Field label="Category">
                     <select
@@ -756,7 +799,11 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                   }
                 >
                   {t.buttons.length === 0 ? (
-                    <div className="text-[11px] italic text-muted-foreground">No buttons yet.</div>
+                    <div className="text-[11px] italic text-muted-foreground">
+                      {buttonsAreOptional(t, editTarget)
+                        ? 'No buttons — open text / voice reply (thank you & tell us more).'
+                        : 'No buttons yet.'}
+                    </div>
                   ) : null}
                   <div className="space-y-1.5">
                     {t.buttons.map((b, i) => (

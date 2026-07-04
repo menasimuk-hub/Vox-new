@@ -619,7 +619,8 @@ def _unlink_survey_type_template_impl(
             SurveyTypeTemplate.template_id == int(template_id),
         )
     ).scalar_one_or_none()
-    if mapping is None:
+    # Allow delete when owned by survey_type_id even if mapping row is missing.
+    if mapping is None and str(tpl.survey_type_id or "") != str(type_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Template is not linked to this survey type")
     try:
         result = SurveyWhatsappTemplateService.delete_template(db, tpl)
@@ -647,6 +648,32 @@ def delete_survey_type_template(
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     return _unlink_survey_type_template_impl(db, type_id=type_id, template_id=template_id)
+
+
+@router.delete("/templates/{template_id}")
+def delete_survey_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Hard-delete a survey WA template (local DB + Meta) without requiring a type id."""
+    tpl = db.get(TelnyxWhatsappTemplate, int(template_id))
+    if tpl is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    try:
+        result = SurveyWhatsappTemplateService.delete_template(db, tpl)
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+
+        UkComplianceAuditService.record(
+            db,
+            event_type="template.deleted",
+            resource_type="wa_survey_template",
+            resource_id=str(template_id),
+            detail={"telnyx_deleted": True},
+        )
+        return result
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
 
 
 @router.post("/types/{type_id}/templates/{template_id}/unlink")

@@ -647,6 +647,67 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
     return {"ok": True, "item": FeedbackCatalogService.template_to_dict(row)}
 
 
+@router.delete("/wa-templates/{template_id}")
+def delete_wa_template(template_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Hard-delete feedback template from local DB and Meta."""
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        english_anchor_template,
+        feedback_meta_template_name,
+    )
+    from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    row = db.get(FeedbackWaTemplate, template_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    meta_deleted = False
+    name = None
+    industry_slug = None
+    survey_slug = None
+    if row.industry_id:
+        ind = db.get(FeedbackIndustry, row.industry_id)
+        industry_slug = ind.slug if ind else None
+    if row.survey_type_id:
+        st = db.get(FeedbackSurveyType, row.survey_type_id)
+        survey_slug = st.slug if st else None
+    try:
+        anchor = english_anchor_template(db, row)
+        name = feedback_meta_template_name(
+            row,
+            industry_slug=industry_slug,
+            survey_type_slug=survey_slug,
+            name_anchor_id=anchor.id,
+        )
+    except Exception:
+        name = None
+    if name and is_meta_whatsapp_primary(db):
+        try:
+            MetaWhatsappTemplateService.delete_message_template(db, name=name)
+            meta_deleted = True
+        except Exception:
+            # Still remove locally if Meta already gone or name unknown.
+            pass
+    # Drop matching catalog row(s) so hub counts stay accurate.
+    if name:
+        catalog_rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == name)
+            ).scalars().all()
+        )
+        for catalog in catalog_rows:
+            db.delete(catalog)
+    db.delete(row)
+    db.commit()
+    return {
+        "ok": True,
+        "message": "Template deleted from Meta and database." if meta_deleted else "Template deleted from database.",
+        "template_id": template_id,
+        "meta_name": name,
+        "meta_deleted": meta_deleted,
+    }
+
+
 @router.post("/wa-templates/{template_id}/push")
 def push_wa_template(template_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.customer_feedback.feedback_telnyx_push_service import (

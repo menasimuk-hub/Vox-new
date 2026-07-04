@@ -81,6 +81,7 @@ export default function WaTemplatesHub() {
   const tab = TAB_ALIASES[rawTab] || (TAGS.some((t) => t.id === rawTab) ? rawTab : 'survey')
 
   const [syncing, setSyncing] = useState(false)
+  const [syncProgress, setSyncProgress] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [templateCounts, setTemplateCounts] = useState({
@@ -188,33 +189,38 @@ export default function WaTemplatesHub() {
 
   const syncFromMeta = async () => {
     setSyncing(true)
+    setSyncProgress('')
     setError('')
     setMsg('')
+    const steps = ['catalog', 'link_repair', 'push', 'cleanup']
+    const messages = []
     try {
-      // Full Meta catalog + link repair can take several minutes (hundreds of templates).
-      // Default apiFetch timeout is 90s and aborts with "signal is aborted without reason".
-      const result = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync', {
-        method: 'POST',
-        timeoutMs: 300000,
-        quietNetworkHint: true,
-      })
-      const rows = Array.isArray(result.templates) ? result.templates : []
-      const fallback =
-        `Synced ${result.synced ?? rows.length} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · ` +
-        `Rejected ${result.rejected ?? 0} · Linked ${result.linked_to_survey_type ?? 0} · ` +
-        `Unlinked types ${result.unlinked_survey_types ?? 0}`
+      let last = null
+      for (let i = 0; i < steps.length; i += 1) {
+        const step = steps[i]
+        const label = `${i + 1}/${steps.length}`
+        setSyncProgress(label)
+        setMsg(`Syncing with Meta… ${label}`)
+        last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step}`, {
+          method: 'POST',
+          timeoutMs: 300000,
+          quietNetworkHint: true,
+        })
+        if (last?.message) messages.push(last.message)
+      }
+      const result = last || {}
+      const fallback = messages.length
+        ? messages.join(' · ')
+        : `Synced ${result.synced ?? 0} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · Rejected ${result.rejected ?? 0}`
       setMsg(formatActionSuccess(result, fallback).message)
-      // Prefer summary counts from sync payload (full catalog is not returned — too large).
       if (result.synced != null || result.approved != null) {
         setTemplateCounts({
-          total: Number(result.synced ?? rows.length) || 0,
+          total: Number(result.synced ?? 0) || 0,
           approved: Number(result.approved ?? 0) || 0,
           localOnly: Number(result.local_only ?? 0) || 0,
           pending: Number(result.pending ?? 0) || 0,
           rejected: Number(result.rejected ?? 0) || 0,
         })
-      } else if (rows.length) {
-        setTemplateCounts(summarizeCatalog(rows))
       } else {
         await loadTemplateCounts()
       }
@@ -227,8 +233,10 @@ export default function WaTemplatesHub() {
           ? 'Meta sync timed out in the browser. The server may still be finishing — wait 1–2 minutes, refresh this page, and check template statuses. If it keeps failing, raise nginx proxy_read_timeout for /api/ to 300s.'
           : formatWaSurveyError(e, 'Meta sync failed').detailText || raw || 'Meta sync failed',
       )
+      if (messages.length) setMsg(messages.join(' · '))
     } finally {
       setSyncing(false)
+      setSyncProgress('')
     }
   }
 
@@ -342,32 +350,39 @@ export default function WaTemplatesHub() {
   }
 
   const deleteSurveyType = async (row) => {
-    if (!window.confirm(`Delete “${row.name}”? This cannot be undone.`)) return
+    if (!window.confirm(`Delete “${row.name}”? This removes it from the database and Meta.`)) return
     setError('')
     try {
-      if (row.rowKind === 'survey_template') {
+      if (row.rowKind === 'survey_template' || row.rowKind === 'system_template') {
         const typeId = row.surveyTypeId
-        if (typeId) {
+        if (row.rowKind === 'system_template') {
+          await apiFetch(`/admin/wa-survey/system-templates/${row.id}`, { method: 'DELETE' })
+        } else if (typeId) {
           await apiFetch(`/admin/wa-survey/types/${typeId}/templates/${row.id}`, { method: 'DELETE' })
         } else {
-          setError('Cannot delete: missing survey type link')
-          return
+          await apiFetch(`/admin/wa-survey/templates/${row.id}`, { method: 'DELETE' })
         }
-        setMsg('Template deleted')
+        setMsg('Template deleted from database and Meta')
         await loadTemplateCounts()
+        refreshTabData()
         return
       }
-      if (row.rowKind === 'feedback_type' || row.rowKind === 'feedback_template') {
-        if (row.rowKind === 'feedback_type') {
-          await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, { method: 'DELETE' })
-          setMsg('Survey type deleted')
-        } else {
-          setError('Delete feedback templates from the survey type editor.')
-        }
+      if (row.rowKind === 'feedback_template') {
+        await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, { method: 'DELETE' })
+        setMsg('Template deleted from database and Meta')
+        await loadTemplateCounts()
+        refreshTabData()
+        return
+      }
+      if (row.rowKind === 'feedback_type') {
+        await apiFetch(`/admin/customer-feedback/survey-types/${row.id}`, { method: 'DELETE' })
+        setMsg('Survey type deleted')
+        refreshTabData()
         return
       }
       await apiFetch(`/admin/wa-survey/types/${row.id}`, { method: 'DELETE' })
       setMsg('Survey type deleted')
+      refreshTabData()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Delete failed').message)
     }
@@ -480,7 +495,7 @@ export default function WaTemplatesHub() {
               disabled={syncing}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
-              {syncing ? 'Syncing…' : 'Sync with Meta'}
+              {syncing ? (syncProgress ? `Syncing ${syncProgress}` : 'Syncing…') : 'Sync with Meta'}
             </Button>
           </div>
         </div>

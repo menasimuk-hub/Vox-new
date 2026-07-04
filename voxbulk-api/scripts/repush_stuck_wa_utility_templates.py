@@ -65,7 +65,7 @@ def _try_link_row(db, row, *, lang: str, waba_items: list, all_items: list) -> b
     if rid and not rid.startswith(_LOCAL_PREFIX):
         try:
             item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, rid)
-            _apply_remote_telnyx_item(row, item, overwrite_draft=False)
+            _apply_remote_telnyx_item(db, row, item, overwrite_draft=False)
             db.add(row)
             db.commit()
             db.refresh(row)
@@ -80,7 +80,7 @@ def _try_link_row(db, row, *, lang: str, waba_items: list, all_items: list) -> b
         if remote is None:
             remote = _find_remote_by_slug(str(row.name or ""), items)
         if remote is not None:
-            _apply_remote_telnyx_item(row, remote, overwrite_draft=False)
+            _apply_remote_telnyx_item(db, row, remote, overwrite_draft=False)
             db.add(row)
             db.commit()
             db.refresh(row)

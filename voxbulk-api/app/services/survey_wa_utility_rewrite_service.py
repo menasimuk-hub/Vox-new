@@ -412,7 +412,7 @@ def refresh_row_from_telnyx(db: Session, row: TelnyxWhatsappTemplate) -> None:
         raise SurveyWhatsappTemplateError(f"Template not found on Telnyx: {row.name}")
     from app.services.survey_whatsapp_template_service import _apply_remote_telnyx_item
 
-    _apply_remote_telnyx_item(row, linked, overwrite_draft=False)
+    _apply_remote_telnyx_item(db, row, linked, overwrite_draft=False)
     db.add(row)
     db.commit()
     db.refresh(row)

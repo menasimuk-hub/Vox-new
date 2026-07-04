@@ -151,7 +151,10 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
           marketing_opt_in: 'Opt in',
           open_question: 'Share your feedback',
         }
-        const bodyText = `📋 ${labels[addKind] || 'Thanks for your feedback.'} Reply with one option below.`
+        const noButtons = ['thank_you', 'tell_us_more', 'open_question'].includes(addKind)
+        const bodyText = noButtons
+          ? `📋 ${labels[addKind] || 'Thanks for your feedback.'}`
+          : `📋 ${labels[addKind] || 'Thanks for your feedback.'} Reply with one option below.`
         const tplRes = await apiFetch('/admin/customer-feedback/wa-templates', {
           method: 'POST',
           body: JSON.stringify({
@@ -159,11 +162,13 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
             body_text: bodyText,
             language: 'en_GB',
             meta_category: 'utility',
-            buttons: [
-              { type: 'QUICK_REPLY', text: 'Excellent' },
-              { type: 'QUICK_REPLY', text: 'Good' },
-              { type: 'QUICK_REPLY', text: 'Poor' },
-            ],
+            buttons: noButtons
+              ? []
+              : [
+                  { type: 'QUICK_REPLY', text: 'Excellent' },
+                  { type: 'QUICK_REPLY', text: 'Good' },
+                  { type: 'QUICK_REPLY', text: 'Poor' },
+                ],
             is_active: true,
           }),
         })
@@ -308,7 +313,20 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
               onEdit={handleEdit}
               onSync={handleEdit}
               onToggle={handleEdit}
-              onDelete={() => {}}
+              onDelete={async (row) => {
+                if (!window.confirm(`Delete “${row.name}”? This removes it from the database and Meta.`)) return
+                try {
+                  if (product === 'feedback') {
+                    await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, { method: 'DELETE' })
+                  } else {
+                    await apiFetch(`/admin/wa-survey/system-templates/${row.id}`, { method: 'DELETE' })
+                  }
+                  setSheetRows((rows) => rows.filter((r) => String(r.id) !== String(row.id)))
+                  await load()
+                } catch (e) {
+                  setError(formatWaSurveyError(e, 'Delete failed').message)
+                }
+              }}
               plainNames
               showNew={false}
               emptyLabel="No system templates in this category."
