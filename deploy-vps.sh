@@ -65,6 +65,29 @@ ensure_deploy_log() {
   fi
 }
 
+# State files under the repo (never shared /tmp — avoids root vs deploy-user permission fights).
+DEPLOY_STATE_DIR="$ROOT/.deploy"
+
+ensure_deploy_state_dir() {
+  mkdir -p "$DEPLOY_STATE_DIR" 2>/dev/null || true
+}
+
+# Best-effort backup marker — never abort deploy if the marker cannot be written.
+write_backup_marker() {
+  local safe_label="$1"
+  local backup="$2"
+  ensure_deploy_state_dir
+  local marker="$DEPLOY_STATE_DIR/backup-${safe_label}.path"
+  if printf '%s\n' "$backup" >"$marker" 2>/dev/null; then
+    return 0
+  fi
+  marker="/tmp/voxbulk-backup-$(id -u)-${safe_label}.path"
+  if printf '%s\n' "$backup" >"$marker" 2>/dev/null; then
+    return 0
+  fi
+  warn "Could not write backup marker for ${safe_label} (backup kept at ${backup})"
+}
+
 check_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing command: $1"
 }
@@ -216,7 +239,7 @@ copy_dist() {
     sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
     local safe_label
     safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
-    echo "$backup" > "/tmp/voxbulk-backup-${safe_label}.path"
+    write_backup_marker "$safe_label" "$backup"
   fi
 
   info "Copying $label → $dest"
@@ -335,12 +358,18 @@ post_checks() {
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
 
   info "Verifying /health/build …"
-  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
-    || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
-    python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
+  ensure_deploy_state_dir
+  local health_json="$DEPLOY_STATE_DIR/health-build.json"
+  if ! touch "$health_json" 2>/dev/null; then
+    health_json="/tmp/voxbulk-health-build-$(id -u).json"
+  fi
+  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >"$health_json" 2>/dev/null \
+    || curl -sf http://127.0.0.1:8000/health/build >"$health_json" 2>/dev/null; then
+    HEALTH_BUILD_JSON="$health_json" python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
 import json
+import os
 from pathlib import Path
-p = Path("/tmp/voxbulk-health-build.json")
+p = Path(os.environ.get("HEALTH_BUILD_JSON") or "")
 data = json.loads(p.read_text())
 keys = (
     "status", "git_sha", "git_branch", "built_at", "deploy_ok",
@@ -517,6 +546,7 @@ EOF
 }
 
 main() {
+  ensure_deploy_state_dir
   ensure_deploy_log
   # Process substitution tee: if the log is unwritable, fall back to stdout only
   if [[ "$DEPLOY_LOG" != "/dev/null" ]] && touch "$DEPLOY_LOG" 2>/dev/null; then
