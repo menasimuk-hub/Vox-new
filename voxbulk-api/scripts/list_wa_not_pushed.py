@@ -26,6 +26,8 @@ from app.core.database import get_sessionmaker
 
 from scripts.wa_not_pushed_lib import (
     is_not_on_meta,
+    is_on_meta_live,
+    is_out_of_sync_on_meta,
     iter_survey_keeper_rows,
     row_summary,
     split_buttoned_buttonless,
@@ -52,6 +54,8 @@ def main() -> int:
             return 1
 
         buttoned, buttonless = split_buttoned_buttonless(keepers)
+        on_meta = [row for row in buttoned if is_on_meta_live(row)]
+        out_of_sync = [row for row in buttoned if is_out_of_sync_on_meta(row)]
         not_pushed = [row for row in buttoned if is_not_on_meta(row)]
         summaries = [row_summary(db, row) for row in not_pushed]
 
@@ -60,6 +64,8 @@ def main() -> int:
             json.dumps(
                 {
                     "buttoned_not_on_meta": len(summaries),
+                    "buttoned_on_meta_live": len(on_meta),
+                    "buttoned_on_meta_out_of_sync": len(out_of_sync),
                     "buttoned_total": len(buttoned),
                     "buttonless_skipped": len(buttonless),
                     "templates": summaries,
@@ -69,9 +75,11 @@ def main() -> int:
             )
         )
     else:
-        print(f"Buttoned (in scope):        {len(buttoned)}")
-        print(f"Buttoned not on Meta:       {len(not_pushed)}")
-        print(f"Buttonless (skipped):       {len(buttonless)}")
+        print(f"Buttoned (in scope):              {len(buttoned)}")
+        print(f"Buttoned live on Meta:            {len(on_meta)}")
+        print(f"Buttoned on Meta (local drift):   {len(out_of_sync)}  ← already on Meta; optional sync only")
+        print(f"Buttoned NOT on Meta (need push): {len(not_pushed)}")
+        print(f"Buttonless (skipped):             {len(buttonless)}")
         print()
         if not not_pushed:
             print("No buttoned templates need Meta push for this filter.")

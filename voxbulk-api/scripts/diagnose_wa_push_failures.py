@@ -85,6 +85,10 @@ def _bucket_for_row(db, row, *, try_prepare: bool) -> tuple[str, str, dict]:
             return "prepare_failed", detail[:300], summary
 
     if detail:
+        if "being deleted" in detail.lower() or "language_deletion_lock" in detail.lower():
+            return "language_deletion_lock", detail[:300], summary
+        if "subcode=2388023" in detail or "2388023" in detail:
+            return "language_deletion_lock", detail[:300], summary
         meta = parse_meta_error_from_provider_detail(detail)
         if meta.get("kind"):
             return str(meta.get("kind")), detail[:300], summary
@@ -92,6 +96,8 @@ def _bucket_for_row(db, row, *, try_prepare: bool) -> tuple[str, str, dict]:
             return "utility_lint", detail[:300], summary
         if "invalid parameter" in detail.lower():
             return "meta_invalid_parameter", detail[:300], summary
+        if "not found for id" in detail.lower():
+            return "stale_local_meta_id", detail[:300], summary
         return "stored_error", detail[:300], summary
 
     return "unknown_no_error", "No last_push_error — run push_wa_one_verbose.py", summary

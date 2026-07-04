@@ -26,32 +26,43 @@ from app.services.wa_template_cleanup_sync_service import is_protected_template
 _ON_META_STATUSES = frozenset({"APPROVED", "PENDING"})
 
 
-def button_count(row: TelnyxWhatsappTemplate) -> int:
-    return len(_buttons_from_components(_effective_components(row)))
+def is_on_meta_live(row: TelnyxWhatsappTemplate) -> bool:
+    """True when Meta shows APPROVED/PENDING and we have a real remote template id."""
+    remote_status = str(row.status or "").upper()
+    if remote_status not in _ON_META_STATUSES:
+        return False
+    record_id = str(row.telnyx_record_id or "").strip()
+    if not record_id or record_id.startswith("local-"):
+        return False
+    if record_id.startswith("local_test_"):
+        return False
+    return _has_remote_telnyx_id(row)
 
 
 def is_not_on_meta(row: TelnyxWhatsappTemplate) -> bool:
-    """True when template still needs Meta push (not live as APPROVED/PENDING)."""
-    remote_status = str(row.status or "").upper()
-    if remote_status in _ON_META_STATUSES and _has_remote_telnyx_id(row):
-        sync_status = str(row.local_sync_status or "").strip().lower()
-        if sync_status not in {SYNC_DRAFT, SYNC_LOCAL_CHANGES, SYNC_ERROR} and not row.last_push_error:
-            label = telnyx_sync_ui_label(row).lower()
-            if "not synced" not in label and "sync failed" not in label and "out of sync" not in label:
-                return False
+    """True when template is not live on Meta (not APPROVED/PENDING with remote id)."""
+    return not is_on_meta_live(row)
 
-    record_id = str(row.telnyx_record_id or "").strip()
-    if not record_id or record_id.startswith("local-"):
+
+def needs_meta_push(row: TelnyxWhatsappTemplate) -> bool:
+    """True when a push/sync to Meta is still required (includes live-but-out-of-sync)."""
+    if is_not_on_meta(row):
         return True
-    if remote_status not in _ON_META_STATUSES:
+    if str(row.last_push_error or "").strip():
         return True
     sync_status = str(row.local_sync_status or "").strip().lower()
     if sync_status in {SYNC_DRAFT, SYNC_LOCAL_CHANGES, SYNC_ERROR}:
         return True
-    if row.last_push_error:
-        return True
     label = telnyx_sync_ui_label(row).lower()
     return "not synced" in label or "sync failed" in label or "out of sync" in label
+
+
+def button_count(row: TelnyxWhatsappTemplate) -> int:
+    return len(_buttons_from_components(_effective_components(row)))
+
+
+def is_out_of_sync_on_meta(row: TelnyxWhatsappTemplate) -> bool:
+    return is_on_meta_live(row) and needs_meta_push(row)
 
 
 def iter_survey_keeper_rows(

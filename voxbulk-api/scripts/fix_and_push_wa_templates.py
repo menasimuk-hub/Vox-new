@@ -151,6 +151,20 @@ def main() -> int:
                     ok_count += 1
                     print(f"  OK {name}")
                 except SurveyWhatsappTemplateError as exc:
+                    payload = getattr(exc, "payload", None) or {}
+                    if payload.get("requires_rename") and payload.get("suggested_template_name"):
+                        new_name = str(payload["suggested_template_name"]).strip()
+                        print(f"  Rename {name} → {new_name} (Meta deletion lock) …", flush=True)
+                        row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
+                        try:
+                            SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
+                            ok_count += 1
+                            print(f"  OK {row.name}")
+                            if args.push_delay > 0:
+                                time.sleep(args.push_delay)
+                            continue
+                        except SurveyWhatsappTemplateError as retry_exc:
+                            exc = retry_exc
                     fail_count += 1
                     err = format_template_push_error(exc)
                     failures.append({"name": name, "error": err, "phase": "push"})
