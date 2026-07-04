@@ -47,6 +47,88 @@ def _extract_messages(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _extract_statuses(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Outbound delivery receipts (sent, delivered, read, failed) from Meta webhooks."""
+    out: list[dict[str, Any]] = []
+    entries = payload.get("entry")
+    if not isinstance(entries, list):
+        return out
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        changes = entry.get("changes")
+        if not isinstance(changes, list):
+            continue
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            value = change.get("value")
+            if not isinstance(value, dict):
+                continue
+            statuses = value.get("statuses")
+            if isinstance(statuses, list):
+                for item in statuses:
+                    if isinstance(item, dict):
+                        out.append(item)
+    return out
+
+
+def _format_meta_status_errors(status_item: dict[str, Any]) -> str | None:
+    errors = status_item.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return None
+    parts: list[str] = []
+    for err in errors:
+        if not isinstance(err, dict):
+            continue
+        title = str(err.get("title") or err.get("message") or err.get("code") or "").strip()
+        if title:
+            parts.append(title)
+    return "; ".join(parts) if parts else None
+
+
+def _apply_delivery_status(db: Session, status_item: dict[str, Any]) -> bool:
+    message_id = str(status_item.get("id") or "").strip()
+    raw_status = str(status_item.get("status") or "").strip().lower()
+    if not message_id or not raw_status:
+        return False
+    mapped = "delivery_failed" if raw_status == "failed" else raw_status
+    err_text = _format_meta_status_errors(status_item)
+    rows = list(
+        db.scalars(
+            select(WhatsAppLog).where(WhatsAppLog.external_message_id == message_id)
+        ).all()
+    )
+    if not rows:
+        logger.info(
+            "meta_whatsapp_status_no_log message_id=%s status=%s",
+            message_id,
+            raw_status,
+        )
+        return False
+    changed = False
+    for existing in rows:
+        if mapped and mapped != str(existing.status or "").lower():
+            existing.status = mapped
+            changed = True
+        if err_text:
+            note = f"Delivery error: {err_text}"
+            body = str(existing.body or "")
+            if note not in body:
+                existing.body = f"{body}\n{note}".strip() if body else note
+                changed = True
+        db.add(existing)
+    if changed:
+        db.commit()
+        logger.info(
+            "meta_whatsapp_status_updated message_id=%s status=%s rows=%s",
+            message_id,
+            mapped,
+            len(rows),
+        )
+    return changed
+
+
 def _resolve_org_id(db: Session, *, config: dict[str, Any], from_phone: str) -> str:
     for candidate in (
         str(config.get("default_messaging_org_id") or "").strip(),
@@ -220,9 +302,24 @@ class MetaWhatsappInboundService:
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
         config = validate_meta_whatsapp_config(cfg or {})
 
+        statuses = _extract_statuses(payload)
+        messages = _extract_messages(payload)
+        if statuses or messages:
+            logger.info(
+                "meta_whatsapp_webhook statuses=%s messages=%s object=%s",
+                len(statuses),
+                len(messages),
+                payload.get("object"),
+            )
+
+        status_updated = 0
+        for status_item in statuses:
+            if _apply_delivery_status(db, status_item):
+                status_updated += 1
+
         logged = 0
         routed = 0
-        for item in _extract_messages(payload):
+        for item in messages:
             msg = item.get("message") if isinstance(item.get("message"), dict) else {}
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
             from_phone_raw = str(msg.get("from") or "")
@@ -309,4 +406,4 @@ class MetaWhatsappInboundService:
             ):
                 routed += 1
 
-        return {"ok": True, "logged": logged, "routed": routed}
+        return {"ok": True, "logged": logged, "routed": routed, "status_updated": status_updated}
