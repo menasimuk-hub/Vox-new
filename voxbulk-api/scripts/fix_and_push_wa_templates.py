@@ -32,6 +32,8 @@ from app.services.survey_wa_utility_rewrite_service import (
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
+    _resolve_push_language,
+    _try_link_existing_remote_template,
 )
 from app.services.wa_template_meta_sync import format_template_push_error
 
@@ -39,6 +41,7 @@ from scripts.wa_not_pushed_lib import (
     industry_slug_for_row,
     is_not_on_meta,
     is_on_meta_live,
+    is_stale_approved_local,
     iter_survey_keeper_rows,
     split_buttoned_buttonless,
 )
@@ -75,6 +78,14 @@ def _push_row(db, row, *, force: bool = True) -> dict:
     return {"ok": True, "name": row.name}
 
 
+def _link_row_from_meta(db, row) -> bool:
+    lang_code, lang_error = _resolve_push_language(db, row)
+    if lang_error:
+        return False
+    result = _try_link_existing_remote_template(db, row, language=lang_code)
+    return result is not None
+
+
 def _push_with_rename_retry(db, row, *, force: bool = True) -> dict:
     name = str(row.name)
     try:
@@ -97,6 +108,11 @@ def main() -> int:
     parser.add_argument("--push-delay", type=float, default=2.0, help="Seconds between pushes")
     parser.add_argument("--repair-first", action="store_true", help="Repair invalid draft BODY examples")
     parser.add_argument("--utility-rewrite", action="store_true", help="Utility-rewrite bodies before push")
+    parser.add_argument(
+        "--link-only",
+        action="store_true",
+        help="Only link local rows to existing Meta templates (no rewrite/push)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--include-feedback", action="store_true", help="Not implemented — survey only")
     args = parser.parse_args()
@@ -109,6 +125,7 @@ def main() -> int:
     ok_count = 0
     fail_count = 0
     skip_count = 0
+    linked_count = 0
     repaired = 0
     failures: list[dict] = []
 
@@ -120,12 +137,17 @@ def main() -> int:
             return 1
 
         buttoned, buttonless = split_buttoned_buttonless(keepers)
-        targets = [row for row in buttoned if is_not_on_meta(row)]
+        if args.link_only:
+            targets = [row for row in buttoned if is_stale_approved_local(row)]
+        else:
+            targets = [row for row in buttoned if is_not_on_meta(row)]
 
         print(f"Industry: {industry_slug}")
         print(f"Buttoned (in scope):   {len(buttoned)}")
         print(f"Buttonless (skipped):  {len(buttonless)}")
         print(f"Not on Meta (targets): {len(targets)}")
+        if args.link_only:
+            print("Mode: link-only (stale APPROVED + local id → link from Meta)")
         print()
 
         if args.dry_run:
@@ -148,21 +170,43 @@ def main() -> int:
                 repaired += 1
 
             try:
-                if args.utility_rewrite:
+                if args.link_only:
+                    if _link_row_from_meta(db, row):
+                        db.refresh(row)
+                        linked_count += 1
+                        ok_count += 1
+                        print(f"  LINKED {name} → {row.telnyx_record_id}")
+                    elif is_on_meta_live(row):
+                        skip_count += 1
+                        print(f"  SKIP already linked: {name}")
+                    else:
+                        fail_count += 1
+                        failures.append({"id": row.id, "name": name, "error": "No matching Meta template to link", "phase": "link"})
+                        print(f"  FAIL link {name}: no remote match", file=sys.stderr)
+                elif args.utility_rewrite:
                     row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
                     if renamed_to:
                         print(f"  Prepared clone rename → {renamed_to}", flush=True)
                     apply_utility_rewrite_to_row(db, row, use_llm=True, llm_provider="openai")
-
-                result = _push_with_rename_retry(db, row, force=True)
-                ok_count += 1
-                print(f"  OK {result.get('name')}")
+                    result = _push_with_rename_retry(db, row, force=True)
+                    ok_count += 1
+                    print(f"  OK {result.get('name')}")
+                else:
+                    result = _push_with_rename_retry(db, row, force=True)
+                    ok_count += 1
+                    print(f"  OK {result.get('name')}")
             except SurveyWhatsappTemplateError as exc:
                 err = format_template_push_error(exc)
                 payload = getattr(exc, "payload", None) or {}
                 if payload.get("meta_error_kind") == "content_already_exists":
-                    skip_count += 1
-                    print(f"  SKIP already on Meta: {name}")
+                    if _link_row_from_meta(db, row):
+                        db.refresh(row)
+                        linked_count += 1
+                        ok_count += 1
+                        print(f"  LINKED (already on Meta): {name}")
+                    else:
+                        skip_count += 1
+                        print(f"  SKIP already on Meta: {name}")
                 else:
                     fail_count += 1
                     failures.append({"id": row.id, "name": name, "error": err, "phase": "push"})
@@ -179,6 +223,7 @@ def main() -> int:
         "targets": len(targets),
         "repaired_drafts": repaired,
         "ok": ok_count,
+        "linked_from_meta": linked_count,
         "skipped_already_on_meta": skip_count,
         "failed": fail_count,
         "failures": failures,
@@ -189,7 +234,7 @@ def main() -> int:
     report_path = REPORT_DIR / f"fix-push-{slug_safe}-{stamp}.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"\nDone — OK: {ok_count}, skipped: {skip_count}, failed: {fail_count}, repaired: {repaired}")
+    print(f"\nDone — OK: {ok_count}, linked: {linked_count}, skipped: {skip_count}, failed: {fail_count}, repaired: {repaired}")
     print(f"Report: {report_path}")
     return 1 if fail_count else 0
 

@@ -19,6 +19,20 @@ from app.services.wa_template_meta_sync import (
 
 def test_topic_from_template_name():
     assert _topic_from_template_name("voxbulk_survey_food_quality_abc_d85d5a") == "food quality"
+    assert _topic_from_template_name("voxbulk_survey_would_recommend_standard") == "would recommend"
+
+
+def test_rule_based_rewrites_would_recommend_without_lint_violation():
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    body = _rule_based_utility_body(
+        "Following your recent visit, would you recommend us to others?",
+        topic_hint="would recommend",
+        industry_slug="recruitment_staffing",
+    )
+    lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
+    assert lint.ok
+    assert "would you recommend" not in body.lower()
 
 
 def test_suggest_utility_clone_template_name():

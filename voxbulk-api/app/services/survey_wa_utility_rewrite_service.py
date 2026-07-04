@@ -11,6 +11,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.industry import Industry
+from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.agents.base import AgentMessage
 from app.services.providers.openai_service import OpenAIProviderService
@@ -46,6 +48,11 @@ _EMOJI_RE = re.compile(
     "\U0001F1E0-\U0001F1FF"
     "]+",
     flags=re.UNICODE,
+)
+
+_RECOMMEND_INTENT_RE = re.compile(
+    r"\bwould you recommend\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b",
+    re.IGNORECASE,
 )
 
 _UTILITY_CONTEXT_PHRASES = (
@@ -167,8 +174,10 @@ def _rule_based_utility_body(
             emoji,
             _sanitize_body(f"How would you rate {topic} at work? Reply with one option below."),
         )
-    if _mentions_recent_interaction(cleaned) and not (
-        frame["key"] == "employee" and "visit" in cleaned.lower()
+    if (
+        _mentions_recent_interaction(cleaned)
+        and not (frame["key"] == "employee" and "visit" in cleaned.lower())
+        and not _body_has_recommend_intent(cleaned)
     ):
         return _prepend_leading_emoji(emoji, _sanitize_body(cleaned))
     topic = topic_hint.strip() or frame["fallback_topic"]
@@ -211,8 +220,26 @@ def _topic_from_template_name(name: str) -> str:
     if base.startswith("voxbulk_survey_"):
         base = base[len("voxbulk_survey_") :]
     base = re.sub(r"_abc_[a-f0-9]{6}$", "", base)
+    base = re.sub(r"_standard$", "", base)
     base = base.replace("_", " ")
     return base.strip() or "your recent experience"
+
+
+def _industry_for_template_row(db: Session, row: TelnyxWhatsappTemplate) -> tuple[str | None, str | None]:
+    st_id = str(row.survey_type_id or "").strip()
+    if not st_id:
+        return None, None
+    st = db.get(SurveyType, st_id)
+    if st is None or not st.industry_id:
+        return None, None
+    ind = db.get(Industry, st.industry_id)
+    if ind is None:
+        return None, None
+    return str(ind.slug or "") or None, str(ind.name or "") or None
+
+
+def _body_has_recommend_intent(text: str) -> bool:
+    return bool(_RECOMMEND_INTENT_RE.search(str(text or "")))
 
 
 def rewrite_body_for_utility(
@@ -331,6 +358,10 @@ def apply_utility_rewrite_to_row(
 
     buttons = clamp_utility_button_labels(buttons)
 
+    industry_slug, industry_name = _industry_for_template_row(db, row)
+    if _body_has_recommend_intent(old_body):
+        use_llm = False
+
     new_body = rewrite_body_for_utility(
         db,
         original_body=old_body,
@@ -339,6 +370,8 @@ def apply_utility_rewrite_to_row(
         display_name=row.display_name,
         use_llm=use_llm,
         llm_provider=llm_provider,
+        industry_slug=industry_slug,
+        industry_name=industry_name,
     )
     lint = lint_utility_template(
         body=new_body,

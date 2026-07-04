@@ -80,6 +80,14 @@ TOPIC_SAFE_EN: dict[str, str] = {
     "overall_experience": "overall experience",
     "value for money": "value for money",
     "value_for_money": "value for money",
+    "would recommend": "overall satisfaction",
+    "would_recommend": "overall satisfaction",
+    "would recommend standard": "overall satisfaction",
+    "would_recommend_standard": "overall satisfaction",
+    "return intent": "future use",
+    "return_intent": "future use",
+    "return intent standard": "future use",
+    "return_intent_standard": "future use",
 }
 
 TOPIC_SAFE_AR: dict[str, str] = {
