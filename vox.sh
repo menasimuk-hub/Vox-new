@@ -6,12 +6,65 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
-API_LOG="/tmp/voxbulk-api.log"
-PUBLIC_LOG="/tmp/voxbulk-public.log"
-DASH_LOG="/tmp/voxbulk-dashboard.log"
+API_LOG="${VOX_API_LOG:-/tmp/voxbulk-api.log}"
+PUBLIC_LOG="${VOX_PUBLIC_LOG:-/tmp/voxbulk-public.log}"
+DASH_LOG="${VOX_DASH_LOG:-/tmp/voxbulk-dashboard.log}"
+
+# Avoid root-owned /tmp logs blocking non-root deploys (same class of bug as deploy markers).
+ensure_log_file() {
+  local var_name="$1"
+  local current="${!var_name}"
+  if touch "$current" 2>/dev/null; then
+    return 0
+  fi
+  local fallback="/tmp/voxbulk-$(id -u)-$(basename "$current")"
+  if touch "$fallback" 2>/dev/null; then
+    printf -v "$var_name" '%s' "$fallback"
+    return 0
+  fi
+  fallback="$ROOT/.deploy/$(basename "$current")"
+  mkdir -p "$ROOT/.deploy" 2>/dev/null || true
+  touch "$fallback" 2>/dev/null || true
+  printf -v "$var_name" '%s' "$fallback"
+}
+
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | grep -qE ":${port}\\s" && return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  fi
+  # Fallback: try connect (works even without ss/lsof)
+  (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1 && return 0
+  return 1
+}
 
 stop_api() {
+  echo "Stopping API on :8000 …"
   pkill -f "uvicorn.*main:app" 2>/dev/null || true
+  local i=0
+  while (( i < 12 )); do
+    if ! pgrep -f "uvicorn.*main:app" >/dev/null 2>&1 && ! port_in_use 8000; then
+      echo "API stopped"
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  echo "Force-killing leftover uvicorn on :8000 …"
+  pkill -9 -f "uvicorn.*main:app" 2>/dev/null || true
+  # Last resort: kill whatever still listens on 8000
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k 8000/tcp >/dev/null 2>&1 || true
+  fi
+  sleep 1
+  if port_in_use 8000; then
+    echo "WARNING: port 8000 still in use — start may fail"
+  else
+    echo "API stopped"
+  fi
 }
 
 stop_public() {
@@ -136,17 +189,35 @@ show_log_tail() {
 }
 
 start_api() {
+  ensure_log_file API_LOG
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source .venv/bin/activate
+  if port_in_use 8000; then
+    echo "Port 8000 busy — stopping previous API first"
+    stop_api
+  fi
+  # deploy-vps.sh already runs alembic; skip here to avoid MySQL metadata lock hangs.
   if [[ "${VOX_SKIP_MIGRATE:-0}" != "1" ]]; then
+    echo "Running alembic upgrade head …"
     python -m alembic upgrade head || echo "Warning: alembic upgrade failed — API will retry migrations on boot"
+  else
+    echo "Skipping alembic (VOX_SKIP_MIGRATE=1)"
   fi
   nohup uvicorn main:app --host 127.0.0.1 --port 8000 --workers "${VOX_UVICORN_WORKERS:-1}" >>"$API_LOG" 2>&1 &
-  echo "API started (log: $API_LOG)"
+  local pid=$!
+  echo "API starting pid=$pid (log: $API_LOG)"
+  # Fail fast if process dies immediately
+  sleep 1
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "API process exited immediately — last log lines:"
+    show_log_tail "$API_LOG" "API"
+    return 1
+  fi
 }
 
 start_public() {
+  ensure_log_file PUBLIC_LOG
   cd "$PUBLIC_DIR"
   if [[ ! -d dist/client ]]; then
     echo "Building public frontend (first run)…"
@@ -162,14 +233,18 @@ start_dashboard() {
     echo "Skipping dashboard preview (VOX_SKIP_DASHBOARD_PREVIEW=1 — nginx serves static wwwroot)"
     return
   fi
+  ensure_log_file DASH_LOG
   cd "$DASH_DIR"
-  if [[ "${VOX_SKIP_DASHBOARD_BUILD:-0}" != "1" ]]; then
+  # Deploy already built dashboard into wwwroot — skip rebuild on API restart unless forced.
+  if [[ "${VOX_SKIP_DASHBOARD_BUILD:-0}" == "1" ]]; then
+    if [[ ! -d dist/client ]]; then
+      echo "Building dashboard (missing dist/client) …"
+      npm install --silent 2>/dev/null || npm install
+      npm run build
+    fi
+  else
     echo "Building dashboard (npm run build) …"
     npm install --silent 2>/dev/null || npm install
-    npm run build
-  elif [[ ! -d dist/client ]]; then
-    echo "Building dashboard (first run)…"
-    npm install
     npm run build
   fi
   nohup npm run preview -- --host 127.0.0.1 --port 5175 >>"$DASH_LOG" 2>&1 &
@@ -256,13 +331,19 @@ case "${1:-}" in
     stop_dashboard
     stop_api
     sleep 1
-    start_api
+    # Production: nginx serves admin/dashboard static wwwroot — skip slow dashboard rebuild.
+    export VOX_SKIP_DASHBOARD_BUILD="${VOX_SKIP_DASHBOARD_BUILD:-1}"
+    export VOX_SKIP_DASHBOARD_PREVIEW="${VOX_SKIP_DASHBOARD_PREVIEW:-1}"
+    start_api || {
+      show_log_tail "$API_LOG" "API"
+      exit 1
+    }
     sleep 2
     start_public
     start_dashboard
     restart_celery
-    echo "Waiting for API, public preview, and dashboard preview to become ready…"
-    status || true
+    echo "Waiting for API (and previews if enabled) to become ready…"
+    status 45 || true
     ;;
   status)
     status

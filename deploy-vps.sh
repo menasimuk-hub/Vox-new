@@ -271,7 +271,10 @@ verify_api_import() {
 require_api_health() {
   local attempts="${1:-30}"
   local i=0
-  info "Waiting for API /health (up to ${attempts}s) …"
+  local api_log="${VOX_API_LOG:-/tmp/voxbulk-api.log}"
+  [[ -f "$api_log" ]] || api_log="/tmp/voxbulk-api-$(id -u).log"
+  [[ -f "$api_log" ]] || api_log="$ROOT/.deploy/voxbulk-api.log"
+  info "Waiting for API /health on :8000 (up to ${attempts}s) …"
   while (( i < attempts )); do
     if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1; then
       info "API health OK on 127.0.0.1:8000"
@@ -281,11 +284,25 @@ require_api_health() {
       info "API health OK on 127.0.0.1:8000"
       return 0
     fi
+    # Progress every 10s so deploy does not look hung
+    if (( i > 0 && i % 10 == 0 )); then
+      info "Still waiting for :8000/health (${i}s) …"
+      pgrep -af "uvicorn.*main:app" || warn "No uvicorn process yet"
+    fi
     sleep 1
     i=$((i + 1))
   done
-  warn "API health check failed — tail of $API_LOG:"
-  tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
+  warn "API health check failed — processes and log:"
+  pgrep -af "uvicorn|python.*main" || true
+  ss -ltnp 2>/dev/null | grep 8000 || netstat -ltnp 2>/dev/null | grep 8000 || true
+  if [[ -f "$api_log" ]]; then
+    warn "Tail of $api_log:"
+    tail -n 40 "$api_log" || true
+  else
+    warn "No API log at $api_log (also check /tmp/voxbulk-api*.log)"
+    tail -n 40 /tmp/voxbulk-api.log 2>/dev/null || true
+    tail -n 40 /tmp/voxbulk-api-"$(id -u)".log 2>/dev/null || true
+  fi
   fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
 }
 
@@ -319,8 +336,13 @@ restart_services() {
   verify_api_import
   ensure_auth_url_env
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
-  bash "$VOX_SH" restart
-  require_api_health 30
+  # Migrations already ran in api_deps_and_migrate — skip second alembic (avoids MySQL lock hang).
+  # Dashboard/admin already rsynced to wwwroot — skip preview rebuild.
+  VOX_SKIP_MIGRATE=1 \
+    VOX_SKIP_DASHBOARD_BUILD=1 \
+    VOX_SKIP_DASHBOARD_PREVIEW=1 \
+    bash "$VOX_SH" restart
+  require_api_health 60
 }
 
 ensure_auth_url_env() {
