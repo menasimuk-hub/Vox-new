@@ -69,7 +69,10 @@ def build_feedback_components(tpl: FeedbackWaTemplate) -> list[dict[str, Any]]:
     body = str(tpl.body_text or "").strip()
     if not body:
         raise FeedbackTelnyxPushError("Template body_text is empty.")
-    components: list[dict[str, Any]] = [{"type": "BODY", "text": body}]
+    components: list[dict[str, Any]] = [
+        {"type": "BODY", "text": body},
+        {"type": "FOOTER", "text": "Reply STOP to opt out"},
+    ]
     buttons = parse_feedback_buttons(tpl.buttons_json)
     if buttons:
         components.append(

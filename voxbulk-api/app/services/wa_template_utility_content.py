@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 DEFAULT_EMOJI = "📋"
+STOP_FOOTER = "Reply STOP to opt out"
 RATING_BUTTONS = ["Excellent", "Good", "Poor"]
 YES_NO_BUTTONS = ["Yes", "No"]
 THANKS_BUTTONS = ["Done"]
@@ -415,6 +416,8 @@ def build_utility_components(
     if examples:
         body_comp["example"] = {"body_text": [examples]}
     comps: list[dict[str, Any]] = [body_comp]
+    # Every WhatsApp template must include the opt-out footer.
+    comps.append({"type": "FOOTER", "text": STOP_FOOTER})
     labels = [str(b).strip()[:25] for b in buttons if str(b).strip()]
     labels = [re.sub(r"[^\w\s\-/'&]", "", b).strip()[:25] for b in labels]
     labels = [b for b in labels if b and not is_promo_wording(b)]

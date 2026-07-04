@@ -1,5 +1,4 @@
 import React from 'react'
-import { Languages } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export const LANGS = ['EN', 'AR', 'FR', 'ES', 'DE', 'PT', 'IT', 'TR', 'RU', 'HI']
@@ -48,12 +47,20 @@ export function CategoryPill({ category }) {
 
 export function LangChip({ langs, title }) {
   const list = Array.isArray(langs) ? langs : []
+  const codes = list.length ? list : ['—']
   return (
     <span
-      className="inline-flex cursor-default items-center gap-1 rounded-md bg-surface-muted px-1.5 py-0.5 text-xs font-medium text-foreground/80 ring-1 ring-inset ring-border"
-      title={title || list.join(' · ')}
+      className="inline-flex cursor-default flex-wrap items-center gap-1 text-xs font-medium text-foreground/80"
+      title={title || codes.join(' · ')}
     >
-      <Languages className="h-3 w-3" /> {list.length}
+      {codes.map((code) => (
+        <span
+          key={code}
+          className="inline-flex items-center rounded-md bg-surface-muted px-1.5 py-0.5 uppercase ring-1 ring-inset ring-border"
+        >
+          {code}
+        </span>
+      ))}
     </span>
   )
 }

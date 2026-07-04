@@ -69,6 +69,8 @@ function buttonsFromComponents(components) {
   })
 }
 
+const STOP_FOOTER = 'Reply STOP to opt out'
+
 function buildComponents(draft) {
   const components = []
   if (draft.header?.type === 'text' && draft.header.text) {
@@ -83,7 +85,8 @@ function buildComponents(draft) {
   }
   if (vars.length) body.example = { body_text: [vars] }
   components.push(body)
-  if (draft.footer) components.push({ type: 'FOOTER', text: draft.footer })
+  // Every WhatsApp template must include the opt-out footer.
+  components.push({ type: 'FOOTER', text: STOP_FOOTER })
   if ((draft.buttons || []).length) {
     const buttons = draft.buttons.map((b) => {
       if (b.type === 'url') return { type: 'URL', text: b.text, url: b.url || 'https://' }
@@ -156,7 +159,7 @@ function buttonsFromFeedbackTpl(tpl) {
 function apiTemplateToDraft(tpl, product) {
   const components = parseComponents(tpl?.draft_components || tpl?.remote_components || tpl?.components)
   const body = bodyFromComponents(components) || tpl?.body || tpl?.body_text || ''
-  const footer = footerFromComponents(components) || tpl?.footer || ''
+  const footer = footerFromComponents(components) || tpl?.footer || STOP_FOOTER
   const buttons =
     product === 'feedback' ? buttonsFromFeedbackTpl(tpl) : buttonsFromComponents(components)
   const lang = langCodeToChip(tpl?.language)
@@ -259,6 +262,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
       const product = editTarget.product
       let tpl
       let types = []
+      let variants = []
       if (product === 'survey' || product === 'system') {
         const data = await apiFetch(`/admin/wa-survey/templates/${editTarget.templateId}`)
         tpl = data.template
@@ -278,17 +282,15 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           const kinds = Array.isArray(data?.kinds) ? data.kinds : []
           const all = kinds.flatMap((k) => (Array.isArray(k.templates) ? k.templates : []))
           tpl = all.find((t) => String(t.id) === String(editTarget.templateId))
-          setLangVariants([])
+          variants = []
         } else {
           const data = await apiFetch(`/admin/customer-feedback/survey-types/${editTarget.surveyTypeId}`)
           const templates = Array.isArray(data?.item?.templates) ? data.item.templates : []
-          setLangVariants(
-            templates.map((row) => ({
-              id: row.id,
-              language: row.language || 'en_GB',
-              tpl: row.body || row.body_text ? { ...row, body: row.body || row.body_text } : row,
-            })),
-          )
+          variants = templates.map((row) => ({
+            id: row.id,
+            language: row.language || 'en_GB',
+            tpl: row.body || row.body_text ? { ...row, body: row.body || row.body_text } : row,
+          }))
           tpl = templates.find((t) => String(t.id) === String(editTarget.templateId)) || templates[0]
         }
         if (!tpl) throw new Error('Template not found')
@@ -301,26 +303,33 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           const typeData = await apiFetch(`/admin/wa-survey/types/${editTarget.surveyTypeId}`)
           const templates = Array.isArray(typeData?.templates) ? typeData.templates : []
           if (templates.length) {
-            setLangVariants(
-              templates.map((row) => ({
-                id: row.id,
-                language: row.language || 'en_GB',
-                tpl: row,
-              })),
-            )
+            variants = templates.map((row) => ({
+              id: row.id,
+              language: row.language || 'en_GB',
+              tpl: row,
+            }))
             const match = templates.find((t) => String(t.id) === String(editTarget.templateId))
             if (match) tpl = match
           } else {
-            setLangVariants([{ id: tpl.id, language: tpl.language || 'en_GB', tpl }])
+            variants = [{ id: tpl.id, language: tpl.language || 'en_GB', tpl }]
           }
         } catch {
-          setLangVariants([{ id: tpl.id, language: tpl.language || 'en_GB', tpl }])
+          variants = [{ id: tpl.id, language: tpl.language || 'en_GB', tpl }]
         }
       } else if (product !== 'feedback' || editTarget.systemMode) {
-        setLangVariants(tpl ? [{ id: tpl.id, language: tpl.language || 'en_GB', tpl }] : [])
+        variants = tpl ? [{ id: tpl.id, language: tpl.language || 'en_GB', tpl }] : []
       }
+      setLangVariants(variants)
       setActiveTemplateId(tpl?.id ?? editTarget.templateId)
-      setDraft(apiTemplateToDraft(tpl, product === 'system' ? 'survey' : product))
+      const nextDraft = apiTemplateToDraft(tpl, product === 'system' ? 'survey' : product)
+      const variantLangs = [
+        ...new Set(variants.map((v) => langCodeToChip(v.language)).filter(Boolean)),
+      ]
+      setDraft({
+        ...nextDraft,
+        langs: variantLangs.length ? variantLangs : nextDraft.langs,
+        footer: STOP_FOOTER,
+      })
       setSurveyTypes(types)
       setMetaNameExpanded(false)
     } catch (e) {
@@ -573,41 +582,6 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
               <div className="border-b border-success/30 bg-success-soft px-4 py-2 text-xs text-success">{toast}</div>
             ) : null}
 
-            {langVariants.length > 1 ? (
-              <div className="flex flex-wrap items-center gap-1.5 border-b bg-surface-muted/30 px-4 py-2">
-                <span className="mr-1 text-[10px] uppercase tracking-wider text-muted-foreground">Language</span>
-                {langVariants.map((v) => {
-                  const active = String(v.id) === String(activeTemplateId)
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      className={cn(
-                        'h-7 rounded-md border px-2.5 text-[11px] font-medium',
-                        active
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-input bg-background text-muted-foreground hover:bg-accent',
-                      )}
-                      onClick={() => {
-                        setActiveTemplateId(v.id)
-                        setDraft(
-                          apiTemplateToDraft(
-                            v.tpl,
-                            editTarget?.product === 'system' ? 'survey' : editTarget?.product,
-                          ),
-                        )
-                      }}
-                    >
-                      {langCodeToChip(v.language)}
-                    </button>
-                  )
-                })}
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  {langVariants.length} langs · save/sync each language
-                </span>
-              </div>
-            ) : null}
-
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_340px]">
               <div className="space-y-4 overflow-y-auto p-4">
                 <div className="grid grid-cols-2 gap-3">
@@ -656,22 +630,49 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                   />
                 </Field>
 
-                <Field label="Languages" hint={`${t.langs.length} enabled`}>
+                <Field
+                  label="Languages"
+                  hint={
+                    langVariants.length > 1
+                      ? 'Tap a language to edit that version'
+                      : 'All language tags — more can be added later'
+                  }
+                >
                   <div className="flex flex-wrap gap-1.5">
                     {LANGS.map((l) => {
-                      const on = t.langs.includes(l)
+                      const variant = langVariants.find((v) => langCodeToChip(v.language) === l)
+                      const current = langCodeToChip(t.language) === l
+                      const on = t.langs.includes(l) || Boolean(variant)
                       return (
                         <button
                           key={l}
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            if (variant) {
+                              const product =
+                                editTarget?.product === 'system' ? 'survey' : editTarget?.product
+                              const allLangs = [
+                                ...new Set(
+                                  langVariants.map((v) => langCodeToChip(v.language)).filter(Boolean),
+                                ),
+                              ]
+                              setActiveTemplateId(variant.id)
+                              setDraft({
+                                ...apiTemplateToDraft(variant.tpl, product),
+                                langs: allLangs.length ? allLangs : [l],
+                                footer: STOP_FOOTER,
+                              })
+                              return
+                            }
                             update('langs', on ? t.langs.filter((x) => x !== l) : [...t.langs, l])
-                          }
+                          }}
                           className={cn(
                             'h-6 rounded-md px-2 text-[11px] font-medium ring-1 ring-inset transition-all',
-                            on
+                            current
                               ? 'bg-primary text-primary-foreground ring-primary'
-                              : 'bg-background text-muted-foreground ring-border hover:ring-primary/40',
+                              : on
+                                ? 'bg-primary/10 text-primary ring-primary/40'
+                                : 'bg-background text-muted-foreground ring-border hover:ring-primary/40',
                           )}
                         >
                           {l}
@@ -766,12 +767,15 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
 
                 <Section title="Footer" icon={TypeIcon}>
                   <Input
-                    value={t.footer ?? ''}
-                    onChange={(e) => update('footer', e.target.value)}
+                    value={STOP_FOOTER}
+                    readOnly
                     maxLength={60}
-                    placeholder="Optional footer (max 60 chars)"
-                    className="h-8 text-xs"
+                    className="h-8 cursor-default bg-surface-muted/50 text-xs text-muted-foreground"
+                    title="Required on every WhatsApp template"
                   />
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Required on every WhatsApp template (saved automatically).
+                  </p>
                 </Section>
 
                 <Section
