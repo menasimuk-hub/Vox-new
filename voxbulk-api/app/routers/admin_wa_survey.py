@@ -815,6 +815,32 @@ def push_template_to_telnyx(
     return result
 
 
+@router.post("/templates/{template_id}/fix-and-sync")
+def fix_and_sync_survey_template(
+    template_id: int,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Repair draft, UTILITY-rewrite (when buttoned), push/link to Meta — single-template ops."""
+    from app.services.survey_wa_template_fix_sync_service import fix_and_sync_survey_template as run_fix
+
+    row = SurveyWhatsappTemplateService.get_template(db, template_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    body = payload or {}
+    try:
+        return run_fix(
+            db,
+            row,
+            repair=bool(body.get("repair", True)),
+            utility_rewrite=bool(body.get("utility_rewrite", True)),
+            force_push=bool(body.get("force_push", True)),
+        )
+    except SurveyWhatsappTemplateError as e:
+        _raise_wa_survey_error(e)
+
+
 @router.post("/templates/{template_id}/regenerate")
 def regenerate_rejected_template(
     template_id: int,

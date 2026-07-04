@@ -12,6 +12,7 @@ import {
   Save,
   Trash2,
   Type as TypeIcon,
+  Wrench,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -200,6 +201,7 @@ function apiTemplateToDraft(tpl, product) {
     components,
     is_local_only: isLocalDraftTemplate(tpl),
     telnyx_record_id: tpl?.telnyx_record_id || null,
+    last_push_error: tpl?.last_push_error || null,
   }
 }
 
@@ -249,6 +251,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [fixSyncing, setFixSyncing] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [surveyTypes, setSurveyTypes] = useState([])
@@ -500,6 +503,39 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     }
   }
 
+  const fixAndSync = async () => {
+    if (!editTarget) return
+    const templateId = activeTemplateId || editTarget.templateId
+    setFixSyncing(true)
+    setError('')
+    try {
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/fix-and-sync`, {
+        method: 'POST',
+        body: JSON.stringify({ repair: true, utility_rewrite: true, force_push: true }),
+        timeoutMs: 240000,
+      })
+      const action = String(data?.action || 'ok')
+      const steps = Array.isArray(data?.steps) ? data.steps.join(' → ') : ''
+      showToast(
+        data?.message ||
+          (action === 'linked'
+            ? 'Linked to Meta'
+            : action === 'synced_sibling'
+              ? 'Synced from sibling Meta row'
+              : 'Fix & sync complete'),
+      )
+      if (steps) {
+        console.info('[wa-template fix-and-sync]', steps)
+      }
+      onSaved?.()
+      await load()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Fix & sync failed').detailText || e?.message)
+    } finally {
+      setFixSyncing(false)
+    }
+  }
+
   const saveMappings = async () => {
     if (!editTarget?.templateId) return
     setSaving(true)
@@ -535,6 +571,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
 
   const t = draft
   const showUsage = (editTarget?.product === 'survey' || editTarget?.product === 'system') && !editTarget?.systemMode
+  const showFixAndSync = editTarget?.product === 'survey' || editTarget?.product === 'system'
   const metaNameReadOnly = Boolean(t && !t.is_local_only)
 
   return (
@@ -559,12 +596,25 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-1">
+                {showFixAndSync ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => void fixAndSync()}
+                    disabled={fixSyncing || syncing || saving}
+                    title="Repair draft, UTILITY-rewrite, push or link to Meta"
+                  >
+                    <Wrench className={cn('h-3.5 w-3.5', fixSyncing && 'animate-spin')} />
+                    {fixSyncing ? 'Fixing…' : 'Fix & Sync'}
+                  </Button>
+                ) : null}
                 <Button
                   size="sm"
                   variant="ghost"
                   className="wa-hub-ghost-btn h-7 gap-1 text-xs"
                   onClick={() => void sync()}
-                  disabled={syncing}
+                  disabled={syncing || fixSyncing}
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} /> Sync
                 </Button>
@@ -585,7 +635,12 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
             </div>
 
             {error ? (
-              <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">{error}</div>
+              <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive whitespace-pre-wrap">{error}</div>
+            ) : null}
+            {!error && t?.last_push_error ? (
+              <div className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning-foreground whitespace-pre-wrap">
+                Last push error: {t.last_push_error}
+              </div>
             ) : null}
             {toast ? (
               <div className="border-b border-success/30 bg-success-soft px-4 py-2 text-xs text-success">{toast}</div>

@@ -176,13 +176,23 @@ def main() -> int:
                         linked_count += 1
                         ok_count += 1
                         print(f"  LINKED {name} → {row.telnyx_record_id}")
-                    elif is_on_meta_live(row):
-                        skip_count += 1
-                        print(f"  SKIP already linked: {name}")
                     else:
-                        fail_count += 1
-                        failures.append({"id": row.id, "name": name, "error": "No matching Meta template to link", "phase": "link"})
-                        print(f"  FAIL link {name}: no remote match", file=sys.stderr)
+                        from app.services.survey_wa_template_fix_sync_service import (
+                            sync_survey_template_from_sibling_meta_owner,
+                        )
+
+                        owner = sync_survey_template_from_sibling_meta_owner(db, row)
+                        if owner is not None:
+                            linked_count += 1
+                            ok_count += 1
+                            print(f"  SYNCED from sibling row id={owner.id}: {name}")
+                        elif is_on_meta_live(row):
+                            skip_count += 1
+                            print(f"  SKIP already linked: {name}")
+                        else:
+                            fail_count += 1
+                            failures.append({"id": row.id, "name": name, "error": "No matching Meta template to link", "phase": "link"})
+                            print(f"  FAIL link {name}: no remote match", file=sys.stderr)
                 elif args.utility_rewrite:
                     row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
                     if renamed_to:
@@ -205,8 +215,18 @@ def main() -> int:
                         ok_count += 1
                         print(f"  LINKED (already on Meta): {name}")
                     else:
-                        skip_count += 1
-                        print(f"  SKIP already on Meta: {name}")
+                        from app.services.survey_wa_template_fix_sync_service import (
+                            sync_survey_template_from_sibling_meta_owner,
+                        )
+
+                        owner = sync_survey_template_from_sibling_meta_owner(db, row)
+                        if owner is not None:
+                            linked_count += 1
+                            ok_count += 1
+                            print(f"  SYNCED from sibling row id={owner.id}: {name}")
+                        else:
+                            skip_count += 1
+                            print(f"  SKIP already on Meta: {name}")
                 else:
                     fail_count += 1
                     failures.append({"id": row.id, "name": name, "error": err, "phase": "push"})
