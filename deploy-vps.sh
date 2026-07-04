@@ -269,7 +269,11 @@ restart_services() {
   verify_api_import
   ensure_auth_url_env
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
-  bash "$VOX_SH" restart
+  # Flags already supported by vox.sh — deploy already migrated DB and rsynced
+  # dashboard/admin to wwwroot. Without these, restart re-runs alembic and a full
+  # dashboard npm build, which looks like a hang on :8000.
+  VOX_SKIP_MIGRATE=1 VOX_SKIP_DASHBOARD_BUILD=1 VOX_SKIP_DASHBOARD_PREVIEW=1 \
+    bash "$VOX_SH" restart
   require_api_health 30
 }
 
