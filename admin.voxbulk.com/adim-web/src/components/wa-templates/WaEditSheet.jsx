@@ -24,7 +24,16 @@ import { Sheet, SheetClose, SheetContent } from '@/components/ui/Sheet'
 import { apiFetch } from '../../lib/api'
 import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaPhonePreview from './WaPhonePreview'
-import { IconBtn, LANGS, StatusDot, formatRelativeWhen, langCodeToChip, mapApprovalStatus, mapCategory } from './waTemplatesUi'
+import {
+  IconBtn,
+  LANGS,
+  StatusDot,
+  formatRelativeWhen,
+  langChipClass,
+  langCodeToChip,
+  mapApprovalStatus,
+  mapCategory,
+} from './waTemplatesUi'
 
 function parseComponents(raw) {
   if (Array.isArray(raw)) return raw
@@ -667,12 +676,8 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                             update('langs', on ? t.langs.filter((x) => x !== l) : [...t.langs, l])
                           }}
                           className={cn(
-                            'h-6 rounded-md px-2 text-[11px] font-medium ring-1 ring-inset transition-all',
-                            current
-                              ? 'bg-primary text-primary-foreground ring-primary'
-                              : on
-                                ? 'bg-primary/10 text-primary ring-primary/40'
-                                : 'bg-background text-muted-foreground ring-border hover:ring-primary/40',
+                            'h-6 rounded-md px-2 text-[11px] font-medium uppercase ring-1 ring-inset transition-all',
+                            langChipClass(l, { active: current, muted: !on && !current }),
                           )}
                         >
                           {l}

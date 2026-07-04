@@ -45,18 +45,43 @@ export function CategoryPill({ category }) {
   )
 }
 
+/** Light background colours per language code for quick scanning. */
+export function langChipClass(code, { active = false, muted = false } = {}) {
+  const key = String(code || '').toUpperCase()
+  // Light tint + readable text + matching ring
+  const map = {
+    EN: 'bg-red-100 text-red-800 ring-red-200',
+    AR: 'bg-green-100 text-green-800 ring-green-200',
+    FR: 'bg-blue-100 text-blue-800 ring-blue-200',
+    DE: 'bg-yellow-100 text-yellow-900 ring-yellow-200',
+    ES: 'bg-orange-100 text-orange-800 ring-orange-200',
+    PT: 'bg-teal-100 text-teal-800 ring-teal-200',
+    IT: 'bg-purple-100 text-purple-800 ring-purple-200',
+    TR: 'bg-rose-100 text-rose-800 ring-rose-200',
+    RU: 'bg-sky-100 text-sky-800 ring-sky-200',
+    HI: 'bg-amber-100 text-amber-900 ring-amber-200',
+  }
+  const base = map[key] || 'bg-surface-muted text-foreground/80 ring-border'
+  if (muted) return cn(base, 'opacity-45')
+  if (active) return cn(base, 'ring-2 font-semibold')
+  return base
+}
+
 export function LangChip({ langs, title }) {
   const list = Array.isArray(langs) ? langs : []
   const codes = list.length ? list : ['—']
   return (
     <span
-      className="inline-flex cursor-default flex-wrap items-center gap-1 text-xs font-medium text-foreground/80"
+      className="inline-flex cursor-default flex-wrap items-center gap-1 text-xs font-medium"
       title={title || codes.join(' · ')}
     >
       {codes.map((code) => (
         <span
           key={code}
-          className="inline-flex items-center rounded-md bg-surface-muted px-1.5 py-0.5 uppercase ring-1 ring-inset ring-border"
+          className={cn(
+            'inline-flex items-center rounded-md px-1.5 py-0.5 uppercase ring-1 ring-inset',
+            langChipClass(code),
+          )}
         >
           {code}
         </span>
