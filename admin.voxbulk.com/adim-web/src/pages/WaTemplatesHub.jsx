@@ -20,8 +20,22 @@ import WaIndustryBrowser from '../components/wa-templates/WaIndustryBrowser'
 import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
 import WaEditSheet from '../components/wa-templates/WaEditSheet'
 import WaRejectedDialog from '../components/wa-templates/WaRejectedDialog'
+import WaJobProgressDialog from '../components/wa-templates/WaJobProgressDialog'
 import { summarizeCatalog, toHubRow } from '../components/wa-templates/waTemplatesUi'
 import '../styles/wa-templates-hub.css'
+
+const EMPTY_JOB = {
+  open: false,
+  title: '',
+  dryRun: false,
+  steps: [],
+  phase: 'running',
+  summaryRows: [],
+  tables: {},
+  message: '',
+  error: '',
+  reportPath: '',
+}
 
 const TAGS = [
   { id: 'ai', label: 'AI Interview', icon: Sparkles },
@@ -118,6 +132,7 @@ export default function WaTemplatesHub() {
   const [salesTemplates, setSalesTemplates] = useState([])
   const [flatLoading, setFlatLoading] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+  const [job, setJob] = useState(EMPTY_JOB)
 
   const [surveyIndustries, setSurveyIndustries] = useState([])
   const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(false)
@@ -260,44 +275,104 @@ export default function WaTemplatesHub() {
     }
   }, [loadTemplateCounts, refreshTabData])
 
+  const patchJobStep = (stepId, patch) => {
+    setJob((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)),
+    }))
+  }
+
   const syncFromMeta = async () => {
+    const stepDefs = [
+      { id: 'catalog', label: '1. Pull Meta catalog' },
+      { id: 'link_repair', label: '2. Link & repair survey / feedback' },
+      { id: 'push', label: '3. Push pending templates' },
+      { id: 'cleanup', label: '4. Clean rejected / orphans' },
+    ]
     setSyncing(true)
     setSyncProgress('')
     setError('')
     setMsg('')
-    const steps = ['catalog', 'link_repair', 'push', 'cleanup']
+    setJob({
+      ...EMPTY_JOB,
+      open: true,
+      title: 'Sync with Meta',
+      phase: 'running',
+      steps: stepDefs.map((s) => ({ ...s, status: 'pending', detail: '' })),
+    })
     const messages = []
+    const summaryRows = []
     try {
       let last = null
-      for (let i = 0; i < steps.length; i += 1) {
-        const step = steps[i]
-        const label = `${i + 1}/${steps.length}`
+      for (let i = 0; i < stepDefs.length; i += 1) {
+        const step = stepDefs[i]
+        const label = `${i + 1}/${stepDefs.length}`
         setSyncProgress(label)
-        setMsg(`Syncing with Meta… ${label}`)
-        last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step}`, {
+        patchJobStep(step.id, { status: 'running', detail: 'Running…' })
+        last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
           method: 'POST',
           timeoutMs: 300000,
           quietNetworkHint: true,
         })
-        if (last?.message) messages.push(last.message)
+        const detail = last?.message || `Step ${label} done`
+        messages.push(detail)
+        patchJobStep(step.id, { status: 'done', detail })
+        if (last?.catalog?.synced != null) {
+          summaryRows.push({ metric: 'Catalog synced', count: last.catalog.synced })
+        }
+        if (last?.approved != null) summaryRows.push({ metric: 'Approved (step)', count: last.approved })
+        if (last?.pending != null) summaryRows.push({ metric: 'Pending (step)', count: last.pending })
+        if (last?.rejected != null) summaryRows.push({ metric: 'Rejected (step)', count: last.rejected })
+        if (last?.meta_rejected_deleted?.deleted != null) {
+          summaryRows.push({ metric: 'Meta rejected deleted', count: last.meta_rejected_deleted.deleted })
+        }
+        if (last?.clean?.deleted != null) {
+          summaryRows.push({ metric: 'Local orphans cleaned', count: last.clean.deleted })
+        }
+        if (last?.survey_push?.pushed != null) {
+          summaryRows.push({ metric: 'Survey pushed', count: last.survey_push.pushed })
+        }
+        if (last?.feedback_push?.pushed != null) {
+          summaryRows.push({ metric: 'Feedback pushed', count: last.feedback_push.pushed })
+        }
       }
       const result = last || {}
       const fallback = messages.length
         ? messages.join(' · ')
         : `Synced ${result.synced ?? 0} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · Rejected ${result.rejected ?? 0}`
-      setMsg(formatActionSuccess(result, fallback).message)
-      // Refresh full catalog counts (includes Utility / Marketing).
+      const finalMsg = formatActionSuccess(result, fallback).message
+      setMsg(finalMsg)
+      setJob((prev) => ({
+        ...prev,
+        phase: 'done',
+        message: finalMsg,
+        summaryRows: summaryRows.length
+          ? summaryRows
+          : [
+              { metric: 'Synced', count: result.synced ?? 0 },
+              { metric: 'Approved', count: result.approved ?? 0 },
+              { metric: 'Pending', count: result.pending ?? 0 },
+              { metric: 'Rejected', count: result.rejected ?? 0 },
+            ],
+        tables: {},
+      }))
       await loadTemplateCounts()
       refreshTabData()
     } catch (e) {
       const raw = e?.message || String(e)
       const aborted = e?.name === 'AbortError' || /aborted|abort/i.test(raw)
-      setError(
-        aborted
-          ? 'Meta sync timed out in the browser. The server may still be finishing — wait 1–2 minutes, refresh this page, and check template statuses. If it keeps failing, raise nginx proxy_read_timeout for /api/ to 300s.'
-          : formatWaSurveyError(e, 'Meta sync failed').detailText || raw || 'Meta sync failed',
-      )
+      const errText = aborted
+        ? 'Meta sync timed out in the browser. The server may still be finishing — wait 1–2 minutes, refresh this page, and check template statuses.'
+        : formatWaSurveyError(e, 'Meta sync failed').detailText || raw || 'Meta sync failed'
+      setError(errText)
       if (messages.length) setMsg(messages.join(' · '))
+      setJob((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: errText,
+        message: messages.join(' · '),
+        summaryRows,
+      }))
     } finally {
       setSyncing(false)
       setSyncProgress('')
@@ -535,34 +610,91 @@ export default function WaTemplatesHub() {
   }
 
   const runCleanupAndSync = async ({ dryRun = false } = {}) => {
-    const label = dryRun ? 'Dry-run cleanup' : 'Cleanup and sync'
+    const label = dryRun ? 'Dry-run cleanup' : 'Cleanup + push buttoned'
     if (
       !dryRun &&
       !window.confirm(
-        'Delete unused survey/feedback templates from local DB and Meta, then push buttoned keepers only? Interview and Sales are not touched.',
+        'Delete unused survey/feedback templates from local DB and Meta, then push buttoned keepers only? Interview and Sales are not touched. Local DB is source of truth.',
       )
     ) {
       return
     }
+    const stepDefs = [
+      { id: 'meta_cleanup', label: '1. Delete unused survey/CF from Meta' },
+      { id: 'local_cleanup', label: '2. Delete unused survey/CF from local DB' },
+      { id: 'push_buttoned', label: '3. Push buttoned keepers to Meta' },
+      { id: 'finalize', label: '4. Build report (local = source of truth)' },
+    ]
     setCleaning(true)
     setError('')
     setMsg('')
+    setJob({
+      ...EMPTY_JOB,
+      open: true,
+      title: label,
+      dryRun,
+      phase: 'running',
+      steps: stepDefs.map((s) => ({ ...s, status: 'pending', detail: '' })),
+    })
+
+    let meta = null
+    let local = null
+    let push = null
     try {
-      const result = await apiFetch('/admin/wa-templates/cleanup-and-sync', {
-        method: 'POST',
-        body: JSON.stringify({ dry_run: dryRun }),
-        timeoutMs: 600000,
-        quietNetworkHint: true,
-      })
-      const parts = [
-        result?.message || label,
-        result?.report_path ? `Report: ${result.report_path}` : null,
-      ].filter(Boolean)
-      setMsg(parts.join(' · '))
+      for (const step of stepDefs) {
+        patchJobStep(step.id, { status: 'running', detail: 'Running…' })
+        const body = { dry_run: dryRun, step: step.id }
+        if (step.id === 'finalize') {
+          body.meta = meta
+          body.local = local
+          body.push = push
+        }
+        const result = await apiFetch('/admin/wa-templates/cleanup-and-sync', {
+          method: 'POST',
+          body: JSON.stringify(body),
+          timeoutMs: 600000,
+          quietNetworkHint: true,
+        })
+        if (step.id === 'meta_cleanup') meta = result
+        if (step.id === 'local_cleanup') local = result
+        if (step.id === 'push_buttoned') push = result
+
+        const detail =
+          result?.message ||
+          (step.id === 'meta_cleanup'
+            ? `Deleted ${result?.deleted_meta_count ?? 0} from Meta`
+            : step.id === 'local_cleanup'
+              ? `Deleted ${result?.deleted_local_count ?? 0} from local`
+              : step.id === 'push_buttoned'
+                ? `Pushed ${result?.pushed_buttoned_count ?? 0}, buttonless ${result?.skipped_buttonless_count ?? 0}`
+                : 'Report ready')
+        patchJobStep(step.id, { status: 'done', detail })
+
+        if (step.id === 'finalize') {
+          const parts = [result?.message || label, result?.report_path ? `Report: ${result.report_path}` : null].filter(
+            Boolean,
+          )
+          setMsg(parts.join(' · '))
+          setJob((prev) => ({
+            ...prev,
+            phase: 'done',
+            message: parts.join(' · '),
+            summaryRows: Array.isArray(result?.summary_rows) ? result.summary_rows : [],
+            tables: result?.tables || {},
+            reportPath: result?.report_path || '',
+          }))
+        }
+      }
       await loadTemplateCounts()
       refreshTabData()
     } catch (e) {
-      setError(formatWaSurveyError(e, `${label} failed`).detailText || e?.message)
+      const errText = formatWaSurveyError(e, `${label} failed`).detailText || e?.message
+      setError(errText)
+      setJob((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: errText,
+      }))
     } finally {
       setCleaning(false)
     }
@@ -593,7 +725,7 @@ export default function WaTemplatesHub() {
 
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden items-center gap-3 text-[11px] text-muted-foreground lg:flex">
-              <span className="inline-flex items-center gap-1" title="Utility category templates">
+              <span className="inline-flex items-center gap-1" title="Live Meta: Utility category">
                 <span className="font-medium tabular-nums text-foreground">{templateCounts.utility}</span> utility
               </span>
               <span
@@ -601,26 +733,32 @@ export default function WaTemplatesHub() {
                   'inline-flex items-center gap-1',
                   templateCounts.marketing > 0 && 'font-medium text-warning-foreground',
                 )}
-                title="Marketing category templates"
+                title="Live Meta: Marketing category"
               >
                 <span className="tabular-nums">{templateCounts.marketing}</span> marketing
               </span>
               <span className="h-3 w-px bg-border" />
-              <span className="inline-flex items-center gap-1 text-success" title="Approved on Meta">
+              <span className="inline-flex items-center gap-1 text-success" title="Live Meta: approved">
                 <ClipboardList className="h-3 w-3" />
                 <span className="font-medium tabular-nums">{templateCounts.approved}</span> approved
               </span>
               {templateCounts.rejected > 0 ? (
-                <span className="inline-flex items-center gap-1 font-medium text-destructive" title="Rejected on Meta — needs fix">
+                <span className="inline-flex items-center gap-1 font-medium text-destructive" title="Live Meta: rejected">
                   <span className="tabular-nums">{templateCounts.rejected}</span> rejected
                 </span>
               ) : null}
-              <span className="inline-flex items-center gap-1" title="Local only — not on Meta yet">
+              <span
+                className="inline-flex items-center gap-1"
+                title="Local only (buttonless / drafts — not on Meta). Local is source of truth."
+              >
                 <BarChart3 className="h-3 w-3" />
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.localOnly}</span> local
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.localOnly}</span> local-only
               </span>
-              <span className="inline-flex items-center gap-1" title="All rows in catalog (Meta + local)">
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> total
+              <span
+                className="inline-flex items-center gap-1"
+                title="Live Meta WABA rows + local-only drafts (not the same as Meta Manager alone)"
+              >
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> meta+local
               </span>
             </div>
             <Link
@@ -812,6 +950,20 @@ export default function WaTemplatesHub() {
           if (tab === 'feedback') void loadFeedbackIndustries()
         }}
         onError={setError}
+      />
+
+      <WaJobProgressDialog
+        open={job.open}
+        title={job.title}
+        dryRun={job.dryRun}
+        steps={job.steps}
+        phase={job.phase}
+        summaryRows={job.summaryRows}
+        tables={job.tables}
+        message={job.message}
+        error={job.error}
+        reportPath={job.reportPath}
+        onClose={() => setJob(EMPTY_JOB)}
       />
     </div>
   )

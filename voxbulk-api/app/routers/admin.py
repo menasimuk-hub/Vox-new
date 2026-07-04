@@ -1695,7 +1695,14 @@ def wa_templates_cleanup_and_sync(
     step = str(body.get("step") or "").strip().lower()
     try:
         if step:
-            result = WaTemplateCleanupSyncService.run_step(db, step, dry_run=dry_run)
+            result = WaTemplateCleanupSyncService.run_step(
+                db,
+                step,
+                dry_run=dry_run,
+                meta=body.get("meta") if isinstance(body.get("meta"), dict) else None,
+                local=body.get("local") if isinstance(body.get("local"), dict) else None,
+                push=body.get("push") if isinstance(body.get("push"), dict) else None,
+            )
         else:
             result = WaTemplateCleanupSyncService.run_full(db, dry_run=dry_run)
         if not result.get("ok") and result.get("error"):

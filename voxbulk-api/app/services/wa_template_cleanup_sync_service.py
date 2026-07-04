@@ -504,9 +504,227 @@ class WaTemplateCleanupSyncService:
         }
 
     @staticmethod
-    def run_step(db: Session, step: str, *, dry_run: bool = False) -> dict[str, Any]:
+    def _count_button_split(db: Session, inv: dict[str, Any]) -> dict[str, Any]:
+        from app.services.customer_feedback.feedback_telnyx_push_service import parse_feedback_buttons
+        from app.services.survey_whatsapp_template_service import template_row_has_buttons
+
+        buttoned: list[dict[str, Any]] = []
+        buttonless: list[dict[str, Any]] = []
+        for row in inv.get("survey_keepers") or []:
+            entry = {
+                "id": row.id,
+                "name": row.name,
+                "language": row.language,
+                "product": "survey",
+            }
+            if template_row_has_buttons(row):
+                buttoned.append(entry)
+            else:
+                buttonless.append(entry)
+        for ft in inv.get("feedback_keepers") or []:
+            entry = {
+                "id": ft.id,
+                "name": ft.template_key,
+                "language": ft.language,
+                "product": "feedback",
+            }
+            if parse_feedback_buttons(ft.buttons_json):
+                buttoned.append(entry)
+            else:
+                buttonless.append(entry)
+        return {"buttoned": buttoned, "buttonless": buttonless}
+
+    @staticmethod
+    def _meta_reconcile(db: Session, inv: dict[str, Any]) -> dict[str, Any]:
+        """Compare live Meta survey/CF names to local keepers (local = source of truth)."""
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+        keeper_names: set[str] = set(inv.get("keeper_meta_names") or set())
+        try:
+            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "error": str(exc)[:400],
+                "meta_orphans_remaining": [],
+                "protected_on_meta": [],
+                "meta_survey_cf_count": 0,
+                "meta_waba_total": 0,
+                "protected_on_meta_count": 0,
+            }
+
+        orphans: list[dict[str, Any]] = []
+        protected: list[dict[str, Any]] = []
+        meta_survey_cf = 0
+        meta_waba_total = 0
+        seen_orphan_names: set[str] = set()
+
+        for item in remote or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            status = str(item.get("status") or "").strip().upper()
+            if status in {"DELETED", "DISABLED", "PENDING_DELETION"}:
+                continue
+            meta_waba_total += 1
+            name_l = name.lower()
+            if _remote_name_is_protected(name):
+                protected.append(
+                    {
+                        "name": name,
+                        "language": item.get("language"),
+                        "status": status,
+                        "reason": "protected_interview_or_sales",
+                    }
+                )
+                continue
+            if not _remote_name_is_survey_or_cf(name):
+                continue
+            meta_survey_cf += 1
+            if name_l not in keeper_names and name_l not in seen_orphan_names:
+                seen_orphan_names.add(name_l)
+                orphans.append(
+                    {
+                        "name": name,
+                        "language": item.get("language"),
+                        "status": status,
+                        "reason": "on_meta_not_in_local_keepers",
+                    }
+                )
+
+        return {
+            "ok": True,
+            "meta_orphans_remaining": orphans,
+            "protected_on_meta": protected,
+            "meta_survey_cf_count": meta_survey_cf,
+            "meta_waba_total": meta_waba_total,
+            "protected_on_meta_count": len(protected),
+        }
+
+    @staticmethod
+    def finalize(
+        db: Session,
+        *,
+        dry_run: bool = False,
+        meta: dict[str, Any] | None = None,
+        local: dict[str, Any] | None = None,
+        push: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build UI tables + proof JSON. Local keepers are source of truth."""
+        meta = meta if isinstance(meta, dict) else {}
+        local = local if isinstance(local, dict) else {}
+        push = push if isinstance(push, dict) else {}
+
+        inv = WaTemplateCleanupSyncService.build_keeper_inventory(db)
+        split = WaTemplateCleanupSyncService._count_button_split(db, inv)
+        reconcile = WaTemplateCleanupSyncService._meta_reconcile(db, inv)
+
+        deleted_meta = list(meta.get("deleted_meta") or []) + list(local.get("deleted_meta") or [])
+        deleted_local = list(local.get("deleted_local") or [])
+        pushed = list(push.get("pushed_buttoned") or [])
+        skipped_buttonless = list(push.get("skipped_buttonless") or split["buttonless"])
+        push_failed = list(push.get("failed") or [])
+        warnings = list(meta.get("warnings") or []) + list(local.get("warnings") or [])
+
+        keepers_count = len(inv["survey_keepers"]) + len(inv["feedback_keepers"])
+        buttonless_count = len(split["buttonless"])
+        buttoned_count = len(split["buttoned"])
+        local_total = keepers_count
+        meta_survey_cf = int(reconcile.get("meta_survey_cf_count") or 0)
+        # Local should be >= Meta survey/CF when buttonless stay local-only.
+        local_ge_meta = local_total >= meta_survey_cf
+
+        summary_rows = [
+            {"metric": "Local keepers (source of truth)", "count": keepers_count},
+            {"metric": "Survey keepers", "count": len(inv["survey_keepers"])},
+            {"metric": "Feedback keepers", "count": len(inv["feedback_keepers"])},
+            {"metric": "Buttonless local (not on Meta)", "count": buttonless_count},
+            {"metric": "Buttoned (should be on Meta)", "count": buttoned_count},
+            {"metric": "Pushed / submitted to Meta", "count": len(pushed)},
+            {"metric": "Deleted from local", "count": len(deleted_local)},
+            {"metric": "Deleted from Meta", "count": len(deleted_meta)},
+            {
+                "metric": "Still on Meta, not in local (orphans)",
+                "count": len(reconcile.get("meta_orphans_remaining") or []),
+            },
+            {
+                "metric": "Protected on Meta (interview/sales)",
+                "count": int(reconcile.get("protected_on_meta_count") or 0),
+            },
+            {"metric": "Meta survey+CF language rows", "count": meta_survey_cf},
+            {"metric": "Meta WABA total (all products)", "count": int(reconcile.get("meta_waba_total") or 0)},
+            {"metric": "Push failures", "count": len(push_failed)},
+        ]
+
+        report = {
+            "ok": True,
+            "dry_run": dry_run,
+            "ran_at": _now_utc().isoformat(),
+            "local_is_source_of_truth": True,
+            "keepers_count": keepers_count,
+            "survey_keepers": len(inv["survey_keepers"]),
+            "feedback_keepers": len(inv["feedback_keepers"]),
+            "buttonless_count": buttonless_count,
+            "buttoned_count": buttoned_count,
+            "local_total": local_total,
+            "meta_survey_cf_count": meta_survey_cf,
+            "meta_waba_total": int(reconcile.get("meta_waba_total") or 0),
+            "local_ge_meta_survey_cf": local_ge_meta,
+            "pushed_buttoned": len(pushed),
+            "pushed_buttoned_items": pushed,
+            "skipped_buttonless": buttonless_count,
+            "skipped_buttonless_items": skipped_buttonless,
+            "deleted_local": deleted_local,
+            "deleted_local_count": len(deleted_local),
+            "deleted_meta": deleted_meta,
+            "deleted_meta_count": len(deleted_meta),
+            "meta_orphans_remaining": reconcile.get("meta_orphans_remaining") or [],
+            "protected_on_meta": reconcile.get("protected_on_meta") or [],
+            "protected_on_meta_count": int(reconcile.get("protected_on_meta_count") or 0),
+            "push_failed": push_failed,
+            "warnings": warnings,
+            "summary_rows": summary_rows,
+            "tables": {
+                "deleted_local": deleted_local,
+                "deleted_meta": deleted_meta,
+                "pushed": pushed,
+                "skipped_buttonless": skipped_buttonless,
+                "meta_orphans_remaining": reconcile.get("meta_orphans_remaining") or [],
+                "push_failed": push_failed,
+                "warnings": [{"message": w} for w in warnings],
+            },
+        }
+        report_path = WaTemplateCleanupSyncService._write_report(report)
+        report["report_path"] = report_path
+        report["message"] = (
+            f"{'Dry-run: ' if dry_run else ''}"
+            f"local_keepers={keepers_count} (source of truth), "
+            f"buttonless={buttonless_count}, "
+            f"deleted_local={len(deleted_local)}, "
+            f"deleted_meta={len(deleted_meta)}, "
+            f"pushed={len(pushed)}, "
+            f"meta_orphans={len(reconcile.get('meta_orphans_remaining') or [])}, "
+            f"meta_waba={reconcile.get('meta_waba_total') or 0}"
+        )
+        report["step"] = "finalize"
+        report["step_index"] = 4
+        report["step_total"] = 4
+        return report
+
+    @staticmethod
+    def run_step(
+        db: Session,
+        step: str,
+        *,
+        dry_run: bool = False,
+        meta: dict[str, Any] | None = None,
+        local: dict[str, Any] | None = None,
+        push: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         key = str(step or "").strip().lower()
-        steps = ("meta_cleanup", "local_cleanup", "push_buttoned")
+        steps = ("meta_cleanup", "local_cleanup", "push_buttoned", "finalize")
         if key not in steps:
             return {"ok": False, "error": f"Unknown step. Use one of: {', '.join(steps)}"}
 
@@ -514,8 +732,12 @@ class WaTemplateCleanupSyncService:
             result = WaTemplateCleanupSyncService.meta_cleanup(db, dry_run=dry_run)
         elif key == "local_cleanup":
             result = WaTemplateCleanupSyncService.local_cleanup(db, dry_run=dry_run)
-        else:
+        elif key == "push_buttoned":
             result = WaTemplateCleanupSyncService.push_buttoned(db, dry_run=dry_run)
+        else:
+            result = WaTemplateCleanupSyncService.finalize(
+                db, dry_run=dry_run, meta=meta, local=local, push=push
+            )
 
         result["step"] = key
         result["step_index"] = steps.index(key) + 1
@@ -524,42 +746,13 @@ class WaTemplateCleanupSyncService:
 
     @staticmethod
     def run_full(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
-        inv = WaTemplateCleanupSyncService.build_keeper_inventory(db)
         meta = WaTemplateCleanupSyncService.meta_cleanup(db, dry_run=dry_run)
         local = WaTemplateCleanupSyncService.local_cleanup(db, dry_run=dry_run)
         push = WaTemplateCleanupSyncService.push_buttoned(db, dry_run=dry_run)
-
-        deleted_meta = list(meta.get("deleted_meta") or []) + list(local.get("deleted_meta") or [])
-        deleted_local = list(local.get("deleted_local") or [])
-        report = {
-            "ok": bool(meta.get("ok") and local.get("ok") and push.get("ok")),
-            "dry_run": dry_run,
-            "ran_at": _now_utc().isoformat(),
-            "keepers_count": len(inv["survey_keepers"]) + len(inv["feedback_keepers"]),
-            "survey_keepers": len(inv["survey_keepers"]),
-            "feedback_keepers": len(inv["feedback_keepers"]),
-            "pushed_buttoned": push.get("pushed_buttoned_count") or 0,
-            "pushed_buttoned_items": push.get("pushed_buttoned") or [],
-            "skipped_buttonless": push.get("skipped_buttonless_count") or 0,
-            "skipped_buttonless_items": push.get("skipped_buttonless") or [],
-            "deleted_local": deleted_local,
-            "deleted_local_count": len(deleted_local),
-            "deleted_meta": deleted_meta,
-            "deleted_meta_count": len(deleted_meta),
-            "skipped_protected": meta.get("skipped_protected") or inv.get("protected") or [],
-            "push_failed": push.get("failed") or [],
-            "warnings": list(meta.get("warnings") or []) + list(local.get("warnings") or []),
-        }
-        report_path = WaTemplateCleanupSyncService._write_report(report)
-        report["report_path"] = report_path
-        report["message"] = (
-            f"{'Dry-run: ' if dry_run else ''}"
-            f"keepers={report['keepers_count']}, "
-            f"deleted_local={report['deleted_local_count']}, "
-            f"deleted_meta={report['deleted_meta_count']}, "
-            f"pushed_buttoned={report['pushed_buttoned']}, "
-            f"skipped_buttonless={report['skipped_buttonless']}"
+        report = WaTemplateCleanupSyncService.finalize(
+            db, dry_run=dry_run, meta=meta, local=local, push=push
         )
+        report["ok"] = bool(meta.get("ok") and local.get("ok") and push.get("ok") and report.get("ok"))
         return report
 
     @staticmethod
