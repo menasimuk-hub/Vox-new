@@ -58,17 +58,22 @@ _UTILITY_CONTEXT_PHRASES = (
     "recent transaction",
     "following your",
     "after your recent",
+    "at work",
+    "in your role",
+    "in your job",
+    "your team",
+    "your manager",
+    "your workplace",
 )
 
 _META_UTILITY_GUIDANCE = """
 Meta WhatsApp UTILITY — Feedback Survey rules (2025):
-- Must collect feedback on a PREVIOUS order, transaction, or engagement with the business.
-- Must be specific to the interaction (not a generic marketing survey).
+- Must collect feedback on a previous engagement with the organisation (visit, service, OR work/role for employee surveys).
+- Must be specific to the survey topic and industry context (not a generic marketing survey).
 - Must be NON-PROMOTIONAL: no offers, discounts, upsell, loyalty promos, or persuasive marketing tone.
 - Keep the original leading emoji when present (one emoji at the start is fine for feedback tone).
-- Do NOT use vague openers like "We'd love your feedback" without tying to a recent interaction.
-- Use exactly ONE recent-interaction phrase; do not stack multiple (bad: "Following your recent visit, based on your recent purchase, …").
-- Good pattern: "😊 Following your recent visit, how would you rate …?" or "After your recent service experience, …"
+- Match the industry frame: employee/workplace surveys must NOT say "visit"; use work/role language.
+- Customer-facing surveys may use visit/service language.
 - Keep the same rating intent and answer options meaning; only rewrite the BODY question sentence(s).
 - BODY must be plain text with NO {{1}} variables for these abc_choice templates.
 - Max {max_chars} characters.
@@ -143,22 +148,41 @@ def _rule_based_utility_body(
     *,
     topic_hint: str = "",
     leading_emoji: str = "",
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
 ) -> str:
+    from app.services.wa_template_utility_content import resolve_industry_frame, utility_body_for_topic
+
     emoji, cleaned = _extract_leading_emoji(original)
     if leading_emoji:
         emoji = leading_emoji
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
     if not cleaned:
-        cleaned = "your experience"
-    if _mentions_recent_interaction(cleaned):
+        cleaned = frame["experience"]
+    # Never force visit language onto employee surveys.
+    if frame["key"] == "employee" and "visit" in cleaned.lower():
+        topic = topic_hint.strip() or frame["fallback_topic"]
+        return _prepend_leading_emoji(
+            emoji,
+            _sanitize_body(f"How would you rate {topic} at work? Reply with one option below."),
+        )
+    if _mentions_recent_interaction(cleaned) and not (
+        frame["key"] == "employee" and "visit" in cleaned.lower()
+    ):
         return _prepend_leading_emoji(emoji, _sanitize_body(cleaned))
-    topic = topic_hint.strip() or "your recent experience"
-    if cleaned.endswith("?"):
-        inner = cleaned[:-1].strip()
-        rewritten = f"Following your recent visit, {inner.lower()}?"
-    else:
-        rewritten = f"Following your recent visit, how would you rate {topic}?"
-    return _prepend_leading_emoji(emoji, _sanitize_body(rewritten))
+    topic = topic_hint.strip() or frame["fallback_topic"]
+    return _prepend_leading_emoji(
+        emoji,
+        _sanitize_body(
+            utility_body_for_topic(
+                topic,
+                emoji="",
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+            ).lstrip()
+        ),
+    )
 
 
 def _parse_rewrite_json(raw: str) -> dict[str, Any] | None:
@@ -200,15 +224,23 @@ def rewrite_body_for_utility(
     display_name: str | None = None,
     use_llm: bool = True,
     llm_provider: str = "openai",
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+    topic_name: str | None = None,
 ) -> str:
-    topic = _topic_from_template_name(template_name)
+    from app.services.wa_template_utility_content import resolve_industry_frame
+
+    topic = (topic_name or _topic_from_template_name(template_name)).strip()
     label = display_name or template_name
+    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
     leading_emoji, _ = _extract_leading_emoji(original_body)
     if not use_llm:
         return _rule_based_utility_body(
             original_body,
             topic_hint=topic,
             leading_emoji=leading_emoji,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
         )
 
     system_prompt = (
@@ -225,12 +257,14 @@ def rewrite_body_for_utility(
         else "No leading emoji in the original."
     )
     user_prompt = (
+        f"Industry: {industry_name or industry_slug or 'n/a'} (frame={frame['key']})\n"
         f"Template: {label}\n"
-        f"Survey topic hint: {topic}\n"
+        f"Survey topic: {topic}\n"
+        f"Context phrase to use: {frame['context']}\n"
         f"Current BODY:\n{original_body}\n\n"
         f"{emoji_hint}\n"
         f"Quick-reply buttons (keep meaning aligned): {', '.join(button_labels) or 'n/a'}\n\n"
-        "Rewrite BODY only."
+        "Rewrite BODY only. Match the industry frame exactly."
     )
     try:
         result = OpenAIProviderService.complete(
@@ -246,11 +280,21 @@ def rewrite_body_for_utility(
         body = _sanitize_body(body)
         if not body:
             raise ValueError("empty body from model")
-        if not _mentions_recent_interaction(body):
+        if frame["key"] == "employee" and "visit" in body.lower():
             body = _rule_based_utility_body(
                 body,
                 topic_hint=topic,
                 leading_emoji=leading_emoji,
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+            )
+        elif not _mentions_recent_interaction(body):
+            body = _rule_based_utility_body(
+                body,
+                topic_hint=topic,
+                leading_emoji=leading_emoji,
+                industry_slug=industry_slug,
+                industry_name=industry_name,
             )
         else:
             body = _prepend_leading_emoji(leading_emoji, body)
@@ -261,6 +305,8 @@ def rewrite_body_for_utility(
             original_body,
             topic_hint=topic,
             leading_emoji=leading_emoji,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
         )
 
 

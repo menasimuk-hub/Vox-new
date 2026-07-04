@@ -10,9 +10,34 @@ DEFAULT_EMOJI = "📋"
 RATING_BUTTONS = ["Excellent", "Good", "Poor"]
 YES_NO_BUTTONS = ["Yes", "No"]
 THANKS_BUTTONS = ["Done"]
+WELCOME_BUTTONS = ["Start survey"]
 AR_RATING_BUTTONS = ["ممتاز", "جيد", "ضعيف"]
 AR_YES_NO_BUTTONS = ["نعم", "لا"]
 AR_THANKS_BUTTONS = ["تم"]
+AR_WELCOME_BUTTONS = ["ابدأ الاستبيان"]
+
+# Open-text system kinds: no quick-reply buttons.
+NO_BUTTON_KINDS = frozenset({"thank_you", "tell_us_more", "final_feedback", "open_question"})
+
+# Industry framing — never force "visit" on employee/internal surveys.
+EMPLOYEE_INDUSTRY_SIGNALS = (
+    "employee",
+    "workplace",
+    "staff_survey",
+    "internal",
+    "hr_",
+)
+CUSTOMER_VISIT_SIGNALS = (
+    "hospitality",
+    "restaurant",
+    "retail",
+    "clinic",
+    "dental",
+    "hotel",
+    "salon",
+    "cafe",
+    "food",
+)
 
 # English marketing signals Meta uses to reclassify Utility → Marketing.
 PROMO_WORDS_EN = re.compile(
@@ -106,7 +131,65 @@ def _has_latin(text: str) -> bool:
     return bool(re.search(r"[A-Za-z]", text or ""))
 
 
-def safe_topic_en(topic_name: str | None) -> str:
+def resolve_industry_frame(
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+    *,
+    language: str | None = None,
+) -> dict[str, str]:
+    """Return framing phrases for Utility survey copy (EN or AR)."""
+    blob = f"{industry_slug or ''} {industry_name or ''}".strip().lower().replace("-", "_")
+    ar = str(language or "").lower().startswith("ar")
+    if any(sig in blob for sig in EMPLOYEE_INDUSTRY_SIGNALS):
+        if ar:
+            return {
+                "key": "employee",
+                "context": "في عملك",
+                "experience": "تجربتك في العمل",
+                "fallback_topic": "عملك",
+            }
+        return {
+            "key": "employee",
+            "context": "at work",
+            "experience": "your experience at work",
+            "fallback_topic": "your work",
+        }
+    if any(sig in blob for sig in CUSTOMER_VISIT_SIGNALS):
+        if ar:
+            return {
+                "key": "visit",
+                "context": "في زيارتك الأخيرة معنا",
+                "experience": "زيارتك الأخيرة معنا",
+                "fallback_topic": "هذه الخدمة",
+            }
+        return {
+            "key": "visit",
+            "context": "on your recent visit with us",
+            "experience": "your recent visit with us",
+            "fallback_topic": "your recent visit",
+        }
+    if ar:
+        return {
+            "key": "experience",
+            "context": "في تجربتك الأخيرة معنا",
+            "experience": "تجربتك الأخيرة معنا",
+            "fallback_topic": "هذه الخدمة",
+        }
+    return {
+        "key": "experience",
+        "context": "in your recent experience with us",
+        "experience": "your recent experience with us",
+        "fallback_topic": "your recent experience",
+    }
+
+
+def safe_topic_en(
+    topic_name: str | None,
+    *,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+) -> str:
+    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
     raw = str(topic_name or "").strip()
     key = _norm_topic_key(raw)
     if key in TOPIC_SAFE_EN:
@@ -116,13 +199,19 @@ def safe_topic_en(topic_name: str | None) -> str:
         return TOPIC_SAFE_EN[slug_key]
     # Strip banned words from topic label.
     cleaned = PROMO_WORDS_EN.sub("service", raw)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip() or "your recent visit"
+    cleaned = re.sub(r"\s+", " ", cleaned).strip() or frame["fallback_topic"]
     if is_promo_wording(cleaned):
-        return "your recent visit"
+        return frame["fallback_topic"]
     return cleaned.lower()
 
 
-def safe_topic_ar(topic_name: str | None) -> str:
+def safe_topic_ar(
+    topic_name: str | None,
+    *,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+) -> str:
+    frame = resolve_industry_frame(industry_slug, industry_name, language="ar")
     raw = str(topic_name or "").strip()
     key = _norm_topic_key(raw)
     if key in TOPIC_SAFE_AR:
@@ -132,10 +221,10 @@ def safe_topic_ar(topic_name: str | None) -> str:
         return TOPIC_SAFE_AR[slug_key]
     # Never inject English into Arabic bodies.
     if _has_latin(raw) or is_promo_wording(raw):
-        return "هذه الخدمة"
+        return frame["fallback_topic"]
     cleaned = PROMO_WORDS_AR.sub("", raw)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned or "هذه الخدمة"
+    return cleaned or frame["fallback_topic"]
 
 
 def has_leading_emoji(text: str | None) -> bool:
@@ -146,10 +235,20 @@ def has_leading_emoji(text: str | None) -> bool:
     return ord(ch) > 127 or ch in {"✅", "📋", "⭐", "🙏", "💬", "📝", "👍", "👋", "🔔"}
 
 
-def ensure_leading_emoji(text: str | None, *, emoji: str = DEFAULT_EMOJI) -> str:
+def ensure_leading_emoji(
+    text: str | None,
+    *,
+    emoji: str = DEFAULT_EMOJI,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+    language: str | None = None,
+) -> str:
     body = str(text or "").strip()
     if not body:
-        return f"{emoji} How was your recent visit with us?"
+        frame = resolve_industry_frame(industry_slug, industry_name, language=language)
+        if str(language or "").lower().startswith("ar"):
+            return f"{emoji} كيف كانت {frame['experience']}؟"
+        return f"{emoji} How was {frame['experience']}?"
     if has_leading_emoji(body):
         return body
     return f"{emoji} {body}"
@@ -171,34 +270,86 @@ def extract_buttons_from_components(components: list[dict[str, Any]] | None) -> 
     return labels
 
 
-def default_buttons_for_key(template_key: str | None, *, name: str | None = None) -> list[str]:
+def _kind_from_key_or_name(template_key: str | None, name: str | None = None) -> str:
     key = str(template_key or name or "").strip().lower()
-    if any(token in key for token in ("thank", "done", "confirm_book", "booked")):
-        return list(THANKS_BUTTONS)
-    if any(token in key for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
+    for kind in ("welcome", "thank_you", "tell_us_more", "final_feedback", "open_question"):
+        if kind in key:
+            return kind
+    return ""
+
+
+def default_buttons_for_key(
+    template_key: str | None,
+    *,
+    name: str | None = None,
+    system_kind: str | None = None,
+) -> list[str]:
+    kind = str(system_kind or _kind_from_key_or_name(template_key, name)).strip().lower()
+    if kind == "welcome" or (not kind and "welcome" in str(template_key or name or "").lower()):
+        return list(WELCOME_BUTTONS)
+    if kind in NO_BUTTON_KINDS or any(
+        token in str(template_key or name or "").lower()
+        for token in ("thank_you", "tell_us_more", "final_feedback", "open_question")
+    ):
+        return []
+    if any(token in str(template_key or name or "").lower() for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
         return list(YES_NO_BUTTONS)
     return list(RATING_BUTTONS)
 
 
-def buttons_for_language(template_key: str | None, *, name: str | None, language: str | None) -> list[str]:
-    key = str(template_key or name or "").strip().lower()
-    if str(language or "").lower().startswith("ar"):
-        if any(token in key for token in ("thank", "done", "confirm_book", "booked")):
-            return list(AR_THANKS_BUTTONS)
-        if any(token in key for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
+def buttons_for_language(
+    template_key: str | None,
+    *,
+    name: str | None,
+    language: str | None,
+    system_kind: str | None = None,
+) -> list[str]:
+    kind = str(system_kind or _kind_from_key_or_name(template_key, name)).strip().lower()
+    ar = str(language or "").lower().startswith("ar")
+    if kind == "welcome" or (not kind and "welcome" in str(template_key or name or "").lower()):
+        return list(AR_WELCOME_BUTTONS if ar else WELCOME_BUTTONS)
+    if kind in NO_BUTTON_KINDS or any(
+        token in str(template_key or name or "").lower()
+        for token in ("thank_you", "tell_us_more", "final_feedback", "open_question")
+    ):
+        return []
+    if ar:
+        if any(token in str(template_key or name or "").lower() for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
             return list(AR_YES_NO_BUTTONS)
         return list(AR_RATING_BUTTONS)
-    return default_buttons_for_key(template_key, name=name)
+    return default_buttons_for_key(template_key, name=name, system_kind=system_kind)
 
 
-def utility_body_for_topic(topic_name: str | None, *, emoji: str = DEFAULT_EMOJI) -> str:
-    topic = safe_topic_en(topic_name)
-    return f"{emoji} How was {topic} for your recent visit with us? Reply with one option below."
+def utility_body_for_topic(
+    topic_name: str | None,
+    *,
+    emoji: str = DEFAULT_EMOJI,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+) -> str:
+    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
+    topic = safe_topic_en(topic_name, industry_slug=industry_slug, industry_name=industry_name)
+    if frame["key"] == "employee":
+        return f"{emoji} How would you rate {topic} at work? Reply with one option below."
+    if frame["key"] == "visit":
+        return f"{emoji} How was {topic} on your recent visit with us? Reply with one option below."
+    return f"{emoji} How was {topic} in your recent experience with us? Reply with one option below."
 
 
-def utility_body_ar_for_topic(topic_name: str | None, *, emoji: str = DEFAULT_EMOJI) -> str:
-    topic = safe_topic_ar(topic_name)
-    return f"{emoji} كيف كانت {topic} في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
+def utility_body_ar_for_topic(
+    topic_name: str | None,
+    *,
+    emoji: str = DEFAULT_EMOJI,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+) -> str:
+    frame = resolve_industry_frame(industry_slug, industry_name, language="ar")
+    topic = safe_topic_ar(topic_name, industry_slug=industry_slug, industry_name=industry_name)
+    if frame["key"] == "employee":
+        return f"{emoji} كيف تقيّم {topic} في عملك؟ اختر أحد الخيارات أدناه."
+    if frame["key"] == "visit":
+        return f"{emoji} كيف كانت {topic} في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
+    return f"{emoji} كيف كانت {topic} في تجربتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
 
 
 def is_promo_wording(text: str | None) -> bool:
@@ -206,19 +357,37 @@ def is_promo_wording(text: str | None) -> bool:
     return bool(PROMO_WORDS_EN.search(s) or PROMO_WORDS_AR.search(s))
 
 
-def sanitize_utility_text(text: str | None, *, language: str | None = None) -> str:
+def sanitize_utility_text(
+    text: str | None,
+    *,
+    language: str | None = None,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+) -> str:
     """Remove marketing words; return neutral Utility-safe text."""
     s = str(text or "").strip()
     if not s:
         if str(language or "").lower().startswith("ar"):
-            return utility_body_ar_for_topic(None)
-        return utility_body_for_topic(None)
+            return utility_body_ar_for_topic(
+                None, industry_slug=industry_slug, industry_name=industry_name
+            )
+        return utility_body_for_topic(
+            None, industry_slug=industry_slug, industry_name=industry_name
+        )
     if not is_promo_wording(s):
-        return ensure_leading_emoji(s)
-    # Rebuild from topic-like fragment if possible.
+        return ensure_leading_emoji(
+            s,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+            language=language,
+        )
     if str(language or "").lower().startswith("ar"):
-        return utility_body_ar_for_topic(s)
-    return utility_body_for_topic(s)
+        return utility_body_ar_for_topic(
+            s, industry_slug=industry_slug, industry_name=industry_name
+        )
+    return utility_body_for_topic(
+        s, industry_slug=industry_slug, industry_name=industry_name
+    )
 
 
 def build_utility_components(
@@ -227,12 +396,21 @@ def build_utility_components(
     buttons: list[str],
     example_values: list[str] | None = None,
     language: str | None = None,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+    allow_empty_buttons: bool = False,
 ) -> list[dict[str, Any]]:
-    body_text = sanitize_utility_text(body, language=language)
+    body_text = sanitize_utility_text(
+        body,
+        language=language,
+        industry_slug=industry_slug,
+        industry_name=industry_name,
+    )
     vars_in_body = re.findall(r"\{\{(\d+)\}\}", body_text)
     examples = list(example_values or [])
     if vars_in_body and not examples:
-        examples = ["your recent visit" for _ in vars_in_body]
+        frame = resolve_industry_frame(industry_slug, industry_name, language=language)
+        examples = [frame["fallback_topic"] for _ in vars_in_body]
     body_comp: dict[str, Any] = {"type": "BODY", "text": body_text}
     if examples:
         body_comp["example"] = {"body_text": [examples]}
@@ -240,14 +418,15 @@ def build_utility_components(
     labels = [str(b).strip()[:25] for b in buttons if str(b).strip()]
     labels = [re.sub(r"[^\w\s\-/'&]", "", b).strip()[:25] for b in labels]
     labels = [b for b in labels if b and not is_promo_wording(b)]
-    if not labels:
+    if not labels and not allow_empty_buttons:
         labels = list(AR_RATING_BUTTONS if str(language or "").lower().startswith("ar") else RATING_BUTTONS)
-    comps.append(
-        {
-            "type": "BUTTONS",
-            "buttons": [{"type": "QUICK_REPLY", "text": label} for label in labels[:3]],
-        }
-    )
+    if labels:
+        comps.append(
+            {
+                "type": "BUTTONS",
+                "buttons": [{"type": "QUICK_REPLY", "text": label} for label in labels[:3]],
+            }
+        )
     return comps
 
 

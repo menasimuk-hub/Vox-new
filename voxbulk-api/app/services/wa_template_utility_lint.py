@@ -55,6 +55,21 @@ _UTILITY_CONTEXT_PHRASES = (
     "application for",
     "check your inbox",
     "position at",
+    # Employee / workplace surveys (not visit-framed)
+    "at work",
+    "in your role",
+    "in your job",
+    "your team",
+    "your manager",
+    "your workplace",
+    "your work",
+    "your contributions",
+    "your workload",
+    "start survey",
+    "ابدأ الاستبيان",
+    "في عملك",
+    "في دورك",
+    "تجربتك في العمل",
 )
 
 # English promotional / marketing signals (Meta auto-reclassifies as MARKETING)

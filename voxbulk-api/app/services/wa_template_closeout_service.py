@@ -12,9 +12,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
+from app.models.industry import Industry
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.wa_template_utility_content import (
+    NO_BUTTON_KINDS,
     build_utility_components,
     buttons_for_language,
     ensure_leading_emoji,
@@ -101,34 +103,67 @@ class WaTemplateCloseoutService:
         buttons = [re.sub(r"[^\w\s\-/'&]", "", b).strip()[:25] for b in buttons if b.strip()]
         buttons = [b for b in buttons if b and not is_promo_wording(b)]
         topic = None
-        if row.survey_type_id:
-            st = db.get(SurveyType, row.survey_type_id)
-            topic = st.name if st else None
+        industry_slug = None
+        industry_name = None
+        system_kind = None
+        st = db.get(SurveyType, row.survey_type_id) if row.survey_type_id else None
+        if st is not None:
+            topic = st.name
+            system_kind = str(st.system_template_kind or "").strip().lower() or None
+            if st.industry_id:
+                ind = db.get(Industry, st.industry_id)
+                if ind is not None:
+                    industry_slug = ind.slug
+                    industry_name = ind.name
         if not topic:
-            topic = str(row.display_name or row.name or "your recent visit")
+            topic = str(row.display_name or row.name or "your recent experience")
 
         status = str(row.status or "").upper()
         category = str(row.category or "").upper()
+        allow_empty = system_kind in NO_BUTTON_KINDS or any(
+            token in str(row.name or "").lower()
+            for token in ("thank_you", "tell_us_more", "final_feedback")
+        )
+        employee_visit_bug = (
+            "recent visit" in body.lower()
+            and bool(industry_slug)
+            and "employee" in str(industry_slug).lower()
+        )
         needs = (
             force
             or status == "REJECTED"
-            or not buttons
+            or (not buttons and not allow_empty)
             or not has_leading_emoji(body)
             or is_promo_wording(body)
             or is_promo_wording(row.name)
             or is_promo_wording(row.display_name)
             or (category == "MARKETING" and not str(row.sales_template_key or "").startswith("sales_"))
+            or employee_visit_bug
         )
         if not needs:
             return False
 
         if _is_arabic_lang(row.language):
-            body = utility_body_ar_for_topic(topic)
+            body = utility_body_ar_for_topic(
+                topic, industry_slug=industry_slug, industry_name=industry_name
+            )
         else:
-            body = utility_body_for_topic(topic)
-        buttons = buttons_for_language(row.sales_template_key, name=row.name, language=row.language)
+            body = utility_body_for_topic(
+                topic, industry_slug=industry_slug, industry_name=industry_name
+            )
+        buttons = buttons_for_language(
+            row.sales_template_key,
+            name=row.name,
+            language=row.language,
+            system_kind=system_kind,
+        )
         new_components = build_utility_components(
-            body=body, buttons=buttons, language=row.language
+            body=body,
+            buttons=buttons,
+            language=row.language,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+            allow_empty_buttons=allow_empty,
         )
         row.draft_components_json = _dumps(new_components)
         row.body_preview = body
