@@ -426,6 +426,7 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
     if (!id || seen.has(id)) continue
     seen.add(id)
     const langs = tpl.languages || [tpl.language].filter(Boolean)
+    const metaName = String(tpl.meta_name || tpl.telnyx_name || '').trim()
     rows.push(
       toHubRow(
         {
@@ -434,6 +435,7 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
           status: tpl.telnyx_sync_status || tpl.status,
           approval_status: tpl.approval_status || tpl.telnyx_sync_status || tpl.status,
           buttons: Array.isArray(tpl.buttons) ? tpl.buttons : [],
+          telnyx_name: metaName,
         },
         {
           rowKind: 'feedback_template',
@@ -441,6 +443,7 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
           surveyTypeId: tpl.survey_type_id,
           surveyTypeName: tpl.survey_type_name,
           name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
+          metaName,
           languageCount: langs.length || 1,
           languages: langs,
         },

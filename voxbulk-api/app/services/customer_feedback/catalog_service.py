@@ -269,9 +269,15 @@ class FeedbackCatalogService:
                 .order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
             ).scalars().all()
         )
+        from app.services.customer_feedback.feedback_telnyx_push_service import (
+            english_anchor_template,
+            feedback_meta_template_name,
+        )
+
         templates_out: list[dict[str, Any]] = []
         unlinked_types: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        industry_slug = str(industry.slug or "")
         for st in types:
             tpl_rows = list(
                 db.execute(
@@ -298,6 +304,18 @@ class FeedbackCatalogService:
                 item["display_name"] = st.name
                 item["language_count"] = 1
                 item["languages"] = [str(tpl.language or "en_GB")]
+                try:
+                    anchor = english_anchor_template(db, tpl)
+                    meta_name = feedback_meta_template_name(
+                        tpl,
+                        industry_slug=industry_slug,
+                        survey_type_slug=str(st.slug or ""),
+                        name_anchor_id=anchor.id,
+                    )
+                except Exception:  # noqa: BLE001
+                    meta_name = ""
+                item["meta_name"] = meta_name
+                item["telnyx_name"] = meta_name
                 templates_out.append(item)
         return {"templates": templates_out, "unlinked_types": unlinked_types}
 

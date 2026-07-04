@@ -54,6 +54,10 @@ export default function WaTemplatesTable({
           t.raw?.name,
           t.raw?.display_name,
           t.raw?.telnyx_name,
+          t.raw?.meta_name,
+          t.raw?.template_key,
+          t.raw?.survey_type_slug,
+          t.raw?.survey_type_name,
           t.id,
         ]
           .map((v) => String(v || '').toLowerCase())
