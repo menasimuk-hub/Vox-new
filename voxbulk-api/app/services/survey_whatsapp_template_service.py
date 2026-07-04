@@ -1622,12 +1622,50 @@ class SurveyWhatsappTemplateService:
         known_slugs = [str(st.slug or "") for st in type_rows]
         slug_to_type = {str(st.slug or "").strip().lower(): st for st in type_rows if st.slug}
 
-        payload: list[dict[str, Any]] = []
+        # One row per topic + language (drop pack variants abc/utu if still present).
+        best: dict[tuple[str, str], TelnyxWhatsappTemplate] = {}
+        best_st: dict[tuple[str, str], SurveyType | None] = {}
         for row in rows:
             st = type_by_id.get(str(row.survey_type_id or ""))
             if st is None:
                 name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
                 st = slug_to_type.get(str(name_slug or ""))
+            type_key = str(st.id if st else row.survey_type_id or row.id)
+            lang = str(row.language or "en_GB")
+            lang_key = (
+                "ar"
+                if lang.lower().startswith("ar")
+                else "en"
+                if lang.lower().startswith("en")
+                else lang.lower()
+            )
+            key = (type_key, lang_key)
+            name = str(row.name or "").lower()
+            score = (
+                1 if "_standard" in name and "_abc_" not in name and "_utu_" not in name else 0,
+                0 if ("_abc_" in name or "_utu_" in name) else 1,
+                row.updated_at.timestamp() if row.updated_at else 0.0,
+                -int(row.id or 0),
+            )
+            cur = best.get(key)
+            if cur is None:
+                best[key] = row
+                best_st[key] = st
+                continue
+            cur_name = str(cur.name or "").lower()
+            cur_score = (
+                1 if "_standard" in cur_name and "_abc_" not in cur_name and "_utu_" not in cur_name else 0,
+                0 if ("_abc_" in cur_name or "_utu_" in cur_name) else 1,
+                cur.updated_at.timestamp() if cur.updated_at else 0.0,
+                -int(cur.id or 0),
+            )
+            if score > cur_score:
+                best[key] = row
+                best_st[key] = st
+
+        payload: list[dict[str, Any]] = []
+        for key, row in best.items():
+            st = best_st.get(key)
             linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
             item = survey_template_to_dict(row, linked_survey_type_count=linked)
             item["survey_type_id"] = st.id if st else row.survey_type_id

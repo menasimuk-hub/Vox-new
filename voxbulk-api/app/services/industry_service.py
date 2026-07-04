@@ -136,7 +136,7 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
 
 
 def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, int]:
-    """Count every language row (en + ar) so card totals match the hub list."""
+    """Count one template per survey type + language (matches hub list, no pack duplicates)."""
     if not template_ids:
         return {
             "template_count": 0,
@@ -150,11 +150,44 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.id.in_(template_ids))
         ).scalars()
     )
-    total = len(rows)
+    best: dict[tuple[str, str], TelnyxWhatsappTemplate] = {}
+    for row in rows:
+        type_key = str(row.survey_type_id or f"row:{row.id}")
+        lang = str(row.language or "en_GB")
+        lang_key = (
+            "ar"
+            if lang.lower().startswith("ar")
+            else "en"
+            if lang.lower().startswith("en")
+            else lang.lower()
+        )
+        key = (type_key, lang_key)
+        name = str(row.name or "").lower()
+        score = (
+            1 if "_standard" in name and "_abc_" not in name and "_utu_" not in name else 0,
+            0 if ("_abc_" in name or "_utu_" in name) else 1,
+            row.updated_at.timestamp() if row.updated_at else 0.0,
+            -int(row.id or 0),
+        )
+        cur = best.get(key)
+        if cur is None:
+            best[key] = row
+            continue
+        cur_name = str(cur.name or "").lower()
+        cur_score = (
+            1 if "_standard" in cur_name and "_abc_" not in cur_name and "_utu_" not in cur_name else 0,
+            0 if ("_abc_" in cur_name or "_utu_" in cur_name) else 1,
+            cur.updated_at.timestamp() if cur.updated_at else 0.0,
+            -int(cur.id or 0),
+        )
+        if score > cur_score:
+            best[key] = row
+
+    total = len(best)
     approved = 0
     rejected = 0
     pending = 0
-    for row in rows:
+    for row in best.values():
         status = str(row.status or "").strip().upper()
         if status == "REJECTED":
             rejected += 1
