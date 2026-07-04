@@ -9,17 +9,16 @@ import WaTemplatesTable from './WaTemplatesTable'
 import { toHubRow } from './waTemplatesUi'
 
 const SURVEY_CATEGORIES = [
-  { kind: 'welcome', label: 'Welcome' },
-  { kind: 'welcome', label: 'Anonymous survey welcome', anonymousOnly: true },
-  { kind: 'thank_you', label: 'Thank you' },
-  { kind: 'tell_us_more', label: 'Tell us more' },
-  { kind: 'final_feedback', label: 'Closing question' },
-  { kind: 'welcome', label: 'Quick anonymous survey', anonymousOnly: true },
+  { kind: 'welcome', label: 'Welcome', privacy_mode: 'off' },
+  { kind: 'welcome', label: 'Anonymous survey welcome', anonymousOnly: true, privacy_mode: 'on' },
+  { kind: 'thank_you', label: 'Thank you', privacy_mode: 'off' },
+  { kind: 'tell_us_more', label: 'Tell us more', privacy_mode: 'off' },
+  { kind: 'final_feedback', label: 'Closing question', privacy_mode: 'off' },
 ]
 
 /** Every system card option for Add template (including anonymous welcome). */
 const SURVEY_ADD_OPTIONS = [
-  { value: 'welcome', label: 'Welcome', kind: 'welcome', privacy_mode: 'off' },
+  { value: 'welcome', label: 'Welcome', kind: 'welcome', privacy_mode: 'off', display_name: 'Welcome' },
   {
     value: 'welcome_anonymous',
     label: 'Anonymous survey welcome',
@@ -27,17 +26,29 @@ const SURVEY_ADD_OPTIONS = [
     privacy_mode: 'on',
     display_name: 'Anonymous survey welcome',
   },
+  { value: 'thank_you', label: 'Thank you', kind: 'thank_you', privacy_mode: 'off', display_name: 'Thank you' },
+  { value: 'tell_us_more', label: 'Tell us more', kind: 'tell_us_more', privacy_mode: 'off', display_name: 'Tell us more' },
   {
-    value: 'welcome_anonymous_quick',
-    label: 'Quick anonymous survey',
-    kind: 'welcome',
-    privacy_mode: 'on',
-    display_name: 'Quick anonymous survey',
+    value: 'final_feedback',
+    label: 'Closing question',
+    kind: 'final_feedback',
+    privacy_mode: 'off',
+    display_name: 'Closing question',
   },
-  { value: 'thank_you', label: 'Thank you', kind: 'thank_you', privacy_mode: 'off' },
-  { value: 'tell_us_more', label: 'Tell us more', kind: 'tell_us_more', privacy_mode: 'off' },
-  { value: 'final_feedback', label: 'Closing question', kind: 'final_feedback', privacy_mode: 'off' },
 ]
+
+function optionForCategory(category, product) {
+  if (product === 'feedback') {
+    return { kind: category.key, privacy_mode: 'off', display_name: category.label, value: category.key }
+  }
+  if (category.anonymousOnly || category.privacy_mode === 'on') {
+    return SURVEY_ADD_OPTIONS.find((o) => o.value === 'welcome_anonymous')
+  }
+  return (
+    SURVEY_ADD_OPTIONS.find((o) => o.kind === category.kind && o.privacy_mode === (category.privacy_mode || 'off')) ||
+    SURVEY_ADD_OPTIONS.find((o) => o.kind === category.kind)
+  )
+}
 
 const FEEDBACK_CATEGORIES = [
   { key: 'thank_you', label: 'Thank you' },
@@ -129,6 +140,7 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   const totalCount = useMemo(() => kinds.reduce((sum, k) => sum + (k.count || 0), 0), [kinds])
 
   const openCategory = (category) => {
+    setError('')
     setSheetCategory(category)
     setSheetRows(templatesForCategory(kinds, product, category))
     setSheetOpen(true)
@@ -161,26 +173,27 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
     })
   }
 
-  const addSystemTemplate = async (e) => {
-    e.preventDefault()
+  const addSystemTemplate = async (e, forcedOption) => {
+    if (e?.preventDefault) e.preventDefault()
     setAdding(true)
     setError('')
     try {
       if (product === 'feedback') {
+        const key = forcedOption?.kind || forcedOption?.value || addKind
         const labels = {
           thank_you: 'Thank you',
           tell_us_more: 'Tell us more',
           marketing_opt_in: 'Opt in',
           open_question: 'Share your feedback',
         }
-        const noButtons = ['thank_you', 'tell_us_more', 'open_question'].includes(addKind)
+        const noButtons = ['thank_you', 'tell_us_more', 'open_question'].includes(key)
         const bodyText = noButtons
-          ? `📋 ${labels[addKind] || 'Thanks for your feedback.'}`
-          : `📋 ${labels[addKind] || 'Thanks for your feedback.'} Reply with one option below.`
+          ? `📋 ${labels[key] || 'Thanks for your feedback.'}`
+          : `📋 ${labels[key] || 'Thanks for your feedback.'} Reply with one option below.`
         const tplRes = await apiFetch('/admin/customer-feedback/wa-templates', {
           method: 'POST',
           body: JSON.stringify({
-            template_key: addKind,
+            template_key: key,
             body_text: bodyText,
             language: 'en_GB',
             meta_category: 'utility',
@@ -197,16 +210,26 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
         const templateId = tplRes?.item?.id
         setAddOpen(false)
         await load()
+        if (sheetCategory) {
+          setSheetRows(templatesForCategory(kinds, product, sheetCategory))
+          // reload kinds then refresh sheet
+          const path = '/admin/customer-feedback/system-templates'
+          const data = await apiFetch(path)
+          const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
+          setKinds(nextKinds)
+          setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
+        }
         if (templateId) {
           onOpenTemplate?.({
             product: 'feedback',
             templateId,
             systemMode: true,
-            systemKind: addKind,
+            systemKind: key,
           })
         }
       } else {
         const option =
+          forcedOption ||
           SURVEY_ADD_OPTIONS.find((o) => o.value === addKind) || {
             kind: addKind,
             privacy_mode: 'off',
@@ -225,8 +248,14 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
         const templateId = data?.template?.id
         const surveyTypeId = data?.survey_type_id || data?.template?.survey_type_id
         setAddOpen(false)
-        await load()
+        const listData = await apiFetch('/admin/wa-survey/system-templates')
+        const nextKinds = Array.isArray(listData?.kinds) ? listData.kinds : []
+        setKinds(nextKinds)
+        if (sheetCategory) {
+          setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
+        }
         if (templateId) {
+          setSheetOpen(false)
           onOpenTemplate?.({
             product: 'system',
             templateId,
@@ -240,6 +269,38 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
       setError(formatWaSurveyError(err, 'Could not add system template').message)
     } finally {
       setAdding(false)
+    }
+  }
+
+  const addInsideCategory = async () => {
+    if (!sheetCategory) return
+    const option = optionForCategory(sheetCategory, product)
+    await addSystemTemplate(null, option)
+  }
+
+  const deleteSystemRow = async (row) => {
+    if (!window.confirm(`Delete “${row.name}”? This removes it from the database and Meta.`)) return
+    setError('')
+    try {
+      if (product === 'feedback') {
+        await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, { method: 'DELETE' })
+      } else {
+        await apiFetch(`/admin/wa-survey/system-templates/${row.id}`, { method: 'DELETE' })
+      }
+      setSheetRows((rows) => rows.filter((r) => String(r.id) !== String(row.id)))
+      await load()
+      if (sheetCategory) {
+        const path =
+          product === 'feedback'
+            ? '/admin/customer-feedback/system-templates'
+            : '/admin/wa-survey/system-templates'
+        const data = await apiFetch(path)
+        const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
+        setKinds(nextKinds)
+        setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
+      }
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Delete failed').message)
     }
   }
 
@@ -322,39 +383,44 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Layers className="h-3.5 w-3.5" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">System templates</div>
               <div className="truncate text-[11px] text-muted-foreground">{sheetCategory?.label}</div>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={adding}
+              onClick={() => void addInsideCategory()}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {adding ? 'Adding…' : 'Add template'}
+            </Button>
             <SheetClose asChild>
-              <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1 text-xs">
+              <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs">
                 <X className="h-3.5 w-3.5" /> Close
               </Button>
             </SheetClose>
           </div>
+          {error ? (
+            <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[11px] text-destructive">
+              {error}
+            </div>
+          ) : null}
           <div className="overflow-y-auto">
             <WaTemplatesTable
               templates={sheetRows}
               onEdit={handleEdit}
               onSync={handleEdit}
               onToggle={handleEdit}
-              onDelete={async (row) => {
-                if (!window.confirm(`Delete “${row.name}”? This removes it from the database and Meta.`)) return
-                try {
-                  if (product === 'feedback') {
-                    await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, { method: 'DELETE' })
-                  } else {
-                    await apiFetch(`/admin/wa-survey/system-templates/${row.id}`, { method: 'DELETE' })
-                  }
-                  setSheetRows((rows) => rows.filter((r) => String(r.id) !== String(row.id)))
-                  await load()
-                } catch (e) {
-                  setError(formatWaSurveyError(e, 'Delete failed').message)
-                }
-              }}
+              onDelete={(row) => void deleteSystemRow(row)}
+              onNew={() => void addInsideCategory()}
+              newLabel="Add template"
               plainNames
-              showNew={false}
-              emptyLabel="No system templates in this category."
+              showNew
+              emptyLabel="No system templates in this category. Use Add template."
             />
           </div>
         </SheetContent>

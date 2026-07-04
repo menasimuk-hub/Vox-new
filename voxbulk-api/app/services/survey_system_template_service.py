@@ -696,8 +696,7 @@ class SurveySystemTemplateService:
         meta = SurveySystemTemplateService.list_admin(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
         SurveySystemTemplateService.ensure_system_survey_types(db)
-        # Recreate missing named/anonymous welcome and other system drafts.
-        SurveySystemTemplateService.ensure_required_system_templates(db)
+        # Do not auto-create templates here — admin delete must stay deleted.
         type_by_kind = {
             kind: SurveySystemTemplateService.survey_type_for_kind(db, kind)
             for kind in SYSTEM_TEMPLATE_KINDS
@@ -905,6 +904,19 @@ class SurveySystemTemplateService:
     @staticmethod
     def delete_template(db: Session, template_id: int) -> dict[str, Any]:
         tpl = SurveySystemTemplateService.template_belongs_to_kind(db, template_id)
+        # Clear child parent links so FK does not block delete.
+        children = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.parent_template_id == int(template_id)
+                )
+            ).scalars().all()
+        )
+        for child in children:
+            child.parent_template_id = None
+            db.add(child)
+        if children:
+            db.flush()
         try:
             result = SurveyWhatsappTemplateService.delete_template(db, tpl)
         except SurveyWhatsappTemplateError as exc:
