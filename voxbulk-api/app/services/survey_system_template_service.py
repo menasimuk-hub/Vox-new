@@ -765,6 +765,10 @@ class SurveySystemTemplateService:
                 row,
                 survey_type_id=survey_type.id,
             )
+            # Detach parent link so we can remove the temporary named draft.
+            row.parent_template_id = None
+            db.add(row)
+            db.flush()
             parent = db.get(TelnyxWhatsappTemplate, parent_id)
             if parent is not None:
                 SurveyWhatsappTemplateService.delete_template_local(db, parent)
