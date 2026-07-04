@@ -75,15 +75,14 @@ def _is_arabic(lang: str | None) -> bool:
 def _is_survey_product_row(row: TelnyxWhatsappTemplate) -> bool:
     name = str(row.name or "").lower()
     key = str(row.sales_template_key or "").lower()
+    # Explicit product prefixes win (some rows have stale active_for_interview flags).
+    if name.startswith("voxbulk_survey_"):
+        return True
+    if name.startswith("voxbulk_cf_") or name.startswith("voxbulk_sales_") or name.startswith("voxbulk_interview_"):
+        return False
     if key.startswith("sales_") or key.startswith("interview_"):
         return False
-    if bool(row.active_for_interview):
-        return False
-    return (
-        name.startswith("voxbulk_survey_")
-        or bool(row.survey_type_id)
-        or bool(row.active_for_survey)
-    )
+    return bool(row.survey_type_id)
 
 
 def _row_context(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
