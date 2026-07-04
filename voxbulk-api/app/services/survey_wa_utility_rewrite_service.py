@@ -386,17 +386,30 @@ def _find_template_row(db: Session, name: str) -> TelnyxWhatsappTemplate | None:
     clean = str(name or "").strip()
     if not clean:
         return None
-    row = db.execute(
-        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clean)
-    ).scalar_one_or_none()
-    if row is not None:
-        return row
+    rows = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clean)
+        ).scalars().all()
+    )
+    if len(rows) > 1:
+        raise SurveyWhatsappTemplateError(
+            f"Multiple templates named {clean!r} — pass template id or filter by survey type"
+        )
+    if rows:
+        return rows[0]
     clone_name = suggest_utility_clone_template_name(clean)
     if clone_name == clean:
         return None
-    return db.execute(
-        select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clone_name)
-    ).scalar_one_or_none()
+    clone_rows = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clone_name)
+        ).scalars().all()
+    )
+    if len(clone_rows) > 1:
+        raise SurveyWhatsappTemplateError(
+            f"Multiple templates named {clone_name!r} — pass template id or filter by survey type"
+        )
+    return clone_rows[0] if clone_rows else None
 
 
 def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Fix and push buttoned WA Survey templates per industry (buttonless excluded).
 
+Processes each template row by database id (safe when the same Meta name exists on
+multiple survey-type rows).
+
 Usage:
   cd voxbulk-api && source .venv/bin/activate
   python3 scripts/fix_and_push_wa_templates.py --industry-slug employee_survey --dry-run
@@ -22,7 +25,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.core.database import get_sessionmaker
-from app.services.survey_wa_utility_rewrite_service import process_template_names
+from app.services.survey_wa_utility_rewrite_service import (
+    _prepare_approved_template_for_utility_push,
+    apply_utility_rewrite_to_row,
+)
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -30,9 +36,10 @@ from app.services.survey_whatsapp_template_service import (
 from app.services.wa_template_meta_sync import format_template_push_error
 
 from scripts.wa_not_pushed_lib import (
+    industry_slug_for_row,
     is_not_on_meta,
+    is_on_meta_live,
     iter_survey_keeper_rows,
-    row_summary,
     split_buttoned_buttonless,
 )
 
@@ -63,6 +70,27 @@ def _repair_row(row) -> bool:
     return True
 
 
+def _push_row(db, row, *, force: bool = True) -> dict:
+    SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=force)
+    return {"ok": True, "name": row.name}
+
+
+def _push_with_rename_retry(db, row, *, force: bool = True) -> dict:
+    name = str(row.name)
+    try:
+        _push_row(db, row, force=force)
+        return {"ok": True, "name": row.name}
+    except SurveyWhatsappTemplateError as exc:
+        payload = getattr(exc, "payload", None) or {}
+        if payload.get("requires_rename") and payload.get("suggested_template_name"):
+            new_name = str(payload["suggested_template_name"]).strip()
+            print(f"  Rename {name} → {new_name} (Meta deletion lock) …", flush=True)
+            row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
+            _push_row(db, row, force=force)
+            return {"ok": True, "name": row.name, "renamed_from": name}
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fix + push buttoned survey templates for one industry")
     parser.add_argument("--industry-slug", required=True, help="Industry slug, e.g. employee_survey")
@@ -80,6 +108,7 @@ def main() -> int:
     industry_slug = args.industry_slug.strip()
     ok_count = 0
     fail_count = 0
+    skip_count = 0
     repaired = 0
     failures: list[dict] = []
 
@@ -101,77 +130,46 @@ def main() -> int:
 
         if args.dry_run:
             for row in targets:
-                print(f"  would process: {row.name}")
+                ind = industry_slug_for_row(db, row) or "?"
+                live = "live" if is_on_meta_live(row) else "not-on-meta"
+                print(f"  would process id={row.id} [{live}] {row.name} ({ind})")
             return 0
 
-        if args.repair_first and not args.utility_rewrite:
-            for row in targets:
-                db.refresh(row)
-                if _repair_row(row):
-                    db.add(row)
-                    repaired += 1
-            if repaired:
-                db.commit()
+        total = len(targets)
+        for index, row in enumerate(targets, start=1):
+            db.refresh(row)
+            name = str(row.name)
+            print(f"[{index}/{total}] id={row.id} {name} …", flush=True)
 
-        if args.utility_rewrite:
-            names = [str(row.name) for row in targets]
-            rewrite_results = process_template_names(
-                db,
-                names,
-                save=True,
-                push=True,
-                dry_run=False,
-                skip_already_pushed=False,
-                push_delay_seconds=max(0.0, float(args.push_delay or 0)),
-            )
-            for r in rewrite_results:
-                if r.ok and r.pushed:
-                    ok_count += 1
-                    print(f"  OK {r.template_name}: {r.message}")
-                elif r.ok:
-                    ok_count += 1
-                    print(f"  OK {r.template_name}: {r.message}")
+            if args.repair_first and _repair_row(row):
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+                repaired += 1
+
+            try:
+                if args.utility_rewrite:
+                    row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
+                    if renamed_to:
+                        print(f"  Prepared clone rename → {renamed_to}", flush=True)
+                    apply_utility_rewrite_to_row(db, row, use_llm=True, llm_provider="openai")
+
+                result = _push_with_rename_retry(db, row, force=True)
+                ok_count += 1
+                print(f"  OK {result.get('name')}")
+            except SurveyWhatsappTemplateError as exc:
+                err = format_template_push_error(exc)
+                payload = getattr(exc, "payload", None) or {}
+                if payload.get("meta_error_kind") == "content_already_exists":
+                    skip_count += 1
+                    print(f"  SKIP already on Meta: {name}")
                 else:
                     fail_count += 1
-                    failures.append({"name": r.template_name, "error": r.message, "phase": "utility_rewrite"})
-                    print(f"  FAIL {r.template_name}: {r.message}", file=sys.stderr)
-        else:
-            for row in targets:
-                db.refresh(row)
-                if args.repair_first and _repair_row(row):
-                    db.add(row)
-                    db.commit()
-                    db.refresh(row)
-                    repaired += 1
-
-                name = str(row.name)
-                print(f"Pushing {name} …", flush=True)
-                try:
-                    SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
-                    ok_count += 1
-                    print(f"  OK {name}")
-                except SurveyWhatsappTemplateError as exc:
-                    payload = getattr(exc, "payload", None) or {}
-                    if payload.get("requires_rename") and payload.get("suggested_template_name"):
-                        new_name = str(payload["suggested_template_name"]).strip()
-                        print(f"  Rename {name} → {new_name} (Meta deletion lock) …", flush=True)
-                        row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, new_name)
-                        try:
-                            SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
-                            ok_count += 1
-                            print(f"  OK {row.name}")
-                            if args.push_delay > 0:
-                                time.sleep(args.push_delay)
-                            continue
-                        except SurveyWhatsappTemplateError as retry_exc:
-                            exc = retry_exc
-                    fail_count += 1
-                    err = format_template_push_error(exc)
-                    failures.append({"name": name, "error": err, "phase": "push"})
+                    failures.append({"id": row.id, "name": name, "error": err, "phase": "push"})
                     print(f"  FAIL {name}: {err}", file=sys.stderr)
 
-                if args.push_delay > 0:
-                    time.sleep(args.push_delay)
+            if args.push_delay > 0:
+                time.sleep(args.push_delay)
 
     report = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
@@ -181,6 +179,7 @@ def main() -> int:
         "targets": len(targets),
         "repaired_drafts": repaired,
         "ok": ok_count,
+        "skipped_already_on_meta": skip_count,
         "failed": fail_count,
         "failures": failures,
     }
@@ -190,7 +189,7 @@ def main() -> int:
     report_path = REPORT_DIR / f"fix-push-{slug_safe}-{stamp}.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"\nDone — OK: {ok_count}, failed: {fail_count}, repaired: {repaired}")
+    print(f"\nDone — OK: {ok_count}, skipped: {skip_count}, failed: {fail_count}, repaired: {repaired}")
     print(f"Report: {report_path}")
     return 1 if fail_count else 0
 

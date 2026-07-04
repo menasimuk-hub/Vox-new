@@ -32,6 +32,7 @@ from app.services.wa_template_utility_lint import lint_utility_template
 
 from scripts.wa_not_pushed_lib import (
     is_not_on_meta,
+    is_stale_approved_local,
     iter_survey_keeper_rows,
     row_summary,
     split_buttoned_buttonless,
@@ -99,6 +100,14 @@ def _bucket_for_row(db, row, *, try_prepare: bool) -> tuple[str, str, dict]:
         if "not found for id" in detail.lower():
             return "stale_local_meta_id", detail[:300], summary
         return "stored_error", detail[:300], summary
+
+    if is_stale_approved_local(row):
+        rid = str(row.telnyx_record_id or "").strip() or "(empty)"
+        return (
+            "stale_approved_local_id",
+            f"status=APPROVED but record id is not on Meta ({rid[:40]})",
+            summary,
+        )
 
     return "unknown_no_error", "No last_push_error — run push_wa_one_verbose.py", summary
 

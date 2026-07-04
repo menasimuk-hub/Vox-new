@@ -28,6 +28,7 @@ from scripts.wa_not_pushed_lib import (
     is_not_on_meta,
     is_on_meta_live,
     is_out_of_sync_on_meta,
+    is_stale_approved_local,
     iter_survey_keeper_rows,
     row_summary,
     split_buttoned_buttonless,
@@ -57,6 +58,7 @@ def main() -> int:
         on_meta = [row for row in buttoned if is_on_meta_live(row)]
         out_of_sync = [row for row in buttoned if is_out_of_sync_on_meta(row)]
         not_pushed = [row for row in buttoned if is_not_on_meta(row)]
+        stale_approved = [row for row in not_pushed if is_stale_approved_local(row)]
         summaries = [row_summary(db, row) for row in not_pushed]
 
     if args.json:
@@ -64,6 +66,7 @@ def main() -> int:
             json.dumps(
                 {
                     "buttoned_not_on_meta": len(summaries),
+                    "buttoned_stale_approved_local_id": len(stale_approved),
                     "buttoned_on_meta_live": len(on_meta),
                     "buttoned_on_meta_out_of_sync": len(out_of_sync),
                     "buttoned_total": len(buttoned),
@@ -79,17 +82,26 @@ def main() -> int:
         print(f"Buttoned live on Meta:            {len(on_meta)}")
         print(f"Buttoned on Meta (local drift):   {len(out_of_sync)}  ← already on Meta; optional sync only")
         print(f"Buttoned NOT on Meta (need push): {len(not_pushed)}")
+        if stale_approved:
+            print(
+                f"  └ stale APPROVED + local id:    {len(stale_approved)}"
+                "  ← DB status wrong; push will create/link on Meta"
+            )
         print(f"Buttonless (skipped):             {len(buttonless)}")
         print()
         if not not_pushed:
             print("No buttoned templates need Meta push for this filter.")
         else:
-            print(f"{'BTNS':<5} {'STATUS':<12} {'LANG':<8} {'INDUSTRY':<22} NAME")
-            print("-" * 110)
+            print(f"{'BTNS':<5} {'STATUS':<12} {'RECID':<10} {'LANG':<8} {'INDUSTRY':<22} NAME")
+            print("-" * 120)
             for item in summaries:
+                recid = item.get("record_id_kind") or "?"
+                if item.get("stale_approved_local"):
+                    recid = "stale-appr"
                 print(
                     f"{item['button_count']:<5} "
                     f"{str(item['status'] or ''):<12} "
+                    f"{recid:<10} "
                     f"{str(item['language'] or ''):<8} "
                     f"{str(item['industry_slug'] or ''):<22} "
                     f"{item['name']}"

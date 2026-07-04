@@ -61,8 +61,26 @@ def button_count(row: TelnyxWhatsappTemplate) -> int:
     return len(_buttons_from_components(_effective_components(row)))
 
 
+def record_id_label(row: TelnyxWhatsappTemplate) -> str:
+    rid = str(row.telnyx_record_id or "").strip()
+    if not rid:
+        return "missing"
+    if rid.startswith("local-"):
+        return "local-id"
+    if rid.startswith("local_test_"):
+        return "test-id"
+    if rid.startswith("meta-"):
+        return "meta-id"
+    return "remote-id"
+
+
 def is_out_of_sync_on_meta(row: TelnyxWhatsappTemplate) -> bool:
     return is_on_meta_live(row) and needs_meta_push(row)
+
+
+def is_stale_approved_local(row: TelnyxWhatsappTemplate) -> bool:
+    """APPROVED in DB but no real Meta record id — status is stale; needs push."""
+    return str(row.status or "").upper() == "APPROVED" and not is_on_meta_live(row)
 
 
 def iter_survey_keeper_rows(
@@ -156,6 +174,9 @@ def row_summary(db: Session, row: TelnyxWhatsappTemplate) -> dict[str, Any]:
         "category": row.category,
         "status": row.status,
         "telnyx_record_id": row.telnyx_record_id,
+        "record_id_kind": record_id_label(row),
+        "on_meta_live": is_on_meta_live(row),
+        "stale_approved_local": is_stale_approved_local(row),
         "local_sync_status": row.local_sync_status,
         "sync_label": telnyx_sync_ui_label(row),
         "button_count": button_count(row),
