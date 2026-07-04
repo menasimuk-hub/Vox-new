@@ -579,11 +579,26 @@ def dedupe_survey_templates(
                 deleted.append(entry)
                 continue
             try:
+                # Always remove local row. Meta delete is best-effort so a Meta
+                # failure cannot leave pack duplicates in the hub.
                 if delete_on_meta:
-                    SurveyWhatsappTemplateService.delete_template(db, loser)
+                    try:
+                        SurveyWhatsappTemplateService.delete_template(db, loser)
+                        entry["action"] = "deleted_local_and_meta"
+                    except Exception as meta_exc:
+                        entry["meta_error"] = str(meta_exc)[:200]
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        # Row may still exist if Meta path failed before local delete.
+                        loser2 = db.get(TelnyxWhatsappTemplate, int(loser.id))
+                        if loser2 is not None:
+                            SurveyWhatsappTemplateService.delete_template_local(db, loser2)
+                        entry["action"] = "deleted_local_meta_failed"
                 else:
                     SurveyWhatsappTemplateService.delete_template_local(db, loser)
-                entry["action"] = "deleted"
+                    entry["action"] = "deleted_local"
             except Exception as exc:
                 entry["action"] = "failed"
                 entry["error"] = str(exc)[:200]
