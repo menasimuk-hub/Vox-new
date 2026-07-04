@@ -386,3 +386,16 @@ def http_status_for_template_sync_error(payload: dict[str, Any] | None) -> int:
     if payload.get("provider_error"):
         return 502
     return 400
+
+
+def format_template_push_error(exc: Exception, *, max_len: int = 500) -> str:
+    """Human-readable push error with Meta subcode when available."""
+    payload = getattr(exc, "payload", None)
+    if isinstance(payload, dict):
+        guidance = str(payload.get("admin_guidance") or payload.get("message") or "").strip()
+        if guidance:
+            subcode = payload.get("meta_error_subcode")
+            if subcode is not None and f"subcode={subcode}" not in guidance:
+                guidance = f"{guidance} (subcode={subcode})"
+            return guidance[:max_len]
+    return str(exc)[:max_len]

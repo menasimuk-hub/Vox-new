@@ -65,8 +65,6 @@ def is_protected_template(row: TelnyxWhatsappTemplate) -> bool:
         return True
     if any(name.startswith(p) for p in PROTECTED_PREFIXES):
         return True
-    if "interview" in name and name.startswith("voxbulk_"):
-        return True
     return False
 
 
@@ -491,9 +489,11 @@ class WaTemplateCleanupSyncService:
                     push_feedback_template_to_telnyx(db, obj)
                 pushed_buttoned.append(entry)
             except (SurveyWhatsappTemplateError, FeedbackTelnyxPushError) as exc:
-                failed.append({**entry, "error": str(exc)[:300]})
+                from app.services.wa_template_meta_sync import format_template_push_error
+
+                failed.append({**entry, "error": format_template_push_error(exc)})
             except Exception as exc:  # noqa: BLE001
-                failed.append({**entry, "error": str(exc)[:300]})
+                failed.append({**entry, "error": str(exc)[:500]})
 
         next_offset = start + len(chunk)
         has_more = next_offset < total

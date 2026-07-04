@@ -47,10 +47,37 @@ def _meta_http_error_detail(exc: httpx.HTTPStatusError) -> str:
 
 def _graph_error_as_provider_detail(exc: Exception) -> str:
     if isinstance(exc, MetaWhatsappServiceError):
+        if exc.error_payload:
+            return f"meta api error: {json.dumps({'error': exc.error_payload}, ensure_ascii=False)}"
         return f"meta api error: {json.dumps({'error': {'message': str(exc)}}, ensure_ascii=False)}"
     if isinstance(exc, httpx.HTTPStatusError):
         return f"meta api error: {_meta_http_error_detail(exc)}"
     return str(exc)
+
+
+def _meta_template_error_from_service_exc(
+    exc: MetaWhatsappServiceError,
+    *,
+    template_name: str,
+    language: str,
+) -> MetaWhatsappTemplateError:
+    provider_detail = _graph_error_as_provider_detail(exc)
+    payload = enrich_template_push_error_payload(
+        message=f"Push to Meta failed for “{template_name}”.",
+        template_name=template_name,
+        language=language,
+        provider_error=provider_detail,
+        status_code=None,
+        telnyx_request_mode="create_or_update_template",
+    )
+    meta = parse_meta_error_from_provider_detail(provider_detail)
+    if meta.get("kind"):
+        payload["meta_error_kind"] = meta.get("kind")
+    message = str(payload.get("admin_guidance") or payload.get("message") or str(exc))
+    subcode = payload.get("meta_error_subcode")
+    if subcode and f"subcode={subcode}" not in message:
+        message = f"{message} (subcode={subcode})"
+    return MetaWhatsappTemplateError(message, payload=payload)
 
 
 class MetaWhatsappTemplateService:
@@ -79,8 +106,14 @@ class MetaWhatsappTemplateService:
                 json_body=payload,
                 timeout=45.0,
             )
-        except (MetaWhatsappConfigError, MetaWhatsappServiceError) as exc:
+        except MetaWhatsappConfigError as exc:
             raise MetaWhatsappTemplateError(str(exc)) from exc
+        except MetaWhatsappServiceError as exc:
+            raise _meta_template_error_from_service_exc(
+                exc,
+                template_name=str(name or ""),
+                language=str(language or ""),
+            ) from exc
         meta_id = str(body.get("id") or "").strip()
         status = str(body.get("status") or "PENDING").strip().upper()
         return _normalize_meta_template_item(

@@ -21,7 +21,9 @@ _META_RECORD_PREFIX = "meta-"
 
 
 class MetaWhatsappServiceError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, error_payload: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.error_payload = error_payload if isinstance(error_payload, dict) else None
 
 
 class MetaWhatsappService:
@@ -63,7 +65,10 @@ class MetaWhatsappService:
             err = payload.get("error") if isinstance(payload, dict) else None
             detail = err.get("message") if isinstance(err, dict) else response.text
             code = err.get("code") if isinstance(err, dict) else response.status_code
-            raise MetaWhatsappServiceError(f"Meta Graph API error ({code}): {detail}")
+            raise MetaWhatsappServiceError(
+                f"Meta Graph API error ({code}): {detail}",
+                error_payload=err if isinstance(err, dict) else None,
+            )
         return payload if isinstance(payload, dict) else {"data": payload}
 
     @staticmethod
