@@ -226,9 +226,12 @@ export function toHubRow(tpl, overrides = {}) {
     tpl.templates_count ??
     (Number(tpl.standard_template_count || 0) + Number(tpl.anonymous_template_count || 0) || undefined)
   const status = overrides.status || mapApprovalStatus(tpl)
+  const metaName = String(tpl.name || tpl.telnyx_name || '').trim()
+  const displayName = String(tpl.display_name || tpl.name || tpl.slug || tpl.id).trim()
   return {
     id: tpl.id,
-    name: tpl.name || tpl.display_name || tpl.slug || String(tpl.id),
+    name: overrides.name || displayName,
+    metaName,
     langs,
     languageCount,
     langsTitle: languageCount > 1 ? `${languageCount} langs · ${langs.join(' · ')}` : langs.join(' · '),

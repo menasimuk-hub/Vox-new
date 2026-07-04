@@ -46,7 +46,20 @@ export default function WaTemplatesTable({
     const list = templates.filter((t) => {
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (cat !== 'all' && t.category !== cat) return false
-      if (q && !String(t.name || '').toLowerCase().includes(q.toLowerCase())) return false
+      if (q) {
+        const needle = q.toLowerCase()
+        const hay = [
+          t.name,
+          t.metaName,
+          t.raw?.name,
+          t.raw?.display_name,
+          t.raw?.telnyx_name,
+          t.id,
+        ]
+          .map((v) => String(v || '').toLowerCase())
+          .join(' ')
+        if (!hay.includes(needle)) return false
+      }
       return true
     })
     // Disabled always sink to the bottom.
