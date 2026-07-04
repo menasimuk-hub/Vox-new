@@ -248,12 +248,27 @@ def _openai_regenerate_copy(
     return body, buttons
 
 
+def _keeper_score(row: TelnyxWhatsappTemplate) -> tuple:
+    """Higher is better — prefer standard name, regenerated draft, approved, newer."""
+    name = str(row.name or "").lower()
+    status = str(row.status or "").upper()
+    sync = str(row.local_sync_status or "").lower()
+    standard = 1 if "_standard" in name and "_abc_" not in name and "_utu_" not in name else 0
+    not_pack = 0 if ("_abc_" in name or "_utu_" in name) else 1
+    regenerated = 1 if sync in {"needs_resubmit", "draft", "local_changes"} else 0
+    approved = 1 if status == "APPROVED" else 0
+    updated = row.updated_at.timestamp() if row.updated_at else 0.0
+    name_len = -len(name)
+    return (standard, not_pack, regenerated, approved, updated, name_len, -int(row.id or 0))
+
+
 def list_survey_template_rows(
     db: Session,
     *,
     industry_slug: str | None = None,
     offset: int = 0,
     limit: int | None = None,
+    one_per_topic_lang: bool = True,
 ) -> list[TelnyxWhatsappTemplate]:
     q = select(TelnyxWhatsappTemplate).where(
         or_(
@@ -272,6 +287,24 @@ def list_survey_template_rows(
             elif not ctx.get("industry_slug") and slug in str(row.name or "").lower():
                 filtered.append(row)
         rows = filtered
+    # Never regenerate pack duplicates — one keeper per topic + language.
+    if one_per_topic_lang:
+        best: dict[tuple[str, str], TelnyxWhatsappTemplate] = {}
+        for row in rows:
+            type_id = str(row.survey_type_id or f"name:{row.name}")
+            lang = str(row.language or "en_GB")
+            lang_key = (
+                "ar"
+                if lang.lower().startswith("ar")
+                else "en"
+                if lang.lower().startswith("en")
+                else lang.lower()
+            )
+            key = (type_id, lang_key)
+            current = best.get(key)
+            if current is None or _keeper_score(row) > _keeper_score(current):
+                best[key] = row
+        rows = sorted(best.values(), key=lambda r: int(r.id or 0))
     if offset:
         rows = rows[offset:]
     if limit is not None:
@@ -456,6 +489,129 @@ def regenerate_batch(
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     report["report_path"] = str(path)
     migration_progress(f"Report written: {path}")
+    return report
+
+
+def dedupe_survey_templates(
+    db: Session,
+    *,
+    dry_run: bool = True,
+    delete_on_meta: bool = False,
+) -> dict[str, Any]:
+    """Keep one template per (survey_type_id, language). Delete extras.
+
+    Does not create rows. Prefer ``*_standard`` over pack variants (``_abc_``, ``_utu_``).
+    """
+    from app.services.survey_type_template_service import SurveyTypeTemplateService
+    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+    rows = [
+        r
+        for r in db.execute(
+            select(TelnyxWhatsappTemplate).where(
+                TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
+                TelnyxWhatsappTemplate.survey_type_id.is_not(None),
+            )
+        ).scalars().all()
+        if _is_survey_product_row(r)
+    ]
+    groups: dict[tuple[str, str], list[TelnyxWhatsappTemplate]] = {}
+    for row in rows:
+        lang = str(row.language or "en_GB").strip() or "en_GB"
+        # Normalize language family so en_GB and en_US do not both survive for one topic.
+        lang_key = "ar" if lang.lower().startswith("ar") else "en" if lang.lower().startswith("en") else lang.lower()
+        key = (str(row.survey_type_id), lang_key)
+        groups.setdefault(key, []).append(row)
+
+    kept: list[dict[str, Any]] = []
+    deleted: list[dict[str, Any]] = []
+    for (type_id, lang_key), group in groups.items():
+        if len(group) <= 1:
+            if group:
+                kept.append(
+                    {
+                        "template_id": group[0].id,
+                        "survey_type_id": type_id,
+                        "language": lang_key,
+                        "name": group[0].name,
+                    }
+                )
+            continue
+        ordered = sorted(group, key=_keeper_score, reverse=True)
+        winner = ordered[0]
+        kept.append(
+            {
+                "template_id": winner.id,
+                "survey_type_id": type_id,
+                "language": lang_key,
+                "name": winner.name,
+                "duplicates_removed": len(ordered) - 1,
+            }
+        )
+        # Ensure winner is mapped as default for the survey type.
+        if not dry_run:
+            try:
+                SurveyTypeTemplateService.upsert_mapping(
+                    db,
+                    survey_type_id=type_id,
+                    template_id=int(winner.id),
+                    usable_as_standard=True,
+                    usable_as_anonymous=False,
+                    is_default_standard=True,
+                    is_default_anonymous=False,
+                )
+            except Exception as exc:
+                migration_progress(f"  map keep {winner.id} warn: {exc}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+        for loser in ordered[1:]:
+            entry = {
+                "template_id": loser.id,
+                "name": loser.name,
+                "survey_type_id": type_id,
+                "language": loser.language,
+                "kept_id": winner.id,
+            }
+            if dry_run:
+                entry["action"] = "would_delete"
+                deleted.append(entry)
+                continue
+            try:
+                if delete_on_meta:
+                    SurveyWhatsappTemplateService.delete_template(db, loser)
+                else:
+                    SurveyWhatsappTemplateService.delete_template_local(db, loser)
+                entry["action"] = "deleted"
+            except Exception as exc:
+                entry["action"] = "failed"
+                entry["error"] = str(exc)[:200]
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            deleted.append(entry)
+
+    report = {
+        "ok": True,
+        "dry_run": dry_run,
+        "delete_on_meta": delete_on_meta,
+        "groups": len(groups),
+        "kept": len(kept),
+        "deleted_or_would_delete": len(deleted),
+        "kept_rows": kept,
+        "deleted_rows": deleted,
+    }
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    path = REPORTS_DIR / f"dedupe-survey-{stamp}.json"
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    report["report_path"] = str(path)
+    migration_progress(
+        f"Dedupe survey templates dry_run={dry_run} kept={len(kept)} "
+        f"removed={len(deleted)} report={path}"
+    )
     return report
 
 

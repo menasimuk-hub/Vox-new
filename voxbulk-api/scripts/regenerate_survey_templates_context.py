@@ -36,10 +36,21 @@ def main() -> int:
         default="",
         help="Comma-separated template IDs to push to Meta (after approval only)",
     )
+    parser.add_argument(
+        "--dedupe",
+        action="store_true",
+        help="Keep one template per topic+language; delete pack variants (abc/utu)",
+    )
+    parser.add_argument(
+        "--dedupe-meta",
+        action="store_true",
+        help="With --dedupe, also delete removed variants on Meta",
+    )
     args = parser.parse_args()
 
     from app.core.database import get_sessionmaker
     from app.services.survey_wa_context_regenerate_service import (
+        dedupe_survey_templates,
         list_survey_template_rows,
         push_template_ids,
         regenerate_batch,
@@ -48,6 +59,22 @@ def main() -> int:
 
     db = get_sessionmaker()()
     try:
+        if args.dedupe:
+            result = dedupe_survey_templates(
+                db,
+                dry_run=bool(args.dry_run),
+                delete_on_meta=bool(args.dedupe_meta) and not bool(args.dry_run),
+            )
+            print(
+                {
+                    "kept": result.get("kept"),
+                    "deleted_or_would_delete": result.get("deleted_or_would_delete"),
+                    "report_path": result.get("report_path"),
+                    "dry_run": result.get("dry_run"),
+                }
+            )
+            return 0
+
         push_raw = str(args.push_ids or "").strip()
         if push_raw:
             ids = [int(x.strip()) for x in push_raw.split(",") if x.strip()]
