@@ -325,12 +325,23 @@ def regenerate_row(
             allow_empty_buttons=allow_empty,
         )
         kind = ctx.get("system_kind")
+        frame = resolve_industry_frame(
+            ctx.get("industry_slug"),
+            ctx.get("industry_name"),
+            language=ctx.get("language"),
+        )
+        # Employee/workplace and open-text system kinds do not use visit anchors.
+        need_anchor = (
+            kind not in NO_BUTTON_KINDS
+            and kind != "welcome"
+            and frame.get("key") != "employee"
+        )
         lint = lint_utility_template(
             body=_body_from_components(new_components),
             buttons=extract_buttons_from_components(new_components),
             language=ctx.get("language"),
             meta_category="utility",
-            require_transaction_anchor=kind not in NO_BUTTON_KINDS and kind != "welcome",
+            require_transaction_anchor=need_anchor,
             allow_variables=kind == "welcome",
         )
         if not lint.ok:
