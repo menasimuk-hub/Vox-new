@@ -142,13 +142,27 @@ build_frontend() {
   local dir="$1"
   local name="$2"
   info "Building $name …"
+  ensure_frontend_dir_writable "$dir"
   cd "$dir"
-  if [[ ! -d node_modules ]]; then
-    npm ci || npm install
+  if [[ -f package-lock.json ]]; then
+    npm ci
+  elif [[ ! -d node_modules ]]; then
+    npm install
   else
     npm install
   fi
   npm run build
+}
+
+ensure_frontend_dir_writable() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 0
+  local lock="$dir/package-lock.json"
+  if [[ -w "$dir" ]] && { [[ ! -f "$lock" ]] || [[ -w "$lock" ]]; }; then
+    return 0
+  fi
+  warn "$dir not writable by $(id -un) (often from a prior sudo deploy) — fixing ownership …"
+  sudo chown -R "$(id -un):$(id -gn)" "$dir" || fail "Could not chown $dir — run: sudo chown -R $(whoami) $dir"
 }
 
 build_all_frontends() {
