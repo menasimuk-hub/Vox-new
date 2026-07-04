@@ -1694,6 +1694,14 @@ def wa_templates_cleanup_and_sync(
     dry_run = bool(body.get("dry_run"))
     step = str(body.get("step") or "").strip().lower()
     try:
+        offset = int(body.get("offset") or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = int(body.get("limit") or 10)
+    except (TypeError, ValueError):
+        limit = 10
+    try:
         if step:
             result = WaTemplateCleanupSyncService.run_step(
                 db,
@@ -1702,6 +1710,8 @@ def wa_templates_cleanup_and_sync(
                 meta=body.get("meta") if isinstance(body.get("meta"), dict) else None,
                 local=body.get("local") if isinstance(body.get("local"), dict) else None,
                 push=body.get("push") if isinstance(body.get("push"), dict) else None,
+                offset=offset,
+                limit=limit,
             )
         else:
             result = WaTemplateCleanupSyncService.run_full(db, dry_run=dry_run)

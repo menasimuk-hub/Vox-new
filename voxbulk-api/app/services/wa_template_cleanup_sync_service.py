@@ -422,7 +422,14 @@ class WaTemplateCleanupSyncService:
         }
 
     @staticmethod
-    def push_buttoned(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+    def push_buttoned(
+        db: Session,
+        *,
+        dry_run: bool = False,
+        offset: int = 0,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Push buttoned keepers to Meta in small batches (avoids nginx 300s 504)."""
         from app.services.customer_feedback.feedback_telnyx_push_service import (
             FeedbackTelnyxPushError,
             parse_feedback_buttons,
@@ -435,22 +442,11 @@ class WaTemplateCleanupSyncService:
         )
 
         inv = WaTemplateCleanupSyncService.build_keeper_inventory(db)
-        pushed_buttoned: list[dict[str, Any]] = []
         skipped_buttonless: list[dict[str, Any]] = []
-        failed: list[dict[str, Any]] = []
+        work: list[tuple[str, Any, dict[str, Any]]] = []
 
         for row in inv["survey_keepers"]:
             if is_protected_template(row):
-                continue
-            if not template_row_has_buttons(row):
-                skipped_buttonless.append(
-                    {
-                        "id": row.id,
-                        "name": row.name,
-                        "language": row.language,
-                        "product": "survey",
-                    }
-                )
                 continue
             entry = {
                 "id": row.id,
@@ -458,49 +454,72 @@ class WaTemplateCleanupSyncService:
                 "language": row.language,
                 "product": "survey",
             }
-            if dry_run:
-                pushed_buttoned.append(entry)
+            if not template_row_has_buttons(row):
+                skipped_buttonless.append(entry)
                 continue
-            try:
-                SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=True)
-                pushed_buttoned.append(entry)
-            except SurveyWhatsappTemplateError as exc:
-                failed.append({**entry, "error": str(exc)[:300]})
-            except Exception as exc:  # noqa: BLE001
-                failed.append({**entry, "error": str(exc)[:300]})
+            work.append(("survey", row, entry))
 
         for ft in inv["feedback_keepers"]:
-            buttons = parse_feedback_buttons(ft.buttons_json)
             entry = {
                 "id": ft.id,
                 "name": ft.template_key,
                 "language": ft.language,
                 "product": "feedback",
             }
-            if not buttons:
+            if not parse_feedback_buttons(ft.buttons_json):
                 skipped_buttonless.append(entry)
                 continue
+            work.append(("feedback", ft, entry))
+
+        total = len(work)
+        start = max(0, int(offset or 0))
+        # Cap batch size so each request stays under nginx proxy_read_timeout (300s).
+        batch = max(1, min(int(limit or 10), 20))
+        chunk = work[start : start + batch]
+
+        pushed_buttoned: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+
+        for kind, obj, entry in chunk:
             if dry_run:
                 pushed_buttoned.append(entry)
                 continue
             try:
-                push_feedback_template_to_telnyx(db, ft)
+                if kind == "survey":
+                    SurveyWhatsappTemplateService.push_to_telnyx(db, obj, force_approved_update=True)
+                else:
+                    push_feedback_template_to_telnyx(db, obj)
                 pushed_buttoned.append(entry)
-            except FeedbackTelnyxPushError as exc:
+            except (SurveyWhatsappTemplateError, FeedbackTelnyxPushError) as exc:
                 failed.append({**entry, "error": str(exc)[:300]})
             except Exception as exc:  # noqa: BLE001
                 failed.append({**entry, "error": str(exc)[:300]})
+
+        next_offset = start + len(chunk)
+        has_more = next_offset < total
+        # Only return full buttonless list on first batch (avoid huge duplicate payloads).
+        skipped_out = skipped_buttonless if start == 0 else []
 
         return {
             "ok": True,
             "dry_run": dry_run,
             "pushed_buttoned": pushed_buttoned,
             "pushed_buttoned_count": len(pushed_buttoned),
-            "skipped_buttonless": skipped_buttonless,
-            "skipped_buttonless_count": len(skipped_buttonless),
+            "skipped_buttonless": skipped_out,
+            "skipped_buttonless_count": len(skipped_buttonless) if start == 0 else 0,
+            "skipped_buttonless_total": len(skipped_buttonless),
             "failed": failed,
             "failed_count": len(failed),
             "keepers_count": len(inv["survey_keepers"]) + len(inv["feedback_keepers"]),
+            "buttoned_total": total,
+            "offset": start,
+            "limit": batch,
+            "next_offset": next_offset,
+            "has_more": has_more,
+            "message": (
+                f"Pushed batch {start + 1}–{next_offset} of {total} buttoned"
+                + (" (more remaining)" if has_more else " (complete)")
+            ),
         }
 
     @staticmethod
@@ -722,6 +741,8 @@ class WaTemplateCleanupSyncService:
         meta: dict[str, Any] | None = None,
         local: dict[str, Any] | None = None,
         push: dict[str, Any] | None = None,
+        offset: int = 0,
+        limit: int = 10,
     ) -> dict[str, Any]:
         key = str(step or "").strip().lower()
         steps = ("meta_cleanup", "local_cleanup", "push_buttoned", "finalize")
@@ -733,7 +754,9 @@ class WaTemplateCleanupSyncService:
         elif key == "local_cleanup":
             result = WaTemplateCleanupSyncService.local_cleanup(db, dry_run=dry_run)
         elif key == "push_buttoned":
-            result = WaTemplateCleanupSyncService.push_buttoned(db, dry_run=dry_run)
+            result = WaTemplateCleanupSyncService.push_buttoned(
+                db, dry_run=dry_run, offset=offset, limit=limit
+            )
         else:
             result = WaTemplateCleanupSyncService.finalize(
                 db, dry_run=dry_run, meta=meta, local=local, push=push
@@ -748,7 +771,36 @@ class WaTemplateCleanupSyncService:
     def run_full(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
         meta = WaTemplateCleanupSyncService.meta_cleanup(db, dry_run=dry_run)
         local = WaTemplateCleanupSyncService.local_cleanup(db, dry_run=dry_run)
-        push = WaTemplateCleanupSyncService.push_buttoned(db, dry_run=dry_run)
+        # Batch push for run_full as well (CLI / single-shot callers).
+        push_acc: dict[str, Any] = {
+            "ok": True,
+            "dry_run": dry_run,
+            "pushed_buttoned": [],
+            "failed": [],
+            "skipped_buttonless": [],
+            "skipped_buttonless_total": 0,
+            "keepers_count": 0,
+            "buttoned_total": 0,
+        }
+        offset = 0
+        while True:
+            batch = WaTemplateCleanupSyncService.push_buttoned(
+                db, dry_run=dry_run, offset=offset, limit=10
+            )
+            push_acc["pushed_buttoned"].extend(batch.get("pushed_buttoned") or [])
+            push_acc["failed"].extend(batch.get("failed") or [])
+            if offset == 0:
+                push_acc["skipped_buttonless"] = list(batch.get("skipped_buttonless") or [])
+                push_acc["skipped_buttonless_total"] = int(batch.get("skipped_buttonless_total") or 0)
+                push_acc["keepers_count"] = int(batch.get("keepers_count") or 0)
+                push_acc["buttoned_total"] = int(batch.get("buttoned_total") or 0)
+            if not batch.get("has_more"):
+                break
+            offset = int(batch.get("next_offset") or (offset + 10))
+        push_acc["pushed_buttoned_count"] = len(push_acc["pushed_buttoned"])
+        push_acc["failed_count"] = len(push_acc["failed"])
+        push_acc["skipped_buttonless_count"] = len(push_acc["skipped_buttonless"])
+        push = push_acc
         report = WaTemplateCleanupSyncService.finalize(
             db, dry_run=dry_run, meta=meta, local=local, push=push
         )

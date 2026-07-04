@@ -640,9 +640,70 @@ export default function WaTemplatesHub() {
     let meta = null
     let local = null
     let push = null
+    const PUSH_BATCH = 10
     try {
       for (const step of stepDefs) {
         patchJobStep(step.id, { status: 'running', detail: 'Running…' })
+
+        if (step.id === 'push_buttoned') {
+          // Batch pushes — nginx proxy_read_timeout is 300s; one big push always 504s.
+          const acc = {
+            ok: true,
+            dry_run: dryRun,
+            pushed_buttoned: [],
+            failed: [],
+            skipped_buttonless: [],
+            skipped_buttonless_total: 0,
+            keepers_count: 0,
+            buttoned_total: 0,
+          }
+          let offset = 0
+          let batchNum = 0
+          for (;;) {
+            batchNum += 1
+            patchJobStep(step.id, {
+              status: 'running',
+              detail: `Pushing batch ${batchNum} (offset ${offset})…`,
+            })
+            const batch = await apiFetch('/admin/wa-templates/cleanup-and-sync', {
+              method: 'POST',
+              body: JSON.stringify({
+                dry_run: dryRun,
+                step: 'push_buttoned',
+                offset,
+                limit: PUSH_BATCH,
+              }),
+              timeoutMs: 280000,
+              quietNetworkHint: true,
+            })
+            acc.pushed_buttoned.push(...(batch?.pushed_buttoned || []))
+            acc.failed.push(...(batch?.failed || []))
+            if (offset === 0) {
+              acc.skipped_buttonless = batch?.skipped_buttonless || []
+              acc.skipped_buttonless_total = batch?.skipped_buttonless_total ?? acc.skipped_buttonless.length
+              acc.keepers_count = batch?.keepers_count ?? 0
+              acc.buttoned_total = batch?.buttoned_total ?? 0
+            }
+            const done = acc.pushed_buttoned.length + acc.failed.length
+            const total = acc.buttoned_total || done
+            patchJobStep(step.id, {
+              status: 'running',
+              detail: `Pushed ${done} / ${total} buttoned…`,
+            })
+            if (!batch?.has_more) break
+            offset = Number(batch?.next_offset ?? offset + PUSH_BATCH)
+          }
+          acc.pushed_buttoned_count = acc.pushed_buttoned.length
+          acc.failed_count = acc.failed.length
+          acc.skipped_buttonless_count = acc.skipped_buttonless.length
+          push = acc
+          patchJobStep(step.id, {
+            status: 'done',
+            detail: `Pushed ${acc.pushed_buttoned_count}, failed ${acc.failed_count}, buttonless ${acc.skipped_buttonless_total}`,
+          })
+          continue
+        }
+
         const body = { dry_run: dryRun, step: step.id }
         if (step.id === 'finalize') {
           body.meta = meta
@@ -652,12 +713,11 @@ export default function WaTemplatesHub() {
         const result = await apiFetch('/admin/wa-templates/cleanup-and-sync', {
           method: 'POST',
           body: JSON.stringify(body),
-          timeoutMs: 600000,
+          timeoutMs: 280000,
           quietNetworkHint: true,
         })
         if (step.id === 'meta_cleanup') meta = result
         if (step.id === 'local_cleanup') local = result
-        if (step.id === 'push_buttoned') push = result
 
         const detail =
           result?.message ||
@@ -665,9 +725,7 @@ export default function WaTemplatesHub() {
             ? `Deleted ${result?.deleted_meta_count ?? 0} from Meta`
             : step.id === 'local_cleanup'
               ? `Deleted ${result?.deleted_local_count ?? 0} from local`
-              : step.id === 'push_buttoned'
-                ? `Pushed ${result?.pushed_buttoned_count ?? 0}, buttonless ${result?.skipped_buttonless_count ?? 0}`
-                : 'Report ready')
+              : 'Report ready')
         patchJobStep(step.id, { status: 'done', detail })
 
         if (step.id === 'finalize') {
