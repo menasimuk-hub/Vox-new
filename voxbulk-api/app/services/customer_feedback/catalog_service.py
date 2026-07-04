@@ -194,13 +194,25 @@ class FeedbackCatalogService:
             ).scalar_one()
             or 0
         )
-        # One primary (English-preferred) template per active survey type — matches hub list.
+        # Every language row (en + ar) — matches hub list.
         hub = FeedbackCatalogService.list_industry_hub_templates(db, row.id)
         templates = list(hub.get("templates") or [])
-        approved = sum(1 for t in templates if str(t.get("status") or "").lower() in {"approved", "synced", "live"})
-        rejected = sum(1 for t in templates if str(t.get("status") or "").lower() == "rejected")
+        approved = sum(
+            1
+            for t in templates
+            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower()
+            in {"approved", "synced", "live"}
+        )
+        rejected = sum(
+            1
+            for t in templates
+            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower() == "rejected"
+        )
         pending = sum(
-            1 for t in templates if str(t.get("status") or "").lower() in {"draft", "pending", "submitted", "local"}
+            1
+            for t in templates
+            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower()
+            in {"draft", "pending", "submitted", "local", "local_draft"}
         )
         total = len(templates)
         if total <= 0:
@@ -242,7 +254,7 @@ class FeedbackCatalogService:
 
     @staticmethod
     def list_industry_hub_templates(db: Session, industry_id: str) -> dict[str, Any]:
-        """One primary template per active survey type (English preferred) for the admin hub."""
+        """One row per language template (en + ar both listed) for the admin hub."""
         industry = db.get(FeedbackIndustry, industry_id)
         if industry is None:
             raise ValueError("Industry not found")
@@ -265,23 +277,28 @@ class FeedbackCatalogService:
                 db.execute(
                     select(FeedbackWaTemplate)
                     .where(FeedbackWaTemplate.survey_type_id == st.id)
-                    .order_by(FeedbackWaTemplate.step_order, FeedbackWaTemplate.template_key)
+                    .order_by(
+                        FeedbackWaTemplate.language,
+                        FeedbackWaTemplate.step_order,
+                        FeedbackWaTemplate.template_key,
+                    )
                 ).scalars().all()
             )
-            primary = FeedbackCatalogService._pick_primary_template(tpl_rows)
-            if primary is None:
+            if not tpl_rows:
                 unlinked_types.append({"id": st.id, "slug": st.slug, "name": st.name})
                 continue
-            if primary.id in seen_ids:
-                continue
-            seen_ids.add(primary.id)
-            item = FeedbackCatalogService.template_to_dict(primary)
-            item["survey_type_name"] = st.name
-            item["survey_type_slug"] = st.slug
-            item["name"] = st.name
-            item["display_name"] = st.name
-            item["language_count"] = len({str(t.language or "") for t in tpl_rows})
-            templates_out.append(item)
+            for tpl in tpl_rows:
+                if tpl.id in seen_ids:
+                    continue
+                seen_ids.add(tpl.id)
+                item = FeedbackCatalogService.template_to_dict(tpl)
+                item["survey_type_name"] = st.name
+                item["survey_type_slug"] = st.slug
+                item["name"] = st.name
+                item["display_name"] = st.name
+                item["language_count"] = 1
+                item["languages"] = [str(tpl.language or "en_GB")]
+                templates_out.append(item)
         return {"templates": templates_out, "unlinked_types": unlinked_types}
 
     @staticmethod

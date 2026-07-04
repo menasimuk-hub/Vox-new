@@ -222,12 +222,16 @@ export function summarizeCatalog(rows) {
   let localOnly = 0
   let pending = 0
   let rejected = 0
+  let utility = 0
+  let marketing = 0
   for (const t of list) {
     const status = mapApprovalStatus(t)
     if (status === 'approved') approved += 1
     else if (status === 'local') localOnly += 1
     else if (status === 'rejected') rejected += 1
     else if (status === 'pending') pending += 1
+    if (mapCategory(t) === 'Marketing') marketing += 1
+    else utility += 1
   }
-  return { total: list.length, approved, localOnly, pending, rejected }
+  return { total: list.length, approved, localOnly, pending, rejected, utility, marketing }
 }

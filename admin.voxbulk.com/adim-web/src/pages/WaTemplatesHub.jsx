@@ -90,6 +90,8 @@ export default function WaTemplatesHub() {
     localOnly: 0,
     pending: 0,
     rejected: 0,
+    utility: 0,
+    marketing: 0,
   })
 
   const [interviewTemplates, setInterviewTemplates] = useState([])
@@ -117,7 +119,15 @@ export default function WaTemplatesHub() {
       const rows = Array.isArray(data?.templates) ? data.templates : []
       setTemplateCounts(summarizeCatalog(rows))
     } catch {
-      setTemplateCounts({ total: 0, approved: 0, localOnly: 0, pending: 0, rejected: 0 })
+      setTemplateCounts({
+        total: 0,
+        approved: 0,
+        localOnly: 0,
+        pending: 0,
+        rejected: 0,
+        utility: 0,
+        marketing: 0,
+      })
     }
   }, [])
 
@@ -213,17 +223,8 @@ export default function WaTemplatesHub() {
         ? messages.join(' · ')
         : `Synced ${result.synced ?? 0} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · Rejected ${result.rejected ?? 0}`
       setMsg(formatActionSuccess(result, fallback).message)
-      if (result.synced != null || result.approved != null) {
-        setTemplateCounts({
-          total: Number(result.synced ?? 0) || 0,
-          approved: Number(result.approved ?? 0) || 0,
-          localOnly: Number(result.local_only ?? 0) || 0,
-          pending: Number(result.pending ?? 0) || 0,
-          rejected: Number(result.rejected ?? 0) || 0,
-        })
-      } else {
-        await loadTemplateCounts()
-      }
+      // Refresh full catalog counts (includes Utility / Marketing).
+      await loadTemplateCounts()
       refreshTabData()
     } catch (e) {
       const raw = e?.message || String(e)
@@ -465,6 +466,19 @@ export default function WaTemplatesHub() {
 
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden items-center gap-3 text-[11px] text-muted-foreground lg:flex">
+              <span className="inline-flex items-center gap-1" title="Utility category templates">
+                <span className="font-medium tabular-nums text-foreground">{templateCounts.utility}</span> utility
+              </span>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1',
+                  templateCounts.marketing > 0 && 'font-medium text-warning-foreground',
+                )}
+                title="Marketing category templates"
+              >
+                <span className="tabular-nums">{templateCounts.marketing}</span> marketing
+              </span>
+              <span className="h-3 w-px bg-border" />
               <span className="inline-flex items-center gap-1 text-success" title="Approved on Meta">
                 <ClipboardList className="h-3 w-3" />
                 <span className="font-medium tabular-nums">{templateCounts.approved}</span> approved

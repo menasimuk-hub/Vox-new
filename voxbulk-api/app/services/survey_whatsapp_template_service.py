@@ -1601,8 +1601,7 @@ def survey_template_to_dict(
 class SurveyWhatsappTemplateService:
     @staticmethod
     def list_for_industry(db: Session, industry_id: str) -> list[dict[str, Any]]:
-        """One primary template per survey type (English preferred), including rejected orphans."""
-        from app.services.customer_feedback.survey_config_service import ENGLISH_TEMPLATE_LANGUAGES
+        """One row per language template (en + ar both listed), including rejected orphans."""
         from app.services.industry_service import _template_ids_for_industry
         from app.services.survey_type_template_service import template_name_survey_slug
 
@@ -1623,60 +1622,29 @@ class SurveyWhatsappTemplateService:
         known_slugs = [str(st.slug or "") for st in type_rows]
         slug_to_type = {str(st.slug or "").strip().lower(): st for st in type_rows if st.slug}
 
-        # Group by survey type (ownership or name slug).
-        groups: dict[str, list[TelnyxWhatsappTemplate]] = {}
+        payload: list[dict[str, Any]] = []
         for row in rows:
             st = type_by_id.get(str(row.survey_type_id or ""))
             if st is None:
                 name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
                 st = slug_to_type.get(str(name_slug or ""))
-            key = str(st.id) if st is not None else f"row:{row.id}"
-            groups.setdefault(key, []).append(row)
-
-        def _pick_primary(group: list[TelnyxWhatsappTemplate]) -> TelnyxWhatsappTemplate:
-            # Rejected always surfaces first so the list matches card health.
-            rejected = [r for r in group if str(r.status or "").upper() == "REJECTED"]
-            pool = rejected or group
-            for lang in ENGLISH_TEMPLATE_LANGUAGES if ENGLISH_TEMPLATE_LANGUAGES else ("en_GB", "en"):
-                for row in pool:
-                    if str(row.language or "").strip() == lang:
-                        return row
-            for row in pool:
-                if str(row.language or "").strip().lower().startswith("en"):
-                    return row
-            return pool[0]
-
-        payload: list[dict[str, Any]] = []
-        for key, group in groups.items():
-            primary = _pick_primary(group)
-            st = type_by_id.get(str(primary.survey_type_id or ""))
-            if st is None and not key.startswith("row:"):
-                st = type_by_id.get(key)
-            if st is None:
-                name_slug = template_name_survey_slug(str(primary.name or ""), known_slugs=known_slugs)
-                st = slug_to_type.get(str(name_slug or ""))
-            linked = SurveyTypeTemplateService.linked_survey_type_count(db, primary.id)
-            item = survey_template_to_dict(primary, linked_survey_type_count=linked)
-            item["survey_type_id"] = st.id if st else primary.survey_type_id
+            linked = SurveyTypeTemplateService.linked_survey_type_count(db, row.id)
+            item = survey_template_to_dict(row, linked_survey_type_count=linked)
+            item["survey_type_id"] = st.id if st else row.survey_type_id
             item["survey_type_name"] = st.name if st else None
-            item["display_name"] = (st.name if st else None) or item.get("display_name") or item.get("name")
-            item["name"] = item["display_name"]
-            item["language_count"] = len({str(r.language or "") for r in group})
-            item["languages"] = sorted({str(r.language or "en_GB") for r in group})
-            # Worst status in the group wins — must match card health.
-            statuses = {str(r.status or "").upper() for r in group}
-            if "REJECTED" in statuses:
-                item["status"] = "REJECTED"
-                item["approval_status"] = "REJECTED"
-            elif "PENDING" in statuses or "SUBMITTED" in statuses:
-                item["status"] = "PENDING"
-                item["approval_status"] = "PENDING"
+            topic = (st.name if st else None) or item.get("display_name") or item.get("name")
+            item["display_name"] = topic
+            item["name"] = topic
+            lang = str(row.language or "en_GB")
+            item["language_count"] = 1
+            item["languages"] = [lang]
             payload.append(item)
         payload.sort(
             key=lambda item: (
                 0 if str(item.get("status") or "").upper() == "REJECTED" else 1,
                 0 if item.get("active_for_survey") is not False else 2,
                 str(item.get("name") or ""),
+                str(item.get("language") or ""),
             )
         )
         return payload

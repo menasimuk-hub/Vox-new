@@ -405,13 +405,15 @@ async function loadSurveyTemplatesForIndustry(industryId) {
     if (b.status === 'disabled' && a.status !== 'disabled') return -1
     if (a.status === 'rejected' && b.status !== 'rejected') return -1
     if (b.status === 'rejected' && a.status !== 'rejected') return 1
-    return String(a.name).localeCompare(String(b.name))
+    const byName = String(a.name).localeCompare(String(b.name))
+    if (byName !== 0) return byName
+    return String(a.langs?.[0] || '').localeCompare(String(b.langs?.[0] || ''))
   })
   return { rows, unlinkedTypes }
 }
 
 async function loadFeedbackTemplatesForIndustry(industryId) {
-  // One primary template per survey type (English preferred) — avoids en/ar duplicates.
+  // One row per language (en + ar both listed).
   const data = await apiFetch(
     `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/templates`,
   )
@@ -423,6 +425,7 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
     const id = String(tpl.id || '')
     if (!id || seen.has(id)) continue
     seen.add(id)
+    const langs = tpl.languages || [tpl.language].filter(Boolean)
     rows.push(
       toHubRow(
         {
@@ -438,8 +441,8 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
           surveyTypeId: tpl.survey_type_id,
           surveyTypeName: tpl.survey_type_name,
           name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
-          languageCount: tpl.language_count || 1,
-          languages: tpl.languages || [tpl.language].filter(Boolean),
+          languageCount: langs.length || 1,
+          languages: langs,
         },
       ),
     )
@@ -447,7 +450,9 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
   rows.sort((a, b) => {
     if (a.status === 'rejected' && b.status !== 'rejected') return -1
     if (b.status === 'rejected' && a.status !== 'rejected') return 1
-    return String(a.name).localeCompare(String(b.name))
+    const byName = String(a.name).localeCompare(String(b.name))
+    if (byName !== 0) return byName
+    return String(a.langs?.[0] || '').localeCompare(String(b.langs?.[0] || ''))
   })
   return { rows, unlinkedTypes }
 }

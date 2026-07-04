@@ -136,7 +136,7 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
 
 
 def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, int]:
-    """Count one primary per survey-type group (same rules as industry list)."""
+    """Count every language row (en + ar) so card totals match the hub list."""
     if not template_ids:
         return {
             "template_count": 0,
@@ -144,39 +144,23 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             "pending_template_count": 0,
             "rejected_template_count": 0,
         }
-    from app.services.survey_type_template_service import template_name_survey_slug
 
     rows = list(
         db.execute(
             select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.id.in_(template_ids))
         ).scalars()
     )
-    # Group by survey_type_id or name slug so card totals match the hub list.
-    type_ids = {str(r.survey_type_id or "") for r in rows if r.survey_type_id}
-    type_rows = []
-    if type_ids:
-        type_rows = list(db.execute(select(SurveyType).where(SurveyType.id.in_(list(type_ids)))).scalars())
-    known_slugs = [str(st.slug or "") for st in type_rows]
-    slug_to_key = {str(st.slug or "").strip().lower(): str(st.id) for st in type_rows if st.slug}
-    groups: dict[str, list] = {}
-    for row in rows:
-        key = str(row.survey_type_id or "").strip()
-        if not key:
-            name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
-            key = slug_to_key.get(str(name_slug or "")) or f"row:{row.id}"
-        groups.setdefault(key, []).append(row)
-
-    total = len(groups)
+    total = len(rows)
     approved = 0
     rejected = 0
     pending = 0
-    for group in groups.values():
-        statuses = {str(r.status or "").strip().upper() for r in group}
-        if "REJECTED" in statuses:
+    for row in rows:
+        status = str(row.status or "").strip().upper()
+        if status == "REJECTED":
             rejected += 1
-        elif any(s in statuses for s in ("PENDING", "SUBMITTED", "IN_APPEAL")):
+        elif status in {"PENDING", "SUBMITTED", "IN_APPEAL"}:
             pending += 1
-        elif all(_is_template_approved(r) for r in group):
+        elif _is_template_approved(row):
             approved += 1
         else:
             pending += 1
