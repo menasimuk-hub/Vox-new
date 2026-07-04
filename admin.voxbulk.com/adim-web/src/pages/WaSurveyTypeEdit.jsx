@@ -222,23 +222,33 @@ export default function WaSurveyTypeEdit() {
   const pushAllToTelnyx = async () => {
     setWorking('push-all')
     clearFeedback()
+    const PUSH_BATCH = 5
+    const acc = { pushed: 0, error_count: 0, errors: [] }
     try {
-      const summary = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/push-all`, {
-        method: 'POST',
-        body: '{}',
-      })
-      if (summary.error_count) {
+      let offset = 0
+      for (;;) {
+        const summary = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/push-all`, {
+          method: 'POST',
+          body: JSON.stringify({ offset, limit: PUSH_BATCH }),
+          timeoutMs: 280000,
+          quietNetworkHint: true,
+        })
+        acc.pushed += Number(summary.pushed || 0)
+        acc.error_count += Number(summary.error_count || 0)
+        acc.errors.push(...(summary.errors || []))
+        if (!summary.has_more) break
+        offset = Number(summary.next_offset ?? offset + PUSH_BATCH)
+      }
+      if (acc.error_count) {
         setFeedbackTone('warn')
         setError('')
         setErrorDetail('')
-        setMsg(summary.message || `Pushed ${summary.pushed} template(s)`)
+        setMsg(`Pushed ${acc.pushed} template(s)`)
         setMsgDetail(
-          (summary.errors || [])
-            .map((item) => `${item.template_name || item.template_id}: ${item.error}`)
-            .join('\n')
+          acc.errors.map((item) => `${item.template_name || item.template_id}: ${item.error}`).join('\n')
         )
       } else {
-        showOk({ message: summary.message || `Pushed ${summary.pushed} template(s) to Meta.` })
+        showOk({ message: `Pushed ${acc.pushed} template(s) to Meta.` })
       }
       await load()
     } catch (e) {

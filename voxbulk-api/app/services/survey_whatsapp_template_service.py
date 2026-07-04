@@ -1568,6 +1568,8 @@ def survey_template_to_dict(
         "parent_template_id": row.parent_template_id,
         "approval_status": str(row.status or "UNKNOWN").upper(),
         "sync_status_label": sync_status.replace("_", " ").title(),
+        "draft_not_live_on_meta": sync_status in {SYNC_LOCAL_CHANGES, SYNC_DRAFT}
+        and str(row.status or "").upper() == "APPROVED",
         "active_for_survey": bool(row.active_for_survey),
         "example_values": examples,
         "draft_components": _loads(row.draft_components_json),
@@ -2170,6 +2172,7 @@ class SurveyWhatsappTemplateService:
         *,
         remote_items: list[dict[str, Any]] | None = None,
         force_approved_update: bool = True,
+        allow_clone: bool = True,
     ) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
@@ -2239,6 +2242,11 @@ class SurveyWhatsappTemplateService:
                     "sync_branch": branch,
                 },
             )
+
+        if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update and allow_clone:
+            from app.services.survey_wa_template_clone_push_service import clone_and_push_survey_template
+
+            return clone_and_push_survey_template(db, row, force_push=force_approved_update)
 
         if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update:
             logger.info(
@@ -2483,6 +2491,15 @@ class SurveyWhatsappTemplateService:
         db.add(row)
         db.commit()
         db.refresh(row)
+        if str(row.status or "").upper() == "APPROVED":
+            try:
+                from app.services.survey_wa_template_supersede_service import (
+                    refresh_successor_status_from_meta,
+                )
+
+                refresh_successor_status_from_meta(db, row)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("supersede_cleanup_after_status_refresh_failed", extra={"error": str(exc)})
         label = telnyx_sync_ui_label(row)
         tpl = survey_template_to_dict(row)
         return {
@@ -2506,18 +2523,19 @@ class SurveyWhatsappTemplateService:
         survey_type_id: str,
         *,
         remote_items: list[dict[str, Any]] | None = None,
+        offset: int = 0,
+        limit: int | None = None,
     ) -> dict[str, Any]:
+        from app.services.wa_template_push_batch_service import run_batched_push
+
         survey_type = db.get(SurveyType, survey_type_id)
         if survey_type is None:
             raise SurveyWhatsappTemplateError("Survey type not found")
 
         prefetched = _prefetch_remote_templates_for_push(db, remote_items=remote_items)
 
-        results: list[dict[str, Any]] = []
-        errors: list[dict[str, Any]] = []
-        pushed = 0
+        work: list[TelnyxWhatsappTemplate] = []
         skipped = 0
-
         for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
@@ -2534,51 +2552,60 @@ class SurveyWhatsappTemplateService:
             if approval not in {"PENDING", "REJECTED"} and label == TELNYX_SYNC_APPROVED and content_sync == SYNC_IN_SYNC:
                 skipped += 1
                 continue
-            # PENDING/REJECTED templates still run push_to_telnyx — it refreshes status or resubmits safely.
+            work.append(row)
 
-            template_id = row.id
-            template_name = row.name
-            try:
-                result = SurveyWhatsappTemplateService.push_to_telnyx(
-                    db,
-                    row,
-                    remote_items=prefetched,
-                )
-                pushed += 1
-                results.append(
-                    {
-                        "template_id": template_id,
-                        "template_name": template_name,
-                        "ok": True,
-                        "message": result.get("sync_message") or result.get("message"),
-                        "sync_status": result.get("telnyx_sync_label"),
-                    }
-                )
-            except SurveyWhatsappTemplateError as exc:
-                errors.append(
-                    {
-                        "template_id": template_id,
-                        "template_name": template_name,
-                        "error": str(exc),
-                    }
-                )
+        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            return SurveyWhatsappTemplateService.push_to_telnyx(db, row, remote_items=prefetched)
+
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=push_one,
+            item_label=lambda row: str(row.name or row.id),
+        )
+        results = []
+        errors = []
+        for item in batch.get("results") or []:
+            tpl = item.get("template") if isinstance(item.get("template"), dict) else {}
+            results.append(
+                {
+                    "template_id": tpl.get("id"),
+                    "template_name": tpl.get("name") or item.get("label"),
+                    "ok": True,
+                    "message": item.get("sync_message") or item.get("message"),
+                    "sync_status": item.get("telnyx_sync_label"),
+                }
+            )
+        for err in batch.get("errors") or []:
+            errors.append({"template_name": err.get("label"), "error": err.get("error")})
 
         return {
-            "ok": len(errors) == 0,
-            "pushed": pushed,
+            "ok": batch.get("ok", True),
+            "pushed": batch.get("pushed", 0),
             "skipped": skipped,
-            "error_count": len(errors),
+            "error_count": batch.get("error_count", 0),
             "errors": errors,
             "results": results,
-            "message": f"Pushed {pushed} template(s) to Telnyx"
-            + (f", {len(errors)} failed" if errors else "")
-            + (f", {skipped} skipped" if skipped else ""),
+            "offset": batch.get("offset", offset),
+            "limit": batch.get("limit"),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "total": batch.get("total", len(work)),
+            "message": batch.get("message") or f"Pushed {batch.get('pushed', 0)} template(s) to Meta",
         }
 
     @staticmethod
-    def push_all_for_industry(db: Session, industry_id: str) -> dict[str, Any]:
+    def push_all_for_industry(
+        db: Session,
+        industry_id: str,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
         from app.services.industry_service import IndustryService
         from app.services.survey_type_service import SurveyTypeService
+        from app.services.wa_template_push_batch_service import run_batched_push
 
         industry = IndustryService.get_industry(db, industry_id)
         if industry is None:
@@ -2594,52 +2621,56 @@ class SurveyWhatsappTemplateService:
                 "errors": [],
                 "results": [],
                 "survey_type_count": 0,
+                "has_more": False,
                 "message": "No survey types in this industry",
             }
 
         prefetched = _prefetch_remote_templates_for_push(db)
-
-        total_pushed = 0
-        total_skipped = 0
-        errors: list[dict[str, Any]] = []
-        results: list[dict[str, Any]] = []
-
+        work: list[TelnyxWhatsappTemplate] = []
+        skipped = 0
         for item in survey_types:
             type_id = str(item.get("id") or "").strip()
-            type_name = str(item.get("name") or type_id)
             if not type_id:
                 continue
-            summary = SurveyWhatsappTemplateService.push_all_for_survey_type(
-                db,
-                type_id,
-                remote_items=prefetched,
-            )
-            total_pushed += int(summary.get("pushed") or 0)
-            total_skipped += int(summary.get("skipped") or 0)
-            for err in summary.get("errors") or []:
-                errors.append({**err, "survey_type_id": type_id, "survey_type_name": type_name})
-            results.append(
-                {
-                    "survey_type_id": type_id,
-                    "survey_type_name": type_name,
-                    "pushed": summary.get("pushed") or 0,
-                    "skipped": summary.get("skipped") or 0,
-                    "error_count": summary.get("error_count") or 0,
-                    "message": summary.get("message"),
-                }
-            )
+            survey_type = db.get(SurveyType, type_id)
+            if survey_type is None:
+                continue
+            for mapping in SurveyTypeTemplateService.list_for_survey_type(db, type_id):
+                row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+                if row is None or not template_belongs_to_survey_type(row, survey_type):
+                    continue
+                if not _effective_components(row):
+                    skipped += 1
+                    continue
+                label = telnyx_sync_ui_label(row)
+                content_sync = _refresh_local_sync_status(row)
+                approval = str(row.status or "").upper()
+                if approval not in {"PENDING", "REJECTED"} and label == TELNYX_SYNC_APPROVED and content_sync == SYNC_IN_SYNC:
+                    skipped += 1
+                    continue
+                work.append(row)
 
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=lambda row: SurveyWhatsappTemplateService.push_to_telnyx(db, row, remote_items=prefetched),
+            item_label=lambda row: str(row.name or row.id),
+        )
+        errors = [{"template_name": err.get("label"), "error": err.get("error")} for err in batch.get("errors") or []]
         return {
-            "ok": len(errors) == 0,
-            "pushed": total_pushed,
-            "skipped": total_skipped,
-            "error_count": len(errors),
+            "ok": batch.get("ok", True),
+            "pushed": batch.get("pushed", 0),
+            "skipped": skipped,
+            "error_count": batch.get("error_count", 0),
             "errors": errors,
-            "results": results,
+            "offset": batch.get("offset", offset),
+            "limit": batch.get("limit"),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "total": batch.get("total", len(work)),
             "survey_type_count": len(survey_types),
-            "message": f"Pushed {total_pushed} template(s) across {len(survey_types)} survey type(s)"
-            + (f", {len(errors)} failed" if errors else "")
-            + (f", {total_skipped} skipped" if total_skipped else ""),
+            "message": batch.get("message") or f"Pushed {batch.get('pushed', 0)} template(s) to Meta",
         }
 
     @staticmethod

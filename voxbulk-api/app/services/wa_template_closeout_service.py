@@ -175,105 +175,14 @@ class WaTemplateCloseoutService:
 
     @staticmethod
     def repair_all_survey_content(db: Session, *, force_rejected: bool = True) -> dict[str, Any]:
-        rows = list(
-            db.execute(
-                select(TelnyxWhatsappTemplate).where(
-                    or_(
-                        TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
-                        TelnyxWhatsappTemplate.survey_type_id.is_not(None),
-                        func.upper(TelnyxWhatsappTemplate.status) == "REJECTED",
-                    )
-                )
-            ).scalars()
-        )
-        changed = 0
-        for row in rows:
-            if str(row.sales_template_key or "").startswith("sales_"):
-                continue
-            force = force_rejected and str(row.status or "").upper() == "REJECTED"
-            if WaTemplateCloseoutService.repair_survey_template_content(db, row, force=force):
-                changed += 1
-        if changed:
-            db.commit()
-        return {"ok": True, "repaired": changed, "scanned": len(rows)}
+        """Content repair disabled — DB draft is source of truth; never auto-rewrite on sync."""
+        _ = force_rejected
+        return {"ok": True, "repaired": 0, "scanned": 0, "skipped": "content_repair_disabled"}
 
     @staticmethod
     def regenerate_all_feedback_templates(db: Session) -> dict[str, Any]:
-        """Force every feedback template (en + ar) to Utility body + buttons + emoji (no marketing words)."""
-        rows = list(db.execute(select(FeedbackWaTemplate)).scalars().all())
-        changed = 0
-        for row in rows:
-            topic = None
-            if row.survey_type_id:
-                st = db.get(FeedbackSurveyType, row.survey_type_id)
-                topic = st.name if st else None
-            if not topic:
-                topic = str(row.template_key or "your recent visit").replace("_", " ")
-            if _is_arabic_lang(row.language):
-                body = utility_body_ar_for_topic(topic)
-            else:
-                body = utility_body_for_topic(topic)
-            buttons = buttons_for_language(row.template_key, name=row.template_key, language=row.language)
-            row.body_text = body
-            row.buttons_json = _dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons])
-            row.meta_category = "utility"
-            if str(row.telnyx_sync_status or "").lower() in {
-                "rejected",
-                "approved",
-                "synced",
-                "live",
-                "submitted",
-                "marketing",
-            }:
-                row.telnyx_sync_status = "draft"
-            row.is_active = True
-            row.updated_at = datetime.utcnow()
-            db.add(row)
-            changed += 1
-
-        en_rows = [
-            r
-            for r in rows
-            if r.survey_type_id and not _is_arabic_lang(r.language) and r.industry_id is not None
-        ]
-        created_ar = 0
-        now = datetime.utcnow()
-        for en in en_rows:
-            existing_ar = db.execute(
-                select(FeedbackWaTemplate)
-                .where(
-                    FeedbackWaTemplate.survey_type_id == en.survey_type_id,
-                    FeedbackWaTemplate.template_key == en.template_key,
-                    FeedbackWaTemplate.language.in_(["ar", "ar_SA", "ar_EG"]),
-                )
-                .limit(1)
-            ).scalar_one_or_none()
-            if existing_ar is not None:
-                continue
-            st = db.get(FeedbackSurveyType, en.survey_type_id) if en.survey_type_id else None
-            topic = st.name if st else str(en.template_key or "").replace("_", " ")
-            buttons = buttons_for_language(en.template_key, name=en.template_key, language="ar")
-            db.add(
-                FeedbackWaTemplate(
-                    id=str(__import__("uuid").uuid4()),
-                    industry_id=en.industry_id,
-                    survey_type_id=en.survey_type_id,
-                    step_order=en.step_order or 1,
-                    template_key=en.template_key,
-                    body_text=utility_body_ar_for_topic(topic),
-                    step_role=en.step_role,
-                    language="ar",
-                    buttons_json=_dumps([{"type": "QUICK_REPLY", "text": b} for b in buttons]),
-                    meta_category="utility",
-                    telnyx_sync_status="draft",
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-            created_ar += 1
-        db.commit()
-        return {"ok": True, "regenerated": changed, "arabic_created": created_ar}
+        """Feedback content regen disabled — edit and sync templates manually."""
+        return {"ok": True, "regenerated": 0, "created_ar": 0, "skipped": "content_repair_disabled"}
 
     @staticmethod
     def repair_feedback_content(db: Session) -> dict[str, Any]:
@@ -299,7 +208,6 @@ class WaTemplateCloseoutService:
             if str(row.sales_template_key or "").startswith("sales_"):
                 continue
             try:
-                WaTemplateCloseoutService.repair_survey_template_content(db, row, force=True)
                 base = str(row.name or "voxbulk_survey_template").strip()
                 # New Meta name so rejected content can be resubmitted.
                 suffix = f"_r{datetime.utcnow().strftime('%H%M%S')}"
@@ -358,13 +266,18 @@ class WaTemplateCloseoutService:
             if not is_product:
                 continue
             try:
-                WaTemplateCloseoutService.repair_survey_template_content(db, row, force=False)
                 result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
                 if result.get("linked") or result.get("skipped_push"):
                     linked += 1
                 else:
                     pushed += 1
             except SurveyWhatsappTemplateError as exc:
+                from app.services.survey_wa_template_clone_push_service import maybe_clone_and_push_on_meta_error
+
+                cloned = maybe_clone_and_push_on_meta_error(db, row, exc)
+                if cloned is not None:
+                    pushed += 1
+                    continue
                 try:
                     db.rollback()
                 except Exception:
@@ -384,6 +297,83 @@ class WaTemplateCloseoutService:
             "errors": failed[:40],
             "scanned": len(rows) + int(rejected_result.get("scanned") or 0),
             "rejected": rejected_result,
+        }
+
+    @staticmethod
+    def push_local_and_needs_resubmit_batch(
+        db: Session,
+        *,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        from app.services.wa_template_push_batch_service import run_batched_push
+
+        rejected_result: dict[str, Any] = {"pushed": 0, "scanned": 0, "errors": []}
+        if int(offset or 0) == 0:
+            rejected_result = WaTemplateCloseoutService.push_rejected_survey_templates(db)
+
+        rows = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    or_(
+                        TelnyxWhatsappTemplate.status.in_(["LOCAL_DRAFT", "DRAFT"]),
+                        TelnyxWhatsappTemplate.local_sync_status.in_(["needs_resubmit", "local_changes"]),
+                    )
+                )
+            ).scalars()
+        )
+        work: list[TelnyxWhatsappTemplate] = []
+        for row in rows:
+            name = str(row.name or "").lower()
+            key = str(row.sales_template_key or "").lower()
+            is_product = (
+                "survey" in name
+                or "interview" in name
+                or "appointment" in name
+                or key.startswith("interview_")
+                or key.startswith("appointment_")
+                or bool(row.survey_type_id)
+                or bool(row.active_for_interview)
+                or bool(getattr(row, "active_for_appointment", False))
+            )
+            if is_product:
+                work.append(row)
+
+        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            from app.services.survey_wa_template_clone_push_service import maybe_clone_and_push_on_meta_error
+            from app.services.survey_whatsapp_template_service import (
+                SurveyWhatsappTemplateError,
+                SurveyWhatsappTemplateService,
+            )
+
+            try:
+                return SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+            except SurveyWhatsappTemplateError as exc:
+                cloned = maybe_clone_and_push_on_meta_error(db, row, exc)
+                if cloned is not None:
+                    return cloned
+                raise
+
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=push_one,
+            item_label=lambda row: str(row.name or row.id),
+        )
+        return {
+            "ok": batch.get("ok", True),
+            "pushed": int(rejected_result.get("pushed") or 0) + int(batch.get("pushed") or 0),
+            "linked": int(batch.get("linked") or 0),
+            "failed": int(batch.get("error_count") or 0),
+            "errors": batch.get("errors") or [],
+            "offset": batch.get("offset", offset),
+            "limit": batch.get("limit"),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "total": batch.get("total", len(work)),
+            "rejected": rejected_result,
+            "message": batch.get("message"),
         }
 
     @staticmethod
@@ -572,7 +562,6 @@ class WaTemplateCloseoutService:
             row = SurveyWhatsappTemplateService.create_standard_draft(
                 db, survey_type=st, language="en_GB", category="UTILITY"
             )
-            WaTemplateCloseoutService.repair_survey_template_content(db, row, force=True)
             created += 1
         if created:
             db.commit()

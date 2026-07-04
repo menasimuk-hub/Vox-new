@@ -618,8 +618,6 @@ class TelnyxWhatsappTemplateSyncService:
                         if preview:
                             existing.body_preview = preview
                         existing.components_json = components_json
-                        if not existing.draft_components_json:
-                            existing.draft_components_json = components_json
                         existing.remote_content_hash = _components_content_hash(components)
                     elif not existing.body_preview:
                         # Last resort: keep name out of body_preview (leave null for repair pass).

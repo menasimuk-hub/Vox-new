@@ -146,6 +146,8 @@ class Settings(BaseSettings):
     wa_messages_per_second: float = Field(default=8.0, alias="WA_MESSAGES_PER_SECOND")
     wa_dispatch_chunk_size: int = Field(default=25, alias="WA_DISPATCH_CHUNK_SIZE")
     wa_dispatch_chunk_pause_seconds: float = Field(default=1.0, alias="WA_DISPATCH_CHUNK_PAUSE_SECONDS")
+    wa_template_push_batch_size: int = Field(default=5, alias="WA_TEMPLATE_PUSH_BATCH_SIZE")
+    wa_template_push_batch_pause_seconds: float = Field(default=3.0, alias="WA_TEMPLATE_PUSH_BATCH_PAUSE_SECONDS")
     feedback_marketing_opt_in_enabled: bool = Field(default=True, alias="FEEDBACK_MARKETING_OPT_IN_ENABLED")
     public_site_base_url: str = Field(default="https://voxbulk.com", alias="PUBLIC_SITE_BASE_URL")
     whisper_cpp_binary: str = Field(default="whisper-cli", alias="WHISPER_CPP_BINARY")

@@ -68,6 +68,10 @@ celery_app.conf.update(
             "task": "appointments.scan_post_visit_surveys",
             "schedule": 900.0,
         },
+        "wa-template-supersede-cleanup-15m": {
+            "task": "survey.cleanup_superseded_wa_templates",
+            "schedule": 900.0,
+        },
     },
 )
 
@@ -82,6 +86,7 @@ from app.workers import survey_wa_translation_tasks  # noqa: E402, F401
 from app.workers import crm_automation_tasks  # noqa: E402, F401
 from app.workers import appointment_tasks  # noqa: E402, F401
 from app.workers import demo_account_tasks  # noqa: E402, F401
+from app.workers import survey_wa_template_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

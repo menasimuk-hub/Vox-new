@@ -208,11 +208,18 @@ def delete_industry(
 @router.post("/industries/{industry_id}/templates/push-all")
 def push_all_industry_templates_to_telnyx(
     industry_id: str,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
+    body = payload or {}
     try:
-        return SurveyWhatsappTemplateService.push_all_for_industry(db, industry_id)
+        return SurveyWhatsappTemplateService.push_all_for_industry(
+            db,
+            industry_id,
+            offset=int(body.get("offset") or 0),
+            limit=body.get("limit"),
+        )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
 
@@ -811,7 +818,7 @@ def _run_template_fix_and_sync(
         db,
         row,
         repair=bool(body.get("repair", True)),
-        utility_rewrite=bool(body.get("utility_rewrite", True)),
+        utility_rewrite=bool(body.get("utility_rewrite", False)),
         force_push=bool(body.get("force_push", True)),
     )
 
@@ -905,11 +912,18 @@ def rename_template_for_sync(
 @router.post("/types/{type_id}/templates/push-all")
 def push_all_templates_to_telnyx(
     type_id: str,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
+    body = payload or {}
     try:
-        return SurveyWhatsappTemplateService.push_all_for_survey_type(db, type_id)
+        return SurveyWhatsappTemplateService.push_all_for_survey_type(
+            db,
+            type_id,
+            offset=int(body.get("offset") or 0),
+            limit=body.get("limit"),
+        )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
 

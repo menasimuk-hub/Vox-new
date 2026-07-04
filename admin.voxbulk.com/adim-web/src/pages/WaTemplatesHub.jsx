@@ -309,11 +309,51 @@ export default function WaTemplatesHub() {
         const label = `${i + 1}/${stepDefs.length}`
         setSyncProgress(label)
         patchJobStep(step.id, { status: 'running', detail: 'Running…' })
-        last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
-          method: 'POST',
-          timeoutMs: 300000,
-          quietNetworkHint: true,
-        })
+        if (step.id === 'push') {
+          const PUSH_BATCH = 5
+          const pushScopes = ['survey', 'interview', 'feedback']
+          let surveyPushedTotal = 0
+          for (const scope of pushScopes) {
+            let offset = 0
+            let batchNum = 0
+            for (;;) {
+              batchNum += 1
+              patchJobStep(step.id, {
+                status: 'running',
+                detail: `Pushing ${scope} batch ${batchNum} (offset ${offset})…`,
+              })
+              last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
+                method: 'POST',
+                body: JSON.stringify({ scope, offset, limit: PUSH_BATCH }),
+                timeoutMs: 300000,
+                quietNetworkHint: true,
+              })
+              if (scope === 'survey') {
+                surveyPushedTotal += Number(last?.survey_push?.pushed || 0)
+                if (last?.has_more) {
+                  offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
+                  continue
+                }
+              }
+              break
+            }
+          }
+          if (surveyPushedTotal) {
+            summaryRows.push({ metric: 'Survey pushed', count: surveyPushedTotal })
+          }
+          if (last?.interview?.pushed != null) {
+            summaryRows.push({ metric: 'Interview pushed', count: last.interview.pushed })
+          }
+          if (last?.feedback_push?.pushed != null) {
+            summaryRows.push({ metric: 'Feedback pushed', count: last.feedback_push.pushed })
+          }
+        } else {
+          last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
+            method: 'POST',
+            timeoutMs: 300000,
+            quietNetworkHint: true,
+          })
+        }
         const detail = last?.message || `Step ${label} done`
         messages.push(detail)
         patchJobStep(step.id, { status: 'done', detail })
@@ -328,12 +368,6 @@ export default function WaTemplatesHub() {
         }
         if (last?.clean?.deleted != null) {
           summaryRows.push({ metric: 'Local orphans cleaned', count: last.clean.deleted })
-        }
-        if (last?.survey_push?.pushed != null) {
-          summaryRows.push({ metric: 'Survey pushed', count: last.survey_push.pushed })
-        }
-        if (last?.feedback_push?.pushed != null) {
-          summaryRows.push({ metric: 'Feedback pushed', count: last.feedback_push.pushed })
         }
       }
       const result = last || {}

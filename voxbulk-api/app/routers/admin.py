@@ -1560,10 +1560,11 @@ def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(r
 @router.post("/integrations/meta_whatsapp/whatsapp-templates/sync-step/{step}")
 def sync_meta_whatsapp_templates_step(
     step: str,
+    payload: dict | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    """Chunked sync so the admin UI can show 1/4, 2/4, … without browser timeout."""
+    """Chunked sync so the admin UI can show progress without browser timeout or Meta rate limits."""
     from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
     from app.services.telnyx_whatsapp_template_sync_service import (
         TelnyxWhatsappTemplateSyncError,
@@ -1571,6 +1572,8 @@ def sync_meta_whatsapp_templates_step(
     )
     from app.services.wa_template_closeout_service import WaTemplateCloseoutService
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    body = payload or {}
 
     if not is_meta_whatsapp_primary(db):
         raise HTTPException(
@@ -1607,8 +1610,7 @@ def sync_meta_whatsapp_templates_step(
                 "step_index": idx,
                 "step_total": total,
                 "message": (
-                    f"Step {idx}/{total}: linked {link_s.get('created', 0) + link_f.get('created', 0)} types, "
-                    f"repaired {repair_s.get('repaired', 0)} survey / {repair_f.get('regenerated', 0)} feedback"
+                    f"Step {idx}/{total}: linked {link_s.get('created', 0) + link_f.get('created', 0)} types"
                 ),
                 "link_survey": link_s,
                 "link_feedback": link_f,
@@ -1618,22 +1620,49 @@ def sync_meta_whatsapp_templates_step(
                 "relink": relink,
             }
         elif key == "push":
-            survey_push = WaTemplateCloseoutService.push_local_and_needs_resubmit(db)
-            interview = WaTemplateCloseoutService.push_all_interview(db)
-            feedback_push = WaTemplateCloseoutService.push_all_feedback(db)
-            result = {
-                "ok": True,
-                "step": key,
-                "step_index": idx,
-                "step_total": total,
-                "message": (
-                    f"Step {idx}/{total}: pushed survey {survey_push.get('pushed', 0)}, "
-                    f"interview {interview.get('pushed', 0)}, feedback {feedback_push.get('pushed', 0)}"
-                ),
-                "survey_push": survey_push,
-                "interview": interview,
-                "feedback_push": feedback_push,
-            }
+            scope = str(body.get("scope") or "survey").strip().lower()
+            offset = int(body.get("offset") or 0)
+            limit = body.get("limit")
+            if scope == "survey":
+                survey_push = WaTemplateCloseoutService.push_local_and_needs_resubmit_batch(
+                    db, offset=offset, limit=limit
+                )
+                result = {
+                    "ok": True,
+                    "step": key,
+                    "scope": scope,
+                    "step_index": idx,
+                    "step_total": total,
+                    "message": survey_push.get("message")
+                    or f"Step {idx}/{total}: survey push batch (offset {offset})",
+                    "survey_push": survey_push,
+                    "has_more": bool(survey_push.get("has_more")),
+                    "next_offset": survey_push.get("next_offset", offset),
+                }
+            elif scope == "interview":
+                interview = WaTemplateCloseoutService.push_all_interview(db)
+                result = {
+                    "ok": True,
+                    "step": key,
+                    "scope": scope,
+                    "step_index": idx,
+                    "step_total": total,
+                    "message": f"Step {idx}/{total}: pushed interview {interview.get('pushed', 0)}",
+                    "interview": interview,
+                    "has_more": False,
+                }
+            else:
+                feedback_push = WaTemplateCloseoutService.push_all_feedback(db)
+                result = {
+                    "ok": True,
+                    "step": key,
+                    "scope": scope,
+                    "step_index": idx,
+                    "step_total": total,
+                    "message": f"Step {idx}/{total}: pushed feedback {feedback_push.get('pushed', 0)}",
+                    "feedback_push": feedback_push,
+                    "has_more": False,
+                }
         else:
             meta_del = WaTemplateCloseoutService.delete_meta_rejected_ours(db)
             clean = WaTemplateCloseoutService.clean_dead_orphan_rejected(db, dry_run=False)

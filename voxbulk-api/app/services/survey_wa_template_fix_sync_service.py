@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_wa_template_guard_service import should_skip_utility_rewrite
 from app.services.survey_wa_utility_rewrite_service import (
     _prepare_approved_template_for_utility_push,
     apply_utility_rewrite_to_row,
@@ -110,7 +111,7 @@ def fix_and_sync_survey_template(
     row: TelnyxWhatsappTemplate,
     *,
     repair: bool = True,
-    utility_rewrite: bool = True,
+    utility_rewrite: bool = False,
     force_push: bool = True,
 ) -> dict[str, Any]:
     """Repair draft, optional UTILITY rewrite, push to Meta; link or sibling-sync on conflict."""
@@ -129,7 +130,7 @@ def fix_and_sync_survey_template(
         db.commit()
         db.refresh(row)
 
-    if utility_rewrite and template_row_has_buttons(row):
+    if utility_rewrite and not should_skip_utility_rewrite(db, row) and template_row_has_buttons(row):
         row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
         if renamed_to:
             renamed_from = str(row.name)
@@ -155,6 +156,13 @@ def fix_and_sync_survey_template(
             "push": push_result,
         }
     except SurveyWhatsappTemplateError as exc:
+        from app.services.survey_wa_template_clone_push_service import maybe_clone_and_push_on_meta_error
+
+        cloned = maybe_clone_and_push_on_meta_error(db, row, exc, force_push=force_push)
+        if cloned is not None:
+            cloned["steps"] = steps + ["cloned_and_pushed"]
+            return cloned
+
         payload = getattr(exc, "payload", None) or {}
         if payload.get("requires_rename") and payload.get("suggested_template_name"):
             new_name = str(payload["suggested_template_name"]).strip()

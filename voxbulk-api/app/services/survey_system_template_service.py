@@ -532,22 +532,21 @@ class SurveySystemTemplateService:
 
     @staticmethod
     def resolve_welcome_template_for_survey(db: Session, config: dict[str, Any]) -> TelnyxWhatsappTemplate | None:
-        """Pick welcome template by anonymous vs named survey mode."""
+        """Pick active welcome template by system kind + privacy mode (named vs anonymous)."""
         anonymous = bool(config.get("anonymous_responses"))
         template_name = WELCOME_TEMPLATE_ANONYMOUS_NAME if anonymous else WELCOME_TEMPLATE_NAMED_NAME
-        row = db.execute(
-            select(TelnyxWhatsappTemplate).where(
-                TelnyxWhatsappTemplate.name == template_name,
-                TelnyxWhatsappTemplate.active_for_survey.is_(True),
-            )
-        ).scalar_one_or_none()
+        row = SurveySystemTemplateService.resolve_system_template_for_kind(
+            db,
+            "welcome",
+            config={"anonymous_responses": anonymous},
+        )
         if row is None:
-            # Fall back to any active welcome with matching privacy mode.
-            row = SurveySystemTemplateService.resolve_system_template_for_kind(
-                db,
-                "welcome",
-                config={"anonymous_responses": anonymous},
-            )
+            row = db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.name == template_name,
+                    TelnyxWhatsappTemplate.active_for_survey.is_(True),
+                )
+            ).scalar_one_or_none()
         if row is None:
             logger.error("survey_welcome_template_missing name=%s anonymous=%s", template_name, anonymous)
             return None

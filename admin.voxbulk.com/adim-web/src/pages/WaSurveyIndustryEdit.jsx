@@ -419,25 +419,45 @@ export default function WaSurveyIndustryEdit() {
 
     setMsg('')
 
+    const PUSH_BATCH = 5
+
+    const acc = { pushed: 0, error_count: 0, errors: [] }
+
     try {
 
-      const summary = await apiFetch(
+      let offset = 0
 
-        `/admin/wa-survey/industries/${encodeURIComponent(industry.id)}/templates/push-all`,
+      for (;;) {
 
-        { method: 'POST', body: '{}' },
+        const summary = await apiFetch(
 
-      )
+          `/admin/wa-survey/industries/${encodeURIComponent(industry.id)}/templates/push-all`,
 
-      if (summary.error_count) {
+          { method: 'POST', body: JSON.stringify({ offset, limit: PUSH_BATCH }), timeoutMs: 280000, quietNetworkHint: true },
 
-        setMsg(summary.message || `Pushed ${summary.pushed} template(s)`)
+        )
+
+        acc.pushed += Number(summary.pushed || 0)
+
+        acc.error_count += Number(summary.error_count || 0)
+
+        acc.errors.push(...(summary.errors || []))
+
+        if (!summary.has_more) break
+
+        offset = Number(summary.next_offset ?? offset + PUSH_BATCH)
+
+      }
+
+      if (acc.error_count) {
+
+        setMsg(`Pushed ${acc.pushed} template(s)`)
 
         setError(
 
-          (summary.errors || [])
+          acc.errors
 
-            .map((item) => `${item.survey_type_name || item.survey_type_id || 'Survey type'} · ${item.template_name || item.template_id}: ${item.error}`)
+            .map((item) => `${item.template_name || item.template_id}: ${item.error}`)
 
             .join('\n'),
 
@@ -445,7 +465,7 @@ export default function WaSurveyIndustryEdit() {
 
       } else {
 
-        setMsg(summary.message || `Pushed ${summary.pushed} template(s) to Telnyx.`)
+        setMsg(`Pushed ${acc.pushed} template(s) to Meta.`)
 
       }
 

@@ -202,6 +202,7 @@ function apiTemplateToDraft(tpl, product) {
     is_local_only: isLocalDraftTemplate(tpl),
     telnyx_record_id: tpl?.telnyx_record_id || null,
     last_push_error: tpl?.last_push_error || null,
+    draft_not_live_on_meta: Boolean(tpl?.draft_not_live_on_meta),
   }
 }
 
@@ -511,7 +512,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     const payload = {
       fix_and_sync: true,
       repair: true,
-      utility_rewrite: true,
+      utility_rewrite: false,
       force_push: true,
     }
     const pushPath = `/admin/wa-survey/templates/${templateId}/push`
@@ -975,6 +976,12 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                   <Stat label="Status" value={<StatusDot status={t.status} />} />
                   <Stat label="Updated" value={t.updated} />
                 </div>
+
+                {t.draft_not_live_on_meta ? (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    DB draft is not live on WhatsApp yet — Sync to Meta and wait for approval.
+                  </p>
+                ) : null}
 
                 {showUsage ? (
                   <div className="rounded-lg border bg-surface">
