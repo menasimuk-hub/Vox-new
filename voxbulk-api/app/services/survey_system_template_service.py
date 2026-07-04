@@ -162,11 +162,13 @@ def _default_components_for_kind(kind: str, *, privacy_mode: str = PRIVACY_MODE_
             },
         ]
     if kind == "thank_you":
+        body = (
+            "🙏 Thank you — your anonymous feedback has been recorded."
+            if privacy == PRIVACY_MODE_ON
+            else "🙏 Thank you for sharing your feedback. We really appreciate your time."
+        )
         return [
-            {
-                "type": "BODY",
-                "text": "🙏 Thank you for sharing your feedback. We really appreciate your time.",
-            },
+            {"type": "BODY", "text": body},
             {"type": "FOOTER", "text": "Reply STOP to opt out"},
         ]
     if kind == "final_feedback":
@@ -177,7 +179,7 @@ def _default_components_for_kind(kind: str, *, privacy_mode: str = PRIVACY_MODE_
             },
             {"type": "FOOTER", "text": "Reply STOP to opt out"},
         ]
-    # tell_us_more
+    # tell_us_more — no buttons; session free-form reply
     return [
         {
             "type": "BODY",
@@ -185,7 +187,6 @@ def _default_components_for_kind(kind: str, *, privacy_mode: str = PRIVACY_MODE_
                 "We're sorry to hear that. Could you tell us a bit more about what went wrong? "
                 "Your reply helps us improve."
             ),
-            "example": {"body_text": [["there"]]},
         },
         {"type": "FOOTER", "text": "Reply STOP to opt out"},
     ]
@@ -862,29 +863,73 @@ class SurveySystemTemplateService:
         for kind in ("thank_you", "tell_us_more", "final_feedback"):
             st = SurveySystemTemplateService.survey_type_for_kind(db, kind)
             rows = SurveySystemTemplateService._templates_for_kind(db, st, kind)
-            if rows:
-                existing.append({"kind": kind, "count": len(rows)})
-                continue
-            created.append(
-                SurveySystemTemplateService.create_draft(
-                    db,
-                    kind=kind,
-                    payload={
-                        "privacy_mode": PRIVACY_MODE_OFF,
-                        "language": "en_GB",
-                        "category": "UTILITY",
-                    },
+            has_named = any(not SurveySystemTemplateService._item_is_anonymous(i) for i in rows)
+            has_anon = any(SurveySystemTemplateService._item_is_anonymous(i) for i in rows)
+            if has_named:
+                existing.append({"kind": kind, "privacy_mode": PRIVACY_MODE_OFF})
+            else:
+                created.append(
+                    SurveySystemTemplateService.create_draft(
+                        db,
+                        kind=kind,
+                        payload={
+                            "privacy_mode": PRIVACY_MODE_OFF,
+                            "language": "en_GB",
+                            "category": "UTILITY",
+                        },
+                    )
                 )
-            )
+            # Anonymous surveys use anonymous system thank-you / open-text templates.
+            if has_anon:
+                existing.append({"kind": kind, "privacy_mode": PRIVACY_MODE_ON})
+            else:
+                created.append(
+                    SurveySystemTemplateService.create_draft(
+                        db,
+                        kind=kind,
+                        payload={
+                            "privacy_mode": PRIVACY_MODE_ON,
+                            "display_name": f"Anonymous {KIND_LABELS[kind].rstrip('s')}",
+                            "language": "en_GB",
+                            "category": "UTILITY",
+                        },
+                    )
+                )
+
+        # Keep one named + one anonymous welcome (drop accidental duplicates).
+        welcome_rows = SurveySystemTemplateService._templates_for_kind(db, welcome_st, "welcome")
+        for want_anon in (False, True):
+            group = [
+                i
+                for i in welcome_rows
+                if SurveySystemTemplateService._item_is_anonymous(i) is want_anon
+            ]
+            if len(group) <= 1:
+                continue
+            # Prefer APPROVED, then oldest id.
+            def _score(item: dict[str, Any]) -> tuple:
+                status = str(item.get("status") or "").upper()
+                return (1 if status == "APPROVED" else 0, -int(item.get("id") or 0))
+
+            group_sorted = sorted(group, key=_score, reverse=True)
+            keeper = group_sorted[0]
+            for item in group_sorted[1:]:
+                try:
+                    SurveySystemTemplateService.delete_template(db, int(item["id"]))
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
 
         # Align canonical welcome names when free.
+        welcome_rows = SurveySystemTemplateService._templates_for_kind(db, welcome_st, "welcome")
         for privacy, canonical in (
             (PRIVACY_MODE_OFF, WELCOME_TEMPLATE_NAMED_NAME),
             (PRIVACY_MODE_ON, WELCOME_TEMPLATE_ANONYMOUS_NAME),
         ):
             if not SurveySystemTemplateService._name_is_free(db, canonical):
                 continue
-            welcome_rows = SurveySystemTemplateService._templates_for_kind(db, welcome_st, "welcome")
             for item in welcome_rows:
                 is_anon = SurveySystemTemplateService._item_is_anonymous(item)
                 if privacy == PRIVACY_MODE_ON and not is_anon:

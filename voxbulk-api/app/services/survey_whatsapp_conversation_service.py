@@ -17,7 +17,10 @@ from app.services.messaging_log_service import normalize_e164
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 from app.services.survey_dispatch_service import _first_name, _personalize, _uses_whatsapp
 from app.services.survey_step_bank_service import normalize_step_role
-from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+from app.services.survey_whatsapp_template_service import (
+    SurveyWhatsappTemplateService,
+    template_row_needs_meta_approval,
+)
 from app.services.telnyx_whatsapp_template_sync_service import (
     TelnyxWhatsappTemplateSyncService,
     send_template_id_for_row,
@@ -1468,7 +1471,8 @@ def _send_message(
         if wa_template_id:
             template_row = _resolve_template_row(db, wa_template_id)
 
-    if template_row is not None:
+    if template_row is not None and template_row_needs_meta_approval(template_row):
+        # Templates with buttons must go through Meta-approved HSM send.
         result = _send_whatsapp_template(
             db,
             order=order,
@@ -1478,7 +1482,17 @@ def _send_message(
             body=body,
         )
     else:
+        # Buttonless templates (thank_you, tell_us_more, etc.) are session free-form text —
+        # no Meta approval required once the customer has replied (24h window).
         personalized = _personalize_survey_text(body, variables)
+        if template_row is not None and not personalized:
+            preview = SurveyWhatsappTemplateService.build_preview(
+                db,
+                template_row,
+                business_name=variables.get("organisation_name") or "Your business",
+                first_name=variables.get("first_name") or "there",
+            )
+            personalized = str(preview.get("rendered_body") or template_row.body_preview or body).strip()
         result = TelnyxMessagingService.send_whatsapp(
             db,
             org_id=order.org_id,

@@ -130,9 +130,10 @@ class SurveyGenerationService:
 
         from app.services.survey_system_template_service import SurveySystemTemplateService
 
+        anon_cfg = {"anonymous_responses": variant_key == VARIANT_ANONYMOUS}
         resolved_welcome_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(
             db,
-            {"anonymous_responses": variant_key == VARIANT_ANONYMOUS},
+            anon_cfg,
         )
         if resolved_welcome_id:
             resolved_row = db.get(TelnyxWhatsappTemplate, int(resolved_welcome_id))
@@ -140,8 +141,24 @@ class SurveyGenerationService:
                 start_row = resolved_row
                 welcome_template_id = int(resolved_welcome_id)
 
+        # Anonymous surveys use anonymous system thank-you / tell-us-more when available.
+        resolved_thank = SurveySystemTemplateService.resolve_system_template_for_kind(
+            db, "thank_you", anon_cfg
+        )
+        if resolved_thank is not None:
+            thank_you_template_id = int(resolved_thank.id)
+        resolved_tell = SurveySystemTemplateService.resolve_tell_us_more_template_id(db, anon_cfg)
+        if resolved_tell is not None:
+            tell_us_more_template_id = int(resolved_tell)
+
+        from app.services.survey_whatsapp_template_service import template_row_needs_meta_approval
+
         start_status = str(start_row.status or "").upper()
-        if start_status != "APPROVED" and not allow_unapproved_templates:
+        if (
+            start_status != "APPROVED"
+            and not allow_unapproved_templates
+            and template_row_needs_meta_approval(start_row)
+        ):
             raise ValueError(
                 f"Start template “{start_row.display_name or start_row.name}” is not APPROVED yet "
                 f"(status: {start_row.status}). Push to Telnyx and wait for Meta approval."

@@ -363,7 +363,14 @@ def assert_runtime_template_send(
         raise SurveyBuilderFlowError(msg)
 
     row = db.get(TelnyxWhatsappTemplate, tid)
-    if row is None or str(row.status or "").upper() != "APPROVED":
+    if row is None:
+        msg = f"Template {tid} missing (context={context})"
+        logger.error("%s %s", LOG_PREFIX, msg)
+        raise SurveyBuilderFlowError(msg)
+    # Buttonless templates are sent as session free-form text — Meta approval not required.
+    from app.services.survey_whatsapp_template_service import template_row_needs_meta_approval
+
+    if str(row.status or "").upper() != "APPROVED" and template_row_needs_meta_approval(row):
         msg = f"Template {tid} missing or not APPROVED (context={context})"
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)

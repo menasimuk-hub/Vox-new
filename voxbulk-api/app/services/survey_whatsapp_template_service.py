@@ -713,6 +713,18 @@ def _buttons_from_components(components: list[Any] | None) -> list[dict[str, Any
     return []
 
 
+def template_row_has_buttons(row: TelnyxWhatsappTemplate | None) -> bool:
+    """True when the template has quick-reply/URL/phone buttons (needs Meta approval to send)."""
+    if row is None:
+        return False
+    return bool(_buttons_from_components(_effective_components(row)))
+
+
+def template_row_needs_meta_approval(row: TelnyxWhatsappTemplate | None) -> bool:
+    """Buttonless session messages can be sent as free-form text without Meta approval."""
+    return template_row_has_buttons(row)
+
+
 def _effective_components(row: TelnyxWhatsappTemplate) -> list[Any]:
     draft = _loads(row.draft_components_json)
     if isinstance(draft, list) and draft:
