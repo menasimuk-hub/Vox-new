@@ -46,48 +46,6 @@ info()  { echo -e "${GREEN}[deploy]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[warn]${NC} $*" >&2; }
 fail()  { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
 
-# Prefer a writable log path. A root-owned /tmp/voxbulk-deploy.log from a prior
-# sudo deploy makes tee fail; with pipefail that was misreported as "API import failed".
-ensure_deploy_log() {
-  if [[ -n "${VOX_DEPLOY_LOG:-}" ]]; then
-    if touch "$DEPLOY_LOG" 2>/dev/null; then
-      return 0
-    fi
-    fail "VOX_DEPLOY_LOG is not writable: $DEPLOY_LOG"
-  fi
-  if touch "$DEPLOY_LOG" 2>/dev/null; then
-    return 0
-  fi
-  DEPLOY_LOG="/tmp/voxbulk-deploy-$(id -u).log"
-  if ! touch "$DEPLOY_LOG" 2>/dev/null; then
-    DEPLOY_LOG="/dev/null"
-    warn "Could not open a deploy log file — continuing without one"
-  fi
-}
-
-# State files under the repo (never shared /tmp — avoids root vs deploy-user permission fights).
-DEPLOY_STATE_DIR="$ROOT/.deploy"
-
-ensure_deploy_state_dir() {
-  mkdir -p "$DEPLOY_STATE_DIR" 2>/dev/null || true
-}
-
-# Best-effort backup marker — never abort deploy if the marker cannot be written.
-write_backup_marker() {
-  local safe_label="$1"
-  local backup="$2"
-  ensure_deploy_state_dir
-  local marker="$DEPLOY_STATE_DIR/backup-${safe_label}.path"
-  if printf '%s\n' "$backup" >"$marker" 2>/dev/null; then
-    return 0
-  fi
-  marker="/tmp/voxbulk-backup-$(id -u)-${safe_label}.path"
-  if printf '%s\n' "$backup" >"$marker" 2>/dev/null; then
-    return 0
-  fi
-  warn "Could not write backup marker for ${safe_label} (backup kept at ${backup})"
-}
-
 check_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing command: $1"
 }
@@ -239,7 +197,8 @@ copy_dist() {
     sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
     local safe_label
     safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
-    write_backup_marker "$safe_label" "$backup"
+    # Best-effort only — never abort deploy if /tmp marker is not writable
+    echo "$backup" > "/tmp/voxbulk-backup-${safe_label}.path" 2>/dev/null || true
   fi
 
   info "Copying $label → $dest"
@@ -252,17 +211,8 @@ verify_api_import() {
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source .venv/bin/activate
-  local out rc
-  set +e
-  out=$(python -c "import main" 2>&1)
-  rc=$?
-  set -e
-  if [[ -n "$out" ]]; then
-    echo "$out"
-    # Best-effort log append — never treat log write failure as import failure
-    { echo "$out" >>"$DEPLOY_LOG"; } 2>/dev/null || true
-  fi
-  if [[ "$rc" -ne 0 ]]; then
+  # Do not pipe to tee here: tee permission errors were misreported as import failures.
+  if ! python -c "import main"; then
     fail "API import failed — uvicorn will not start. Fix Python errors before restarting services."
   fi
   info "API import OK"
@@ -271,10 +221,7 @@ verify_api_import() {
 require_api_health() {
   local attempts="${1:-30}"
   local i=0
-  local api_log="${VOX_API_LOG:-/tmp/voxbulk-api.log}"
-  [[ -f "$api_log" ]] || api_log="/tmp/voxbulk-api-$(id -u).log"
-  [[ -f "$api_log" ]] || api_log="$ROOT/.deploy/voxbulk-api.log"
-  info "Waiting for API /health on :8000 (up to ${attempts}s) …"
+  info "Waiting for API /health (up to ${attempts}s) …"
   while (( i < attempts )); do
     if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1; then
       info "API health OK on 127.0.0.1:8000"
@@ -284,25 +231,11 @@ require_api_health() {
       info "API health OK on 127.0.0.1:8000"
       return 0
     fi
-    # Progress every 10s so deploy does not look hung
-    if (( i > 0 && i % 10 == 0 )); then
-      info "Still waiting for :8000/health (${i}s) …"
-      pgrep -af "uvicorn.*main:app" || warn "No uvicorn process yet"
-    fi
     sleep 1
     i=$((i + 1))
   done
-  warn "API health check failed — processes and log:"
-  pgrep -af "uvicorn|python.*main" || true
-  ss -ltnp 2>/dev/null | grep 8000 || netstat -ltnp 2>/dev/null | grep 8000 || true
-  if [[ -f "$api_log" ]]; then
-    warn "Tail of $api_log:"
-    tail -n 40 "$api_log" || true
-  else
-    warn "No API log at $api_log (also check /tmp/voxbulk-api*.log)"
-    tail -n 40 /tmp/voxbulk-api.log 2>/dev/null || true
-    tail -n 40 /tmp/voxbulk-api-"$(id -u)".log 2>/dev/null || true
-  fi
+  warn "API health check failed — tail of $API_LOG:"
+  tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
   fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
 }
 
@@ -336,13 +269,8 @@ restart_services() {
   verify_api_import
   ensure_auth_url_env
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
-  # Migrations already ran in api_deps_and_migrate — skip second alembic (avoids MySQL lock hang).
-  # Dashboard/admin already rsynced to wwwroot — skip preview rebuild.
-  VOX_SKIP_MIGRATE=1 \
-    VOX_SKIP_DASHBOARD_BUILD=1 \
-    VOX_SKIP_DASHBOARD_PREVIEW=1 \
-    bash "$VOX_SH" restart
-  require_api_health 60
+  bash "$VOX_SH" restart
+  require_api_health 30
 }
 
 ensure_auth_url_env() {
@@ -380,18 +308,12 @@ post_checks() {
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
 
   info "Verifying /health/build …"
-  ensure_deploy_state_dir
-  local health_json="$DEPLOY_STATE_DIR/health-build.json"
-  if ! touch "$health_json" 2>/dev/null; then
-    health_json="/tmp/voxbulk-health-build-$(id -u).json"
-  fi
-  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >"$health_json" 2>/dev/null \
-    || curl -sf http://127.0.0.1:8000/health/build >"$health_json" 2>/dev/null; then
-    HEALTH_BUILD_JSON="$health_json" python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
+  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
+    || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
+    python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
 import json
-import os
 from pathlib import Path
-p = Path(os.environ.get("HEALTH_BUILD_JSON") or "")
+p = Path("/tmp/voxbulk-health-build.json")
 data = json.loads(p.read_text())
 keys = (
     "status", "git_sha", "git_branch", "built_at", "deploy_ok",
@@ -568,12 +490,7 @@ EOF
 }
 
 main() {
-  ensure_deploy_state_dir
-  ensure_deploy_log
-  # Process substitution tee: if the log is unwritable, fall back to stdout only
-  if [[ "$DEPLOY_LOG" != "/dev/null" ]] && touch "$DEPLOY_LOG" 2>/dev/null; then
-    exec > >(tee -a "$DEPLOY_LOG") 2>&1
-  fi
+  exec > >(tee -a "$DEPLOY_LOG") 2>&1
   info "VOXBULK deploy started $(date -Iseconds)"
   info "Log: $DEPLOY_LOG"
   info "Target branch: $GIT_BRANCH"

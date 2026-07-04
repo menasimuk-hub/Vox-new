@@ -17,7 +17,6 @@ menasimuk
 menasimuk.pub
 venv/
 .venv/
-.deploy/
 .DS_Store
 delet-me/
 voxbulk-api/data/cv_intake/
