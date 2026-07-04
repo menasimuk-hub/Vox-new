@@ -46,6 +46,25 @@ info()  { echo -e "${GREEN}[deploy]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[warn]${NC} $*" >&2; }
 fail()  { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
 
+# Prefer a writable log path. A root-owned /tmp/voxbulk-deploy.log from a prior
+# sudo deploy makes tee fail; with pipefail that was misreported as "API import failed".
+ensure_deploy_log() {
+  if [[ -n "${VOX_DEPLOY_LOG:-}" ]]; then
+    if touch "$DEPLOY_LOG" 2>/dev/null; then
+      return 0
+    fi
+    fail "VOX_DEPLOY_LOG is not writable: $DEPLOY_LOG"
+  fi
+  if touch "$DEPLOY_LOG" 2>/dev/null; then
+    return 0
+  fi
+  DEPLOY_LOG="/tmp/voxbulk-deploy-$(id -u).log"
+  if ! touch "$DEPLOY_LOG" 2>/dev/null; then
+    DEPLOY_LOG="/dev/null"
+    warn "Could not open a deploy log file — continuing without one"
+  fi
+}
+
 check_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing command: $1"
 }
@@ -210,7 +229,17 @@ verify_api_import() {
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source .venv/bin/activate
-  if ! python -c "import main" 2>&1 | tee -a "$DEPLOY_LOG"; then
+  local out rc
+  set +e
+  out=$(python -c "import main" 2>&1)
+  rc=$?
+  set -e
+  if [[ -n "$out" ]]; then
+    echo "$out"
+    # Best-effort log append — never treat log write failure as import failure
+    { echo "$out" >>"$DEPLOY_LOG"; } 2>/dev/null || true
+  fi
+  if [[ "$rc" -ne 0 ]]; then
     fail "API import failed — uvicorn will not start. Fix Python errors before restarting services."
   fi
   info "API import OK"
@@ -488,7 +517,11 @@ EOF
 }
 
 main() {
-  exec > >(tee -a "$DEPLOY_LOG") 2>&1
+  ensure_deploy_log
+  # Process substitution tee: if the log is unwritable, fall back to stdout only
+  if [[ "$DEPLOY_LOG" != "/dev/null" ]] && touch "$DEPLOY_LOG" 2>/dev/null; then
+    exec > >(tee -a "$DEPLOY_LOG") 2>&1
+  fi
   info "VOXBULK deploy started $(date -Iseconds)"
   info "Log: $DEPLOY_LOG"
   info "Target branch: $GIT_BRANCH"
