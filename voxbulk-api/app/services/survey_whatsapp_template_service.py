@@ -1242,12 +1242,33 @@ def _push_row_to_meta(
 ) -> dict[str, Any]:
     from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
 
+    template_name = str(row.name or "").strip()
     meta_request_mode = "create_or_update_template"
+    # Meta cannot PATCH approved body/buttons in place — delete then recreate with same name.
+    if branch == SYNC_BRANCH_APPROVED_UPDATE and template_name:
+        meta_request_mode = "delete_and_recreate_approved"
+        record_id = str(row.telnyx_record_id or "").strip()
+        try:
+            MetaWhatsappTemplateService.delete_message_template(
+                db,
+                name=template_name,
+                hsm_id=record_id if record_id and not record_id.startswith(_LOCAL_ID_PREFIX) else None,
+            )
+            logger.info(
+                "survey_wa_template_meta_deleted_for_approved_update",
+                extra={"template_id": row.id, "template_name": template_name},
+            )
+        except MetaWhatsappTemplateError as exc:
+            logger.warning(
+                "survey_wa_template_meta_delete_before_update_failed",
+                extra={"template_id": row.id, "template_name": template_name, "error": str(exc)},
+            )
+
     logger.info(
         "survey_wa_template_meta_push_start",
         extra={
             "template_id": row.id,
-            "template_name": row.name,
+            "template_name": template_name,
             "meta_request_mode": meta_request_mode,
             "sync_branch": branch,
         },
@@ -1255,7 +1276,7 @@ def _push_row_to_meta(
     try:
         item = MetaWhatsappTemplateService.push_template_payload(
             db,
-            name=str(row.name or "").strip(),
+            name=template_name,
             language=lang_code,
             category=category,
             components=components,
@@ -2130,7 +2151,7 @@ class SurveyWhatsappTemplateService:
         row: TelnyxWhatsappTemplate,
         *,
         remote_items: list[dict[str, Any]] | None = None,
-        force_approved_update: bool = False,
+        force_approved_update: bool = True,
     ) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
@@ -2174,7 +2195,8 @@ class SurveyWhatsappTemplateService:
                     "approval_status": str(row.status or "").upper(),
                 },
             )
-            if branch == SYNC_BRANCH_APPROVED_UPDATE:
+            # Only skip content push when we are not forcing an approved update.
+            if branch == SYNC_BRANCH_APPROVED_UPDATE and not force_approved_update:
                 branch = SYNC_BRANCH_STATUS_REFRESH
                 branch_error = None
 
@@ -2186,6 +2208,7 @@ class SurveyWhatsappTemplateService:
                 "sync_branch": branch,
                 "approval_status": str(row.status or "").upper(),
                 "has_remote_id": _has_remote_telnyx_id(row),
+                "force_approved_update": force_approved_update,
             },
         )
 

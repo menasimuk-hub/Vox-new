@@ -628,7 +628,7 @@ def test_push_to_telnyx_approved_draft_diff_blocks_without_force():
         db.commit()
 
         try:
-            SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+            SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=False)
             raise AssertionError("expected approved-update guard")
         except SurveyWhatsappTemplateError as exc:
             assert "APPROVED on Meta" in str(exc)
