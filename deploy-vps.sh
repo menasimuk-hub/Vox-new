@@ -330,6 +330,7 @@ post_checks() {
     || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
     python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
 import json
+import subprocess
 from pathlib import Path
 p = Path("/tmp/voxbulk-health-build.json")
 data = json.loads(p.read_text())
@@ -344,6 +345,13 @@ if data.get("wa_survey_debug_markers") is not None:
     raise SystemExit("stale /health/build handler — wa_survey_debug_markers should not exist")
 if not data.get("deploy_ok"):
     raise SystemExit(1)
+repo_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+live_sha = str(data.get("git_sha") or "").strip()
+if repo_sha and live_sha and repo_sha != live_sha:
+    raise SystemExit(
+        f"API process stale: /health/build git_sha={live_sha!r} but repo HEAD={repo_sha!r}. "
+        "Run: pkill -f 'uvicorn.*main:app' && ./vox.sh restart"
+    )
 PY
   else
     warn "Could not curl /health/build — API may not be running"

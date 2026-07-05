@@ -936,13 +936,16 @@ class TelnyxWhatsappTemplateSyncService:
         if row is None:
             return None
         vars_ = variables or TEST_TEMPLATE_VARIABLES
-        stored_components: list[Any] | None = None
-        try:
-            parsed = json.loads(row.components_json or "null")
-            if isinstance(parsed, list):
-                stored_components = parsed
-        except json.JSONDecodeError:
-            stored_components = None
+        from app.services.survey_whatsapp_template_service import _effective_components
+
+        stored_components: list[Any] | None = _effective_components(row) or None
+        if not stored_components:
+            try:
+                parsed = json.loads(row.components_json or "null")
+                if isinstance(parsed, list):
+                    stored_components = parsed
+            except json.JSONDecodeError:
+                stored_components = None
 
         url_idx = url_button_index_from_components(stored_components)
         sales_key = str(row.sales_template_key or "").strip().lower()
@@ -966,10 +969,12 @@ class TelnyxWhatsappTemplateSyncService:
         built = build_test_components_for_template_name(row.name)
         if built is not None:
             return built
-        try:
-            components = json.loads(row.components_json or "null")
-        except json.JSONDecodeError:
-            components = None
+        components = stored_components
+        if components is None:
+            try:
+                components = json.loads(row.components_json or "null")
+            except json.JSONDecodeError:
+                components = None
         count = _body_variable_count(components if isinstance(components, list) else None)
         if count <= 0:
             return None
