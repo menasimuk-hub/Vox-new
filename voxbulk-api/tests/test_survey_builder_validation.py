@@ -286,3 +286,101 @@ def test_validate_accepts_middle_template_list_without_service_map(db):
     )
     assert result["ok"] is True
     assert result["ordered_middle_template_ids"] == [middle_tpl.id]
+
+
+def test_validate_accepts_mapped_welcome_clone_without_survey_type_id(db):
+    industry, st = _regular_type(db)
+    welcome_type = db.execute(
+        select(SurveyType).where(SurveyType.system_template_kind == "welcome").limit(1)
+    ).scalar_one()
+    thank_types = db.execute(select(SurveyType).where(SurveyType.system_template_kind == "thank_you")).scalars().all()
+    rid, tid = _meta_remote_ids()
+    thank_rid, thank_tid = _meta_remote_ids()
+    now = datetime.utcnow()
+    parent = TelnyxWhatsappTemplate(
+        telnyx_record_id="local_welcome_parent_val",
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_welcome_parent_val",
+        language="en_US",
+        category="UTILITY",
+        status="LOCAL_DRAFT",
+        step_role="start",
+        active_for_survey=True,
+        created_at=now,
+        updated_at=now,
+    )
+    clone = TelnyxWhatsappTemplate(
+        telnyx_record_id=rid,
+        template_id=tid,
+        name="voxbulk_survey_welcome_clone_val",
+        language="en_US",
+        category="UTILITY",
+        status="APPROVED",
+        step_role="start",
+        active_for_survey=True,
+        components_json=_sendable_components_json(),
+        created_at=now,
+        updated_at=now,
+    )
+    thank_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=thank_rid,
+        template_id=thank_tid,
+        name="voxbulk_survey_thank_val",
+        language="en_US",
+        category="UTILITY",
+        status="APPROVED",
+        step_role="completion",
+        survey_type_id=thank_types[0].id,
+        active_for_survey=True,
+        components_json=_sendable_components_json(),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add_all([parent, clone, thank_tpl])
+    db.flush()
+    clone.parent_template_id = int(parent.id)
+    db.add(
+        SurveyTypeTemplate(
+            survey_type_id=welcome_type.id,
+            template_id=parent.id,
+            industry_id=welcome_type.industry_id,
+        )
+    )
+    db.add(
+        SurveyTypeTemplate(
+            survey_type_id=thank_types[0].id,
+            template_id=thank_tpl.id,
+            industry_id=thank_types[0].industry_id,
+        )
+    )
+    middle_rid, middle_tid = _meta_remote_ids()
+    middle_tpl = TelnyxWhatsappTemplate(
+        telnyx_record_id=middle_rid,
+        template_id=middle_tid,
+        name="voxbulk_survey_middle_val",
+        language="en_US",
+        category="UTILITY",
+        status="APPROVED",
+        step_role="rating",
+        survey_type_id=st.id,
+        active_for_survey=True,
+        components_json=_sendable_components_json(),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(middle_tpl)
+    db.flush()
+    db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=middle_tpl.id, industry_id=industry.id))
+    db.commit()
+
+    result = SurveyBuilderValidationService.validate_builder_selection(
+        db,
+        industry_id=industry.id,
+        selected_survey_type_ids=[st.id],
+        welcome_template_id=clone.id,
+        thank_you_template_id=thank_tpl.id,
+        selected_middle_template_ids=[middle_tpl.id],
+        require_approved=True,
+    )
+    assert result["ok"] is True
+    assert result["welcome_template_id"] == clone.id

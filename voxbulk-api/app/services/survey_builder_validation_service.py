@@ -245,8 +245,7 @@ class SurveyBuilderValidationService:
             if tpl is None or not tpl.active_for_survey:
                 errors.append(f"{label} template not found.")
                 continue
-            st = db.get(SurveyType, str(tpl.survey_type_id or ""))
-            if st is None or st.system_template_kind != kind:
+            if not SurveySystemTemplateService.template_mapped_to_system_kind(db, tpl_int, kind):
                 errors.append(f"{label} template must be from system {kind} templates.")
                 continue
             if require_approved:

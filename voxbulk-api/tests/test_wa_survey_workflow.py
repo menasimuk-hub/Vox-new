@@ -1396,7 +1396,6 @@ def test_dashboard_system_templates_hide_disabled_welcome_without_clone_substitu
         db.flush()
         clone.parent_template_id = int(parent.id)
         SurveySystemTemplateService._ensure_system_mapping(db, survey_type=welcome_type, template=parent)
-        SurveySystemTemplateService._ensure_system_mapping(db, survey_type=welcome_type, template=clone)
         db.commit()
         parent_id = int(parent.id)
         clone_id = int(clone.id)
@@ -1404,8 +1403,8 @@ def test_dashboard_system_templates_hide_disabled_welcome_without_clone_substitu
     listed = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
     assert listed.status_code == 200
     welcome_ids = {int(t["id"]) for t in listed.json().get("templates", {}).get("welcome", [])}
-    assert parent_id in welcome_ids
     assert clone_id in welcome_ids
+    assert parent_id not in welcome_ids
 
     with get_sessionmaker()() as db:
         row = db.get(TelnyxWhatsappTemplate, clone_id)

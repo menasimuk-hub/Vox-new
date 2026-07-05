@@ -496,11 +496,84 @@ class SurveySystemTemplateService:
         return created
 
     @staticmethod
+    def _system_survey_type_ids_for_kind(db: Session, kind: str) -> list[str]:
+        kind = normalize_system_template_kind(kind)
+        return list(
+            db.execute(select(SurveyType.id).where(SurveyType.system_template_kind == kind)).scalars()
+        )
+
+    @staticmethod
+    def template_mapped_to_system_kind(db: Session, template_id: int, kind: str) -> bool:
+        """True when template is linked (or is the sendable row for a link) to a system kind."""
+        try:
+            tid = int(template_id)
+        except (TypeError, ValueError):
+            return False
+        st_ids = SurveySystemTemplateService._system_survey_type_ids_for_kind(db, kind)
+        if not st_ids:
+            return False
+        direct = db.execute(
+            select(SurveyTypeTemplate.id).where(
+                SurveyTypeTemplate.survey_type_id.in_(st_ids),
+                SurveyTypeTemplate.template_id == tid,
+            )
+        ).scalar_one_or_none()
+        if direct is not None:
+            return True
+        tpl = db.get(TelnyxWhatsappTemplate, tid)
+        if tpl is not None and tpl.survey_type_id:
+            st = db.get(SurveyType, str(tpl.survey_type_id))
+            if st is not None and str(st.system_template_kind or "") == kind:
+                return True
+        if tpl is not None:
+            parent_id = int(tpl.parent_template_id or 0)
+            if parent_id and SurveySystemTemplateService.template_mapped_to_system_kind(db, parent_id, kind):
+                return True
+        from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+
+        for st_id in st_ids:
+            mappings = list(
+                db.execute(
+                    select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == st_id)
+                ).scalars()
+            )
+            for mapping in mappings:
+                mapped = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+                if mapped is None or not mapped.active_for_survey:
+                    continue
+                sendable = resolve_sendable_template_row(db, mapped)
+                if sendable is not None and int(sendable.id) == tid:
+                    return True
+        return False
+
+    @staticmethod
+    def picker_row_for_mapped_system_template(
+        db: Session,
+        tpl: TelnyxWhatsappTemplate,
+    ) -> TelnyxWhatsappTemplate | None:
+        """Dashboard picker row: active sendable Meta clone when parent is mapped, else mapped row."""
+        if not tpl.active_for_survey:
+            return None
+        from app.services.survey_whatsapp_template_service import (
+            resolve_sendable_template_row,
+            template_row_is_sendable_on_meta,
+        )
+
+        if template_row_is_sendable_on_meta(tpl):
+            return tpl
+        sendable = resolve_sendable_template_row(db, tpl)
+        if sendable is not None and sendable.active_for_survey:
+            return sendable
+        return tpl
+
+    @staticmethod
     def list_templates_for_builder(db: Session) -> dict[str, Any]:
         """Templates grouped by kind for dashboard survey builder."""
         SurveySystemTemplateService.ensure_system_survey_types(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
         seen_ids: dict[str, set[int]] = {k: set() for k in SYSTEM_TEMPLATE_KINDS}
+        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+
         types = list(
             db.execute(
                 select(SurveyType).where(SurveyType.system_template_kind.in_(SYSTEM_TEMPLATE_KINDS))
@@ -517,20 +590,23 @@ class SurveySystemTemplateService:
             )
             for mapping in mappings:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
-                if tpl is None or not tpl.active_for_survey:
+                if tpl is None:
                     continue
-                tid = int(tpl.id)
+                listed = SurveySystemTemplateService.picker_row_for_mapped_system_template(db, tpl)
+                if listed is None:
+                    continue
+                tid = int(listed.id)
                 if tid in seen_ids[kind]:
                     continue
                 seen_ids[kind].add(tid)
-                status = str(tpl.status or "").upper()
+                status = str(listed.status or "").upper()
                 grouped[kind].append(
                     {
-                        **survey_template_to_dict(tpl),
+                        **survey_template_to_dict(listed),
                         "survey_type_id": st.id,
                         "survey_type_name": st.name,
                         "survey_type_slug": st.slug,
-                        "is_approved": status == "APPROVED",
+                        "is_approved": template_row_is_sendable_on_meta(listed),
                     }
                 )
         return {"ok": True, "templates": grouped}
