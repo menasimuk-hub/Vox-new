@@ -746,7 +746,11 @@ def set_template_active_for_survey(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"message": "Provide active or active_for_survey (boolean)."},
         )
-    updated = SurveyWhatsappTemplateService.save_draft(db, row, {"active_for_survey": active})
+    updated = SurveyWhatsappTemplateService.save_draft(
+        db,
+        row,
+        {"active_for_survey": active, "_admin_visibility_override": True},
+    )
     tpl = survey_template_to_dict(updated)
     message = (
         "Template enabled for surveys."

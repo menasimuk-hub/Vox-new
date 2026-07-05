@@ -33,6 +33,7 @@ from app.services.survey_whatsapp_template_service import (
     _telnyx_name_for,
 )
 from app.services.wa_template_meta_sync import default_wa_template_language, normalize_wa_template_language
+from app.services.wa_template_admin_visibility_service import may_auto_enable_for_survey
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF
 
 _LOCAL_ID_PREFIX = "local-"
@@ -490,7 +491,8 @@ def _upsert_question_template(
         existing.draft_components_json = _dumps(normalized)
         existing.body_preview = _body_preview(normalized)
         existing.example_values_json = _dumps([])
-        existing.active_for_survey = True
+        if may_auto_enable_for_survey(existing):
+            existing.active_for_survey = True
         existing.updated_at = now
         if _is_local_row(existing):
             existing.status = "LOCAL_DRAFT"

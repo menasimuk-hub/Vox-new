@@ -80,10 +80,13 @@ from app.services.survey_wa_final_feedback_service import (
 )
 from app.services.survey_wa_open_text_state import (
     is_awaiting_tell_us_more_reply,
+    is_awaiting_vague_followup_reply,
     is_buttonless_open_text_question,
     mark_survey_started,
     mark_tell_us_more_answered,
     mark_tell_us_more_prompt_sent,
+    mark_vague_followup_answered,
+    mark_vague_followup_prompt_sent,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
     evaluate_vague_negative_followup,
@@ -2957,7 +2960,7 @@ def handle_inbound_reply(
             inbound_message_id=inbound_message_id,
         )
 
-    if conv.get("awaiting_followup"):
+    if is_awaiting_vague_followup_reply(conv):
         voice = _try_voice_note_reply(
             db,
             order=order,
@@ -2992,8 +2995,7 @@ def handle_inbound_reply(
             merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
         step = int(conv.get("followup_for_step") or step or 0)
         conv["answers"] = answers
-        conv.pop("awaiting_followup", None)
-        conv.pop("followup_for_step", None)
+        mark_vague_followup_answered(conv)
         payload["extracted_answers"] = [
             {"question": a["question"], "answer": a.get("answer_display") or a["answer"]} for a in answers
         ]
@@ -3202,8 +3204,7 @@ def handle_inbound_reply(
             )
             if evaluation.get("should_send") and evaluation.get("followup_text"):
                 followup_text = str(evaluation["followup_text"])
-                conv["awaiting_followup"] = True
-                conv["followup_for_step"] = step
+                mark_vague_followup_prompt_sent(conv, step=step)
                 payload["wa_conversation"] = conv
                 payload = mark_inbound_processed(
                     payload, log_id=log_id, inbound_message_id=inbound_message_id
@@ -3590,7 +3591,7 @@ def _handle_inbound_reply_graph(
     answers: list[dict[str, Any]] = list(conv.get("answers") or [])
     elaboration_only = False
 
-    if conv.get("awaiting_followup"):
+    if is_awaiting_vague_followup_reply(conv):
         session_row = SurveySessionService.get_active_by_recipient(db, recipient.id)
         voice = _try_voice_note_reply(
             db,
@@ -3626,8 +3627,7 @@ def _handle_inbound_reply_graph(
             merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
         step = int(conv.get("followup_for_step") or step or 0)
         conv["answers"] = answers
-        conv.pop("awaiting_followup", None)
-        conv.pop("followup_for_step", None)
+        mark_vague_followup_answered(conv)
         payload["wa_conversation"] = conv
 
     current_node_key = str(conv.get("current_node_key") or "")
@@ -3688,8 +3688,7 @@ def _handle_inbound_reply_graph(
             )
             if evaluation.get("should_send") and evaluation.get("followup_text"):
                 followup_text = str(evaluation["followup_text"])
-                conv["awaiting_followup"] = True
-                conv["followup_for_step"] = step
+                mark_vague_followup_prompt_sent(conv, step=step)
                 conv["current_node_key"] = current_node_key
                 conv["answers"] = answers
                 payload["extracted_answers"] = [{"question": a["question"], "answer": a["answer"]} for a in answers]

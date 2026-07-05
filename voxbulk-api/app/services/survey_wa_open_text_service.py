@@ -44,9 +44,14 @@ def allows_voice_note_answer(
         return True
     if c.get("awaiting_final_feedback_text"):
         return True
-    from app.services.survey_wa_open_text_state import is_awaiting_tell_us_more_reply
+    from app.services.survey_wa_open_text_state import (
+        is_awaiting_tell_us_more_reply,
+        is_awaiting_vague_followup_reply,
+    )
 
     if is_awaiting_tell_us_more_reply(c):
+        return True
+    if is_awaiting_vague_followup_reply(c):
         return True
     if isinstance(question, dict):
         source = str(question.get("source") or "")
@@ -65,9 +70,14 @@ def voice_note_answer_context(
     c = conv or {}
     if c.get("tell_us_more_pending") or c.get("awaiting_followup"):
         return "followup"
-    from app.services.survey_wa_open_text_state import is_awaiting_tell_us_more_reply
+    from app.services.survey_wa_open_text_state import (
+        is_awaiting_tell_us_more_reply,
+        is_awaiting_vague_followup_reply,
+    )
 
     if is_awaiting_tell_us_more_reply(c):
+        return "followup"
+    if is_awaiting_vague_followup_reply(c):
         return "followup"
     if isinstance(question, dict):
         from app.services.survey_step_bank_service import normalize_step_role

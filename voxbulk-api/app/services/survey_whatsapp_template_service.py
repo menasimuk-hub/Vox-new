@@ -2220,7 +2220,20 @@ class SurveyWhatsappTemplateService:
         if "category" in payload:
             row.category = normalize_wa_template_category(payload.get("category"), required=False)
         if "active_for_survey" in payload:
-            row.active_for_survey = bool(payload["active_for_survey"])
+            from app.services.wa_template_admin_visibility_service import (
+                apply_admin_survey_visibility,
+                may_auto_enable_for_survey,
+            )
+
+            requested = bool(payload["active_for_survey"])
+            if payload.get("_admin_visibility_override"):
+                apply_admin_survey_visibility(row, visible=requested)
+            elif requested and not may_auto_enable_for_survey(row):
+                pass
+            else:
+                row.active_for_survey = requested
+                if requested and hasattr(row, "admin_hidden_from_survey"):
+                    row.admin_hidden_from_survey = False
         if "step_role" in payload:
             raw_role = str(payload.get("step_role") or "").strip().lower()
             row.step_role = raw_role[:32] or None

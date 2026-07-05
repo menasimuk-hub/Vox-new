@@ -12,6 +12,7 @@ from app.models.customer_feedback import FeedbackSurveyType, FeedbackWaTemplate
 from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.wa_template_admin_visibility_service import may_auto_enable_for_survey
 
 _BLOCKLIST_FILE = (
     Path(__file__).resolve().parents[2] / "seed-data" / "wa-templates" / "export-template-names.txt"
@@ -144,6 +145,8 @@ def repair_unblocked_wa_templates(db, *, dry_run: bool = False) -> dict:
             continue
         if row.active_for_survey:
             continue
+        if not may_auto_enable_for_survey(row):
+            continue
         stats["telnyx_templates_reactivated"] += 1
         if not dry_run:
             row.active_for_survey = True
@@ -152,6 +155,8 @@ def repair_unblocked_wa_templates(db, *, dry_run: bool = False) -> dict:
 
     for row in db.execute(select(FeedbackWaTemplate)).scalars():
         if row.is_active:
+            continue
+        if not may_auto_enable_for_survey(row):
             continue
         stats["feedback_templates_reactivated"] += 1
         if not dry_run:

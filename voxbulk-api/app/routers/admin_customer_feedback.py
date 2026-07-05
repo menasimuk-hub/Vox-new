@@ -736,7 +736,10 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
         buttons = payload.get("buttons")
         row.buttons_json = json.dumps(buttons) if isinstance(buttons, list) else None
     if "is_active" in payload:
-        row.is_active = bool(payload.get("is_active"))
+        from app.services.wa_template_admin_visibility_service import apply_admin_survey_visibility
+
+        visible = bool(payload.get("is_active"))
+        apply_admin_survey_visibility(row, visible=visible)
     row.updated_at = now
     db.commit()
     db.refresh(row)

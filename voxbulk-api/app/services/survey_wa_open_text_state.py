@@ -22,6 +22,9 @@ from app.services.survey_wa_flow_constants import (
     TUM_OUTCOME_SKIPPED_TIMEOUT,
 )
 
+KEY_VAGUE_FOLLOWUP_SENT = "vague_followup_sent_at"
+KEY_VAGUE_FOLLOWUP_ANSWERED = "vague_followup_answered"
+
 
 def mark_survey_started(conv: dict[str, Any]) -> None:
     if not conv.get(KEY_SURVEY_STARTED_AT):
@@ -73,6 +76,33 @@ def is_awaiting_tell_us_more_reply(conv: dict[str, Any]) -> bool:
     if conv.get(KEY_TUM_SENT_AT) and not conv.get(KEY_TUM_OUTCOME):
         return True
     return bool(conv.get("tell_us_more_asked")) and not conv.get(KEY_TUM_OUTCOME)
+
+
+def is_awaiting_vague_followup_reply(conv: dict[str, Any]) -> bool:
+    """True after auto-followup 'What was wrong with…' until the contact answers."""
+    if conv.get(KEY_VAGUE_FOLLOWUP_ANSWERED):
+        return False
+    if conv.get("awaiting_followup"):
+        return True
+    if conv.get(KEY_VAGUE_FOLLOWUP_SENT):
+        return True
+    if conv.get("followup_for_step") is not None and conv.get(KEY_VAGUE_FOLLOWUP_SENT):
+        return True
+    return False
+
+
+def mark_vague_followup_prompt_sent(conv: dict[str, Any], *, step: int) -> None:
+    now = datetime.now(timezone.utc)
+    conv["awaiting_followup"] = True
+    conv["followup_for_step"] = int(step or 0)
+    conv[KEY_VAGUE_FOLLOWUP_SENT] = now.isoformat()
+    conv.pop(KEY_VAGUE_FOLLOWUP_ANSWERED, None)
+
+
+def mark_vague_followup_answered(conv: dict[str, Any]) -> None:
+    conv[KEY_VAGUE_FOLLOWUP_ANSWERED] = True
+    conv.pop("awaiting_followup", None)
+    conv.pop("followup_for_step", None)
 
 
 def is_buttonless_open_text_question(question: dict[str, Any] | None) -> bool:

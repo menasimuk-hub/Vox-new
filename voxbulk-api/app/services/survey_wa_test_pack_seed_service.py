@@ -20,6 +20,7 @@ from app.services.survey_step_bank_service import MIDDLE_STEP_ROLES, normalize_s
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import VARIANT_STANDARD
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF
+from app.services.wa_template_admin_visibility_service import may_auto_enable_for_survey
 
 TEST_INDUSTRY_SLUG = "services"
 TEST_INDUSTRY_NAME = "Services"
@@ -164,7 +165,8 @@ def _upsert_template(
         existing.components_json = json.dumps(components)
         existing.draft_components_json = json.dumps(components)
         existing.example_values_json = json.dumps(["Alex", "Acme Services", "REF-1"])
-        existing.active_for_survey = True
+        if may_auto_enable_for_survey(existing):
+            existing.active_for_survey = True
         existing.local_sync_status = "in_sync"
         existing.updated_at = now
         row = existing

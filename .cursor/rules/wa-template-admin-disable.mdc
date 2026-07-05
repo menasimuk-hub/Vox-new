@@ -1,0 +1,41 @@
+---
+description: Admin-disabled WA survey/feedback topics must stay hidden until admin re-enables
+globs:
+  - voxbulk-api/app/services/**/survey*template*
+  - voxbulk-api/app/services/**/feedback*template*
+  - voxbulk-api/app/services/wa_template*.py
+  - voxbulk-api/app/routers/admin_wa_survey.py
+  - voxbulk-api/app/routers/admin_customer_feedback.py
+  - admin.voxbulk.com/adim-web/src/**/wa-templates/**
+alwaysApply: false
+---
+
+# WA template admin disable (strict)
+
+When an admin hides a topic/template from surveys (power toggle in Admin → WA Templates):
+
+- Set `active_for_survey=false` (survey) or `is_active=false` (feedback).
+- Set `admin_hidden_from_survey=true` via `apply_admin_survey_visibility()` — **only** cleared when admin explicitly re-enables.
+
+## Never auto re-enable
+
+These paths must **not** flip hidden topics back on:
+
+- MD seed / industry seed / test-pack seed
+- Meta sync pull (`sync_from_meta`)
+- `wa_template_unblock_repair_service`
+- Clone/supersede cleanup scripts
+- `ensure_system_templates` refresh
+
+Use `may_auto_enable_for_survey(row)` before setting `active_for_survey=True` or `is_active=True`.
+
+## Admin-only enable
+
+Only admin endpoints with `_admin_visibility_override` may clear `admin_hidden_from_survey`:
+
+- `POST /admin/wa-survey/templates/{id}/set-active`
+- `POST /admin/customer-feedback/wa-templates` with `is_active`
+
+## UI
+
+Hidden rows: dimmed, sorted to bottom, label "Hidden from surveys". Optimistic update — no full reload on toggle.

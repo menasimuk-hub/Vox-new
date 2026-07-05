@@ -42,6 +42,7 @@ class TelnyxWhatsappTemplate(Base):
     local_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     sync_from_meta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active_for_survey: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    admin_hidden_from_survey: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active_for_interview: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     active_for_appointment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

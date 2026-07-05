@@ -138,6 +138,7 @@ class FeedbackWaTemplate(Base):
     telnyx_sync_status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     sync_from_meta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    admin_hidden_from_survey: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
