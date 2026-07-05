@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   BarChart3,
@@ -134,6 +134,18 @@ export default function WaTemplatesHub() {
   const [flatLoading, setFlatLoading] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const [job, setJob] = useState(EMPTY_JOB)
+  const hubJobAbortRef = useRef(null)
+
+  const stopHubJob = () => {
+    hubJobAbortRef.current?.abort()
+  }
+
+  const beginHubJobAbort = () => {
+    hubJobAbortRef.current?.abort()
+    const controller = new AbortController()
+    hubJobAbortRef.current = controller
+    return controller
+  }
 
   const [surveyIndustries, setSurveyIndustries] = useState([])
   const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(false)
@@ -319,6 +331,7 @@ export default function WaTemplatesHub() {
       { id: 'pull', label: '1. Pull status from Meta' },
       { id: 'push', label: '2. Push changed templates' },
     ]
+    const controller = beginHubJobAbort()
     setSyncing(true)
     setSyncProgress('')
     setError('')
@@ -339,6 +352,7 @@ export default function WaTemplatesHub() {
         method: 'POST',
         timeoutMs: 300000,
         quietNetworkHint: true,
+        signal: controller.signal,
       })
       messages.push(last?.message || 'Pull complete')
       patchJobStep('pull', { status: 'done', detail: last?.message || 'Done' })
@@ -359,6 +373,7 @@ export default function WaTemplatesHub() {
           body: JSON.stringify({ offset, limit: PUSH_BATCH, force_push: true, force_utility_category: true }),
           timeoutMs: 300000,
           quietNetworkHint: true,
+          signal: controller.signal,
         })
         pushTotal += Number(last?.survey_push?.pushed || 0)
         patchJobStep('push', {
@@ -383,6 +398,15 @@ export default function WaTemplatesHub() {
       await loadTemplateCounts()
       refreshTabData()
     } catch (e) {
+      if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
+        setJob((prev) => ({
+          ...prev,
+          phase: 'cancelled',
+          message: 'Stopped — sync cancelled',
+          summaryRows,
+        }))
+        return
+      }
       const raw = e?.message || String(e)
       const aborted = e?.name === 'AbortError' || /aborted|abort/i.test(raw)
       const errText = aborted
@@ -398,6 +422,7 @@ export default function WaTemplatesHub() {
         summaryRows,
       }))
     } finally {
+      if (hubJobAbortRef.current === controller) hubJobAbortRef.current = null
       setSyncing(false)
       setSyncProgress('')
     }
@@ -654,6 +679,7 @@ export default function WaTemplatesHub() {
     setCleaning(true)
     setError('')
     setMsg('')
+    const controller = beginHubJobAbort()
     setJob({
       ...EMPTY_JOB,
       open: true,
@@ -701,6 +727,7 @@ export default function WaTemplatesHub() {
               }),
               timeoutMs: 280000,
               quietNetworkHint: true,
+              signal: controller.signal,
             })
             acc.pushed_buttoned.push(...(batch?.pushed_buttoned || []))
             acc.failed.push(...(batch?.failed || []))
@@ -741,6 +768,7 @@ export default function WaTemplatesHub() {
           body: JSON.stringify(body),
           timeoutMs: 280000,
           quietNetworkHint: true,
+          signal: controller.signal,
         })
         if (step.id === 'meta_cleanup') meta = result
         if (step.id === 'local_cleanup') local = result
@@ -772,6 +800,14 @@ export default function WaTemplatesHub() {
       await loadTemplateCounts()
       refreshTabData()
     } catch (e) {
+      if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
+        setJob((prev) => ({
+          ...prev,
+          phase: 'cancelled',
+          message: 'Stopped — job cancelled',
+        }))
+        return
+      }
       const errText = formatWaSurveyError(e, `${label} failed`).detailText || e?.message
       setError(errText)
       setJob((prev) => ({
@@ -780,6 +816,7 @@ export default function WaTemplatesHub() {
         error: errText,
       }))
     } finally {
+      if (hubJobAbortRef.current === controller) hubJobAbortRef.current = null
       setCleaning(false)
     }
   }
@@ -1059,6 +1096,7 @@ export default function WaTemplatesHub() {
         error={job.error}
         reportPath={job.reportPath}
         progressPct={job.progressPct}
+        onStop={stopHubJob}
         onClose={() => setJob(EMPTY_JOB)}
       />
     </div>

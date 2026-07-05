@@ -837,7 +837,7 @@ export default function WaIndustryBrowser({
           error={syncJob.error}
           reportPath={syncJob.reportPath}
           progressPct={syncJob.progressPct}
-          onStop={industrySyncing ? stopIndustrySync : undefined}
+          onStop={stopIndustrySync}
           onClose={() => setSyncJob(EMPTY_INDUSTRY_SYNC_JOB)}
         />
       </div>
