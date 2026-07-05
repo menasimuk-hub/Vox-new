@@ -14,6 +14,7 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_voice_note_job import SurveyVoiceNoteJob
 from app.services.survey_wa_open_text_service import (
     VOICE_NOTE_FALLBACK_MESSAGE,
+    VOICE_NOTE_NO_MEDIA_MESSAGE,
     allows_voice_note_answer,
     apply_transcript_to_answer,
     enrich_answer_with_voice_fields,
@@ -455,7 +456,7 @@ class SurveyWaVoiceNoteService:
 
         media_item = SurveyWaVoiceNoteService._first_media_item(reply, record)
         if not media_item or not media_item.get("url"):
-            return {"rejected": True, "fallback_message": VOICE_NOTE_FALLBACK_MESSAGE, "reason": "no_media"}
+            return {"rejected": True, "fallback_message": VOICE_NOTE_NO_MEDIA_MESSAGE, "reason": "no_media"}
 
         provider_media_id = str(media_item.get("provider_media_id") or "")
         existing = SurveyWaVoiceNoteService.find_existing_job(

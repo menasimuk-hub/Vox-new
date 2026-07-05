@@ -19,6 +19,7 @@ from app.services.survey_wa_flow_constants import (
     KEY_TUM_PENDING,
     KEY_TUM_SENT_AT,
     OPEN_TEXT_TIMEOUT_SEC,
+    OUTBOUND_KIND_FINAL_FEEDBACK,
     OUTBOUND_KIND_TELL_US_MORE,
     OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP,
     TUM_OUTCOME_ANSWERED,
@@ -36,6 +37,7 @@ def mark_survey_started(conv: dict[str, Any]) -> None:
 
 def mark_tell_us_more_prompt_sent(conv: dict[str, Any]) -> None:
     now = datetime.now(timezone.utc)
+    conv[KEY_TUM_PENDING] = True
     conv[KEY_TUM_SENT_AT] = now.isoformat()
     conv[KEY_TUM_DEADLINE] = (now + timedelta(seconds=OPEN_TEXT_TIMEOUT_SEC)).isoformat()
     conv.pop(KEY_TUM_OUTCOME, None)
@@ -74,6 +76,8 @@ def is_awaiting_tell_us_more_reply(conv: dict[str, Any]) -> bool:
         return True
     if conv.get(KEY_TUM_OUTCOME):
         return False
+    if conv.get(KEY_LAST_OUTBOUND_KIND) == OUTBOUND_KIND_TELL_US_MORE and not conv.get(KEY_TUM_OUTCOME):
+        return True
     node_key = str(conv.get("current_node_key") or "")
     if node_key.startswith("builder_tell_"):
         return True
@@ -86,6 +90,8 @@ def is_awaiting_vague_followup_reply(conv: dict[str, Any]) -> bool:
     """True after auto-followup 'What was wrong with…' until the contact answers."""
     if conv.get(KEY_VAGUE_FOLLOWUP_ANSWERED):
         return False
+    if conv.get(KEY_LAST_OUTBOUND_KIND) == OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP:
+        return True
     if conv.get("awaiting_followup"):
         return True
     if conv.get(KEY_VAGUE_FOLLOWUP_SENT):

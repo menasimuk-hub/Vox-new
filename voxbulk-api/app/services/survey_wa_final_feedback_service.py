@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.services.survey_wa_flow_constants import KEY_CLOSING_DEADLINE, KEY_CLOSING_OUTCOME, OPEN_TEXT_TIMEOUT_SEC
+from app.services.survey_wa_flow_constants import (
+    KEY_CLOSING_DEADLINE,
+    KEY_CLOSING_OUTCOME,
+    KEY_LAST_OUTBOUND_KIND,
+    OPEN_TEXT_TIMEOUT_SEC,
+    OUTBOUND_KIND_FINAL_FEEDBACK,
+)
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[wa-closing-question]"
@@ -148,6 +154,7 @@ def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
 
     conv["awaiting_final_feedback_text"] = True
     conv.pop("awaiting_final_feedback_yes_no", None)
+    conv[KEY_LAST_OUTBOUND_KIND] = OUTBOUND_KIND_FINAL_FEEDBACK
     conv[KEY_CLOSING_DEADLINE] = (
         datetime.now(timezone.utc) + timedelta(seconds=FINAL_FEEDBACK_TEXT_TIMEOUT_SEC)
     ).isoformat()

@@ -60,6 +60,12 @@ KEY_SURVEY_STARTED_AT = "survey_started_at"
 KEY_LAST_OUTBOUND_KIND = "last_outbound_kind"
 OUTBOUND_KIND_TELL_US_MORE = "tell_us_more"
 OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP = "vague_auto_followup"
+OUTBOUND_KIND_FINAL_FEEDBACK = "final_feedback"
+
+# Scale/button steps that may branch to tell-us-more on worst answer (Poor / No / etc.)
+TELL_US_MORE_TRIGGER_ROLES = frozenset(
+    {"rating", "feeling_word", "helpfulness", "yes_no", "abc_choice"}
+)
 
 # Canonical button label order (best first → worst last in Meta BUTTONS array)
 CANONICAL_RATING = ("Excellent", "Good", "Poor")

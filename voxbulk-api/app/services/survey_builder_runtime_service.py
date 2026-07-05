@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_step_bank_service import normalize_step_role
+from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[builder-runtime]"
@@ -126,8 +127,11 @@ def build_builder_runtime(
         row = db.get(TelnyxWhatsappTemplate, tid)
         selected_names.append(str(row.display_name or row.name or "") if row else str(tid))
 
-    has_rating = any(
-        normalize_step_role(str(q.get("step_role") or "")) == "rating" for q in step_sequence
+    from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
+
+    has_tell_us_more_trigger_step = any(
+        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES
+        for q in step_sequence
     )
     tell_id = int(tell_us_more_template_id) if tell_us_more_template_id else None
     thank_id = int(thank_you_template_id) if thank_you_template_id else None
@@ -150,10 +154,10 @@ def build_builder_runtime(
         "step_sequence": step_sequence,
         "branches": {
             "tell_us_more_on_low_rating": {
-                "enabled": bool(tell_id and has_rating),
+                "enabled": bool(tell_id and has_tell_us_more_trigger_step),
                 "threshold": 6,
                 "template_id": tell_id,
-                "from_step_roles": ["rating"],
+                "from_step_roles": sorted(TELL_US_MORE_TRIGGER_ROLES),
             },
             "final_additional_feedback": build_final_feedback_branch(
                 enabled=allow_final_additional_feedback,
@@ -182,6 +186,11 @@ def _migrate_legacy_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(seq, list) or not seq or not isinstance(ids, list) or not ids:
         return None
     middles = [int(q["template_id"]) for q in seq if isinstance(q, dict) and q.get("template_id")]
+    legacy_has_trigger_step = any(
+        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES
+        for q in seq
+        if isinstance(q, dict)
+    )
     runtime: dict[str, Any] = {
         "version": RUNTIME_VERSION,
         "generated_at": None,
@@ -206,12 +215,12 @@ def _migrate_legacy_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
         "step_sequence": [q for q in seq if isinstance(q, dict)],
         "branches": {
             "tell_us_more_on_low_rating": {
-                "enabled": bool(config.get("tell_us_more_template_id")),
+                "enabled": bool(config.get("tell_us_more_template_id") and legacy_has_trigger_step),
                 "threshold": 6,
                 "template_id": int(config["tell_us_more_template_id"])
                 if config.get("tell_us_more_template_id")
                 else None,
-                "from_step_roles": ["rating"],
+                "from_step_roles": sorted(TELL_US_MORE_TRIGGER_ROLES),
             },
             "final_additional_feedback": build_final_feedback_branch(
                 enabled=bool(config.get("allow_final_additional_feedback")),
@@ -564,6 +573,30 @@ def runtime_tell_us_more_enabled(config: dict[str, Any]) -> bool:
         return False
     branch = (runtime.get("branches") or {}).get("tell_us_more_on_low_rating") or {}
     return bool(branch.get("enabled"))
+
+
+def runtime_tell_us_more_configured(config: dict[str, Any]) -> bool:
+    """True when a tell-us-more template is bound to this survey (even before branch enable check)."""
+    runtime = load_builder_runtime(config)
+    if runtime is not None:
+        branch = (runtime.get("branches") or {}).get("tell_us_more_on_low_rating") or {}
+        tid = runtime.get("tell_us_more_template_id") or branch.get("template_id")
+        if tid:
+            return True
+    return bool(config.get("tell_us_more_template_id"))
+
+
+def tell_us_more_blocks_vague_followup(
+    config: dict[str, Any],
+    conv: dict[str, Any] | None = None,
+) -> bool:
+    """Vague auto-followup must not run when tell-us-more is configured or pending."""
+    c = conv or {}
+    if c.get("tell_us_more_pending"):
+        return True
+    if runtime_tell_us_more_enabled(config):
+        return True
+    return runtime_tell_us_more_configured(config)
 
 
 def runtime_low_rating_threshold(config: dict[str, Any]) -> int:

@@ -4,10 +4,10 @@
 
 | Flow | Trigger | Outbound text | Send path | Conv flags |
 |------|---------|---------------|-----------|------------|
-| **Tell-us-more** | Low rating when `tell_us_more_on_low_rating` branch is **enabled** in builder runtime | System template body (customisable) | **Always local session text** — `_send_freeform_whatsapp` / never Meta HSM | `tell_us_more_pending`, `last_outbound_kind=tell_us_more` |
+| **Tell-us-more** | Worst button on any scale step (`feeling_word`, `helpfulness`, `yes_no`, `rating`, `abc_choice`) when tell-us-more template is configured | System template body (customisable) | **Always local session text** — `_send_freeform_whatsapp` / never Meta HSM | `tell_us_more_pending`, `last_outbound_kind=tell_us_more` |
 | **Vague auto-followup** | Poor/vague answer when tell-us-more branch is **disabled** | `"What was wrong with {topic}?"` (generated) | **Always local session text** — `_send_freeform_whatsapp` | `vague_followup_sent_at`, `awaiting_followup`, `last_outbound_kind=vague_auto_followup` |
 
-They are **mutually exclusive** on the same low-rating answer: when `runtime_tell_us_more_enabled(config)` is true, vague evaluation is skipped.
+They are **mutually exclusive** on the same poor answer: when tell-us-more is configured/enabled, vague evaluation is skipped (`tell_us_more_blocks_vague_followup`).
 
 ## Tell-us-more send rules
 

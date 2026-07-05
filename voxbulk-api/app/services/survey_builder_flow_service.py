@@ -466,6 +466,8 @@ def should_use_builder_linear_runtime(config: dict[str, Any]) -> bool:
     return is_builder_bound_flow(effective_order_config(config))
 
 
+from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
+
 TELL_US_MORE_SOURCES = frozenset({"builder_tell_us_more_template", "builder_tell_us_more"})
 
 
@@ -543,6 +545,10 @@ def question_from_tell_us_more_template(
     return as_open_text_tell_us_more_question(q)
 
 
+def is_tell_us_more_trigger_role(step_role: str) -> bool:
+    return normalize_step_role(str(step_role or "")) in TELL_US_MORE_TRIGGER_ROLES
+
+
 def _rating_answer_is_low(
     answer: str,
     *,
@@ -571,6 +577,22 @@ def _rating_answer_is_low(
         if lowered == first and first in {"excellent", "great", "very helpful", "yes", "10"}:
             return False
     return False
+
+
+def is_low_answer_for_tell_us_more(
+    answer: str,
+    *,
+    threshold: int = 6,
+    question: dict[str, Any] | None = None,
+) -> bool:
+    """Worst scale button or low numeric score — triggers tell-us-more branch."""
+    if isinstance(question, dict):
+        role = normalize_step_role(str(question.get("step_role") or ""))
+        if role == "yes_no":
+            lowered = str(answer or "").strip().lower()
+            if lowered in {"no", "not really", "nah", "nope", "n"}:
+                return True
+    return _rating_answer_is_low(answer, threshold=threshold, question=question)
 
 
 def resolve_next_conversation_step(
@@ -621,8 +643,8 @@ def resolve_next_conversation_step(
         and tell_tid
         and tell_us_more_active
         and not tell_already
-        and role == "rating"
-        and _rating_answer_is_low(last_answer, threshold=threshold, question=current_q)
+        and is_tell_us_more_trigger_role(role)
+        and is_low_answer_for_tell_us_more(last_answer, threshold=threshold, question=current_q)
     ):
         tell_q = question_from_tell_us_more_template(
             db,

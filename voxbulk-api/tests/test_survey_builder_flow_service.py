@@ -130,6 +130,21 @@ def test_rating_answer_is_low_accepts_poor_button_label():
     assert _rating_answer_is_low("8", question=question) is False
 
 
+def test_is_low_answer_for_tell_us_more_feeling_word_and_yes_no():
+    from app.services.survey_builder_flow_service import is_low_answer_for_tell_us_more
+
+    feeling = {
+        "step_role": "feeling_word",
+        "options": ["Excellent", "Good", "Poor"],
+    }
+    assert is_low_answer_for_tell_us_more("Poor", question=feeling) is True
+    assert is_low_answer_for_tell_us_more("Excellent", question=feeling) is False
+
+    yes_no = {"step_role": "yes_no", "options": ["Yes", "No"]}
+    assert is_low_answer_for_tell_us_more("No", question=yes_no) is True
+    assert is_low_answer_for_tell_us_more("Yes", question=yes_no) is False
+
+
 def test_order_scale_labels_puts_worst_last():
     from app.services.survey_wa_flow_constants import order_scale_labels
 

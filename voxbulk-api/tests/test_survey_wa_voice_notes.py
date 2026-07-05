@@ -216,6 +216,60 @@ def test_prepare_voice_accepts_vague_followup_after_what_was_wrong_prompt(mock_e
     mock_enqueue.assert_called_once_with("job-vague")
 
 
+@patch("app.services.survey_wa_voice_note_service.SurveyWaVoiceNoteService.enqueue_transcription")
+def test_prepare_voice_accepts_tell_us_more_via_last_outbound_kind_only(mock_enqueue):
+    """Voice accepted when last_outbound_kind=tell_us_more even if pending flags were lost."""
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    db = MagicMock()
+    db.flush = MagicMock()
+    db.commit = MagicMock()
+    db.add = MagicMock()
+    order = MagicMock(id="order-1", org_id="org-1")
+    recipient = MagicMock(id="recipient-1")
+    reply = NormalizedWaInboundReply(
+        message_type="audio",
+        is_voice_note=True,
+        extracted_fields={
+            "media_items": [{"url": "https://example.com/a.ogg", "provider_media_id": "m1", "content_type": "audio/ogg"}]
+        },
+    )
+    rating_question = {"reply_type": "choice", "step_role": "feeling_word", "options": ["Excellent", "Good", "Poor"]}
+    conv = {"last_outbound_kind": "tell_us_more", "answers": []}
+
+    with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
+        with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
+            job = MagicMock()
+            job.id = "job-kind"
+            job.transcription_status = "pending"
+            job.audio_file_path = None
+            job.audio_mime_type = "audio/ogg"
+            job.inbound_message_id = "msg-kind"
+            job.provider_media_id = "m1"
+            create_job.return_value = job
+            result = SurveyWaVoiceNoteService.prepare_voice_answer(
+                db,
+                order=order,
+                recipient=recipient,
+                payload={"wa_conversation": conv},
+                conv=conv,
+                question=rating_question,
+                reply=reply,
+                inbound_message_id="msg-kind",
+                log_id=1,
+                session_id=None,
+                answer_context="normal",
+                step_index=1,
+                record=None,
+                config={},
+            )
+
+    assert result.get("rejected") is not True
+    assert result["accepted"] is True
+    assert allows_voice_note_answer(rating_question, answer_context="normal", conv=conv) is True
+    mock_enqueue.assert_called_once_with("job-kind")
+
+
 def test_parse_voice_inbound_record():
     record = {
         "type": "whatsapp",

@@ -13,6 +13,14 @@ VOICE_NOTE_FALLBACK_MESSAGE = (
     "Voice notes are only supported for comment-style questions."
 )
 
+VOICE_NOTE_NO_MEDIA_MESSAGE = (
+    "We couldn't process that voice note. Please try again or type your answer."
+)
+
+OPEN_TEXT_OUTBOUND_KINDS = frozenset(
+    {"tell_us_more", "vague_auto_followup", "final_feedback"}
+)
+
 VOICE_NOTE_AUDIO_MESSAGE_TYPES = frozenset(
     {"audio", "voice", "ptt", "voice_note", "media_audio", "media_voice"}
 )
@@ -30,6 +38,11 @@ def is_open_text_question(question: dict[str, Any] | None) -> bool:
     return reply_type in OPEN_TEXT_REPLY_TYPES
 
 
+def _conv_expects_open_text_voice(conv: dict[str, Any]) -> bool:
+    kind = str(conv.get("last_outbound_kind") or "").strip()
+    return kind in OPEN_TEXT_OUTBOUND_KINDS
+
+
 def allows_voice_note_answer(
     question: dict[str, Any] | None,
     *,
@@ -40,6 +53,8 @@ def allows_voice_note_answer(
     if ctx in {"final_feedback", "followup"}:
         return True
     c = conv or {}
+    if _conv_expects_open_text_voice(c):
+        return True
     if c.get("tell_us_more_pending") or c.get("awaiting_followup"):
         return True
     if c.get("awaiting_final_feedback_text"):
@@ -68,6 +83,10 @@ def voice_note_answer_context(
 ) -> str:
     """Map inbound step state to voice-note answer_context (followup vs normal)."""
     c = conv or {}
+    if c.get("awaiting_final_feedback_text"):
+        return "final_feedback"
+    if _conv_expects_open_text_voice(c):
+        return "followup"
     if c.get("tell_us_more_pending") or c.get("awaiting_followup"):
         return "followup"
     from app.services.survey_wa_open_text_state import (

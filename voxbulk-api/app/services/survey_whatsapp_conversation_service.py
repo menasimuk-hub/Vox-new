@@ -31,9 +31,10 @@ from app.services.survey_flow_config_service import is_graph_flow, is_simulator_
 from app.services.survey_wa_pacing_service import PACING_BRANCH, PACING_STEP, pause_before_outbound
 from app.services.survey_builder_flow_service import (
     SurveyBuilderFlowError,
-    _rating_answer_is_low,
     effective_order_config,
+    is_low_answer_for_tell_us_more,
     is_tell_us_more_branch_question,
+    is_tell_us_more_trigger_role,
     log_builder_step_resolution,
     log_inbound_step_context,
     question_from_tell_us_more_template,
@@ -49,6 +50,7 @@ from app.services.survey_builder_runtime_service import (
     reject_stale_graph_session,
     runtime_low_rating_threshold,
     runtime_tell_us_more_enabled,
+    tell_us_more_blocks_vague_followup,
 )
 from app.services.survey_wa_inbound_parse_service import (
     NormalizedWaInboundReply,
@@ -2271,8 +2273,6 @@ def _complete_linear_survey_thank_you(
 
 
 def _open_text_closing_step(question: dict[str, Any] | None, *, conv: dict[str, Any]) -> bool:
-    if conv.get("tell_us_more_pending"):
-        return True
     role = normalize_step_role(str((question or {}).get("step_role") or ""))
     return role in {"reason", "tell_us_more", "final_feedback_text"}
 
@@ -3063,6 +3063,8 @@ def handle_inbound_reply(
         from app.services.survey_wa_open_text_service import voice_note_answer_context
 
         voice_context = voice_note_answer_context(conv=conv, question=question)
+        if is_awaiting_tell_us_more_reply(conv) or is_awaiting_vague_followup_reply(conv):
+            voice_context = "followup"
         voice = _try_voice_note_reply(
             db,
             order=order,
@@ -3179,7 +3181,7 @@ def handle_inbound_reply(
         conv["answers"] = answers
         payload = SurveySessionService.attach_session_to_result(payload, session)
 
-        if not conv.get("tell_us_more_pending") and not runtime_tell_us_more_enabled(config):
+        if not tell_us_more_blocks_vague_followup(config, conv):
             evaluation = evaluate_vague_negative_followup(
                 db,
                 answer=answer,
@@ -3313,8 +3315,12 @@ def handle_inbound_reply(
                 should_use_builder_linear_runtime(config)
                 and runtime_tell_us_more_enabled(config)
                 and not conv.get("tell_us_more_asked")
-                and normalize_step_role(str(question.get("step_role") or "")) == "rating"
-                and _rating_answer_is_low(answer, threshold=runtime_low_rating_threshold(config), question=question)
+                and is_tell_us_more_trigger_role(str(question.get("step_role") or ""))
+                and is_low_answer_for_tell_us_more(
+                    answer,
+                    threshold=runtime_low_rating_threshold(config),
+                    question=question,
+                )
             ):
                 variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
                 next_q = question_from_tell_us_more_template(
@@ -3679,7 +3685,9 @@ def _handle_inbound_reply_graph(
             }
         )
 
-        if should_ask_vague_negative_followup(answer=answer, question=question, config=config):
+        if not tell_us_more_blocks_vague_followup(config, conv) and should_ask_vague_negative_followup(
+            answer=answer, question=question, config=config
+        ):
             evaluation = evaluate_vague_negative_followup(
                 db,
                 answer=answer,
