@@ -722,17 +722,15 @@ class SurveySystemTemplateService:
         kind = normalize_system_template_kind(kind)
         privacy = SurveySystemTemplateService._config_privacy_mode(config)
         SurveySystemTemplateService.ensure_system_survey_types(db)
-        st = db.execute(
-            select(SurveyType).where(SurveyType.system_template_kind == kind).limit(1)
-        ).scalar_one_or_none()
-        if st is None:
+        st_ids = SurveySystemTemplateService._system_survey_type_ids_for_kind(db, kind)
+        if not st_ids:
             return None
         rows = list(
             db.execute(
                 select(TelnyxWhatsappTemplate)
                 .join(SurveyTypeTemplate, SurveyTypeTemplate.template_id == TelnyxWhatsappTemplate.id)
                 .where(
-                    SurveyTypeTemplate.survey_type_id == st.id,
+                    SurveyTypeTemplate.survey_type_id.in_(st_ids),
                     TelnyxWhatsappTemplate.active_for_survey.is_(True),
                 )
                 .order_by(TelnyxWhatsappTemplate.id.asc())

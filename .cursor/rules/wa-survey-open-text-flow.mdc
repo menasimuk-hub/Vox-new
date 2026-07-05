@@ -12,6 +12,8 @@ They are **mutually exclusive** on the same poor answer: when tell-us-more is co
 ## Tell-us-more send rules
 
 - Outbound must use **server session free-form text** (24h customer-service window), **not** Meta HSM.
+- Admin **Meta sync: Local** (`sync_from_meta=false`) is correct for tell-us-more — means send from local server, not Meta template push.
+- `active_for_survey=true` on the system template row is required for resolution.
 - `payload_source` = `builder_tell_us_more_template`.
 - Question dict: `source=builder_tell_us_more_template`, `node_key` starts with `builder_tell_`, `reply_type=long_text`, no buttons.
 - Even if the linked DB template row has stale `step_role=rating` or BUTTONS, the in-memory branch question overrides — use `is_tell_us_more_branch_question()`.

@@ -599,6 +599,50 @@ def tell_us_more_blocks_vague_followup(
     return runtime_tell_us_more_configured(config)
 
 
+def hydrate_missing_tell_us_more_on_config(db: Session, config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Repair orders created when system tell-us-more resolution failed (e.g. duplicate SurveyType rows).
+    Session-text tell-us-more is always sent from the local server — never Meta HSM.
+    """
+    if not isinstance(config, dict):
+        return {}
+    if runtime_tell_us_more_configured(config) and runtime_tell_us_more_enabled(config):
+        return config
+
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+    from app.services.survey_step_bank_service import normalize_step_role
+    from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
+
+    privacy_cfg = {
+        "privacy_mode": config.get("privacy_mode"),
+        "anonymous_responses": bool(config.get("anonymous_responses")),
+    }
+    resolved_tid = SurveySystemTemplateService.resolve_tell_us_more_template_id(db, privacy_cfg)
+    if resolved_tid is None:
+        return config
+
+    runtime = load_builder_runtime(config)
+    out = dict(config)
+    if runtime is None:
+        out["tell_us_more_template_id"] = int(resolved_tid)
+        return out
+
+    seq = [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)]
+    has_trigger_step = any(
+        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES for q in seq
+    )
+    patched = dict(runtime)
+    patched["tell_us_more_template_id"] = int(resolved_tid)
+    branches = dict(patched.get("branches") or {})
+    tum = dict(branches.get("tell_us_more_on_low_rating") or {})
+    tum["enabled"] = bool(has_trigger_step)
+    tum["template_id"] = int(resolved_tid)
+    tum["from_step_roles"] = sorted(TELL_US_MORE_TRIGGER_ROLES)
+    branches["tell_us_more_on_low_rating"] = tum
+    patched["branches"] = branches
+    return attach_builder_runtime_to_config(out, patched)
+
+
 def runtime_low_rating_threshold(config: dict[str, Any]) -> int:
     runtime = load_builder_runtime(config)
     if runtime is None:

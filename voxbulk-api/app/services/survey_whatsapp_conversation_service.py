@@ -129,13 +129,18 @@ def is_whatsapp_survey_order(order: ServiceOrder) -> bool:
         return False
 
 
-def _order_config(order: ServiceOrder) -> dict[str, Any]:
+def _order_config(order: ServiceOrder, db: Session | None = None) -> dict[str, Any]:
     try:
         data = json.loads(order.config_json or "{}")
         raw = data if isinstance(data, dict) else {}
     except Exception:
         raw = {}
-    return effective_order_config(raw)
+    config = effective_order_config(raw)
+    if db is not None:
+        from app.services.survey_builder_runtime_service import hydrate_missing_tell_us_more_on_config
+
+        config = hydrate_missing_tell_us_more_on_config(db, config)
+    return config
 
 
 def _question_outbound_body(
@@ -2737,7 +2742,7 @@ def handle_inbound_reply(
             "inbound_message_id": inbound_message_id,
         }
 
-    config = _order_config(order)
+    config = _order_config(order, db)
     runtime = load_builder_runtime(config)
     if runtime:
         reject_stale_graph_session(
