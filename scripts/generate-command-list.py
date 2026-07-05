@@ -78,6 +78,25 @@ REPO_SCRIPTS_META = {
     ),
 }
 
+FEEDBACK_META = {
+    "push_all_feedback_to_meta_overnight.py": (
+        "Overnight batch push: all Customer Feedback industries to Meta (safe rate limits)",
+        "python -u scripts/push_all_feedback_to_meta_overnight.py --batch-size 5 --delay-sec 15",
+    ),
+    "push_feedback_industry_to_telnyx.py": (
+        "Push all Customer Feedback templates for ONE industry to Meta (no batch delay)",
+        "python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness",
+    ),
+    "push_feedback_template_to_telnyx.py": (
+        "Push one Customer Feedback template to Meta",
+        "python scripts/push_feedback_template_to_telnyx.py --help",
+    ),
+    "seed_feedback_industry_from_md.py": (
+        "Import Customer Feedback templates from Markdown (+ optional batched Meta push)",
+        "python scripts/seed_feedback_industry_from_md.py --industry fitness --md PATH --dry-run",
+    ),
+}
+
 SEED_META = {
     "seed_sales_demo.py": (
         "Salesman workspace demo (20 interviews, WA + phone surveys, feedback QR)",
@@ -134,6 +153,10 @@ SEED_META = {
     "seed_wa_survey_test_pack.py": (
         "WA survey test pack (no OpenAI)",
         "python scripts/seed_wa_survey_test_pack.py --help",
+    ),
+    "seed_feedback_industry_from_md.py": (
+        "Import Customer Feedback industry templates from Markdown (+ optional Meta push)",
+        "python scripts/seed_feedback_industry_from_md.py --industry fitness --md seed-data/customer-feedback/fitness-gyms-20lang.md --dry-run",
     ),
     "seed_interview_regional_agents.py": (
         "12 regional interview voice agents",
@@ -273,6 +296,8 @@ def discover_entries() -> list[tuple[str, str, str, str]]:
                 "Purge billing + hard-delete by user UUID",
                 "python scripts/purge_user_billing_and_accounts.py --apply --confirm PURGE_TEST_USERS ...",
             )
+        elif name in FEEDBACK_META:
+            title, cmd = FEEDBACK_META[name]
         else:
             title = first_docstring(path) or name.replace("_", " ").replace(".py", "").replace(".sh", "")
             cmd = default_cmd(rel)
@@ -294,6 +319,103 @@ def discover_entries() -> list[tuple[str, str, str, str]]:
             entries.append(("Frontend build hooks", rel, title, cmd))
 
     return entries
+
+
+def build_feedback_meta_sync_section_md() -> str:
+    return """## CUSTOMER FEEDBACK → META SYNC (VPS)
+
+Push ~400 language rows per industry (~2,800 total across 7 industries) to Meta/Telnyx in **small batches** to avoid rate limits.
+
+All commands run from **`voxbulk-api/`** with venv active.
+
+### 1) Import templates from Markdown (optional — if not done in Admin)
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+
+# Dry-run first
+python scripts/seed_feedback_industry_from_md.py \\
+  --industry fitness \\
+  --md seed-data/customer-feedback/fitness-gyms-20lang.md \\
+  --dry-run
+
+# Import only (no Meta push)
+python scripts/seed_feedback_industry_from_md.py \\
+  --industry fitness \\
+  --md seed-data/customer-feedback/fitness-gyms-20lang.md
+
+# Import + push one industry (batched, 15s delay)
+python scripts/seed_feedback_industry_from_md.py \\
+  --industry fitness \\
+  --md seed-data/customer-feedback/fitness-gyms-20lang.md \\
+  --push --push-batch-size 5 --push-delay-sec 15
+```
+
+### 2) Push all industries overnight (~3 hours) — recommended
+
+```bash
+cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+
+# Dry-run (validate payloads, no Meta POST)
+python -u scripts/push_all_feedback_to_meta_overnight.py --dry-run --industry-slug fitness
+
+# Full run in background (use -u so log updates immediately)
+nohup python -u scripts/push_all_feedback_to_meta_overnight.py \\
+  --batch-size 5 --delay-sec 15 --industry-delay-sec 45 \\
+  --no-resume \\
+  > /tmp/cf-meta-push.log 2>&1 &
+
+echo $!   # note PID
+```
+
+### 3) Monitor while running
+
+```bash
+# Live log (should show new batch lines every ~20–60 sec)
+tail -f /tmp/cf-meta-push.log
+
+# Process still alive?
+ps -p PID -o pid,etime,cmd
+
+# Progress state file (offset increases each batch)
+cat seed-data/customer-feedback/push-reports/push_all_feedback_state.json
+
+# Reports folder (from inside voxbulk-api/)
+ls -lt seed-data/customer-feedback/push-reports/
+```
+
+**Working:** log shows `=== Customer Feedback -> Meta overnight push ===`, then `batch 1 offset=0`, then `Pushed batch 1–5 of 400…`.
+
+**Resume after interrupt:**
+
+```bash
+python -u scripts/push_all_feedback_to_meta_overnight.py --resume
+```
+
+### 4) Push one industry only (foreground)
+
+```bash
+python -u scripts/push_all_feedback_to_meta_overnight.py \\
+  --industry-slug restaurant --batch-size 5 --delay-sec 15
+```
+
+### 5) Push one industry — fast (no batch delays, use with care)
+
+```bash
+python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness
+python scripts/push_feedback_industry_to_telnyx.py --industry-slug fitness --dry-run
+```
+
+### 6) When finished
+
+```bash
+tail -30 /tmp/cf-meta-push.log
+# Expect: DONE | Industries completed: 7/7 | Failed: 0
+cat seed-data/customer-feedback/push-reports/push-all-feedback-*.json
+```
+
+Check **Admin → Customer Feedback → industry → Sync status**, or **WhatsApp Manager** for names prefixed `voxbulk_cf_`.
+"""
 
 
 def build_seed_section_md() -> str:
@@ -401,6 +523,10 @@ def render_md(entries: list[tuple[str, str, str, str]]) -> str:
         "---",
         "",
         build_seed_section_md(),
+        "",
+        "---",
+        "",
+        build_feedback_meta_sync_section_md(),
         "",
         "---",
         "",
@@ -531,6 +657,7 @@ def render_html(entries: list[tuple[str, str, str, str]], md_body_sections: str)
   h1 {{ color: #1e3a8a; }}
   .meta {{ background: #f1f5f9; padding: 1rem 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; }}
   .seed-box {{ background: #ecfdf5; border: 2px solid #059669; padding: 1rem 1.25rem; border-radius: 8px; margin: 1rem 0; }}
+  .feedback-sync-box {{ background: #fffbeb; border: 2px solid #ca8a04; padding: 1rem 1.25rem; border-radius: 8px; margin: 1rem 0; }}
   .delete-box {{ background: #fef2f2; border: 2px solid #dc2626; padding: 1rem 1.25rem; border-radius: 8px; margin: 1rem 0; }}
   pre {{ background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.9rem; }}
   code {{ font-family: Consolas, monospace; font-size: 0.88em; }}
@@ -565,6 +692,27 @@ def render_html(entries: list[tuple[str, str, str, str]], md_body_sections: str)
 cd voxbulk-api && source .venv/bin/activate
 python scripts/seed_demo_user_account.py --email user@example.com --clear --auto-top-up
 python scripts/seed_demo_all_dashboard_services.py --email user@example.com</pre>
+</div>
+
+<div class="feedback-sync-box">
+<h2>Customer Feedback → Meta sync (overnight)</h2>
+<pre>cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+
+# Dry-run one industry
+python -u scripts/push_all_feedback_to_meta_overnight.py --dry-run --industry-slug fitness
+
+# Full overnight run (~3h) — use python -u for live nohup log
+nohup python -u scripts/push_all_feedback_to_meta_overnight.py \\
+  --batch-size 5 --delay-sec 15 --industry-delay-sec 45 --no-resume \\
+  > /tmp/cf-meta-push.log 2>&1 &amp;
+
+# Monitor
+tail -f /tmp/cf-meta-push.log
+ps -p PID -o pid,etime,cmd
+cat seed-data/customer-feedback/push-reports/push_all_feedback_state.json
+
+# Resume if stopped
+python -u scripts/push_all_feedback_to_meta_overnight.py --resume</pre>
 </div>
 
 <h2>Complete script inventory</h2>

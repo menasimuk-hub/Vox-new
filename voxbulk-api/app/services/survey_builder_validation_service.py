@@ -12,6 +12,7 @@ from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_system_template_service import SYSTEM_TEMPLATE_KINDS, SurveySystemTemplateService
+from app.services.survey_type_template_service import SurveyTypeTemplateService
 
 MIN_SERVICE_TAGS = 1
 MAX_SERVICE_TAGS = 4
