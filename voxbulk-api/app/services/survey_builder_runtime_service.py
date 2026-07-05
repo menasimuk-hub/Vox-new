@@ -367,6 +367,10 @@ def assert_runtime_template_send(
         msg = f"Template {tid} missing (context={context})"
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)
+    if not bool(row.active_for_survey):
+        msg = f"Template {tid} is hidden/disabled (context={context})"
+        logger.error("%s %s", LOG_PREFIX, msg)
+        raise SurveyBuilderFlowError(msg)
     # Buttonless templates are sent as session free-form text — Meta approval not required.
     from app.services.survey_whatsapp_template_service import (
         resolve_sendable_template_row,

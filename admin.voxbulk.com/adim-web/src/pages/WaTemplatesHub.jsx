@@ -284,10 +284,8 @@ export default function WaTemplatesHub() {
 
   const syncFromMeta = async () => {
     const stepDefs = [
-      { id: 'catalog', label: '1. Pull Meta catalog' },
-      { id: 'link_repair', label: '2. Link & repair survey / feedback' },
-      { id: 'push', label: '3. Push pending templates' },
-      { id: 'cleanup', label: '4. Clean rejected / orphans' },
+      { id: 'pull', label: '1. Pull status from Meta' },
+      { id: 'push', label: '2. Push changed templates' },
     ]
     setSyncing(true)
     setSyncProgress('')
@@ -304,90 +302,50 @@ export default function WaTemplatesHub() {
     const summaryRows = []
     try {
       let last = null
-      for (let i = 0; i < stepDefs.length; i += 1) {
-        const step = stepDefs[i]
-        const label = `${i + 1}/${stepDefs.length}`
-        setSyncProgress(label)
-        patchJobStep(step.id, { status: 'running', detail: 'Running…' })
-        if (step.id === 'push') {
-          const PUSH_BATCH = 5
-          const pushScopes = ['survey', 'interview', 'feedback']
-          let surveyPushedTotal = 0
-          for (const scope of pushScopes) {
-            let offset = 0
-            let batchNum = 0
-            for (;;) {
-              batchNum += 1
-              patchJobStep(step.id, {
-                status: 'running',
-                detail: `Pushing ${scope} batch ${batchNum} (offset ${offset})…`,
-              })
-              last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
-                method: 'POST',
-                body: JSON.stringify({ scope, offset, limit: PUSH_BATCH }),
-                timeoutMs: 300000,
-                quietNetworkHint: true,
-              })
-              if (scope === 'survey') {
-                surveyPushedTotal += Number(last?.survey_push?.pushed || 0)
-                if (last?.has_more) {
-                  offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
-                  continue
-                }
-              }
-              break
-            }
-          }
-          if (surveyPushedTotal) {
-            summaryRows.push({ metric: 'Survey pushed', count: surveyPushedTotal })
-          }
-          if (last?.interview?.pushed != null) {
-            summaryRows.push({ metric: 'Interview pushed', count: last.interview.pushed })
-          }
-          if (last?.feedback_push?.pushed != null) {
-            summaryRows.push({ metric: 'Feedback pushed', count: last.feedback_push.pushed })
-          }
-        } else {
-          last = await apiFetch(`/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/${step.id}`, {
-            method: 'POST',
-            timeoutMs: 300000,
-            quietNetworkHint: true,
-          })
-        }
-        const detail = last?.message || `Step ${label} done`
-        messages.push(detail)
-        patchJobStep(step.id, { status: 'done', detail })
-        if (last?.catalog?.synced != null) {
-          summaryRows.push({ metric: 'Catalog synced', count: last.catalog.synced })
-        }
-        if (last?.approved != null) summaryRows.push({ metric: 'Approved (step)', count: last.approved })
-        if (last?.pending != null) summaryRows.push({ metric: 'Pending (step)', count: last.pending })
-        if (last?.rejected != null) summaryRows.push({ metric: 'Rejected (step)', count: last.rejected })
-        if (last?.meta_rejected_deleted?.deleted != null) {
-          summaryRows.push({ metric: 'Meta rejected deleted', count: last.meta_rejected_deleted.deleted })
-        }
-        if (last?.clean?.deleted != null) {
-          summaryRows.push({ metric: 'Local orphans cleaned', count: last.clean.deleted })
-        }
+      patchJobStep('pull', { status: 'running', detail: 'Pulling catalog and status…' })
+      last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
+        method: 'POST',
+        timeoutMs: 300000,
+        quietNetworkHint: true,
+      })
+      messages.push(last?.message || 'Pull complete')
+      patchJobStep('pull', { status: 'done', detail: last?.message || 'Done' })
+      if (last?.catalog?.synced != null) {
+        summaryRows.push({ metric: 'Catalog synced', count: last.catalog.synced })
       }
-      const result = last || {}
-      const fallback = messages.length
-        ? messages.join(' · ')
-        : `Synced ${result.synced ?? 0} · Approved ${result.approved ?? 0} · Pending ${result.pending ?? 0} · Rejected ${result.rejected ?? 0}`
-      const finalMsg = formatActionSuccess(result, fallback).message
+      if (last?.status_pull?.updated != null) {
+        summaryRows.push({ metric: 'Status refreshed', count: last.status_pull.updated })
+      }
+
+      const PUSH_BATCH = 10
+      let offset = 0
+      let pushTotal = 0
+      patchJobStep('push', { status: 'running', detail: 'Pushing changed templates…' })
+      for (let batchNum = 1; ; batchNum += 1) {
+        last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push', {
+          method: 'POST',
+          body: JSON.stringify({ offset, limit: PUSH_BATCH }),
+          timeoutMs: 300000,
+          quietNetworkHint: true,
+        })
+        pushTotal += Number(last?.survey_push?.pushed || 0)
+        patchJobStep('push', {
+          status: last?.has_more ? 'running' : 'done',
+          detail: last?.message || `Batch ${batchNum}`,
+        })
+        if (!last?.has_more) break
+        offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
+      }
+      messages.push(last?.message || 'Push complete')
+      if (pushTotal) summaryRows.push({ metric: 'Templates pushed', count: pushTotal })
+
+      const finalMsg = formatActionSuccess(last || {}, messages.join(' · ')).message
       setMsg(finalMsg)
       setJob((prev) => ({
         ...prev,
         phase: 'done',
         message: finalMsg,
-        summaryRows: summaryRows.length
-          ? summaryRows
-          : [
-              { metric: 'Synced', count: result.synced ?? 0 },
-              { metric: 'Approved', count: result.approved ?? 0 },
-              { metric: 'Pending', count: result.pending ?? 0 },
-              { metric: 'Rejected', count: result.rejected ?? 0 },
-            ],
+        summaryRows,
         tables: {},
       }))
       await loadTemplateCounts()
@@ -455,12 +413,14 @@ export default function WaTemplatesHub() {
         return
       }
       if (row.rowKind === 'feedback_template') {
-        const result = await apiFetch(`/admin/customer-feedback/survey-types/${row.surveyTypeId}/sync-telnyx`, {
+        const result = await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}/push`, {
           method: 'POST',
+          body: '{}',
           timeoutMs: 180000,
           quietNetworkHint: true,
         })
-        setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+        setMsg(formatActionSuccess(result, 'Pushed to Meta').message)
+        refreshTabData()
         return
       }
       // Sync only this survey type / topic (not the whole industry).
@@ -799,7 +759,7 @@ export default function WaTemplatesHub() {
     return []
   }, [tab, interviewTemplates, marketingTemplates, salesTemplates])
 
-  const showCleanupActions = tab === 'survey' || tab === 'feedback'
+  const showCleanupActions = false
 
   return (
     <div className="waTemplatesHub ds-scope min-h-full bg-background">

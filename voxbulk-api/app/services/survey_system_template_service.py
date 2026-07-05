@@ -518,9 +518,18 @@ class SurveySystemTemplateService:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
                 if tpl is None:
                     continue
-                from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+                if not tpl.active_for_survey:
+                    continue
+                from app.services.survey_whatsapp_template_service import (
+                    resolve_sendable_template_row,
+                    template_row_is_sendable_on_meta,
+                )
 
-                listed = resolve_sendable_template_row(db, tpl) or tpl
+                listed = tpl
+                if not template_row_is_sendable_on_meta(tpl):
+                    sendable = resolve_sendable_template_row(db, tpl)
+                    if sendable is not None:
+                        listed = sendable
                 if not listed.active_for_survey:
                     continue
                 status = str(listed.status or "").upper()

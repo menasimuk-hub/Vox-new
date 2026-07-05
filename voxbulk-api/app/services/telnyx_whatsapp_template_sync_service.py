@@ -622,7 +622,9 @@ class TelnyxWhatsappTemplateSyncService:
                     elif not existing.body_preview:
                         # Last resort: keep name out of body_preview (leave null for repair pass).
                         existing.body_preview = existing.body_preview
-                    existing.local_sync_status = "in_sync"
+                    from app.services.survey_whatsapp_template_service import _refresh_local_sync_status
+
+                    existing.local_sync_status = _refresh_local_sync_status(existing)
                     existing.last_push_error = None
                     existing.waba_id = waba_id
                     existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
@@ -766,13 +768,24 @@ class TelnyxWhatsappTemplateSyncService:
                 prev = str(row.status or "").upper()
                 row.status = status
                 row.rejection_reason = str(live.get("rejection_reason") or "").strip() or None
+                from app.services.survey_whatsapp_template_service import normalize_wa_template_category
+
+                remote_category = normalize_wa_template_category(live.get("category"), required=False)
+                if remote_category:
+                    row.category = remote_category
                 if status == "APPROVED":
                     row.last_push_error = None
-                    row.local_sync_status = "in_sync"
-                elif status == "REJECTED":
+                from app.services.survey_whatsapp_template_service import _refresh_local_sync_status
+
+                refreshed = _refresh_local_sync_status(row)
+                if status == "REJECTED":
                     row.local_sync_status = "needs_resubmit"
                 elif status in {"PENDING", "PENDING_APPROVAL", "IN_APPEAL", "SUBMITTED"}:
-                    row.local_sync_status = "pending"
+                    row.local_sync_status = (
+                        refreshed if refreshed in {"local_changes", "remote_changed"} else "pending"
+                    )
+                else:
+                    row.local_sync_status = refreshed
                 row.synced_at = now
                 row.updated_at = now
                 db.add(row)

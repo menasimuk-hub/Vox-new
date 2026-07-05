@@ -932,8 +932,14 @@ function CreateSurvey() {
           changed = true;
         }
         if (rows.length === 1 && !next[typeId]) {
-          next[typeId] = String(rows[0].id);
-          changed = true;
+          const only = rows[0];
+          const approved =
+            only.is_approved === true ||
+            String(only.approval_status || only.telnyx_status || only.status || "").toUpperCase() === "APPROVED";
+          if (approved) {
+            next[typeId] = String(only.id);
+            changed = true;
+          }
         }
       }
       return changed ? next : prev;
@@ -981,6 +987,17 @@ function CreateSurvey() {
       ),
     [systemTemplatesQ.data, filterSystemTemplatesByPrivacyMode],
   );
+
+  React.useEffect(() => {
+    const welcomeIds = new Set(welcomeTemplates.map((t) => String(t.id)));
+    if (welcomeTemplateId && !welcomeIds.has(welcomeTemplateId)) {
+      setWelcomeTemplateId("");
+    }
+    const thankIds = new Set(thankYouTemplates.map((t) => String(t.id)));
+    if (thankYouTemplateId && !thankIds.has(thankYouTemplateId)) {
+      setThankYouTemplateId("");
+    }
+  }, [welcomeTemplates, thankYouTemplates, welcomeTemplateId, thankYouTemplateId]);
 
   const toggleServiceTag = (typeId: string) => {
     setSelectedServiceTagIds((prev) => {

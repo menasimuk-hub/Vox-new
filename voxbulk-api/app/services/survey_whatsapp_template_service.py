@@ -811,7 +811,7 @@ def resolve_sendable_template_row(
     db: Session,
     row: TelnyxWhatsappTemplate | None,
 ) -> TelnyxWhatsappTemplate | None:
-    """Return APPROVED Meta-linked row — prefer active clone successor over superseded parent."""
+    """Return APPROVED Meta-linked row — legacy clone when parent hidden or not sendable."""
     if row is None:
         return None
 
@@ -826,8 +826,11 @@ def resolve_sendable_template_row(
         if candidate.active_for_survey and template_row_is_sendable_on_meta(candidate):
             return candidate
 
-    if template_row_is_sendable_on_meta(row):
+    if bool(row.active_for_survey) and template_row_is_sendable_on_meta(row):
         return row
+
+    if not bool(row.active_for_survey):
+        return None
 
     for candidate in successors:
         if template_row_is_sendable_on_meta(candidate):
@@ -836,7 +839,7 @@ def resolve_sendable_template_row(
     parent_id = int(row.parent_template_id or 0)
     if parent_id:
         parent = db.get(TelnyxWhatsappTemplate, parent_id)
-        if template_row_is_sendable_on_meta(parent):
+        if parent and bool(parent.active_for_survey) and template_row_is_sendable_on_meta(parent):
             return parent
 
     return None
@@ -1352,26 +1355,12 @@ def _push_row_to_meta(
     from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
 
     template_name = str(row.name or "").strip()
+    record_id = str(row.telnyx_record_id or "").strip()
     meta_request_mode = "create_or_update_template"
-    # Meta cannot PATCH approved body/buttons in place — delete then recreate with same name.
-    if branch == SYNC_BRANCH_APPROVED_UPDATE and template_name:
-        meta_request_mode = "delete_and_recreate_approved"
-        record_id = str(row.telnyx_record_id or "").strip()
-        try:
-            MetaWhatsappTemplateService.delete_message_template(
-                db,
-                name=template_name,
-                hsm_id=record_id if record_id and not record_id.startswith(_LOCAL_ID_PREFIX) else None,
-            )
-            logger.info(
-                "survey_wa_template_meta_deleted_for_approved_update",
-                extra={"template_id": row.id, "template_name": template_name},
-            )
-        except MetaWhatsappTemplateError as exc:
-            logger.warning(
-                "survey_wa_template_meta_delete_before_update_failed",
-                extra={"template_id": row.id, "template_name": template_name, "error": str(exc)},
-            )
+    if branch == SYNC_BRANCH_APPROVED_UPDATE and record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+        meta_request_mode = "update_approved_same_name"
+    elif branch == SYNC_BRANCH_REJECTED_RECOVERY and record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+        meta_request_mode = "update_rejected_same_name"
 
     logger.info(
         "survey_wa_template_meta_push_start",
@@ -1383,13 +1372,21 @@ def _push_row_to_meta(
         },
     )
     try:
-        item = MetaWhatsappTemplateService.push_template_payload(
-            db,
-            name=template_name,
-            language=lang_code,
-            category=category,
-            components=components,
-        )
+        if meta_request_mode in {"update_approved_same_name", "update_rejected_same_name"}:
+            item = MetaWhatsappTemplateService.update_message_template(
+                db,
+                template_id=record_id,
+                components=components,
+                category=category,
+            )
+        else:
+            item = MetaWhatsappTemplateService.push_template_payload(
+                db,
+                name=template_name,
+                language=lang_code,
+                category=category,
+                components=components,
+            )
     except MetaWhatsappTemplateError as exc:
         detail = str(exc)
         meta_payload = exc.payload if isinstance(exc.payload, dict) else {}
@@ -2269,7 +2266,7 @@ class SurveyWhatsappTemplateService:
         *,
         remote_items: list[dict[str, Any]] | None = None,
         force_approved_update: bool = True,
-        allow_clone: bool = True,
+        allow_clone: bool = False,
     ) -> dict[str, Any]:
         raw_components = _effective_components(row)
         if not raw_components:
@@ -3033,11 +3030,13 @@ class SurveyWhatsappTemplateService:
                 draft_hash = _sync_content_hash(_loads(existing.draft_components_json))
                 if draft_hash and remote_hash and draft_hash != remote_hash:
                     existing.local_sync_status = SYNC_REMOTE_CHANGED
-                else:
+                elif not draft_hash and isinstance(components, list) and components:
                     existing.draft_components_json = _dumps(
-                        _normalize_draft_components(components if isinstance(components, list) else None)
+                        _normalize_draft_components(components)
                     )
                     existing.local_sync_status = SYNC_IN_SYNC
+                else:
+                    existing.local_sync_status = _refresh_local_sync_status(existing)
             except Exception as exc:
                 failed += 1
                 err = f"template parsing error for {item.get('name') or 'unknown'}: {exc}"
@@ -3659,15 +3658,20 @@ class SurveyWhatsappTemplateService:
                         payload={"message": str(exc), "provider_error": str(exc)},
                     ) from exc
         elif template_name:
-            try:
-                from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService
-                from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+            from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
+            from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-                if is_meta_whatsapp_primary(db):
+            if is_meta_whatsapp_primary(db):
+                try:
                     MetaWhatsappTemplateService.delete_message_template(db, name=template_name)
                     meta_deleted = True
-            except Exception:
-                pass
+                except MetaWhatsappTemplateError as exc:
+                    detail = str(exc).lower()
+                    if "404" not in detail and "not found" not in detail:
+                        raise SurveyWhatsappTemplateError(
+                            f"Meta delete failed: {exc}",
+                            payload={"message": str(exc), "provider_error": str(exc)},
+                        ) from exc
 
         for mapping in SurveyTypeTemplateService.list_for_template(db, template_id):
             db.delete(mapping)

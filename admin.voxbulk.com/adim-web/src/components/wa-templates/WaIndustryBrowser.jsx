@@ -692,8 +692,9 @@ export default function WaIndustryBrowser({
             <span className="font-medium text-foreground">
               {unlinkedTypes.length} survey type(s) have no WA templates linked.
             </span>{' '}
-            Use <span className="font-medium text-foreground">Sync this industry</span> or the hub{' '}
-            <span className="font-medium text-foreground">Sync with Meta</span> button — do not sync types one-by-one.
+            Use <span className="font-medium text-foreground">Sync this industry</span> for templates in this
+            industry only, or <span className="font-medium text-foreground">Sync with Meta</span> on the hub header
+            for all templates. Row Sync pushes one template only.
           </div>
         ) : null}
         <WaTemplatesTable

@@ -129,6 +129,58 @@ class MetaWhatsappTemplateService:
         )
 
     @staticmethod
+    def update_message_template(
+        db: Session,
+        *,
+        template_id: str,
+        components: list[Any],
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Edit an existing Meta template in place (same name) — status returns to PENDING for re-review."""
+        config = require_meta_whatsapp_primary(db)
+        waba_id = str(config.get("waba_id") or "").strip()
+        raw_id = str(template_id or "").strip()
+        if raw_id.startswith(_META_RECORD_PREFIX):
+            raw_id = raw_id[len(_META_RECORD_PREFIX) :]
+        if not raw_id:
+            raise MetaWhatsappTemplateError("Meta template id is required for update")
+        payload: dict[str, Any] = {"components": components}
+        if category:
+            payload["category"] = str(category or "UTILITY").strip().upper()
+        try:
+            body = MetaWhatsappService._graph_request(
+                config=config,
+                method="POST",
+                path=raw_id,
+                json_body=payload,
+                timeout=45.0,
+            )
+        except MetaWhatsappConfigError as exc:
+            raise MetaWhatsappTemplateError(str(exc)) from exc
+        except MetaWhatsappServiceError as exc:
+            raise _meta_template_error_from_service_exc(
+                exc,
+                template_name=raw_id,
+                language="",
+            ) from exc
+        meta_id = str(body.get("id") or raw_id).strip()
+        status = str(body.get("status") or "PENDING").strip().upper()
+        name = str(body.get("name") or "").strip()
+        language = MetaWhatsappService._normalize_language_code(str(body.get("language") or "en_US"))
+        cat = str(body.get("category") or category or "UTILITY").strip().upper()
+        return _normalize_meta_template_item(
+            {
+                "id": meta_id,
+                "name": name,
+                "language": language,
+                "category": cat,
+                "status": status,
+                "components": components,
+            },
+            waba_id=waba_id,
+        )
+
+    @staticmethod
     def delete_message_template(
         db: Session,
         *,

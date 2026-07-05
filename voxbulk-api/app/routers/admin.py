@@ -1544,8 +1544,7 @@ def test_meta_whatsapp_send(payload: dict | None = None, db: Session = Depends(g
 
 @router.post("/integrations/meta_whatsapp/whatsapp-templates/sync")
 def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
-    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncError
+    from app.services.wa_template_sync_service import WaTemplateSyncService
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
     if not is_meta_whatsapp_primary(db):
@@ -1554,9 +1553,7 @@ def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(r
             detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
         )
     try:
-        return SurveyWhatsappTemplateService.sync_hub_from_meta(db)
-    except TelnyxWhatsappTemplateSyncError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return WaTemplateSyncService.sync_all(db, offset=0, limit=50, phase="full")
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -1568,13 +1565,8 @@ def sync_meta_whatsapp_templates_step(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    """Chunked sync so the admin UI can show progress without browser timeout or Meta rate limits."""
-    from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
-    from app.services.telnyx_whatsapp_template_sync_service import (
-        TelnyxWhatsappTemplateSyncError,
-        TelnyxWhatsappTemplateSyncService,
-    )
-    from app.services.wa_template_closeout_service import WaTemplateCloseoutService
+    """Hub v2 chunked sync: pull status from Meta, then push changed DB drafts (same name)."""
+    from app.services.wa_template_sync_service import WaTemplateSyncService
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
     body = payload or {}
@@ -1584,125 +1576,53 @@ def sync_meta_whatsapp_templates_step(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
         )
-    steps = ["catalog", "link_repair", "push", "cleanup"]
-    key = str(step or "").strip().lower()
+    legacy_map = {
+        "catalog": "pull",
+        "link_repair": "pull",
+        "cleanup": "pull",
+    }
+    key = legacy_map.get(str(step or "").strip().lower(), str(step or "").strip().lower())
+    steps = ["pull", "push"]
     if key not in steps:
         raise HTTPException(status_code=400, detail=f"Unknown step. Use one of: {', '.join(steps)}")
     idx = steps.index(key) + 1
     total = len(steps)
+    offset = int(body.get("offset") or 0)
+    limit = body.get("limit")
     try:
-        if key == "catalog":
-            catalog = TelnyxWhatsappTemplateSyncService.sync(db)
+        if key == "pull":
+            catalog = WaTemplateSyncService.pull_catalog(db)
+            status = WaTemplateSyncService.pull_statuses(db)
             result = {
-                "ok": True,
-                "step": key,
-                "step_index": idx,
-                "step_total": total,
-                "message": f"Step {idx}/{total}: catalog synced ({catalog.get('synced') or 0} templates)",
-                "catalog": {k: v for k, v in (catalog or {}).items() if k != "templates"},
-            }
-        elif key == "link_repair":
-            link_s = WaTemplateCloseoutService.link_missing_survey_types(db)
-            link_f = WaTemplateCloseoutService.link_missing_feedback_types(db)
-            repair_s = WaTemplateCloseoutService.repair_all_survey_content(db, force_rejected=True)
-            repair_f = WaTemplateCloseoutService.regenerate_all_feedback_templates(db)
-            rename = WaTemplateCloseoutService.rename_promo_meta_names(db)
-            relink = SurveyWhatsappTemplateService.relink_survey_templates(db)
-            result = {
-                "ok": True,
+                "ok": bool(catalog.get("ok", True) and status.get("ok", True)),
                 "step": key,
                 "step_index": idx,
                 "step_total": total,
                 "message": (
-                    f"Step {idx}/{total}: linked {link_s.get('created', 0) + link_f.get('created', 0)} types"
+                    f"Step {idx}/{total}: pulled Meta catalog "
+                    f"({catalog.get('synced', 0)} rows) and refreshed status ({status.get('updated', 0)} rows)"
                 ),
-                "link_survey": link_s,
-                "link_feedback": link_f,
-                "survey_repair": repair_s,
-                "feedback_repair": repair_f,
-                "rename_promo": rename,
-                "relink": relink,
+                "catalog": catalog,
+                "status_pull": status,
+                "has_more": False,
             }
-        elif key == "push":
-            scope = str(body.get("scope") or "survey").strip().lower()
-            offset = int(body.get("offset") or 0)
-            limit = body.get("limit")
-            if scope == "survey":
-                survey_push = WaTemplateCloseoutService.push_local_and_needs_resubmit_batch(
-                    db, offset=offset, limit=limit
-                )
-                result = {
-                    "ok": True,
-                    "step": key,
-                    "scope": scope,
-                    "step_index": idx,
-                    "step_total": total,
-                    "message": survey_push.get("message")
-                    or f"Step {idx}/{total}: survey push batch (offset {offset})",
-                    "survey_push": survey_push,
-                    "has_more": bool(survey_push.get("has_more")),
-                    "next_offset": survey_push.get("next_offset", offset),
-                }
-            elif scope == "interview":
-                interview = WaTemplateCloseoutService.push_all_interview(db)
-                result = {
-                    "ok": True,
-                    "step": key,
-                    "scope": scope,
-                    "step_index": idx,
-                    "step_total": total,
-                    "message": f"Step {idx}/{total}: pushed interview {interview.get('pushed', 0)}",
-                    "interview": interview,
-                    "has_more": False,
-                }
-            else:
-                feedback_push = WaTemplateCloseoutService.push_all_feedback(db)
-                result = {
-                    "ok": True,
-                    "step": key,
-                    "scope": scope,
-                    "step_index": idx,
-                    "step_total": total,
-                    "message": f"Step {idx}/{total}: pushed feedback {feedback_push.get('pushed', 0)}",
-                    "feedback_push": feedback_push,
-                    "has_more": False,
-                }
         else:
-            meta_del = WaTemplateCloseoutService.delete_meta_rejected_ours(db)
-            clean = WaTemplateCloseoutService.clean_dead_orphan_rejected(db, dry_run=False)
-            catalog = TelnyxWhatsappTemplateSyncService.sync(db)
+            push = WaTemplateSyncService.push_changed_batch(
+                db,
+                offset=offset,
+                limit=int(limit) if limit is not None else 10,
+            )
             result = {
-                "ok": True,
+                "ok": push.get("ok", True),
                 "step": key,
                 "step_index": idx,
                 "step_total": total,
-                "message": (
-                    f"Step {idx}/{total}: deleted {meta_del.get('deleted', 0)} Meta rejected, "
-                    f"cleaned {clean.get('deleted', 0)} local orphans"
-                ),
-                "meta_rejected_deleted": meta_del,
-                "clean": clean,
-                "synced": catalog.get("synced"),
-                "approved": sum(
-                    1
-                    for t in (catalog.get("templates") or [])
-                    if str(t.get("status") or "").upper() == "APPROVED"
-                ),
-                "pending": sum(
-                    1
-                    for t in (catalog.get("templates") or [])
-                    if str(t.get("status") or "").upper() == "PENDING"
-                ),
-                "rejected": sum(
-                    1
-                    for t in (catalog.get("templates") or [])
-                    if str(t.get("status") or "").upper() == "REJECTED"
-                ),
-                "local_only": 0,
+                "message": push.get("message") or f"Step {idx}/{total}: pushed changed templates",
+                "survey_push": push,
+                "has_more": bool(push.get("has_more")),
+                "next_offset": push.get("next_offset", offset),
             }
         return result
-    except TelnyxWhatsappTemplateSyncError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except Exception as exc:
         try:
             db.rollback()

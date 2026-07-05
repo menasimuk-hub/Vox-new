@@ -299,6 +299,15 @@ class SurveyDispatchService:
                         template_row,
                         variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},
                     )
+                elif raw_row is not None:
+                    from app.services.survey_whatsapp_template_service import template_row_needs_meta_approval
+
+                    if template_row_needs_meta_approval(raw_row):
+                        logger.warning(
+                            "legacy_dispatch_skip_plaintext_wa_template_not_sendable",
+                            extra={"order_id": str(order.id), "wa_template_id": wa_template_id},
+                        )
+                        return {"ok": False, "error": "WhatsApp template is not approved or is disabled."}
             except Exception:
                 template_row = None
                 template_components = None

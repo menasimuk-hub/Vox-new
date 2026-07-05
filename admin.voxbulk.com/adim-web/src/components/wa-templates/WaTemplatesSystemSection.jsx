@@ -304,6 +304,59 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
     }
   }
 
+  const syncSystemRow = async (row) => {
+    setError('')
+    try {
+      const path =
+        product === 'feedback'
+          ? `/admin/customer-feedback/wa-templates/${row.id}/push`
+          : `/admin/wa-survey/templates/${row.id}/push`
+      await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 180000, quietNetworkHint: true })
+      await load()
+      if (sheetCategory) {
+        const listPath =
+          product === 'feedback'
+            ? '/admin/customer-feedback/system-templates'
+            : '/admin/wa-survey/system-templates'
+        const data = await apiFetch(listPath)
+        const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
+        setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
+      }
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Push to Meta failed').message)
+    }
+  }
+
+  const toggleSystemRow = async (row) => {
+    setError('')
+    const nextActive = row.status === 'disabled'
+    try {
+      if (product === 'feedback') {
+        await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, {
+          method: 'POST',
+          body: JSON.stringify({ is_active: nextActive }),
+        })
+      } else {
+        await apiFetch(`/admin/wa-survey/templates/${row.id}/set-active`, {
+          method: 'POST',
+          body: JSON.stringify({ active_for_survey: nextActive }),
+        })
+      }
+      await load()
+      if (sheetCategory) {
+        const listPath =
+          product === 'feedback'
+            ? '/admin/customer-feedback/system-templates'
+            : '/admin/wa-survey/system-templates'
+        const data = await apiFetch(listPath)
+        const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
+        setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
+      }
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not update visibility').message)
+    }
+  }
+
   const kindOptions =
     product === 'feedback'
       ? FEEDBACK_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))
@@ -413,8 +466,8 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
             <WaTemplatesTable
               templates={sheetRows}
               onEdit={handleEdit}
-              onSync={handleEdit}
-              onToggle={handleEdit}
+              onSync={(row) => void syncSystemRow(row)}
+              onToggle={(row) => void toggleSystemRow(row)}
               onDelete={(row) => void deleteSystemRow(row)}
               onNew={() => void addInsideCategory()}
               newLabel="Add template"

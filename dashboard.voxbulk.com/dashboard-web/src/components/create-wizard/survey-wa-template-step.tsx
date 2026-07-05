@@ -14,6 +14,7 @@ export type WaBuilderTemplateRow = {
   bodyPreview?: string;
   footer?: string;
   buttons?: Array<{ label: string; type?: string }>;
+  isApproved?: boolean;
 };
 
 function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string; type?: string }> {
@@ -51,6 +52,9 @@ function templateFromApiRow(
     }
   }
   const title = wizardTemplateDisplayName(row, fallback, questionNumber);
+  const approved =
+    row.is_approved === true ||
+    String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase() === "APPROVED";
   return {
     id: String(row.id),
     title,
@@ -58,6 +62,7 @@ function templateFromApiRow(
     bodyPreview: body || undefined,
     footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
     buttons: buttonsFromApiRow(row),
+    isApproved: approved,
   };
 }
 
@@ -245,6 +250,7 @@ function TemplateCard({
   onPreview: () => void;
   onSelect: () => void;
 }) {
+  const pending = tpl.isApproved === false;
   return (
     <div
       className={cn(
@@ -256,13 +262,23 @@ function TemplateCard({
     >
       <div>
         <p className="text-sm font-semibold">{tpl.title}</p>
+        {pending ? (
+          <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Pending Meta approval</p>
+        ) : null}
         {tpl.description ? <p className="mt-1 text-xs text-muted-foreground">{tpl.description}</p> : null}
       </div>
       <div className="mt-auto flex items-center gap-2">
         <Button size="sm" variant="outline" className="gap-1.5" type="button" onClick={onPreview}>
           <Eye className="size-3.5" /> Preview
         </Button>
-        <Button size="sm" className="gap-1.5" type="button" variant={active ? "default" : "secondary"} onClick={onSelect}>
+        <Button
+          size="sm"
+          className="gap-1.5"
+          type="button"
+          variant={active ? "default" : "secondary"}
+          disabled={pending}
+          onClick={onSelect}
+        >
           {active ? (
             <>
               <Check className="size-3.5" /> Selected
