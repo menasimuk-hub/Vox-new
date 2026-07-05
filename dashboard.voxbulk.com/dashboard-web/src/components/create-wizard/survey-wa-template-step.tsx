@@ -76,7 +76,14 @@ export function mapSystemTemplates(
   options?: { fallback?: string },
 ): WaBuilderTemplateRow[] {
   const fallback = String(options?.fallback || "").trim();
-  return rows.map((row, index) => templateFromApiRow(row, index + 1, fallback));
+  const selectable = rows.filter((row) => {
+    if (row.active_for_survey === false) return false;
+    if (row.is_approved === false) return false;
+    if (row.is_approved === true) return true;
+    const status = String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase();
+    return status === "APPROVED";
+  });
+  return selectable.map((row, index) => templateFromApiRow(row, index + 1, fallback));
 }
 
 export function pageCountFromServiceType(row: Record<string, unknown> | undefined): 4 | 5 | 6 {

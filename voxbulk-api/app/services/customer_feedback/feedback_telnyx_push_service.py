@@ -263,6 +263,11 @@ def push_feedback_template_to_telnyx(
         name_anchor_id=anchor.id,
     )
 
+    if not is_marketing_wa_template(tpl):
+        tpl.meta_category = "utility"
+        db.add(tpl)
+        db.flush()
+
     raw_components = build_feedback_components(tpl)
     if not is_marketing_wa_template(tpl):
         try:

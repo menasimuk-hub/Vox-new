@@ -55,8 +55,7 @@ import {
 import { formatWaSurveyGenerateError, parseWaSurveyGenerateErrors } from "@/lib/wa-survey-generate-error";
 import {
   SURVEY_TYPE_LIBRARY_PRIVACY_MODE,
-  filterActiveSurveyTemplates,
-  filterApprovedSurveyTemplates,
+  filterSelectableSurveyTemplates,
   filterSystemTemplatesByPrivacy,
   surveyTypeHasWaTemplate,
 } from "@/lib/wa-survey-template-mode";
@@ -838,7 +837,10 @@ function CreateSurvey() {
   }, [selectedServiceTagIds]);
 
   const serviceTypes = React.useMemo(
-    () => (waTypesQ.data?.types || []) as Array<Record<string, unknown>>,
+    () =>
+      ((waTypesQ.data?.types || []) as Array<Record<string, unknown>>).filter((row) =>
+        surveyTypeHasWaTemplate(row),
+      ),
     [waTypesQ.data],
   );
 
@@ -862,10 +864,8 @@ function CreateSurvey() {
   const libraryTemplatesByTypeId = React.useMemo(() => {
     const map: Record<string, Array<Record<string, unknown>>> = {};
     orderedServiceTagIds.forEach((typeId, index) => {
-      map[typeId] = filterApprovedSurveyTemplates(
-        filterActiveSurveyTemplates(
-          (libraryTemplateQueries[index]?.data?.templates || []) as Array<Record<string, unknown>>,
-        ),
+      map[typeId] = filterSelectableSurveyTemplates(
+        (libraryTemplateQueries[index]?.data?.templates || []) as Array<Record<string, unknown>>,
       );
     });
     return map;

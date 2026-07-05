@@ -356,7 +356,7 @@ export default function WaTemplatesHub() {
       for (let batchNum = 1; ; batchNum += 1) {
         last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push', {
           method: 'POST',
-          body: JSON.stringify({ offset, limit: PUSH_BATCH }),
+          body: JSON.stringify({ offset, limit: PUSH_BATCH, force_push: true, force_utility_category: true }),
           timeoutMs: 300000,
           quietNetworkHint: true,
         })
@@ -1058,6 +1058,7 @@ export default function WaTemplatesHub() {
         message={job.message}
         error={job.error}
         reportPath={job.reportPath}
+        progressPct={job.progressPct}
         onClose={() => setJob(EMPTY_JOB)}
       />
     </div>

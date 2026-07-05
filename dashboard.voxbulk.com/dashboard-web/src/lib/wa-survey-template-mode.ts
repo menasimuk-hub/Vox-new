@@ -13,10 +13,19 @@ export function filterApprovedSurveyTemplates(
   rows: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   return rows.filter((row) => {
+    if (row.active_for_survey === false) return false;
+    if (row.is_approved === false) return false;
     if (row.is_approved === true) return true;
     const status = String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase();
     return status === "APPROVED";
   });
+}
+
+/** Active + Meta-approved rows only — use before showing template names in the dashboard. */
+export function filterSelectableSurveyTemplates(
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return filterApprovedSurveyTemplates(filterActiveSurveyTemplates(rows));
 }
 
 export function filterSystemTemplatesByPrivacy(
@@ -37,6 +46,5 @@ export function surveyTypeHasWaTemplate(row: Record<string, unknown> | null | un
   if (typeof row.has_wa_template === "boolean") return row.has_wa_template;
   const std = Number(row.standard_template_count || 0);
   const anon = Number(row.anonymous_template_count || 0);
-  if (std + anon > 0) return true;
-  return String(row.status_label || "").trim() === "Ready";
+  return std + anon > 0;
 }

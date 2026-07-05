@@ -1611,6 +1611,8 @@ def sync_meta_whatsapp_templates_step(
                 db,
                 offset=offset,
                 limit=int(limit) if limit is not None else 10,
+                force_push=bool(body.get("force_push", True)),
+                force_utility_category=bool(body.get("force_utility_category", True)),
             )
             result = {
                 "ok": push.get("ok", True),

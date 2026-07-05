@@ -2334,6 +2334,20 @@ class SurveyWhatsappTemplateService:
         return result
 
     @staticmethod
+    def ensure_utility_category_for_sync_push(db: Session, row: TelnyxWhatsappTemplate) -> bool:
+        """Force UTILITY for survey bulk sync — skip explicit sales/marketing template keys."""
+        if str(row.sales_template_key or "").strip():
+            return False
+        cat = normalize_wa_template_category(row.category, required=False)
+        if cat == "UTILITY":
+            return False
+        row.category = "UTILITY"
+        row.updated_at = _now()
+        db.add(row)
+        db.flush()
+        return True
+
+    @staticmethod
     def push_to_telnyx(
         db: Session,
         row: TelnyxWhatsappTemplate,
@@ -2410,6 +2424,15 @@ class SurveyWhatsappTemplateService:
                     "sync_branch": branch,
                 },
             )
+
+        if (
+            force_approved_update
+            and branch == SYNC_BRANCH_STATUS_REFRESH
+            and str(row.status or "").upper() == "APPROVED"
+            and _has_remote_telnyx_id(row)
+        ):
+            branch = SYNC_BRANCH_APPROVED_UPDATE
+            branch_error = None
 
         if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update:
             logger.info(

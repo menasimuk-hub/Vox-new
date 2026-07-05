@@ -5,6 +5,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
+import {
+  buildIndustrySyncJobDone,
+  buildIndustrySyncJobProgress,
+  createIndustrySyncJob,
+  EMPTY_INDUSTRY_SYNC_JOB,
+  runWaIndustryPushAll,
+} from '../lib/waIndustrySync'
+import WaJobProgressDialog from '../components/wa-templates/WaJobProgressDialog'
 import { Switch } from '@/components/ui/Switch'
 
 
@@ -76,7 +84,15 @@ export default function WaSurveyIndustryEdit() {
   const [typeDeleteBusy, setTypeDeleteBusy] = useState(false)
 
   const [syncBusy, setSyncBusy] = useState(false)
+  const [syncJob, setSyncJob] = useState(EMPTY_INDUSTRY_SYNC_JOB)
   const [orgs, setOrgs] = useState([])
+
+  const patchSyncJobStep = (id, patch) => {
+    setSyncJob((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -419,53 +435,72 @@ export default function WaSurveyIndustryEdit() {
 
     setMsg('')
 
-    const PUSH_BATCH = 5
+    setSyncJob(createIndustrySyncJob(`Sync ${industry.name} with Meta`))
 
-    const acc = { pushed: 0, error_count: 0, errors: [] }
+    patchSyncJobStep('pull', { status: 'running', detail: 'Pulling status from Meta…' })
+
+    const applyProgress = (acc, { running = true } = {}) => {
+      const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
+      setSyncJob((prev) => ({ ...prev, ...progress, open: true, title: prev.title, steps: prev.steps }))
+    }
 
     try {
 
-      let offset = 0
+      const acc = await runWaIndustryPushAll(apiFetch, industry.id, {
 
-      for (;;) {
+        onProgress: ({ batchNum, flat, acc: partial, done, running }) => {
 
-        const summary = await apiFetch(
+          if (flat?.pull) {
 
-          `/admin/wa-survey/industries/${encodeURIComponent(industry.id)}/templates/push-all`,
+            patchSyncJobStep('pull', {
 
-          { method: 'POST', body: JSON.stringify({ offset, limit: PUSH_BATCH }), timeoutMs: 280000, quietNetworkHint: true },
+              status: 'done',
 
-        )
+              detail: flat.pull.message || 'Status pulled',
 
-        acc.pushed += Number(summary.pushed || 0)
+            })
 
-        acc.error_count += Number(summary.error_count || 0)
+          }
 
-        acc.errors.push(...(summary.errors || []))
+          patchSyncJobStep('push', {
 
-        if (!summary.has_more) break
+            status: done ? 'done' : 'running',
 
-        offset = Number(summary.next_offset ?? offset + PUSH_BATCH)
+            detail: flat?.message || `Batch ${batchNum}…`,
 
-      }
+          })
 
-      if (acc.error_count) {
+          if (partial) applyProgress(partial, { running: running !== false && !done })
 
-        setMsg(`Pushed ${acc.pushed} template(s)`)
+        },
 
-        setError(
+      })
 
-          acc.errors
+      if (acc.pull) {
 
-            .map((item) => `${item.template_name || item.template_id}: ${item.error}`)
-
-            .join('\n'),
-
-        )
+        patchSyncJobStep('pull', { status: 'done', detail: acc.pull.message || 'Status pulled' })
 
       } else {
 
-        setMsg(`Pushed ${acc.pushed} template(s) to Meta.`)
+        patchSyncJobStep('pull', { status: 'done', detail: 'Skipped (push-only batch)' })
+
+      }
+
+      patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+
+      const doneState = buildIndustrySyncJobDone(acc, industry.name)
+
+      setSyncJob((prev) => ({ ...prev, ...doneState }))
+
+      if (acc.error_count) {
+
+        setMsg(doneState.message)
+
+        setError(doneState.error)
+
+      } else {
+
+        setMsg(doneState.message)
 
       }
 
@@ -473,7 +508,19 @@ export default function WaSurveyIndustryEdit() {
 
     } catch (err) {
 
-      setError(formatWaSurveyError(err, 'Sync all survey types to Telnyx failed').message)
+      const errText = formatWaSurveyError(err, 'Sync all survey types to Telnyx failed').message
+
+      setError(errText)
+
+      setSyncJob((prev) => ({
+
+        ...prev,
+
+        phase: 'error',
+
+        error: errText,
+
+      }))
 
     } finally {
 
@@ -1109,6 +1156,21 @@ export default function WaSurveyIndustryEdit() {
         </div>
 
       ) : null}
+
+      <WaJobProgressDialog
+        open={syncJob.open}
+        title={syncJob.title}
+        dryRun={syncJob.dryRun}
+        steps={syncJob.steps}
+        phase={syncJob.phase}
+        summaryRows={syncJob.summaryRows}
+        tables={syncJob.tables}
+        message={syncJob.message}
+        error={syncJob.error}
+        reportPath={syncJob.reportPath}
+        progressPct={syncJob.progressPct}
+        onClose={() => setSyncJob(EMPTY_INDUSTRY_SYNC_JOB)}
+      />
 
     </>
 

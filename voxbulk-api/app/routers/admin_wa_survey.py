@@ -219,12 +219,16 @@ def push_all_industry_templates_to_telnyx(
         offset = int(body.get("offset") or 0)
         limit = body.get("limit")
         phase = str(body.get("phase") or "full").strip().lower()
+        force_push = bool(body.get("force_push", True))
+        force_utility_category = bool(body.get("force_utility_category", True))
         return WaTemplateSyncService.sync_industry(
             db,
             industry_id,
             offset=offset,
             limit=int(limit) if limit is not None else 10,
             phase=phase,
+            force_push=force_push,
+            force_utility_category=force_utility_category,
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)

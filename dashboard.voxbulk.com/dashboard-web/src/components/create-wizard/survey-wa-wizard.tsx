@@ -21,7 +21,7 @@ import { CrmSurveyAutomationCard } from "@/components/integrations/crm-survey-au
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
-import { WizardAlert, wizardFieldErrorClassName } from "@/components/create-wizard/wizard-alert";
+import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -418,7 +418,6 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                   {props.serviceTypes.map((t) => {
                     const id = String(t.id);
                     const active = props.selectedServiceTagIds.includes(id);
-                    const missingTemplate = !surveyTypeHasWaTemplate(t);
                     const disabled = !active && props.selectedServiceTagIds.length >= 4;
                     return (
                       <button
@@ -429,8 +428,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                         className={cn(
                           "rounded-full border px-3.5 py-1.5 text-sm transition-all",
                           active && "border-primary bg-primary text-primary-foreground shadow",
-                          !active && !disabled && !missingTemplate && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
-                          missingTemplate && !active && wizardFieldErrorClassName,
+                          !active && !disabled && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
                           disabled && "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/50",
                         )}
                       >

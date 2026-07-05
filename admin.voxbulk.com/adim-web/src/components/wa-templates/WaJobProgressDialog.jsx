@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, Circle, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
@@ -16,7 +17,7 @@ function MiniTable({ columns, rows, emptyLabel = 'None' }) {
     return <p className="px-1 py-2 text-[11px] text-muted-foreground">{emptyLabel}</p>
   }
   return (
-    <div className="max-h-40 overflow-auto rounded-md border">
+    <div className="max-h-52 overflow-auto rounded-md border">
       <table className="w-full text-left text-[11px]">
         <thead className="sticky top-0 bg-surface-muted">
           <tr>
@@ -28,10 +29,10 @@ function MiniTable({ columns, rows, emptyLabel = 'None' }) {
           </tr>
         </thead>
         <tbody>
-          {list.slice(0, 200).map((row, i) => (
+          {list.slice(0, 500).map((row, i) => (
             <tr key={row.id || row.name || row.message || i} className="border-t">
               {columns.map((c) => (
-                <td key={c.key} className="max-w-[220px] truncate px-2 py-1 font-mono" title={String(row[c.key] ?? '')}>
+                <td key={c.key} className="max-w-[240px] truncate px-2 py-1 font-mono" title={String(row[c.key] ?? '')}>
                   {String(row[c.key] ?? '—')}
                 </td>
               ))}
@@ -39,8 +40,8 @@ function MiniTable({ columns, rows, emptyLabel = 'None' }) {
           ))}
         </tbody>
       </table>
-      {list.length > 200 ? (
-        <p className="border-t px-2 py-1 text-[10px] text-muted-foreground">Showing first 200 of {list.length}</p>
+      {list.length > 500 ? (
+        <p className="border-t px-2 py-1 text-[10px] text-muted-foreground">Showing first 500 of {list.length}</p>
       ) : null}
     </div>
   )
@@ -48,9 +49,11 @@ function MiniTable({ columns, rows, emptyLabel = 'None' }) {
 
 const DETAIL_TABS = [
   { id: 'summary', label: 'Summary' },
+  { id: 'sync_log', label: 'Progress log' },
   { id: 'deleted_local', label: 'Deleted local' },
   { id: 'deleted_meta', label: 'Deleted Meta' },
-  { id: 'pushed', label: 'Pushed' },
+  { id: 'pushed', label: 'Updated' },
+  { id: 'refreshed', label: 'Refreshed' },
   { id: 'skipped_buttonless', label: 'Buttonless' },
   { id: 'meta_orphans_remaining', label: 'Meta orphans' },
   { id: 'push_failed', label: 'Failures' },
@@ -67,6 +70,7 @@ export default function WaJobProgressDialog({
   message = '',
   error = '',
   reportPath = '',
+  progressPct = 0,
   onClose,
 }) {
   const [tab, setTab] = useState('summary')
@@ -76,19 +80,21 @@ export default function WaJobProgressDialog({
 
   const doneCount = useMemo(() => steps.filter((s) => s.status === 'done').length, [steps])
   const totalSteps = steps.length || 1
+  const hasDetail = summaryRows.length > 0 || Object.keys(tables || {}).some((k) => (tables[k] || []).length > 0)
 
   if (!open) return null
 
   const activeTab = DETAIL_TABS.some((t) => t.id === tab) ? tab : 'summary'
+  const pct = Math.max(progressPct || 0, running ? Math.round((doneCount / totalSteps) * 50) : 100)
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
       role="presentation"
       onClick={running ? undefined : onClose}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border bg-surface shadow-lg"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border bg-surface shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-labelledby="wa-job-progress-title"
@@ -118,9 +124,9 @@ export default function WaJobProgressDialog({
             </div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">
               {running
-                ? `Step ${Math.min(doneCount + 1, totalSteps)} of ${totalSteps} — local DB is source of truth`
+                ? message || `Step ${Math.min(doneCount + 1, totalSteps)} of ${totalSteps} — working…`
                 : done
-                  ? 'Finished — review the tables below'
+                  ? 'Finished — review the log below'
                   : 'Stopped with an error'}
             </div>
           </div>
@@ -134,15 +140,13 @@ export default function WaJobProgressDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <div className="mb-3">
             <div className="mb-1.5 flex justify-between text-[10px] text-muted-foreground">
-              <span>Progress</span>
-              <span>
-                {doneCount}/{totalSteps}
-              </span>
+              <span>{running ? 'Template sync progress' : 'Progress'}</span>
+              <span>{pct}%</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
               <div
                 className={cn('h-full rounded-full transition-all', failed ? 'bg-destructive' : 'bg-primary')}
-                style={{ width: `${Math.round((doneCount / totalSteps) * 100)}%` }}
+                style={{ width: `${pct}%` }}
               />
             </div>
           </div>
@@ -155,23 +159,24 @@ export default function WaJobProgressDialog({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className={cn('font-medium', s.status === 'error' && 'text-destructive')}>{s.label}</div>
-                  {s.detail ? <div className="truncate text-[11px] text-muted-foreground">{s.detail}</div> : null}
+                  {s.detail ? <div className="text-[11px] text-muted-foreground">{s.detail}</div> : null}
                 </div>
               </li>
             ))}
           </ul>
 
           {error ? (
-            <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive whitespace-pre-wrap">
               {error}
             </div>
           ) : null}
 
-          {message && (done || failed) ? (
+          {message && running ? <p className="mb-3 text-xs text-muted-foreground">{message}</p> : null}
+          {message && (done || failed) && !error ? (
             <p className="mb-3 text-xs text-muted-foreground">{message}</p>
           ) : null}
 
-          {(done || failed) && (summaryRows.length > 0 || Object.keys(tables || {}).length > 0) ? (
+          {hasDetail ? (
             <>
               <div className="mb-2 flex flex-wrap gap-1">
                 {DETAIL_TABS.map((t) => {
@@ -220,6 +225,18 @@ export default function WaJobProgressDialog({
                 </div>
               ) : null}
 
+              {activeTab === 'sync_log' ? (
+                <MiniTable
+                  columns={[
+                    { key: 'name', label: 'Template' },
+                    { key: 'outcome', label: 'Result' },
+                    { key: 'product', label: 'Detail' },
+                  ]}
+                  rows={tables?.sync_log}
+                  emptyLabel={running ? 'Waiting for first batch…' : 'No templates processed'}
+                />
+              ) : null}
+
               {activeTab === 'deleted_local' ? (
                 <MiniTable
                   columns={[
@@ -244,10 +261,22 @@ export default function WaJobProgressDialog({
                 <MiniTable
                   columns={[
                     { key: 'name', label: 'Name' },
-                    { key: 'language', label: 'Lang' },
+                    { key: 'language', label: 'Branch' },
                     { key: 'product', label: 'Product' },
                   ]}
                   rows={tables?.pushed}
+                  emptyLabel="No content updates yet"
+                />
+              ) : null}
+              {activeTab === 'refreshed' ? (
+                <MiniTable
+                  columns={[
+                    { key: 'name', label: 'Name' },
+                    { key: 'language', label: 'Branch' },
+                    { key: 'product', label: 'Note' },
+                  ]}
+                  rows={tables?.refreshed}
+                  emptyLabel="No status-only refreshes"
                 />
               ) : null}
               {activeTab === 'skipped_buttonless' ? (
@@ -290,6 +319,8 @@ export default function WaJobProgressDialog({
                 </p>
               ) : null}
             </>
+          ) : running ? (
+            <p className="text-xs text-muted-foreground">Starting sync…</p>
           ) : null}
         </div>
 
@@ -301,4 +332,7 @@ export default function WaJobProgressDialog({
       </div>
     </div>
   )
+
+  if (typeof document === 'undefined') return dialog
+  return createPortal(dialog, document.body)
 }

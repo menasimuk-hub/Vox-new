@@ -578,7 +578,9 @@ export function AppointmentSetupWizard() {
               {(templatesQ.data ?? []).length === 0 && !templatesQ.isLoading && (
                 <p className="text-sm text-muted-foreground">No templates available yet — contact support.</p>
               )}
-              {(templatesQ.data ?? []).map((t) => {
+              {(templatesQ.data ?? [])
+                .filter((t) => String(t.approval_status || "APPROVED").toUpperCase() === "APPROVED" && t.active !== false)
+                .map((t) => {
                 const selected = form.wa_template_name === t.name;
                 return (
                   <button
@@ -594,9 +596,6 @@ export function AppointmentSetupWizard() {
                     <span className="hidden max-w-[40%] truncate text-xs text-muted-foreground sm:inline">
                       {t.description}
                     </span>
-                    {t.approval_status && t.approval_status !== "APPROVED" && (
-                      <span className="shrink-0 text-[10px] text-amber-600">{t.approval_status}</span>
-                    )}
                     <span className="shrink-0 text-xs text-primary">
                       {selected ? <Check className="inline size-3" /> : <Eye className="inline size-3" />}
                     </span>

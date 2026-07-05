@@ -13,11 +13,16 @@ from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_type_template_service import SurveyTypeTemplateService
 from app.services.survey_whatsapp_template_service import (
+    SYNC_BRANCH_APPROVED_UPDATE,
+    SYNC_BRANCH_FIRST_PUSH,
+    SYNC_BRANCH_REJECTED_RECOVERY,
+    SYNC_BRANCH_STATUS_REFRESH,
     SYNC_IN_SYNC,
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
     _effective_components,
     _has_remote_telnyx_id,
+    _prefetch_remote_templates_for_push,
     _refresh_local_sync_status,
     normalize_wa_template_category,
     template_row_has_buttons,
@@ -28,6 +33,45 @@ from app.services.telnyx_whatsapp_template_sync_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _classify_push_outcome(result: dict[str, Any]) -> str:
+    if result.get("linked") or result.get("skipped_push"):
+        return "linked"
+    if result.get("skipped"):
+        return "skipped"
+    mode = str(result.get("telnyx_request_mode") or "").strip().lower()
+    if mode in {"patch_template", "create_or_update_template"}:
+        return "content_updated"
+    branch = str(result.get("sync_branch") or "").strip()
+    if branch == SYNC_BRANCH_STATUS_REFRESH:
+        return "status_refreshed"
+    if branch in {SYNC_BRANCH_APPROVED_UPDATE, SYNC_BRANCH_FIRST_PUSH, SYNC_BRANCH_REJECTED_RECOVERY}:
+        return "content_updated"
+    return "content_updated"
+
+
+def _normalize_batch_result(row: TelnyxWhatsappTemplate, raw: dict[str, Any]) -> dict[str, Any]:
+    outcome = _classify_push_outcome(raw)
+    return {
+        "template_id": int(row.id),
+        "template_name": str(row.name or row.id),
+        "outcome": outcome,
+        "sync_branch": raw.get("sync_branch"),
+        "message": raw.get("message"),
+        "ok": raw.get("ok", True),
+        "label": str(row.name or row.id),
+    }
+
+
+def _normalize_batch_error(row: TelnyxWhatsappTemplate | None, label: str, error: str) -> dict[str, Any]:
+    return {
+        "template_id": int(row.id) if row is not None else None,
+        "template_name": label,
+        "outcome": "failed",
+        "error": error,
+        "label": label,
+    }
 
 
 def _row_needs_push(row: TelnyxWhatsappTemplate) -> bool:
@@ -136,18 +180,75 @@ class WaTemplateSyncService:
         return work
 
     @staticmethod
+    def _collect_all_industry_templates(
+        db: Session,
+        industry_id: str,
+    ) -> tuple[list[TelnyxWhatsappTemplate], list[dict[str, Any]]]:
+        from app.services.industry_service import _template_ids_for_industry
+
+        work: list[TelnyxWhatsappTemplate] = []
+        skipped: list[dict[str, Any]] = []
+        seen: set[int] = set()
+
+        for tid in sorted(_template_ids_for_industry(db, industry_id)):
+            row = db.get(TelnyxWhatsappTemplate, int(tid))
+            if row is None or int(row.id) in seen:
+                continue
+            seen.add(int(row.id))
+            if not _effective_components(row):
+                skipped.append(
+                    {
+                        "template_id": int(row.id),
+                        "template_name": str(row.name or row.id),
+                        "outcome": "skipped",
+                        "reason": "no_components",
+                        "message": "No template components — skipped",
+                    }
+                )
+                continue
+            work.append(row)
+        work.sort(key=lambda item: str(item.name or item.id))
+        return work, skipped
+
+    @staticmethod
     def push_changed_batch(
         db: Session,
         *,
         industry_id: str | None = None,
         offset: int = 0,
         limit: int | None = 10,
+        force_push: bool = False,
+        force_utility_category: bool = False,
     ) -> dict[str, Any]:
         from app.services.wa_template_push_batch_service import run_batched_push
 
-        work = WaTemplateSyncService._collect_push_work(db, industry_id=industry_id)
+        pre_skipped: list[dict[str, Any]] = []
+        prefetched: list[dict[str, Any]] | None = None
+
+        if force_push and industry_id:
+            work, pre_skipped = WaTemplateSyncService._collect_all_industry_templates(db, industry_id)
+            prefetched = _prefetch_remote_templates_for_push(db)
+        elif force_push:
+            work = [
+                row
+                for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all()
+                if _effective_components(row)
+            ]
+            work.sort(key=lambda item: str(item.name or item.id))
+            prefetched = _prefetch_remote_templates_for_push(db)
+        else:
+            work = WaTemplateSyncService._collect_push_work(db, industry_id=industry_id)
 
         def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            if force_utility_category:
+                SurveyWhatsappTemplateService.ensure_utility_category_for_sync_push(db, row)
+            if force_push:
+                return SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    row,
+                    force_approved_update=True,
+                    remote_items=prefetched,
+                )
             return SurveyWhatsappTemplateService.push_to_telnyx(db, row)
 
         batch = run_batched_push(
@@ -157,19 +258,69 @@ class WaTemplateSyncService:
             push_one=push_one,
             item_label=lambda row: str(row.name or row.id),
         )
+
+        normalized_results: list[dict[str, Any]] = list(pre_skipped) if offset == 0 else []
+        refreshed = 0
+        content_updated = 0
+        linked = 0
+        skipped_count = len(pre_skipped) if offset == 0 else 0
+
+        row_by_label = {str(row.name or row.id): row for row in work}
+        for raw in batch.get("results") or []:
+            label = str(raw.get("label") or raw.get("template_name") or "")
+            row = row_by_label.get(label)
+            if row is None:
+                for candidate in work:
+                    if str(candidate.name or candidate.id) == label:
+                        row = candidate
+                        break
+            if row is None:
+                continue
+            normalized = _normalize_batch_result(row, raw)
+            normalized_results.append(normalized)
+            outcome = normalized["outcome"]
+            if outcome == "status_refreshed":
+                refreshed += 1
+            elif outcome == "content_updated":
+                content_updated += 1
+            elif outcome == "linked":
+                linked += 1
+            elif outcome == "skipped":
+                skipped_count += 1
+
+        normalized_errors: list[dict[str, Any]] = []
+        for err in batch.get("errors") or []:
+            label = str(err.get("label") or "")
+            row = row_by_label.get(label)
+            normalized_errors.append(
+                _normalize_batch_error(row, label, str(err.get("error") or "Push failed"))
+            )
+
+        total_with_skipped = len(work) + len(pre_skipped)
         return {
             "ok": batch.get("ok", True),
-            "pushed": batch.get("pushed", 0),
+            "pushed": content_updated,
+            "content_updated": content_updated,
+            "refreshed": refreshed,
+            "linked": linked,
+            "skipped": skipped_count + int(batch.get("skipped") or 0),
             "error_count": batch.get("error_count", 0),
-            "errors": batch.get("errors") or [],
-            "results": batch.get("results") or [],
+            "errors": normalized_errors,
+            "results": normalized_results,
             "offset": batch.get("offset", offset),
             "next_offset": batch.get("next_offset", offset),
             "has_more": bool(batch.get("has_more")),
-            "total": batch.get("total", len(work)),
+            "total": total_with_skipped,
             "needs_push_total": len(work),
+            "force_push": force_push,
+            "force_utility_category": force_utility_category,
+            "processed": batch.get("next_offset", offset),
             "message": batch.get("message")
-            or f"Pushed {batch.get('pushed', 0)} of {len(work)} changed template(s) to Meta",
+            or (
+                f"Updated {content_updated} of {len(work)} template(s) on Meta"
+                if force_push
+                else f"Pushed {batch.get('pushed', 0)} of {len(work)} changed template(s) to Meta"
+            ),
         }
 
     @staticmethod
@@ -203,6 +354,8 @@ class WaTemplateSyncService:
         offset: int = 0,
         limit: int | None = 10,
         phase: str = "full",
+        force_push: bool = True,
+        force_utility_category: bool = True,
     ) -> dict[str, Any]:
         type_ids = [
             str(r)
@@ -218,22 +371,51 @@ class WaTemplateSyncService:
 
         if phase == "push":
             return WaTemplateSyncService.push_changed_batch(
-                db, industry_id=industry_id, offset=offset, limit=limit
+                db,
+                industry_id=industry_id,
+                offset=offset,
+                limit=limit,
+                force_push=force_push,
+                force_utility_category=force_utility_category,
             )
 
         pull: dict[str, Any] | None = None
         if phase == "full" and offset == 0:
             pull = WaTemplateSyncService.pull_statuses(db, row_ids=row_ids or None)
         push = WaTemplateSyncService.push_changed_batch(
-            db, industry_id=industry_id, offset=offset, limit=limit
+            db,
+            industry_id=industry_id,
+            offset=offset,
+            limit=limit,
+            force_push=force_push,
+            force_utility_category=force_utility_category,
         )
+        return WaTemplateSyncService._merge_industry_sync_response(pull, push, offset=offset)
+
+    @staticmethod
+    def _merge_industry_sync_response(
+        pull: dict[str, Any] | None,
+        push: dict[str, Any],
+        *,
+        offset: int,
+    ) -> dict[str, Any]:
         return {
             "ok": (pull.get("ok", True) if pull else True) and push.get("ok", True),
             "pull": pull,
             "push": push,
             "pushed": push.get("pushed", 0),
+            "content_updated": push.get("content_updated", push.get("pushed", 0)),
+            "refreshed": push.get("refreshed", 0),
+            "linked": push.get("linked", 0),
+            "skipped": push.get("skipped", 0),
+            "error_count": push.get("error_count", 0),
+            "errors": push.get("errors") or [],
+            "results": push.get("results") or [],
+            "total": push.get("total", 0),
+            "processed": push.get("processed", push.get("next_offset", offset)),
             "has_more": bool(push.get("has_more")),
             "next_offset": push.get("next_offset", offset),
+            "force_push": push.get("force_push", False),
             "message": push.get("message") or "Industry templates synced with Meta",
         }
 

@@ -167,19 +167,16 @@ class SurveyBuilderValidationService:
 
     @staticmethod
     def _type_has_wa_template(db: Session, survey_type_id: str) -> bool:
-        count = int(
-            db.execute(
-                select(func.count())
-                .select_from(SurveyTypeTemplate)
-                .join(TelnyxWhatsappTemplate, TelnyxWhatsappTemplate.id == SurveyTypeTemplate.template_id)
-                .where(
-                    SurveyTypeTemplate.survey_type_id == survey_type_id,
-                    TelnyxWhatsappTemplate.active_for_survey.is_(True),
-                )
-            ).scalar_one()
-            or 0
-        )
-        return count > 0
+        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+
+        mappings = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
+        for mapping in mappings:
+            row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+            if row is None or not bool(row.active_for_survey):
+                continue
+            if template_row_is_sendable_on_meta(row):
+                return True
+        return False
 
     @staticmethod
     def validate_builder_selection(

@@ -231,6 +231,10 @@ class AppointmentWhatsappTemplateService:
             )
             if row is None or not getattr(row, "active_for_appointment", True):
                 continue
+            from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+
+            if not template_row_is_sendable_on_meta(row):
+                continue
             payload.append(AppointmentWhatsappTemplateService.row_to_customer_dict(row))
         return payload
 

@@ -5,8 +5,17 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { apiFetch } from '../../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../../lib/waSurveyFeedback'
+import {
+  buildIndustrySyncJobDone,
+  buildIndustrySyncJobProgress,
+  createIndustrySyncJob,
+  EMPTY_INDUSTRY_SYNC_JOB,
+  runWaFeedbackIndustryPushAll,
+  runWaIndustryPushAll,
+} from '../../lib/waIndustrySync'
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
+import WaJobProgressDialog from './WaJobProgressDialog'
 import { toHubRow } from './waTemplatesUi'
 
 function industryHealthClass(ind) {
@@ -484,6 +493,14 @@ export default function WaIndustryBrowser({
   const [addTemplateOpen, setAddTemplateOpen] = useState(false)
   const [industrySyncing, setIndustrySyncing] = useState(false)
   const [deletingIndustry, setDeletingIndustry] = useState(false)
+  const [syncJob, setSyncJob] = useState(EMPTY_INDUSTRY_SYNC_JOB)
+
+  const patchSyncJobStep = (id, patch) => {
+    setSyncJob((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }))
+  }
 
   const loadIndustryRows = useCallback(
     async (ind) => {
@@ -573,19 +590,72 @@ export default function WaIndustryBrowser({
 
   const syncIndustry = async () => {
     if (!industry?.id) return
+
     setIndustrySyncing(true)
+    setSyncJob(createIndustrySyncJob(`Sync ${industry.name} with Meta`))
+    patchSyncJobStep('pull', { status: 'running', detail: 'Pulling status from Meta…' })
+
+    const applyProgress = (acc, { running = true } = {}) => {
+      const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
+      setSyncJob((prev) => ({
+        ...prev,
+        ...progress,
+        open: true,
+        title: prev.title || `Sync ${industry.name} with Meta`,
+        steps: prev.steps,
+      }))
+    }
+
     try {
-      const path =
+      const acc =
         product === 'feedback'
-          ? `/admin/customer-feedback/industries/${industry.id}/sync-telnyx`
-          : `/admin/wa-survey/industries/${industry.id}/templates/push-all`
-      // Labels say Meta; endpoints keep legacy paths for compatibility.
-      const result = await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 300000, quietNetworkHint: true })
-      onMessage?.(formatActionSuccess(result, `Synced ${industry.name} with Meta`).message)
+          ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
+              onProgress: ({ acc: partial, running }) => {
+                if (partial) applyProgress(partial, { running: running !== false })
+              },
+            })
+          : await runWaIndustryPushAll(apiFetch, industry.id, {
+              onProgress: ({ batchNum, flat, acc: partial, done, running }) => {
+                if (flat?.pull) {
+                  patchSyncJobStep('pull', {
+                    status: 'done',
+                    detail: flat.pull.message || 'Status pulled',
+                  })
+                }
+                patchSyncJobStep('push', {
+                  status: done ? 'done' : 'running',
+                  detail: flat?.message || `Batch ${batchNum}…`,
+                })
+                if (partial) applyProgress(partial, { running: running !== false && !done })
+              },
+            })
+
+      if (product !== 'feedback') {
+        if (acc.pull) {
+          patchSyncJobStep('pull', { status: 'done', detail: acc.pull.message || 'Status pulled' })
+        } else {
+          patchSyncJobStep('pull', { status: 'done', detail: 'Skipped (push-only batch)' })
+        }
+        patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+      } else {
+        patchSyncJobStep('pull', { status: 'done', detail: 'Feedback sync (push + refresh)' })
+        patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+      }
+
+      const doneState = buildIndustrySyncJobDone(acc, industry.name)
+      setSyncJob((prev) => ({ ...prev, ...doneState, open: true }))
+      onMessage?.(doneState.message)
       await loadIndustryRows(industry)
       onReloadIndustries?.()
     } catch (e) {
-      onError?.(formatWaSurveyError(e, 'Industry sync failed').detailText || e?.message)
+      const errText = formatWaSurveyError(e, 'Industry sync failed').detailText || e?.message
+      onError?.(errText)
+      setSyncJob((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: errText,
+        open: true,
+      }))
     } finally {
       setIndustrySyncing(false)
     }
@@ -717,6 +787,20 @@ export default function WaIndustryBrowser({
           emptyLabel="No WhatsApp templates linked in this industry yet. Use Add template."
         />
         {modals}
+        <WaJobProgressDialog
+          open={syncJob.open}
+          title={syncJob.title}
+          dryRun={syncJob.dryRun}
+          steps={syncJob.steps}
+          phase={syncJob.phase}
+          summaryRows={syncJob.summaryRows}
+          tables={syncJob.tables}
+          message={syncJob.message}
+          error={syncJob.error}
+          reportPath={syncJob.reportPath}
+          progressPct={syncJob.progressPct}
+          onClose={() => setSyncJob(EMPTY_INDUSTRY_SYNC_JOB)}
+        />
       </div>
     )
   }
