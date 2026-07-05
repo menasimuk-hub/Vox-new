@@ -104,9 +104,9 @@ def library_template_button_defaults(step_role: str) -> tuple[str, list[dict[str
     empty = {"url": "", "phone_number": ""}
     if role == "rating":
         return "quick_reply", [
-            {"text": "Poor", **empty},
-            {"text": "Okay", **empty},
             {"text": "Excellent", **empty},
+            {"text": "Good", **empty},
+            {"text": "Poor", **empty},
         ]
     if role == "yes_no":
         return "quick_reply", [{"text": "Yes", **empty}, {"text": "No", **empty}]
@@ -307,7 +307,9 @@ def _default_buttons_for_step(*, step_role: str, button_type: str) -> list[dict[
         if role == "feeling_word":
             return [{"text": "Great", **empty}, {"text": "Okay", **empty}, {"text": "Poor", **empty}]
         if role == "helpfulness":
-            return [{"text": "Yes", **empty}, {"text": "No", **empty}]
+            return [{"text": "Very helpful", **empty}, {"text": "Partly helpful", **empty}, {"text": "Not helpful", **empty}]
+        if role == "rating":
+            return [{"text": "Excellent", **empty}, {"text": "Good", **empty}, {"text": "Poor", **empty}]
         return [{"text": "Continue", **empty}]
     if bt == "url":
         return [{"text": "Open survey", "url": "https://example.com/survey", "phone_number": ""}]

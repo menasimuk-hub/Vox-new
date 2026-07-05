@@ -510,15 +510,34 @@ def question_from_tell_us_more_template(
     return q
 
 
-def _rating_answer_is_low(answer: str, *, threshold: int = 6) -> bool:
-    """True when numeric rating is below threshold (default: below 7)."""
+def _rating_answer_is_low(
+    answer: str,
+    *,
+    threshold: int = 6,
+    question: dict[str, Any] | None = None,
+) -> bool:
+    """True when numeric rating is low or button label is the worst scale option."""
+    from app.services.survey_wa_flow_constants import LOW_RATING_LABELS
+
     raw = str(answer or "").strip()
     if not raw:
         return False
     try:
         return int(raw) < threshold + 1
     except ValueError:
-        return False
+        pass
+    lowered = raw.lower()
+    if lowered in LOW_RATING_LABELS:
+        return True
+    opts = question.get("options") if isinstance(question, dict) else None
+    if isinstance(opts, list) and opts:
+        last = str(opts[-1] or "").strip().lower()
+        if lowered == last:
+            return True
+        first = str(opts[0] or "").strip().lower()
+        if lowered == first and first in {"excellent", "great", "very helpful", "yes", "10"}:
+            return False
+    return False
 
 
 def resolve_next_conversation_step(
@@ -563,7 +582,7 @@ def resolve_next_conversation_step(
         and tell_tid
         and not tell_already
         and role == "rating"
-        and _rating_answer_is_low(last_answer)
+        and _rating_answer_is_low(last_answer, question=current_q)
     ):
         tell_q = question_from_tell_us_more_template(
             db,

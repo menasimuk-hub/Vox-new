@@ -119,3 +119,22 @@ def test_assert_builder_template_allowed_hard_fails(db):
     assert assert_builder_template_allowed(config, allowed.id, context="test") == allowed.id
     with pytest.raises(SurveyBuilderFlowError, match="builder flow violation"):
         assert_builder_template_allowed(config, 99999, context="test")
+
+
+def test_rating_answer_is_low_accepts_poor_button_label():
+    from app.services.survey_builder_flow_service import _rating_answer_is_low
+
+    question = {"options": ["Excellent", "Good", "Poor"], "step_role": "rating"}
+    assert _rating_answer_is_low("Poor", question=question) is True
+    assert _rating_answer_is_low("Excellent", question=question) is False
+    assert _rating_answer_is_low("8", question=question) is False
+
+
+def test_order_scale_labels_puts_worst_last():
+    from app.services.survey_wa_flow_constants import order_scale_labels
+
+    assert order_scale_labels(["Poor", "Good", "Excellent"], step_role="rating") == [
+        "Excellent",
+        "Good",
+        "Poor",
+    ]

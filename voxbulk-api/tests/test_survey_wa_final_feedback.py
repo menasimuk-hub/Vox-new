@@ -320,7 +320,7 @@ def _seed_final_feedback_order(db, org_id: str):
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_final_feedback_sends_yes_no_before_open_text(mock_send, db):
+def test_final_feedback_sends_closing_open_text_directly(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -329,20 +329,18 @@ def test_final_feedback_sends_yes_no_before_open_text(mock_send, db):
 
     result = handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
 
-    assert result.get("final_feedback") == "awaiting_yes_no"
+    assert result.get("final_feedback") == "awaiting_open_text"
     db.refresh(recipient)
     payload = json.loads(recipient.result_json or "{}")
     conv = payload.get("wa_conversation") or {}
-    assert conv.get("awaiting_final_feedback_yes_no") is True
-    assert conv.get("awaiting_final_feedback_text") is not True
-    sent_names = [str(c.kwargs.get("template_name") or "") for c in mock_send.call_args_list]
-    assert "voxbulk_survey_final_feedback_global_final_feedback_voice_note" in sent_names
+    assert conv.get("awaiting_final_feedback_text") is True
+    assert conv.get("awaiting_final_feedback_yes_no") is not True
     sent_bodies = [str(c.kwargs.get("body") or "") for c in mock_send.call_args_list]
-    assert not any(DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
+    assert any("voice note" in body.lower() or DEFAULT_OPEN_TEXT_PROMPT in body for body in sent_bodies)
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_final_feedback_no_skips_to_thank_you(mock_send, db):
+def test_final_feedback_bare_no_skips_to_thank_you(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -355,12 +353,11 @@ def test_final_feedback_no_skips_to_thank_you(mock_send, db):
     assert result.get("completed") is True
     db.refresh(recipient)
     payload = json.loads(recipient.result_json or "{}")
-    assert payload.get("final_feedback_yes_no") == "No"
     assert payload.get("final_additional_feedback") in (None, "")
 
 
 @patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
-def test_final_feedback_yes_then_text_completes(mock_send, db):
+def test_final_feedback_open_text_completes(mock_send, db):
     mock_send.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
     org = Organisation(name="Final Feedback Org")
     db.add(org)
@@ -368,7 +365,6 @@ def test_final_feedback_yes_then_text_completes(mock_send, db):
     order, recipient, org_id = _seed_final_feedback_order(db, org.id)
 
     handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
-    handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
     final = handle_inbound_reply(db, from_phone=recipient.phone, body="Parking was difficult", org_id=org_id)
 
     assert final.get("completed") is True
@@ -431,7 +427,6 @@ def test_final_feedback_voice_on_yes_no_completes(mock_enqueue, mock_send, _voic
     assert result.get("completed") is True
     db.refresh(recipient)
     payload = json.loads(recipient.result_json or "{}")
-    assert payload.get("final_feedback_yes_no") == "Yes"
     roles = [a.get("step_role") for a in payload["wa_conversation"]["answers"]]
     assert "final_feedback_text" in roles
     assert payload["wa_conversation"].get("final_feedback_done") is True
@@ -451,7 +446,6 @@ def test_final_feedback_yes_then_voice_completes(mock_enqueue, mock_send, _voice
     order, recipient, org_id = _seed_final_feedback_order(db, org.id)
 
     handle_inbound_reply(db, from_phone=recipient.phone, body="8", org_id=org_id)
-    handle_inbound_reply(db, from_phone=recipient.phone, body="Yes", org_id=org_id)
     voice = _voice_inbound_reply("msg-voice-2")
     with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
         with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
@@ -468,7 +462,6 @@ def test_final_feedback_yes_then_voice_completes(mock_enqueue, mock_send, _voice
     assert result.get("completed") is True
     db.refresh(recipient)
     payload = json.loads(recipient.result_json or "{}")
-    assert payload.get("final_feedback_yes_no") == "Yes"
     text_answers = [a for a in payload["wa_conversation"]["answers"] if a.get("step_role") == "final_feedback_text"]
     assert len(text_answers) == 1
     assert text_answers[0].get("answer_source") == "voice_note"
@@ -714,4 +707,4 @@ def test_final_feedback_text_timeout_sends_thank_you(mock_send, db):
 
 
 def test_final_feedback_text_timeout_sec_constant():
-    assert FINAL_FEEDBACK_TEXT_TIMEOUT_SEC == 60
+    assert FINAL_FEEDBACK_TEXT_TIMEOUT_SEC == 300

@@ -142,12 +142,11 @@ def test_list_survey_orders_returns_non_interview_codes(app_client):
     assert order_id in ids
 
 
-def test_conversation_service_uses_final_feedback_yes_no_flow():
+def test_conversation_service_keeps_legacy_yes_no_gate_code():
     path = Path(__file__).resolve().parents[1] / "app" / "services" / "survey_whatsapp_conversation_service.py"
     text = path.read_text(encoding="utf-8")
-    assert "enabled_start_yes_no" in text
-    assert "yes_no_prompt_sent" in text
-    assert "WA_FINAL_FEEDBACK_YES_NO_ACTIVE" in text
+    assert "closing_uses_yes_no_gate" in text
+    assert "enabled_start_closing_open_text" in text
 
 
 def test_resolve_step_display_name_priority():

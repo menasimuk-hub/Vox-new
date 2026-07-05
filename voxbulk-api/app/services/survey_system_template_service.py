@@ -1065,7 +1065,7 @@ class SurveySystemTemplateService:
             ),
             "final_feedback": (
                 "GLOBAL CLOSING QUESTION templates invite optional final open-text feedback "
-                "after the respondent chooses Yes on the closing yes/no step. "
+                "after all middle survey steps. "
                 "Use step_role=final_feedback_text. Prefer button_type=none — user replies with text or voice. "
                 "Default body: “Please share anything else you'd like us to know.” Warm, optional tone."
             ),

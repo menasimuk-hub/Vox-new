@@ -585,9 +585,9 @@ def _question_button_components(step_role: str) -> list[dict[str, Any]]:
     role = normalize_step_role(step_role)
     button_map: dict[str, list[dict[str, str]]] = {
         "rating": [
-            {"type": "QUICK_REPLY", "text": "Poor"},
-            {"type": "QUICK_REPLY", "text": "Okay"},
             {"type": "QUICK_REPLY", "text": "Excellent"},
+            {"type": "QUICK_REPLY", "text": "Good"},
+            {"type": "QUICK_REPLY", "text": "Poor"},
         ],
         "yes_no": [
             {"type": "QUICK_REPLY", "text": "Yes"},

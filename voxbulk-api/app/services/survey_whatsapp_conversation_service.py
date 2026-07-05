@@ -67,6 +67,7 @@ from app.services.survey_wa_final_feedback_service import (
     begin_final_feedback_yes_no,
     build_final_feedback_open_text_question,
     build_final_feedback_yes_no_question,
+    closing_uses_yes_no_gate,
     final_feedback_settings,
     is_awaiting_final_feedback,
     log_final_feedback,
@@ -76,6 +77,12 @@ from app.services.survey_wa_final_feedback_service import (
     persist_final_feedback_yes_no,
     runtime_final_feedback_enabled,
     is_bare_yes_no_reply,
+)
+from app.services.survey_wa_open_text_state import (
+    is_buttonless_open_text_question,
+    mark_survey_started,
+    mark_tell_us_more_answered,
+    mark_tell_us_more_prompt_sent,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
     evaluate_vague_negative_followup,
@@ -376,7 +383,9 @@ def format_question_message(
         options = []
 
     lines = [f"Question {index} of {total}", text] if include_progress else [text]
-    if reply_type in {"text", "long_text", "contact", "date"}:
+    if is_buttonless_open_text_question(question):
+        lines.append("Reply with text or a voice note.")
+    elif reply_type in {"text", "long_text", "contact", "date"}:
         lines.append("Reply with your answer.")
     elif step_role == "rating" or (
         reply_type == "choice" and len(options) >= 7 and all(str(opt).strip().isdigit() for opt in options)
@@ -1948,6 +1957,7 @@ def send_first_question(
         "builder_template_ids": config.get("builder_template_ids"),
         "builder_runtime_hash": (runtime or {}).get("hash") or config.get("builder_runtime_hash"),
     }
+    mark_survey_started(payload["wa_conversation"])
     session = SurveySessionService.start_linear_session(
         db,
         order=order,
@@ -2570,7 +2580,34 @@ def _handle_final_feedback_inbound(
         text = effective_body.strip()
         if not text:
             return {"handled": False, "reason": "final_feedback_text_empty"}
-        if is_bare_yes_no_reply(text):
+        bare_choice = is_bare_yes_no_reply(text)
+        if bare_choice == "No":
+            mark_final_feedback_skipped(payload, reason="user_declined")
+            conv = payload["wa_conversation"]
+            conv["final_feedback_done"] = True
+            conv.pop("awaiting_final_feedback_text", None)
+            conv.pop("final_feedback_text_deadline", None)
+            payload["wa_conversation"] = conv
+            payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+            _save_recipient_result(db, recipient, payload)
+            return _complete_linear_survey_thank_you(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                flow=flow,
+                questions=questions,
+                conv=conv,
+                payload=payload,
+                session=session,
+                step=step,
+                total=total,
+                org_name=org_name,
+                organiser=organiser,
+                log_id=log_id,
+                inbound_message_id=inbound_message_id,
+            )
+        if bare_choice == "Yes":
             open_text_q = build_final_feedback_open_text_question(settings, db=db, config=config)
             open_text_body = format_question_message(
                 open_text_q,
@@ -3128,7 +3165,7 @@ def handle_inbound_reply(
         conv["answers"] = answers
         payload = SurveySessionService.attach_session_to_result(payload, session)
 
-        if not conv.get("tell_us_more_pending"):
+        if not conv.get("tell_us_more_pending") and not runtime_tell_us_more_enabled(config):
             evaluation = evaluate_vague_negative_followup(
                 db,
                 answer=answer,
@@ -3258,13 +3295,13 @@ def handle_inbound_reply(
                     session_id=session_row.id if session_row else None,
                 )
                 payload_source = "builder_step_sequence"
-                conv.pop("tell_us_more_pending", None)
+                mark_tell_us_more_answered(conv)
             elif (
                 should_use_builder_linear_runtime(config)
                 and runtime_tell_us_more_enabled(config)
                 and not conv.get("tell_us_more_asked")
                 and normalize_step_role(str(question.get("step_role") or "")) == "rating"
-                and _rating_answer_is_low(answer, threshold=runtime_low_rating_threshold(config))
+                and _rating_answer_is_low(answer, threshold=runtime_low_rating_threshold(config), question=question)
             ):
                 variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
                 next_q = question_from_tell_us_more_template(
@@ -3279,6 +3316,7 @@ def handle_inbound_reply(
                 payload_source = "builder_tell_us_more_template"
                 conv["tell_us_more_asked"] = True
                 conv["tell_us_more_pending"] = True
+                mark_tell_us_more_prompt_sent(conv)
                 log_wa_test_mode(
                     "branch_taken",
                     order=order,
@@ -3384,24 +3422,66 @@ def handle_inbound_reply(
         and not is_awaiting_final_feedback(conv)
     ):
         settings = final_feedback_settings(config)
+        if closing_uses_yes_no_gate(config):
+            log_final_feedback(
+                "enabled_start_yes_no",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                extra={"settings": settings, "marker": "WA_FINAL_FEEDBACK_YES_NO_ACTIVE"},
+            )
+            begin_final_feedback_yes_no(conv)
+            payload["wa_conversation"] = conv
+            session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+            payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
+            _save_recipient_result(db, recipient, payload)
+            yes_no_q = build_final_feedback_yes_no_question(settings, db=db, config=config)
+            yes_no_body = format_question_message(
+                yes_no_q,
+                index=total,
+                total=total,
+                variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
+            )
+            sent = _send_message(
+                db,
+                order=order,
+                recipient=recipient,
+                body=yes_no_body,
+                config=config,
+                question=yes_no_q,
+                pacing=PACING_BRANCH,
+            )
+            log_final_feedback(
+                "yes_no_prompt_sent",
+                order_id=order.id,
+                recipient_id=recipient.id,
+                handler="survey_whatsapp_conversation_service.handle_inbound_reply",
+                extra={"sent": sent},
+            )
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "final_feedback": "awaiting_yes_no",
+                "sent": sent,
+                "log_id": log_id,
+            }
+
         log_final_feedback(
-            "enabled_start_yes_no",
+            "enabled_start_closing_open_text",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
-            extra={
-                "settings": settings,
-                "marker": "WA_FINAL_FEEDBACK_YES_NO_ACTIVE",
-            },
+            extra={"settings": settings},
         )
-        begin_final_feedback_yes_no(conv)
+        begin_final_feedback_open_text(conv)
         payload["wa_conversation"] = conv
         session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
         _save_recipient_result(db, recipient, payload)
-        yes_no_q = build_final_feedback_yes_no_question(settings, db=db, config=config)
-        yes_no_body = format_question_message(
-            yes_no_q,
+        open_text_q = build_final_feedback_open_text_question(settings, db=db, config=config)
+        open_text_body = format_question_message(
+            open_text_q,
             index=total,
             total=total,
             variables=_survey_variables(config, recipient, db=db, org_id=str(order.org_id)),
@@ -3410,13 +3490,13 @@ def handle_inbound_reply(
             db,
             order=order,
             recipient=recipient,
-            body=yes_no_body,
+            body=open_text_body,
             config=config,
-            question=yes_no_q,
+            question=open_text_q,
             pacing=PACING_BRANCH,
         )
         log_final_feedback(
-            "yes_no_prompt_sent",
+            "closing_open_text_prompt_sent",
             order_id=order.id,
             recipient_id=recipient.id,
             handler="survey_whatsapp_conversation_service.handle_inbound_reply",
@@ -3426,7 +3506,7 @@ def handle_inbound_reply(
             "handled": True,
             "order_id": order.id,
             "recipient_id": recipient.id,
-            "final_feedback": "awaiting_yes_no",
+            "final_feedback": "awaiting_open_text",
             "sent": sent,
             "log_id": log_id,
         }
@@ -3727,3 +3807,65 @@ def bootstrap_after_intro(
         )
         return
     send_first_question(db, order=order, recipient=recipient, config=config)
+
+
+def advance_after_tell_us_more_timeout(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    config: dict[str, Any],
+    payload: dict[str, Any],
+    conv: dict[str, Any],
+) -> bool:
+    """Skip unanswered low-rating tell-us-more and send the next middle question."""
+    from app.services.survey_wa_open_text_state import mark_tell_us_more_timeout
+
+    step = int(conv.get("step") or 1)
+    total = int(conv.get("total") or 0)
+    session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+    mark_tell_us_more_timeout(conv)
+    next_step = step + 1
+    if next_step > total:
+        payload["wa_conversation"] = conv
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
+        db.add(recipient)
+        db.commit()
+        return False
+    try:
+        next_q = resolve_conversation_step(
+            config,
+            next_step,
+            order_id=order.id,
+            session_id=session.id if session else None,
+        )
+    except SurveyBuilderFlowError:
+        return False
+    variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
+    next_body = _question_outbound_body(
+        db,
+        config=config,
+        question=next_q,
+        recipient=recipient,
+        index=next_step,
+        total=total,
+        org_id=str(order.org_id),
+    )
+    conv["step"] = next_step
+    conv["current_template_id"] = next_q.get("template_id")
+    conv["current_node_key"] = next_q.get("node_key")
+    payload["wa_conversation"] = conv
+    recipient.result_json = json.dumps(payload, ensure_ascii=False)
+    db.add(recipient)
+    if session is not None:
+        SurveySessionService.advance_linear(db, session, config=config, from_step=step, to_step=next_step)
+    db.commit()
+    return _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=next_body,
+        config=config,
+        question=next_q,
+        pacing=PACING_STEP,
+    )

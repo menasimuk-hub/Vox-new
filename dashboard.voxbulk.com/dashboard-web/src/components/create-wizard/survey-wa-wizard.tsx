@@ -564,17 +564,17 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
 
               <div className="rounded-xl border border-border bg-background/40 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm font-medium">Tell us more about your experience</p>
+                  <p className="text-sm font-medium">Closing question</p>
                   <Switch
                     checked={props.allowFinalAdditionalFeedback}
                     onCheckedChange={props.setAllowFinalAdditionalFeedback}
-                    aria-label="Allow final additional feedback"
+                    aria-label="Allow closing question before thank-you"
                   />
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Adds a closing yes/no question, then waits for a voice note or typed reply (60 seconds).
-                  Example: &ldquo;Is there anything else you&rsquo;d like to tell us about your experience?&rdquo;
-                  Responses appear in survey results under More details.
+                  Sends the approved Closing question template after the last survey step. The recipient can reply
+                  with text or a voice note (transcribed to English). If there is no reply within 5 minutes, the
+                  survey continues to the thank-you message.
                 </p>
               </div>
             </CardContent>

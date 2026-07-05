@@ -12,13 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.models.service_order import ServiceOrder
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.survey_wa_flow_constants import KEY_CLOSING_DEADLINE, KEY_CLOSING_OUTCOME, OPEN_TEXT_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
-LOG_PREFIX = "[wa-final-feedback]"
+LOG_PREFIX = "[wa-closing-question]"
 
 DEFAULT_YES_NO_QUESTION = "Would you like to add anything else before we finish?"
 DEFAULT_OPEN_TEXT_PROMPT = "Please share anything else you'd like us to know."
-FINAL_FEEDBACK_TEXT_TIMEOUT_SEC = 60
+FINAL_FEEDBACK_TEXT_TIMEOUT_SEC = OPEN_TEXT_TIMEOUT_SEC
 
 FINAL_FEEDBACK_YES_NO_TEMPLATE_NAMES = (
     "voxbulk_survey_final_feedback_global_final_feedback_voice_note",
@@ -71,12 +72,23 @@ def build_final_feedback_branch(
     enabled: bool = False,
     yes_no_question: str | None = None,
     open_text_prompt: str | None = None,
+    use_yes_no_gate: bool = False,
 ) -> dict[str, Any]:
     return {
         "enabled": bool(enabled),
+        "use_yes_no_gate": bool(use_yes_no_gate),
         "yes_no_question": str(yes_no_question or DEFAULT_YES_NO_QUESTION).strip(),
         "open_text_prompt": str(open_text_prompt or DEFAULT_OPEN_TEXT_PROMPT).strip(),
     }
+
+
+def closing_uses_yes_no_gate(config: dict[str, Any] | None) -> bool:
+    cfg = config if isinstance(config, dict) else {}
+    runtime = cfg.get("builder_runtime") if isinstance(cfg.get("builder_runtime"), dict) else {}
+    branch = (runtime.get("branches") or {}).get("final_additional_feedback") or {}
+    if "use_yes_no_gate" in branch:
+        return bool(branch.get("use_yes_no_gate"))
+    return bool(cfg.get("final_feedback_use_yes_no_gate"))
 
 
 def log_final_feedback(
@@ -136,9 +148,10 @@ def begin_final_feedback_open_text(conv: dict[str, Any]) -> None:
 
     conv["awaiting_final_feedback_text"] = True
     conv.pop("awaiting_final_feedback_yes_no", None)
-    conv["final_feedback_text_deadline"] = (
+    conv[KEY_CLOSING_DEADLINE] = (
         datetime.now(timezone.utc) + timedelta(seconds=FINAL_FEEDBACK_TEXT_TIMEOUT_SEC)
     ).isoformat()
+    conv.pop(KEY_CLOSING_OUTCOME, None)
 
 
 def is_bare_yes_no_reply(raw: str) -> str | None:

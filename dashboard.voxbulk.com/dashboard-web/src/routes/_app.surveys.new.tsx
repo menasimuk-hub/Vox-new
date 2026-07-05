@@ -137,7 +137,7 @@ function CreateSurvey() {
   const [thankYouTemplateId, setThankYouTemplateId] = React.useState("");
   const [selectedServiceTemplateIds, setSelectedServiceTemplateIds] = React.useState<Record<string, string>>({});
   const [privacyMode, setPrivacyMode] = React.useState<"off" | "on">("off");
-  const [allowFinalAdditionalFeedback, setAllowFinalAdditionalFeedback] = React.useState(false);
+  const [allowFinalAdditionalFeedback, setAllowFinalAdditionalFeedback] = React.useState(true);
   const surveyVariant = privacyMode === "on" ? "anonymous" : "standard";
   const [pageCount, setPageCount] = React.useState<3 | 4 | 5 | 6>(5);
   const [autoSelectSteps, setAutoSelectSteps] = React.useState(true);
