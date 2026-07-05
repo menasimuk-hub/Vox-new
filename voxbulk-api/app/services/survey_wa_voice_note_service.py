@@ -14,9 +14,9 @@ from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.survey_voice_note_job import SurveyVoiceNoteJob
 from app.services.survey_wa_open_text_service import (
     VOICE_NOTE_FALLBACK_MESSAGE,
+    allows_voice_note_answer,
     apply_transcript_to_answer,
     enrich_answer_with_voice_fields,
-    is_open_text_question,
     is_voice_message_type,
 )
 from app.services.survey_wa_voice_note_media_service import (
@@ -436,12 +436,11 @@ class SurveyWaVoiceNoteService:
             inbound_message_id,
         )
 
-        if answer_context == "final_feedback":
-            open_ok = True
-        elif answer_context == "followup":
-            open_ok = True
-        else:
-            open_ok = is_open_text_question(question)
+        open_ok = allows_voice_note_answer(
+            question,
+            answer_context=answer_context,
+            conv=conv,
+        )
 
         if not open_ok:
             logger.info(

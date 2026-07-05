@@ -79,6 +79,7 @@ from app.services.survey_wa_final_feedback_service import (
     is_bare_yes_no_reply,
 )
 from app.services.survey_wa_open_text_state import (
+    is_awaiting_tell_us_more_reply,
     is_buttonless_open_text_question,
     mark_survey_started,
     mark_tell_us_more_answered,
@@ -2911,8 +2912,10 @@ def handle_inbound_reply(
             flow=flow,
             questions=questions,
             body=body,
+            reply=reply,
             log_id=log_id,
             inbound_message_id=inbound_message_id,
+            org_id=org_id,
         )
     if is_graph_flow(config) and should_use_builder_linear_runtime(config):
         logger.error(
@@ -3028,7 +3031,7 @@ def handle_inbound_reply(
         payload["wa_conversation"] = conv
     else:
         try:
-            if conv.get("tell_us_more_pending"):
+            if is_awaiting_tell_us_more_reply(conv):
                 variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
                 question = question_from_tell_us_more_template(
                     db,
@@ -3050,7 +3053,9 @@ def handle_inbound_reply(
             return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
 
         effective_body = reply.normalized_answer or str(body or "").strip()
-        voice_context = "followup" if conv.get("tell_us_more_pending") else "normal"
+        from app.services.survey_wa_open_text_service import voice_note_answer_context
+
+        voice_context = voice_note_answer_context(conv=conv, question=question)
         voice = _try_voice_note_reply(
             db,
             order=order,
@@ -3352,6 +3357,11 @@ def handle_inbound_reply(
                 exc,
             )
             return {"handled": False, "reason": "next_step_resolve_failed", "detail": str(exc)}
+        if payload_source == "builder_tell_us_more_template":
+            conv["tell_us_more_asked"] = True
+            conv["tell_us_more_pending"] = True
+            if not conv.get("tell_us_more_sent_at"):
+                mark_tell_us_more_prompt_sent(conv)
         log_builder_step_resolution(
             phase="send_next_question",
             order_id=order.id,
@@ -3549,8 +3559,10 @@ def _handle_inbound_reply_graph(
     flow: dict[str, Any],
     questions: list[dict[str, Any]],
     body: str,
+    reply: NormalizedWaInboundReply,
     log_id: int | None,
     inbound_message_id: str | None = None,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     if has_builder_runtime(config):
         logger.error(
@@ -3579,8 +3591,39 @@ def _handle_inbound_reply_graph(
     elaboration_only = False
 
     if conv.get("awaiting_followup"):
+        session_row = SurveySessionService.get_active_by_recipient(db, recipient.id)
+        voice = _try_voice_note_reply(
+            db,
+            order=order,
+            recipient=recipient,
+            payload=payload,
+            conv=conv,
+            question=None,
+            reply=reply,
+            inbound_message_id=inbound_message_id,
+            log_id=log_id,
+            session_id=session_row.id if session_row else None,
+            answer_context="followup",
+            step_index=int(conv.get("followup_for_step") or step or 0),
+            config=config,
+        )
+        if voice and voice.get("handled") and (
+            voice.get("voice_rejected") or (voice.get("duplicate") and not voice.get("answer"))
+        ):
+            return {
+                "handled": True,
+                "order_id": order.id,
+                "recipient_id": recipient.id,
+                "voice_note": True,
+                "duplicate": bool(voice.get("duplicate")),
+                "voice_rejected": bool(voice.get("voice_rejected")),
+                "log_id": log_id,
+            }
         elaboration_only = True
-        merge_elaboration_into_answers(answers, str(body or "").strip())
+        if voice and voice.get("accepted"):
+            answers = list(voice.get("answers") or conv.get("answers") or [])
+        else:
+            merge_elaboration_into_answers(answers, reply.normalized_answer or str(body or "").strip())
         step = int(conv.get("followup_for_step") or step or 0)
         conv["answers"] = answers
         conv.pop("awaiting_followup", None)

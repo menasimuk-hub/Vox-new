@@ -9,11 +9,13 @@ import pytest
 from app.services.survey_wa_inbound_parse_service import NormalizedWaInboundReply, parse_telnyx_wa_inbound_record
 from app.services.survey_wa_open_text_service import (
     VOICE_NOTE_FALLBACK_MESSAGE,
+    allows_voice_note_answer,
     apply_transcript_to_answer,
     enrich_answer_with_voice_fields,
     is_open_text_question,
     is_voice_message_type,
     resolve_answer_text,
+    voice_note_answer_context,
 )
 from app.services.survey_wa_voice_note_media_service import extract_media_items
 
@@ -96,6 +98,60 @@ def test_prepare_voice_answer_accepts_tell_us_more_with_stale_buttons(mock_enque
     assert result.get("rejected") is not True
     assert result["accepted"] is True
     mock_enqueue.assert_called_once_with("job-tum")
+
+
+@patch("app.services.survey_wa_voice_note_service.SurveyWaVoiceNoteService.enqueue_transcription")
+def test_prepare_voice_answer_accepts_rating_step_when_tell_us_more_pending(mock_enqueue):
+    """Low-rating tell-us-more branch: voice accepted even if step still resolves to rating question."""
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    db = MagicMock()
+    db.flush = MagicMock()
+    db.commit = MagicMock()
+    db.add = MagicMock()
+    order = MagicMock(id="order-1", org_id="org-1")
+    recipient = MagicMock(id="recipient-1")
+    reply = NormalizedWaInboundReply(
+        message_type="audio",
+        is_voice_note=True,
+        extracted_fields={
+            "media_items": [{"url": "https://example.com/a.ogg", "provider_media_id": "m1", "content_type": "audio/ogg"}]
+        },
+    )
+    rating_question = {"reply_type": "choice", "step_role": "rating", "options": ["Excellent", "Good", "Poor"]}
+    conv = {"answers": [{"question": "Rate us", "answer": "Poor"}], "current_node_key": "builder_tell_42"}
+
+    with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
+        with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
+            job = MagicMock()
+            job.id = "job-tum-rating"
+            job.transcription_status = "pending"
+            job.audio_file_path = None
+            job.audio_mime_type = "audio/ogg"
+            job.inbound_message_id = "msg-tum-rating"
+            job.provider_media_id = "m1"
+            create_job.return_value = job
+            result = SurveyWaVoiceNoteService.prepare_voice_answer(
+                db,
+                order=order,
+                recipient=recipient,
+                payload={"wa_conversation": conv},
+                conv=conv,
+                question=rating_question,
+                reply=reply,
+                inbound_message_id="msg-tum-rating",
+                log_id=1,
+                session_id=None,
+                answer_context=voice_note_answer_context(conv=conv, question=rating_question),
+                step_index=2,
+                record=None,
+                config={},
+            )
+
+    assert result.get("rejected") is not True
+    assert result["accepted"] is True
+    assert allows_voice_note_answer(rating_question, answer_context="normal", conv=conv) is True
+    mock_enqueue.assert_called_once_with("job-tum-rating")
 
 
 def test_parse_voice_inbound_record():

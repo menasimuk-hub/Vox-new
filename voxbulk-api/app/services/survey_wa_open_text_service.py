@@ -30,6 +30,54 @@ def is_open_text_question(question: dict[str, Any] | None) -> bool:
     return reply_type in OPEN_TEXT_REPLY_TYPES
 
 
+def allows_voice_note_answer(
+    question: dict[str, Any] | None,
+    *,
+    answer_context: str,
+    conv: dict[str, Any] | None = None,
+) -> bool:
+    ctx = str(answer_context or "normal").strip().lower()
+    if ctx in {"final_feedback", "followup"}:
+        return True
+    c = conv or {}
+    if c.get("tell_us_more_pending") or c.get("awaiting_followup"):
+        return True
+    if c.get("awaiting_final_feedback_text"):
+        return True
+    from app.services.survey_wa_open_text_state import is_awaiting_tell_us_more_reply
+
+    if is_awaiting_tell_us_more_reply(c):
+        return True
+    if isinstance(question, dict):
+        source = str(question.get("source") or "")
+        node_key = str(question.get("node_key") or "")
+        if source == "builder_tell_us_more_template" or node_key.startswith("builder_tell_"):
+            return True
+    return is_open_text_question(question)
+
+
+def voice_note_answer_context(
+    *,
+    conv: dict[str, Any] | None,
+    question: dict[str, Any] | None,
+) -> str:
+    """Map inbound step state to voice-note answer_context (followup vs normal)."""
+    c = conv or {}
+    if c.get("tell_us_more_pending") or c.get("awaiting_followup"):
+        return "followup"
+    from app.services.survey_wa_open_text_state import is_awaiting_tell_us_more_reply
+
+    if is_awaiting_tell_us_more_reply(c):
+        return "followup"
+    if isinstance(question, dict):
+        from app.services.survey_step_bank_service import normalize_step_role
+
+        role = normalize_step_role(str(question.get("step_role") or ""))
+        if role in OPEN_TEXT_STEP_ROLES:
+            return "followup"
+    return "normal"
+
+
 def is_voice_message_type(message_type: str) -> bool:
     clean = str(message_type or "").strip().lower()
     if not clean:

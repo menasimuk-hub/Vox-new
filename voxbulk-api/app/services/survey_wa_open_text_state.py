@@ -61,6 +61,20 @@ def mark_closing_timeout(conv: dict[str, Any]) -> None:
     conv.pop(KEY_CLOSING_DEADLINE, None)
 
 
+def is_awaiting_tell_us_more_reply(conv: dict[str, Any]) -> bool:
+    """True while the contact should answer the tell-us-more prompt (low rating branch)."""
+    if conv.get(KEY_TUM_PENDING):
+        return True
+    if conv.get(KEY_TUM_OUTCOME):
+        return False
+    node_key = str(conv.get("current_node_key") or "")
+    if node_key.startswith("builder_tell_"):
+        return True
+    if conv.get(KEY_TUM_SENT_AT) and not conv.get(KEY_TUM_OUTCOME):
+        return True
+    return bool(conv.get("tell_us_more_asked")) and not conv.get(KEY_TUM_OUTCOME)
+
+
 def is_buttonless_open_text_question(question: dict[str, Any] | None) -> bool:
     if not isinstance(question, dict):
         return False
