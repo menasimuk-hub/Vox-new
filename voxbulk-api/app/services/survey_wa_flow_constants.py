@@ -56,6 +56,11 @@ KEY_CLOSING_OUTCOME = "final_feedback_outcome"
 # wa_conversation keys — survey lifecycle
 KEY_SURVEY_STARTED_AT = "survey_started_at"
 
+# wa_conversation keys — last outbound prompt kind (debug + voice routing)
+KEY_LAST_OUTBOUND_KIND = "last_outbound_kind"
+OUTBOUND_KIND_TELL_US_MORE = "tell_us_more"
+OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP = "vague_auto_followup"
+
 # Canonical button label order (best first → worst last in Meta BUTTONS array)
 CANONICAL_RATING = ("Excellent", "Good", "Poor")
 CANONICAL_MORALE = ("High", "Moderate", "Low")

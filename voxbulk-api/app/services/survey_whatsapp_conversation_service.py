@@ -20,6 +20,7 @@ from app.services.survey_step_bank_service import normalize_step_role
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateService,
     resolve_sendable_template_row,
+    template_row_must_send_as_session_text,
     template_row_needs_meta_approval,
 )
 from app.services.telnyx_whatsapp_template_sync_service import (
@@ -32,6 +33,7 @@ from app.services.survey_builder_flow_service import (
     SurveyBuilderFlowError,
     _rating_answer_is_low,
     effective_order_config,
+    is_tell_us_more_branch_question,
     log_builder_step_resolution,
     log_inbound_step_context,
     question_from_tell_us_more_template,
@@ -1491,7 +1493,10 @@ def _send_message(
             resolved_template = _resolve_template_row(db, wa_template_id)
 
     use_row = resolved_template
-    if use_row is not None and template_row_needs_meta_approval(use_row):
+    session_text_only = is_tell_us_more_branch_question(question) or (
+        use_row is not None and template_row_must_send_as_session_text(use_row)
+    )
+    if use_row is not None and template_row_needs_meta_approval(use_row) and not session_text_only:
         use_row = resolve_sendable_template_row(db, use_row)
         if use_row is None:
             logger.error(
@@ -1520,7 +1525,7 @@ def _send_message(
                 pass
             return False
 
-    if use_row is not None and template_row_needs_meta_approval(use_row):
+    if use_row is not None and template_row_needs_meta_approval(use_row) and not session_text_only:
         # Buttoned welcome/middle templates only — tell-us-more, closing, thank-you stay session text.
         result = _send_whatsapp_template(
             db,
@@ -3397,15 +3402,25 @@ def handle_inbound_reply(
         recipient.status = "in_progress"
         _save_recipient_result(db, recipient, payload, enqueue_translation=True)
         next_pacing = PACING_BRANCH if payload_source == "builder_tell_us_more_template" else PACING_STEP
-        sent = _send_message(
-            db,
-            order=order,
-            recipient=recipient,
-            body=next_body,
-            config=config,
-            question=next_q,
-            pacing=next_pacing,
-        )
+        if payload_source == "builder_tell_us_more_template":
+            sent = _send_freeform_whatsapp(
+                db,
+                order=order,
+                recipient=recipient,
+                body=next_body,
+                pacing=next_pacing,
+                config=config,
+            )
+        else:
+            sent = _send_message(
+                db,
+                order=order,
+                recipient=recipient,
+                body=next_body,
+                config=config,
+                question=next_q,
+                pacing=next_pacing,
+            )
         if sent:
             log_wa_test_mode(
                 "step_sent",

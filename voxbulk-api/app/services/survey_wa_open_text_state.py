@@ -10,6 +10,7 @@ from app.services.survey_wa_flow_constants import (
     CLOSING_OUTCOME_SKIPPED_TIMEOUT,
     KEY_CLOSING_DEADLINE,
     KEY_CLOSING_OUTCOME,
+    KEY_LAST_OUTBOUND_KIND,
     KEY_SURVEY_STARTED_AT,
     KEY_TUM_DEADLINE,
     KEY_TUM_ELIGIBLE_FOLLOWUP,
@@ -18,6 +19,8 @@ from app.services.survey_wa_flow_constants import (
     KEY_TUM_PENDING,
     KEY_TUM_SENT_AT,
     OPEN_TEXT_TIMEOUT_SEC,
+    OUTBOUND_KIND_TELL_US_MORE,
+    OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP,
     TUM_OUTCOME_ANSWERED,
     TUM_OUTCOME_SKIPPED_TIMEOUT,
 )
@@ -38,6 +41,7 @@ def mark_tell_us_more_prompt_sent(conv: dict[str, Any]) -> None:
     conv.pop(KEY_TUM_OUTCOME, None)
     conv[KEY_TUM_ELIGIBLE_FOLLOWUP] = False
     conv[KEY_TUM_FOLLOWUP_HANDLED] = False
+    conv[KEY_LAST_OUTBOUND_KIND] = OUTBOUND_KIND_TELL_US_MORE
 
 
 def mark_tell_us_more_answered(conv: dict[str, Any]) -> None:
@@ -97,6 +101,7 @@ def mark_vague_followup_prompt_sent(conv: dict[str, Any], *, step: int) -> None:
     conv["followup_for_step"] = int(step or 0)
     conv[KEY_VAGUE_FOLLOWUP_SENT] = now.isoformat()
     conv.pop(KEY_VAGUE_FOLLOWUP_ANSWERED, None)
+    conv[KEY_LAST_OUTBOUND_KIND] = OUTBOUND_KIND_VAGUE_AUTO_FOLLOWUP
 
 
 def mark_vague_followup_answered(conv: dict[str, Any]) -> None:

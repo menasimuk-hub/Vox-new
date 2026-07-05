@@ -466,6 +466,31 @@ def should_use_builder_linear_runtime(config: dict[str, Any]) -> bool:
     return is_builder_bound_flow(effective_order_config(config))
 
 
+TELL_US_MORE_SOURCES = frozenset({"builder_tell_us_more_template", "builder_tell_us_more"})
+
+
+def is_tell_us_more_branch_question(question: dict[str, Any] | None) -> bool:
+    """True for the low-rating tell-us-more branch — never Meta HSM."""
+    if not isinstance(question, dict):
+        return False
+    source = str(question.get("source") or "").strip()
+    if source in TELL_US_MORE_SOURCES:
+        return True
+    node_key = str(question.get("node_key") or "")
+    return node_key.startswith("builder_tell_")
+
+
+def effective_tell_us_more_low_threshold(config: dict[str, Any]) -> int:
+    if load_builder_runtime(config) is not None:
+        from app.services.survey_builder_runtime_service import runtime_low_rating_threshold
+
+        return runtime_low_rating_threshold(config)
+    try:
+        return int(config.get("tell_us_more_low_rating_threshold") or 6)
+    except (TypeError, ValueError):
+        return 6
+
+
 def as_open_text_tell_us_more_question(question: dict[str, Any]) -> dict[str, Any]:
     """Tell-us-more is always session free-form — ignore stale BUTTONS on template rows."""
     out = dict(question)
@@ -585,12 +610,19 @@ def resolve_next_conversation_step(
     role = normalize_step_role(str(current_q.get("step_role") or ""))
     last_answer = str(answers[-1].get("answer") or "") if answers else ""
 
+    runtime = load_builder_runtime(config)
+    tell_us_more_active = runtime is None or bool(
+        ((runtime.get("branches") or {}).get("tell_us_more_on_low_rating") or {}).get("enabled")
+    )
+    threshold = effective_tell_us_more_low_threshold(config)
+
     if (
         is_builder_bound_flow(config)
         and tell_tid
+        and tell_us_more_active
         and not tell_already
         and role == "rating"
-        and _rating_answer_is_low(last_answer, question=current_q)
+        and _rating_answer_is_low(last_answer, threshold=threshold, question=current_q)
     ):
         tell_q = question_from_tell_us_more_template(
             db,

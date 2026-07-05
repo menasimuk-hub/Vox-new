@@ -1,0 +1,32 @@
+# WhatsApp survey open-text flows (tell-us-more vs vague followup)
+
+## Two separate flows — never conflate them
+
+| Flow | Trigger | Outbound text | Send path | Conv flags |
+|------|---------|---------------|-----------|------------|
+| **Tell-us-more** | Low rating when `tell_us_more_on_low_rating` branch is **enabled** in builder runtime | System template body (customisable) | **Always local session text** — `_send_freeform_whatsapp` / never Meta HSM | `tell_us_more_pending`, `last_outbound_kind=tell_us_more` |
+| **Vague auto-followup** | Poor/vague answer when tell-us-more branch is **disabled** | `"What was wrong with {topic}?"` (generated) | **Always local session text** — `_send_freeform_whatsapp` | `vague_followup_sent_at`, `awaiting_followup`, `last_outbound_kind=vague_auto_followup` |
+
+They are **mutually exclusive** on the same low-rating answer: when `runtime_tell_us_more_enabled(config)` is true, vague evaluation is skipped.
+
+## Tell-us-more send rules
+
+- Outbound must use **server session free-form text** (24h customer-service window), **not** Meta HSM.
+- `payload_source` = `builder_tell_us_more_template`.
+- Question dict: `source=builder_tell_us_more_template`, `node_key` starts with `builder_tell_`, `reply_type=long_text`, no buttons.
+- Even if the linked DB template row has stale `step_role=rating` or BUTTONS, the in-memory branch question overrides — use `is_tell_us_more_branch_question()`.
+
+## Vague followup send rules
+
+- Not the tell-us-more template. Text is built by `survey_wa_vague_negative_followup_service`.
+- Accepts text **or** voice (transcribed via DeepInfra/Whisper when enabled).
+- Voice routing: `is_awaiting_vague_followup_reply(conv)` → `answer_context=followup`.
+
+## Voice notes on open-text steps
+
+- Rejection message `"Voice notes are only supported for comment-style questions"` must **not** appear on tell-us-more or vague-followup replies.
+- Requires `.env`: `allow_voice_notes_for_open_text=true`, `transcribe_voice_notes=true`, and Celery worker running.
+
+## Admin-disabled topics
+
+- `admin_hidden_from_survey=true` on a template row must **never** auto re-enable until admin explicitly enables it again. See `wa-template-admin-disable.mdc`.

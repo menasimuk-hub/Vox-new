@@ -371,11 +371,28 @@ def assert_runtime_template_send(
         msg = f"Template {tid} is hidden/disabled (context={context})"
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)
-    # Buttonless templates are sent as session free-form text — Meta approval not required.
     from app.services.survey_whatsapp_template_service import (
         resolve_sendable_template_row,
+        template_row_must_send_as_session_text,
         template_row_needs_meta_approval,
     )
+
+    if template_row_must_send_as_session_text(row):
+        runtime_hash = str(runtime.get("hash") or "")
+        hash_match = preview_hash is None or preview_hash == runtime_hash
+        log_runtime_outbound(
+            phase=context,
+            order_id=order_id,
+            session_id=session_id,
+            config=config,
+            runtime=runtime,
+            template_id=int(row.id),
+            template_name=str(row.display_name or row.name or ""),
+            source=RUNTIME_SOURCE,
+            hash_match=hash_match,
+            preview_hash=preview_hash,
+        )
+        return row
 
     outbound = row
     if template_row_needs_meta_approval(row):

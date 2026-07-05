@@ -572,6 +572,55 @@ def test_tell_us_more_with_legacy_buttons_still_uses_session(mock_hsm, mock_sess
     assert not mock_hsm.called
 
 
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_whatsapp_conversation_service._send_whatsapp_template")
+def test_tell_us_more_branch_question_overrides_misconfigured_rating_row(mock_hsm, mock_session, db):
+    """Tell-us-more branch question dict must never send Meta HSM even if DB row looks like rating."""
+    org = Organisation(name="Demo Org")
+    db.add(org)
+    db.commit()
+
+    row = _session_text_row(
+        db,
+        name="misconfigured_rating_clone",
+        step_role="rating",
+        body="Could you tell us more about your experience?",
+        components=[
+            {"type": "BODY", "text": "Could you tell us more about your experience?"},
+            {
+                "type": "BUTTONS",
+                "buttons": [
+                    {"type": "QUICK_REPLY", "text": "Yes"},
+                    {"type": "QUICK_REPLY", "text": "No"},
+                ],
+            },
+        ],
+    )
+    order, recipient = _order_recipient(db, org)
+    mock_session.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+    tell_q = {
+        "template_id": row.id,
+        "source": "builder_tell_us_more_template",
+        "node_key": f"builder_tell_{row.id}",
+        "step_role": "reason",
+        "reply_type": "long_text",
+        "options": [],
+        "text": row.body_preview,
+    }
+
+    assert _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=row.body_preview,
+        config={"wa_builder_test": True},
+        question=tell_q,
+    )
+
+    assert mock_session.called
+    assert not mock_hsm.called
+
+
 def test_template_row_must_send_as_session_text_for_no_button_kinds(db):
     from app.services.survey_whatsapp_template_service import (
         template_row_must_send_as_session_text,
