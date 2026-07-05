@@ -1343,3 +1343,88 @@ def test_generation_uses_explicit_default_mapping(monkeypatch):
             length="short",
         )
         assert result["wa_template_id"] == explicit_default.id
+
+
+def test_dashboard_system_templates_hide_disabled_welcome_without_clone_substitution(app_client):
+    from tests.test_agent_architecture import _headers
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    headers, _org_id, _category_id = _headers(app_client)
+    with get_sessionmaker()() as db:
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        welcome_type = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "welcome").limit(1)
+        ).scalar_one()
+        parent = TelnyxWhatsappTemplate(
+            telnyx_record_id="local_welcome_parent",
+            template_id=str(uuid.uuid4()),
+            name="voxbulk_survey_welcome_templates_standard",
+            display_name="Welcome parent",
+            language="en_US",
+            category="UTILITY",
+            status="LOCAL_DRAFT",
+            step_role="start",
+            variant_type="standard",
+            privacy_mode="off",
+            body_preview="Hi {{1}}, welcome.",
+            components_json=json.dumps([{"type": "BODY", "text": "Hi {{1}}, welcome."}]),
+            active_for_survey=True,
+        )
+        clone = TelnyxWhatsappTemplate(
+            telnyx_record_id=str(uuid.uuid4()),
+            template_id=str(uuid.uuid4()),
+            name="voxbulk_survey_welcome_templates_standard_utu_2",
+            display_name="Welcome clone",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="start",
+            variant_type="standard",
+            privacy_mode="off",
+            body_preview="Hi {{1}}, welcome.",
+            components_json=json.dumps(
+                [
+                    {"type": "BODY", "text": "Hi {{1}}, welcome."},
+                    {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}]},
+                ]
+            ),
+            parent_template_id=None,
+            active_for_survey=True,
+        )
+        db.add(parent)
+        db.add(clone)
+        db.flush()
+        clone.parent_template_id = int(parent.id)
+        SurveySystemTemplateService._ensure_system_mapping(db, survey_type=welcome_type, template=parent)
+        SurveySystemTemplateService._ensure_system_mapping(db, survey_type=welcome_type, template=clone)
+        db.commit()
+        parent_id = int(parent.id)
+        clone_id = int(clone.id)
+
+    listed = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
+    assert listed.status_code == 200
+    welcome_ids = {int(t["id"]) for t in listed.json().get("templates", {}).get("welcome", [])}
+    assert parent_id in welcome_ids
+    assert clone_id in welcome_ids
+
+    with get_sessionmaker()() as db:
+        row = db.get(TelnyxWhatsappTemplate, clone_id)
+        assert row is not None
+        row.active_for_survey = False
+        db.commit()
+
+    listed_after = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
+    assert listed_after.status_code == 200
+    welcome_ids_after = {int(t["id"]) for t in listed_after.json().get("templates", {}).get("welcome", [])}
+    assert clone_id not in welcome_ids_after
+    assert parent_id in welcome_ids_after
+
+    with get_sessionmaker()() as db:
+        row = db.get(TelnyxWhatsappTemplate, parent_id)
+        assert row is not None
+        row.active_for_survey = False
+        db.commit()
+
+    listed_all_hidden = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
+    assert listed_all_hidden.status_code == 200
+    assert listed_all_hidden.json().get("templates", {}).get("welcome", []) == []

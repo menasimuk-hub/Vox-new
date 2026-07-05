@@ -1791,6 +1791,8 @@ export function useWaSurveySystemTemplates() {
       apiFetch<{ ok?: boolean; templates?: Record<string, Array<Record<string, unknown>>> }>(
         "/dashboard/service-scripts/wa-survey/system-templates",
       ),
+    staleTime: 30_000,
+    refetchOnMount: "always",
   });
 }
 
@@ -1811,6 +1813,8 @@ export function useWaSurveyLibraryTemplates(typeIds: string[], privacyMode: "off
     queries: typeIds.map((surveyTypeId) => ({
       queryKey: ["dashboard", "wa-survey-library-templates", surveyTypeId, privacyMode],
       enabled: enabled && Boolean(surveyTypeId),
+      staleTime: 30_000,
+      refetchOnMount: "always" as const,
       queryFn: () =>
         apiFetch<{ ok?: boolean; templates?: Array<Record<string, unknown>> }>(
           `/dashboard/service-scripts/wa-survey/types/${encodeURIComponent(surveyTypeId)}/library-templates?privacy_mode=${encodeURIComponent(privacyMode)}`,

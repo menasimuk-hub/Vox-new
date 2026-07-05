@@ -500,6 +500,7 @@ class SurveySystemTemplateService:
         """Templates grouped by kind for dashboard survey builder."""
         SurveySystemTemplateService.ensure_system_survey_types(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
+        seen_ids: dict[str, set[int]] = {k: set() for k in SYSTEM_TEMPLATE_KINDS}
         types = list(
             db.execute(
                 select(SurveyType).where(SurveyType.system_template_kind.in_(SYSTEM_TEMPLATE_KINDS))
@@ -516,26 +517,16 @@ class SurveySystemTemplateService:
             )
             for mapping in mappings:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
-                if tpl is None:
+                if tpl is None or not tpl.active_for_survey:
                     continue
-                if not tpl.active_for_survey:
+                tid = int(tpl.id)
+                if tid in seen_ids[kind]:
                     continue
-                from app.services.survey_whatsapp_template_service import (
-                    resolve_sendable_template_row,
-                    template_row_is_sendable_on_meta,
-                )
-
-                listed = tpl
-                if not template_row_is_sendable_on_meta(tpl):
-                    sendable = resolve_sendable_template_row(db, tpl)
-                    if sendable is not None:
-                        listed = sendable
-                if not listed.active_for_survey:
-                    continue
-                status = str(listed.status or "").upper()
+                seen_ids[kind].add(tid)
+                status = str(tpl.status or "").upper()
                 grouped[kind].append(
                     {
-                        **survey_template_to_dict(listed),
+                        **survey_template_to_dict(tpl),
                         "survey_type_id": st.id,
                         "survey_type_name": st.name,
                         "survey_type_slug": st.slug,
@@ -575,7 +566,7 @@ class SurveySystemTemplateService:
                 continue
             seen.add(tid)
             row = db.get(TelnyxWhatsappTemplate, tid)
-            if row is None:
+            if row is None or not row.active_for_survey:
                 continue
             sendable = resolve_sendable_template_row(db, row)
             if sendable is not None:

@@ -869,10 +869,6 @@ def resolve_sendable_template_row(
     if not bool(row.active_for_survey):
         return None
 
-    for candidate in successors:
-        if template_row_is_sendable_on_meta(candidate):
-            return candidate
-
     parent_id = int(row.parent_template_id or 0)
     if parent_id:
         parent = db.get(TelnyxWhatsappTemplate, parent_id)
