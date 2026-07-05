@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
@@ -79,51 +79,91 @@ def delete_industry(industry_id: str, db: Session = Depends(get_db), _admin=Depe
 
 
 @router.post("/industries/{industry_id}/sync-telnyx")
-def sync_industry_templates(industry_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+def sync_industry_templates(
+    industry_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
-        push_all_feedback_templates_for_industry,
-        refresh_feedback_template_status_from_telnyx_for_industry,
+        push_feedback_templates_batch,
     )
 
-    push_summary: dict[str, Any] | None = None
+    body = payload or {}
+    phase = str(body.get("phase") or "push").strip().lower()
     try:
-        push_summary = push_all_feedback_templates_for_industry(db, industry_id=industry_id)
+        summary = push_feedback_templates_batch(
+            db,
+            industry_id=industry_id,
+            offset=int(body.get("offset") or 0),
+            limit=int(body.get("limit") or 10),
+            dry_run=bool(body.get("dry_run")),
+            phase=phase,
+        )
     except FeedbackTelnyxPushError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    try:
-        refresh_summary = refresh_feedback_template_status_from_telnyx_for_industry(db, industry_id=industry_id)
-    except FeedbackTelnyxPushError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if phase == "pull":
+        return {"ok": True, "phase": "pull", "pull": summary.get("pull"), "message": summary.get("message"), **summary}
 
-    failed = int((push_summary or {}).get("failed") or 0)
-    if failed and int(refresh_summary.get("matched") or 0) == 0:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "message": push_summary.get("message") if push_summary else "Push failed",
-                "pushed": push_summary.get("pushed") if push_summary else 0,
-                "failed": failed,
-                "errors": push_summary.get("errors") if push_summary else [],
-            },
-        )
-
-    message_parts = []
-    if push_summary:
-        message_parts.append(str(push_summary.get("message") or "Push complete"))
-    message_parts.append(str(refresh_summary.get("message") or "Status refresh complete"))
+    push_summary = summary
+    failed = int(push_summary.get("failed") or 0)
     return {
-        "ok": True,
-        "message": " · ".join(message_parts),
+        "ok": push_summary.get("ok", True) and failed == 0,
+        "phase": "push",
+        "message": push_summary.get("message"),
         "push": push_summary,
-        "refresh": refresh_summary,
-        "approved": refresh_summary.get("approved"),
-        "pending": refresh_summary.get("pending"),
-        "pushed": push_summary.get("pushed") if push_summary else 0,
-        "linked": push_summary.get("linked") if push_summary else 0,
+        "total": push_summary.get("total"),
+        "processed": push_summary.get("processed"),
+        "has_more": push_summary.get("has_more"),
+        "next_offset": push_summary.get("next_offset"),
+        "pushed": push_summary.get("pushed"),
+        "linked": push_summary.get("linked"),
         "failed": failed,
+        "errors": push_summary.get("errors"),
+        "results": push_summary.get("results"),
+        "content_updated": push_summary.get("content_updated"),
+        "error_count": push_summary.get("error_count"),
     }
+
+
+@router.post("/industries/{industry_id}/import-md")
+async def import_industry_md(
+    industry_id: str,
+    file: UploadFile = File(...),
+    dry_run: bool = Form(False),
+    replace: bool = Form(True),
+    create_missing: bool = Form(True),
+    min_langs: int = Form(19),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_md_import_service import (
+        FeedbackMdImportError,
+        FeedbackMdImportService,
+    )
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 text") from exc
+
+    try:
+        result = FeedbackMdImportService.import_from_text(
+            db,
+            text,
+            industry_id=industry_id,
+            replace=replace,
+            create_missing_topics=create_missing,
+            dry_run=dry_run,
+            min_langs=min_langs,
+            source_name=file.filename or "upload.md",
+        )
+    except FeedbackMdImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @router.post("/templates/import-md")
@@ -409,19 +449,30 @@ def get_survey_type(survey_type_id: str, db: Session = Depends(get_db), _admin=D
 def sync_survey_type_templates(
     survey_type_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))
 ):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_all_feedback_templates_for_survey_type,
+        refresh_feedback_template_status_from_telnyx_for_industry,
+    )
+
     row = db.get(FeedbackSurveyType, survey_type_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Survey type not found")
-    rows = list(
-        db.execute(select(FeedbackWaTemplate).where(FeedbackWaTemplate.survey_type_id == survey_type_id)).scalars().all()
-    )
-    now = datetime.utcnow()
-    for tpl in rows:
-        tpl.telnyx_sync_status = "submitted"
-        tpl.updated_at = now
-        db.add(tpl)
-    db.commit()
-    return {"ok": True, "submitted": len(rows)}
+    try:
+        push_summary = push_all_feedback_templates_for_survey_type(db, survey_type_id=survey_type_id)
+        refresh_summary = refresh_feedback_template_status_from_telnyx_for_industry(
+            db, industry_id=row.industry_id
+        )
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": push_summary.get("ok", True),
+        "push": push_summary,
+        "refresh": refresh_summary,
+        "message": " · ".join(
+            [str(push_summary.get("message") or ""), str(refresh_summary.get("message") or "")]
+        ).strip(" ·"),
+    }
 
 
 @router.post("/survey-types")

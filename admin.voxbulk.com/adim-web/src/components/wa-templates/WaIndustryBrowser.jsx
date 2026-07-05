@@ -17,7 +17,8 @@ import {
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
 import WaJobProgressDialog from './WaJobProgressDialog'
-import { toHubRow } from './waTemplatesUi'
+import WaIndustryJobPanel from './WaIndustryJobPanel'
+import { toHubRow, LangCountBadge } from './waTemplatesUi'
 
 function industryHealthClass(ind) {
   const health = ind.approval_health
@@ -423,43 +424,36 @@ async function loadSurveyTemplatesForIndustry(industryId) {
 }
 
 async function loadFeedbackTemplatesForIndustry(industryId) {
-  // One row per language (en + ar both listed).
   const data = await apiFetch(
     `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/templates`,
   )
   const templates = Array.isArray(data?.templates) ? data.templates : []
   const unlinkedTypes = Array.isArray(data?.unlinked_types) ? data.unlinked_types : []
-  const seen = new Set()
-  const rows = []
-  for (const tpl of templates) {
-    const id = String(tpl.id || '')
-    if (!id || seen.has(id)) continue
-    seen.add(id)
+  const rows = templates.map((tpl) => {
     const langs = tpl.languages || [tpl.language].filter(Boolean)
     const metaName = String(tpl.meta_name || tpl.telnyx_name || '').trim()
-    rows.push(
-      toHubRow(
-        {
-          ...tpl,
-          body: tpl.body_text || tpl.body,
-          status: tpl.telnyx_sync_status || tpl.status,
-          approval_status: tpl.approval_status || tpl.telnyx_sync_status || tpl.status,
-          buttons: Array.isArray(tpl.buttons) ? tpl.buttons : [],
-          telnyx_name: metaName,
-        },
-        {
-          rowKind: 'feedback_template',
-          product: 'feedback',
-          surveyTypeId: tpl.survey_type_id,
-          surveyTypeName: tpl.survey_type_name,
-          name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
-          metaName,
-          languageCount: langs.length || 1,
-          languages: langs,
-        },
-      ),
+    return toHubRow(
+      {
+        ...tpl,
+        body: tpl.body_text || tpl.body,
+        status: tpl.aggregated_status || tpl.telnyx_sync_status || tpl.status,
+        approval_status: tpl.approval_status || tpl.telnyx_sync_status || tpl.status,
+        buttons: Array.isArray(tpl.buttons) ? tpl.buttons : [],
+        telnyx_name: metaName,
+      },
+      {
+        rowKind: 'feedback_template',
+        product: 'feedback',
+        surveyTypeId: tpl.survey_type_id,
+        surveyTypeName: tpl.survey_type_name,
+        name: tpl.display_name || tpl.name || tpl.survey_type_name || tpl.template_key || tpl.id,
+        metaName,
+        languageCount: tpl.language_count || langs.length || 1,
+        languages: langs,
+        variants: tpl.variants || [],
+      },
     )
-  }
+  })
   rows.sort((a, b) => {
     if (a.status === 'rejected' && b.status !== 'rejected') return -1
     if (b.status === 'rejected' && a.status !== 'rejected') return 1
@@ -492,6 +486,8 @@ export default function WaIndustryBrowser({
   const [addOpen, setAddOpen] = useState(false)
   const [editIndustry, setEditIndustry] = useState(null)
   const [addTemplateOpen, setAddTemplateOpen] = useState(false)
+  const [jobPanelOpen, setJobPanelOpen] = useState(false)
+  const [lastDryRun, setLastDryRun] = useState(null)
   const [industrySyncing, setIndustrySyncing] = useState(false)
   const [deletingIndustry, setDeletingIndustry] = useState(false)
   const [syncJob, setSyncJob] = useState(EMPTY_INDUSTRY_SYNC_JOB)
@@ -586,6 +582,32 @@ export default function WaIndustryBrowser({
         }}
         onError={onError}
       />
+      <WaIndustryJobPanel
+        open={jobPanelOpen}
+        product={product}
+        industry={industry}
+        onClose={() => setJobPanelOpen(false)}
+        busy={industrySyncing}
+        lastDryRun={lastDryRun}
+        onDryRunDone={(result) => {
+          setLastDryRun(result)
+          onMessage?.(result?.ok ? 'Dry-run OK — review plan below' : 'Dry-run found errors')
+        }}
+        onImportDone={(result) => {
+          onMessage?.(result?.message || 'Import complete')
+          onReloadIndustries?.()
+          if (industry) void loadIndustryRows(industry)
+          setJobPanelOpen(false)
+        }}
+        onStartSync={({ batchSize, delaySec }) => {
+          void (async () => {
+            if (delaySec > 0 && product === 'feedback') {
+              // delay between batches handled server-side in future; client batches sequentially
+            }
+            await syncIndustry({ batchSize })
+          })()
+        }}
+      />
     </>
   )
 
@@ -595,7 +617,7 @@ export default function WaIndustryBrowser({
     return 'Open'
   }
 
-  const syncIndustry = async () => {
+  const syncIndustry = async ({ batchSize = 5 } = {}) => {
     if (!industry?.id) return
 
     syncAbortRef.current?.abort()
@@ -624,10 +646,26 @@ export default function WaIndustryBrowser({
         product === 'feedback'
           ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
-              onProgress: ({ acc: partial, running }) => {
+              batchSize,
+              onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
+                if (partial) syncAccRef.current = partial
+                if (step === 'pull') {
+                  patchSyncJobStep('push', { status: 'done', detail: 'Push complete' })
+                  patchSyncJobStep('pull', {
+                    status: running ? 'running' : done ? 'done' : 'running',
+                    detail: running
+                      ? 'Pulling status from Meta…'
+                      : partial?.pull?.message || 'Status refreshed from Meta',
+                  })
+                } else {
+                  patchSyncJobStep('push', {
+                    status: done && step !== 'pull' ? 'done' : 'running',
+                    detail: flat?.message || `Batch ${batchNum}…`,
+                  })
+                }
                 if (partial) {
-                  syncAccRef.current = partial
-                  applyProgress(partial, { running: running !== false })
+                  const stillRunning = !(step === 'pull' && done === true)
+                  applyProgress(partial, { running: stillRunning })
                 }
               },
             })
@@ -663,8 +701,11 @@ export default function WaIndustryBrowser({
           detail: acc.pull?.message || 'Status refreshed from Meta',
         })
       } else {
-        patchSyncJobStep('pull', { status: 'done', detail: 'Feedback sync (push + refresh)' })
         patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+        patchSyncJobStep('pull', {
+          status: acc.pull ? (acc.error_count ? 'error' : 'done') : 'done',
+          detail: acc.pull?.message || 'Status refreshed from Meta',
+        })
       }
 
       const doneState = buildIndustrySyncJobDone(acc, industry.name)
@@ -750,7 +791,10 @@ export default function WaIndustryBrowser({
           </Button>
           <ChevronRight className="h-3 w-3 text-muted-foreground" />
           <span className="text-sm font-medium">{industry.name}</span>
-          <span className="text-xs text-muted-foreground">· {rows.length} linked templates</span>
+          <span className="text-xs text-muted-foreground">
+            · {rows.length} topics
+            {industry.language_row_count ? ` · ${industry.language_row_count} language versions` : ''}
+          </span>
           <span className="text-xs text-success">· {approvedCount} approved</span>
           {pendingCount > 0 ? <span className="text-xs text-warning">· {pendingCount} pending</span> : null}
           {rejectedCount > 0 ? (
@@ -781,7 +825,16 @@ export default function WaIndustryBrowser({
               variant="outline"
               className="h-7 gap-1 text-xs"
               disabled={industrySyncing || deletingIndustry}
-              onClick={() => void syncIndustry()}
+              onClick={() => setJobPanelOpen(true)}
+            >
+              Industry actions
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={industrySyncing || deletingIndustry}
+              onClick={() => void syncIndustry({ batchSize: 5 })}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', industrySyncing && 'animate-spin')} />
               {industrySyncing ? 'Syncing industry…' : 'Sync this industry'}

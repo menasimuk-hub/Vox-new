@@ -85,7 +85,7 @@ def classify_pge(answer: str) -> str | None:
         return "excellent"
     if a in GOOD_ANSWERS or a == "good":
         return "good"
-    if a in POOR_ANSWERS or "poor" in a:
+    if a in POOR_ANSWERS or "poor" in a or a == "bad":
         return "poor"
     return None
 

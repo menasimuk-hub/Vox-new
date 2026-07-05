@@ -639,6 +639,187 @@ def push_all_feedback_templates_for_industry(
     }
 
 
+def push_feedback_templates_batch(
+    db: Session,
+    *,
+    industry_id: str,
+    offset: int = 0,
+    limit: int = 10,
+    dry_run: bool = False,
+    phase: str = "push",
+) -> dict[str, Any]:
+    """Batched industry sync — push slice or pull statuses (mirrors WA Survey push-all)."""
+    industry = resolve_feedback_industry(db, industry_id=industry_id)
+    phase_norm = str(phase or "push").strip().lower()
+
+    if phase_norm == "pull":
+        refresh = refresh_feedback_template_status_from_telnyx_for_industry(db, industry_id=industry.id)
+        return {
+            "ok": True,
+            "phase": "pull",
+            "industry_id": industry.id,
+            "industry_name": industry.name,
+            "pull": refresh,
+            "has_more": False,
+            "total": int(refresh.get("template_count") or 0),
+            "processed": int(refresh.get("matched") or 0),
+            "message": str(refresh.get("message") or "Status refresh complete"),
+        }
+
+    templates = list_feedback_templates_for_industry(db, industry.id)
+    total = len(templates)
+    if total == 0:
+        return {
+            "ok": True,
+            "phase": "push",
+            "industry_id": industry.id,
+            "industry_name": industry.name,
+            "total": 0,
+            "processed": 0,
+            "offset": offset,
+            "limit": limit,
+            "has_more": False,
+            "next_offset": 0,
+            "pushed": 0,
+            "linked": 0,
+            "failed": 0,
+            "errors": [],
+            "results": [],
+            "message": f"No templates found for industry {industry.name!r}.",
+        }
+
+    start = max(0, int(offset or 0))
+    batch_limit = max(1, min(int(limit or 10), 50))
+    batch = templates[start : start + batch_limit]
+    has_more = start + len(batch) < total
+    next_offset = start + len(batch)
+
+    pushed = 0
+    linked = 0
+    failed = 0
+    errors: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+
+    remote_items: list[dict[str, Any]] | None = None
+    if not dry_run and batch:
+        try:
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:
+            logger.warning("feedback_telnyx_batch_prefetch_failed: %s", str(exc)[:200])
+            remote_items = []
+
+    for tpl in batch:
+        try:
+            result = push_feedback_template_to_telnyx(
+                db, tpl, dry_run=dry_run, remote_items=remote_items
+            )
+            pushed += 1
+            if result.get("skipped_push") or result.get("linked"):
+                linked += 1
+            results.append(
+                {
+                    "ok": True,
+                    "template_id": tpl.id,
+                    "template_key": tpl.template_key,
+                    "template_name": result.get("meta_name") or tpl.template_key,
+                    "meta_name": result.get("meta_name"),
+                    "language": tpl.language,
+                    "message": result.get("message"),
+                    "linked": bool(result.get("linked")),
+                    "outcome": "content_updated",
+                }
+            )
+        except FeedbackTelnyxPushError as exc:
+            failed += 1
+            err = {
+                "template_id": tpl.id,
+                "template_key": tpl.template_key,
+                "template_name": tpl.template_key,
+                "language": tpl.language,
+                "error": str(exc),
+            }
+            errors.append(err)
+            results.append({"ok": False, **err, "outcome": "failed"})
+
+    db.commit()
+    return {
+        "ok": failed == 0,
+        "phase": "push",
+        "industry_id": industry.id,
+        "industry_slug": industry.slug,
+        "industry_name": industry.name,
+        "total": total,
+        "processed": next_offset,
+        "offset": start,
+        "limit": batch_limit,
+        "has_more": has_more,
+        "next_offset": next_offset,
+        "pushed": pushed,
+        "linked": linked,
+        "failed": failed,
+        "dry_run": dry_run,
+        "errors": errors,
+        "results": results,
+        "content_updated": pushed - linked,
+        "error_count": failed,
+        "message": (
+            f"{'Validated' if dry_run else 'Pushed'} batch {start + 1}–{next_offset} of {total} "
+            f"for {industry.name}"
+            + (f", {failed} failed" if failed else "")
+        ),
+    }
+
+
+def push_all_feedback_templates_for_survey_type(
+    db: Session,
+    *,
+    survey_type_id: str,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Push all language variants for one feedback survey topic."""
+    rows = list(
+        db.execute(
+            select(FeedbackWaTemplate)
+            .where(FeedbackWaTemplate.survey_type_id == survey_type_id)
+            .order_by(FeedbackWaTemplate.language)
+        ).scalars().all()
+    )
+    if not rows:
+        return {"ok": True, "pushed": 0, "failed": 0, "results": [], "message": "No templates for topic"}
+
+    remote_items: list[dict[str, Any]] | None = None
+    if not dry_run:
+        try:
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:
+            logger.warning("feedback_topic_push_prefetch_failed: %s", str(exc)[:200])
+            remote_items = []
+
+    pushed = 0
+    failed = 0
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for tpl in rows:
+        try:
+            result = push_feedback_template_to_telnyx(db, tpl, dry_run=dry_run, remote_items=remote_items)
+            pushed += 1
+            results.append({"ok": True, "template_id": tpl.id, "language": tpl.language, **result})
+        except FeedbackTelnyxPushError as exc:
+            failed += 1
+            errors.append({"template_id": tpl.id, "language": tpl.language, "error": str(exc)})
+            results.append({"ok": False, "template_id": tpl.id, "error": str(exc)})
+
+    db.commit()
+    return {
+        "ok": failed == 0,
+        "pushed": pushed,
+        "failed": failed,
+        "results": results,
+        "errors": errors,
+        "message": f"Pushed {pushed}/{len(rows)} language variant(s)" + (f", {failed} failed" if failed else ""),
+    }
+
+
 def _feedback_template_meta_context(db: Session, tpl: FeedbackWaTemplate) -> tuple[str | None, str | None]:
     industry_slug: str | None = None
     survey_slug: str | None = None

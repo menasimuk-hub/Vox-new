@@ -213,7 +213,7 @@ export default function WaTemplatesTable({
                     ) : null}
                   </td>
                   <td className="px-2 py-1.5">
-                    <LangChip langs={t.langs} title={t.langsTitle} />
+                    <LangChip langs={t.langs} title={t.langsTitle} languageCount={t.languageCount} />
                   </td>
                   <td className="px-2 py-1.5">
                     <CategoryPill category={t.category} />

@@ -16,6 +16,7 @@ from app.services.survey_wa_translation_service import SurveyWaTranslationServic
 POOR_ANSWERS = frozenset(
     {
         "poor",
+        "bad",
         "unfriendly",
         "overpriced",
         "needs work",

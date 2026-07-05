@@ -470,6 +470,15 @@ export default function WaTemplatesHub() {
         return
       }
       if (row.rowKind === 'feedback_template') {
+        if (row.surveyTypeId && (row.languageCount || 0) > 1) {
+          const result = await apiFetch(
+            `/admin/customer-feedback/survey-types/${encodeURIComponent(row.surveyTypeId)}/sync-telnyx`,
+            { method: 'POST', body: '{}', timeoutMs: 300000, quietNetworkHint: true },
+          )
+          setMsg(formatActionSuccess(result, 'Synced all languages for topic').message)
+          refreshTabData()
+          return
+        }
         const result = await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}/push`, {
           method: 'POST',
           body: '{}',

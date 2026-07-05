@@ -238,38 +238,75 @@ export function buildIndustrySyncJobDone(acc, industryName) {
   return buildIndustrySyncJobProgress(acc, { running: false, industryName })
 }
 
-export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onProgress, signal } = {}) {
-  throwIfCancelled(signal)
-  onProgress?.({ running: true, acc: { total: 0, results: [], errors: [] } })
-  const summary = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/sync-telnyx`, {
-    method: 'POST',
-    body: '{}',
-    timeoutMs: 600000,
-    quietNetworkHint: true,
-    signal,
-  })
-  const push = summary?.push || summary
-  const results = (push.results || []).map((r) => ({
-    template_name: r.meta_name || r.template_key || r.template_id,
-    outcome: r.ok === false ? 'failed' : 'content_updated',
-    message: r.message,
-  }))
-  const errors = (push.errors || summary.errors || []).map((e) => ({
-    template_name: e.template_key || e.meta_name || e.template_id,
-    error: e.error,
-  }))
+export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onProgress, signal, batchSize = 10 } = {}) {
   const acc = {
-    content_updated: Number(push.pushed || 0) - Number(push.linked || 0),
+    content_updated: 0,
     refreshed: 0,
-    linked: Number(push.linked || 0),
+    linked: 0,
     skipped: 0,
-    error_count: Number(push.failed || push.error_count || errors.length || 0),
-    errors,
-    results,
-    total: results.length + errors.length,
-    ok: summary.ok !== false,
+    error_count: 0,
+    errors: [],
+    results: [],
+    total: 0,
     pull: null,
+    ok: true,
   }
-  onProgress?.({ acc, done: true, running: false })
+  let offset = 0
+  let batchNum = 0
+  const path = `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/sync-telnyx`
+
+  for (;;) {
+    throwIfCancelled(signal)
+    batchNum += 1
+    onProgress?.({ batchNum, offset, step: 'push', acc: { ...acc }, running: true })
+    const summary = await apiFetch(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        offset,
+        limit: batchSize,
+        phase: 'push',
+      }),
+      timeoutMs: 300000,
+      quietNetworkHint: true,
+      signal,
+    })
+    const flat = flattenIndustryPushBatch(summary)
+    acc.content_updated += flat.content_updated
+    acc.refreshed += flat.refreshed
+    acc.linked += flat.linked
+    acc.skipped += flat.skipped
+    acc.error_count += flat.error_count
+    acc.errors.push(...flat.errors)
+    acc.results.push(...flat.results)
+    acc.total = flat.total || acc.total
+    acc.ok = acc.ok && flat.ok
+    onProgress?.({ batchNum, offset, flat, acc: { ...acc }, done: !flat.has_more, running: flat.has_more, step: 'push' })
+    if (!flat.has_more) break
+    offset = flat.next_offset
+  }
+
+  throwIfCancelled(signal)
+  onProgress?.({ step: 'pull', acc: { ...acc }, running: true })
+  try {
+    const pullSummary = await apiFetch(path, {
+      method: 'POST',
+      body: JSON.stringify({ phase: 'pull' }),
+      timeoutMs: 300000,
+      quietNetworkHint: true,
+      signal,
+    })
+    acc.pull = pullSummary?.pull || pullSummary
+    acc.ok = acc.ok && pullSummary?.ok !== false
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'IndustrySyncCancelledError') throwIfCancelled(signal)
+    acc.ok = false
+    acc.error_count += 1
+    acc.errors.push({
+      template_name: '(pull status)',
+      error: e?.message || 'Pull status from Meta failed',
+    })
+  }
+  onProgress?.({ step: 'pull', acc: { ...acc }, done: true, running: false })
+
   return acc
 }

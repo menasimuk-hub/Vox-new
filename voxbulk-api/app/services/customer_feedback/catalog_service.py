@@ -194,25 +194,24 @@ class FeedbackCatalogService:
             ).scalar_one()
             or 0
         )
-        # Every language row (en + ar) — matches hub list.
+        # Topic rows (grouped) — matches hub list.
         hub = FeedbackCatalogService.list_industry_hub_templates(db, row.id)
         templates = list(hub.get("templates") or [])
+        language_row_count = sum(int(t.get("language_count") or 1) for t in templates)
         approved = sum(
             1
             for t in templates
-            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower()
-            in {"approved", "synced", "live"}
+            if str(t.get("aggregated_status") or t.get("status") or "").lower() == "approved"
         )
         rejected = sum(
             1
             for t in templates
-            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower() == "rejected"
+            if str(t.get("aggregated_status") or t.get("status") or "").lower() == "rejected"
         )
         pending = sum(
             1
             for t in templates
-            if str(t.get("status") or t.get("telnyx_sync_status") or "").lower()
-            in {"draft", "pending", "submitted", "local", "local_draft"}
+            if str(t.get("aggregated_status") or t.get("status") or "").lower() in {"pending", "local"}
         )
         total = len(templates)
         if total <= 0:
@@ -227,6 +226,8 @@ class FeedbackCatalogService:
             {
                 "survey_type_count": survey_type_count,
                 "template_count": total,
+                "topic_count": total,
+                "language_row_count": language_row_count,
                 "approved_count": approved,
                 "approved_template_count": approved,
                 "pending_count": pending,
@@ -253,8 +254,32 @@ class FeedbackCatalogService:
         return pool[0]
 
     @staticmethod
+    def _aggregate_hub_status(items: list[dict[str, Any]]) -> str:
+        """Worst-of status for grouped topic row."""
+        order = {"rejected": 0, "local": 1, "pending": 2, "disabled": 3, "approved": 4}
+        best = "approved"
+        best_rank = 99
+        for item in items:
+            raw = str(item.get("status") or item.get("telnyx_sync_status") or "").lower()
+            if raw in {"rejected"}:
+                mapped = "rejected"
+            elif raw in {"draft", "local", "local_draft"}:
+                mapped = "local"
+            elif raw in {"pending", "submitted", "in_appeal"}:
+                mapped = "pending"
+            elif raw in {"approved", "synced", "live"}:
+                mapped = "approved"
+            else:
+                mapped = "pending"
+            rank = order.get(mapped, 2)
+            if rank < best_rank:
+                best_rank = rank
+                best = mapped
+        return best
+
+    @staticmethod
     def list_industry_hub_templates(db: Session, industry_id: str) -> dict[str, Any]:
-        """One row per language template (en + ar both listed) for the admin hub."""
+        """One row per survey topic with language_count and variants."""
         industry = db.get(FeedbackIndustry, industry_id)
         if industry is None:
             raise ValueError("Industry not found")
@@ -276,7 +301,6 @@ class FeedbackCatalogService:
 
         templates_out: list[dict[str, Any]] = []
         unlinked_types: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
         industry_slug = str(industry.slug or "")
         for st in types:
             tpl_rows = list(
@@ -293,17 +317,10 @@ class FeedbackCatalogService:
             if not tpl_rows:
                 unlinked_types.append({"id": st.id, "slug": st.slug, "name": st.name})
                 continue
+
+            variants: list[dict[str, Any]] = []
             for tpl in tpl_rows:
-                if tpl.id in seen_ids:
-                    continue
-                seen_ids.add(tpl.id)
-                item = FeedbackCatalogService.template_to_dict(tpl)
-                item["survey_type_name"] = st.name
-                item["survey_type_slug"] = st.slug
-                item["name"] = st.name
-                item["display_name"] = st.name
-                item["language_count"] = 1
-                item["languages"] = [str(tpl.language or "en_GB")]
+                v = FeedbackCatalogService.template_to_dict(tpl)
                 try:
                     anchor = english_anchor_template(db, tpl)
                     meta_name = feedback_meta_template_name(
@@ -314,10 +331,43 @@ class FeedbackCatalogService:
                     )
                 except Exception:  # noqa: BLE001
                     meta_name = ""
-                item["meta_name"] = meta_name
-                item["telnyx_name"] = meta_name
-                templates_out.append(item)
-        return {"templates": templates_out, "unlinked_types": unlinked_types}
+                v["meta_name"] = meta_name
+                v["telnyx_name"] = meta_name
+                variants.append(v)
+
+            anchor_row = next(
+                (t for t in tpl_rows if str(t.language or "").lower().startswith("en")),
+                tpl_rows[0],
+            )
+            langs = [str(t.language or "en_GB") for t in tpl_rows]
+            try:
+                anchor = english_anchor_template(db, anchor_row)
+                meta_name = feedback_meta_template_name(
+                    anchor_row,
+                    industry_slug=industry_slug,
+                    survey_type_slug=str(st.slug or ""),
+                    name_anchor_id=anchor.id,
+                )
+            except Exception:  # noqa: BLE001
+                meta_name = ""
+
+            primary = FeedbackCatalogService.template_to_dict(anchor_row)
+            primary["id"] = anchor_row.id
+            primary["survey_type_id"] = st.id
+            primary["survey_type_name"] = st.name
+            primary["survey_type_slug"] = st.slug
+            primary["name"] = st.name
+            primary["display_name"] = st.name
+            primary["language_count"] = len(langs)
+            primary["languages"] = langs
+            primary["variants"] = variants
+            primary["meta_name"] = meta_name
+            primary["telnyx_name"] = meta_name
+            primary["aggregated_status"] = FeedbackCatalogService._aggregate_hub_status(variants)
+            primary["status"] = primary["aggregated_status"]
+            templates_out.append(primary)
+
+        return {"templates": templates_out, "unlinked_types": unlinked_types, "topic_count": len(templates_out)}
 
     @staticmethod
     def get_industry_detail(db: Session, industry_id: str) -> dict[str, Any]:

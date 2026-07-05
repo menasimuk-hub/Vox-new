@@ -67,7 +67,24 @@ export function langChipClass(code, { active = false, muted = false } = {}) {
   return base
 }
 
-export function LangChip({ langs, title }) {
+export function LangCountBadge({ count, langs, title }) {
+  const n = Number(count) || 0
+  const label = n > 1 ? `${n} langs` : n === 1 ? '1 lang' : '—'
+  const tip = title || (Array.isArray(langs) && langs.length ? langs.join(' · ') : label)
+  return (
+    <span
+      className="inline-flex items-center rounded-md bg-info-soft px-2 py-0.5 text-[11px] font-semibold tabular-nums text-info ring-1 ring-inset ring-info/20"
+      title={tip}
+    >
+      {label}
+    </span>
+  )
+}
+
+export function LangChip({ langs, title, languageCount }) {
+  if (languageCount != null && Number(languageCount) > 1) {
+    return <LangCountBadge count={languageCount} langs={langs} title={title} />
+  }
   const list = Array.isArray(langs) ? langs : []
   const codes = list.length ? list : ['—']
   return (
@@ -213,6 +230,14 @@ export function langCodeToChip(language) {
   if (s.startsWith('TR')) return 'TR'
   if (s.startsWith('RU')) return 'RU'
   if (s.startsWith('HI')) return 'HI'
+  if (s.startsWith('ZH')) return 'ZH'
+  if (s.startsWith('BN')) return 'BN'
+  if (s.startsWith('UR')) return 'UR'
+  if (s.startsWith('RO')) return 'RO'
+  if (s.startsWith('EL')) return 'EL'
+  if (s.startsWith('SV')) return 'SV'
+  if (s.startsWith('CS')) return 'CS'
+  if (s.startsWith('NB') || s.startsWith('NO')) return 'NO'
   return s.slice(0, 2)
 }
 

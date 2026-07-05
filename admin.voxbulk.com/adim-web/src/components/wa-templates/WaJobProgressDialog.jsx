@@ -337,15 +337,23 @@ export default function WaJobProgressDialog({
           ) : null}
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t bg-surface px-4 py-3">
+        <div className="flex shrink-0 flex-col gap-2 border-t bg-surface px-4 py-3">
           {running && onStop ? (
-            <Button type="button" size="sm" variant="destructive" className="h-8 text-xs" onClick={onStop}>
-              Stop sync
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="h-9 w-full text-xs font-semibold shadow-sm"
+              onClick={onStop}
+            >
+              ■ Stop — cancel job
             </Button>
           ) : null}
-          <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onClose} disabled={running}>
-            {running ? 'Working…' : 'Close'}
-          </Button>
+          <div className="flex justify-end">
+            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onClose} disabled={running && !onStop}>
+              {running ? 'Working…' : 'Close'}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
