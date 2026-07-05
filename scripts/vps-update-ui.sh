@@ -7,6 +7,8 @@
 # Public marketing site is served via vite preview (vox.sh), not static wwwroot.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/vps-frontend-perms.sh
+source "$ROOT/scripts/lib/vps-frontend-perms.sh"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
@@ -28,8 +30,8 @@ build() {
   local dir="$1"
   local name="$2"
   echo ">>> Building $name …"
+  vox_npm_ci_or_install "$dir" || { echo "FAIL: npm install in $dir"; exit 1; }
   cd "$dir"
-  npm install
   npm run build
 }
 

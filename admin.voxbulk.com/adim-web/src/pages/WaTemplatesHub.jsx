@@ -114,6 +114,7 @@ export default function WaTemplatesHub() {
   const tab = TAB_ALIASES[rawTab] || (TAGS.some((t) => t.id === rawTab) ? rawTab : 'survey')
 
   const [syncing, setSyncing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
@@ -280,6 +281,37 @@ export default function WaTemplatesHub() {
       ...prev,
       steps: prev.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)),
     }))
+  }
+
+  const pullFromMeta = async () => {
+    setRefreshing(true)
+    setError('')
+    setMsg('')
+    try {
+      const last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
+        method: 'POST',
+        timeoutMs: 300000,
+        quietNetworkHint: true,
+      })
+      const updated = last?.status_pull?.updated
+      const text =
+        updated != null
+          ? `Status refreshed from Meta (${updated} template(s) updated)`
+          : formatActionSuccess(last, 'Status refreshed from Meta').message
+      setMsg(text)
+      await loadTemplateCounts()
+      refreshTabData()
+    } catch (e) {
+      const raw = e?.message || String(e)
+      const aborted = e?.name === 'AbortError' || /aborted|abort/i.test(raw)
+      setError(
+        aborted
+          ? 'Refresh timed out — wait 1–2 minutes and try again.'
+          : formatWaSurveyError(e, 'Refresh from Meta failed').detailText || raw || 'Refresh from Meta failed',
+      )
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const syncFromMeta = async () => {
@@ -845,9 +877,20 @@ export default function WaTemplatesHub() {
             ) : null}
             <Button
               size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => void pullFromMeta()}
+              disabled={refreshing || syncing || cleaning}
+              title="Pull approval status and category from Meta (does not push local changes)"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+              {refreshing ? 'Refreshing…' : 'Refresh status'}
+            </Button>
+            <Button
+              size="sm"
               className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
               onClick={() => void syncFromMeta()}
-              disabled={syncing || cleaning}
+              disabled={syncing || refreshing || cleaning}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
               {syncing ? (syncProgress ? `Syncing ${syncProgress}` : 'Syncing…') : 'Sync with Meta'}

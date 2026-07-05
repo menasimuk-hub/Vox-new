@@ -21,6 +21,8 @@ DEPLOY_LOG="${VOX_DEPLOY_LOG:-/tmp/voxbulk-deploy.log}"
 
 # shellcheck source=lib/vps-git-sync.sh
 source "$ROOT/scripts/lib/vps-git-sync.sh"
+# shellcheck source=lib/vps-frontend-perms.sh
+source "$ROOT/scripts/lib/vps-frontend-perms.sh"
 
 exec > >(tee -a "$DEPLOY_LOG") 2>&1
 
@@ -44,8 +46,8 @@ if [[ -f "$ROOT/scripts/sync-brand-assets.mjs" ]]; then
 fi
 
 echo ">>> npm install + build (dashboard)"
+vox_npm_ci_or_install "$DASH_DIR" || { echo "FAIL: npm install in $DASH_DIR"; exit 1; }
 cd "$DASH_DIR"
-npm install
 npm run build
 
 [[ -f dist/client/index.html ]] || { echo "FAIL: missing dist/client/index.html — build failed"; exit 1; }

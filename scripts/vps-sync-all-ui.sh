@@ -30,6 +30,8 @@ echo ""
 
 # shellcheck source=lib/vps-git-sync.sh
 source "$ROOT/scripts/lib/vps-git-sync.sh"
+# shellcheck source=lib/vps-frontend-perms.sh
+source "$ROOT/scripts/lib/vps-frontend-perms.sh"
 
 # stdbuf -oL keeps line-by-line output on the terminal (plain tee buffers when stdout is a pipe).
 if command -v stdbuf >/dev/null 2>&1; then
@@ -54,8 +56,8 @@ build_app() {
   local dir="$1"
   local name="$2"
   echo ">>> npm install + build ($name)"
+  vox_npm_ci_or_install "$dir" || { echo "FAIL: npm install in $dir"; exit 1; }
   cd "$dir"
-  npm install
   npm run build
 }
 
