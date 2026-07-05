@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileUp, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { apiFetch } from '../../lib/api'
@@ -823,12 +823,13 @@ export default function WaIndustryBrowser({
             </Button>
             <Button
               size="sm"
-              variant="outline"
+              variant="default"
               className="h-7 gap-1 text-xs"
               disabled={industrySyncing || deletingIndustry}
               onClick={() => setJobPanelOpen(true)}
             >
-              Industry actions
+              <FileUp className="h-3.5 w-3.5" />
+              {product === 'feedback' ? 'Upload MD / dry-run' : 'Industry actions'}
             </Button>
             <Button
               size="sm"
@@ -919,7 +920,8 @@ export default function WaIndustryBrowser({
           <div>
             <div className="text-sm font-medium">Choose an industry</div>
             <div className="text-xs text-muted-foreground">
-              {industries.length} industries · Click to open templates
+              {industries.length} industries · Click an industry to open templates
+              {product === 'feedback' ? ' · then Upload MD / dry-run to import a file' : ''}
             </div>
           </div>
           <div className="flex items-center gap-2">
