@@ -415,3 +415,206 @@ def test_welcome_without_local_buttons_still_uses_hsm_send(mock_hsm, db):
     )
 
     assert mock_hsm.called
+
+
+def _order_recipient(db, org):
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+
+    order = ServiceOrder(
+        id=f"ord-{uuid.uuid4().hex[:8]}",
+        org_id=org.id,
+        user_id="user-1",
+        service_code="survey",
+        title="Test",
+        status="running",
+        payment_status="approved",
+        config_json="{}",
+    )
+    recipient = ServiceOrderRecipient(
+        id=f"rec-{uuid.uuid4().hex[:8]}",
+        order_id=order.id,
+        row_number=1,
+        name="demo",
+        phone="+447700900123",
+        status="pending",
+        result_json="{}",
+    )
+    db.add(order)
+    db.add(recipient)
+    db.commit()
+    return order, recipient
+
+
+def _session_text_row(
+    db,
+    *,
+    name: str,
+    step_role: str,
+    body: str,
+    components: list[dict] | None = None,
+) -> TelnyxWhatsappTemplate:
+    comps = components or [{"type": "BODY", "text": body}]
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name=name,
+        display_name=name,
+        language="en_US",
+        category="UTILITY",
+        body_preview=body,
+        step_role=step_role,
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        privacy_mode="off",
+        components_json=json.dumps(comps),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_whatsapp_conversation_service._send_whatsapp_template")
+def test_tell_us_more_approved_uses_session_not_hsm(mock_hsm, mock_session, db):
+    org = Organisation(name="Demo Org")
+    db.add(org)
+    db.commit()
+
+    row = _session_text_row(
+        db,
+        name="voxbulk_survey_tell_us_more_global_tell_us_more",
+        step_role="reason",
+        body="Sorry to hear that. What went wrong?",
+    )
+    order, recipient = _order_recipient(db, org)
+    mock_session.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+
+    assert _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=row.body_preview,
+        config={"wa_builder_test": True},
+        template_row=row,
+    )
+
+    assert mock_session.called
+    assert not mock_hsm.called
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_whatsapp_conversation_service._send_whatsapp_template")
+def test_final_feedback_approved_uses_session_not_hsm(mock_hsm, mock_session, db):
+    org = Organisation(name="Demo Org")
+    db.add(org)
+    db.commit()
+
+    row = _session_text_row(
+        db,
+        name="voxbulk_survey_final_feedback_global_final_feedback",
+        step_role="final_feedback_text",
+        body="Is there anything else you would like to share?",
+    )
+    order, recipient = _order_recipient(db, org)
+    mock_session.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+
+    assert _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=row.body_preview,
+        config={"wa_builder_test": True},
+        template_row=row,
+    )
+
+    assert mock_session.called
+    assert not mock_hsm.called
+
+
+@patch("app.services.survey_whatsapp_conversation_service.TelnyxMessagingService.send_whatsapp")
+@patch("app.services.survey_whatsapp_conversation_service._send_whatsapp_template")
+def test_tell_us_more_with_legacy_buttons_still_uses_session(mock_hsm, mock_session, db):
+    org = Organisation(name="Demo Org")
+    db.add(org)
+    db.commit()
+
+    row = _session_text_row(
+        db,
+        name="tell_us_more_variant_1",
+        step_role="reason",
+        body="Would you like to tell us more?",
+        components=[
+            {"type": "BODY", "text": "Would you like to tell us more?"},
+            {
+                "type": "BUTTONS",
+                "buttons": [
+                    {"type": "QUICK_REPLY", "text": "Yes"},
+                    {"type": "QUICK_REPLY", "text": "No"},
+                ],
+            },
+        ],
+    )
+    order, recipient = _order_recipient(db, org)
+    mock_session.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+
+    assert _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body=row.body_preview,
+        config={"wa_builder_test": True},
+        template_row=row,
+    )
+
+    assert mock_session.called
+    assert not mock_hsm.called
+
+
+def test_template_row_must_send_as_session_text_for_no_button_kinds(db):
+    from app.services.survey_whatsapp_template_service import (
+        template_row_must_send_as_session_text,
+        template_row_needs_meta_approval,
+    )
+
+    thank = _session_text_row(
+        db,
+        name="thank_you_variant_1",
+        step_role="completion",
+        body="Thank you for your feedback.",
+    )
+    assert template_row_must_send_as_session_text(thank) is True
+    assert template_row_needs_meta_approval(thank) is False
+
+    rating = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="service_quality_rating_q1",
+        display_name="service_quality_rating_q1",
+        language="en_US",
+        category="UTILITY",
+        body_preview="How was your visit?",
+        step_role="rating",
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        privacy_mode="off",
+        components_json=json.dumps(
+            [
+                {"type": "BODY", "text": "How was your visit?"},
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Excellent"},
+                        {"type": "QUICK_REPLY", "text": "Good"},
+                        {"type": "QUICK_REPLY", "text": "Poor"},
+                    ],
+                },
+            ]
+        ),
+    )
+    db.add(rating)
+    db.commit()
+    assert template_row_must_send_as_session_text(rating) is False
+    assert template_row_needs_meta_approval(rating) is True

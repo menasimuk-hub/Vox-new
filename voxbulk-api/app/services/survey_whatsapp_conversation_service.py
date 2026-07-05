@@ -1516,7 +1516,7 @@ def _send_message(
             return False
 
     if use_row is not None and template_row_needs_meta_approval(use_row):
-        # Templates with buttons must go through Meta-approved HSM send.
+        # Buttoned welcome/middle templates only — tell-us-more, closing, thank-you stay session text.
         result = _send_whatsapp_template(
             db,
             order=order,

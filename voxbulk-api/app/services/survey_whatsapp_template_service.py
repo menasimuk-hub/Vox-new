@@ -762,9 +762,46 @@ def template_row_has_buttons(row: TelnyxWhatsappTemplate | None) -> bool:
     return bool(_buttons_from_components(_effective_components(row)))
 
 
-def template_row_needs_meta_approval(row: TelnyxWhatsappTemplate | None) -> bool:
-    """Buttonless session messages can be sent as free-form text without Meta approval."""
+SESSION_TEXT_STEP_ROLES = frozenset(
+    {
+        "reason",
+        "tell_us_more",
+        "final_feedback_text",
+        "completion",
+        "open_question",
+    }
+)
+
+
+def _row_system_kind_is_session_text(row: TelnyxWhatsappTemplate) -> bool:
+    from app.services.wa_template_utility_content import NO_BUTTON_KINDS
+
+    blob = " ".join(str(v or "") for v in (row.name, row.display_name, row.template_id)).lower()
+    return any(kind in blob for kind in NO_BUTTON_KINDS)
+
+
+def template_row_must_send_as_session_text(row: TelnyxWhatsappTemplate | None) -> bool:
+    """Deliver as server session free-form text — never Meta HSM (avoids marketing classification)."""
     if row is None:
+        return True
+    from app.services.survey_step_bank_service import normalize_step_role
+
+    role = normalize_step_role(row.step_role or "")
+    if role in SESSION_TEXT_STEP_ROLES:
+        return True
+    if _row_system_kind_is_session_text(row):
+        return True
+    # Welcome/start opens the 24h window via Meta HSM even when the row has no BUTTONS component.
+    if role == "start" or "welcome" in str(row.name or "").lower():
+        return False
+    return not template_row_has_buttons(row)
+
+
+def template_row_needs_meta_approval(row: TelnyxWhatsappTemplate | None) -> bool:
+    """Only buttoned welcome/middle templates require Meta HSM send."""
+    if row is None:
+        return False
+    if template_row_must_send_as_session_text(row):
         return False
     if template_row_has_buttons(row):
         return True
