@@ -28,6 +28,8 @@ import WaPhonePreview from './WaPhonePreview'
 import {
   IconBtn,
   LANGS,
+  FEEDBACK_LANG_CHIPS,
+  feedbackChipToLanguage,
   StatusDot,
   formatRelativeWhen,
   langChipClass,
@@ -260,6 +262,8 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
   const [langVariants, setLangVariants] = useState([])
   const [activeTemplateId, setActiveTemplateId] = useState(null)
   const [metaNameExpanded, setMetaNameExpanded] = useState(false)
+  const [removingLangId, setRemovingLangId] = useState(null)
+  const [addingLangChip, setAddingLangChip] = useState(null)
 
   const showToast = (msg) => {
     setToast(msg)
@@ -598,6 +602,86 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
     )
   }
 
+  const isFeedbackTopic = editTarget?.product === 'feedback' && !editTarget?.systemMode
+  const langChips = isFeedbackTopic ? FEEDBACK_LANG_CHIPS : LANGS
+
+  const switchLanguageVariant = (variant, chip) => {
+    const product = editTarget?.product === 'system' ? 'survey' : editTarget?.product
+    const allLangs = [...new Set(langVariants.map((v) => langCodeToChip(v.language)).filter(Boolean))]
+    setActiveTemplateId(variant.id)
+    setDraft({
+      ...apiTemplateToDraft(variant.tpl, product),
+      langs: allLangs.length ? allLangs : [chip],
+      footer: STOP_FOOTER,
+    })
+  }
+
+  const removeLanguageVariant = async (variant) => {
+    if (!variant || langVariants.length <= 1) return
+    const chip = langCodeToChip(variant.language)
+    if (
+      !window.confirm(
+        `Remove the ${chip} language version for this topic? The local template row will be deleted (Meta name unchanged for other languages).`,
+      )
+    ) {
+      return
+    }
+    setRemovingLangId(variant.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/customer-feedback/wa-templates/${variant.id}`, { method: 'DELETE' })
+      showToast(`${chip} language removed`)
+      onSaved?.()
+      await load()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not remove language').message)
+    } finally {
+      setRemovingLangId(null)
+    }
+  }
+
+  const addLanguageVariant = async (chip) => {
+    if (!editTarget?.surveyTypeId) return
+    const anchor = langVariants.find((v) => langCodeToChip(v.language) === 'EN') || langVariants[0]
+    if (!anchor?.tpl) {
+      setError('Save the English version first before adding languages')
+      return
+    }
+    setAddingLangChip(chip)
+    setError('')
+    try {
+      const language = feedbackChipToLanguage(chip)
+      const buttons = buttonsFromFeedbackTpl(anchor.tpl)
+      const data = await apiFetch('/admin/customer-feedback/wa-templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          survey_type_id: editTarget.surveyTypeId,
+          industry_id: anchor.tpl.industry_id,
+          template_key: anchor.tpl.template_key || 'question',
+          step_order: anchor.tpl.step_order || 1,
+          step_role: anchor.tpl.step_role,
+          body_text: anchor.tpl.body || anchor.tpl.body_text || '',
+          language,
+          meta_category: anchor.tpl.meta_category || 'utility',
+          buttons: buttons.map((b) => b.text).filter(Boolean),
+          is_active: anchor.tpl.is_active !== false,
+        }),
+      })
+      const created = data?.item
+      showToast(`${chip} language added — edit text then Save`)
+      onSaved?.()
+      await load()
+      const createdId = created?.id
+      if (createdId) {
+        setActiveTemplateId(createdId)
+      }
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not add language').message)
+    } finally {
+      setAddingLangChip(null)
+    }
+  }
+
   const t = draft
   const showUsage = (editTarget?.product === 'survey' || editTarget?.product === 'system') && !editTarget?.systemMode
   const showFixAndSync = editTarget?.product === 'survey' || editTarget?.product === 'system'
@@ -726,46 +810,62 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
                 <Field
                   label="Languages"
                   hint={
-                    langVariants.length > 1
-                      ? 'Tap a language to edit that version'
-                      : 'All language tags — more can be added later'
+                    isFeedbackTopic
+                      ? `${langVariants.length} of ${FEEDBACK_LANG_CHIPS.length} — tap to edit, + empty tab to add, × to remove`
+                      : langVariants.length > 1
+                        ? 'Tap a language to edit that version'
+                        : 'All language tags — more can be added later'
                   }
                 >
                   <div className="flex flex-wrap gap-1.5">
-                    {LANGS.map((l) => {
+                    {langChips.map((l) => {
                       const variant = langVariants.find((v) => langCodeToChip(v.language) === l)
                       const current = langCodeToChip(t.language) === l
-                      const on = t.langs.includes(l) || Boolean(variant)
+                      const on = Boolean(variant)
+                      const busy = removingLangId === variant?.id || addingLangChip === l
                       return (
-                        <button
-                          key={l}
-                          type="button"
-                          onClick={() => {
-                            if (variant) {
-                              const product =
-                                editTarget?.product === 'system' ? 'survey' : editTarget?.product
-                              const allLangs = [
-                                ...new Set(
-                                  langVariants.map((v) => langCodeToChip(v.language)).filter(Boolean),
-                                ),
-                              ]
-                              setActiveTemplateId(variant.id)
-                              setDraft({
-                                ...apiTemplateToDraft(variant.tpl, product),
-                                langs: allLangs.length ? allLangs : [l],
-                                footer: STOP_FOOTER,
-                              })
-                              return
+                        <span key={l} className="inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={busy || removingLangId != null}
+                            onClick={() => {
+                              if (variant) {
+                                switchLanguageVariant(variant, l)
+                                return
+                              }
+                              if (isFeedbackTopic) {
+                                void addLanguageVariant(l)
+                                return
+                              }
+                              update('langs', t.langs.includes(l) ? t.langs.filter((x) => x !== l) : [...t.langs, l])
+                            }}
+                            className={cn(
+                              'h-6 rounded-md px-2 text-[11px] font-medium uppercase ring-1 ring-inset transition-all',
+                              langChipClass(l, { active: current, muted: !on && !current }),
+                              busy && 'opacity-60',
+                            )}
+                            title={
+                              variant
+                                ? `Edit ${l}`
+                                : isFeedbackTopic
+                                  ? `Add ${l} (copies English draft)`
+                                  : `Toggle ${l}`
                             }
-                            update('langs', on ? t.langs.filter((x) => x !== l) : [...t.langs, l])
-                          }}
-                          className={cn(
-                            'h-6 rounded-md px-2 text-[11px] font-medium uppercase ring-1 ring-inset transition-all',
-                            langChipClass(l, { active: current, muted: !on && !current }),
-                          )}
-                        >
-                          {l}
-                        </button>
+                          >
+                            {addingLangChip === l ? '…' : on ? l : `+ ${l}`}
+                          </button>
+                          {isFeedbackTopic && variant && langVariants.length > 1 && current ? (
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 items-center justify-center rounded text-destructive hover:bg-destructive/10"
+                              title={`Remove ${l} language`}
+                              disabled={busy}
+                              onClick={() => void removeLanguageVariant(variant)}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          ) : null}
+                        </span>
                       )
                     })}
                   </div>

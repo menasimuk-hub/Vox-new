@@ -612,8 +612,12 @@ export default function WaIndustryBrowser({
   )
 
   const typeCountLabel = (ind) => {
-    const n = ind.template_count ?? ind.survey_type_count
-    if (n != null) return `${n} templates`
+    const topics = ind.topic_count ?? ind.template_count ?? ind.survey_type_count
+    const langs = ind.language_row_count
+    if (topics != null && langs != null && Number(langs) > Number(topics)) {
+      return `${topics} topics · ${langs} langs`
+    }
+    if (topics != null) return `${topics} topics`
     return 'Open'
   }
 

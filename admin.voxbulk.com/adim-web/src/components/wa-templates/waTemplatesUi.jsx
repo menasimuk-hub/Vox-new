@@ -3,6 +3,55 @@ import { cn } from '@/lib/utils'
 
 export const LANGS = ['EN', 'AR', 'FR', 'ES', 'DE', 'PT', 'IT', 'TR', 'RU', 'HI']
 
+/** Customer Feedback seed languages (19) — matches backend DEFAULT_EXPECTED_LANGS. */
+export const FEEDBACK_LANG_CHIPS = [
+  'EN',
+  'ZH',
+  'HI',
+  'ES',
+  'FR',
+  'AR',
+  'BN',
+  'PT',
+  'RU',
+  'UR',
+  'DE',
+  'IT',
+  'NL',
+  'PL',
+  'RO',
+  'EL',
+  'SV',
+  'CS',
+  'NO',
+]
+
+export function feedbackChipToLanguage(chip) {
+  const key = String(chip || '').toUpperCase()
+  const map = {
+    EN: 'en_GB',
+    ZH: 'zh_CN',
+    PT: 'pt_PT',
+    NO: 'nb',
+    AR: 'ar',
+    BN: 'bn',
+    CS: 'cs',
+    DE: 'de',
+    EL: 'el',
+    ES: 'es',
+    FR: 'fr',
+    HI: 'hi',
+    IT: 'it',
+    NL: 'nl',
+    PL: 'pl',
+    RO: 'ro',
+    RU: 'ru',
+    SV: 'sv',
+    UR: 'ur',
+  }
+  return map[key] || `${key.toLowerCase()}`
+}
+
 export const STATUS_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'approved', label: 'Approved' },
@@ -256,6 +305,10 @@ export function MetaSyncNamingNote({ industrySlug, exampleMetaName }) {
       <p className="mt-1">
         In WhatsApp Manager, search that prefix to filter this industry. Each topic shares one Meta name across all{' '}
         language versions.
+      </p>
+      <p className="mt-1">
+        Industry sync runs in small batches (default 5 templates, pause between batches) to avoid Meta rate limits.
+        ~380 language rows = 20 Meta names × 19 languages — normal, not duplicate spam.
       </p>
       {example ? (
         <p className="mt-1.5">
