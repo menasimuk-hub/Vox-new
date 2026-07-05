@@ -158,11 +158,21 @@ def _looks_like_options_line(line: str) -> bool:
     return len(re.findall(r"[A-Z]\)", text)) >= 2
 
 
+def _has_multilang_feedback_markers(text: str) -> bool:
+    raw = str(text or "")
+    return bool(
+        re.search(r"^.+\([a-z]{2}(?:_[A-Z]{2})?\)\s*$", raw, re.MULTILINE | re.IGNORECASE)
+    )
+
+
 def _detect_format(text: str) -> MdFormat:
     raw = str(text or "")
-    if re.search(r"^\d+\.\s+\S", raw, re.MULTILINE) and re.search(
-        r"^.+\([a-z]{2}(?:_[A-Z]{2})?\)\s*$", raw, re.MULTILINE | re.IGNORECASE
-    ):
+    has_lang_header = _has_multilang_feedback_markers(raw)
+    has_numbered_topic = bool(re.search(r"^\d+\.\s+\S", raw, re.MULTILINE))
+    if has_lang_header and has_numbered_topic:
+        return "multilang_feedback"
+    # Language supplement (e.g. Turkish-only) — topic title without "1." but with English (en) / Turkish (tr) headers
+    if has_lang_header:
         return "multilang_feedback"
     if re.search(r"^\*\*\d+\s*[–-]", raw, re.MULTILINE) and re.search(r"^Body:", raw, re.MULTILINE | re.IGNORECASE):
         return "feedback_en"
@@ -199,6 +209,28 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
             continue
 
         if current_topic is None:
+            if _LANG_HEADER_RE.match(line):
+                pack.parse_errors.append(f"Language header without topic title: {line[:60]}")
+                continue
+            if _looks_like_options_line(line):
+                continue
+            current_topic = MdTopic(
+                index=max(1, len(pack.topics) + 1),
+                name=line,
+            )
+            continue
+
+        if (
+            current_topic is not None
+            and not _TOPIC_NUM_RE.match(line)
+            and not _LANG_HEADER_RE.match(line)
+            and not _looks_like_options_line(line)
+        ):
+            pack.topics.append(current_topic)
+            current_topic = MdTopic(
+                index=len(pack.topics) + 1,
+                name=line,
+            )
             continue
 
         lang_match = _LANG_HEADER_RE.match(line)
@@ -292,8 +324,23 @@ def parse_md_pack(text: str, *, source_name: str = "", format_hint: MdFormat | N
     if fmt == "multilang_feedback":
         return parse_multilang_feedback(text, source_name=source_name)
     pack = ParsedMdPack(format=fmt)
+    hint = (
+        "Expected Customer Feedback Markdown like:\n"
+        "1. Overall Experience\n"
+        "English (en)\n"
+        "Body text…\n"
+        "Good / Bad\n\n"
+        "Or (merge supplement): Overall Experience → Turkish (tr) → body → İyi / Kötü"
+    )
+    if fmt == "survey_abc":
+        hint += (
+            "\n\nThis file looks like WA Survey ABC format (A) B) C)), not Customer Feedback. "
+            "Use numbered topics + Language (xx) headers, or upload the restaurants 19-lang file."
+        )
+    elif fmt == "unknown":
+        hint += "\n\nAdd language lines such as Turkish (tr) or English (en) under each topic name."
     pack.parse_errors.append(
-        f"Format {fmt!r} is not fully implemented in shared parser yet. Use multilang_feedback for Customer Feedback."
+        f"Format {fmt!r} is not supported for Customer Feedback import. {hint}"
     )
     return pack
 
