@@ -18,8 +18,8 @@ Usage (VPS, after deploy):
   # Resume after interrupt (reads state file)
   python scripts/push_all_feedback_to_meta_overnight.py --resume
 
-  # Run in background + log
-  nohup python scripts/push_all_feedback_to_meta_overnight.py \
+  # Run in background + log (use -u so lines appear immediately in nohup log)
+  nohup python -u scripts/push_all_feedback_to_meta_overnight.py \
     > /tmp/cf-meta-push-$(date +%Y%m%d-%H%M).log 2>&1 &
   tail -f /tmp/cf-meta-push-*.log
 """
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -36,6 +37,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _configure_stdio() -> None:
+    """Line-buffer stdout/stderr so nohup logs update in real time."""
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+def _log(msg: str, *, err: bool = False) -> None:
+    stream = sys.stderr if err else sys.stdout
+    print(msg, file=stream, flush=True)
 
 from sqlalchemy import select
 
@@ -119,7 +135,7 @@ def _push_industry(
     while True:
         batch_num += 1
         totals["batches"] = batch_num
-        print(f"\n[{_utc_now()}] {industry.slug}: batch {batch_num} offset={offset} limit={batch_size}")
+        _log(f"\n[{_utc_now()}] {industry.slug}: batch {batch_num} offset={offset} limit={batch_size}")
 
         try:
             batch = push_feedback_templates_batch(
@@ -134,11 +150,11 @@ def _push_industry(
             batch_failures += 1
             totals["failed"] += 1
             totals["errors"].append({"batch": batch_num, "offset": offset, "error": str(exc)})
-            print(f"  BATCH ERROR: {exc}")
+            _log(f"  BATCH ERROR: {exc}")
             if batch_failures >= max_failures:
-                print(f"  Stopping industry — {max_failures} batch failures reached.")
+                _log(f"  Stopping industry — {max_failures} batch failures reached.")
                 break
-            print(f"  Waiting {delay_sec * 2:.0f}s before retry…")
+            _log(f"  Waiting {delay_sec * 2:.0f}s before retry…")
             time.sleep(delay_sec * 2)
             continue
 
@@ -151,14 +167,14 @@ def _push_industry(
         totals["failed"] += batch_failed
         totals["errors"].extend(batch.get("errors") or [])
 
-        print(
+        _log(
             f"  {batch.get('message') or 'batch done'} "
             f"| linked={batch.get('linked', 0)} failed={batch_failed}"
         )
 
         if batch_failed:
             for err in (batch.get("errors") or [])[:3]:
-                print(f"    FAIL {err.get('template_key')}: {str(err.get('error', ''))[:120]}")
+                _log(f"    FAIL {err.get('template_key')}: {str(err.get('error', ''))[:120]}")
 
         if not batch.get("has_more"):
             totals["completed"] = True
@@ -169,19 +185,20 @@ def _push_industry(
             time.sleep(delay_sec)
 
     if totals["completed"] and not dry_run:
-        print(f"\n[{_utc_now()}] {industry.slug}: pulling status from Meta…")
+        _log(f"\n[{_utc_now()}] {industry.slug}: pulling status from Meta…")
         try:
             pull = push_feedback_templates_batch(db, industry_id=industry.id, phase="pull")
             totals["pull"] = pull.get("pull") or pull
-            print(f"  {pull.get('message') or 'Pull complete'}")
+            _log(f"  {pull.get('message') or 'Pull complete'}")
         except FeedbackTelnyxPushError as exc:
             totals["errors"].append({"phase": "pull", "error": str(exc)})
-            print(f"  PULL ERROR: {exc}")
+            _log(f"  PULL ERROR: {exc}")
 
     return totals
 
 
 def main() -> int:
+    _configure_stdio()
     parser = argparse.ArgumentParser(
         description="Push all Customer Feedback templates to Meta in safe batches (overnight)"
     )
@@ -234,17 +251,28 @@ def main() -> int:
         "summary": {},
     }
 
-    print("=== Customer Feedback -> Meta overnight push ===")
-    print(f"Started: {started}")
-    print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE PUSH'}")
-    print(f"Batch size: {batch_size}, delay: {args.delay_sec}s, industry delay: {args.industry_delay_sec}s")
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    _save_state(
+        {
+            "updated_at": _utc_now(),
+            "status": "starting",
+            "pid": os.getpid(),
+            "cwd": str(Path.cwd()),
+        }
+    )
+
+    _log("=== Customer Feedback -> Meta overnight push ===")
+    _log(f"Started: {started}")
+    _log(f"PID: {os.getpid()} | CWD: {Path.cwd()}")
+    _log(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE PUSH'}")
+    _log(f"Batch size: {batch_size}, delay: {args.delay_sec}s, industry delay: {args.industry_delay_sec}s")
     if resume_slug:
-        print(f"Resuming: {resume_slug} @ offset {resume_offset}")
+        _log(f"Resuming: {resume_slug} @ offset {resume_offset}")
 
     with get_sessionmaker()() as db:
         industries = _list_industries(db, explicit_slugs)
         if not industries:
-            print("No industries found.", file=sys.stderr)
+            _log("No industries found.", err=True)
             return 1
 
         skip_until_resume = bool(resume_slug)
@@ -254,16 +282,16 @@ def main() -> int:
         for idx, industry in enumerate(industries):
             if skip_until_resume:
                 if industry.slug != resume_slug:
-                    print(f"\nSkipping {industry.slug} (resume point not reached yet)")
+                    _log(f"\nSkipping {industry.slug} (resume point not reached yet)")
                     continue
                 skip_until_resume = False
                 start_offset = resume_offset
             else:
                 start_offset = 0
 
-            print(f"\n{'=' * 60}")
-            print(f"Industry: {industry.name} ({industry.slug})")
-            print(f"{'=' * 60}")
+            _log(f"\n{'=' * 60}")
+            _log(f"Industry: {industry.name} ({industry.slug})")
+            _log(f"{'=' * 60}")
 
             _save_state(
                 {
@@ -311,7 +339,7 @@ def main() -> int:
                         "incomplete": True,
                     }
                 )
-                print(f"\nStopped early on {industry.slug} — re-run with --resume")
+                _log(f"\nStopped early on {industry.slug} — re-run with --resume")
                 break
 
             if idx < len(industries) - 1 and args.industry_delay_sec > 0:
@@ -325,15 +353,15 @@ def main() -> int:
     report_path = REPORT_DIR / f"push-all-feedback-{finished.replace(':', '')}.json"
     report_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
 
-    print(f"\n{'=' * 60}")
-    print("DONE")
-    print(f"Finished: {finished}")
-    print(f"Industries completed: {grand['completed']}/{grand['industries']}")
-    print(f"Pushed rows: {grand['pushed']} | Linked (already on Meta): {grand['linked']} | Failed: {grand['failed']}")
-    print(f"Report: {report_path}")
+    _log(f"\n{'=' * 60}")
+    _log("DONE")
+    _log(f"Finished: {finished}")
+    _log(f"Industries completed: {grand['completed']}/{grand['industries']}")
+    _log(f"Pushed rows: {grand['pushed']} | Linked (already on Meta): {grand['linked']} | Failed: {grand['failed']}")
+    _log(f"Report: {report_path}")
 
     if args.json:
-        print(json.dumps(report, indent=2, default=str))
+        _log(json.dumps(report, indent=2, default=str))
 
     all_done = not stopped_early and grand["completed"] == len(industries)
     if all_done and STATE_FILE.exists():
