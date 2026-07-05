@@ -21,6 +21,10 @@ _EMOJI_RE = re.compile(
 )
 _TOPIC_NUM_RE = re.compile(r"^(\d+)\.\s+(.+)$")
 _LANG_HEADER_RE = re.compile(r"^(.+?)\s*\(([a-z]{2}(?:_[A-Z]{2})?)\)\s*$", re.IGNORECASE)
+_BARE_LANG_CODE_RE = re.compile(r"^[a-z]{2}(?:_[A-Z]{2})?$", re.IGNORECASE)
+_KNOWN_BARE_LANG_CODES = frozenset(
+    {"en", "zh", "hi", "es", "fr", "ar", "bn", "pt", "ru", "ur", "de", "it", "nl", "pl", "ro", "el", "sv", "cs", "no", "tr", "nb"}
+)
 _FEEDBACK_ITEM_RE = re.compile(r"^\*\*(\d+)\s*[–-]\s*(.+?)\*\*$")
 _OPTION_LINE_RE = re.compile(r"[A-Z]\)\s*")
 _VAR_RE = re.compile(r"\{\{(\d+)\}\}")
@@ -54,6 +58,7 @@ DEFAULT_EXPECTED_LANGS = frozenset(
         "sv",
         "cs",
         "nb",
+        "tr",
     }
 )
 
@@ -92,6 +97,29 @@ def normalize_md_language(raw: str) -> str:
     if code.startswith("en"):
         return "en_GB"
     return code
+
+
+def parse_lang_line(line: str) -> tuple[str, str] | None:
+    """Parse English (en) or bare en language lines."""
+    text = str(line or "").strip()
+    if not text:
+        return None
+    header = _LANG_HEADER_RE.match(text)
+    if header:
+        return header.group(1).strip(), normalize_md_language(header.group(2))
+    bare = _BARE_LANG_CODE_RE.match(text)
+    if bare and bare.group(0).lower() in _KNOWN_BARE_LANG_CODES:
+        code = bare.group(0).lower()
+        return code.upper(), normalize_md_language(code)
+    return None
+
+
+def _has_bare_lang_codes(text: str, *, min_count: int = 2) -> bool:
+    count = 0
+    for line in str(text or "").splitlines():
+        if parse_lang_line(line.strip()):
+            count += 1
+    return count >= min_count
 
 
 def topic_slug(name: str) -> str:
@@ -153,8 +181,21 @@ def _looks_like_options_line(line: str) -> bool:
     text = str(line or "").strip()
     if not text:
         return False
-    if "/" in text or "|" in text:
+    # Survey question bodies often contain "/" (check-in/check-out) — not button rows.
+    if any(ch in text for ch in ("?", "？", "\u061f", "\uff1f")):
+        return False
+    if len(text.split()) > 6:
+        return False
+    if _OPTION_LINE_RE.search(text):
         return True
+    if "/" in text:
+        parts = [p.strip() for p in text.split("/") if p.strip()]
+        if 2 <= len(parts) <= 3 and len(text) <= 80:
+            return True
+    if "|" in text:
+        parts = [p.strip() for p in text.split("|") if p.strip()]
+        if 2 <= len(parts) <= 3 and len(text) <= 80:
+            return True
     return len(re.findall(r"[A-Z]\)", text)) >= 2
 
 
@@ -168,11 +209,9 @@ def _has_multilang_feedback_markers(text: str) -> bool:
 def _detect_format(text: str) -> MdFormat:
     raw = str(text or "")
     has_lang_header = _has_multilang_feedback_markers(raw)
+    has_bare_langs = _has_bare_lang_codes(raw)
     has_numbered_topic = bool(re.search(r"^\d+\.\s+\S", raw, re.MULTILINE))
-    if has_lang_header and has_numbered_topic:
-        return "multilang_feedback"
-    # Language supplement (e.g. Turkish-only) — topic title without "1." but with English (en) / Turkish (tr) headers
-    if has_lang_header:
+    if (has_lang_header or has_bare_langs) and (has_numbered_topic or has_lang_header or has_bare_langs):
         return "multilang_feedback"
     if re.search(r"^\*\*\d+\s*[–-]", raw, re.MULTILINE) and re.search(r"^Body:", raw, re.MULTILINE | re.IGNORECASE):
         return "feedback_en"
@@ -209,8 +248,8 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
             continue
 
         if current_topic is None:
-            if _LANG_HEADER_RE.match(line):
-                pack.parse_errors.append(f"Language header without topic title: {line[:60]}")
+            if parse_lang_line(line):
+                pack.parse_errors.append(f"Language line without topic title: {line[:60]}")
                 continue
             if _looks_like_options_line(line):
                 continue
@@ -220,10 +259,11 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
             )
             continue
 
-        if (
-            current_topic is not None
-            and not _TOPIC_NUM_RE.match(line)
-            and not _LANG_HEADER_RE.match(line)
+        lang_parsed = parse_lang_line(line)
+        if lang_parsed:
+            lang_label, lang_code = lang_parsed
+        elif (
+            not _TOPIC_NUM_RE.match(line)
             and not _looks_like_options_line(line)
         ):
             pack.topics.append(current_topic)
@@ -232,14 +272,9 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
                 name=line,
             )
             continue
-
-        lang_match = _LANG_HEADER_RE.match(line)
-        if not lang_match:
-            current_topic.errors.append(f"Expected language header after topic {current_topic.name!r}, got: {line[:60]}")
+        else:
+            current_topic.errors.append(f"Expected language line after topic {current_topic.name!r}, got: {line[:60]}")
             continue
-
-        lang_label = lang_match.group(1).strip()
-        lang_code = normalize_md_language(lang_match.group(2))
 
         body_lines: list[str] = []
         while i < len(lines):
@@ -249,7 +284,7 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
                 if body_lines:
                     break
                 continue
-            if _TOPIC_NUM_RE.match(candidate) or _LANG_HEADER_RE.match(candidate):
+            if _TOPIC_NUM_RE.match(candidate) or parse_lang_line(candidate):
                 break
             if _looks_like_options_line(candidate):
                 if not body_lines:
@@ -290,8 +325,10 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
             if len(raw_btn) > META_BUTTON_LABEL_MAX_CHARS:
                 variant_warnings.append(f"Button {raw_btn!r} truncated to 20 chars for Meta")
 
-        if lang_code.startswith("en") and "visit" not in body.lower() and "order" not in body.lower() and "today" not in body.lower():
-            variant_warnings.append("English body may fail Meta UTILITY lint (no recent visit/order anchor)")
+        if lang_code.startswith("en") and not any(
+            word in body.lower() for word in ("visit", "order", "today", "stay", "recent")
+        ):
+            variant_warnings.append("English body may fail Meta UTILITY lint (no recent visit/stay anchor)")
 
         current_topic.variants.append(
             MdLangVariant(
@@ -308,7 +345,9 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
 
     if not pack.topics:
         label = source_name or "file"
-        pack.parse_errors.append(f"No numbered topics found in {label}. Expected lines like '1. Overall Experience'.")
+        pack.parse_errors.append(
+            f"No topics found in {label}. Expected '1. Topic name' or 'Topic name' then 'English (en)' or bare 'en' language lines."
+        )
 
     for topic in pack.topics:
         langs = {v.language_code for v in topic.variants}
@@ -327,10 +366,9 @@ def parse_md_pack(text: str, *, source_name: str = "", format_hint: MdFormat | N
     hint = (
         "Expected Customer Feedback Markdown like:\n"
         "1. Overall Experience\n"
-        "English (en)\n"
+        "English (en)   — or bare: en\n"
         "Body text…\n"
-        "Good / Bad\n\n"
-        "Or (merge supplement): Overall Experience → Turkish (tr) → body → İyi / Kötü"
+        "Good / Bad"
     )
     if fmt == "survey_abc":
         hint += (
