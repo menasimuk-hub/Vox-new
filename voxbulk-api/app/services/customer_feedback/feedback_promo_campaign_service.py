@@ -148,6 +148,33 @@ def _promo_rate_minor(db: Session, org_id: str) -> int:
     return int(pkg.promo_message_cost_minor or 5) if pkg else 5
 
 
+def _promo_meta_template_name(template_id: str) -> str:
+    slug = re.sub(r"[^a-z0-9_]+", "_", str(template_id or "").lower()).strip("_")
+    return f"voxbulk_cf_promo_{slug or 'generic'}"[:512]
+
+
+def _promo_template_components(
+    template: dict[str, Any],
+    variables: dict[str, str],
+) -> list[dict[str, Any]] | None:
+    var_list = list(template.get("variables") or [])
+    if not var_list:
+        return None
+    values: list[str] = []
+    for key in var_list:
+        if key == "promo":
+            values.append(str(variables.get("promo") or variables.get("code") or variables.get("date") or "—")[:1024])
+        elif key == "code":
+            values.append(str(variables.get("code") or "—")[:1024])
+        elif key == "link":
+            values.append(str(variables.get("link") or "—")[:1024])
+        elif key == "date":
+            values.append(str(variables.get("date") or "—")[:1024])
+        else:
+            values.append(str(variables.get(key) or "—")[:1024])
+    return [{"type": "body", "parameters": [{"type": "text", "text": v} for v in values]}]
+
+
 def _render_body(template: dict[str, Any], variables: dict[str, str]) -> str:
     body = str(template.get("body") or "")
     var_list = list(template.get("variables") or [])
@@ -377,16 +404,49 @@ class FeedbackPromoCampaignService:
             except json.JSONDecodeError:
                 pass
         recipients = list(dict.fromkeys(recipients))
+        template = _TEMPLATE_BY_ID.get(str(row.template_id or ""))
+        variables: dict[str, str] = {}
+        if row.variables_json:
+            try:
+                parsed = json.loads(row.variables_json)
+                if isinstance(parsed, dict):
+                    variables = {str(k): str(v) for k, v in parsed.items()}
+            except json.JSONDecodeError:
+                variables = {}
         sent = 0
         for phone in recipients:
             try:
-                result = FeedbackWaSendService.send_plain_or_template(
-                    db,
-                    to_number=phone,
-                    body=row.message_body,
-                    org_id=org_id,
-                )
-                if result.ok:
+                if template is not None:
+                    meta_name = _promo_meta_template_name(str(row.template_id or ""))
+                    components = _promo_template_components(template, variables)
+                    body = str(row.message_body or _render_body(template, variables)).strip()
+                    langs = ["en_GB", "en_US", "en"]
+                    result = None
+                    for lang in langs:
+                        from app.services.telnyx_messaging_service import TelnyxMessagingService
+
+                        attempt = TelnyxMessagingService.send_whatsapp(
+                            db,
+                            to_number=phone,
+                            body=body,
+                            template_name=meta_name,
+                            template_language=lang,
+                            template_components=components,
+                            org_id=org_id,
+                            meter_usage=False,
+                        )
+                        result = attempt
+                        if attempt.ok:
+                            break
+                else:
+                    result = FeedbackWaSendService.send_plain_or_template(
+                        db,
+                        to_number=phone,
+                        body=row.message_body,
+                        org_id=org_id,
+                        require_template=True,
+                    )
+                if result and result.ok:
                     sent += 1
             except Exception:
                 continue

@@ -292,7 +292,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 thank_you_template_id=thank_you_template_id,
                 selected_service_template_ids=body.get("selected_service_template_ids"),
                 selected_middle_template_ids=body.get("selected_middle_template_ids"),
-                require_approved=False,
+                require_approved=True,
                 allow_final_additional_feedback=bool(body.get("allow_final_additional_feedback", False)),
                 privacy_mode=body.get("privacy_mode"),
                 anonymous_responses=bool(body.get("anonymous_responses")),
@@ -345,7 +345,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
             assistant_name=branding.get("assistant_name") or "",
             organiser_name=branding.get("organiser_name") or "",
             builder_config=builder_config,
-            allow_unapproved_templates=True,
+            allow_unapproved_templates=False,
         )
         safe = json_safe(result)
         logger.info("generate_wa_survey ok page_count=%s wa_template_id=%s", safe.get("page_count"), safe.get("wa_template_id"))

@@ -57,7 +57,52 @@ def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> 
     ]
     if approved:
         return approved[0]
-    return visible[0]
+    return None
+
+
+def validate_feedback_survey_templates_ready(
+    db: Session,
+    *,
+    industry_id: str,
+    selected_type_ids: list[str],
+    open_question_enabled: bool,
+    marketing_opt_in_enabled: bool,
+    language: str | None = None,
+) -> list[str]:
+    """Return human-readable errors when any step lacks a Meta-approved template."""
+    from app.models.customer_feedback import FeedbackLocation
+
+    config = build_survey_config(
+        db,
+        industry_id=industry_id,
+        selected_type_ids=selected_type_ids,
+        open_question_enabled=open_question_enabled,
+        marketing_opt_in_enabled=marketing_opt_in_enabled,
+    )
+    stub = FeedbackLocation(
+        id="validation-stub",
+        org_id="",
+        industry_id=industry_id,
+        survey_type_id=selected_type_ids[0] if selected_type_ids else "",
+        name="Validation",
+        qr_token="validation-stub",
+        wa_sender_country="gb",
+        status="draft",
+    )
+    errors: list[str] = []
+    for step in config.get("steps") or []:
+        kind = str(step.get("kind") or "topic")
+        tpl = template_for_step(db, stub, step, language=language)
+        if tpl is None:
+            label = str(step.get("template_key") or kind)
+            errors.append(f"No WhatsApp template found for step “{label}”.")
+            continue
+        if str(tpl.telnyx_sync_status or "").lower() not in _APPROVED_TEMPLATE_STATUSES:
+            errors.append(
+                f"Template “{tpl.template_key}” ({tpl.language or 'en'}) is not approved on Meta yet "
+                f"(status: {tpl.telnyx_sync_status or 'draft'}). Sync in Admin before activating."
+            )
+    return errors
 
 
 def resolve_template_language(raw: str | None) -> str:
@@ -279,8 +324,10 @@ def template_for_step(
     return get_system_template(db, template_key, language=lang)
 
 
-def format_template_message(tpl: FeedbackWaTemplate) -> str:
+def format_template_message(tpl: FeedbackWaTemplate, *, for_hsm: bool = False) -> str:
     body = str(tpl.body_text or "").strip()
+    if for_hsm:
+        return body
     buttons: list[str] = []
     if tpl.buttons_json:
         try:

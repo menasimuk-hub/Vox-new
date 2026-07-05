@@ -22,6 +22,22 @@ from app.services.survey_system_template_service import SurveySystemTemplateServ
 from app.services.survey_type_service import SurveyTypeService
 
 
+def _meta_remote_ids() -> tuple[str, str]:
+    rid = str(uuid.uuid4())
+    return rid, rid
+
+
+def _sendable_components_json() -> str:
+    import json
+
+    return json.dumps(
+        [
+            {"type": "BODY", "text": "Hi {{1}}!"},
+            {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start"}]},
+        ]
+    )
+
+
 @pytest.fixture()
 def db():
     from app.core.database import Base, get_engine, get_sessionmaker
@@ -100,9 +116,10 @@ def test_validate_ok_with_templates(db):
     db.add(tpl)
     db.flush()
     db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=tpl.id, industry_id=industry.id))
+    middle_rid, middle_tid = _meta_remote_ids()
     middle_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=middle_rid,
+        template_id=middle_tid,
         name=f"voxbulk_survey_{st.slug}_rating",
         language="en_US",
         category="MARKETING",
@@ -111,6 +128,7 @@ def test_validate_ok_with_templates(db):
         industry_id=industry.id,
         step_role="rating",
         active_for_survey=True,
+        components_json=_sendable_components_json(),
         created_at=now,
         updated_at=now,
     )
@@ -128,26 +146,31 @@ def test_validate_ok_with_templates(db):
     tell_types = db.execute(
         select(SurveyType).where(SurveyType.system_template_kind == "tell_us_more")
     ).scalars().all()
+    welcome_rid, welcome_tid = _meta_remote_ids()
+    thank_rid, thank_tid = _meta_remote_ids()
     welcome_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=welcome_rid,
+        template_id=welcome_tid,
         name="voxbulk_survey_welcome_a",
         language="en_US",
         category="MARKETING",
         status="APPROVED",
         survey_type_id=welcome_types[0].id,
+        step_role="start",
         active_for_survey=True,
+        components_json=_sendable_components_json(),
         created_at=now,
         updated_at=now,
     )
     thank_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=thank_rid,
+        template_id=thank_tid,
         name="voxbulk_survey_thank_a",
         language="en_US",
         category="MARKETING",
         status="APPROVED",
         survey_type_id=thank_types[0].id,
+        step_role="completion",
         active_for_survey=True,
         created_at=now,
         updated_at=now,

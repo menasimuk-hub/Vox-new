@@ -328,7 +328,7 @@ post_checks() {
   info "Verifying /health/build …"
   if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
     || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
-    python3 - <<'PY' || warn "health/build deploy_ok=false — running process may be stale"
+    python3 - <<'PY' || fail "API process stale — /health/build git_sha does not match repo HEAD (run: pkill -f uvicorn && ./vox.sh restart)"
 import json
 import subprocess
 from pathlib import Path

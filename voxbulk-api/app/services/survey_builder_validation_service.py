@@ -27,6 +27,59 @@ class SurveyBuilderValidationError(ValueError):
 
 class SurveyBuilderValidationService:
     @staticmethod
+    def _assert_meta_sendable(
+        db: Session,
+        tpl: TelnyxWhatsappTemplate,
+        label: str,
+        errors: list[str],
+    ) -> None:
+        from app.services.survey_whatsapp_template_service import (
+            resolve_sendable_template_row,
+            template_row_is_sendable_on_meta,
+        )
+
+        sendable = resolve_sendable_template_row(db, tpl)
+        if sendable is None or not template_row_is_sendable_on_meta(sendable):
+            errors.append(
+                f"{label} template “{tpl.display_name or tpl.name}” is not approved on Meta yet "
+                f"(status: {tpl.status}). Sync in Admin and wait for approval before launch."
+            )
+
+    @staticmethod
+    def validate_order_config_for_launch(
+        db: Session,
+        config: dict[str, Any],
+        *,
+        org_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Block launch when welcome, thank-you, or middle steps are not Meta-sendable."""
+        from app.services.survey_builder_runtime_service import load_builder_runtime
+
+        runtime = load_builder_runtime(config) or {}
+        industry_id = str(runtime.get("industry_id") or config.get("industry_id") or "").strip()
+        type_ids = list(runtime.get("selected_survey_type_ids") or config.get("selected_survey_type_ids") or [])
+        if not type_ids and config.get("survey_type_id"):
+            type_ids = [str(config.get("survey_type_id"))]
+        welcome_id = runtime.get("welcome_template_id") or config.get("welcome_template_id")
+        thank_id = runtime.get("thank_you_template_id") or config.get("thank_you_template_id")
+        middle_map = runtime.get("selected_service_template_ids") or config.get("selected_service_template_ids")
+        middle_list = runtime.get("ordered_middle_template_ids") or config.get("selected_middle_template_ids")
+        return SurveyBuilderValidationService.validate_builder_selection(
+            db,
+            industry_id=industry_id,
+            selected_survey_type_ids=type_ids,
+            welcome_template_id=welcome_id,
+            thank_you_template_id=thank_id,
+            selected_service_template_ids=middle_map,
+            selected_middle_template_ids=middle_list,
+            require_approved=True,
+            allow_final_additional_feedback=bool(config.get("allow_final_additional_feedback")),
+            privacy_mode=config.get("privacy_mode"),
+            anonymous_responses=bool(config.get("anonymous_responses")),
+            org_id=org_id,
+        )
+
+    @staticmethod
     def resolve_middle_template_source(
         selected_survey_type_ids: list[str],
         *,
@@ -196,8 +249,8 @@ class SurveyBuilderValidationService:
             if st is None or st.system_template_kind != kind:
                 errors.append(f"{label} template must be from system {kind} templates.")
                 continue
-            if require_approved and str(tpl.status or "").upper() not in {"APPROVED", "LOCAL_DRAFT"}:
-                errors.append(f"{label} template is not ready yet (status: {tpl.status}).")
+            if require_approved:
+                SurveyBuilderValidationService._assert_meta_sendable(db, tpl, label, errors)
         middle_pairs: list[tuple[str, int]] = []
         if welcome_template_id and thank_you_template_id and ids:
             middle_source = SurveyBuilderValidationService.resolve_middle_template_source(
@@ -236,6 +289,13 @@ class SurveyBuilderValidationService:
                     if role in {"start", "completion", "intro", "closing"}:
                         errors.append(
                             f"\"{st.name if st else type_id}\" template must be a survey question, not welcome/thank-you."
+                        )
+                    if require_approved:
+                        SurveyBuilderValidationService._assert_meta_sendable(
+                            db,
+                            tpl,
+                            st.name if st else type_id,
+                            errors,
                         )
         tell_us_more_id = None
         if not errors:

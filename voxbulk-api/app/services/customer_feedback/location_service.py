@@ -23,6 +23,7 @@ from app.services.customer_feedback.survey_config_service import (
     parse_selected_type_ids,
     parse_selected_type_ids_from_location,
     rebuild_survey_config_for_location,
+    validate_feedback_survey_templates_ready,
 )
 from app.services.customer_feedback.feedback_marketing_policy import effective_marketing_opt_in_enabled
 from app.services.market_zone import country_to_zone
@@ -219,6 +220,15 @@ class FeedbackLocationService:
             raise ValueError("Industry is not available for this organisation.")
         open_question = bool(payload.get("open_question_enabled", True))
         marketing_opt_in = effective_marketing_opt_in_enabled(payload.get("marketing_opt_in_enabled", False))
+        template_errors = validate_feedback_survey_templates_ready(
+            db,
+            industry_id=industry_id,
+            selected_type_ids=selected_ids,
+            open_question_enabled=open_question,
+            marketing_opt_in_enabled=marketing_opt_in,
+        )
+        if template_errors:
+            raise ValueError(template_errors[0])
         survey_config = build_survey_config(
             db,
             industry_id=industry_id,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,9 +22,14 @@ from app.services.telnyx_messaging_service import TelnyxMessageResult, TelnyxMes
 logger = logging.getLogger(__name__)
 
 _APPROVED_SYNC_STATUSES = frozenset({"approved", "synced", "live"})
+_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
 
 
 class FeedbackWaSendService:
+    @staticmethod
+    def is_template_sendable(tpl: FeedbackWaTemplate) -> bool:
+        return str(tpl.telnyx_sync_status or "").lower() in _APPROVED_SYNC_STATUSES
+
     @staticmethod
     def resolve_meta_template_name(db: Session, tpl: FeedbackWaTemplate) -> str:
         industry_slug, survey_slug = _feedback_template_meta_context(db, tpl)
@@ -45,6 +52,27 @@ class FeedbackWaSendService:
         return langs or ["en_GB"]
 
     @staticmethod
+    def build_template_components(
+        tpl: FeedbackWaTemplate,
+        *,
+        variables: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]] | None:
+        body = str(tpl.body_text or "")
+        indices = sorted({int(m.group(1)) for m in _VAR_RE.finditer(body)})
+        if not indices:
+            return None
+        count = max(indices)
+        vars_ = variables or {}
+        filler = [
+            str(vars_.get("first_name") or "there"),
+            str(vars_.get("organisation_name") or vars_.get("business_name") or "Your business"),
+            str(vars_.get("organiser_name") or vars_.get("organisation_name") or "Your business"),
+        ]
+        while len(filler) < count:
+            filler.append("—")
+        return [{"type": "body", "parameters": [{"type": "text", "text": v[:1024]} for v in filler[:count]]}]
+
+    @staticmethod
     def send_template(
         db: Session,
         *,
@@ -52,19 +80,29 @@ class FeedbackWaSendService:
         org_id: str | None,
         tpl: FeedbackWaTemplate,
         location: FeedbackLocation | None = None,
+        variables: dict[str, str] | None = None,
     ) -> TelnyxMessageResult:
         _ = location  # Meta template names come from the template row, not the QR location.
-        sync_status = str(tpl.telnyx_sync_status or "").lower()
-        if sync_status not in _APPROVED_SYNC_STATUSES:
-            logger.warning(
+        if not FeedbackWaSendService.is_template_sendable(tpl):
+            logger.error(
                 "feedback_wa_template_not_approved template_id=%s template_key=%s status=%s",
                 tpl.id,
                 tpl.template_key,
-                sync_status or "draft",
+                tpl.telnyx_sync_status or "draft",
+            )
+            return TelnyxMessageResult(
+                ok=False,
+                status="not_approved",
+                detail=(
+                    f"WhatsApp template “{tpl.template_key}” is not approved on Meta yet "
+                    f"(status: {tpl.telnyx_sync_status or 'draft'}). Sync in Admin before sending."
+                ),
+                channel="whatsapp",
             )
 
         meta_name = FeedbackWaSendService.resolve_meta_template_name(db, tpl)
-        rendered_body = format_template_message(tpl)
+        rendered_body = format_template_message(tpl, for_hsm=True)
+        template_components = FeedbackWaSendService.build_template_components(tpl, variables=variables)
         langs = FeedbackWaSendService._language_candidates(tpl)
 
         result: TelnyxMessageResult | None = None
@@ -75,6 +113,7 @@ class FeedbackWaSendService:
                 body=rendered_body,
                 template_name=meta_name,
                 template_language=lang,
+                template_components=template_components,
                 org_id=org_id,
                 meter_usage=False,
             )
@@ -114,6 +153,7 @@ class FeedbackWaSendService:
         tpl: FeedbackWaTemplate | None = None,
         location: FeedbackLocation | None = None,
         require_template: bool = False,
+        variables: dict[str, str] | None = None,
     ) -> TelnyxMessageResult:
         if tpl is not None:
             return FeedbackWaSendService.send_template(
@@ -122,6 +162,7 @@ class FeedbackWaSendService:
                 org_id=org_id,
                 tpl=tpl,
                 location=location,
+                variables=variables,
             )
         if require_template:
             logger.error(

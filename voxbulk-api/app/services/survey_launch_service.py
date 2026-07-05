@@ -53,6 +53,25 @@ class SurveyLaunchService:
         except ServiceOrderPaymentWorkflowError as e:
             raise SurveyLaunchEligibilityError(str(e)) from e
 
+        import json
+
+        from app.services.survey_builder_runtime_service import has_builder_runtime
+        from app.services.survey_builder_validation_service import (
+            SurveyBuilderValidationError,
+            SurveyBuilderValidationService,
+        )
+
+        config = json.loads(order.config_json or "{}")
+        if has_builder_runtime(config) or config.get("welcome_template_id") or config.get("wa_template_id"):
+            try:
+                SurveyBuilderValidationService.validate_order_config_for_launch(
+                    db,
+                    config,
+                    org_id=str(org.id),
+                )
+            except SurveyBuilderValidationError as e:
+                raise ValueError(str(e)) from e
+
         SurveyLaunchEligibilityService.consume_launch_allowance(db, order, org)
 
         if run_now:

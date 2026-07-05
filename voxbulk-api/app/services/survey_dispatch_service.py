@@ -233,7 +233,11 @@ class SurveyDispatchService:
                 "error": "sender_not_approved",
             }
 
-        if prefer_whatsapp and has_builder_runtime(config) and config.get("wa_template_id"):
+        if prefer_whatsapp and (
+            has_builder_runtime(config)
+            or config.get("wa_template_id")
+            or config.get("welcome_template_id")
+        ):
             from app.services.survey_whatsapp_conversation_service import send_survey_opening
 
             sent = send_survey_opening(
@@ -278,14 +282,19 @@ class SurveyDispatchService:
         template_components = None
         if prefer_whatsapp and wa_template_id:
             try:
-                from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+                from app.services.survey_whatsapp_template_service import (
+                    SurveyWhatsappTemplateService,
+                    resolve_sendable_template_row,
+                    template_row_is_sendable_on_meta,
+                )
                 from app.services.telnyx_whatsapp_template_sync_service import (
                     TelnyxWhatsappTemplateSyncService,
                     send_template_id_for_row,
                 )
 
-                template_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
-                if template_row is not None and str(template_row.status or "").upper() == "APPROVED":
+                raw_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
+                template_row = resolve_sendable_template_row(db, raw_row) if raw_row is not None else None
+                if template_row is not None and template_row_is_sendable_on_meta(template_row):
                     template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
                         template_row,
                         variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},

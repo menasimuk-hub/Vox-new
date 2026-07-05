@@ -132,7 +132,7 @@ def test_template_for_step_prefers_arabic():
                 step_role="rating",
                 language="ar",
                 meta_category="utility",
-                telnyx_sync_status="draft",
+                telnyx_sync_status="approved",
                 is_active=True,
                 created_at=now,
                 updated_at=now,
