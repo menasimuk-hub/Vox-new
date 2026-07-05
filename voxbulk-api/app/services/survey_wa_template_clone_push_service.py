@@ -212,12 +212,6 @@ def maybe_clone_and_push_on_meta_error(
     *,
     force_push: bool = True,
 ) -> dict[str, Any] | None:
-    payload = getattr(exc, "payload", None) or {}
-    meta_kind = payload.get("meta_error_kind")
-    if payload.get("requires_draft_reset_or_clone") or meta_kind == META_ERROR_CANNOT_UPDATE_CATEGORY:
-        return clone_and_push_survey_template(db, row, force_push=force_push)
-    provider = str(payload.get("provider_error") or payload.get("message") or str(exc))
-    parsed = parse_meta_error_from_provider_detail(provider)
-    if parsed.get("kind") == META_ERROR_CANNOT_UPDATE_CATEGORY:
-        return clone_and_push_survey_template(db, row, force_push=force_push)
+    """Never create a second DB row — fix-and-sync uses same-row rename instead."""
+    _ = (db, row, exc, force_push)
     return None

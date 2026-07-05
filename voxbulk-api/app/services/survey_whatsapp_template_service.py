@@ -1705,8 +1705,8 @@ def survey_template_to_dict(
     else:
         examples = _example_values_for_storage(components, override=examples)
     workflow = template_workflow_state(row)
-    # Always expose a real BODY preview (never fall back to Meta template name alone).
-    effective_preview = str(row.body_preview or "").strip() or _body_preview(components)
+    # Dashboard/API preview: draft or merged components first — not stale body_preview column.
+    effective_preview = _body_preview(components) or str(row.body_preview or "").strip()
     if effective_preview and not str(row.body_preview or "").strip():
         row.body_preview = effective_preview
     base["body_preview"] = effective_preview
@@ -1858,6 +1858,7 @@ class SurveyWhatsappTemplateService:
         *,
         privacy_mode: str | None = None,
         include_inactive: bool = True,
+        require_approved: bool = False,
         strict_scope: bool = True,
     ) -> list[dict[str, Any]]:
         """List templates linked to a survey type.
@@ -1875,6 +1876,8 @@ class SurveyWhatsappTemplateService:
             if row is None:
                 continue
             if not include_inactive and not bool(row.active_for_survey):
+                continue
+            if require_approved and not template_row_is_sendable_on_meta(row):
                 continue
             if strict_scope and survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
@@ -2392,11 +2395,6 @@ class SurveyWhatsappTemplateService:
                     "sync_branch": branch,
                 },
             )
-
-        if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update and allow_clone:
-            from app.services.survey_wa_template_clone_push_service import clone_and_push_survey_template
-
-            return clone_and_push_survey_template(db, row, force_push=force_approved_update)
 
         if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update:
             logger.info(

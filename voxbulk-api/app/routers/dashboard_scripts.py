@@ -239,6 +239,7 @@ def list_wa_survey_library_templates(
         survey_type_id,
         privacy_mode=privacy_mode,
         include_inactive=False,
+        require_approved=True,
     )
     middle_roles = set(MIDDLE_STEP_ROLES)
     templates = [

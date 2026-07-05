@@ -551,22 +551,13 @@ class SurveySystemTemplateService:
         db: Session,
         tpl: TelnyxWhatsappTemplate,
     ) -> TelnyxWhatsappTemplate | None:
-        """Dashboard picker row: active sendable Meta clone when parent is mapped, else mapped row."""
+        """Dashboard picker row: one mapped row — enabled and Meta-approved only."""
         if not tpl.active_for_survey:
             return None
-        from app.services.survey_whatsapp_template_service import (
-            resolve_sendable_template_row,
-            template_row_is_sendable_on_meta,
-            template_row_must_send_as_session_text,
-        )
+        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
 
-        if template_row_must_send_as_session_text(tpl):
-            return tpl
-        if template_row_is_sendable_on_meta(tpl):
-            return tpl
-        sendable = resolve_sendable_template_row(db, tpl)
-        if sendable is not None and sendable.active_for_survey:
-            return sendable
+        if not template_row_is_sendable_on_meta(tpl):
+            return None
         return tpl
 
     @staticmethod
@@ -644,7 +635,7 @@ class SurveySystemTemplateService:
     ) -> TelnyxWhatsappTemplate | None:
         """Welcome for send: wizard/runtime selection first, system resolver only as fallback."""
         from app.services.survey_builder_runtime_service import load_builder_runtime
-        from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
 
         runtime = load_builder_runtime(config)
         explicit_ids: list[int] = []
@@ -670,9 +661,8 @@ class SurveySystemTemplateService:
             row = db.get(TelnyxWhatsappTemplate, tid)
             if row is None or not row.active_for_survey:
                 continue
-            sendable = resolve_sendable_template_row(db, row)
-            if sendable is not None:
-                return sendable
+            if template_row_is_sendable_on_meta(row):
+                return row
 
         return SurveySystemTemplateService.resolve_welcome_template_for_survey(db, config)
 

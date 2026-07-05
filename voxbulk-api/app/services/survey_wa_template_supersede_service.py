@@ -128,6 +128,49 @@ def process_one_superseded_template_deletion(db: Session) -> dict[str, Any]:
     return {"ok": True, "action": "none_pending"}
 
 
+_PENDING_META_STATUSES = frozenset(
+    {"PENDING", "PENDING_APPROVAL", "IN_APPEAL", "SUBMITTED", "UNKNOWN"}
+)
+
+
+def _is_survey_wa_template_row(row: TelnyxWhatsappTemplate) -> bool:
+    name = str(row.name or "").lower()
+    if name.startswith("voxbulk_survey_"):
+        return True
+    return bool(row.survey_type_id)
+
+
+def has_pending_survey_templates(db: Session) -> bool:
+    """True when any active survey template is awaiting Meta approval."""
+    from app.services.survey_whatsapp_template_service import _has_remote_telnyx_id
+
+    rows = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.active_for_survey.is_(True))
+        ).scalars()
+    )
+    for row in rows:
+        if not _is_survey_wa_template_row(row):
+            continue
+        status = str(row.status or "").upper()
+        if status == "APPROVED":
+            continue
+        if status in {"REJECTED", "LOCAL_DRAFT", "DRAFT"}:
+            continue
+        if status in _PENDING_META_STATUSES:
+            return True
+        if _has_remote_telnyx_id(row) and status not in {"APPROVED", "REJECTED"}:
+            return True
+    return False
+
+
+def sync_pending_wa_templates_if_any(db: Session) -> dict[str, Any]:
+    """Pull Meta statuses every 30m only while survey templates are pending approval."""
+    if not has_pending_survey_templates(db):
+        return {"ok": True, "skipped": True, "reason": "no_pending_survey_templates"}
+    return sync_wa_template_statuses_from_meta(db)
+
+
 def refresh_successor_status_from_meta(db: Session, row: TelnyxWhatsappTemplate) -> None:
     """After webhook/status refresh, consolidate clone family and attempt superseded cleanup."""
     if str(row.status or "").upper() != "APPROVED":

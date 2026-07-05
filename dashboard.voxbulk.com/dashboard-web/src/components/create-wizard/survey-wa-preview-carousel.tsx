@@ -59,18 +59,17 @@ function bodyFromComponents(raw: unknown): string {
 }
 
 function templateBody(row: Record<string, unknown>): string {
-  const direct = String(row.body_preview || row.body || row.body_text || "").trim();
   const name = String(row.name || "").trim();
-  // Never treat Meta template name as the message body.
+  const fromDraft =
+    bodyFromComponents(row.draft_components) ||
+    bodyFromComponents(row.remote_components) ||
+    bodyFromComponents(row.components);
+  if (fromDraft) return fromDraft;
+  const direct = String(row.body_preview || row.body || row.body_text || "").trim();
   if (direct && direct !== name && !direct.startsWith("voxbulk_survey_") && !direct.startsWith("voxbulk_sales_")) {
     return direct;
   }
-  return (
-    bodyFromComponents(row.draft_components) ||
-    bodyFromComponents(row.remote_components) ||
-    bodyFromComponents(row.components) ||
-    (direct && direct !== name ? direct : "")
-  );
+  return direct && direct !== name ? direct : "";
 }
 
 function templateTitle(

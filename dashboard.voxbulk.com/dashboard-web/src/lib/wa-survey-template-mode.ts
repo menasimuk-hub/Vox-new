@@ -9,11 +9,21 @@ export function filterActiveSurveyTemplates(
   return rows.filter((row) => row.active_for_survey !== false);
 }
 
+export function filterApprovedSurveyTemplates(
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.filter((row) => {
+    if (row.is_approved === true) return true;
+    const status = String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase();
+    return status === "APPROVED";
+  });
+}
+
 export function filterSystemTemplatesByPrivacy(
   rows: Array<Record<string, unknown>>,
   privacyMode: WaPrivacyMode,
 ): Array<Record<string, unknown>> {
-  return filterActiveSurveyTemplates(rows).filter((row) => {
+  return filterApprovedSurveyTemplates(filterActiveSurveyTemplates(rows)).filter((row) => {
     const privacy = String(row.privacy_mode || "").toLowerCase();
     const variant = String(row.variant_type || "").toLowerCase();
     const isAnonymous = privacy === "on" || variant === "anonymous";

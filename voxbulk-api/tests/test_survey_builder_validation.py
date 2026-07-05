@@ -229,9 +229,10 @@ def test_validate_accepts_middle_template_list_without_service_map(db):
     """Dashboard may send selected_middle_template_ids when the type→template map is omitted."""
     industry, st = _regular_type(db)
     now = datetime.utcnow()
+    middle_rid, middle_tid = _meta_remote_ids()
     middle_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=middle_rid,
+        template_id=middle_tid,
         name=f"voxbulk_survey_{st.slug}_rating",
         language="en_US",
         category="MARKETING",
@@ -240,6 +241,7 @@ def test_validate_accepts_middle_template_list_without_service_map(db):
         industry_id=industry.id,
         step_role="rating",
         active_for_survey=True,
+        components_json=_sendable_components_json(),
         created_at=now,
         updated_at=now,
     )
@@ -248,31 +250,50 @@ def test_validate_accepts_middle_template_list_without_service_map(db):
     db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=middle_tpl.id, industry_id=industry.id))
     welcome_types = db.execute(select(SurveyType).where(SurveyType.system_template_kind == "welcome")).scalars().all()
     thank_types = db.execute(select(SurveyType).where(SurveyType.system_template_kind == "thank_you")).scalars().all()
+    welcome_rid, welcome_tid = _meta_remote_ids()
+    thank_rid, thank_tid = _meta_remote_ids()
     welcome_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=welcome_rid,
+        template_id=welcome_tid,
         name="voxbulk_survey_welcome_a",
         language="en_US",
         category="MARKETING",
         status="APPROVED",
-        survey_type_id=welcome_types[0].id,
+        step_role="start",
         active_for_survey=True,
+        components_json=_sendable_components_json(),
         created_at=now,
         updated_at=now,
     )
     thank_tpl = TelnyxWhatsappTemplate(
-        telnyx_record_id=f"local-{uuid.uuid4().hex}",
-        template_id=f"local-{uuid.uuid4().hex}",
+        telnyx_record_id=thank_rid,
+        template_id=thank_tid,
         name="voxbulk_survey_thank_a",
         language="en_US",
         category="MARKETING",
         status="APPROVED",
-        survey_type_id=thank_types[0].id,
+        step_role="completion",
         active_for_survey=True,
+        components_json=_sendable_components_json(),
         created_at=now,
         updated_at=now,
     )
     db.add_all([welcome_tpl, thank_tpl])
+    db.flush()
+    db.add(
+        SurveyTypeTemplate(
+            survey_type_id=welcome_types[0].id,
+            template_id=welcome_tpl.id,
+            industry_id=welcome_types[0].industry_id,
+        )
+    )
+    db.add(
+        SurveyTypeTemplate(
+            survey_type_id=thank_types[0].id,
+            template_id=thank_tpl.id,
+            industry_id=thank_types[0].industry_id,
+        )
+    )
     db.commit()
 
     result = SurveyBuilderValidationService.validate_builder_selection(
@@ -342,7 +363,7 @@ def test_validate_accepts_mapped_welcome_clone_without_survey_type_id(db):
     db.add(
         SurveyTypeTemplate(
             survey_type_id=welcome_type.id,
-            template_id=parent.id,
+            template_id=clone.id,
             industry_id=welcome_type.industry_id,
         )
     )

@@ -72,9 +72,9 @@ celery_app.conf.update(
             "task": "survey.cleanup_superseded_wa_templates",
             "schedule": 900.0,
         },
-        "wa-template-meta-status-sync-15m": {
-            "task": "survey.sync_wa_template_meta_statuses",
-            "schedule": 900.0,
+        "wa-template-pending-sync-30m": {
+            "task": "survey.sync_pending_wa_templates_if_any",
+            "schedule": 1800.0,
         },
     },
 )
