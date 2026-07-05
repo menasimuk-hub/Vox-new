@@ -138,3 +138,8 @@ def test_order_scale_labels_puts_worst_last():
         "Good",
         "Poor",
     ]
+    assert order_scale_labels(["Low", "Moderate", "High"], step_role="rating") == [
+        "High",
+        "Moderate",
+        "Low",
+    ]

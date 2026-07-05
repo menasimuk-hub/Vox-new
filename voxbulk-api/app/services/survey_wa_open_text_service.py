@@ -6,6 +6,8 @@ from typing import Any
 
 OPEN_TEXT_REPLY_TYPES = frozenset({"text", "long_text", "contact", "date"})
 
+OPEN_TEXT_STEP_ROLES = frozenset({"reason", "tell_us_more", "final_feedback_text", "follow_up", "improvement"})
+
 VOICE_NOTE_FALLBACK_MESSAGE = (
     "Please reply using the buttons or type your answer. "
     "Voice notes are only supported for comment-style questions."
@@ -19,6 +21,11 @@ VOICE_NOTE_AUDIO_MESSAGE_TYPES = frozenset(
 def is_open_text_question(question: dict[str, Any] | None) -> bool:
     if not isinstance(question, dict):
         return False
+    from app.services.survey_step_bank_service import normalize_step_role
+
+    role = normalize_step_role(str(question.get("step_role") or ""))
+    if role in OPEN_TEXT_STEP_ROLES:
+        return True
     reply_type = str(question.get("reply_type") or "text").strip().lower()
     return reply_type in OPEN_TEXT_REPLY_TYPES
 

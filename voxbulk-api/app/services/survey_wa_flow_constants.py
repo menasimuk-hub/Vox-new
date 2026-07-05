@@ -58,6 +58,7 @@ KEY_SURVEY_STARTED_AT = "survey_started_at"
 
 # Canonical button label order (best first → worst last in Meta BUTTONS array)
 CANONICAL_RATING = ("Excellent", "Good", "Poor")
+CANONICAL_MORALE = ("High", "Moderate", "Low")
 CANONICAL_YES_NO = ("Yes", "No")
 CANONICAL_HELPFULNESS = ("Very helpful", "Partly helpful", "Not helpful")
 CANONICAL_FEELING = ("Great", "Okay", "Poor")
@@ -97,6 +98,9 @@ def order_scale_labels(labels: list[str], *, step_role: str = "rating") -> list[
     if len(labels) < 2:
         return list(labels)
     label_map = {str(l).strip().lower(): str(l).strip() for l in labels if str(l).strip()}
+    keys = set(label_map.keys())
+    if keys == {"high", "moderate", "low"} or keys >= {"high", "moderate", "low"}:
+        canonical = CANONICAL_MORALE
     ordered: list[str] = []
     for canon in canonical:
         key = canon.lower()

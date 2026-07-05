@@ -3049,6 +3049,7 @@ def handle_inbound_reply(
             return {"handled": False, "reason": "step_resolve_failed", "detail": str(exc)}
 
         effective_body = reply.normalized_answer or str(body or "").strip()
+        voice_context = "followup" if conv.get("tell_us_more_pending") else "normal"
         voice = _try_voice_note_reply(
             db,
             order=order,
@@ -3060,7 +3061,7 @@ def handle_inbound_reply(
             inbound_message_id=inbound_message_id,
             log_id=log_id,
             session_id=session_row.id if session_row else None,
-            answer_context="normal",
+            answer_context=voice_context,
             step_index=step,
             config=config,
         )

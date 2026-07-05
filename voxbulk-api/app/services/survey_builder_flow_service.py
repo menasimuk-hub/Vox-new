@@ -466,6 +466,14 @@ def should_use_builder_linear_runtime(config: dict[str, Any]) -> bool:
     return is_builder_bound_flow(effective_order_config(config))
 
 
+def as_open_text_tell_us_more_question(question: dict[str, Any]) -> dict[str, Any]:
+    """Tell-us-more is always session free-form — ignore stale BUTTONS on template rows."""
+    out = dict(question)
+    out["reply_type"] = "long_text"
+    out["options"] = []
+    return out
+
+
 def question_from_tell_us_more_template(
     db: Session,
     config: dict[str, Any],
@@ -507,7 +515,7 @@ def question_from_tell_us_more_template(
     q["node_key"] = f"builder_tell_{tid}"
     q["step_role"] = "reason"
     q["source"] = "builder_tell_us_more_template"
-    return q
+    return as_open_text_tell_us_more_question(q)
 
 
 def _rating_answer_is_low(

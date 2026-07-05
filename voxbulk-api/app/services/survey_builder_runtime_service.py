@@ -536,7 +536,9 @@ def question_from_runtime_tell_us_more(
     q["node_key"] = f"builder_tell_{row.id}"
     q["step_role"] = "reason"
     q["source"] = RUNTIME_SOURCE
-    return q
+    from app.services.survey_builder_flow_service import as_open_text_tell_us_more_question
+
+    return as_open_text_tell_us_more_question(q)
 
 
 def runtime_tell_us_more_enabled(config: dict[str, Any]) -> bool:

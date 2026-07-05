@@ -399,10 +399,16 @@ def _meta_example_is_valid(example: Any, *, field: str) -> bool:
     return any(str(v).strip() for v in rows)
 
 
-def _normalize_draft_components(components: list[Any] | None) -> list[Any]:
+def _normalize_draft_components(
+    components: list[Any] | None,
+    *,
+    step_role: str | None = None,
+) -> list[Any]:
     """Persist draft components without Meta-only static examples."""
     if not isinstance(components, list):
         return []
+    from app.services.survey_wa_flow_constants import order_scale_button_dicts
+
     out: list[Any] = []
     for comp in components:
         if not isinstance(comp, dict):
@@ -415,6 +421,10 @@ def _normalize_draft_components(components: list[Any] | None) -> list[Any]:
                 cloned.pop("example", None)
             elif not _meta_example_is_valid(cloned.get("example"), field="body_text"):
                 cloned.pop("example", None)
+        elif ctype == "BUTTONS" and step_role:
+            buttons = cloned.get("buttons")
+            if isinstance(buttons, list) and buttons:
+                cloned["buttons"] = order_scale_button_dicts(buttons, step_role=step_role)
         out.append(cloned)
     return out
 
@@ -476,8 +486,12 @@ def _build_meta_header_component(comp: dict[str, Any], *, examples: list[str]) -
     return header
 
 
-def _build_meta_buttons_component(comp: dict[str, Any]) -> dict[str, Any]:
+def _build_meta_buttons_component(comp: dict[str, Any], *, step_role: str | None = None) -> dict[str, Any]:
+    from app.services.survey_wa_flow_constants import order_scale_button_dicts
+
     buttons_in = comp.get("buttons") if isinstance(comp.get("buttons"), list) else []
+    if step_role and buttons_in:
+        buttons_in = order_scale_button_dicts(buttons_in, step_role=step_role)
     buttons_out: list[dict[str, Any]] = []
     for btn in buttons_in:
         if not isinstance(btn, dict):
@@ -521,7 +535,8 @@ def ensure_meta_examples_on_components(
         elif ctype == "HEADER":
             out.append(_build_meta_header_component(comp, examples=examples))
         elif ctype == "BUTTONS":
-            out.append(_build_meta_buttons_component(comp))
+            step_role = str(getattr(row, "step_role", "") or "") or None
+            out.append(_build_meta_buttons_component(comp, step_role=step_role))
         else:
             out.append(dict(comp))
     if body_count != 1:
@@ -1676,7 +1691,7 @@ def _refresh_local_sync_status(row: TelnyxWhatsappTemplate) -> str:
 
 def _persist_normalized_draft(db: Session, row: TelnyxWhatsappTemplate, components: list[Any]) -> list[Any]:
     """Normalize draft components in DB (strip invalid Meta examples) before push/sync."""
-    normalized = _normalize_draft_components(components)
+    normalized = _normalize_draft_components(components, step_role=str(row.step_role or "") or None)
     if _dumps(normalized) != str(row.draft_components_json or ""):
         row.draft_components_json = _dumps(normalized)
         row.example_values_json = _dumps(_example_values_for_storage(normalized))
