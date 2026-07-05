@@ -1732,13 +1732,15 @@ def send_survey_opening(
 
     preview_body = ""
     if template_row is not None:
+        sendable = resolve_sendable_template_row(db, template_row) or template_row
         preview = SurveyWhatsappTemplateService.build_preview(
             db,
-            template_row,
+            sendable,
             business_name=variables.get("organisation_name") or "Your business",
             first_name=variables.get("first_name") or "there",
         )
-        preview_body = str(preview.get("rendered_body") or template_row.body_preview or "").strip()
+        preview_body = str(preview.get("rendered_body") or sendable.body_preview or "").strip()
+        template_row = sendable
     else:
         preview_body = _personalize_survey_text(str(flow.get("intro") or ""), variables)
         logger.error(

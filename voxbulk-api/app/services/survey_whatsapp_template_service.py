@@ -713,6 +713,48 @@ def _buttons_from_components(components: list[Any] | None) -> list[dict[str, Any
     return []
 
 
+def _merge_draft_with_remote_components(draft: list[Any], remote: list[Any]) -> list[Any]:
+    """Keep local draft body edits but retain Meta-approved BUTTONS/FOOTER when draft omits them."""
+    if not draft:
+        return remote if isinstance(remote, list) else []
+    if not isinstance(remote, list) or not remote:
+        return draft
+    merged = list(draft)
+    draft_types = {str(c.get("type") or "").upper() for c in merged if isinstance(c, dict)}
+    for comp in remote:
+        if not isinstance(comp, dict):
+            continue
+        ctype = str(comp.get("type") or "").upper()
+        if ctype in {"BUTTONS", "FOOTER"} and ctype not in draft_types:
+            merged.append(comp)
+    return merged
+
+
+def _preview_render_values(
+    *,
+    first_name: str,
+    business_name: str,
+    examples: list[Any],
+    placeholder_count: int,
+) -> list[str]:
+    """Live send/preview values — never show stale Meta example placeholders (e.g. jack / Toyota)."""
+    org = str(business_name or "Your business").strip() or "Your business"
+    filler = [
+        str(first_name or "there").strip() or "there",
+        org,
+        org,
+    ]
+    if isinstance(examples, list):
+        for i, ex in enumerate(examples):
+            while len(filler) <= i:
+                filler.append("—")
+            if i >= 3 and str(ex or "").strip():
+                filler[i] = str(ex).strip()
+    while len(filler) < placeholder_count:
+        filler.append("—")
+    return filler[:placeholder_count] if placeholder_count else filler
+
+
 def template_row_has_buttons(row: TelnyxWhatsappTemplate | None) -> bool:
     """True when the template has quick-reply/URL/phone buttons (needs Meta approval to send)."""
     if row is None:
@@ -722,15 +764,26 @@ def template_row_has_buttons(row: TelnyxWhatsappTemplate | None) -> bool:
 
 def template_row_needs_meta_approval(row: TelnyxWhatsappTemplate | None) -> bool:
     """Buttonless session messages can be sent as free-form text without Meta approval."""
-    return template_row_has_buttons(row)
+    if row is None:
+        return False
+    if template_row_has_buttons(row):
+        return True
+    if not template_row_is_sendable_on_meta(row):
+        return False
+    from app.services.survey_step_bank_service import normalize_step_role
+
+    role = normalize_step_role(row.step_role or "")
+    if role == "start":
+        return True
+    return "welcome" in str(row.name or "").lower()
 
 
 def _effective_components(row: TelnyxWhatsappTemplate) -> list[Any]:
     draft = _loads(row.draft_components_json)
-    if isinstance(draft, list) and draft:
-        return draft
     remote = _loads(row.components_json)
-    return remote if isinstance(remote, list) else []
+    draft_list = draft if isinstance(draft, list) and draft else []
+    remote_list = remote if isinstance(remote, list) else []
+    return _merge_draft_with_remote_components(draft_list, remote_list)
 
 
 def _is_local_row(row: TelnyxWhatsappTemplate) -> bool:
@@ -3657,7 +3710,7 @@ class SurveyWhatsappTemplateService:
         if not examples:
             examples = [first_name]
 
-        body_parts: list[str] = []
+        raw_body_parts: list[str] = []
         footer = ""
         for comp in components:
             if not isinstance(comp, dict):
@@ -3666,15 +3719,38 @@ class SurveyWhatsappTemplateService:
             if ctype == "HEADER":
                 fmt = str(comp.get("format") or "TEXT").upper()
                 if fmt == "TEXT":
-                    body_parts.insert(0, _render_body_text(str(comp.get("text") or ""), examples))
+                    raw_body_parts.insert(0, str(comp.get("text") or ""))
             elif ctype == "BODY":
-                body_parts.append(_render_body_text(str(comp.get("text") or ""), examples))
+                raw_body_parts.append(str(comp.get("text") or ""))
             elif ctype == "FOOTER":
                 footer = str(comp.get("text") or "")
 
-        rendered_body = "\n\n".join(p for p in body_parts if p).strip() or str(row.body_preview or "")
+        raw_combined = "\n\n".join(p for p in raw_body_parts if p).strip() or str(row.body_preview or "")
+        placeholders = sorted({int(m.group(1)) for m in _VAR_RE.finditer(raw_combined)})
+        render_values = _preview_render_values(
+            first_name=first_name,
+            business_name=business_name,
+            examples=examples if isinstance(examples, list) else [],
+            placeholder_count=max(placeholders) if placeholders else 0,
+        )
+
+        body_parts: list[str] = []
+        for comp in components:
+            if not isinstance(comp, dict):
+                continue
+            ctype = str(comp.get("type") or "").upper()
+            if ctype == "HEADER":
+                fmt = str(comp.get("format") or "TEXT").upper()
+                if fmt == "TEXT":
+                    body_parts.insert(0, _render_body_text(str(comp.get("text") or ""), render_values))
+            elif ctype == "BODY":
+                body_parts.append(_render_body_text(str(comp.get("text") or ""), render_values))
+
+        rendered_body = "\n\n".join(p for p in body_parts if p).strip() or _render_body_text(
+            raw_combined,
+            render_values,
+        )
         buttons = _buttons_from_components(components)
-        placeholders = sorted({int(m.group(1)) for m in _VAR_RE.finditer(rendered_body + " " + str(row.body_preview or ""))})
         return {
             "template": survey_template_to_dict(row),
             "business_name": business_name,

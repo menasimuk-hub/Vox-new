@@ -279,3 +279,139 @@ def test_assert_runtime_template_send_follows_approved_clone(db):
     row = assert_runtime_template_send(db, config, stale.id, context="test_middle_step")
     assert row.id == clone.id
     assert row.name.endswith("_utu_2")
+
+
+def test_build_preview_uses_live_names_not_meta_examples(db):
+    from app.services.survey_whatsapp_template_service import (
+        SurveyWhatsappTemplateService,
+        template_row_has_buttons,
+    )
+
+    components = [
+        {
+            "type": "BODY",
+            "text": "Hi {{1}}! Thanks for visiting {{2}}.",
+            "example": {"body_text": [["jack", "Toyota service center"]]},
+        },
+        {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}]},
+    ]
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="welcome_named",
+        language="en_US",
+        category="UTILITY",
+        body_preview="Hi {{1}}! Thanks for visiting {{2}}.",
+        step_role="start",
+        status="APPROVED",
+        components_json=json.dumps(components),
+        example_values_json=json.dumps(["jack", "Toyota service center"]),
+    )
+    db.add(row)
+    db.commit()
+
+    preview = SurveyWhatsappTemplateService.build_preview(
+        db,
+        row,
+        business_name="Demo Dental",
+        first_name="demo",
+    )
+    body = str(preview.get("rendered_body") or "")
+    assert "demo" in body
+    assert "Demo Dental" in body
+    assert "jack" not in body.lower()
+    assert "toyota" not in body.lower()
+    assert template_row_has_buttons(row) is True
+
+
+def test_effective_components_merges_remote_buttons_when_draft_body_only(db):
+    from app.services.survey_whatsapp_template_service import (
+        _effective_components,
+        template_row_has_buttons,
+        template_row_needs_meta_approval,
+    )
+
+    remote = [
+        {"type": "BODY", "text": "Hi {{1}}, welcome."},
+        {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Start survey"}]},
+    ]
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_welcome_templates_standard_utu_2",
+        language="en_US",
+        category="UTILITY",
+        body_preview="Hi {{1}}, welcome.",
+        step_role="start",
+        status="APPROVED",
+        components_json=json.dumps(remote),
+        draft_components_json=json.dumps([{"type": "BODY", "text": "Hi {{1}}, welcome."}]),
+    )
+    db.add(row)
+    db.commit()
+
+    merged = _effective_components(row)
+    assert template_row_has_buttons(row) is True
+    assert template_row_needs_meta_approval(row) is True
+    assert any(str(c.get("type") or "").upper() == "BUTTONS" for c in merged if isinstance(c, dict))
+
+
+@patch("app.services.survey_whatsapp_conversation_service._send_whatsapp_template")
+def test_welcome_without_local_buttons_still_uses_hsm_send(mock_hsm, db):
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.survey_whatsapp_conversation_service import _send_message
+
+    mock_hsm.return_value = MagicMock(ok=True, status="sent", channel="whatsapp", detail="ok")
+
+    org = Organisation(name="Demo Org")
+    db.add(org)
+    db.commit()
+
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_welcome_templates_standard_utu_2",
+        language="en_US",
+        category="UTILITY",
+        body_preview="Hi {{1}}, tap to start.",
+        step_role="start",
+        status="APPROVED",
+        components_json=json.dumps([{"type": "BODY", "text": "Hi {{1}}, tap to start."}]),
+        draft_components_json=json.dumps([{"type": "BODY", "text": "Hi {{1}}, tap to start."}]),
+    )
+    db.add(row)
+    db.commit()
+
+    order = ServiceOrder(
+        id="ord-welcome-hsm",
+        org_id=org.id,
+        user_id="user-1",
+        service_code="survey",
+        title="Test",
+        status="running",
+        payment_status="approved",
+        config_json="{}",
+    )
+    recipient = ServiceOrderRecipient(
+        id="rec-welcome-hsm",
+        order_id=order.id,
+        row_number=1,
+        name="demo",
+        phone="+447700900123",
+        status="pending",
+        result_json="{}",
+    )
+    db.add(order)
+    db.add(recipient)
+    db.commit()
+
+    assert _send_message(
+        db,
+        order=order,
+        recipient=recipient,
+        body="Hi demo, tap to start.",
+        config={"wa_builder_test": True},
+        template_row=row,
+    )
+
+    assert mock_hsm.called
