@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.core.database import get_sessionmaker
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -68,20 +69,22 @@ def _repair_row(row) -> bool:
     return True
 
 
-def _collect_targets(db, *, industry_slug: str | None, include_buttonless: bool) -> list:
+def _collect_target_ids(db, *, industry_slug: str | None, include_buttonless: bool) -> list[int]:
     keepers = iter_survey_keeper_rows(db, industry_slug=industry_slug)
     buttoned, buttonless = split_buttoned_buttonless(keepers)
     rows = list(buttoned)
     if include_buttonless:
         rows.extend(buttonless)
-    out = []
+    out: list[TelnyxWhatsappTemplate] = []
     for row in rows:
         if not _effective_components(row):
             continue
         if not include_buttonless and not template_row_has_buttons(row):
             continue
         out.append(row)
-    return sorted(out, key=lambda r: str(r.name or r.id))
+    pairs = [(str(r.name or r.id), int(r.id)) for r in out]
+    pairs.sort(key=lambda item: item[0])
+    return [row_id for _, row_id in pairs]
 
 
 def _push_row(db, row, *, force: bool) -> dict:
@@ -105,7 +108,7 @@ def _push_with_rename_retry(db, row, *, force: bool) -> dict:
 
 def run_batch(
     db,
-    targets: list,
+    target_ids: list[int],
     *,
     offset: int,
     batch_size: int,
@@ -114,17 +117,22 @@ def run_batch(
     repair_first: bool,
     force: bool,
 ) -> dict:
-    chunk = targets[offset : offset + batch_size]
+    chunk_ids = target_ids[offset : offset + batch_size]
     ok_count = 0
     fail_count = 0
     repaired = 0
     failures: list[dict] = []
 
-    for index, row in enumerate(chunk, start=1):
-        db.refresh(row)
+    for index, row_id in enumerate(chunk_ids, start=1):
+        row = db.get(TelnyxWhatsappTemplate, int(row_id))
+        if row is None:
+            fail_count += 1
+            failures.append({"id": row_id, "name": "", "error": "template_not_found"})
+            print(f"  FAIL id={row_id}: template not found", file=sys.stderr)
+            continue
         name = str(row.name)
         global_idx = offset + index
-        print(f"[{global_idx}/{len(targets)}] id={row.id} {name} …", flush=True)
+        print(f"[{global_idx}/{len(target_ids)}] id={row.id} {name} …", flush=True)
 
         if dry_run:
             print(f"  would force-push {name}")
@@ -147,21 +155,21 @@ def run_batch(
             failures.append({"id": row.id, "name": name, "error": err})
             print(f"  FAIL {name}: {err}", file=sys.stderr)
 
-        if delay > 0 and index < len(chunk):
+        if delay > 0 and index < len(chunk_ids):
             time.sleep(delay)
 
-    next_offset = offset + len(chunk)
+    next_offset = offset + len(chunk_ids)
     return {
         "offset": offset,
         "batch_size": batch_size,
-        "processed": len(chunk),
+        "processed": len(chunk_ids),
         "ok": ok_count,
         "failed": fail_count,
         "repaired": repaired,
         "failures": failures,
         "next_offset": next_offset,
-        "has_more": next_offset < len(targets),
-        "total": len(targets),
+        "has_more": next_offset < len(target_ids),
+        "total": len(target_ids),
     }
 
 
@@ -195,14 +203,14 @@ def main() -> int:
     industry_slug = str(args.industry_slug or "").strip() or None
 
     with get_sessionmaker()() as db:
-        targets = _collect_targets(
+        target_ids = _collect_target_ids(
             db,
             industry_slug=industry_slug,
             include_buttonless=bool(args.include_buttonless),
         )
 
-    print(f"Targets: {len(targets)} survey template(s)" + (f" (industry={industry_slug})" if industry_slug else ""))
-    if not targets:
+    print(f"Targets: {len(target_ids)} survey template(s)" + (f" (industry={industry_slug})" if industry_slug else ""))
+    if not target_ids:
         print("Nothing to push.")
         return 0
 
@@ -214,7 +222,7 @@ def main() -> int:
         with get_sessionmaker()() as db:
             result = run_batch(
                 db,
-                targets,
+                target_ids,
                 offset=offset,
                 batch_size=batch_size,
                 delay=float(args.delay or 0),
@@ -237,7 +245,7 @@ def main() -> int:
     report = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "industry_slug": industry_slug,
-        "total_targets": len(targets),
+        "total_targets": len(target_ids),
         "force_approved_update": force,
         "repair_first": bool(args.repair_first),
         "include_buttonless": bool(args.include_buttonless),
