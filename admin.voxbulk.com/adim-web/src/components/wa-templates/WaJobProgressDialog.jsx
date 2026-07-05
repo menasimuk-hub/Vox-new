@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, CheckCircle2, Circle, Loader2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Circle, Loader2, Octagon, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 
@@ -72,11 +72,13 @@ export default function WaJobProgressDialog({
   reportPath = '',
   progressPct = 0,
   onClose,
+  onStop,
 }) {
   const [tab, setTab] = useState('summary')
   const running = phase === 'running'
   const done = phase === 'done'
   const failed = phase === 'error'
+  const cancelled = phase === 'cancelled'
 
   const doneCount = useMemo(() => steps.filter((s) => s.status === 'done').length, [steps])
   const totalSteps = steps.length || 1
@@ -105,6 +107,7 @@ export default function WaJobProgressDialog({
             className={cn(
               'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
               failed && 'bg-destructive/10 text-destructive',
+              cancelled && 'bg-warning/10 text-warning-foreground',
               done && 'bg-success/10 text-success',
               running && 'bg-primary/10 text-primary',
             )}
@@ -112,6 +115,7 @@ export default function WaJobProgressDialog({
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {done ? <CheckCircle2 className="h-4 w-4" /> : null}
             {failed ? <AlertTriangle className="h-4 w-4" /> : null}
+            {cancelled ? <Octagon className="h-4 w-4" /> : null}
           </div>
           <div className="min-w-0 flex-1">
             <div id="wa-job-progress-title" className="flex flex-wrap items-center gap-2 text-sm font-semibold">
@@ -125,9 +129,11 @@ export default function WaJobProgressDialog({
             <div className="mt-0.5 text-[11px] text-muted-foreground">
               {running
                 ? message || `Step ${Math.min(doneCount + 1, totalSteps)} of ${totalSteps} — working…`
-                : done
-                  ? 'Finished — review the log below'
-                  : 'Stopped with an error'}
+                : cancelled
+                  ? 'Stopped — partial results are shown below'
+                  : done
+                    ? 'Finished — review the log below'
+                    : 'Stopped with an error'}
             </div>
           </div>
           {!running ? (
@@ -145,7 +151,10 @@ export default function WaJobProgressDialog({
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
               <div
-                className={cn('h-full rounded-full transition-all', failed ? 'bg-destructive' : 'bg-primary')}
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  failed ? 'bg-destructive' : cancelled ? 'bg-warning' : 'bg-primary',
+                )}
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -172,7 +181,7 @@ export default function WaJobProgressDialog({
           ) : null}
 
           {message && running ? <p className="mb-3 text-xs text-muted-foreground">{message}</p> : null}
-          {message && (done || failed) && !error ? (
+          {message && (done || failed || cancelled) && !error ? (
             <p className="mb-3 text-xs text-muted-foreground">{message}</p>
           ) : null}
 
@@ -325,7 +334,12 @@ export default function WaJobProgressDialog({
         </div>
 
         <div className="flex justify-end gap-2 border-t px-4 py-3">
-          <Button type="button" size="sm" className="h-8 text-xs" onClick={onClose} disabled={running}>
+          {running && onStop ? (
+            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onStop}>
+              Stop
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" className="h-8 text-xs" onClick={onClose} disabled={running && !onStop}>
             {running ? 'Working…' : 'Close'}
           </Button>
         </div>

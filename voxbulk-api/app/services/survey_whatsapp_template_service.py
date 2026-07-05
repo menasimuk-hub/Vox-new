@@ -1521,6 +1521,7 @@ def _push_row_to_meta(
                 template_id=record_id,
                 components=components,
                 category=category,
+                template_name=template_name,
             )
         else:
             item = MetaWhatsappTemplateService.push_template_payload(

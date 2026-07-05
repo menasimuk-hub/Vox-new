@@ -223,12 +223,24 @@ export function consumeAdminAuthHandoffFromHash() {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
-  const ctl = new AbortController()
-  const t = window.setTimeout(() => ctl.abort(), timeoutMs)
+  const timeoutCtl = new AbortController()
+  const external = options.signal
+  const merged = new AbortController()
+  const abortMerged = () => {
+    if (!merged.signal.aborted) merged.abort()
+  }
+  timeoutCtl.signal.addEventListener('abort', abortMerged)
+  if (external) {
+    if (external.aborted) abortMerged()
+    else external.addEventListener('abort', abortMerged)
+  }
+  const t = window.setTimeout(() => timeoutCtl.abort(), timeoutMs)
   try {
-    return await fetch(url, { ...options, signal: ctl.signal })
+    return await fetch(url, { ...options, signal: merged.signal })
   } finally {
     window.clearTimeout(t)
+    timeoutCtl.signal.removeEventListener('abort', abortMerged)
+    if (external) external.removeEventListener('abort', abortMerged)
   }
 }
 
@@ -595,17 +607,22 @@ export async function apiFetch(path, options = {}) {
     res = await fetchWithTimeout(joined, { ...options, headers }, timeoutMs)
   } catch (e) {
     const msg = e?.message || String(e)
+    const userCancelled = Boolean(options.signal?.aborted)
     const isAbort =
-      (typeof e?.name === 'string' && e.name === 'AbortError') || /aborted/i.test(msg)
+      userCancelled ||
+      (typeof e?.name === 'string' && e.name === 'AbortError') ||
+      /aborted/i.test(msg)
     const isNet =
       isAbort ||
       /failed to fetch|networkerror|network request failed|load failed/i.test(msg) ||
       (typeof e?.name === 'string' && e.name === 'TypeError')
     const m = (options.method || 'GET').toString().toUpperCase()
     const secs = Math.max(1, Math.round(timeoutMs / 1000))
-    const abortMsg = isAbort
-      ? `Request timed out after ${secs}s`
-      : msg
+    const abortMsg = userCancelled
+      ? 'Request cancelled'
+      : isAbort
+        ? `Request timed out after ${secs}s`
+        : msg
     const hint = isAbort
       ? quietNetworkHint
         ? `\n(Long-running admin jobs can exceed the browser wait — try again or raise the call timeoutMs.)`

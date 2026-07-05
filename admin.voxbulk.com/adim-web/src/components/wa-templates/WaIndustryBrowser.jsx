@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -7,6 +7,7 @@ import { apiFetch } from '../../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import {
   buildIndustrySyncJobDone,
+  buildIndustrySyncJobCancelled,
   buildIndustrySyncJobProgress,
   createIndustrySyncJob,
   EMPTY_INDUSTRY_SYNC_JOB,
@@ -494,6 +495,12 @@ export default function WaIndustryBrowser({
   const [industrySyncing, setIndustrySyncing] = useState(false)
   const [deletingIndustry, setDeletingIndustry] = useState(false)
   const [syncJob, setSyncJob] = useState(EMPTY_INDUSTRY_SYNC_JOB)
+  const syncAbortRef = useRef(null)
+  const syncAccRef = useRef(null)
+
+  const stopIndustrySync = () => {
+    syncAbortRef.current?.abort()
+  }
 
   const patchSyncJobStep = (id, patch) => {
     setSyncJob((prev) => ({
@@ -591,11 +598,17 @@ export default function WaIndustryBrowser({
   const syncIndustry = async () => {
     if (!industry?.id) return
 
+    syncAbortRef.current?.abort()
+    const controller = new AbortController()
+    syncAbortRef.current = controller
+    syncAccRef.current = null
+
     setIndustrySyncing(true)
     setSyncJob(createIndustrySyncJob(`Sync ${industry.name} with Meta`))
     patchSyncJobStep('push', { status: 'running', detail: 'Pushing templates to Meta…' })
 
     const applyProgress = (acc, { running = true } = {}) => {
+      syncAccRef.current = acc
       const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
       setSyncJob((prev) => ({
         ...prev,
@@ -610,12 +623,18 @@ export default function WaIndustryBrowser({
       const acc =
         product === 'feedback'
           ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
+              signal: controller.signal,
               onProgress: ({ acc: partial, running }) => {
-                if (partial) applyProgress(partial, { running: running !== false })
+                if (partial) {
+                  syncAccRef.current = partial
+                  applyProgress(partial, { running: running !== false })
+                }
               },
             })
           : await runWaIndustryPushAll(apiFetch, industry.id, {
+              signal: controller.signal,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
+                if (partial) syncAccRef.current = partial
                 if (step === 'pull') {
                   patchSyncJobStep('push', { status: 'done', detail: 'Push complete' })
                   patchSyncJobStep('pull', {
@@ -651,6 +670,21 @@ export default function WaIndustryBrowser({
       await loadIndustryRows(industry)
       onReloadIndustries?.()
     } catch (e) {
+      if (e?.name === 'IndustrySyncCancelledError' || controller.signal.aborted) {
+        const partial = syncAccRef.current || {
+          total: 0,
+          results: [],
+          errors: [],
+          content_updated: 0,
+          error_count: 0,
+        }
+        const doneState = buildIndustrySyncJobCancelled(partial, { industryName: industry.name })
+        patchSyncJobStep('push', { status: 'error', detail: 'Stopped' })
+        patchSyncJobStep('pull', { status: 'pending', detail: 'Skipped — sync stopped before pull' })
+        setSyncJob((prev) => ({ ...prev, ...doneState, open: true, steps: prev.steps }))
+        onMessage?.(doneState.message)
+        return
+      }
       const errText = formatWaSurveyError(e, 'Industry sync failed').detailText || e?.message
       onError?.(errText)
       setSyncJob((prev) => ({
@@ -660,6 +694,7 @@ export default function WaIndustryBrowser({
         open: true,
       }))
     } finally {
+      if (syncAbortRef.current === controller) syncAbortRef.current = null
       setIndustrySyncing(false)
     }
   }
@@ -802,6 +837,7 @@ export default function WaIndustryBrowser({
           error={syncJob.error}
           reportPath={syncJob.reportPath}
           progressPct={syncJob.progressPct}
+          onStop={industrySyncing ? stopIndustrySync : undefined}
           onClose={() => setSyncJob(EMPTY_INDUSTRY_SYNC_JOB)}
         />
       </div>

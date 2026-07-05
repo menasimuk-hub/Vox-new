@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
@@ -7,6 +7,7 @@ import { apiFetch } from '../lib/api'
 import { formatWaSurveyError } from '../lib/waSurveyFeedback'
 import {
   buildIndustrySyncJobDone,
+  buildIndustrySyncJobCancelled,
   buildIndustrySyncJobProgress,
   createIndustrySyncJob,
   EMPTY_INDUSTRY_SYNC_JOB,
@@ -85,7 +86,13 @@ export default function WaSurveyIndustryEdit() {
 
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncJob, setSyncJob] = useState(EMPTY_INDUSTRY_SYNC_JOB)
+  const syncAbortRef = useRef(null)
+  const syncAccRef = useRef(null)
   const [orgs, setOrgs] = useState([])
+
+  const stopIndustrySync = () => {
+    syncAbortRef.current?.abort()
+  }
 
   const patchSyncJobStep = (id, patch) => {
     setSyncJob((prev) => ({
@@ -429,6 +436,11 @@ export default function WaSurveyIndustryEdit() {
 
     if (!industry?.id) return
 
+    syncAbortRef.current?.abort()
+    const controller = new AbortController()
+    syncAbortRef.current = controller
+    syncAccRef.current = null
+
     setSyncBusy(true)
 
     setError('')
@@ -440,6 +452,7 @@ export default function WaSurveyIndustryEdit() {
     patchSyncJobStep('push', { status: 'running', detail: 'Pushing templates to Meta…' })
 
     const applyProgress = (acc, { running = true } = {}) => {
+      syncAccRef.current = acc
       const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
       setSyncJob((prev) => ({ ...prev, ...progress, open: true, title: prev.title, steps: prev.steps }))
     }
@@ -447,8 +460,11 @@ export default function WaSurveyIndustryEdit() {
     try {
 
       const acc = await runWaIndustryPushAll(apiFetch, industry.id, {
+        signal: controller.signal,
 
         onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
+
+          if (partial) syncAccRef.current = partial
 
           if (step === 'pull') {
 
@@ -514,6 +530,22 @@ export default function WaSurveyIndustryEdit() {
 
     } catch (err) {
 
+      if (err?.name === 'IndustrySyncCancelledError' || controller.signal.aborted) {
+        const partial = syncAccRef.current || {
+          total: 0,
+          results: [],
+          errors: [],
+          content_updated: 0,
+          error_count: 0,
+        }
+        const doneState = buildIndustrySyncJobCancelled(partial, { industryName: industry.name })
+        patchSyncJobStep('push', { status: 'error', detail: 'Stopped' })
+        patchSyncJobStep('pull', { status: 'pending', detail: 'Skipped — sync stopped before pull' })
+        setSyncJob((prev) => ({ ...prev, ...doneState, steps: prev.steps }))
+        setMsg(doneState.message)
+        return
+      }
+
       const errText = formatWaSurveyError(err, 'Sync all survey types to Telnyx failed').message
 
       setError(errText)
@@ -530,6 +562,7 @@ export default function WaSurveyIndustryEdit() {
 
     } finally {
 
+      if (syncAbortRef.current === controller) syncAbortRef.current = null
       setSyncBusy(false)
 
     }
@@ -1175,6 +1208,7 @@ export default function WaSurveyIndustryEdit() {
         error={syncJob.error}
         reportPath={syncJob.reportPath}
         progressPct={syncJob.progressPct}
+        onStop={syncBusy ? stopIndustrySync : undefined}
         onClose={() => setSyncJob(EMPTY_INDUSTRY_SYNC_JOB)}
       />
 

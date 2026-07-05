@@ -116,6 +116,17 @@ function buildSummaryRows(acc) {
   ]
 }
 
+export class IndustrySyncCancelledError extends Error {
+  constructor() {
+    super('Sync stopped')
+    this.name = 'IndustrySyncCancelledError'
+  }
+}
+
+function throwIfCancelled(signal) {
+  if (signal?.aborted) throw new IndustrySyncCancelledError()
+}
+
 export function buildIndustrySyncJobProgress(acc, { running = true, industryName = '' } = {}) {
   const processed = (acc.results?.length || 0) + (acc.errors?.length || 0)
   const total = acc.total || 0
@@ -137,7 +148,18 @@ export function buildIndustrySyncJobProgress(acc, { running = true, industryName
   }
 }
 
-export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } = {}) {
+export function buildIndustrySyncJobCancelled(acc, { industryName = '' } = {}) {
+  const processed = (acc.results?.length || 0) + (acc.errors?.length || 0)
+  const base = buildIndustrySyncJobProgress(acc, { running: false, industryName })
+  return {
+    ...base,
+    phase: 'cancelled',
+    message: `Stopped — ${processed} of ${acc.total || '?'} template(s) processed for ${industryName || 'industry'}`,
+    error: '',
+  }
+}
+
+export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, signal } = {}) {
   const acc = {
     content_updated: 0,
     refreshed: 0,
@@ -155,6 +177,7 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } 
   const path = `/admin/wa-survey/industries/${encodeURIComponent(industryId)}/templates/push-all`
 
   for (;;) {
+    throwIfCancelled(signal)
     batchNum += 1
     onProgress?.({ batchNum, offset, step: 'push', acc: { ...acc }, running: true })
     const summary = await apiFetch(path, {
@@ -168,6 +191,7 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } 
       }),
       timeoutMs: 300000,
       quietNetworkHint: true,
+      signal,
     })
     const flat = flattenIndustryPushBatch(summary)
     acc.content_updated += flat.content_updated
@@ -184,6 +208,7 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } 
     offset = flat.next_offset
   }
 
+  throwIfCancelled(signal)
   onProgress?.({ step: 'pull', acc: { ...acc }, running: true })
   try {
     const pullSummary = await apiFetch(path, {
@@ -191,10 +216,12 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } 
       body: JSON.stringify({ phase: 'pull' }),
       timeoutMs: 300000,
       quietNetworkHint: true,
+      signal,
     })
     acc.pull = pullSummary?.pull || pullSummary
     acc.ok = acc.ok && pullSummary?.ok !== false
   } catch (e) {
+    if (signal?.aborted || e?.name === 'IndustrySyncCancelledError') throwIfCancelled(signal)
     acc.ok = false
     acc.error_count += 1
     acc.errors.push({
@@ -211,13 +238,15 @@ export function buildIndustrySyncJobDone(acc, industryName) {
   return buildIndustrySyncJobProgress(acc, { running: false, industryName })
 }
 
-export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onProgress } = {}) {
+export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onProgress, signal } = {}) {
+  throwIfCancelled(signal)
   onProgress?.({ running: true, acc: { total: 0, results: [], errors: [] } })
   const summary = await apiFetch(`/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/sync-telnyx`, {
     method: 'POST',
     body: '{}',
     timeoutMs: 600000,
     quietNetworkHint: true,
+    signal,
   })
   const push = summary?.push || summary
   const results = (push.results || []).map((r) => ({

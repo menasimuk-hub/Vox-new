@@ -365,6 +365,12 @@ def enrich_template_push_error_payload(
         "blocking": bool(kind),
         "retry_allowed": not bool(kind),
     }
+    if kind == META_ERROR_CANNOT_UPDATE_CATEGORY:
+        payload["requires_rename"] = True
+        payload["requires_utility_clone"] = True
+        payload["suggested_template_name"] = suggest_utility_clone_template_name(
+            str(template_name or ""),
+        )
     if kind == META_ERROR_LANGUAGE_DELETION_LOCK:
         payload["requires_rename"] = True
         payload["suggested_template_name"] = suggest_alternate_template_name(

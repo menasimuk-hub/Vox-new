@@ -10,6 +10,7 @@ from app.core.database import get_sessionmaker
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateError, SurveyWhatsappTemplateService
 from app.services.wa_template_meta_sync import (
+    META_ERROR_CANNOT_UPDATE_CATEGORY,
     META_ERROR_LANGUAGE_DELETION_LOCK,
     META_ERROR_LANGUAGE_UNSUPPORTED,
     META_ERROR_CONTENT_ALREADY_EXISTS,
@@ -20,6 +21,7 @@ from app.services.wa_template_meta_sync import (
     normalize_wa_template_language,
     parse_meta_error_from_provider_detail,
     suggest_alternate_template_name,
+    suggest_utility_clone_template_name,
     validate_wa_template_name,
 )
 
@@ -94,6 +96,27 @@ def test_enrich_push_error_payload_language_fix():
         template_name="voxbulk_survey_foo_standard",
         language="English (US)",
     )
+
+
+def test_enrich_push_error_payload_utility_clone_suggestion():
+    template_name = "voxbulk_survey_feeling_valued_abc_9cfc39"
+    payload = enrich_template_push_error_payload(
+        message="Push failed",
+        template_name=template_name,
+        language="en_GB",
+        provider_error='meta api error: {"error":{"error_subcode":3835031}}',
+        status_code=422,
+    )
+    assert payload["meta_error_kind"] == META_ERROR_CANNOT_UPDATE_CATEGORY
+    assert payload["requires_utility_clone"] is True
+    assert payload["suggested_template_name"] == suggest_utility_clone_template_name(template_name)
+    guidance = admin_guidance_for_meta_error(
+        kind=META_ERROR_CANNOT_UPDATE_CATEGORY,
+        template_name=template_name,
+        language="en_GB",
+    )
+    assert template_name in guidance
+    assert "2781845445526113" not in guidance
 
 
 def test_validate_wa_template_name():

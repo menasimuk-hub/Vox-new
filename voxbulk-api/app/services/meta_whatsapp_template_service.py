@@ -135,6 +135,7 @@ class MetaWhatsappTemplateService:
         template_id: str,
         components: list[Any],
         category: str | None = None,
+        template_name: str | None = None,
     ) -> dict[str, Any]:
         """Edit an existing Meta template in place (same name) — status returns to PENDING for re-review."""
         config = require_meta_whatsapp_primary(db)
@@ -160,7 +161,7 @@ class MetaWhatsappTemplateService:
         except MetaWhatsappServiceError as exc:
             raise _meta_template_error_from_service_exc(
                 exc,
-                template_name=raw_id,
+                template_name=str(template_name or raw_id),
                 language="",
             ) from exc
         meta_id = str(body.get("id") or raw_id).strip()
