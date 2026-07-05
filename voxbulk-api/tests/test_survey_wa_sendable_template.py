@@ -618,3 +618,26 @@ def test_template_row_must_send_as_session_text_for_no_button_kinds(db):
     db.commit()
     assert template_row_must_send_as_session_text(rating) is False
     assert template_row_needs_meta_approval(rating) is True
+
+
+def test_survey_template_to_dict_strips_legacy_done_for_thank_you(db):
+    from app.services.survey_whatsapp_template_service import survey_template_to_dict
+
+    row = _session_text_row(
+        db,
+        name="voxbulk_survey_thank_you_standard",
+        step_role="completion",
+        body="Thank you {{1}} for your feedback.",
+        components=[
+            {"type": "BODY", "text": "Thank you {{1}} for your feedback."},
+            {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Done"}]},
+        ],
+    )
+    row.draft_components_json = json.dumps([{"type": "BODY", "text": "Thank you {{1}} for your feedback."}])
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    payload = survey_template_to_dict(row)
+    assert payload["send_mode"] == "session_text"
+    assert payload["buttons"] == []

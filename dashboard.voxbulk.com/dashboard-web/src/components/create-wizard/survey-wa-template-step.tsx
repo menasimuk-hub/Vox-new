@@ -18,6 +18,7 @@ export type WaBuilderTemplateRow = {
 };
 
 function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string; type?: string }> {
+  if (String(row.send_mode || "").toLowerCase() === "session_text") return [];
   const raw = row.buttons;
   if (!Array.isArray(raw)) return [];
   return raw

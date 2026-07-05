@@ -557,14 +557,40 @@ class SurveySystemTemplateService:
         from app.services.survey_whatsapp_template_service import (
             resolve_sendable_template_row,
             template_row_is_sendable_on_meta,
+            template_row_must_send_as_session_text,
         )
 
+        if template_row_must_send_as_session_text(tpl):
+            return tpl
         if template_row_is_sendable_on_meta(tpl):
             return tpl
         sendable = resolve_sendable_template_row(db, tpl)
         if sendable is not None and sendable.active_for_survey:
             return sendable
         return tpl
+
+    @staticmethod
+    def is_builder_listed_system_template_id(db: Session, template_id: int, kind: str) -> bool:
+        """True when template id appears in dashboard system-templates list for kind."""
+        try:
+            tid = int(template_id)
+        except (TypeError, ValueError):
+            return False
+        listed_ids: set[int] = set()
+        for st_id in SurveySystemTemplateService._system_survey_type_ids_for_kind(db, kind):
+            mappings = list(
+                db.execute(
+                    select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == st_id)
+                ).scalars()
+            )
+            for mapping in mappings:
+                tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
+                if tpl is None:
+                    continue
+                listed = SurveySystemTemplateService.picker_row_for_mapped_system_template(db, tpl)
+                if listed is not None:
+                    listed_ids.add(int(listed.id))
+        return tid in listed_ids
 
     @staticmethod
     def list_templates_for_builder(db: Session) -> dict[str, Any]:

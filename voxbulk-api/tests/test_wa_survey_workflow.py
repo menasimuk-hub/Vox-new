@@ -1427,3 +1427,164 @@ def test_dashboard_system_templates_hide_disabled_welcome_without_clone_substitu
     listed_all_hidden = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
     assert listed_all_hidden.status_code == 200
     assert listed_all_hidden.json().get("templates", {}).get("welcome", []) == []
+
+
+def test_dashboard_thank_you_listing_has_no_done_button(app_client):
+    from tests.test_agent_architecture import _headers
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    headers, _org_id, _category_id = _headers(app_client)
+    with get_sessionmaker()() as db:
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        thank_type = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "thank_you").limit(1)
+        ).scalar_one()
+        thank = TelnyxWhatsappTemplate(
+            telnyx_record_id=str(uuid.uuid4()),
+            template_id=str(uuid.uuid4()),
+            name="voxbulk_survey_thank_you_preview",
+            display_name="Thank you",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="completion",
+            variant_type="standard",
+            privacy_mode="off",
+            body_preview="Thanks {{1}}!",
+            draft_components_json=json.dumps([{"type": "BODY", "text": "Thanks {{1}}!"}]),
+            components_json=json.dumps(
+                [
+                    {"type": "BODY", "text": "Thanks {{1}}!"},
+                    {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Done"}]},
+                ]
+            ),
+            active_for_survey=True,
+        )
+        db.add(thank)
+        db.flush()
+        SurveySystemTemplateService._ensure_system_mapping(db, survey_type=thank_type, template=thank)
+        db.commit()
+
+    listed = app_client.get("/dashboard/service-scripts/wa-survey/system-templates", headers=headers)
+    assert listed.status_code == 200
+    thank_rows = listed.json().get("templates", {}).get("thank_you", [])
+    assert thank_rows
+    row = thank_rows[0]
+    assert row.get("send_mode") == "session_text"
+    assert row.get("buttons") == []
+
+
+def test_validate_accepts_parent_welcome_after_hiding_clone(app_client):
+    from app.services.survey_builder_validation_service import SurveyBuilderValidationService
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+    from tests.test_survey_builder_validation import _meta_remote_ids, _regular_type, _sendable_components_json
+
+    with get_sessionmaker()() as db:
+        from app.services.industry_service import IndustryService
+        from app.services.platform_catalog_service import PlatformCatalogService
+        from app.services.survey_type_service import SurveyTypeService
+
+        PlatformCatalogService.ensure_defaults(db)
+        IndustryService.ensure_defaults(db)
+        SurveyTypeService.ensure_defaults(db)
+        industry, st = _regular_type(db)
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        welcome_type = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "welcome").limit(1)
+        ).scalar_one()
+        thank_types = db.execute(
+            select(SurveyType).where(SurveyType.system_template_kind == "thank_you")
+        ).scalars().all()
+        rid, tid = _meta_remote_ids()
+        parent_rid, parent_tid = _meta_remote_ids()
+        thank_rid, thank_tid = _meta_remote_ids()
+        now = datetime.utcnow()
+        parent = TelnyxWhatsappTemplate(
+            telnyx_record_id=parent_rid,
+            template_id=parent_tid,
+            name="voxbulk_survey_welcome_parent_gen",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="start",
+            active_for_survey=True,
+            components_json=_sendable_components_json(),
+            created_at=now,
+            updated_at=now,
+        )
+        clone = TelnyxWhatsappTemplate(
+            telnyx_record_id=rid,
+            template_id=tid,
+            name="voxbulk_survey_welcome_clone_gen",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="start",
+            active_for_survey=True,
+            components_json=_sendable_components_json(),
+            created_at=now,
+            updated_at=now,
+        )
+        thank_tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=thank_rid,
+            template_id=thank_tid,
+            name="voxbulk_survey_thank_gen",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="completion",
+            survey_type_id=thank_types[0].id,
+            active_for_survey=True,
+            components_json=_sendable_components_json(),
+            created_at=now,
+            updated_at=now,
+        )
+        middle_rid, middle_tid = _meta_remote_ids()
+        middle_tpl = TelnyxWhatsappTemplate(
+            telnyx_record_id=middle_rid,
+            template_id=middle_tid,
+            name="voxbulk_survey_middle_gen",
+            language="en_US",
+            category="UTILITY",
+            status="APPROVED",
+            step_role="rating",
+            survey_type_id=st.id,
+            active_for_survey=True,
+            components_json=_sendable_components_json(),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add_all([parent, clone, thank_tpl, middle_tpl])
+        db.flush()
+        clone.parent_template_id = int(parent.id)
+        db.add(
+            SurveyTypeTemplate(
+                survey_type_id=welcome_type.id,
+                template_id=parent.id,
+                industry_id=welcome_type.industry_id,
+            )
+        )
+        db.add(
+            SurveyTypeTemplate(
+                survey_type_id=thank_types[0].id,
+                template_id=thank_tpl.id,
+                industry_id=thank_types[0].industry_id,
+            )
+        )
+        db.add(SurveyTypeTemplate(survey_type_id=st.id, template_id=middle_tpl.id, industry_id=industry.id))
+        db.commit()
+
+        clone.active_for_survey = False
+        db.commit()
+
+        result = SurveyBuilderValidationService.validate_builder_selection(
+            db,
+            industry_id=industry.id,
+            selected_survey_type_ids=[st.id],
+            welcome_template_id=parent.id,
+            thank_you_template_id=thank_tpl.id,
+            selected_middle_template_ids=[middle_tpl.id],
+            require_approved=True,
+        )
+        assert result["ok"] is True
+        assert result["welcome_template_id"] == parent.id

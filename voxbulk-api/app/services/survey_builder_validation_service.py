@@ -242,11 +242,17 @@ class SurveyBuilderValidationService:
                 errors.append(f"{label} template id is invalid.")
                 continue
             tpl = db.get(TelnyxWhatsappTemplate, tpl_int)
-            if tpl is None or not tpl.active_for_survey:
+            if tpl is None:
                 errors.append(f"{label} template not found.")
                 continue
-            if not SurveySystemTemplateService.template_mapped_to_system_kind(db, tpl_int, kind):
-                errors.append(f"{label} template must be from system {kind} templates.")
+            if not tpl.active_for_survey:
+                errors.append(f"{label} template is hidden in Admin — select another.")
+                continue
+            if not SurveySystemTemplateService.is_builder_listed_system_template_id(db, tpl_int, kind):
+                if SurveySystemTemplateService.template_mapped_to_system_kind(db, tpl_int, kind):
+                    errors.append(f"{label} template is hidden in Admin — select another.")
+                else:
+                    errors.append(f"{label} template must be from system {kind} templates.")
                 continue
             if require_approved:
                 SurveyBuilderValidationService._assert_meta_sendable(db, tpl, label, errors)

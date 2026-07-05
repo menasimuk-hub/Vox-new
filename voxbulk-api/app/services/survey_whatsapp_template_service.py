@@ -823,6 +823,28 @@ def _effective_components(row: TelnyxWhatsappTemplate) -> list[Any]:
     return _merge_draft_with_remote_components(draft_list, remote_list)
 
 
+def _dashboard_components_for_row(row: TelnyxWhatsappTemplate) -> list[Any]:
+    """Dashboard preview/API payload — draft-only for session-text (no legacy Meta BUTTONS)."""
+    if template_row_must_send_as_session_text(row):
+        draft = _loads(row.draft_components_json)
+        if isinstance(draft, list) and draft:
+            return draft
+        remote = _loads(row.components_json)
+        remote_list = remote if isinstance(remote, list) else []
+        return [
+            c
+            for c in remote_list
+            if isinstance(c, dict) and str(c.get("type") or "").upper() != "BUTTONS"
+        ]
+    return _effective_components(row)
+
+
+def template_row_send_mode(row: TelnyxWhatsappTemplate | None) -> str:
+    if template_row_must_send_as_session_text(row):
+        return "session_text"
+    return "meta_hsm"
+
+
 def _is_local_row(row: TelnyxWhatsappTemplate) -> bool:
     rid = str(row.telnyx_record_id or "").strip()
     if rid and not rid.startswith(_LOCAL_ID_PREFIX):
@@ -1671,7 +1693,7 @@ def survey_template_to_dict(
     linked_survey_type_count: int | None = None,
 ) -> dict[str, Any]:
     base = template_to_dict(row)
-    components = _effective_components(row)
+    components = _dashboard_components_for_row(row)
     sync_status = _refresh_local_sync_status(row)
     row.local_sync_status = sync_status
     var_ids = _meta_var_ids_in_components(components)
@@ -1702,6 +1724,7 @@ def survey_template_to_dict(
         "draft_components": _loads(row.draft_components_json),
         "remote_components": _loads(row.components_json),
         "buttons": _buttons_from_components(components),
+        "send_mode": template_row_send_mode(row),
         "footer": next(
             (
                 str(c.get("text") or "")

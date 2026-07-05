@@ -82,6 +82,7 @@ function templateTitle(
 }
 
 function buttonsFromRow(row: Record<string, unknown>): string[] {
+  if (String(row.send_mode || "").toLowerCase() === "session_text") return [];
   const raw = row.buttons;
   if (!Array.isArray(raw)) return [];
   return raw

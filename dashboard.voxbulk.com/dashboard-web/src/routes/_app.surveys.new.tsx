@@ -1002,6 +1002,22 @@ function CreateSurvey() {
     }
   }, [welcomeTemplates, thankYouTemplates, welcomeTemplateId, thankYouTemplateId]);
 
+  React.useEffect(() => {
+    if (!systemTemplatesQ.isSuccess) return;
+    if (!welcomeTemplateId && welcomeTemplates.length === 1) {
+      setWelcomeTemplateId(String(welcomeTemplates[0].id));
+    }
+    if (!thankYouTemplateId && thankYouTemplates.length === 1) {
+      setThankYouTemplateId(String(thankYouTemplates[0].id));
+    }
+  }, [
+    systemTemplatesQ.isSuccess,
+    welcomeTemplates,
+    thankYouTemplates,
+    welcomeTemplateId,
+    thankYouTemplateId,
+  ]);
+
   const toggleServiceTag = (typeId: string) => {
     setSelectedServiceTagIds((prev) => {
       if (prev.includes(typeId)) return prev.filter((id) => id !== typeId);
@@ -1034,6 +1050,7 @@ function CreateSurvey() {
 
   const step3SelectionErrors = React.useMemo(() => {
     const errors: string[] = [];
+    if (!systemTemplatesQ.isSuccess) errors.push("Loading WhatsApp templates…");
     if (!welcomeTemplateId) errors.push("Select a welcome template.");
     if (!thankYouTemplateId) errors.push("Select a thank-you template.");
     for (const id of orderedTypeIds) {
@@ -1043,7 +1060,14 @@ function CreateSurvey() {
       if (!templateId) errors.push(`Select a template for "${String(row.name)}".`);
     }
     return errors;
-  }, [orderedTypeIds, serviceTypes, welcomeTemplateId, thankYouTemplateId, selectedServiceTemplateIds]);
+  }, [
+    systemTemplatesQ.isSuccess,
+    orderedTypeIds,
+    serviceTypes,
+    welcomeTemplateId,
+    thankYouTemplateId,
+    selectedServiceTemplateIds,
+  ]);
 
   React.useEffect(() => {
     if (generateErrors.length && step3SelectionErrors.length === 0) {
