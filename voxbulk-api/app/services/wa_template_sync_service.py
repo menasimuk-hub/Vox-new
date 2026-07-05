@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -86,7 +87,7 @@ def _row_needs_push(row: TelnyxWhatsappTemplate) -> bool:
 
 
 def _apply_live_meta_to_row(db: Session, row: TelnyxWhatsappTemplate, live: dict[str, Any]) -> None:
-    """Refresh approval status from Meta only — never overwrite local draft/body text."""
+    """Refresh approval status from Meta; optionally import body for system templates when Meta sync is on."""
     from app.services.survey_whatsapp_template_service import _apply_remote_link_only
 
     status = str(live.get("status") or "UNKNOWN").strip().upper()
@@ -99,6 +100,17 @@ def _apply_live_meta_to_row(db: Session, row: TelnyxWhatsappTemplate, live: dict
         row.last_push_error = None
     if not _has_remote_telnyx_id(row):
         _apply_remote_link_only(db, row, live)
+    remote_components = live.get("components")
+    if isinstance(remote_components, str):
+        try:
+            remote_components = json.loads(remote_components)
+        except json.JSONDecodeError:
+            remote_components = None
+    if isinstance(remote_components, list):
+        row.components_json = json.dumps(remote_components)
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        WaSystemTemplateRoutingService.apply_survey_remote_content_to_row(db, row, remote_components)
     row.local_sync_status = _refresh_local_sync_status(row)
 
 

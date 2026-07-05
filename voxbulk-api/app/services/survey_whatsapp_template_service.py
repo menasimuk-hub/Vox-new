@@ -830,11 +830,17 @@ def template_row_needs_meta_approval(row: TelnyxWhatsappTemplate | None) -> bool
     return "welcome" in str(row.name or "").lower()
 
 
-def _effective_components(row: TelnyxWhatsappTemplate) -> list[Any]:
+def _effective_components(row: TelnyxWhatsappTemplate, *, db: Session | None = None) -> list[Any]:
     draft = _loads(row.draft_components_json)
     remote = _loads(row.components_json)
     draft_list = draft if isinstance(draft, list) and draft else []
     remote_list = remote if isinstance(remote, list) else []
+    if db is not None:
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        return WaSystemTemplateRoutingService.survey_effective_components(
+            db, row, draft_list=draft_list, remote_list=remote_list
+        )
     return _merge_draft_with_remote_components(draft_list, remote_list)
 
 

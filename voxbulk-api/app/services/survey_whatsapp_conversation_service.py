@@ -1399,6 +1399,7 @@ def _send_whatsapp_template(
     template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
         sendable,
         variables=variables,
+        db=db,
     )
     send_id = send_template_id_for_row(sendable)
     rendered = str(body or preview.get("rendered_body") or sendable.body_preview or "Survey message").strip()

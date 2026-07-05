@@ -11,6 +11,10 @@ from app.models.customer_feedback import FeedbackWaTemplate
 from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 from app.services.customer_feedback.feedback_telnyx_push_service import (
     FeedbackTelnyxPushError,
+    _apply_remote_status,
+    feedback_meta_template_name,
+    find_remote_feedback_template,
+    normalize_feedback_language,
     push_feedback_template_to_telnyx,
 )
 from app.services.customer_feedback.survey_config_service import SYSTEM_TEMPLATE_KEYS
@@ -61,6 +65,64 @@ class FeedbackSystemTemplateService:
                 for meta in CF_SYSTEM_TEMPLATE_META
             ],
             "system_template_keys": sorted(SYSTEM_TEMPLATE_KEYS),
+            "routing": FeedbackSystemTemplateService.routing_settings(db),
+        }
+
+    @staticmethod
+    def routing_settings(db: Session) -> dict[str, Any]:
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        return WaSystemTemplateRoutingService.get_settings(db, "feedback")
+
+    @staticmethod
+    def update_routing_settings(db: Session, *, template_source: str) -> dict[str, Any]:
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        return WaSystemTemplateRoutingService.update_settings(db, "feedback", template_source=template_source)
+
+    @staticmethod
+    def pull_from_meta(db: Session) -> dict[str, Any]:
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+        rows = list(
+            db.execute(
+                select(FeedbackWaTemplate)
+                .where(
+                    FeedbackWaTemplate.industry_id.is_(None),
+                    FeedbackWaTemplate.survey_type_id.is_(None),
+                )
+                .order_by(FeedbackWaTemplate.template_key)
+            ).scalars().all()
+        )
+        remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        matched = 0
+        updated = 0
+        errors: list[dict[str, Any]] = []
+        for row in rows:
+            key = str(row.template_key or "").strip()
+            if key not in SYSTEM_TEMPLATE_KEYS:
+                continue
+            try:
+                meta_name = feedback_meta_template_name(row)
+                language = normalize_feedback_language(row.language)
+                remote = find_remote_feedback_template(remote_items, name=meta_name, language=language)
+                if remote is None:
+                    continue
+                matched += 1
+                before = str(row.body_text or "")
+                _apply_remote_status(db, row, remote)
+                if str(row.body_text or "") != before:
+                    updated += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"template_id": row.id, "template_key": key, "error": str(exc)[:200]})
+        db.commit()
+        return {
+            "ok": len(errors) == 0,
+            "matched": matched,
+            "updated": updated,
+            "failed": len(errors),
+            "errors": errors,
+            "message": f"Pulled {matched} system template(s) from Meta ({updated} body updated)",
         }
 
     @staticmethod

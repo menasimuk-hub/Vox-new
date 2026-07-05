@@ -590,11 +590,43 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
     }
 
 
+@router.get("/system-templates/routing")
+def get_system_template_routing(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
+
+    return FeedbackSystemTemplateService.routing_settings(db)
+
+
+@router.patch("/system-templates/routing")
+def patch_system_template_routing(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
+    from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingError
+
+    body = payload or {}
+    try:
+        return FeedbackSystemTemplateService.update_routing_settings(
+            db, template_source=str(body.get("template_source") or "")
+        )
+    except WaSystemTemplateRoutingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/system-templates")
 def list_system_templates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
 
     return FeedbackSystemTemplateService.list_grouped_admin(db)
+
+
+@router.post("/system-templates/pull-from-meta")
+def pull_system_templates_from_meta(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
+
+    return FeedbackSystemTemplateService.pull_from_meta(db)
 
 
 @router.post("/system-templates/push-all")

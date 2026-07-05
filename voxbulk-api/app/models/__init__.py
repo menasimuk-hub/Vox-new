@@ -65,6 +65,7 @@ from app.models.survey_session import (  # noqa: F401
 )
 from app.models.survey_voice_note_job import SurveyVoiceNoteJob  # noqa: F401
 from app.models.wa_survey_platform_settings import WaSurveyPlatformSettings  # noqa: F401
+from app.models.wa_system_template_routing_settings import WaSystemTemplateRoutingSettings  # noqa: F401
 from app.models.survey_flow import (  # noqa: F401
     SurveyFlowDefinition,
     SurveyFlowEdge,

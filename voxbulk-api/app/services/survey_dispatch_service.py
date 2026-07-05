@@ -298,6 +298,7 @@ class SurveyDispatchService:
                     template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
                         template_row,
                         variables={"first_name": first, "clinic_name": org_name, "organisation_name": org_name},
+                        db=db,
                     )
                 elif raw_row is not None:
                     from app.services.survey_whatsapp_template_service import template_row_needs_meta_approval

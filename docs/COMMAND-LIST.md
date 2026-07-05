@@ -185,6 +185,27 @@ cat seed-data/customer-feedback/push-reports/push-all-feedback-*.json
 
 Check **Admin → Customer Feedback → industry → Sync status**, or **WhatsApp Manager** for names prefixed `voxbulk_cf_`.
 
+### 7) System templates — local vs Meta sync (Survey + Feedback)
+
+In **Admin → WA Templates → Survey or Feedback tab → System templates**:
+
+| Mode | Behaviour |
+|------|-----------|
+| **Keep local** (default) | Admin draft/body is source of truth; **Sync** pushes local → Meta; pull updates status only |
+| **Sync from Meta** | **Pull all from Meta** imports approved body/buttons into local; sends route from Meta mirror |
+
+API (optional):
+
+```bash
+# Survey
+curl -X PATCH .../admin/wa-survey/system-templates/routing -d '{"template_source":"meta_sync"}'
+curl -X POST .../admin/wa-survey/system-templates/pull-from-meta
+
+# Feedback
+curl -X PATCH .../admin/customer-feedback/system-templates/routing -d '{"template_source":"local"}'
+curl -X POST .../admin/customer-feedback/system-templates/pull-from-meta
+```
+
 
 ---
 

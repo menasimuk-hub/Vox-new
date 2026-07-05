@@ -232,6 +232,9 @@ def map_remote_meta_status_to_local(remote_status: str | None) -> str:
 
 
 def _apply_remote_status(db: Session, tpl: FeedbackWaTemplate, remote: dict[str, Any]) -> str:
+    from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+    WaSystemTemplateRoutingService.apply_feedback_remote_content_to_row(db, tpl, remote)
     local_status = map_remote_meta_status_to_local(remote.get("status"))
     now = datetime.utcnow()
     tpl.telnyx_sync_status = local_status

@@ -945,13 +945,14 @@ class TelnyxWhatsappTemplateSyncService:
         row: TelnyxWhatsappTemplate | None,
         *,
         variables: dict[str, str] | None = None,
+        db: Session | None = None,
     ) -> list[dict[str, Any]] | None:
         if row is None:
             return None
         vars_ = variables or TEST_TEMPLATE_VARIABLES
         from app.services.survey_whatsapp_template_service import _effective_components
 
-        stored_components: list[Any] | None = _effective_components(row) or None
+        stored_components: list[Any] | None = _effective_components(row, db=db) or None
         if not stored_components:
             try:
                 parsed = json.loads(row.components_json or "null")

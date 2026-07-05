@@ -856,6 +856,7 @@ class SurveySystemTemplateService:
             grouped[kind] = SurveySystemTemplateService._templates_for_kind(db, type_by_kind[kind], kind)
         return {
             **meta,
+            "routing": SurveySystemTemplateService.routing_settings(db),
             "kinds": [
                 {
                     "kind": kind,
@@ -868,6 +869,64 @@ class SurveySystemTemplateService:
                 for kind in SYSTEM_TEMPLATE_KINDS
             ],
             "templates": grouped,
+        }
+
+    @staticmethod
+    def routing_settings(db: Session) -> dict[str, Any]:
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        return WaSystemTemplateRoutingService.get_settings(db, "survey")
+
+    @staticmethod
+    def update_routing_settings(db: Session, *, template_source: str) -> dict[str, Any]:
+        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+
+        return WaSystemTemplateRoutingService.update_settings(db, "survey", template_source=template_source)
+
+    @staticmethod
+    def pull_from_meta(db: Session) -> dict[str, Any]:
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+        from app.services.wa_template_sync_service import _apply_live_meta_to_row
+
+        SurveySystemTemplateService.ensure_system_survey_types(db)
+        template_ids: list[int] = []
+        for kind in SYSTEM_TEMPLATE_KINDS:
+            st = SurveySystemTemplateService.survey_type_for_kind(db, kind)
+            mappings = list(
+                db.execute(
+                    select(SurveyTypeTemplate).where(SurveyTypeTemplate.survey_type_id == st.id)
+                ).scalars().all()
+            )
+            for mapping in mappings:
+                template_ids.append(int(mapping.template_id))
+
+        if not template_ids:
+            return {"ok": True, "matched": 0, "updated": 0, "message": "No system templates mapped."}
+
+        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
+        matched = 0
+        updated = 0
+        for tid in template_ids:
+            row = db.get(TelnyxWhatsappTemplate, tid)
+            if row is None:
+                continue
+            live = TelnyxWhatsappTemplateSyncService._match_live_item(
+                row, by_record=by_record, by_name_lang=by_name_lang
+            )
+            if live is None:
+                continue
+            matched += 1
+            before = str(row.draft_components_json or "")
+            _apply_live_meta_to_row(db, row, live)
+            if str(row.draft_components_json or "") != before:
+                updated += 1
+        db.commit()
+        return {
+            "ok": True,
+            "matched": matched,
+            "updated": updated,
+            "message": f"Pulled {matched} system template(s) from Meta ({updated} draft updated)",
         }
 
     @staticmethod

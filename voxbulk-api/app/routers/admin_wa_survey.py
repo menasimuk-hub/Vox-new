@@ -1372,6 +1372,45 @@ def simulator_state(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
+@router.get("/system-templates/routing")
+def get_system_template_routing(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveySystemTemplateService.routing_settings(db)
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.patch("/system-templates/routing")
+def patch_system_template_routing(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingError
+
+    body = payload or {}
+    try:
+        return SurveySystemTemplateService.update_routing_settings(
+            db, template_source=str(body.get("template_source") or "")
+        )
+    except (SurveySystemTemplateError, WaSystemTemplateRoutingError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/system-templates/pull-from-meta")
+def pull_system_templates_from_meta(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    try:
+        return SurveySystemTemplateService.pull_from_meta(db)
+    except SurveySystemTemplateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/system-templates")
 def list_system_templates(
     db: Session = Depends(get_db),

@@ -104,6 +104,8 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   const [addOpen, setAddOpen] = useState(false)
   const [addKind, setAddKind] = useState(product === 'feedback' ? 'thank_you' : 'welcome')
   const [adding, setAdding] = useState(false)
+  const [routing, setRouting] = useState({ template_source: 'local', uses_meta_sync: false, label: '' })
+  const [routingSaving, setRoutingSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -115,6 +117,7 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
           : '/admin/wa-survey/system-templates'
       const data = await apiFetch(path)
       setKinds(Array.isArray(data?.kinds) ? data.kinds : [])
+      if (data?.routing) setRouting(data.routing)
     } catch (e) {
       setError(e?.message || 'Could not load system templates')
       setKinds([])
@@ -304,14 +307,58 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
     }
   }
 
-  const syncSystemRow = async (row) => {
+  const routingPath =
+    product === 'feedback'
+      ? '/admin/customer-feedback/system-templates/routing'
+      : '/admin/wa-survey/system-templates/routing'
+
+  const updateRouting = async (templateSource) => {
+    setRoutingSaving(true)
+    setError('')
+    try {
+      const data = await apiFetch(routingPath, {
+        method: 'PATCH',
+        body: JSON.stringify({ template_source: templateSource }),
+      })
+      if (data) setRouting(data)
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not update routing').message)
+    } finally {
+      setRoutingSaving(false)
+    }
+  }
+
+  const pullAllFromMeta = async () => {
     setError('')
     try {
       const path =
         product === 'feedback'
-          ? `/admin/customer-feedback/wa-templates/${row.id}/push`
-          : `/admin/wa-survey/templates/${row.id}/push`
-      await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 180000, quietNetworkHint: true })
+          ? '/admin/customer-feedback/system-templates/pull-from-meta'
+          : '/admin/wa-survey/system-templates/pull-from-meta'
+      const result = await apiFetch(path, { method: 'POST', body: '{}' })
+      await load()
+      if (result?.message) setError('')
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Pull from Meta failed').message)
+    }
+  }
+
+  const syncSystemRow = async (row) => {
+    setError('')
+    try {
+      if (routing.uses_meta_sync) {
+        const path =
+          product === 'feedback'
+            ? '/admin/customer-feedback/system-templates/pull-from-meta'
+            : '/admin/wa-survey/system-templates/pull-from-meta'
+        await apiFetch(path, { method: 'POST', body: '{}' })
+      } else {
+        const path =
+          product === 'feedback'
+            ? `/admin/customer-feedback/wa-templates/${row.id}/push`
+            : `/admin/wa-survey/templates/${row.id}/push`
+        await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 180000, quietNetworkHint: true })
+      }
       await load()
       if (sheetCategory) {
         const listPath =
@@ -374,8 +421,36 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
               <h3 className="text-sm font-semibold">System templates</h3>
               <p className="mt-0.5 max-w-2xl text-[11px] text-muted-foreground">
                 Shared {product === 'feedback' ? 'Customer Feedback' : 'Survey'} WhatsApp templates used across all
-                industries.
+                industries. Some steps use buttons (Meta HSM); others send as session text only.
               </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="text-muted-foreground">Template source:</span>
+                <label className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
+                  <input
+                    type="radio"
+                    name={`${product}-system-routing`}
+                    checked={!routing.uses_meta_sync}
+                    disabled={routingSaving}
+                    onChange={() => void updateRouting('local')}
+                  />
+                  Keep local
+                </label>
+                <label className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
+                  <input
+                    type="radio"
+                    name={`${product}-system-routing`}
+                    checked={Boolean(routing.uses_meta_sync)}
+                    disabled={routingSaving}
+                    onChange={() => void updateRouting('meta_sync')}
+                  />
+                  Sync from Meta
+                </label>
+                {routing.uses_meta_sync ? (
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => void pullAllFromMeta()}>
+                    Pull all from Meta
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
