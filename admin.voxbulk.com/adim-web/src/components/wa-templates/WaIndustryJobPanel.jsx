@@ -4,17 +4,15 @@ import { FileUp, Play, Search, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import { MetaSyncNamingNote } from './waTemplatesUi'
-import { getApiBaseUrl, usesSameOriginApiProxy } from '../../lib/api'
+import { resolveApiUrl } from '../../lib/api'
 import { readAdminAccessToken } from '../../lib/sessionStorage'
 
 function buildImportUrl(product, industryId) {
-  const base = getApiBaseUrl()
-  const prefix = usesSameOriginApiProxy() ? '' : base
   const path =
     product === 'feedback'
       ? `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/import-md`
       : `/admin/wa-survey/industries/${encodeURIComponent(industryId)}/import-md`
-  return `${prefix}${path}`
+  return resolveApiUrl(path)
 }
 
 async function uploadIndustryMd({ product, industryId, file, fields, signal }) {
@@ -28,10 +26,25 @@ async function uploadIndustryMd({ product, industryId, file, fields, signal }) {
   if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch(url, { method: 'POST', body: form, headers, signal })
-  const data = await res.json().catch(() => ({}))
+  const rawText = await res.text()
+  let data = {}
+  try {
+    data = rawText ? JSON.parse(rawText) : {}
+  } catch {
+    data = {}
+  }
   if (!res.ok) {
     const detail = data?.detail
-    const msg = typeof detail === 'string' ? detail : detail?.message || JSON.stringify(detail) || res.statusText
+    let msg =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || (Array.isArray(detail) ? detail.map((d) => d?.msg || JSON.stringify(d)).join('; ') : null)
+    if (!msg && rawText && !rawText.trimStart().startsWith('<')) {
+      msg = rawText.slice(0, 400)
+    }
+    if (!msg) {
+      msg = `${res.status} ${res.statusText || 'Request failed'}`.trim()
+    }
     throw new Error(msg)
   }
   return data
