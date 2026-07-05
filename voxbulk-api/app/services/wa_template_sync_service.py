@@ -86,8 +86,8 @@ def _row_needs_push(row: TelnyxWhatsappTemplate) -> bool:
 
 
 def _apply_live_meta_to_row(db: Session, row: TelnyxWhatsappTemplate, live: dict[str, Any]) -> None:
-    """Meta is source of truth for status, category, rejection — not draft content."""
-    from app.services.survey_whatsapp_template_service import _apply_remote_telnyx_item
+    """Refresh approval status from Meta only — never overwrite local draft/body text."""
+    from app.services.survey_whatsapp_template_service import _apply_remote_link_only
 
     status = str(live.get("status") or "UNKNOWN").strip().upper()
     row.status = status
@@ -97,7 +97,8 @@ def _apply_live_meta_to_row(db: Session, row: TelnyxWhatsappTemplate, live: dict
         row.category = remote_category
     if status == "APPROVED":
         row.last_push_error = None
-    _apply_remote_telnyx_item(db, row, live, overwrite_draft=False)
+    if not _has_remote_telnyx_id(row):
+        _apply_remote_link_only(db, row, live)
     row.local_sync_status = _refresh_local_sync_status(row)
 
 
@@ -379,9 +380,6 @@ class WaTemplateSyncService:
                 force_utility_category=force_utility_category,
             )
 
-        pull: dict[str, Any] | None = None
-        if phase == "full" and offset == 0:
-            pull = WaTemplateSyncService.pull_statuses(db, row_ids=row_ids or None)
         push = WaTemplateSyncService.push_changed_batch(
             db,
             industry_id=industry_id,
@@ -390,7 +388,7 @@ class WaTemplateSyncService:
             force_push=force_push,
             force_utility_category=force_utility_category,
         )
-        return WaTemplateSyncService._merge_industry_sync_response(pull, push, offset=offset)
+        return push
 
     @staticmethod
     def _merge_industry_sync_response(

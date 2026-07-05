@@ -593,7 +593,7 @@ export default function WaIndustryBrowser({
 
     setIndustrySyncing(true)
     setSyncJob(createIndustrySyncJob(`Sync ${industry.name} with Meta`))
-    patchSyncJobStep('pull', { status: 'running', detail: 'Pulling status from Meta…' })
+    patchSyncJobStep('push', { status: 'running', detail: 'Pushing templates to Meta…' })
 
     const applyProgress = (acc, { running = true } = {}) => {
       const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
@@ -615,28 +615,31 @@ export default function WaIndustryBrowser({
               },
             })
           : await runWaIndustryPushAll(apiFetch, industry.id, {
-              onProgress: ({ batchNum, flat, acc: partial, done, running }) => {
-                if (flat?.pull) {
+              onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
+                if (step === 'pull') {
+                  patchSyncJobStep('push', { status: 'done', detail: 'Push complete' })
                   patchSyncJobStep('pull', {
-                    status: 'done',
-                    detail: flat.pull.message || 'Status pulled',
+                    status: running ? 'running' : done ? 'done' : 'running',
+                    detail: running
+                      ? 'Pulling status from Meta…'
+                      : partial?.pull?.message || 'Status refreshed from Meta',
+                  })
+                } else {
+                  patchSyncJobStep('push', {
+                    status: done && step !== 'pull' ? 'done' : 'running',
+                    detail: flat?.message || `Batch ${batchNum}…`,
                   })
                 }
-                patchSyncJobStep('push', {
-                  status: done ? 'done' : 'running',
-                  detail: flat?.message || `Batch ${batchNum}…`,
-                })
                 if (partial) applyProgress(partial, { running: running !== false && !done })
               },
             })
 
       if (product !== 'feedback') {
-        if (acc.pull) {
-          patchSyncJobStep('pull', { status: 'done', detail: acc.pull.message || 'Status pulled' })
-        } else {
-          patchSyncJobStep('pull', { status: 'done', detail: 'Skipped (push-only batch)' })
-        }
         patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+        patchSyncJobStep('pull', {
+          status: acc.pull ? (acc.error_count ? 'error' : 'done') : 'done',
+          detail: acc.pull?.message || 'Status refreshed from Meta',
+        })
       } else {
         patchSyncJobStep('pull', { status: 'done', detail: 'Feedback sync (push + refresh)' })
         patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })

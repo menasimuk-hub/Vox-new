@@ -1079,6 +1079,113 @@ def _remote_name_candidates_for_row(row: TelnyxWhatsappTemplate) -> list[str]:
     return deduped
 
 
+def _draft_components_for_push(row: TelnyxWhatsappTemplate) -> list[Any]:
+    """Local draft is source of truth for push — never prefer remote body text."""
+    draft = _loads(row.draft_components_json)
+    if isinstance(draft, list) and draft:
+        return draft
+    return _effective_components(row)
+
+
+def _find_remote_item_for_row(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    language: str,
+    remote_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
+        db,
+        names=_remote_name_candidates_for_row(row),
+        language=language,
+        sales_template_key=row.sales_template_key,
+        remote_items=remote_items,
+    )
+    if remote_item is not None:
+        return remote_item
+    for fallback_lang in resolve_whatsapp_template_languages(db):
+        if fallback_lang == language:
+            continue
+        remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
+            db,
+            names=_remote_name_candidates_for_row(row),
+            language=fallback_lang,
+            sales_template_key=row.sales_template_key,
+            remote_items=remote_items,
+        )
+        if remote_item is not None:
+            return remote_item
+    return None
+
+
+def _apply_remote_link_only(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    item: dict[str, Any],
+) -> bool:
+    """Link Meta record ids and approval fields only — never mirror body/components."""
+    record_id = str(item.get("id") or "").strip()
+    send_id = _send_template_id_from_api_item(item)
+    claimed_record = True
+    if record_id:
+        owner = db.execute(
+            select(TelnyxWhatsappTemplate)
+            .where(
+                TelnyxWhatsappTemplate.telnyx_record_id == record_id,
+                TelnyxWhatsappTemplate.id != row.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if owner is not None:
+            claimed_record = False
+            row.status = str(item.get("status") or owner.status or row.status or "PENDING").upper()
+        else:
+            row.telnyx_record_id = record_id
+    if send_id and claimed_record:
+        row.template_id = send_id
+    elif send_id and not row.template_id:
+        row.template_id = send_id
+    remote_lang = str(item.get("language") or "").strip()
+    if remote_lang and claimed_record:
+        row.language = remote_lang
+    row.status = str(item.get("status") or row.status or "PENDING").upper()
+    remote_category = normalize_wa_template_category(item.get("category"), required=False)
+    if remote_category:
+        row.category = remote_category
+    row.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
+    waba = item.get("whatsapp_business_account")
+    if isinstance(waba, dict) and claimed_record:
+        waba_id = str(waba.get("id") or "").strip()
+        if waba_id:
+            row.waba_id = waba_id
+    row.updated_at = _now()
+    db.add(row)
+    return claimed_record
+
+
+def _meta_record_id_for_push(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    language: str,
+    remote_items: list[dict[str, Any]] | None = None,
+) -> str | None:
+    """Resolve Meta template record id for push — link locally when possible."""
+    rid = str(row.telnyx_record_id or "").strip()
+    if rid and not rid.startswith(_LOCAL_ID_PREFIX):
+        return rid
+    remote_item = _find_remote_item_for_row(db, row, language=language, remote_items=remote_items)
+    if remote_item is None:
+        return None
+    record_id = str(remote_item.get("id") or "").strip()
+    if not record_id:
+        return None
+    _apply_remote_link_only(db, row, remote_item)
+    if _has_remote_telnyx_id(row):
+        return str(row.telnyx_record_id or "").strip() or record_id
+    return record_id
+
+
 def fix_survey_template_draft_body_variables(
     components: list[Any] | None,
     *,
@@ -1269,65 +1376,13 @@ def _link_existing_remote_template(
     remote_items: list[dict[str, Any]] | None = None,
 ) -> bool:
     """Attach a local/unlinked row to an already-existing Telnyx/Meta template record."""
-    remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
-        db,
-        names=_remote_name_candidates_for_row(row),
-        language=language,
-        sales_template_key=row.sales_template_key,
-        remote_items=remote_items,
-    )
-    if remote_item is None:
-        for fallback_lang in resolve_whatsapp_template_languages(db):
-            if fallback_lang == language:
-                continue
-            remote_item = TelnyxWhatsappTemplateSyncService.find_remote_template(
-                db,
-                names=_remote_name_candidates_for_row(row),
-                language=fallback_lang,
-                sales_template_key=row.sales_template_key,
-                remote_items=remote_items,
-            )
-            if remote_item is not None:
-                break
+    remote_item = _find_remote_item_for_row(db, row, language=language, remote_items=remote_items)
     if remote_item is None:
         return False
 
-    record_id = str(remote_item.get("id") or "").strip()
-    if record_id:
-        # Avoid unique constraint on telnyx_record_id when another local row already owns it.
-        owner = db.execute(
-            select(TelnyxWhatsappTemplate)
-            .where(
-                TelnyxWhatsappTemplate.telnyx_record_id == record_id,
-                TelnyxWhatsappTemplate.id != row.id,
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-        if owner is not None:
-            # Copy status only; do not steal the remote id (uq_telnyx_wa_tpl_record).
-            row.status = owner.status or remote_item.get("status") or row.status
-            if not row.body_preview and owner.body_preview:
-                row.body_preview = owner.body_preview
-            row.updated_at = _now()
-            db.add(row)
-            try:
-                with db.begin_nested():
-                    db.flush()
-            except Exception:
-                return False
-            return False
-
     try:
         with db.begin_nested():
-            claimed = _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
-            if not claimed:
-                # Another row owns this Meta id — status already copied; do not link.
-                db.add(row)
-                db.flush()
-                return False
-            remote_lang = str(remote_item.get("language") or "").strip()
-            if remote_lang:
-                row.language = remote_lang
+            _apply_remote_link_only(db, row, remote_item)
             if not row.sales_template_key:
                 from app.services.sales_whatsapp_telnyx_service import template_key_for_telnyx_name
 
@@ -1398,13 +1453,21 @@ def _try_link_remote_and_resolve_branch(
             remote_items=remote_items,
         )
         if not linked:
-            all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
-            linked = _link_existing_remote_template(
-                db,
-                row,
-                language=language,
-                remote_items=all_items,
-            )
+            try:
+                all_items = (
+                    remote_items
+                    if remote_items
+                    else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+                )
+            except Exception:
+                all_items = remote_items or []
+            if all_items:
+                linked = _link_existing_remote_template(
+                    db,
+                    row,
+                    language=language,
+                    remote_items=all_items,
+                )
         if linked:
             db.commit()
             db.refresh(row)
@@ -1426,11 +1489,21 @@ def _push_row_to_meta(
 
     template_name = str(row.name or "").strip()
     record_id = str(row.telnyx_record_id or "").strip()
+    if record_id.startswith(_LOCAL_ID_PREFIX):
+        record_id = ""
+    if not record_id:
+        record_id = _meta_record_id_for_push(db, row, language=lang_code, remote_items=prefetched) or ""
+
     meta_request_mode = "create_or_update_template"
-    if branch == SYNC_BRANCH_APPROVED_UPDATE and record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+    if branch == SYNC_BRANCH_APPROVED_UPDATE and record_id:
         meta_request_mode = "update_approved_same_name"
-    elif branch == SYNC_BRANCH_REJECTED_RECOVERY and record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
+    elif branch == SYNC_BRANCH_REJECTED_RECOVERY and record_id:
         meta_request_mode = "update_rejected_same_name"
+    elif record_id and branch == SYNC_BRANCH_FIRST_PUSH:
+        status = str(row.status or "").upper()
+        meta_request_mode = (
+            "update_rejected_same_name" if status == "REJECTED" else "update_approved_same_name"
+        )
 
     logger.info(
         "survey_wa_template_meta_push_start",
@@ -1463,8 +1536,9 @@ def _push_row_to_meta(
         recoverable = meta_payload.get("requires_rename") or meta_payload.get("meta_error_kind") in {
             "content_already_exists",
             "language_deletion_lock",
+            "missing_body_example",
         }
-        if recoverable and prefetched is not None:
+        if recoverable:
             recovered = _recover_push_after_provider_conflict(
                 db,
                 row,
@@ -1484,12 +1558,12 @@ def _push_row_to_meta(
             payload=meta_payload or {"message": detail, "template_name": row.name, "sync_branch": branch},
         ) from exc
 
-    _apply_remote_telnyx_item(db, row, item, overwrite_draft=False)
+    _apply_remote_telnyx_item(db, row, item, overwrite_draft=False, mirror_content=True)
     record_id = str(row.telnyx_record_id or "").strip()
     if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
         try:
             remote_item = MetaWhatsappTemplateService.fetch_by_record_id(db, record_id)
-            _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
+            _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False, mirror_content=True)
         except Exception as exc:
             logger.warning(
                 "survey_wa_template_meta_refresh_after_push_failed",
@@ -1557,35 +1631,28 @@ def _recover_push_after_provider_conflict(
     raw_components: list[Any],
     language: str,
     remote_items: list[dict[str, Any]] | None,
+    force_approved_update: bool = True,
 ) -> dict[str, Any] | None:
-    """When Meta reports duplicate content or missing example on an existing template, link and refresh."""
+    """When Meta reports duplicate content, link ids and retry push with local draft."""
     items = _prefetch_remote_templates_for_push(
         db,
         remote_items=remote_items,
         template_id=str(row.id or ""),
     )
-    if not _link_existing_remote_template(db, row, language=language, remote_items=items):
+    linked = _link_existing_remote_template(db, row, language=language, remote_items=items)
+    if not linked:
         all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
-        if not _link_existing_remote_template(db, row, language=language, remote_items=all_items):
-            return None
+        linked = _link_existing_remote_template(db, row, language=language, remote_items=all_items)
+    if not linked and not _meta_record_id_for_push(db, row, language=language, remote_items=items):
+        return None
     db.commit()
     db.refresh(row)
-    linked_branch, branch_error = resolve_template_sync_branch(row, raw_components)
-    logger.info(
-        "survey_wa_template_sync_branch_after_provider_conflict",
-        extra={
-            "template_id": row.id,
-            "template_name": row.name,
-            "sync_branch": linked_branch,
-            "approval_status": str(row.status or "").upper(),
-        },
-    )
-    return _push_result_for_sync_branch(
+    return SurveyWhatsappTemplateService.push_to_telnyx(
         db,
         row,
-        branch=linked_branch,
-        branch_error=branch_error,
-        raw_components=raw_components,
+        force_approved_update=force_approved_update,
+        remote_items=items,
+        allow_recovery=False,
     )
 
 
@@ -1613,12 +1680,16 @@ def _apply_remote_telnyx_item(
     item: dict[str, Any],
     *,
     overwrite_draft: bool = False,
+    mirror_content: bool = True,
 ) -> bool:
     """Apply remote Meta/Telnyx fields onto a local row.
 
     Never assigns ``telnyx_record_id`` when another row already owns it
     (unique constraint ``uq_telnyx_wa_tpl_record``). Returns False when the
     remote id was skipped for that reason; status/body may still update.
+
+    When ``mirror_content`` is False, only link ids and status — local draft/body
+    are never overwritten (local DB is source of truth for template text).
     """
     record_id = str(item.get("id") or "").strip()
     send_id = _send_template_id_from_api_item(item)
@@ -1633,17 +1704,14 @@ def _apply_remote_telnyx_item(
             .limit(1)
         ).scalar_one_or_none()
         if owner is not None:
-            # Do not steal the unique remote id — copy status/body only.
             claimed_record = False
-            if not row.body_preview and owner.body_preview:
-                row.body_preview = owner.body_preview
+            row.status = str(item.get("status") or owner.status or row.status or "PENDING").upper()
         else:
             row.telnyx_record_id = record_id
     if send_id and claimed_record:
         row.template_id = send_id
     elif send_id and not row.template_id:
-        # Keep a send id only when we did not claim the remote record.
-        pass
+        row.template_id = send_id
     remote_lang = str(item.get("language") or "").strip()
     if remote_lang and claimed_record:
         row.language = remote_lang
@@ -1652,7 +1720,7 @@ def _apply_remote_telnyx_item(
     if remote_category:
         row.category = remote_category
     components = item.get("components")
-    if isinstance(components, list):
+    if mirror_content and isinstance(components, list):
         # Only overwrite remote components when we own (or claim) the record.
         if claimed_record or not row.components_json:
             row.components_json = _dumps(components)
@@ -2355,8 +2423,9 @@ class SurveyWhatsappTemplateService:
         remote_items: list[dict[str, Any]] | None = None,
         force_approved_update: bool = True,
         allow_clone: bool = False,
+        allow_recovery: bool = True,
     ) -> dict[str, Any]:
-        raw_components = _effective_components(row)
+        raw_components = _draft_components_for_push(row)
         if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
 
@@ -2398,9 +2467,21 @@ class SurveyWhatsappTemplateService:
                     "approval_status": str(row.status or "").upper(),
                 },
             )
-            # Only skip content push when we are not forcing an approved update.
             if branch == SYNC_BRANCH_APPROVED_UPDATE and not force_approved_update:
                 branch = SYNC_BRANCH_STATUS_REFRESH
+                branch_error = None
+
+        if force_approved_update and branch == SYNC_BRANCH_FIRST_PUSH:
+            existing_rid = _meta_record_id_for_push(
+                db, row, language=lang_code, remote_items=prefetched
+            )
+            if existing_rid:
+                status = str(row.status or "").upper()
+                branch = (
+                    SYNC_BRANCH_REJECTED_RECOVERY
+                    if status == "REJECTED"
+                    else SYNC_BRANCH_APPROVED_UPDATE
+                )
                 branch_error = None
 
         logger.info(
@@ -2502,9 +2583,12 @@ class SurveyWhatsappTemplateService:
             )
 
         use_patch_for_approved_update = (
-            branch == SYNC_BRANCH_APPROVED_UPDATE
+            branch in {SYNC_BRANCH_APPROVED_UPDATE, SYNC_BRANCH_REJECTED_RECOVERY}
             and force_approved_update
-            and _has_remote_telnyx_id(row)
+            and (
+                _has_remote_telnyx_id(row)
+                or bool(_meta_record_id_for_push(db, row, language=lang_code, remote_items=prefetched))
+            )
         )
         if use_patch_for_approved_update:
             telnyx_request_mode = "patch_template"
@@ -2570,16 +2654,20 @@ class SurveyWhatsappTemplateService:
                 META_SUBCODE_CONTENT_ALREADY_EXISTS,
                 META_SUBCODE_MISSING_BODY_EXAMPLE,
             }
-            if meta.get("subcode") in recoverable or meta.get("kind") in {
-                "content_already_exists",
-                "missing_body_example",
-            }:
+            if allow_recovery and (
+                meta.get("subcode") in recoverable
+                or meta.get("kind") in {
+                    "content_already_exists",
+                    "missing_body_example",
+                }
+            ):
                 recovered = _recover_push_after_provider_conflict(
                     db,
                     row,
                     raw_components=raw_components,
                     language=lang_code,
                     remote_items=prefetched,
+                    force_approved_update=force_approved_update,
                 )
                 if recovered is not None:
                     return recovered

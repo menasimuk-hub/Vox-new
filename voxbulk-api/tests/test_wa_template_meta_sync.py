@@ -229,6 +229,10 @@ def test_push_links_existing_remote_template_instead_of_create(monkeypatch):
     monkeypatch.setattr("app.services.survey_whatsapp_template_service.httpx.Client", lambda *a, **k: FakeClient())
     monkeypatch.setattr(
         "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        lambda db, **kwargs: remote,
+    )
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
         lambda db: remote,
     )
     monkeypatch.setattr(
@@ -248,7 +252,7 @@ def test_push_links_existing_remote_template_instead_of_create(monkeypatch):
         assert row is not None
         assert str(row.telnyx_record_id).startswith("local-")
 
-        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+        result = SurveyWhatsappTemplateService.push_to_telnyx(db, row, force_approved_update=False)
         assert result["ok"] is True
         assert row.telnyx_record_id == "019job-closed-remote"
         assert row.status == "APPROVED"

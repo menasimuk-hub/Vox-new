@@ -252,3 +252,49 @@ def test_force_push_in_sync_approved_uses_patch(monkeypatch):
         assert result["sync_branch"] == SYNC_BRANCH_APPROVED_UPDATE
         assert result["telnyx_request_mode"] == "patch_template"
         assert captured["patch_payload"]["category"] == "UTILITY"
+
+
+def test_pull_statuses_never_overwrites_local_draft_body(monkeypatch):
+    remote = [
+        {
+            "id": "meta-remote-99",
+            "template_id": "888",
+            "name": "voxbulk_survey_test_pull_standard",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Old Meta body text"}],
+        }
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        lambda db: remote,
+    )
+
+    with get_sessionmaker()() as db:
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id="meta-remote-99",
+            template_id="888",
+            name="voxbulk_survey_test_pull_standard",
+            display_name="Pull test",
+            language="en_GB",
+            category="UTILITY",
+            status="PENDING",
+            variant_type=VARIANT_STANDARD,
+            body_preview="My new local body",
+            components_json=json.dumps([{"type": "BODY", "text": "Old Meta body text"}]),
+            draft_components_json=json.dumps([{"type": "BODY", "text": "My new local body"}]),
+            local_sync_status="local_changes",
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        result = WaTemplateSyncService.pull_statuses(db, row_ids=[int(row.id)])
+        assert result["ok"] is True
+        db.refresh(row)
+        assert row.status == "APPROVED"
+        draft = _loads(row.draft_components_json)
+        assert draft[0]["text"] == "My new local body"
+        assert row.body_preview == "My new local body"

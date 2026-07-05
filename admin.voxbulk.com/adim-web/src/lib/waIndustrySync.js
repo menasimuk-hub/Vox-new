@@ -20,8 +20,8 @@ export function createIndustrySyncJob(title) {
     open: true,
     title,
     steps: [
-      { id: 'pull', label: '1. Pull status from Meta', status: 'pending', detail: '' },
-      { id: 'push', label: '2. Push all templates to Meta (UTILITY)', status: 'pending', detail: '' },
+      { id: 'push', label: '1. Push all templates to Meta (UTILITY)', status: 'pending', detail: '' },
+      { id: 'pull', label: '2. Pull status from Meta', status: 'pending', detail: '' },
     ],
     phase: 'running',
     tables: { sync_log: [], pushed: [], refreshed: [], push_failed: [] },
@@ -137,7 +137,7 @@ export function buildIndustrySyncJobProgress(acc, { running = true, industryName
   }
 }
 
-export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, phase = 'full' } = {}) {
+export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress } = {}) {
   const acc = {
     content_updated: 0,
     refreshed: 0,
@@ -164,13 +164,12 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, p
         limit: PUSH_BATCH,
         force_push: true,
         force_utility_category: true,
-        phase: offset === 0 ? phase : 'push',
+        phase: 'push',
       }),
       timeoutMs: 300000,
       quietNetworkHint: true,
     })
     const flat = flattenIndustryPushBatch(summary)
-    if (flat.pull && !acc.pull) acc.pull = flat.pull
     acc.content_updated += flat.content_updated
     acc.refreshed += flat.refreshed
     acc.linked += flat.linked
@@ -184,6 +183,27 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, p
     if (!flat.has_more) break
     offset = flat.next_offset
   }
+
+  onProgress?.({ step: 'pull', acc: { ...acc }, running: true })
+  try {
+    const pullSummary = await apiFetch(path, {
+      method: 'POST',
+      body: JSON.stringify({ phase: 'pull' }),
+      timeoutMs: 300000,
+      quietNetworkHint: true,
+    })
+    acc.pull = pullSummary?.pull || pullSummary
+    acc.ok = acc.ok && pullSummary?.ok !== false
+  } catch (e) {
+    acc.ok = false
+    acc.error_count += 1
+    acc.errors.push({
+      template_name: '(pull status)',
+      error: e?.message || 'Pull status from Meta failed',
+    })
+  }
+  onProgress?.({ step: 'pull', acc: { ...acc }, done: true, running: false })
+
   return acc
 }
 
