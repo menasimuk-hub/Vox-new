@@ -18,7 +18,7 @@ import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
 import WaJobProgressDialog from './WaJobProgressDialog'
 import WaIndustryJobPanel from './WaIndustryJobPanel'
-import { toHubRow, LangCountBadge } from './waTemplatesUi'
+import { toHubRow, LangCountBadge, MetaSyncNamingNote } from './waTemplatesUi'
 
 function industryHealthClass(ind) {
   const health = ind.approval_health
@@ -778,6 +778,7 @@ export default function WaIndustryBrowser({
     const rejectedCount = rows.filter((r) => r.status === 'rejected').length
     const approvedCount = rows.filter((r) => r.status === 'approved').length
     const pendingCount = rows.filter((r) => r.status === 'pending' || r.status === 'local').length
+    const exampleMetaName = rows.find((r) => r.metaName)?.metaName || ''
     return (
       <div className="animate-fade-in">
         <WaTemplatesSystemSection
@@ -861,6 +862,11 @@ export default function WaIndustryBrowser({
             for all templates. Row Sync pushes one template only.
           </div>
         ) : null}
+        {product === 'feedback' ? (
+          <div className="border-b px-3 py-2">
+            <MetaSyncNamingNote industrySlug={industry.slug} exampleMetaName={exampleMetaName} />
+          </div>
+        ) : null}
         <WaTemplatesTable
           templates={rows}
           loading={loadingRows}
@@ -877,6 +883,7 @@ export default function WaIndustryBrowser({
           onReject={onRejectRow}
           syncingId={syncingId}
           plainNames
+          showMetaNameColumn={product === 'feedback'}
           showNew={false}
           emptyLabel="No WhatsApp templates linked in this industry yet. Use Add template."
         />

@@ -344,11 +344,26 @@ def build_dry_run_plan(
 
         en_variant = next((v for v in topic.variants if v.language_code.startswith("en")), topic.variants[0] if topic.variants else None)
 
+        meta_name_preview = ""
+        if industry_slug:
+            try:
+                from app.services.customer_feedback.feedback_telnyx_push_service import (
+                    preview_feedback_meta_template_name,
+                )
+
+                meta_name_preview = preview_feedback_meta_template_name(
+                    industry_slug=industry_slug,
+                    survey_type_slug=slug,
+                )
+            except Exception:  # noqa: BLE001
+                meta_name_preview = f"voxbulk_cf_{industry_slug}_{slug}_{slug}_xxxxxxxx"
+
         topics_preview.append(
             {
                 "index": topic.index,
                 "name": topic.name,
                 "slug": slug,
+                "meta_name_preview": meta_name_preview,
                 "action": topic_action,
                 "language_count": lang_count,
                 "languages": [v.language_code for v in topic.variants],
@@ -395,6 +410,10 @@ def build_dry_run_plan(
     plan_steps.append(
         "Set all new rows to telnyx_sync_status=draft — Meta sync is separate (Industry actions > Sync)"
     )
+    if industry_slug:
+        plan_steps.append(
+            f"Meta template names use prefix voxbulk_cf_{industry_slug}_… (UTILITY category — Meta has no industry folders)"
+        )
     plan_steps.append("System templates (thank you, tell us more, etc.) are NOT changed")
 
     ok = not errors and bool(pack.topics) and templates_to_create > 0

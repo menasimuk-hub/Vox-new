@@ -102,6 +102,17 @@ def feedback_meta_template_name(
     return "_".join(p for p in parts if p)[:512]
 
 
+def preview_feedback_meta_template_name(
+    *,
+    industry_slug: str,
+    survey_type_slug: str,
+) -> str:
+    """Human-readable Meta name before DB rows exist (anchor id shown as xxxxxxxx)."""
+    key = _slug_underscore(survey_type_slug)
+    parts = ["voxbulk", "cf", _slug_underscore(industry_slug), key, key, "xxxxxxxx"]
+    return "_".join(p for p in parts if p)[:512]
+
+
 def english_anchor_template(db: Session, tpl: FeedbackWaTemplate) -> FeedbackWaTemplate:
     """Meta template name is shared across languages — anchor on the English row."""
     if str(tpl.language or "").strip() in ENGLISH_TEMPLATE_LANGUAGES:

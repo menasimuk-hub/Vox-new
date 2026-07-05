@@ -217,7 +217,57 @@ export function mapCategory(tpl) {
   return c.includes('MARKET') ? 'Marketing' : 'Utility'
 }
 
-export function langCodeToChip(language) {
+export function shortMetaName(name, max = 36) {
+  const full = String(name || '').trim()
+  if (!full) return '—'
+  if (full.length <= max) return full
+  return `${full.slice(0, max - 1)}…`
+}
+
+export function MetaNamePreview({ name, className, max = 36 }) {
+  const full = String(name || '').trim()
+  if (!full) {
+    return <span className={cn('text-[10px] text-muted-foreground', className)}>Meta name pending</span>
+  }
+  return (
+    <code
+      className={cn(
+        'block max-w-[320px] truncate rounded bg-surface-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground',
+        className,
+      )}
+      title={full}
+    >
+      {shortMetaName(full, max)}
+    </code>
+  )
+}
+
+export function MetaSyncNamingNote({ industrySlug, exampleMetaName }) {
+  const slug = String(industrySlug || 'industry').trim()
+  const example = String(exampleMetaName || `voxbulk_cf_${slug}_topic_slug_topic_slug_xxxxxxxx`).trim()
+  return (
+    <div className="rounded-md border border-border/70 bg-surface-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+      <p className="font-medium text-foreground">How names appear in Meta</p>
+      <p className="mt-1">
+        Meta only supports template categories <span className="font-medium text-foreground">Utility</span>, Marketing,
+        and Authentication — not industry folders. Your industry is encoded in the template name prefix{' '}
+        <code className="rounded bg-background px-1 font-mono text-[10px]">voxbulk_cf_{slug}_</code>.
+      </p>
+      <p className="mt-1">
+        In WhatsApp Manager, search that prefix to filter this industry. Each topic shares one Meta name across all{' '}
+        language versions.
+      </p>
+      {example ? (
+        <p className="mt-1.5">
+          Example:{' '}
+          <code className="block truncate rounded bg-background px-1.5 py-0.5 font-mono text-[10px] text-foreground" title={example}>
+            {example}
+          </code>
+        </p>
+      ) : null}
+    </div>
+  )
+}
   if (!language) return 'EN'
   const s = String(language).toUpperCase()
   if (s.startsWith('EN')) return 'EN'
@@ -253,7 +303,7 @@ export function toHubRow(tpl, overrides = {}) {
     tpl.templates_count ??
     (Number(tpl.standard_template_count || 0) + Number(tpl.anonymous_template_count || 0) || undefined)
   const status = overrides.status || mapApprovalStatus(tpl)
-  const metaName = String(tpl.name || tpl.telnyx_name || '').trim()
+  const metaName = String(tpl.meta_name || tpl.telnyx_name || tpl.name || '').trim()
   const displayName = String(tpl.display_name || tpl.name || tpl.slug || tpl.id).trim()
   return {
     id: tpl.id,

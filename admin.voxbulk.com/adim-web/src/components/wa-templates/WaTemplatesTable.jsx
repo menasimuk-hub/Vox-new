@@ -3,7 +3,7 @@ import { BarChart3, Pencil, Plus, Power, RefreshCw, Search, Trash2 } from 'lucid
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { CategoryPill, IconBtn, LangChip, STATUS_FILTERS, StatusDot } from './waTemplatesUi'
+import { CategoryPill, IconBtn, LangChip, MetaNamePreview, STATUS_FILTERS, StatusDot } from './waTemplatesUi'
 
 export default function WaTemplatesTable({
   templates,
@@ -20,6 +20,7 @@ export default function WaTemplatesTable({
   emptyLabel = 'No templates match your filters.',
   defaultStatusFilter = 'all',
   plainNames = false,
+  showMetaNameColumn = false,
 }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
@@ -75,6 +76,8 @@ export default function WaTemplatesTable({
       return String(a.name).localeCompare(String(b.name))
     })
   }, [templates, q, cat, statusFilter])
+
+  const colCount = showMetaNameColumn ? 8 : 7
 
   const chipClass = (active, tone) =>
     cn(
@@ -165,6 +168,9 @@ export default function WaTemplatesTable({
           <thead>
             <tr className="bg-surface-muted/30 text-[11px] uppercase tracking-wider text-muted-foreground">
               <th className="px-3 py-2 text-left font-medium">Name</th>
+              {showMetaNameColumn ? (
+                <th className="min-w-[200px] px-2 py-2 text-left font-medium">Meta name (preview)</th>
+              ) : null}
               <th className="w-24 px-2 py-2 text-left font-medium">Langs</th>
               <th className="w-28 px-2 py-2 text-left font-medium">Category</th>
               <th className="w-32 px-2 py-2 text-left font-medium">Status</th>
@@ -176,7 +182,7 @@ export default function WaTemplatesTable({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-10 text-center text-xs text-muted-foreground">
+                <td colSpan={colCount} className="py-10 text-center text-xs text-muted-foreground">
                   Loading templates…
                 </td>
               </tr>
@@ -212,6 +218,11 @@ export default function WaTemplatesTable({
                       </button>
                     ) : null}
                   </td>
+                  {showMetaNameColumn ? (
+                    <td className="px-2 py-1.5 align-top">
+                      <MetaNamePreview name={t.metaName || t.raw?.meta_name || t.raw?.telnyx_name} />
+                    </td>
+                  ) : null}
                   <td className="px-2 py-1.5">
                     <LangChip langs={t.langs} title={t.langsTitle} languageCount={t.languageCount} />
                   </td>
@@ -265,7 +276,7 @@ export default function WaTemplatesTable({
             )}
             {!loading && filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-10 text-center text-xs text-muted-foreground">
+                <td colSpan={colCount} className="py-10 text-center text-xs text-muted-foreground">
                   {emptyLabel}
                 </td>
               </tr>

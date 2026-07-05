@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FileUp, Play, Search, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
+import { MetaSyncNamingNote } from './waTemplatesUi'
 import { getApiBaseUrl, usesSameOriginApiProxy } from '../../lib/api'
 import { readAdminAccessToken } from '../../lib/sessionStorage'
 
@@ -91,6 +92,11 @@ function DryRunReport({ result }) {
           </div>
           <div className="mt-0.5 text-muted-foreground">{t.english_body_preview}</div>
           <div className="mt-0.5 font-mono text-[10px]">Buttons: {(t.english_buttons || []).join(' / ')}</div>
+          {t.meta_name_preview ? (
+            <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={t.meta_name_preview}>
+              Meta: {t.meta_name_preview}
+            </div>
+          ) : null}
         </div>
       ))}
       {(result.topics || []).length > 8 ? (
@@ -209,7 +215,14 @@ export default function WaIndustryJobPanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {feedbackOnly ? null : (
+          {feedbackOnly ? (
+            <MetaSyncNamingNote
+              industrySlug={industry.slug}
+              exampleMetaName={
+                (localDryRun?.topics || []).find((t) => t.meta_name_preview)?.meta_name_preview || ''
+              }
+            />
+          ) : (
             <p className="text-[11px] text-muted-foreground">
               Multi-language import is enabled for Customer Feedback. Survey uses single-language ABC blocks.
             </p>
