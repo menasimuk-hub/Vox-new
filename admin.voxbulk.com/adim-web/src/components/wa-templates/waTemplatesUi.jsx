@@ -268,6 +268,8 @@ export function MetaSyncNamingNote({ industrySlug, exampleMetaName }) {
     </div>
   )
 }
+
+export function langCodeToChip(language) {
   if (!language) return 'EN'
   const s = String(language).toUpperCase()
   if (s.startsWith('EN')) return 'EN'
