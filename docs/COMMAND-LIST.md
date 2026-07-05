@@ -191,18 +191,22 @@ In **Admin → WA Templates → Survey or Feedback tab → System templates**:
 
 | Mode | Behaviour |
 |------|-----------|
-| **Keep local** (default) | Admin draft/body is source of truth; **Sync** pushes local → Meta; pull updates status only |
-| **Sync from Meta** | **Pull all from Meta** imports approved body/buttons into local; sends route from Meta mirror |
+| **Local** (default, toggle off) | Admin draft/body is source of truth; **Sync** pushes local → Meta |
+| **Meta sync** (toggle on, per template) | Body/buttons come from Meta; **Sync** pulls that template from Meta |
+
+Only applies to **system templates**. Example: Meta sync **on** for **Opt in** (buttons); **Thank you** stays local.
 
 API (optional):
 
 ```bash
 # Survey
-curl -X PATCH .../admin/wa-survey/system-templates/routing -d '{"template_source":"meta_sync"}'
+curl -X PATCH .../admin/wa-survey/system-templates/{id}/sync-from-meta -d '{"sync_from_meta":true}'
+curl -X POST .../admin/wa-survey/system-templates/{id}/pull-from-meta
 curl -X POST .../admin/wa-survey/system-templates/pull-from-meta
 
 # Feedback
-curl -X PATCH .../admin/customer-feedback/system-templates/routing -d '{"template_source":"local"}'
+curl -X PATCH .../admin/customer-feedback/system-templates/{id}/sync-from-meta -d '{"sync_from_meta":true}'
+curl -X POST .../admin/customer-feedback/system-templates/{id}/pull-from-meta
 curl -X POST .../admin/customer-feedback/system-templates/pull-from-meta
 ```
 

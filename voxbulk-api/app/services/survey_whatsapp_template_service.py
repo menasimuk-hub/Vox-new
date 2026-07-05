@@ -1810,6 +1810,7 @@ def survey_template_to_dict(
         "draft_not_live_on_meta": sync_status in {SYNC_LOCAL_CHANGES, SYNC_DRAFT}
         and str(row.status or "").upper() == "APPROVED",
         "active_for_survey": bool(row.active_for_survey),
+        "sync_from_meta": bool(row.sync_from_meta),
         "example_values": examples,
         "draft_components": _loads(row.draft_components_json),
         "remote_components": _loads(row.components_json),

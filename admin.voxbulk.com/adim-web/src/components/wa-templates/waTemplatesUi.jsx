@@ -205,6 +205,11 @@ function isLocalOnlyRow(tpl) {
   return status === 'LOCAL_DRAFT' || status === 'DRAFT'
 }
 
+export function isHiddenWaTemplate(tpl, product = 'survey') {
+  if (product === 'feedback') return tpl?.is_active === false
+  return tpl?.active_for_survey === false
+}
+
 /** Map API row → StatusDot status. Only Meta/Telnyx status counts as rejected — never local push errors. */
 export function mapApprovalStatus(tpl) {
   // Prefer live Meta fields when present.
@@ -221,15 +226,13 @@ export function mapApprovalStatus(tpl) {
 
   const meta = candidates[0] || ''
 
-  if (
-    tpl?.active_for_survey === false ||
+  // Hidden-from-flows is shown via the power toggle — keep status for Meta approval only.
+  if (tpl?.active_for_survey === false || tpl?.is_active === false) {
+    // fall through to Meta status below (do not force status dot to "disabled")
+  } else if (
     tpl?.active_for_interview === false ||
-    tpl?.active_for_appointment === false ||
-    tpl?.is_active === false
+    tpl?.active_for_appointment === false
   ) {
-    if (meta === 'APPROVED' || meta.includes('APPROV')) {
-      return 'disabled'
-    }
     return 'disabled'
   }
 
@@ -378,6 +381,8 @@ export function toHubRow(tpl, overrides = {}) {
     variables: Array.isArray(tpl.variables) ? tpl.variables : Array.isArray(tpl.example_values) ? tpl.example_values : [],
     header: tpl.header,
     isLocalOnly: isLocalOnlyRow(tpl),
+    syncFromMeta: Boolean(tpl.sync_from_meta),
+    hiddenFromSurvey: overrides.hiddenFromSurvey ?? isHiddenWaTemplate(tpl, overrides.product),
     rejectionReason: tpl.rejection_reason || tpl.last_push_error || '',
     raw: tpl,
     ...overrides,

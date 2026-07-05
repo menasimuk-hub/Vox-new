@@ -468,6 +468,7 @@ class FeedbackCatalogService:
             "status": row.telnyx_sync_status,
             "approval_status": str(row.telnyx_sync_status or "").upper(),
             "is_active": row.is_active,
+            "sync_from_meta": bool(row.sync_from_meta),
         }
 
     @staticmethod

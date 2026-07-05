@@ -3,6 +3,7 @@ import { BarChart3, Pencil, Plus, Power, RefreshCw, Search, Trash2 } from 'lucid
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
 import { CategoryPill, IconBtn, LangChip, MetaNamePreview, STATUS_FILTERS, StatusDot } from './waTemplatesUi'
 
 export default function WaTemplatesTable({
@@ -21,6 +22,10 @@ export default function WaTemplatesTable({
   defaultStatusFilter = 'all',
   plainNames = false,
   showMetaNameColumn = false,
+  showMetaSyncColumn = false,
+  onMetaSyncToggle,
+  metaSyncSavingId = null,
+  useHiddenToggle = false,
 }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
@@ -77,7 +82,7 @@ export default function WaTemplatesTable({
     })
   }, [templates, q, cat, statusFilter])
 
-  const colCount = showMetaNameColumn ? 8 : 7
+  const colCount = (showMetaNameColumn ? 1 : 0) + (showMetaSyncColumn ? 1 : 0) + 7
 
   const chipClass = (active, tone) =>
     cn(
@@ -174,6 +179,11 @@ export default function WaTemplatesTable({
               <th className="w-24 px-2 py-2 text-left font-medium">Langs</th>
               <th className="w-28 px-2 py-2 text-left font-medium">Category</th>
               <th className="w-32 px-2 py-2 text-left font-medium">Status</th>
+              {showMetaSyncColumn ? (
+                <th className="w-28 px-2 py-2 text-left font-medium" title="When on, body and buttons come from Meta">
+                  Meta sync
+                </th>
+              ) : null}
               <th className="w-20 px-2 py-2 text-right font-medium">Used</th>
               <th className="w-20 px-2 py-2 text-left font-medium">Updated</th>
               <th className="w-40 px-3 py-2 text-right font-medium">Actions</th>
@@ -193,7 +203,8 @@ export default function WaTemplatesTable({
                   className={cn(
                     'border-t border-border/60 transition-colors hover:bg-accent/40',
                     i % 2 === 1 && 'bg-surface-muted/20',
-                    t.status === 'disabled' && 'bg-muted/40 opacity-50',
+                    t.status === 'disabled' && !useHiddenToggle && 'bg-muted/40 opacity-50',
+                    useHiddenToggle && t.hiddenFromSurvey && 'bg-muted/40 opacity-50',
                     t.status === 'rejected' && 'bg-destructive/5 hover:bg-destructive/10',
                     t.status === 'approved' && 'bg-success/5',
                   )}
@@ -232,6 +243,19 @@ export default function WaTemplatesTable({
                   <td className="px-2 py-1.5">
                     <StatusDot status={t.status} />
                   </td>
+                  {showMetaSyncColumn ? (
+                    <td className="px-2 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Switch
+                          checked={Boolean(t.syncFromMeta)}
+                          disabled={metaSyncSavingId != null}
+                          aria-label={t.syncFromMeta ? 'Sync from Meta on' : 'Sync from Meta off'}
+                          onCheckedChange={(checked) => onMetaSyncToggle?.(t, checked)}
+                        />
+                        <span className="text-[10px] text-muted-foreground">{t.syncFromMeta ? 'Meta' : 'Local'}</span>
+                      </div>
+                    </td>
+                  ) : null}
                   <td className="px-2 py-1.5 text-right text-xs tabular-nums text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <BarChart3 className="h-3 w-3" />
@@ -249,7 +273,13 @@ export default function WaTemplatesTable({
                       />
                       <IconBtn
                         icon={RefreshCw}
-                        label={syncingId === t.id ? 'Syncing…' : 'Sync'}
+                        label={
+                          syncingId === t.id
+                            ? 'Syncing…'
+                            : t.syncFromMeta
+                              ? 'Pull from Meta'
+                              : 'Push to Meta'
+                        }
                         onClick={() => onSync?.(t)}
                         tone="success"
                         disabled={syncingId != null}
@@ -258,15 +288,19 @@ export default function WaTemplatesTable({
                       />
                       <IconBtn
                         icon={Power}
-                        label={t.status === 'disabled' ? 'Enable template' : 'Disable template'}
+                        label={
+                          (useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled')
+                            ? 'Show in surveys'
+                            : 'Hide from surveys'
+                        }
                         onClick={() => onToggle?.(t)}
                         disabled={syncingId != null}
                         className={
-                          t.status === 'disabled'
+                          (useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled')
                             ? 'bg-destructive/15 text-destructive hover:bg-destructive/25 hover:text-destructive'
                             : undefined
                         }
-                        tone={t.status === 'disabled' ? 'danger' : 'default'}
+                        tone={(useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled') ? 'danger' : 'default'}
                       />
                       <IconBtn icon={Trash2} label="Delete" onClick={() => onDelete?.(t)} tone="danger" />
                     </div>

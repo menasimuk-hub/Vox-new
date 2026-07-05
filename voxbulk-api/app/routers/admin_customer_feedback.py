@@ -590,28 +590,41 @@ def sync_wa_senders_from_telnyx(db: Session = Depends(get_db), _admin=Depends(re
     }
 
 
-@router.get("/system-templates/routing")
-def get_system_template_routing(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
-
-    return FeedbackSystemTemplateService.routing_settings(db)
-
-
-@router.patch("/system-templates/routing")
-def patch_system_template_routing(
+@router.patch("/system-templates/{template_id}/sync-from-meta")
+def patch_system_template_sync_from_meta(
+    template_id: str,
     payload: dict,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    from app.services.customer_feedback.feedback_system_template_service import FeedbackSystemTemplateService
-    from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingError
+    from app.services.customer_feedback.feedback_system_template_service import (
+        FeedbackSystemTemplateError,
+        FeedbackSystemTemplateService,
+    )
 
     body = payload or {}
     try:
-        return FeedbackSystemTemplateService.update_routing_settings(
-            db, template_source=str(body.get("template_source") or "")
+        return FeedbackSystemTemplateService.set_sync_from_meta(
+            db, template_id, sync_from_meta=bool(body.get("sync_from_meta"))
         )
-    except WaSystemTemplateRoutingError as exc:
+    except FeedbackSystemTemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/system-templates/{template_id}/pull-from-meta")
+def pull_system_template_from_meta(
+    template_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_system_template_service import (
+        FeedbackSystemTemplateError,
+        FeedbackSystemTemplateService,
+    )
+
+    try:
+        return FeedbackSystemTemplateService.pull_one_from_meta(db, template_id)
+    except FeedbackSystemTemplateError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

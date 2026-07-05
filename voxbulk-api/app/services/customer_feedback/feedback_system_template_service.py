@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -65,20 +66,7 @@ class FeedbackSystemTemplateService:
                 for meta in CF_SYSTEM_TEMPLATE_META
             ],
             "system_template_keys": sorted(SYSTEM_TEMPLATE_KEYS),
-            "routing": FeedbackSystemTemplateService.routing_settings(db),
         }
-
-    @staticmethod
-    def routing_settings(db: Session) -> dict[str, Any]:
-        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
-
-        return WaSystemTemplateRoutingService.get_settings(db, "feedback")
-
-    @staticmethod
-    def update_routing_settings(db: Session, *, template_source: str) -> dict[str, Any]:
-        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
-
-        return WaSystemTemplateRoutingService.update_settings(db, "feedback", template_source=template_source)
 
     @staticmethod
     def pull_from_meta(db: Session) -> dict[str, Any]:
@@ -100,7 +88,7 @@ class FeedbackSystemTemplateService:
         errors: list[dict[str, Any]] = []
         for row in rows:
             key = str(row.template_key or "").strip()
-            if key not in SYSTEM_TEMPLATE_KEYS:
+            if key not in SYSTEM_TEMPLATE_KEYS or not row.sync_from_meta:
                 continue
             try:
                 meta_name = feedback_meta_template_name(row)
@@ -131,6 +119,40 @@ class FeedbackSystemTemplateService:
         if row is None or not _is_system_row(row):
             raise FeedbackSystemTemplateError("System template not found.")
         return row
+
+    @staticmethod
+    def set_sync_from_meta(db: Session, template_id: str, *, sync_from_meta: bool) -> dict[str, Any]:
+        row = FeedbackSystemTemplateService.get_system_template(db, template_id)
+        row.sync_from_meta = bool(sync_from_meta)
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return FeedbackCatalogService.template_to_dict(row)
+
+    @staticmethod
+    def pull_one_from_meta(db: Session, template_id: str) -> dict[str, Any]:
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+        row = FeedbackSystemTemplateService.get_system_template(db, template_id)
+        if not row.sync_from_meta:
+            raise FeedbackSystemTemplateError("Enable “Sync from Meta” on this template first.")
+        remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        meta_name = feedback_meta_template_name(row)
+        language = normalize_feedback_language(row.language)
+        remote = find_remote_feedback_template(remote_items, name=meta_name, language=language)
+        if remote is None:
+            raise FeedbackSystemTemplateError("No matching Meta template found for this row.")
+        before = str(row.body_text or "")
+        _apply_remote_status(db, row, remote)
+        updated = str(row.body_text or "") != before
+        db.commit()
+        return {
+            "ok": True,
+            "updated": updated,
+            "item": FeedbackCatalogService.template_to_dict(row),
+            "message": "Pulled from Meta" if updated else "Already in sync with Meta",
+        }
 
     @staticmethod
     def push_all(db: Session) -> dict[str, Any]:

@@ -856,7 +856,6 @@ class SurveySystemTemplateService:
             grouped[kind] = SurveySystemTemplateService._templates_for_kind(db, type_by_kind[kind], kind)
         return {
             **meta,
-            "routing": SurveySystemTemplateService.routing_settings(db),
             "kinds": [
                 {
                     "kind": kind,
@@ -872,16 +871,44 @@ class SurveySystemTemplateService:
         }
 
     @staticmethod
-    def routing_settings(db: Session) -> dict[str, Any]:
-        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
-
-        return WaSystemTemplateRoutingService.get_settings(db, "survey")
+    def set_sync_from_meta(db: Session, template_id: int, *, sync_from_meta: bool) -> dict[str, Any]:
+        tpl = SurveySystemTemplateService.template_belongs_to_kind(db, template_id)
+        tpl.sync_from_meta = bool(sync_from_meta)
+        tpl.updated_at = datetime.utcnow()
+        db.add(tpl)
+        db.commit()
+        db.refresh(tpl)
+        st = db.get(SurveyType, str(tpl.survey_type_id or ""))
+        kind = normalize_system_template_kind(st.system_template_kind if st else None)
+        return SurveySystemTemplateService._admin_template_row(db, tpl, kind=kind, survey_type=st)
 
     @staticmethod
-    def update_routing_settings(db: Session, *, template_source: str) -> dict[str, Any]:
-        from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
+    def pull_one_from_meta(db: Session, template_id: int) -> dict[str, Any]:
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+        from app.services.wa_template_sync_service import _apply_live_meta_to_row
 
-        return WaSystemTemplateRoutingService.update_settings(db, "survey", template_source=template_source)
+        tpl = SurveySystemTemplateService.template_belongs_to_kind(db, template_id)
+        if not tpl.sync_from_meta:
+            raise SurveySystemTemplateError("Enable “Sync from Meta” on this template first.")
+        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
+        live = TelnyxWhatsappTemplateSyncService._match_live_item(
+            tpl, by_record=by_record, by_name_lang=by_name_lang
+        )
+        if live is None:
+            raise SurveySystemTemplateError("No matching Meta template found for this row.")
+        before = str(tpl.draft_components_json or "")
+        _apply_live_meta_to_row(db, tpl, live)
+        updated = str(tpl.draft_components_json or "") != before
+        db.commit()
+        st = db.get(SurveyType, str(tpl.survey_type_id or ""))
+        kind = normalize_system_template_kind(st.system_template_kind if st else None)
+        return {
+            "ok": True,
+            "updated": updated,
+            "template": SurveySystemTemplateService._admin_template_row(db, tpl, kind=kind, survey_type=st),
+            "message": "Pulled from Meta" if updated else "Already in sync with Meta",
+        }
 
     @staticmethod
     def pull_from_meta(db: Session) -> dict[str, Any]:
@@ -909,7 +936,7 @@ class SurveySystemTemplateService:
         updated = 0
         for tid in template_ids:
             row = db.get(TelnyxWhatsappTemplate, tid)
-            if row is None:
+            if row is None or not row.sync_from_meta:
                 continue
             live = TelnyxWhatsappTemplateSyncService._match_live_item(
                 row, by_record=by_record, by_name_lang=by_name_lang

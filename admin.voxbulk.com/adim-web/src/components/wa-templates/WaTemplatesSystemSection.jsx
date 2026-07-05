@@ -104,8 +104,8 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   const [addOpen, setAddOpen] = useState(false)
   const [addKind, setAddKind] = useState(product === 'feedback' ? 'thank_you' : 'welcome')
   const [adding, setAdding] = useState(false)
-  const [routing, setRouting] = useState({ template_source: 'local', uses_meta_sync: false, label: '' })
-  const [routingSaving, setRoutingSaving] = useState(false)
+  const [syncingId, setSyncingId] = useState(null)
+  const [metaSyncSavingId, setMetaSyncSavingId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -117,7 +117,6 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
           : '/admin/wa-survey/system-templates'
       const data = await apiFetch(path)
       setKinds(Array.isArray(data?.kinds) ? data.kinds : [])
-      if (data?.routing) setRouting(data.routing)
     } catch (e) {
       setError(e?.message || 'Could not load system templates')
       setKinds([])
@@ -307,50 +306,48 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
     }
   }
 
-  const routingPath =
-    product === 'feedback'
-      ? '/admin/customer-feedback/system-templates/routing'
-      : '/admin/wa-survey/system-templates/routing'
-
-  const updateRouting = async (templateSource) => {
-    setRoutingSaving(true)
-    setError('')
-    try {
-      const data = await apiFetch(routingPath, {
-        method: 'PATCH',
-        body: JSON.stringify({ template_source: templateSource }),
-      })
-      if (data) setRouting(data)
-    } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not update routing').message)
-    } finally {
-      setRoutingSaving(false)
-    }
+  const refreshSheetRows = async () => {
+    if (!sheetCategory) return
+    const listPath =
+      product === 'feedback'
+        ? '/admin/customer-feedback/system-templates'
+        : '/admin/wa-survey/system-templates'
+    const data = await apiFetch(listPath)
+    const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
+    setKinds(nextKinds)
+    setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
   }
 
-  const pullAllFromMeta = async () => {
+  const toggleMetaSyncRow = async (row, syncFromMeta) => {
+    setMetaSyncSavingId(row.id)
     setError('')
     try {
       const path =
         product === 'feedback'
-          ? '/admin/customer-feedback/system-templates/pull-from-meta'
-          : '/admin/wa-survey/system-templates/pull-from-meta'
-      const result = await apiFetch(path, { method: 'POST', body: '{}' })
+          ? `/admin/customer-feedback/system-templates/${row.id}/sync-from-meta`
+          : `/admin/wa-survey/system-templates/${row.id}/sync-from-meta`
+      await apiFetch(path, {
+        method: 'PATCH',
+        body: JSON.stringify({ sync_from_meta: syncFromMeta }),
+      })
       await load()
-      if (result?.message) setError('')
+      await refreshSheetRows()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Pull from Meta failed').message)
+      setError(formatWaSurveyError(e, 'Could not update Meta sync').message)
+    } finally {
+      setMetaSyncSavingId(null)
     }
   }
 
   const syncSystemRow = async (row) => {
+    setSyncingId(row.id)
     setError('')
     try {
-      if (routing.uses_meta_sync) {
+      if (row.syncFromMeta) {
         const path =
           product === 'feedback'
-            ? '/admin/customer-feedback/system-templates/pull-from-meta'
-            : '/admin/wa-survey/system-templates/pull-from-meta'
+            ? `/admin/customer-feedback/system-templates/${row.id}/pull-from-meta`
+            : `/admin/wa-survey/system-templates/${row.id}/pull-from-meta`
         await apiFetch(path, { method: 'POST', body: '{}' })
       } else {
         const path =
@@ -360,23 +357,17 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
         await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 180000, quietNetworkHint: true })
       }
       await load()
-      if (sheetCategory) {
-        const listPath =
-          product === 'feedback'
-            ? '/admin/customer-feedback/system-templates'
-            : '/admin/wa-survey/system-templates'
-        const data = await apiFetch(listPath)
-        const nextKinds = Array.isArray(data?.kinds) ? data.kinds : []
-        setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
-      }
+      await refreshSheetRows()
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Push to Meta failed').message)
+      setError(formatWaSurveyError(e, row.syncFromMeta ? 'Pull from Meta failed' : 'Push to Meta failed').message)
+    } finally {
+      setSyncingId(null)
     }
   }
 
   const toggleSystemRow = async (row) => {
     setError('')
-    const nextActive = row.status === 'disabled'
+    const nextActive = Boolean(row.hiddenFromSurvey)
     try {
       if (product === 'feedback') {
         await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, {
@@ -421,36 +412,9 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
               <h3 className="text-sm font-semibold">System templates</h3>
               <p className="mt-0.5 max-w-2xl text-[11px] text-muted-foreground">
                 Shared {product === 'feedback' ? 'Customer Feedback' : 'Survey'} WhatsApp templates used across all
-                industries. Some steps use buttons (Meta HSM); others send as session text only.
+                industries. Use the per-template Meta sync toggle (e.g. Opt in with buttons) when Meta should be the
+                source; default is local — Admin edits push to Meta.
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="text-muted-foreground">Template source:</span>
-                <label className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
-                  <input
-                    type="radio"
-                    name={`${product}-system-routing`}
-                    checked={!routing.uses_meta_sync}
-                    disabled={routingSaving}
-                    onChange={() => void updateRouting('local')}
-                  />
-                  Keep local
-                </label>
-                <label className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
-                  <input
-                    type="radio"
-                    name={`${product}-system-routing`}
-                    checked={Boolean(routing.uses_meta_sync)}
-                    disabled={routingSaving}
-                    onChange={() => void updateRouting('meta_sync')}
-                  />
-                  Sync from Meta
-                </label>
-                {routing.uses_meta_sync ? (
-                  <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => void pullAllFromMeta()}>
-                    Pull all from Meta
-                  </Button>
-                ) : null}
-              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -544,9 +508,14 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
               onSync={(row) => void syncSystemRow(row)}
               onToggle={(row) => void toggleSystemRow(row)}
               onDelete={(row) => void deleteSystemRow(row)}
+              onMetaSyncToggle={(row, checked) => void toggleMetaSyncRow(row, checked)}
+              syncingId={syncingId}
+              metaSyncSavingId={metaSyncSavingId}
               onNew={() => void addInsideCategory()}
               newLabel="Add template"
               plainNames
+              showMetaSyncColumn
+              useHiddenToggle
               showNew
               emptyLabel="No system templates in this category. Use Add template."
             />

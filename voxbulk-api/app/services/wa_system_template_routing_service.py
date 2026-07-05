@@ -1,4 +1,4 @@
-"""Local vs Meta-sync routing for Survey + Customer Feedback system templates."""
+"""Per-template Meta sync routing for Survey + Customer Feedback system templates."""
 
 from __future__ import annotations
 
@@ -13,84 +13,14 @@ from app.models.customer_feedback import FeedbackWaTemplate
 from app.models.survey_type import SurveyType
 from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-from app.models.wa_system_template_routing_settings import (
-    TEMPLATE_SOURCE_LOCAL,
-    TEMPLATE_SOURCE_META_SYNC,
-    WaSystemTemplateRoutingSettings,
-)
 from app.services.survey_system_template_service import SYSTEM_TEMPLATE_KINDS
-
-PRODUCT_SURVEY = "survey"
-PRODUCT_FEEDBACK = "feedback"
-VALID_PRODUCTS = frozenset({PRODUCT_SURVEY, PRODUCT_FEEDBACK})
-VALID_SOURCES = frozenset({TEMPLATE_SOURCE_LOCAL, TEMPLATE_SOURCE_META_SYNC})
 
 
 class WaSystemTemplateRoutingError(ValueError):
     pass
 
 
-def normalize_template_source(raw: str | None) -> str:
-    value = str(raw or TEMPLATE_SOURCE_LOCAL).strip().lower()
-    if value in {"meta", "sync", "meta_sync", "remote"}:
-        return TEMPLATE_SOURCE_META_SYNC
-    if value in {"local", "keep_local", "draft"}:
-        return TEMPLATE_SOURCE_LOCAL
-    if value not in VALID_SOURCES:
-        raise WaSystemTemplateRoutingError(
-            f"template_source must be one of: {TEMPLATE_SOURCE_LOCAL}, {TEMPLATE_SOURCE_META_SYNC}"
-        )
-    return value
-
-
 class WaSystemTemplateRoutingService:
-    @staticmethod
-    def ensure_row(db: Session, product: str) -> WaSystemTemplateRoutingSettings:
-        product_norm = str(product or "").strip().lower()
-        if product_norm not in VALID_PRODUCTS:
-            raise WaSystemTemplateRoutingError(f"Unknown product: {product!r}")
-        row = db.get(WaSystemTemplateRoutingSettings, product_norm)
-        if row is None:
-            row = WaSystemTemplateRoutingSettings(
-                product=product_norm,
-                template_source=TEMPLATE_SOURCE_LOCAL,
-                updated_at=datetime.utcnow(),
-            )
-            db.add(row)
-            db.commit()
-            db.refresh(row)
-        return row
-
-    @staticmethod
-    def get_settings(db: Session, product: str) -> dict[str, Any]:
-        row = WaSystemTemplateRoutingService.ensure_row(db, product)
-        source = normalize_template_source(row.template_source)
-        return {
-            "product": row.product,
-            "template_source": source,
-            "uses_meta_sync": source == TEMPLATE_SOURCE_META_SYNC,
-            "label": (
-                "Sync from Meta"
-                if source == TEMPLATE_SOURCE_META_SYNC
-                else "Keep local (Admin is source of truth)"
-            ),
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        }
-
-    @staticmethod
-    def update_settings(db: Session, product: str, *, template_source: str) -> dict[str, Any]:
-        row = WaSystemTemplateRoutingService.ensure_row(db, product)
-        row.template_source = normalize_template_source(template_source)
-        row.updated_at = datetime.utcnow()
-        db.add(row)
-        db.commit()
-        return WaSystemTemplateRoutingService.get_settings(db, product)
-
-    @staticmethod
-    def uses_meta_sync(db: Session, product: str) -> bool:
-        row = WaSystemTemplateRoutingService.ensure_row(db, product)
-        return normalize_template_source(row.template_source) == TEMPLATE_SOURCE_META_SYNC
-
     @staticmethod
     def is_survey_system_template_row(db: Session, row: TelnyxWhatsappTemplate | None) -> bool:
         if row is None:
@@ -121,6 +51,18 @@ class WaSystemTemplateRoutingService:
         return row.industry_id is None and row.survey_type_id is None
 
     @staticmethod
+    def survey_uses_meta_sync(db: Session, row: TelnyxWhatsappTemplate) -> bool:
+        return bool(row.sync_from_meta) and WaSystemTemplateRoutingService.is_survey_system_template_row(
+            db, row
+        )
+
+    @staticmethod
+    def feedback_uses_meta_sync(row: FeedbackWaTemplate) -> bool:
+        return bool(row.sync_from_meta) and WaSystemTemplateRoutingService.is_feedback_system_template_row(
+            row
+        )
+
+    @staticmethod
     def survey_effective_components(
         db: Session | None,
         row: TelnyxWhatsappTemplate,
@@ -135,8 +77,7 @@ class WaSystemTemplateRoutingService:
 
         if (
             db is not None
-            and WaSystemTemplateRoutingService.uses_meta_sync(db, PRODUCT_SURVEY)
-            and WaSystemTemplateRoutingService.is_survey_system_template_row(db, row)
+            and WaSystemTemplateRoutingService.survey_uses_meta_sync(db, row)
             and remote_list
             and template_row_is_sendable_on_meta(row)
         ):
@@ -149,9 +90,7 @@ class WaSystemTemplateRoutingService:
         row: TelnyxWhatsappTemplate,
         remote_components: list[Any],
     ) -> bool:
-        if not WaSystemTemplateRoutingService.uses_meta_sync(db, PRODUCT_SURVEY):
-            return False
-        if not WaSystemTemplateRoutingService.is_survey_system_template_row(db, row):
+        if not WaSystemTemplateRoutingService.survey_uses_meta_sync(db, row):
             return False
         if not isinstance(remote_components, list) or not remote_components:
             return False
@@ -217,9 +156,7 @@ class WaSystemTemplateRoutingService:
         tpl: FeedbackWaTemplate,
         remote: dict[str, Any],
     ) -> bool:
-        if not WaSystemTemplateRoutingService.uses_meta_sync(db, PRODUCT_FEEDBACK):
-            return False
-        if not WaSystemTemplateRoutingService.is_feedback_system_template_row(tpl):
+        if not WaSystemTemplateRoutingService.feedback_uses_meta_sync(tpl):
             return False
         body = WaSystemTemplateRoutingService.extract_remote_body_text(remote)
         if not body:
@@ -231,12 +168,3 @@ class WaSystemTemplateRoutingService:
         tpl.updated_at = datetime.utcnow()
         db.add(tpl)
         return True
-
-    @staticmethod
-    def feedback_body_for_send(db: Session, tpl: FeedbackWaTemplate) -> str:
-        if (
-            WaSystemTemplateRoutingService.uses_meta_sync(db, PRODUCT_FEEDBACK)
-            and WaSystemTemplateRoutingService.is_feedback_system_template_row(tpl)
-        ):
-            return str(tpl.body_text or "")
-        return str(tpl.body_text or "")
