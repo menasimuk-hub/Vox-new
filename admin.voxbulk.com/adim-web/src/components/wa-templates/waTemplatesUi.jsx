@@ -210,6 +210,52 @@ export function isHiddenWaTemplate(tpl, product = 'survey') {
   return tpl?.active_for_survey === false
 }
 
+export function isHubRowHidden(row) {
+  if (row?.hiddenFromSurvey != null) return Boolean(row.hiddenFromSurvey)
+  return isHiddenWaTemplate(row?.raw, row?.product || 'survey')
+}
+
+/** Sort hub rows: hidden topics sink to bottom; rejected bubble up among active. */
+export function sortHubTemplateRows(rows) {
+  return [...rows].sort((a, b) => {
+    const aHidden = isHubRowHidden(a)
+    const bHidden = isHubRowHidden(b)
+    if (aHidden && !bHidden) return 1
+    if (bHidden && !aHidden) return -1
+    if (a.status === 'rejected' && b.status !== 'rejected') return -1
+    if (b.status === 'rejected' && a.status !== 'rejected') return 1
+    const byName = String(a.name).localeCompare(String(b.name))
+    if (byName !== 0) return byName
+    return String(a.langs?.[0] || '').localeCompare(String(b.langs?.[0] || ''))
+  })
+}
+
+export function patchHubRowHidden(row, hidden, product = 'survey') {
+  const active = !hidden
+  const raw =
+    product === 'feedback'
+      ? {
+          ...row.raw,
+          is_active: active,
+          variants: Array.isArray(row.raw?.variants)
+            ? row.raw.variants.map((v) => ({ ...v, is_active: active }))
+            : row.raw?.variants,
+        }
+      : { ...row.raw, active_for_survey: active }
+  return toHubRow(raw, {
+    rowKind: row.rowKind,
+    product: row.product || product,
+    surveyTypeId: row.surveyTypeId || row.raw?.survey_type_id,
+    surveyTypeName: row.surveyTypeName || row.raw?.survey_type_name,
+    name: row.name,
+    metaName: row.metaName,
+    languageCount: row.languageCount,
+    languages: row.raw?.languages || row.langs,
+    variants: row.raw?.variants,
+    systemKind: row.systemKind,
+  })
+}
+
 /** Map API row → StatusDot status. Only Meta/Telnyx status counts as rejected — never local push errors. */
 export function mapApprovalStatus(tpl) {
   // Prefer live Meta fields when present.

@@ -18,7 +18,13 @@ import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
 import WaJobProgressDialog from './WaJobProgressDialog'
 import WaIndustryJobPanel from './WaIndustryJobPanel'
-import { toHubRow, LangCountBadge, MetaSyncNamingNote } from './waTemplatesUi'
+import {
+  toHubRow,
+  LangCountBadge,
+  MetaSyncNamingNote,
+  patchHubRowHidden,
+  sortHubTemplateRows,
+} from './waTemplatesUi'
 
 function industryHealthClass(ind) {
   const health = ind.approval_health
@@ -411,16 +417,7 @@ async function loadSurveyTemplatesForIndustry(industryId) {
       languages: tpl.languages || [],
     }),
   )
-  rows.sort((a, b) => {
-    if (a.status === 'disabled' && b.status !== 'disabled') return 1
-    if (b.status === 'disabled' && a.status !== 'disabled') return -1
-    if (a.status === 'rejected' && b.status !== 'rejected') return -1
-    if (b.status === 'rejected' && a.status !== 'rejected') return 1
-    const byName = String(a.name).localeCompare(String(b.name))
-    if (byName !== 0) return byName
-    return String(a.langs?.[0] || '').localeCompare(String(b.langs?.[0] || ''))
-  })
-  return { rows, unlinkedTypes }
+  return { rows: sortHubTemplateRows(rows), unlinkedTypes }
 }
 
 async function loadFeedbackTemplatesForIndustry(industryId) {
@@ -454,14 +451,7 @@ async function loadFeedbackTemplatesForIndustry(industryId) {
       },
     )
   })
-  rows.sort((a, b) => {
-    if (a.status === 'rejected' && b.status !== 'rejected') return -1
-    if (b.status === 'rejected' && a.status !== 'rejected') return 1
-    const byName = String(a.name).localeCompare(String(b.name))
-    if (byName !== 0) return byName
-    return String(a.langs?.[0] || '').localeCompare(String(b.langs?.[0] || ''))
-  })
-  return { rows, unlinkedTypes }
+  return { rows: sortHubTemplateRows(rows), unlinkedTypes }
 }
 
 export default function WaIndustryBrowser({
@@ -878,8 +868,18 @@ export default function WaIndustryBrowser({
           onEdit={onEditRow}
           onSync={onSyncRow}
           onToggle={async (row) => {
-            await onToggleRow?.(row)
-            if (industry) await loadIndustryRows(industry)
+            const prevRows = rows
+            const nextHidden = !row.hiddenFromSurvey
+            setRows(sortHubTemplateRows(
+              rows.map((r) =>
+                String(r.id) === String(row.id) ? patchHubRowHidden(r, nextHidden, product) : r,
+              ),
+            ))
+            try {
+              await onToggleRow?.(row)
+            } catch {
+              setRows(prevRows)
+            }
           }}
           onDelete={async (row) => {
             await onDeleteRow?.(row)

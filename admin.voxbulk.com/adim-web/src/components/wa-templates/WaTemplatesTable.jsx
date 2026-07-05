@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
-import { CategoryPill, IconBtn, LangChip, MetaNamePreview, STATUS_FILTERS, StatusDot } from './waTemplatesUi'
+import { CategoryPill, IconBtn, LangChip, MetaNamePreview, STATUS_FILTERS, StatusDot, isHubRowHidden } from './waTemplatesUi'
 
 export default function WaTemplatesTable({
   templates,
@@ -34,7 +34,11 @@ export default function WaTemplatesTable({
   const statusCounts = useMemo(() => {
     const counts = { all: templates.length, approved: 0, rejected: 0, pending: 0, local: 0, disabled: 0 }
     for (const t of templates) {
-      if (counts[t.status] != null) counts[t.status] += 1
+      if (isHubRowHidden(t)) {
+        counts.disabled += 1
+      } else if (counts[t.status] != null) {
+        counts[t.status] += 1
+      }
     }
     return counts
   }, [templates])
@@ -50,7 +54,9 @@ export default function WaTemplatesTable({
 
   const filtered = useMemo(() => {
     const list = templates.filter((t) => {
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      if (statusFilter === 'disabled') {
+        if (!isHubRowHidden(t) && t.status !== 'disabled') return false
+      } else if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (cat !== 'all' && t.category !== cat) return false
       if (q) {
         const needle = q.toLowerCase()
@@ -72,10 +78,12 @@ export default function WaTemplatesTable({
       }
       return true
     })
-    // Disabled always sink to the bottom.
+    // Hidden topics sink to the bottom.
     return list.sort((a, b) => {
-      if (a.status === 'disabled' && b.status !== 'disabled') return 1
-      if (b.status === 'disabled' && a.status !== 'disabled') return -1
+      const aHidden = isHubRowHidden(a)
+      const bHidden = isHubRowHidden(b)
+      if (aHidden && !bHidden) return 1
+      if (bHidden && !aHidden) return -1
       if (a.status === 'rejected' && b.status !== 'rejected') return -1
       if (b.status === 'rejected' && a.status !== 'rejected') return 1
       return String(a.name).localeCompare(String(b.name))
@@ -203,8 +211,7 @@ export default function WaTemplatesTable({
                   className={cn(
                     'border-t border-border/60 transition-colors hover:bg-accent/40',
                     i % 2 === 1 && 'bg-surface-muted/20',
-                    t.status === 'disabled' && !useHiddenToggle && 'bg-muted/40 opacity-50',
-                    useHiddenToggle && t.hiddenFromSurvey && 'bg-muted/40 opacity-50',
+                    isHubRowHidden(t) && 'bg-muted/40 opacity-50',
                     t.status === 'rejected' && 'bg-destructive/5 hover:bg-destructive/10',
                     t.status === 'approved' && 'bg-success/5',
                   )}
@@ -218,6 +225,11 @@ export default function WaTemplatesTable({
                     >
                       {t.name}
                     </button>
+                    {isHubRowHidden(t) ? (
+                      <span className="mt-0.5 block text-[10px] font-medium text-muted-foreground">
+                        Hidden from surveys
+                      </span>
+                    ) : null}
                     {t.status === 'rejected' ? (
                       <button
                         type="button"
@@ -288,19 +300,15 @@ export default function WaTemplatesTable({
                       />
                       <IconBtn
                         icon={Power}
-                        label={
-                          (useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled')
-                            ? 'Show in surveys'
-                            : 'Hide from surveys'
-                        }
+                        label={isHubRowHidden(t) ? 'Show in surveys' : 'Hide from surveys'}
                         onClick={() => onToggle?.(t)}
                         disabled={syncingId != null}
                         className={
-                          (useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled')
+                          isHubRowHidden(t)
                             ? 'bg-destructive/15 text-destructive hover:bg-destructive/25 hover:text-destructive'
                             : undefined
                         }
-                        tone={(useHiddenToggle ? t.hiddenFromSurvey : t.status === 'disabled') ? 'danger' : 'default'}
+                        tone={isHubRowHidden(t) ? 'danger' : 'default'}
                       />
                       <IconBtn icon={Trash2} label="Delete" onClick={() => onDelete?.(t)} tone="danger" />
                     </div>

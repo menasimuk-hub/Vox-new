@@ -523,11 +523,17 @@ export default function WaTemplatesHub() {
         return
       }
       if (row.rowKind === 'feedback_template') {
-        await apiFetch('/admin/customer-feedback/wa-templates', {
-          method: 'POST',
-          body: JSON.stringify({ id: row.id, is_active: row.raw?.is_active === false }),
-        })
-        setMsg('Template visibility updated')
+        const enable = row.hiddenFromSurvey
+        const variants = Array.isArray(row.raw?.variants) ? row.raw.variants : [{ id: row.id }]
+        await Promise.all(
+          variants.map((v) =>
+            apiFetch('/admin/customer-feedback/wa-templates', {
+              method: 'POST',
+              body: JSON.stringify({ id: v.id, is_active: enable }),
+            }),
+          ),
+        )
+        setMsg(enable ? 'Topic enabled for surveys' : 'Topic hidden from surveys')
         return
       }
       if (row.rowKind === 'feedback_type') {
@@ -545,6 +551,7 @@ export default function WaTemplatesHub() {
       void loadSurveyIndustries()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not update status').message)
+      throw e
     }
   }
 
