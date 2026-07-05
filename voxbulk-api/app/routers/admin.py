@@ -1199,6 +1199,9 @@ def meta_whatsapp_templates_live_summary(
 
     try:
         summary = TelnyxWhatsappTemplateSyncService.apply_live_statuses(db)
+        from app.services.survey_wa_template_supersede_service import consolidate_active_clone_families
+
+        consolidate = consolidate_active_clone_families(db)
     except TelnyxWhatsappTemplateSyncError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return {
@@ -1215,6 +1218,7 @@ def meta_whatsapp_templates_live_summary(
         },
         "cleared_stale_rejected": summary["cleared_stale_rejected"],
         "updated": summary["updated"],
+        "consolidated_clone_siblings": consolidate.get("deactivated_ids") or [],
     }
 
 

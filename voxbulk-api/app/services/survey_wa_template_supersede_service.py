@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +15,51 @@ from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateServ
 logger = logging.getLogger(__name__)
 
 _LOCAL_ID_PREFIX = "local-"
+
+
+def consolidate_active_clone_families(db: Session) -> dict[str, Any]:
+    """Keep one active row per clone family (same parent_template_id); prefer APPROVED on Meta."""
+    from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+
+    actives = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.active_for_survey.is_(True))
+        ).scalars()
+    )
+    by_parent: dict[int, list[TelnyxWhatsappTemplate]] = defaultdict(list)
+    for row in actives:
+        parent_id = int(row.parent_template_id or 0)
+        if parent_id:
+            by_parent[parent_id].append(row)
+
+    deactivated: list[int] = []
+    kept: list[int] = []
+    for _parent_id, group in by_parent.items():
+        if len(group) <= 1:
+            continue
+        winner = None
+        for row in sorted(group, key=lambda r: int(r.id), reverse=True):
+            if template_row_is_sendable_on_meta(row):
+                winner = row
+                break
+        if winner is None:
+            winner = max(group, key=lambda r: int(r.id))
+        for row in group:
+            if int(row.id) == int(winner.id):
+                kept.append(int(row.id))
+                continue
+            row.active_for_survey = False
+            row.updated_at = __import__("datetime").datetime.utcnow()
+            db.add(row)
+            deactivated.append(int(row.id))
+            logger.info(
+                "wa_template_clone_sibling_deactivated",
+                extra={"deactivated_id": row.id, "winner_id": winner.id, "name": row.name},
+            )
+
+    if deactivated:
+        db.commit()
+    return {"ok": True, "deactivated_ids": deactivated, "kept_ids": kept}
 
 
 def process_one_superseded_template_deletion(db: Session) -> dict[str, Any]:
@@ -83,9 +129,24 @@ def process_one_superseded_template_deletion(db: Session) -> dict[str, Any]:
 
 
 def refresh_successor_status_from_meta(db: Session, row: TelnyxWhatsappTemplate) -> None:
-    """After webhook/status refresh, attempt superseded cleanup if newly APPROVED."""
+    """After webhook/status refresh, consolidate clone family and attempt superseded cleanup."""
     if str(row.status or "").upper() != "APPROVED":
         return
-    if not row.parent_template_id:
-        return
-    process_one_superseded_template_deletion(db)
+    consolidate_active_clone_families(db)
+    if row.parent_template_id:
+        process_one_superseded_template_deletion(db)
+
+
+def sync_wa_template_statuses_from_meta(db: Session) -> dict[str, Any]:
+    """Pull live Meta/Telnyx statuses, dedupe active clone siblings, retire one superseded parent."""
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    status_summary = TelnyxWhatsappTemplateSyncService.apply_live_statuses(db)
+    consolidate = consolidate_active_clone_families(db)
+    supersede = process_one_superseded_template_deletion(db)
+    return {
+        "ok": True,
+        "status_sync": status_summary,
+        "consolidate": consolidate,
+        "supersede": supersede,
+    }
