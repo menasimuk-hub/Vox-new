@@ -649,7 +649,10 @@ export default function WaIndustryBrowser({
                     detail: flat?.message || `Batch ${batchNum}…`,
                   })
                 }
-                if (partial) applyProgress(partial, { running: running !== false && !done })
+                if (partial) {
+                  const stillRunning = !(step === 'pull' && done === true)
+                  applyProgress(partial, { running: stillRunning })
+                }
               },
             })
 

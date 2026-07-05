@@ -140,6 +140,10 @@ export default function WaJobProgressDialog({
             <Button type="button" size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onClose}>
               <X className="h-3.5 w-3.5" />
             </Button>
+          ) : onStop ? (
+            <Button type="button" size="sm" variant="destructive" className="h-7 shrink-0 text-xs" onClick={onStop}>
+              Stop sync
+            </Button>
           ) : null}
         </div>
 
@@ -333,13 +337,13 @@ export default function WaJobProgressDialog({
           ) : null}
         </div>
 
-        <div className="flex justify-end gap-2 border-t px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t bg-surface px-4 py-3">
           {running && onStop ? (
-            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onStop}>
-              Stop
+            <Button type="button" size="sm" variant="destructive" className="h-8 text-xs" onClick={onStop}>
+              Stop sync
             </Button>
           ) : null}
-          <Button type="button" size="sm" className="h-8 text-xs" onClick={onClose} disabled={running && !onStop}>
+          <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onClose} disabled={running}>
             {running ? 'Working…' : 'Close'}
           </Button>
         </div>

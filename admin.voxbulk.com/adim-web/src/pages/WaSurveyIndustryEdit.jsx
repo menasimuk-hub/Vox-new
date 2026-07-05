@@ -494,7 +494,10 @@ export default function WaSurveyIndustryEdit() {
 
           }
 
-          if (partial) applyProgress(partial, { running: running !== false && !done })
+          if (partial) {
+            const stillRunning = !(step === 'pull' && done === true)
+            applyProgress(partial, { running: stillRunning })
+          }
 
         },
 
