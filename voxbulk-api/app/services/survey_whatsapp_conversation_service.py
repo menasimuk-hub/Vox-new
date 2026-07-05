@@ -34,7 +34,7 @@ from app.services.survey_builder_flow_service import (
     effective_order_config,
     is_low_answer_for_tell_us_more,
     is_tell_us_more_branch_question,
-    is_tell_us_more_trigger_role,
+    is_tell_us_more_trigger_question,
     log_builder_step_resolution,
     log_inbound_step_context,
     question_from_tell_us_more_template,
@@ -3320,7 +3320,7 @@ def handle_inbound_reply(
                 should_use_builder_linear_runtime(config)
                 and runtime_tell_us_more_enabled(config)
                 and not conv.get("tell_us_more_asked")
-                and is_tell_us_more_trigger_role(str(question.get("step_role") or ""))
+                and is_tell_us_more_trigger_question(question)
                 and is_low_answer_for_tell_us_more(
                     answer,
                     threshold=runtime_low_rating_threshold(config),

@@ -156,3 +156,69 @@ def test_hydrate_repairs_order_missing_tell_us_more(db):
     assert repaired.get("tell_us_more_template_id") is not None
     assert runtime_tell_us_more_enabled(repaired) is True
     assert tell_us_more_blocks_vague_followup(repaired, {}) is True
+
+
+def test_hydrate_enables_branch_for_step_0_snapshot(db):
+    from app.services.survey_builder_runtime_service import (
+        attach_builder_runtime_to_config,
+        hydrate_missing_tell_us_more_on_config,
+        runtime_tell_us_more_enabled,
+    )
+
+    _duplicate_tell_us_more_types(db)
+    welcome = db.execute(
+        __import__("sqlalchemy", fromlist=["select"]).select(TelnyxWhatsappTemplate).limit(1)
+    ).scalar_one_or_none()
+
+    middle = TelnyxWhatsappTemplate(
+        telnyx_record_id=str(uuid.uuid4()),
+        template_id=str(uuid.uuid4()),
+        name="balance_step",
+        display_name="Balance",
+        language="en_US",
+        category="MARKETING",
+        body_preview="Rate balance",
+        step_role=None,
+        status="APPROVED",
+        active_for_survey=True,
+        variant_type="standard",
+        components_json=json.dumps(
+            [
+                {"type": "BODY", "text": "Rate balance"},
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Excellent"},
+                        {"type": "QUICK_REPLY", "text": "Good"},
+                        {"type": "QUICK_REPLY", "text": "Poor"},
+                    ],
+                },
+            ]
+        ),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(middle)
+    db.commit()
+
+    runtime = build_builder_runtime(
+        db,
+        industry_id=None,
+        survey_type_id="employee-experience",
+        survey_type_name="Employee",
+        privacy_mode="off",
+        welcome_template_id=welcome.id if welcome else middle.id,
+        middle_template_ids=[middle.id],
+        tell_us_more_template_id=1633,
+        thank_you_template_id=welcome.id if welcome else middle.id,
+    )
+    # Simulate legacy snapshot with generic step roles
+    for q in runtime.get("step_sequence") or []:
+        if isinstance(q, dict):
+            q["step_role"] = f"step_{q.get('sequence', 0)}"
+    runtime["branches"]["tell_us_more_on_low_rating"]["enabled"] = False
+    broken = attach_builder_runtime_to_config({"anonymous_responses": False}, runtime)
+    assert runtime_tell_us_more_enabled(broken) is False
+
+    repaired = hydrate_missing_tell_us_more_on_config(db, broken)
+    assert runtime_tell_us_more_enabled(repaired) is True

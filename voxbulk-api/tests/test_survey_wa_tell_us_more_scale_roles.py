@@ -21,6 +21,7 @@ from app.services.survey_builder_runtime_service import (
 )
 from app.services.survey_builder_flow_service import (
     is_low_answer_for_tell_us_more,
+    is_tell_us_more_trigger_question,
     is_tell_us_more_trigger_role,
 )
 from app.services.survey_whatsapp_conversation_service import handle_inbound_reply
@@ -101,6 +102,15 @@ def test_is_low_answer_for_feeling_word_poor():
     assert is_tell_us_more_trigger_role("feeling_word") is True
     assert is_low_answer_for_tell_us_more("Poor", question=question) is True
     assert is_low_answer_for_tell_us_more("Excellent", question=question) is False
+
+
+def test_step_snapshot_with_step_0_infers_rating_trigger():
+    question = {
+        "step_role": "step_0",
+        "options": ["Excellent", "Good", "Poor"],
+    }
+    assert is_tell_us_more_trigger_question(question) is True
+    assert is_tell_us_more_trigger_role("step_0") is False
 
 
 def test_tell_us_more_blocks_vague_when_configured():

@@ -337,6 +337,44 @@ def normalize_survey_config_step_labels(
     return cfg
 
 
+def infer_step_role_from_options(options: list[str] | None) -> str:
+    labels = [str(o).strip() for o in (options or []) if str(o).strip()]
+    if not labels:
+        return ""
+    from app.services.wa_md_template_import_service import infer_step_role
+
+    return normalize_step_role(infer_step_role(labels))
+
+
+def effective_question_step_role(question: dict[str, Any]) -> str:
+    """Resolve step_role from stored value or button labels (fixes stale step_0..step_n snapshots)."""
+    raw = normalize_step_role(str(question.get("step_role") or ""))
+    if raw in TELL_US_MORE_TRIGGER_ROLES:
+        return raw
+    opts = question.get("options")
+    labels = (
+        [str(o).strip() for o in opts if str(o).strip()]
+        if isinstance(opts, list)
+        else []
+    )
+    inferred = infer_step_role_from_options(labels) if labels else ""
+    if inferred in TELL_US_MORE_TRIGGER_ROLES:
+        return inferred
+    if raw.startswith("step_") and inferred:
+        return inferred
+    return raw
+
+
+def is_tell_us_more_trigger_question(question: dict[str, Any] | None) -> bool:
+    if not isinstance(question, dict):
+        return False
+    return effective_question_step_role(question) in TELL_US_MORE_TRIGGER_ROLES
+
+
+def step_sequence_has_tell_us_more_trigger(steps: list[dict[str, Any]]) -> bool:
+    return any(is_tell_us_more_trigger_question(q) for q in steps if isinstance(q, dict))
+
+
 def question_from_template_row(
     db: Session,
     row: TelnyxWhatsappTemplate,
@@ -345,8 +383,14 @@ def question_from_template_row(
     business_name: str = "Your business",
     first_name: str = "Alex",
 ) -> dict[str, Any]:
-    role = normalize_step_role(row.step_role or f"step_{sequence}")
+    stored_role = str(row.step_role or "").strip()
+    role = normalize_step_role(stored_role) if stored_role else f"step_{sequence}"
     options = _options_from_template(row, role, strict=True)
+    if not stored_role or str(role).startswith("step_"):
+        inferred = infer_step_role_from_options(options)
+        if inferred:
+            role = inferred
+    role = normalize_step_role(role)
     preview = SurveyWhatsappTemplateService.build_preview(
         db,
         row,
@@ -643,7 +687,7 @@ def resolve_next_conversation_step(
         and tell_tid
         and tell_us_more_active
         and not tell_already
-        and is_tell_us_more_trigger_role(role)
+        and is_tell_us_more_trigger_question(current_q)
         and is_low_answer_for_tell_us_more(last_answer, threshold=threshold, question=current_q)
     ):
         tell_q = question_from_tell_us_more_template(

@@ -127,12 +127,9 @@ def build_builder_runtime(
         row = db.get(TelnyxWhatsappTemplate, tid)
         selected_names.append(str(row.display_name or row.name or "") if row else str(tid))
 
-    from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
+    from app.services.survey_builder_flow_service import step_sequence_has_tell_us_more_trigger
 
-    has_tell_us_more_trigger_step = any(
-        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES
-        for q in step_sequence
-    )
+    has_tell_us_more_trigger_step = step_sequence_has_tell_us_more_trigger(step_sequence)
     tell_id = int(tell_us_more_template_id) if tell_us_more_template_id else None
     thank_id = int(thank_you_template_id) if thank_you_template_id else None
     start_triggers = _welcome_start_triggers(db, welcome_id)
@@ -186,10 +183,10 @@ def _migrate_legacy_runtime(config: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(seq, list) or not seq or not isinstance(ids, list) or not ids:
         return None
     middles = [int(q["template_id"]) for q in seq if isinstance(q, dict) and q.get("template_id")]
-    legacy_has_trigger_step = any(
-        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES
-        for q in seq
-        if isinstance(q, dict)
+    from app.services.survey_builder_flow_service import step_sequence_has_tell_us_more_trigger
+
+    legacy_has_trigger_step = step_sequence_has_tell_us_more_trigger(
+        [q for q in seq if isinstance(q, dict)]
     )
     runtime: dict[str, Any] = {
         "version": RUNTIME_VERSION,
@@ -606,12 +603,11 @@ def hydrate_missing_tell_us_more_on_config(db: Session, config: dict[str, Any]) 
     """
     if not isinstance(config, dict):
         return {}
-    if runtime_tell_us_more_configured(config) and runtime_tell_us_more_enabled(config):
+    if runtime_tell_us_more_enabled(config):
         return config
 
+    from app.services.survey_builder_flow_service import step_sequence_has_tell_us_more_trigger
     from app.services.survey_system_template_service import SurveySystemTemplateService
-    from app.services.survey_step_bank_service import normalize_step_role
-    from app.services.survey_wa_flow_constants import TELL_US_MORE_TRIGGER_ROLES
 
     privacy_cfg = {
         "privacy_mode": config.get("privacy_mode"),
@@ -628,9 +624,7 @@ def hydrate_missing_tell_us_more_on_config(db: Session, config: dict[str, Any]) 
         return out
 
     seq = [q for q in (runtime.get("step_sequence") or []) if isinstance(q, dict)]
-    has_trigger_step = any(
-        normalize_step_role(str(q.get("step_role") or "")) in TELL_US_MORE_TRIGGER_ROLES for q in seq
-    )
+    has_trigger_step = step_sequence_has_tell_us_more_trigger(seq)
     patched = dict(runtime)
     patched["tell_us_more_template_id"] = int(resolved_tid)
     branches = dict(patched.get("branches") or {})
