@@ -199,6 +199,34 @@ def _looks_like_options_line(line: str) -> bool:
     return len(re.findall(r"[A-Z]\)", text)) >= 2
 
 
+def _looks_like_slash_topic_title(text: str) -> bool:
+    """Distinguish 'Booking / App Experience' (topic) from 'Good / Bad' (buttons)."""
+    parts = [p.strip() for p in str(text or "").split("/") if p.strip()]
+    if len(parts) != 2:
+        return False
+    word_counts = [len(p.split()) for p in parts]
+    # Both sides multi-word: e.g. "Front Desk / Reception"
+    if all(w >= 2 for w in word_counts):
+        return True
+    # Noun-style title: short label + longer phrase (Booking / App Experience)
+    if word_counts[0] == 1 and word_counts[1] >= 2:
+        return len(parts[0]) >= 7 and len(parts[1]) >= 12 and not parts[1][0:1].islower()
+    return False
+
+
+def _looks_like_topic_title(line: str) -> bool:
+    text = str(line or "").strip()
+    if not text or parse_lang_line(text) or _TOPIC_NUM_RE.match(text):
+        return False
+    if _OPTION_LINE_RE.search(text):
+        return False
+    if text[0:1] and ord(text[0]) > 0x2300:
+        return False
+    if "/" in text and _looks_like_slash_topic_title(text):
+        return True
+    return not _looks_like_options_line(text) and len(text) <= 80 and not text.endswith(("?", "？"))
+
+
 def _has_multilang_feedback_markers(text: str) -> bool:
     raw = str(text or "")
     return bool(
@@ -206,12 +234,19 @@ def _has_multilang_feedback_markers(text: str) -> bool:
     )
 
 
+def _looks_like_customer_feedback_pack(text: str) -> bool:
+    raw = str(text or "")
+    if _has_multilang_feedback_markers(raw) or _has_bare_lang_codes(raw, min_count=1):
+        return True
+    if re.search(r"^\d+\.\s+\S", raw, re.MULTILINE):
+        return True
+    # Hotels/Fitness layout: Topic title, blank line, bare lang code (en, tr, …)
+    return bool(re.search(r"^[^\n]+\n\s*\n[a-z]{2}\s*$", raw, re.MULTILINE | re.IGNORECASE))
+
+
 def _detect_format(text: str) -> MdFormat:
     raw = str(text or "")
-    has_lang_header = _has_multilang_feedback_markers(raw)
-    has_bare_langs = _has_bare_lang_codes(raw)
-    has_numbered_topic = bool(re.search(r"^\d+\.\s+\S", raw, re.MULTILINE))
-    if (has_lang_header or has_bare_langs) and (has_numbered_topic or has_lang_header or has_bare_langs):
+    if _looks_like_customer_feedback_pack(raw):
         return "multilang_feedback"
     if re.search(r"^\*\*\d+\s*[–-]", raw, re.MULTILINE) and re.search(r"^Body:", raw, re.MULTILINE | re.IGNORECASE):
         return "feedback_en"
@@ -262,10 +297,7 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
         lang_parsed = parse_lang_line(line)
         if lang_parsed:
             lang_label, lang_code = lang_parsed
-        elif (
-            not _TOPIC_NUM_RE.match(line)
-            and not _looks_like_options_line(line)
-        ):
+        elif _looks_like_topic_title(line):
             pack.topics.append(current_topic)
             current_topic = MdTopic(
                 index=len(pack.topics) + 1,
@@ -286,6 +318,8 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
                 continue
             if _TOPIC_NUM_RE.match(candidate) or parse_lang_line(candidate):
                 break
+            if body_lines and len(parse_buttons_line(candidate)) >= 2:
+                break
             if _looks_like_options_line(candidate):
                 if not body_lines:
                     current_topic.errors.append(f"{current_topic.name} ({lang_code}): missing body before buttons")
@@ -301,13 +335,15 @@ def parse_multilang_feedback(text: str, *, source_name: str = "") -> ParsedMdPac
             continue
 
         buttons_line = lines[i].strip()
-        if not _looks_like_options_line(buttons_line):
-            current_topic.errors.append(
-                f"{current_topic.name} ({lang_code}): expected buttons line, got: {buttons_line[:60]}"
-            )
-            continue
-        i += 1
         buttons = parse_buttons_line(buttons_line)
+        if len(buttons) < 2:
+            if not _looks_like_options_line(buttons_line):
+                current_topic.errors.append(
+                    f"{current_topic.name} ({lang_code}): expected buttons line, got: {buttons_line[:60]}"
+                )
+                continue
+            buttons = parse_buttons_line(buttons_line)
+        i += 1
         body = sanitize_body("\n".join(body_lines) if len(body_lines) > 1 else (body_lines[0] if body_lines else ""))
 
         variant_warnings: list[str] = []
@@ -362,21 +398,36 @@ def parse_md_pack(text: str, *, source_name: str = "", format_hint: MdFormat | N
     fmt = format_hint or _detect_format(text)
     if fmt == "multilang_feedback":
         return parse_multilang_feedback(text, source_name=source_name)
+
+    # Smart fallback — try Customer Feedback multilang before rejecting (Hotels/Fitness bare-lang files).
+    trial = parse_multilang_feedback(text, source_name=source_name)
+    if trial.topics:
+        topic_errors = sum(len(t.errors) for t in trial.topics)
+        if not trial.parse_errors and topic_errors == 0:
+            trial.format = "multilang_feedback"
+            return trial
+        if len(trial.topics) >= 2 and topic_errors <= max(2, len(trial.topics) // 10):
+            trial.format = "multilang_feedback"
+            trial.warnings.append(
+                f"Auto-detected Customer Feedback format from {source_name or 'upload'} "
+                f"({len(trial.topics)} topics; review warnings before import)."
+            )
+            return trial
+
     pack = ParsedMdPack(format=fmt)
     hint = (
-        "Expected Customer Feedback Markdown like:\n"
-        "1. Overall Experience\n"
-        "English (en)   — or bare: en\n"
-        "Body text…\n"
-        "Good / Bad"
+        "Supported Customer Feedback Markdown layouts:\n"
+        "• Numbered: 1. Topic → English (en) → body → Good / Bad\n"
+        "• Bare lang: Topic title → blank → en → body → Good / Bad\n"
+        "• Titles may include slashes: Booking / App Experience"
     )
     if fmt == "survey_abc":
         hint += (
-            "\n\nThis file looks like WA Survey ABC format (A) B) C)), not Customer Feedback. "
-            "Use numbered topics + Language (xx) headers, or upload the restaurants 19-lang file."
+            "\n\nThis file looks like WA Survey ABC (A) B) C)). "
+            "If it is Customer Feedback, add language lines (en, tr, …) or English (en) under each topic."
         )
     elif fmt == "unknown":
-        hint += "\n\nAdd language lines such as Turkish (tr) or English (en) under each topic name."
+        hint += "\n\nEach topic needs a language line such as en or Turkish (tr) before the body."
     pack.parse_errors.append(
         f"Format {fmt!r} is not supported for Customer Feedback import. {hint}"
     )
