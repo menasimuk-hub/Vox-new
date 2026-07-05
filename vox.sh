@@ -12,6 +12,12 @@ DASH_LOG="/tmp/voxbulk-dashboard.log"
 
 stop_api() {
   pkill -f "uvicorn.*main:app" 2>/dev/null || true
+  pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
+  sleep 1
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k 8000/tcp 2>/dev/null || true
+  fi
+  sleep 1
 }
 
 stop_public() {
