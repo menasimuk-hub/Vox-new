@@ -131,7 +131,7 @@ export default function WaIndustryJobPanel({
   lastDryRun = null,
 }) {
   const [file, setFile] = useState(null)
-  const [replace, setReplace] = useState(true)
+  const [replace, setReplace] = useState(false)
   const [createMissing, setCreateMissing] = useState(true)
   const [syncAfter, setSyncAfter] = useState(false)
   const [batchSize, setBatchSize] = useState(5)
@@ -256,16 +256,33 @@ export default function WaIndustryJobPanel({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-              Replace existing templates
+          <div className="grid grid-cols-1 gap-2 text-xs">
+            <label className="flex items-start gap-2 rounded-md border border-border/60 bg-surface-muted/20 p-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={replace}
+                onChange={(e) => setReplace(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-foreground">Replace all templates</span>
+                <span className="mt-0.5 block text-muted-foreground">
+                  Deletes every existing row (and tries Meta cleanup) then imports only what is in the file.
+                  Use for a full refresh — not for adding one language.
+                </span>
+              </span>
             </label>
+            {!replace ? (
+              <p className="rounded-md border border-success/30 bg-success/5 px-2 py-1.5 text-success">
+                Merge mode — keeps existing languages; adds missing ones (e.g. Turkish) and updates matching rows from
+                the file.
+              </p>
+            ) : null}
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={createMissing} onChange={(e) => setCreateMissing(e.target.checked)} />
               Create missing topics
             </label>
-            <label className="flex items-center gap-2 col-span-2">
+            <label className="flex items-center gap-2">
               <input type="checkbox" checked={syncAfter} onChange={(e) => setSyncAfter(e.target.checked)} />
               Start Meta sync immediately after import
             </label>

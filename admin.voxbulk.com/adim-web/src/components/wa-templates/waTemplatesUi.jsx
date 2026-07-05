@@ -24,6 +24,7 @@ export const FEEDBACK_LANG_CHIPS = [
   'SV',
   'CS',
   'NO',
+  'TR',
 ]
 
 export function feedbackChipToLanguage(chip) {
@@ -48,6 +49,7 @@ export function feedbackChipToLanguage(chip) {
     RU: 'ru',
     SV: 'sv',
     UR: 'ur',
+    TR: 'tr',
   }
   return map[key] || `${key.toLowerCase()}`
 }

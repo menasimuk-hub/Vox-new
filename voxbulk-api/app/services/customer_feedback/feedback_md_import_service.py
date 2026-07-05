@@ -142,6 +142,44 @@ def _ensure_feedback_survey_type(
     return row, True
 
 
+def _index_existing_by_topic_lang(
+    db: Session,
+    industry_id: str,
+) -> dict[tuple[str, str], FeedbackWaTemplate]:
+    """Map (survey_type_slug, language) → template row."""
+    types = list(
+        db.execute(select(FeedbackSurveyType).where(FeedbackSurveyType.industry_id == industry_id)).scalars().all()
+    )
+    slug_by_id = {t.id: str(t.slug or "") for t in types}
+    out: dict[tuple[str, str], FeedbackWaTemplate] = {}
+    for tpl in _list_industry_templates(db, industry_id):
+        slug = slug_by_id.get(str(tpl.survey_type_id or ""), "")
+        lang = str(tpl.language or "").strip().lower()
+        if slug and lang:
+            out[(slug, lang)] = tpl
+    return out
+
+
+def _merge_import_counts(
+    pack,
+    *,
+    existing_index: dict[tuple[str, str], FeedbackWaTemplate],
+) -> dict[str, int]:
+    from app.services.wa_md_template_import_service import topic_slug
+
+    to_add = 0
+    to_update = 0
+    for topic in pack.topics:
+        slug = topic_slug(topic.name)
+        for variant in topic.variants:
+            key = (slug, str(variant.language_code or "").strip().lower())
+            if key in existing_index:
+                to_update += 1
+            else:
+                to_add += 1
+    return {"templates_to_add": to_add, "templates_to_update": to_update}
+
+
 def _delete_industry_templates(db: Session, industry: FeedbackIndustry) -> dict[str, Any]:
     templates = _list_industry_templates(db, industry.id)
     types = list(
@@ -215,6 +253,27 @@ class FeedbackMdImportService:
             existing_topic_slugs={t.slug for t in types},
             min_langs=min_langs,
         )
+        if not replace and existing:
+            merge = _merge_import_counts(pack, existing_index=_index_existing_by_topic_lang(db, industry.id))
+            plan["summary"]["templates_to_add"] = merge["templates_to_add"]
+            plan["summary"]["templates_to_update"] = merge["templates_to_update"]
+            plan["summary"]["templates_unchanged_estimate"] = max(
+                0, len(existing) - merge["templates_to_update"]
+            )
+            plan["plan_steps"] = [
+                "Merge mode — existing rows are kept; languages not in the file are not deleted",
+                f"Add {merge['templates_to_add']} new language row(s) from the file",
+                f"Update {merge['templates_to_update']} existing topic+language row(s) from the file",
+                f"Leave ~{plan['summary']['templates_unchanged_estimate']} row(s) unchanged (not in file)",
+                "Set updated/new rows to telnyx_sync_status=draft — sync separately when ready",
+            ]
+            if topics_to_create := plan["summary"].get("topics_to_create"):
+                plan["plan_steps"].insert(1, f"Create {topics_to_create} new survey topic(s)")
+            plan["message"] = (
+                f"Merge dry-run OK — would add {merge['templates_to_add']} and update {merge['templates_to_update']} row(s)."
+                if plan.get("ok")
+                else plan.get("message")
+            )
         plan["industry_id"] = industry.id
         return plan
 
@@ -275,9 +334,12 @@ class FeedbackMdImportService:
         if replace:
             delete_summary = _delete_industry_templates(db, industry)
 
+        existing_index = _index_existing_by_topic_lang(db, industry.id) if not replace else {}
+
         types_created = 0
         types_updated = 0
         templates_created = 0
+        templates_updated = 0
         rows_out: list[dict[str, Any]] = []
 
         for topic in pack.topics:
@@ -304,6 +366,30 @@ class FeedbackMdImportService:
             for variant in topic.variants:
                 buttons = variant.buttons
                 role = infer_step_role(buttons)
+                lang_key = (survey_type.slug, str(variant.language_code or "").strip().lower())
+                existing_row = existing_index.get(lang_key) if not replace else None
+
+                if existing_row is not None:
+                    existing_row.body_text = variant.body
+                    existing_row.buttons_json = json.dumps(buttons)
+                    existing_row.step_role = role
+                    existing_row.template_key = survey_type.slug
+                    existing_row.telnyx_sync_status = "draft"
+                    existing_row.is_active = True
+                    existing_row.updated_at = now
+                    db.add(existing_row)
+                    templates_updated += 1
+                    rows_out.append(
+                        {
+                            "survey_type_id": survey_type.id,
+                            "survey_type_name": survey_type.name,
+                            "language": variant.language_code,
+                            "action": "updated",
+                            "body_preview": variant.body[:80],
+                        }
+                    )
+                    continue
+
                 db.add(
                     FeedbackWaTemplate(
                         id=str(uuid.uuid4()),
@@ -328,6 +414,7 @@ class FeedbackMdImportService:
                         "survey_type_id": survey_type.id,
                         "survey_type_name": survey_type.name,
                         "language": variant.language_code,
+                        "action": "created",
                         "buttons": buttons,
                         "body_preview": variant.body[:80],
                     }
@@ -337,6 +424,7 @@ class FeedbackMdImportService:
         return {
             "ok": True,
             "dry_run": False,
+            "merge_mode": not replace,
             "industry_id": industry.id,
             "industry_slug": industry.slug,
             "industry_name": industry.name,
@@ -344,14 +432,17 @@ class FeedbackMdImportService:
             "survey_types_created": types_created,
             "survey_types_updated": types_updated,
             "templates_created": templates_created,
+            "templates_updated": templates_updated,
             "deleted_templates": delete_summary.get("deleted_templates", 0),
             "deleted_meta_names": delete_summary.get("deleted_meta_names", 0),
             "warnings": (delete_summary.get("warnings") or []) + preview.get("warnings", []),
             "plan_steps": preview.get("plan_steps", []),
             "rows": rows_out[:50],
             "message": (
-                f"Imported {templates_created} template(s) across {len(pack.topics)} topic(s) "
-                f"for {industry.name}. Sync to Meta when ready."
+                f"{'Replaced' if replace else 'Merged'} industry templates for {industry.name}: "
+                f"{templates_created} added, {templates_updated} updated"
+                + (f", {delete_summary.get('deleted_templates', 0)} deleted" if replace else "")
+                + ". Sync to Meta when ready."
             ),
         }
 
