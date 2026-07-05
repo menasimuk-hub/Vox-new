@@ -758,11 +758,9 @@ def resolve_sendable_template_row(
     db: Session,
     row: TelnyxWhatsappTemplate | None,
 ) -> TelnyxWhatsappTemplate | None:
-    """Return APPROVED Meta-linked row — follow clone successors when parent name differs from Meta."""
+    """Return APPROVED Meta-linked row — prefer active clone successor over superseded parent."""
     if row is None:
         return None
-    if template_row_is_sendable_on_meta(row):
-        return row
 
     successors = list(
         db.execute(
@@ -771,6 +769,13 @@ def resolve_sendable_template_row(
             .order_by(TelnyxWhatsappTemplate.id.desc())
         ).scalars()
     )
+    for candidate in successors:
+        if candidate.active_for_survey and template_row_is_sendable_on_meta(candidate):
+            return candidate
+
+    if template_row_is_sendable_on_meta(row):
+        return row
+
     for candidate in successors:
         if template_row_is_sendable_on_meta(candidate):
             return candidate

@@ -516,12 +516,17 @@ class SurveySystemTemplateService:
             )
             for mapping in mappings:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
-                if tpl is None or not tpl.active_for_survey:
+                if tpl is None:
                     continue
-                status = str(tpl.status or "").upper()
+                from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+
+                listed = resolve_sendable_template_row(db, tpl) or tpl
+                if not listed.active_for_survey:
+                    continue
+                status = str(listed.status or "").upper()
                 grouped[kind].append(
                     {
-                        **survey_template_to_dict(tpl),
+                        **survey_template_to_dict(listed),
                         "survey_type_id": st.id,
                         "survey_type_name": st.name,
                         "survey_type_slug": st.slug,
@@ -529,6 +534,45 @@ class SurveySystemTemplateService:
                     }
                 )
         return {"ok": True, "templates": grouped}
+
+    @staticmethod
+    def resolve_order_welcome_template_row(
+        db: Session,
+        config: dict[str, Any],
+    ) -> TelnyxWhatsappTemplate | None:
+        """Welcome for send: wizard/runtime selection first, system resolver only as fallback."""
+        from app.services.survey_builder_runtime_service import load_builder_runtime
+        from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+
+        runtime = load_builder_runtime(config)
+        explicit_ids: list[int] = []
+        if runtime and runtime.get("welcome_template_id"):
+            try:
+                explicit_ids.append(int(runtime["welcome_template_id"]))
+            except (TypeError, ValueError):
+                pass
+        for key in ("welcome_template_id", "wa_template_id"):
+            raw = config.get(key)
+            if raw is None:
+                continue
+            try:
+                explicit_ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+
+        seen: set[int] = set()
+        for tid in explicit_ids:
+            if tid in seen:
+                continue
+            seen.add(tid)
+            row = db.get(TelnyxWhatsappTemplate, tid)
+            if row is None:
+                continue
+            sendable = resolve_sendable_template_row(db, row)
+            if sendable is not None:
+                return sendable
+
+        return SurveySystemTemplateService.resolve_welcome_template_for_survey(db, config)
 
     @staticmethod
     def resolve_welcome_template_for_survey(db: Session, config: dict[str, Any]) -> TelnyxWhatsappTemplate | None:

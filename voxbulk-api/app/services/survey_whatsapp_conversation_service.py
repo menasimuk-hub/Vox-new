@@ -1728,14 +1728,7 @@ def send_survey_opening(
     variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     from app.services.survey_system_template_service import SurveySystemTemplateService
 
-    template_row = SurveySystemTemplateService.resolve_welcome_template_for_survey(db, config)
-    if template_row is None:
-        runtime = load_builder_runtime(config)
-        fallback_id = (runtime or {}).get("welcome_template_id") or config.get(
-            "welcome_template_id"
-        ) or config.get("wa_template_id")
-        if fallback_id:
-            template_row = _resolve_template_row(db, fallback_id)
+    template_row = SurveySystemTemplateService.resolve_order_welcome_template_row(db, config)
 
     preview_body = ""
     if template_row is not None:

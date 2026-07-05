@@ -84,7 +84,60 @@ def test_template_row_is_sendable_on_meta():
     assert template_row_is_sendable_on_meta(pending) is False
 
 
-def test_resolve_sendable_follows_approved_clone(db):
+def test_resolve_sendable_prefers_active_successor_over_inactive_approved_parent(db):
+    parent = _welcome_row(
+        db,
+        name="welcome_parent",
+        status="APPROVED",
+        telnyx_record_id=str(uuid.uuid4()),
+        active=False,
+    )
+    clone = _welcome_row(
+        db,
+        name="welcome_parent_utu_2",
+        status="APPROVED",
+        parent_template_id=int(parent.id),
+        active=True,
+    )
+
+    sendable = resolve_sendable_template_row(db, parent)
+    assert sendable is not None
+    assert sendable.id == clone.id
+
+
+def test_resolve_order_welcome_uses_wizard_selection_first(db):
+    from app.services.survey_system_template_service import SurveySystemTemplateService
+
+    named = _welcome_row(
+        db,
+        name="wizard_named_welcome",
+        status="APPROVED",
+        telnyx_record_id=str(uuid.uuid4()),
+        active=True,
+    )
+    named.privacy_mode = "off"
+    db.add(named)
+    anon = _welcome_row(
+        db,
+        name="system_anonymous_welcome",
+        status="APPROVED",
+        telnyx_record_id=str(uuid.uuid4()),
+        active=True,
+    )
+    anon.privacy_mode = "on"
+    anon.body_preview = "Hi there! Anonymous system copy"
+    db.add(anon)
+    db.commit()
+
+    config = {
+        "anonymous_responses": False,
+        "welcome_template_id": int(named.id),
+        "wa_template_id": int(named.id),
+    }
+    resolved = SurveySystemTemplateService.resolve_order_welcome_template_row(db, config)
+    assert resolved is not None
+    assert resolved.id == named.id
+
     parent = _welcome_row(
         db,
         name=WELCOME_TEMPLATE_NAMED_NAME,

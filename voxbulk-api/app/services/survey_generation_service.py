@@ -131,15 +131,25 @@ class SurveyGenerationService:
         from app.services.survey_system_template_service import SurveySystemTemplateService
 
         anon_cfg = {"anonymous_responses": variant_key == VARIANT_ANONYMOUS}
-        resolved_welcome_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(
-            db,
-            anon_cfg,
-        )
-        if resolved_welcome_id:
-            resolved_row = db.get(TelnyxWhatsappTemplate, int(resolved_welcome_id))
-            if resolved_row is not None:
-                start_row = resolved_row
-                welcome_template_id = int(resolved_welcome_id)
+        if builder_config and builder_config.get("welcome_template_id"):
+            from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+
+            picked = db.get(TelnyxWhatsappTemplate, int(builder_config["welcome_template_id"]))
+            if picked is not None:
+                sendable = resolve_sendable_template_row(db, picked)
+                if sendable is not None:
+                    start_row = sendable
+                    welcome_template_id = int(sendable.id)
+        else:
+            resolved_welcome_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(
+                db,
+                anon_cfg,
+            )
+            if resolved_welcome_id:
+                resolved_row = db.get(TelnyxWhatsappTemplate, int(resolved_welcome_id))
+                if resolved_row is not None:
+                    start_row = resolved_row
+                    welcome_template_id = int(resolved_welcome_id)
 
         # Anonymous surveys use anonymous system thank-you / tell-us-more when available.
         resolved_thank = SurveySystemTemplateService.resolve_system_template_for_kind(
