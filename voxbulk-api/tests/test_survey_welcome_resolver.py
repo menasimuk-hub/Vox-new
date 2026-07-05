@@ -17,9 +17,17 @@ def test_resolve_welcome_template_named():
     row.id = 42
     row.status = "APPROVED"
     row.name = WELCOME_TEMPLATE_NAMED_NAME
+    row.telnyx_record_id = "550e8400-e29b-41d4-a716-446655440000"
+    row.parent_template_id = None
     db.execute.return_value.scalar_one_or_none.return_value = row
 
-    resolved = SurveySystemTemplateService.resolve_welcome_template_for_survey(db, {"anonymous_responses": False})
+    with patch(
+        "app.services.survey_whatsapp_template_service.resolve_sendable_template_row",
+        return_value=row,
+    ):
+        resolved = SurveySystemTemplateService.resolve_welcome_template_for_survey(
+            db, {"anonymous_responses": False}
+        )
     assert resolved is row
 
 
@@ -29,9 +37,17 @@ def test_resolve_welcome_template_anonymous():
     row.id = 99
     row.status = "APPROVED"
     row.name = WELCOME_TEMPLATE_ANONYMOUS_NAME
+    row.telnyx_record_id = "550e8400-e29b-41d4-a716-446655440001"
+    row.parent_template_id = None
     db.execute.return_value.scalar_one_or_none.return_value = row
 
-    resolved = SurveySystemTemplateService.resolve_welcome_template_for_survey(db, {"anonymous_responses": True})
+    with patch(
+        "app.services.survey_whatsapp_template_service.resolve_sendable_template_row",
+        return_value=row,
+    ):
+        resolved = SurveySystemTemplateService.resolve_welcome_template_for_survey(
+            db, {"anonymous_responses": True}
+        )
     assert resolved is row
 
 

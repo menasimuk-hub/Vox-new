@@ -368,12 +368,19 @@ def assert_runtime_template_send(
         logger.error("%s %s", LOG_PREFIX, msg)
         raise SurveyBuilderFlowError(msg)
     # Buttonless templates are sent as session free-form text — Meta approval not required.
-    from app.services.survey_whatsapp_template_service import template_row_needs_meta_approval
+    from app.services.survey_whatsapp_template_service import (
+        resolve_sendable_template_row,
+        template_row_needs_meta_approval,
+    )
 
-    if str(row.status or "").upper() != "APPROVED" and template_row_needs_meta_approval(row):
-        msg = f"Template {tid} missing or not APPROVED (context={context})"
-        logger.error("%s %s", LOG_PREFIX, msg)
-        raise SurveyBuilderFlowError(msg)
+    outbound = row
+    if template_row_needs_meta_approval(row):
+        sendable = resolve_sendable_template_row(db, row)
+        if sendable is None:
+            msg = f"Template {tid} missing or not APPROVED on Meta (context={context})"
+            logger.error("%s %s", LOG_PREFIX, msg)
+            raise SurveyBuilderFlowError(msg)
+        outbound = sendable
 
     runtime_hash = str(runtime.get("hash") or "")
     stored_hash = str(config.get("builder_runtime_hash") or runtime_hash)
@@ -384,13 +391,13 @@ def assert_runtime_template_send(
         session_id=session_id,
         config=config,
         runtime=runtime,
-        template_id=tid,
-        template_name=str(row.display_name or row.name or ""),
+        template_id=int(outbound.id),
+        template_name=str(outbound.display_name or outbound.name or ""),
         source=RUNTIME_SOURCE,
         hash_match=hash_match,
         preview_hash=preview_hash,
     )
-    return row
+    return outbound
 
 
 def log_runtime_outbound(

@@ -745,6 +745,45 @@ def _has_remote_telnyx_id(row: TelnyxWhatsappTemplate) -> bool:
     return bool(rid) and not rid.startswith(_LOCAL_ID_PREFIX)
 
 
+def template_row_is_sendable_on_meta(row: TelnyxWhatsappTemplate | None) -> bool:
+    """True when Meta/Telnyx can deliver this template (APPROVED + linked remote id)."""
+    if row is None:
+        return False
+    if str(row.status or "").upper() != "APPROVED":
+        return False
+    return _has_remote_telnyx_id(row)
+
+
+def resolve_sendable_template_row(
+    db: Session,
+    row: TelnyxWhatsappTemplate | None,
+) -> TelnyxWhatsappTemplate | None:
+    """Return APPROVED Meta-linked row — follow clone successors when parent name differs from Meta."""
+    if row is None:
+        return None
+    if template_row_is_sendable_on_meta(row):
+        return row
+
+    successors = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate)
+            .where(TelnyxWhatsappTemplate.parent_template_id == int(row.id))
+            .order_by(TelnyxWhatsappTemplate.id.desc())
+        ).scalars()
+    )
+    for candidate in successors:
+        if template_row_is_sendable_on_meta(candidate):
+            return candidate
+
+    parent_id = int(row.parent_template_id or 0)
+    if parent_id:
+        parent = db.get(TelnyxWhatsappTemplate, parent_id)
+        if template_row_is_sendable_on_meta(parent):
+            return parent
+
+    return None
+
+
 def _content_in_sync(row: TelnyxWhatsappTemplate, raw_components: list[Any]) -> bool:
     remote_hash = row.remote_content_hash or _sync_content_hash(_loads(row.components_json))
     draft_hash = _sync_content_hash(raw_components)

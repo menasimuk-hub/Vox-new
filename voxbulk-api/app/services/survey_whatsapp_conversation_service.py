@@ -19,6 +19,7 @@ from app.services.survey_dispatch_service import _first_name, _personalize, _use
 from app.services.survey_step_bank_service import normalize_step_role
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateService,
+    resolve_sendable_template_row,
     template_row_needs_meta_approval,
 )
 from app.services.telnyx_whatsapp_template_sync_service import (
@@ -1309,8 +1310,10 @@ def _resolve_template_row(db: Session, template_id: Any) -> Any | None:
         row = SurveyWhatsappTemplateService.get_template(db, int(template_id))
     except (TypeError, ValueError):
         return None
-    if row is None or str(row.status or "").upper() != "APPROVED":
+    if row is None:
         return None
+    if template_row_needs_meta_approval(row):
+        return resolve_sendable_template_row(db, row)
     return row
 
 
@@ -1377,20 +1380,21 @@ def _send_whatsapp_template(
     variables: dict[str, str],
     body: str,
 ) -> TelnyxMessageResult:
+    sendable = resolve_sendable_template_row(db, template_row) or template_row
     preview = SurveyWhatsappTemplateService.build_preview(
         db,
-        template_row,
+        sendable,
         business_name=variables.get("organisation_name") or "Your business",
         first_name=variables.get("first_name") or "there",
     )
     template_components = TelnyxWhatsappTemplateSyncService.build_components_for_row(
-        template_row,
+        sendable,
         variables=variables,
     )
-    send_id = send_template_id_for_row(template_row)
-    rendered = str(body or preview.get("rendered_body") or template_row.body_preview or "Survey message").strip()
+    send_id = send_template_id_for_row(sendable)
+    rendered = str(body or preview.get("rendered_body") or sendable.body_preview or "Survey message").strip()
     langs: list[str] = []
-    for candidate in (template_row.language, "en_US", "en_GB", "en"):
+    for candidate in (sendable.language, "en_US", "en_GB", "en"):
         code = str(candidate or "").strip()
         if code and code not in langs:
             langs.append(code)
@@ -1404,7 +1408,7 @@ def _send_whatsapp_template(
             org_id=order.org_id,
             to_number=recipient.phone or "",
             body=rendered,
-            template_name=template_row.name,
+            template_name=sendable.name,
             template_language=lang,
             template_components=template_components,
             meter_usage=False,
@@ -1444,6 +1448,7 @@ def _send_message(
     config: dict[str, Any] | None = None,
     question: dict[str, Any] | None = None,
     pacing: str | None = None,
+    template_row: Any | None = None,
 ) -> bool:
     config = config or _order_config(order)
     if is_simulator_dry_run(config):
@@ -1457,27 +1462,57 @@ def _send_message(
     )
 
     variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
-    template_row = None
-    if question and question.get("template_id"):
-        template_row = _resolve_question_template(
+    resolved_template = template_row
+    if resolved_template is None and question and question.get("template_id"):
+        resolved_template = _resolve_question_template(
             db,
             config,
             question,
             order_id=order.id,
             step=int(question.get("sequence", 0)) + 1 if question.get("sequence") is not None else None,
         )
-    if template_row is None and question is None:
+    if resolved_template is None and question is None and template_row is None:
         wa_template_id = config.get("wa_template_id")
         if wa_template_id:
-            template_row = _resolve_template_row(db, wa_template_id)
+            resolved_template = _resolve_template_row(db, wa_template_id)
 
-    if template_row is not None and template_row_needs_meta_approval(template_row):
+    use_row = resolved_template
+    if use_row is not None and template_row_needs_meta_approval(use_row):
+        use_row = resolve_sendable_template_row(db, use_row)
+        if use_row is None:
+            logger.error(
+                "%s template_not_sendable_on_meta order=%s recipient=%s template_id=%s",
+                LOG_PREFIX,
+                order.id,
+                recipient.id,
+                getattr(resolved_template, "id", None),
+            )
+            result = TelnyxMessageResult(
+                ok=False,
+                status="failed",
+                detail="WhatsApp template not approved on Meta",
+                channel="whatsapp",
+            )
+            try:
+                TelnyxMessagingService.log_outbound(
+                    db,
+                    org_id=order.org_id,
+                    to_number=recipient.phone or "",
+                    from_number=None,
+                    body=body,
+                    result=result,
+                )
+            except Exception:
+                pass
+            return False
+
+    if use_row is not None and template_row_needs_meta_approval(use_row):
         # Templates with buttons must go through Meta-approved HSM send.
         result = _send_whatsapp_template(
             db,
             order=order,
             recipient=recipient,
-            template_row=template_row,
+            template_row=use_row,
             variables=variables,
             body=body,
         )
@@ -1485,14 +1520,14 @@ def _send_message(
         # Buttonless templates (thank_you, tell_us_more, etc.) are session free-form text —
         # no Meta approval required once the customer has replied (24h window).
         personalized = _personalize_survey_text(body, variables)
-        if template_row is not None and not personalized:
+        if use_row is not None and not personalized:
             preview = SurveyWhatsappTemplateService.build_preview(
                 db,
-                template_row,
+                use_row,
                 business_name=variables.get("organisation_name") or "Your business",
                 first_name=variables.get("first_name") or "there",
             )
-            personalized = str(preview.get("rendered_body") or template_row.body_preview or body).strip()
+            personalized = str(preview.get("rendered_body") or use_row.body_preview or body).strip()
         result = TelnyxMessagingService.send_whatsapp(
             db,
             org_id=order.org_id,
@@ -1693,8 +1728,15 @@ def send_survey_opening(
     variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))
     from app.services.survey_system_template_service import SurveySystemTemplateService
 
-    welcome_template_id = SurveySystemTemplateService.resolve_welcome_template_id_for_survey(db, config)
-    template_row = _resolve_template_row(db, welcome_template_id or config.get("wa_template_id"))
+    template_row = SurveySystemTemplateService.resolve_welcome_template_for_survey(db, config)
+    if template_row is None:
+        runtime = load_builder_runtime(config)
+        fallback_id = (runtime or {}).get("welcome_template_id") or config.get(
+            "welcome_template_id"
+        ) or config.get("wa_template_id")
+        if fallback_id:
+            template_row = _resolve_template_row(db, fallback_id)
+
     preview_body = ""
     if template_row is not None:
         preview = SurveyWhatsappTemplateService.build_preview(
@@ -1706,6 +1748,21 @@ def send_survey_opening(
         preview_body = str(preview.get("rendered_body") or template_row.body_preview or "").strip()
     else:
         preview_body = _personalize_survey_text(str(flow.get("intro") or ""), variables)
+        logger.error(
+            "%s welcome_template_not_sendable order=%s recipient=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
+        _log_opening_session(
+            "missing",
+            order=order,
+            recipient=recipient,
+            config=config,
+            session=session,
+            extra={"reason": "welcome_template_not_sendable"},
+        )
+        return False
 
     sent = _send_message(
         db,
@@ -1713,6 +1770,7 @@ def send_survey_opening(
         recipient=recipient,
         body=preview_body or "Tap below to start your survey.",
         config=config,
+        template_row=template_row,
     )
     if not sent:
         _log_opening_session(

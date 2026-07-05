@@ -550,14 +550,19 @@ class SurveySystemTemplateService:
         if row is None:
             logger.error("survey_welcome_template_missing name=%s anonymous=%s", template_name, anonymous)
             return None
-        status = str(row.status or "").upper()
-        if status != "APPROVED":
+
+        from app.services.survey_whatsapp_template_service import resolve_sendable_template_row
+
+        sendable = resolve_sendable_template_row(db, row)
+        if sendable is None:
             logger.error(
-                "survey_welcome_template_not_approved name=%s status=%s",
+                "survey_welcome_template_not_sendable name=%s status=%s telnyx_record_id=%s",
                 row.name,
-                status,
+                row.status,
+                row.telnyx_record_id,
             )
-        return row
+            return None
+        return sendable
 
     @staticmethod
     def resolve_welcome_template_id_for_survey(db: Session, config: dict[str, Any]) -> int | None:
@@ -597,10 +602,20 @@ class SurveySystemTemplateService:
                 .order_by(TelnyxWhatsappTemplate.id.asc())
             ).scalars()
         )
-        for row in rows:
-            if resolve_row_privacy_mode(row) == privacy:
+        from app.services.survey_whatsapp_template_service import (
+            resolve_sendable_template_row,
+            template_row_needs_meta_approval,
+        )
+
+        matching = [row for row in rows if resolve_row_privacy_mode(row) == privacy]
+        for row in matching:
+            if template_row_needs_meta_approval(row):
+                sendable = resolve_sendable_template_row(db, row)
+                if sendable is not None:
+                    return sendable
+            else:
                 return row
-        return None
+        return matching[0] if matching else None
 
     @staticmethod
     def resolve_tell_us_more_template_id(
