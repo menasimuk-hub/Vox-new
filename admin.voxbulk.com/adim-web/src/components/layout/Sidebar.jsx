@@ -389,6 +389,8 @@ const NAV = [
 
       ['WA Templates', '/ai/wa-templates'],
 
+      ['Connection Profiles', '/ai/connection-profiles'],
+
       ['Call scripts', '/ai/scripts'],
 
       ['Agents', '/ai/agents'],

@@ -53,6 +53,7 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/settings/wa-appointment') ||
       isUnder('/analytics') ||
       isUnder('/ai/agents') ||
+      isUnder('/ai/connection-profiles') ||
       p === '/ai/agent-demo' ||
       isUnder('/marketing/frontpage-call-leads') ||
       isUnder('/marketing/lead-sources') ||

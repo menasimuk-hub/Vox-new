@@ -8502,3 +8502,107 @@ body.dark .matrix th {
   resize: vertical;
   white-space: pre-wrap;
 }
+
+.cp-page .cp-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.cp-tab {
+  background: transparent;
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+
+.cp-tab.active {
+  background: var(--bg2, rgba(15, 23, 42, 0.04));
+  font-weight: 600;
+}
+
+.cp-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 280px 1fr;
+}
+
+.cp-list-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cp-list-item {
+  background: transparent;
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.cp-list-item.active {
+  border-color: var(--accent, #2563eb);
+}
+
+.cp-form-grid {
+  display: grid;
+  gap: 12px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.cp-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cp-form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.cp-check {
+  align-items: center;
+  flex-direction: row !important;
+  gap: 8px !important;
+}
+
+.cp-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cp-service-grid {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.cp-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cp-test-badge {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.cp-webhook-card code {
+  display: block;
+  margin-top: 6px;
+  word-break: break-all;
+}
+
+@media (max-width: 960px) {
+  .cp-layout {
+    grid-template-columns: 1fr;
+  }
+}

@@ -72,10 +72,11 @@ class MetaWhatsappService:
         return payload if isinstance(payload, dict) else {"data": payload}
 
     @staticmethod
-    def test_connection(db: Session) -> dict[str, Any]:
-        config, enabled = MetaWhatsappService._config(db)
-        if not enabled:
-            return {"ok": False, "status": "disabled", "detail": "Meta WhatsApp integration is disabled"}
+    def test_connection_with_config(config: dict[str, Any]) -> dict[str, Any]:
+        try:
+            config = validate_meta_whatsapp_config(config or {})
+        except MetaWhatsappConfigError as exc:
+            return {"ok": False, "status": "not_configured", "detail": str(exc)}
         phone_number_id = str(config.get("phone_number_id") or "").strip()
         waba_id = str(config.get("waba_id") or "").strip()
         if not phone_number_id:
@@ -100,6 +101,13 @@ class MetaWhatsappService:
             "waba_id": waba_id or None,
             "graph_api_version": config.get("graph_api_version"),
         }
+
+    @staticmethod
+    def test_connection(db: Session) -> dict[str, Any]:
+        config, enabled = MetaWhatsappService._config(db)
+        if not enabled:
+            return {"ok": False, "status": "disabled", "detail": "Meta WhatsApp integration is disabled"}
+        return MetaWhatsappService.test_connection_with_config(config)
 
     @staticmethod
     def list_templates(db: Session, *, limit: int = 5, status: str = "APPROVED") -> dict[str, Any]:
@@ -266,7 +274,7 @@ class MetaWhatsappService:
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
     ) -> TelnyxMessageResult:
-        del messaging_profile_id  # Meta uses phone_number_id from config
+        del messaging_profile_id
         config, enabled = MetaWhatsappService._config(db)
         if not enabled:
             return TelnyxMessageResult(
@@ -275,6 +283,39 @@ class MetaWhatsappService:
                 detail="Meta WhatsApp integration is disabled",
                 channel="whatsapp",
             )
+        return MetaWhatsappService.send_whatsapp_with_config(
+            db,
+            config=config,
+            to_number=to_number,
+            body=body,
+            from_number=from_number,
+            template_name=template_name,
+            template_id=template_id,
+            template_language=template_language,
+            template_components=template_components,
+            org_id=org_id,
+            meter_usage=meter_usage,
+        )
+
+    @staticmethod
+    def send_whatsapp_with_config(
+        db: Session,
+        *,
+        config: dict[str, Any],
+        to_number: str,
+        body: str,
+        from_number: str | None = None,
+        template_name: str | None = None,
+        template_id: str | None = None,
+        template_language: str | None = None,
+        template_components: list[dict[str, Any]] | None = None,
+        org_id: str | None = None,
+        meter_usage: bool = True,
+    ) -> TelnyxMessageResult:
+        try:
+            config = validate_meta_whatsapp_config(config or {})
+        except MetaWhatsappConfigError as exc:
+            return TelnyxMessageResult(ok=False, status="not_configured", detail=str(exc), channel="whatsapp")
         phone_number_id = str(config.get("phone_number_id") or "").strip()
         if not phone_number_id:
             return TelnyxMessageResult(

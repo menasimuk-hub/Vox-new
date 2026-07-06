@@ -74,9 +74,10 @@ class TelnyxMessagingService:
         payload: dict[str, Any],
         channel: str,
         include_messaging_profile: bool = True,
+        telnyx_api_key: str | None = None,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
-        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        api_key = normalize_telnyx_api_key(str(telnyx_api_key or config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
 
@@ -380,27 +381,73 @@ class TelnyxMessagingService:
         org_id: str | None = None,
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
+        service_code: str | None = None,
     ) -> TelnyxMessageResult:
-        from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+        from app.services.connection.outbound_whatsapp_service import OutboundWhatsappService
 
-        if is_meta_whatsapp_primary(db):
-            from app.services.meta_whatsapp_service import MetaWhatsappService
+        result, _profile = OutboundWhatsappService.send(
+            db,
+            to_number=to_number,
+            body=body,
+            from_number=from_number,
+            template_name=template_name,
+            template_id=template_id,
+            template_language=template_language,
+            template_components=template_components,
+            org_id=org_id,
+            meter_usage=meter_usage,
+            messaging_profile_id=messaging_profile_id,
+            service_code=service_code,
+        )
+        return result
 
-            return MetaWhatsappService.send_whatsapp(
-                db,
-                to_number=to_number,
-                body=body,
-                from_number=from_number,
-                template_name=template_name,
-                template_id=template_id,
-                template_language=template_language,
-                template_components=template_components,
-                org_id=org_id,
-                meter_usage=meter_usage,
-                messaging_profile_id=messaging_profile_id,
-            )
-
+    @staticmethod
+    def _send_whatsapp_telnyx_legacy(
+        db: Session,
+        *,
+        to_number: str,
+        body: str,
+        from_number: str | None = None,
+        template_name: str | None = None,
+        template_id: str | None = None,
+        template_language: str | None = None,
+        template_components: list[dict[str, Any]] | None = None,
+        org_id: str | None = None,
+        meter_usage: bool = True,
+        messaging_profile_id: str | None = None,
+    ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
+        return TelnyxMessagingService._send_whatsapp_telnyx_with_config(
+            db,
+            config=config,
+            to_number=to_number,
+            body=body,
+            from_number=from_number,
+            template_name=template_name,
+            template_id=template_id,
+            template_language=template_language,
+            template_components=template_components,
+            org_id=org_id,
+            meter_usage=meter_usage,
+            messaging_profile_id=messaging_profile_id,
+        )
+
+    @staticmethod
+    def _send_whatsapp_telnyx_with_config(
+        db: Session,
+        *,
+        config: dict[str, Any],
+        to_number: str,
+        body: str,
+        from_number: str | None = None,
+        template_name: str | None = None,
+        template_id: str | None = None,
+        template_language: str | None = None,
+        template_components: list[dict[str, Any]] | None = None,
+        org_id: str | None = None,
+        meter_usage: bool = True,
+        messaging_profile_id: str | None = None,
+    ) -> TelnyxMessageResult:
         _, wa_from = TelnyxMessagingService._from_numbers(config)
         from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
 
@@ -467,6 +514,7 @@ class TelnyxMessagingService:
             payload=payload,
             channel="whatsapp",
             include_messaging_profile=False,
+            telnyx_api_key=normalize_telnyx_api_key(str(config.get("api_key") or "")) or None,
         )
         if result.ok and org_id and meter_usage:
             try:
@@ -516,6 +564,8 @@ class TelnyxMessagingService:
         from_number: str | None,
         body: str,
         result: TelnyxMessageResult,
+        provider: str | None = None,
+        connection_profile_id: str | None = None,
     ) -> WhatsAppLog:
         LogService._validate_optional_relations(db, org_id)
 
@@ -532,7 +582,8 @@ class TelnyxMessagingService:
 
         row = WhatsAppLog(
             org_id=org_id,
-            provider="telnyx",
+            provider=str(provider or "telnyx").strip() or "telnyx",
+            connection_profile_id=connection_profile_id,
             external_message_id=result.external_id,
             status=result.status if result.ok else "failed",
             direction="outbound",

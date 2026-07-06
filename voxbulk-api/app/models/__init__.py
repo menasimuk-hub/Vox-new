@@ -12,6 +12,11 @@ from app.models.dentally_appointment import DentallyAppointment  # noqa: F401
 from app.models.appointment import Appointment, AppointmentLog  # noqa: F401
 from app.models.call_log import CallLog  # noqa: F401
 from app.models.whatsapp_log import WhatsAppLog  # noqa: F401
+from app.models.connection_profile import (  # noqa: F401
+    ConnectionProfile,
+    ConnectionProfileOrg,
+    ConnectionProfileService,
+)
 from app.models.plan import Plan  # noqa: F401
 from app.models.promo_offer import PromoOffer, PromoRedemption  # noqa: F401
 from app.models.org_usage_period import OrgUsagePeriod  # noqa: F401

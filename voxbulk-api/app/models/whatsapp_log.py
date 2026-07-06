@@ -20,6 +20,9 @@ class WhatsAppLog(Base):
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patients.id"), nullable=True, index=True)
 
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default="twilio")
+    connection_profile_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("connection_profiles.id"), nullable=True, index=True
+    )
     external_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
 
