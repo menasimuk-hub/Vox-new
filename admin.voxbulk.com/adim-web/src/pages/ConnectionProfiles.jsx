@@ -96,19 +96,19 @@ function buildProfileGuidance({ isDefault, isActive, orgIds, serviceCodes, servi
     orgLines.push(`${channelLabel} default profile applies to all organizations automatically.`)
     serviceLines.push('Toggle ON only the services this default line should handle.')
   } else if (isActive) {
-    orgLines.push('Dedicated profile: use the picker below to assign one or more clinics.')
-    orgLines.push('Only assigned clinics use this profile instead of the default Telnyx line.')
+    orgLines.push('Dedicated profile: use the picker below to assign one or more organizations.')
+    orgLines.push('Only assigned organizations use this profile instead of the default Telnyx line.')
     if (!normalizeOrgIds(orgIds).length) {
-      orgLines.push('⚠ Assign at least one clinic — this profile is ignored until you do.')
+      orgLines.push('⚠ Assign at least one organization — this profile is ignored until you do.')
     }
     const enabled = enabledServiceCodes(services, serviceCodes)
     if (enabled.length) {
       serviceLines.push(
-        `Assigned clinics will use this line for: ${enabled.map((c) => SERVICE_LABELS[c] || c).join(', ')}.`,
+        `Assigned organizations will use this line for: ${enabled.map((c) => SERVICE_LABELS[c] || c).join(', ')}.`,
       )
     }
   } else {
-    orgLines.push('Profile is inactive — turn Active ON, then assign clinics if not default.')
+    orgLines.push('Profile is inactive — turn Active ON, then assign organizations if not default.')
   }
 
   return { orgLines, serviceLines, conflicts }
@@ -1017,7 +1017,7 @@ export default function ConnectionProfiles() {
               )}
 
               <div className='assignment-section'>
-                <div className='assignment-section-title'>Assign clinics to this profile</div>
+                <div className='assignment-section-title'>Assign organizations to this profile</div>
                 <ProfileServicesInfo
                   lines={waGuidance.orgLines}
                   conflicts={waGuidance.conflicts}
@@ -1025,11 +1025,11 @@ export default function ConnectionProfiles() {
                   variant={!waForm.is_default && waForm.is_active && !normalizeOrgIds(waForm.org_ids).length ? 'warn' : 'info'}
                 />
                 {!waForm.is_default && !orgOptions.length ? (
-                  <div className='field-hint field-hint-warn'>No clinics loaded — refresh the page. If this persists, contact support.</div>
+                  <div className='field-hint field-hint-warn'>No organizations loaded — refresh the page. If this persists, contact support.</div>
                 ) : null}
                 <div className='field-group full-width'>
                   <label>
-                    Assigned Organizations (clinics)
+                    Assigned Organizations
                     {waForm.is_default ? (
                       <span style={{ fontWeight: 400, textTransform: 'none' }}> — disabled while Default is ON</span>
                     ) : null}
@@ -1041,7 +1041,7 @@ export default function ConnectionProfiles() {
                     inputId='orgInput'
                     tagsId='orgTags'
                     disabled={!!waForm.is_default}
-                    placeholder={waForm.is_default ? 'Default = all clinics' : 'Click here, then pick from dropdown below…'}
+                    placeholder={waForm.is_default ? 'Default = all organizations' : 'Search or choose from the dropdown below…'}
                   />
                 </div>
               </div>
@@ -1285,7 +1285,7 @@ export default function ConnectionProfiles() {
             </div>
 
             <div className='assignment-section'>
-              <div className='assignment-section-title'>Assign clinics to this profile</div>
+              <div className='assignment-section-title'>Assign organizations to this profile</div>
               <ProfileServicesInfo
                 lines={callingGuidance.orgLines}
                 conflicts={callingGuidance.conflicts}
@@ -1298,7 +1298,7 @@ export default function ConnectionProfiles() {
               />
               <div className='field-group full-width'>
                 <label>
-                  Assigned Organizations (clinics)
+                  Assigned Organizations
                   {callingForm.is_default ? (
                     <span style={{ fontWeight: 400, textTransform: 'none' }}> — disabled while Default is ON</span>
                   ) : null}
@@ -1310,7 +1310,7 @@ export default function ConnectionProfiles() {
                   inputId='callingOrgInput'
                   tagsId='callingOrgTags'
                   disabled={!!callingForm.is_default}
-                  placeholder={callingForm.is_default ? 'Default = all clinics' : 'Click here, then pick from dropdown below…'}
+                  placeholder={callingForm.is_default ? 'Default = all organizations' : 'Search or choose from the dropdown below…'}
                 />
               </div>
             </div>
