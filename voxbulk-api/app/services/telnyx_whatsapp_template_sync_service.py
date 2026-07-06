@@ -517,13 +517,15 @@ class TelnyxWhatsappTemplateSyncService:
             raise TelnyxWhatsappTemplateSyncError(str(e)) from e
 
     @staticmethod
-    def sync(db: Session) -> dict[str, Any]:
-        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+    def sync(db: Session, *, remote: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        items = remote if remote is not None else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         now = _now()
         synced = 0
         approved = 0
         remote_record_ids: set[str] = set()
-        for item in remote:
+        from app.services.survey_whatsapp_template_service import _refresh_local_sync_status, _sync_content_hash
+
+        for item in items:
             record_id = str(item.get("id") or "").strip()
             meta_template_id = str(item.get("template_id") or "").strip()
             send_template_id = _send_template_id_from_api_item(item)
@@ -618,12 +620,17 @@ class TelnyxWhatsappTemplateSyncService:
                         if preview:
                             existing.body_preview = preview
                         existing.components_json = components_json
-                        existing.remote_content_hash = _components_content_hash(components)
+                        existing.remote_content_hash = _sync_content_hash(components)
                     elif not existing.body_preview:
                         # Last resort: keep name out of body_preview (leave null for repair pass).
                         existing.body_preview = existing.body_preview
-                    from app.services.survey_whatsapp_template_service import _refresh_local_sync_status
+                    elif existing.components_json and not existing.remote_content_hash:
+                        from app.services.survey_whatsapp_template_service import _loads
 
+                        stored = _loads(existing.components_json)
+                        existing.remote_content_hash = _sync_content_hash(
+                            stored if isinstance(stored, list) else None
+                        )
                     existing.local_sync_status = _refresh_local_sync_status(existing)
                     existing.last_push_error = None
                     existing.waba_id = waba_id

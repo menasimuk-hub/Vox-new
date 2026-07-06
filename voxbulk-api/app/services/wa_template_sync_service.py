@@ -108,18 +108,20 @@ def _apply_live_meta_to_row(db: Session, row: TelnyxWhatsappTemplate, live: dict
             remote_components = None
     if isinstance(remote_components, list):
         row.components_json = json.dumps(remote_components)
+        from app.services.survey_whatsapp_template_service import _sync_content_hash
         from app.services.wa_system_template_routing_service import WaSystemTemplateRoutingService
 
+        row.remote_content_hash = _sync_content_hash(remote_components)
         WaSystemTemplateRoutingService.apply_survey_remote_content_to_row(db, row, remote_components)
     row.local_sync_status = _refresh_local_sync_status(row)
 
 
 class WaTemplateSyncService:
     @staticmethod
-    def pull_catalog(db: Session) -> dict[str, Any]:
+    def pull_catalog(db: Session, *, remote: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Pull Meta catalog into local rows — status/category + remote mirror; never overwrite draft."""
         try:
-            result = TelnyxWhatsappTemplateSyncService.sync(db)
+            result = TelnyxWhatsappTemplateSyncService.sync(db, remote=remote)
         except TelnyxWhatsappTemplateSyncError as exc:
             return {"ok": False, "error": str(exc)[:400]}
         return {
@@ -132,14 +134,35 @@ class WaTemplateSyncService:
         }
 
     @staticmethod
-    def pull_statuses(db: Session, *, row_ids: list[int] | None = None) -> dict[str, Any]:
-        """Refresh status + category from live Meta for local rows (no draft overwrite)."""
+    def pull_from_meta(db: Session) -> dict[str, Any]:
+        """Single Meta API fetch: catalog sync + status refresh (refresh-status button)."""
         try:
             remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:400]}
+        catalog = WaTemplateSyncService.pull_catalog(db, remote=remote)
+        status = WaTemplateSyncService.pull_statuses(db, remote=remote)
+        ok = bool(catalog.get("ok", True) and status.get("ok", True))
+        return {
+            "ok": ok,
+            "catalog": catalog,
+            "status_pull": status,
+            "remote_count": len(remote),
+            "message": (
+                f"Pulled Meta catalog ({catalog.get('synced', 0)} rows) "
+                f"and refreshed status ({status.get('updated', 0)} rows)"
+            ),
+        }
 
-        by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
+    @staticmethod
+    def pull_statuses(db: Session, *, row_ids: list[int] | None = None, remote: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Refresh status + category from live Meta for local rows (no draft overwrite)."""
+        try:
+            items = remote if remote is not None else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:400]}
+
+        by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(items)
         if row_ids:
             rows = [db.get(TelnyxWhatsappTemplate, int(rid)) for rid in row_ids]
             rows = [r for r in rows if r is not None]

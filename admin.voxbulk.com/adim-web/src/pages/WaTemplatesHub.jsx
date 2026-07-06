@@ -418,7 +418,7 @@ export default function WaTemplatesHub() {
       for (let batchNum = 1; ; batchNum += 1) {
         last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push', {
           method: 'POST',
-          body: JSON.stringify({ offset, limit: PUSH_BATCH, force_push: true, force_utility_category: true }),
+          body: JSON.stringify({ offset, limit: PUSH_BATCH, force_push: false, force_utility_category: false }),
           timeoutMs: 300000,
           quietNetworkHint: true,
           signal: controller.signal,

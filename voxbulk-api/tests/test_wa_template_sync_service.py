@@ -298,3 +298,36 @@ def test_pull_statuses_never_overwrites_local_draft_body(monkeypatch):
         draft = _loads(row.draft_components_json)
         assert draft[0]["text"] == "My new local body"
         assert row.body_preview == "My new local body"
+
+
+def test_pull_statuses_reconciles_stale_remote_hash():
+    """Refresh-only must not flip in-sync approved rows to local_changes (hash algo mismatch)."""
+    from app.services.survey_whatsapp_template_service import _refresh_local_sync_status
+    from app.services.wa_template_sync_service import _apply_live_meta_to_row
+
+    body_text = "Approved body for {{1}} thanks"
+    components = [{"type": "BODY", "text": body_text, "example": {"body_text": [["Alex"]]}}]
+    with get_sessionmaker()() as db:
+        row = _template(
+            db,
+            name="voxbulk_survey_hash_reconcile",
+            local_sync_status="in_sync",
+            draft_text=body_text,
+            remote_text=body_text,
+        )
+        row.remote_content_hash = "legacywronghash000000000000000000000000000000000000000000000000"
+        db.commit()
+        db.refresh(row)
+        assert _refresh_local_sync_status(row) in {"local_changes", "remote_changed"}
+
+        live = {
+            "id": row.telnyx_record_id,
+            "status": "APPROVED",
+            "category": "UTILITY",
+            "components": components,
+        }
+        _apply_live_meta_to_row(db, row, live)
+        db.commit()
+        db.refresh(row)
+        assert row.local_sync_status == "in_sync"
+        assert row.remote_content_hash == _sync_content_hash(components)

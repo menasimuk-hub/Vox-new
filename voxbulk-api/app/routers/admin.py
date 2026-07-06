@@ -1615,14 +1615,16 @@ def sync_meta_whatsapp_templates_step(
     limit = body.get("limit")
     try:
         if key == "pull":
-            catalog = WaTemplateSyncService.pull_catalog(db)
-            status = WaTemplateSyncService.pull_statuses(db)
+            merged = WaTemplateSyncService.pull_from_meta(db)
+            catalog = merged.get("catalog") or {}
+            status = merged.get("status_pull") or {}
             result = {
-                "ok": bool(catalog.get("ok", True) and status.get("ok", True)),
+                "ok": bool(merged.get("ok", True)),
                 "step": key,
                 "step_index": idx,
                 "step_total": total,
-                "message": (
+                "message": merged.get("message")
+                or (
                     f"Step {idx}/{total}: pulled Meta catalog "
                     f"({catalog.get('synced', 0)} rows) and refreshed status ({status.get('updated', 0)} rows)"
                 ),
@@ -1635,8 +1637,8 @@ def sync_meta_whatsapp_templates_step(
                 db,
                 offset=offset,
                 limit=int(limit) if limit is not None else 10,
-                force_push=bool(body.get("force_push", True)),
-                force_utility_category=bool(body.get("force_utility_category", True)),
+                force_push=bool(body.get("force_push", False)),
+                force_utility_category=bool(body.get("force_utility_category", False)),
             )
             result = {
                 "ok": push.get("ok", True),
