@@ -113,14 +113,44 @@ def probe_meta(db) -> None:
         print(f"Meta webhook probe failed: {exc}")
 
 
+def _telnyx_api_key(explicit: str) -> str:
+    key = str(explicit or os.environ.get("TELNYX_API_KEY") or "").strip()
+    if key:
+        return key
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.provider_settings import ProviderSettingsService
+
+        db = get_sessionmaker()()
+        try:
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+            if enabled and cfg:
+                return str(cfg.get("api_key") or "").strip()
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"Telnyx DB key lookup failed: {exc}")
+    return ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fix/probe WhatsApp webhooks on VoxBulk")
     parser.add_argument("--webhook-base", default=os.environ.get("WEBHOOK_BASE", DEFAULT_WEBHOOK_BASE))
     parser.add_argument("--apply", action="store_true", help="Patch Telnyx messaging profile webhook URLs")
-    parser.add_argument("--telnyx-api-key", default=os.environ.get("TELNYX_API_KEY", "").strip())
+    parser.add_argument("--telnyx-api-key", default="")
     args = parser.parse_args()
 
-    api_key = str(args.telnyx_api_key or "").strip()
+    _load_dotenv = ROOT / ".env"
+    if _load_dotenv.is_file():
+        for line in _load_dotenv.read_text(encoding="utf-8").splitlines():
+            raw = line.strip()
+            if not raw or raw.startswith("#") or "=" not in raw:
+                continue
+            key, _, value = raw.partition("=")
+            if key.strip() and key.strip() not in os.environ:
+                os.environ[key.strip()] = value.strip().strip('"').strip("'")
+
+    api_key = _telnyx_api_key(args.telnyx_api_key)
     if api_key:
         fix_telnyx(api_key=api_key, webhook_base=args.webhook_base, apply=args.apply)
     else:

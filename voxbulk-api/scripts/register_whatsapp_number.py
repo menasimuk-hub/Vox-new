@@ -58,7 +58,37 @@ def _load_dotenv() -> None:
             os.environ[key] = value
 
 
-def _meta_config() -> dict[str, str]:
+def _config_from_db() -> dict[str, str] | None:
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
+        from app.services.provider_settings import ProviderSettingsService
+
+        db = get_sessionmaker()()
+        try:
+            cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
+            validated = validate_meta_whatsapp_config(cfg or {})
+            token = str(validated.get("access_token") or "").strip()
+            phone_number_id = str(validated.get("phone_number_id") or "").strip()
+            phone = str(validated.get("whatsapp_from") or os.environ.get("META_PHONE_NUMBER") or DEFAULT_PHONE).strip()
+            if token and phone_number_id:
+                return {
+                    "phone": phone or DEFAULT_PHONE,
+                    "access_token": token,
+                    "phone_number_id": phone_number_id,
+                    "pin": str(os.environ.get("META_WHATSAPP_PIN") or "").strip(),
+                    "graph_version": str(
+                        validated.get("graph_api_version") or os.environ.get("META_GRAPH_API_VERSION") or DEFAULT_GRAPH_VERSION
+                    ).strip(),
+                }
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"DB config fallback unavailable: {exc}", file=sys.stderr)
+    return None
+
+
+def _meta_config(*, use_db: bool = False) -> dict[str, str]:
     _load_dotenv()
     phone = str(os.environ.get("META_PHONE_NUMBER") or DEFAULT_PHONE).strip() or DEFAULT_PHONE
     access_token = str(os.environ.get("META_ACCESS_TOKEN") or "").strip()
@@ -67,13 +97,25 @@ def _meta_config() -> dict[str, str]:
     graph_version = str(os.environ.get("META_GRAPH_API_VERSION") or DEFAULT_GRAPH_VERSION).strip()
     if graph_version and not graph_version.startswith("v"):
         graph_version = f"v{graph_version}"
+
+    if (not access_token or not phone_number_id) and use_db:
+        db_cfg = _config_from_db()
+        if db_cfg:
+            print("Using Meta credentials from Admin → Integrations (DB).")
+            if not pin and db_cfg.get("pin"):
+                pin = db_cfg["pin"]
+            access_token = access_token or db_cfg["access_token"]
+            phone_number_id = phone_number_id or db_cfg["phone_number_id"]
+            phone = phone or db_cfg["phone"]
+            graph_version = graph_version or db_cfg["graph_version"]
+
     missing = [name for name, val in (
         ("META_ACCESS_TOKEN", access_token),
         ("META_PHONE_NUMBER_ID", phone_number_id),
     ) if not val]
     if missing:
         print(f"Missing required env vars: {', '.join(missing)}", file=sys.stderr)
-        print("Set them in voxbulk-api/.env (see .env.example).", file=sys.stderr)
+        print("Set them in voxbulk-api/.env or pass --from-db (Admin integration).", file=sys.stderr)
         sys.exit(1)
     return {
         "phone": phone,
@@ -186,8 +228,13 @@ def main() -> int:
         metavar="CODE",
         help="Verify SMS code from Meta",
     )
+    parser.add_argument(
+        "--from-db",
+        action="store_true",
+        help="Load META_ACCESS_TOKEN and META_PHONE_NUMBER_ID from Admin integration when not in .env",
+    )
     args = parser.parse_args()
-    cfg = _meta_config()
+    cfg = _meta_config(use_db=args.from_db)
 
     if args.verify_code is not None:
         return cmd_verify_code(cfg, args.verify_code)
