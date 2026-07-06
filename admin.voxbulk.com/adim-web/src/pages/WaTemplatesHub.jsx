@@ -350,6 +350,7 @@ export default function WaTemplatesHub() {
     try {
       const last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
         method: 'POST',
+        body: JSON.stringify({ status_only: true }),
         timeoutMs: 300000,
         quietNetworkHint: true,
       })

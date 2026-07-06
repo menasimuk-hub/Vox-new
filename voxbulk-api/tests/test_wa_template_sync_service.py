@@ -326,7 +326,7 @@ def test_pull_statuses_reconciles_stale_remote_hash():
             "category": "UTILITY",
             "components": components,
         }
-        _apply_live_meta_to_row(db, row, live)
+        _apply_live_meta_to_row(db, row, live, mirror_remote_body=True)
         db.commit()
         db.refresh(row)
         assert row.local_sync_status == "in_sync"
