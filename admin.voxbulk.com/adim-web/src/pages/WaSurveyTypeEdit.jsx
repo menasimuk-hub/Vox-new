@@ -351,8 +351,8 @@ export default function WaSurveyTypeEdit() {
           <button type="button" className="btn" onClick={syncTemplates} disabled={working === 'sync'}>
             Sync from Meta
           </button>
-          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push every linked template — use row Push for one template only">
-            {working === 'push-all' ? 'Pushing all…' : 'Push all to Meta'}
+          <button type="button" className="btn" onClick={pushAllToTelnyx} disabled={working === 'push-all'} title="Push templates that changed locally — in-sync rows are skipped">
+            {working === 'push-all' ? 'Syncing changed…' : 'Sync changed to Meta'}
           </button>
         </div>
       </div>

@@ -511,7 +511,7 @@ export default function WaTemplatesHub() {
       if (row.rowKind === 'survey_template') {
         const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
           method: 'POST',
-          body: '{}',
+          body: JSON.stringify({ force_push: false }),
           timeoutMs: 180000,
           quietNetworkHint: true,
         })

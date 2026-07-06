@@ -220,8 +220,8 @@ def push_all_industry_templates_to_telnyx(
         offset = int(body.get("offset") or 0)
         limit = body.get("limit")
         phase = str(body.get("phase") or "full").strip().lower()
-        force_push = bool(body.get("force_push", True))
-        force_utility_category = bool(body.get("force_utility_category", True))
+        force_push = bool(body.get("force_push", False))
+        force_utility_category = bool(body.get("force_utility_category", False))
         return WaTemplateSyncService.sync_industry(
             db,
             industry_id,
@@ -834,7 +834,7 @@ def _run_template_fix_and_sync(
         row,
         repair=bool(body.get("repair", True)),
         utility_rewrite=bool(body.get("utility_rewrite", False)),
-        force_push=bool(body.get("force_push", True)),
+        force_push=bool(body.get("force_push", False)),
     )
 
 
@@ -855,7 +855,7 @@ def push_template_to_telnyx(
         result = SurveyWhatsappTemplateService.push_to_telnyx(
             db,
             row,
-            force_approved_update=bool(body.get("force_push", True)),
+            force_approved_update=bool(body.get("force_push", False)),
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)

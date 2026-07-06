@@ -410,8 +410,8 @@ class WaTemplateSyncService:
         offset: int = 0,
         limit: int | None = 10,
         phase: str = "full",
-        force_push: bool = True,
-        force_utility_category: bool = True,
+        force_push: bool = False,
+        force_utility_category: bool = False,
     ) -> dict[str, Any]:
         type_ids = [
             str(r)
@@ -481,31 +481,22 @@ class WaTemplateSyncService:
         phase: str = "full",
     ) -> dict[str, Any]:
         if phase == "pull":
-            catalog = WaTemplateSyncService.pull_catalog(db)
-            status = WaTemplateSyncService.pull_statuses(db)
-            return {
-                "ok": catalog.get("ok", True) and status.get("ok", True),
-                "catalog": catalog,
-                "status": status,
-                "message": f"{catalog.get('message', '')} {status.get('message', '')}".strip(),
-            }
+            return WaTemplateSyncService.pull_from_meta(db, status_only=True)
         if phase == "push":
             return WaTemplateSyncService.push_changed_batch(db, offset=offset, limit=limit)
-        pull_catalog = WaTemplateSyncService.pull_catalog(db)
-        pull_status = WaTemplateSyncService.pull_statuses(db)
+        pull = WaTemplateSyncService.pull_from_meta(db, status_only=False)
         push = WaTemplateSyncService.push_changed_batch(db, offset=offset, limit=limit)
+        catalog = pull.get("catalog") or {}
+        status = pull.get("status_pull") or {}
         return {
-            "ok": all(
-                x.get("ok", True)
-                for x in (pull_catalog, pull_status, push)
-            ),
-            "catalog": pull_catalog,
-            "status": pull_status,
+            "ok": all(x.get("ok", True) for x in (catalog, status, push)),
+            "catalog": catalog,
+            "status": status,
             "push": push,
             "has_more": bool(push.get("has_more")),
             "next_offset": push.get("next_offset", offset),
             "message": (
-                f"Pull: {pull_catalog.get('synced', 0)} catalog row(s). "
+                f"Pull: {catalog.get('synced', 0)} catalog row(s). "
                 f"Push: {push.get('pushed', 0)} changed template(s)."
             ),
         }

@@ -300,6 +300,32 @@ def test_pull_statuses_never_overwrites_local_draft_body(monkeypatch):
         assert row.body_preview == "My new local body"
 
 
+def test_industry_sync_defaults_to_changed_only():
+    with get_sessionmaker()() as db:
+        survey_type = _seed_survey_type(db)
+        industry_id = survey_type.industry_id
+        assert industry_id
+
+        in_sync = _template(db, name="voxbulk_survey_industry_in_sync", local_sync_status="in_sync")
+        out_of_sync = _template(
+            db,
+            name="voxbulk_survey_industry_out_sync",
+            local_sync_status="local_changes",
+            draft_text="Updated body for {{1}} thanks",
+            remote_text="Original body for {{1}} thanks",
+        )
+        _link(db, survey_type, in_sync, is_default_standard=True)
+        _link(db, survey_type, out_of_sync)
+        db.commit()
+
+        work = WaTemplateSyncService._collect_push_work(db, industry_id=industry_id)
+        assert len(work) == 1
+        assert work[0].id == out_of_sync.id
+
+        result = WaTemplateSyncService.sync_industry(db, industry_id, phase="push", offset=0, limit=10)
+        assert result.get("force_push") is False
+
+
 def test_pull_statuses_reconciles_stale_remote_hash():
     """Refresh-only must not flip in-sync approved rows to local_changes (hash algo mismatch)."""
     from app.services.survey_whatsapp_template_service import _refresh_local_sync_status

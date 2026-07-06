@@ -20,7 +20,7 @@ export function createIndustrySyncJob(title) {
     open: true,
     title,
     steps: [
-      { id: 'push', label: '1. Push all templates to Meta (UTILITY)', status: 'pending', detail: '' },
+      { id: 'push', label: '1. Push changed templates to Meta', status: 'pending', detail: '' },
       { id: 'pull', label: '2. Pull status from Meta', status: 'pending', detail: '' },
     ],
     phase: 'running',
@@ -185,8 +185,8 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, s
       body: JSON.stringify({
         offset,
         limit: PUSH_BATCH,
-        force_push: true,
-        force_utility_category: true,
+        force_push: false,
+        force_utility_category: false,
         phase: 'push',
       }),
       timeoutMs: 300000,

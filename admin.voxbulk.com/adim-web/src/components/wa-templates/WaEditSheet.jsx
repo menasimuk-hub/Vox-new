@@ -481,7 +481,11 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
           : [activeTemplateId || editTarget.templateId]
       if (product === 'survey') {
         for (const id of ids) {
-          await apiFetch(`/admin/wa-survey/templates/${id}/push`, { method: 'POST', body: '{}', timeoutMs: 180000 })
+          await apiFetch(`/admin/wa-survey/templates/${id}/push`, {
+            method: 'POST',
+            body: JSON.stringify({ force_push: false }),
+            timeoutMs: 180000,
+          })
         }
       } else if (product === 'interview') {
         await apiFetch(`/admin/wa-interview/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })

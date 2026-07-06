@@ -253,6 +253,48 @@ def normalize_feedback_language(raw: str | None) -> str:
     return lang or "en_GB"
 
 
+def _feedback_meta_name_for_template(db: Session, tpl: FeedbackWaTemplate) -> str:
+    industry_slug: str | None = None
+    survey_slug: str | None = None
+    if tpl.industry_id:
+        ind = db.get(FeedbackIndustry, tpl.industry_id)
+        industry_slug = ind.slug if ind else None
+    if tpl.survey_type_id:
+        st = db.get(FeedbackSurveyType, tpl.survey_type_id)
+        survey_slug = st.slug if st else None
+    anchor = english_anchor_template(db, tpl)
+    return feedback_meta_template_name(
+        tpl,
+        industry_slug=industry_slug,
+        survey_type_slug=survey_slug,
+        name_anchor_id=anchor.id,
+    )
+
+
+def _feedback_template_needs_push(
+    db: Session,
+    tpl: FeedbackWaTemplate,
+    remote_items: list[dict[str, Any]],
+) -> bool:
+    """Skip approved on Meta + unchanged local rows during industry batch sync."""
+    if not str(tpl.body_text or "").strip():
+        return False
+    local_status = str(tpl.telnyx_sync_status or "draft").lower()
+    if local_status in {"draft", "rejected", "needs_resubmit", "error", "local_changes"}:
+        return True
+    meta_name = _feedback_meta_name_for_template(db, tpl)
+    language = normalize_feedback_language(tpl.language)
+    existing = find_remote_feedback_template(remote_items, name=meta_name, language=language)
+    if existing is None:
+        return True
+    remote_status = str(existing.get("status") or "").upper()
+    if remote_status in {"REJECTED", "PAUSED"}:
+        return True
+    if remote_status == "APPROVED" and local_status in {"approved", "submitted", "synced", "in_sync", "pending"}:
+        return False
+    return True
+
+
 def push_feedback_template_to_telnyx(
     db: Session,
     tpl: FeedbackWaTemplate,
@@ -704,23 +746,32 @@ def push_feedback_templates_batch(
 
     start = max(0, int(offset or 0))
     batch_limit = max(1, min(int(limit or 10), 50))
-    batch = templates[start : start + batch_limit]
-    has_more = start + len(batch) < total
-    next_offset = start + len(batch)
+    slice_rows = templates[start : start + batch_limit]
+
+    remote_items: list[dict[str, Any]] | None = None
+    if not dry_run and slice_rows:
+        try:
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        except Exception as exc:
+            logger.warning("feedback_telnyx_batch_prefetch_failed: %s", str(exc)[:200])
+            remote_items = []
+
+    batch: list[FeedbackWaTemplate] = []
+    skipped = 0
+    for tpl in slice_rows:
+        if dry_run or _feedback_template_needs_push(db, tpl, remote_items or []):
+            batch.append(tpl)
+        else:
+            skipped += 1
+
+    has_more = start + len(slice_rows) < total
+    next_offset = start + len(slice_rows)
 
     pushed = 0
     linked = 0
     failed = 0
     errors: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
-
-    remote_items: list[dict[str, Any]] | None = None
-    if not dry_run and batch:
-        try:
-            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
-        except Exception as exc:
-            logger.warning("feedback_telnyx_batch_prefetch_failed: %s", str(exc)[:200])
-            remote_items = []
 
     for tpl in batch:
         try:
@@ -770,6 +821,7 @@ def push_feedback_templates_batch(
         "next_offset": next_offset,
         "pushed": pushed,
         "linked": linked,
+        "skipped": skipped,
         "failed": failed,
         "dry_run": dry_run,
         "errors": errors,
@@ -779,6 +831,7 @@ def push_feedback_templates_batch(
         "message": (
             f"{'Validated' if dry_run else 'Pushed'} batch {start + 1}–{next_offset} of {total} "
             f"for {industry.name}"
+            + (f" ({skipped} unchanged skipped)" if skipped else "")
             + (f", {failed} failed" if failed else "")
         ),
     }
