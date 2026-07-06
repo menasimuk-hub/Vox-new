@@ -28,9 +28,33 @@ class MetaWhatsappServiceError(RuntimeError):
 
 class MetaWhatsappService:
     @staticmethod
-    def _config(db: Session) -> tuple[dict[str, Any], bool]:
-        cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
-        return validate_meta_whatsapp_config(cfg or {}), bool(enabled)
+    def _config(
+        db: Session,
+        *,
+        org_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> tuple[dict[str, Any], bool]:
+        from app.services.connection.config_resolver import resolve_meta_api_config
+
+        return resolve_meta_api_config(db, org_id=org_id, service_code=service_code)
+
+    @staticmethod
+    def _config_for_send(
+        db: Session,
+        *,
+        org_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> tuple[dict[str, Any], bool]:
+        from app.services.connection.config_resolver import resolve_whatsapp_config
+
+        if org_id:
+            route = resolve_whatsapp_config(db, org_id=org_id, service_code=service_code)
+            if route is not None and route.is_meta:
+                try:
+                    return validate_meta_whatsapp_config(route.config), bool(route.profile.is_active if route.profile else True)
+                except MetaWhatsappConfigError:
+                    pass
+        return MetaWhatsappService._config(db, org_id=org_id, service_code=service_code)
 
     @staticmethod
     def _require_token(config: dict[str, Any]) -> str:
@@ -195,37 +219,111 @@ class MetaWhatsappService:
         return normalized.lower()
 
     @staticmethod
+    def _lookup_live_meta_template_name(
+        *,
+        config: dict[str, Any],
+        meta_template_id: str | None = None,
+        fallback_name: str | None = None,
+        template_language: str | None = None,
+    ) -> str | None:
+        waba_id = str(config.get("waba_id") or "").strip()
+        if not waba_id:
+            return None
+        meta_id = str(meta_template_id or "").strip()
+        if meta_id.startswith(_META_RECORD_PREFIX):
+            meta_id = meta_id[len(_META_RECORD_PREFIX) :]
+        name = str(fallback_name or "").strip()
+        params: dict[str, Any] = {"limit": 25, "fields": "name,language,status,id"}
+        if name:
+            params["name"] = name
+        try:
+            payload = MetaWhatsappService._graph_request(
+                config=config,
+                method="GET",
+                path=f"{waba_id}/message_templates",
+                params=params,
+            )
+        except (MetaWhatsappConfigError, MetaWhatsappServiceError):
+            return None
+        items = payload.get("data") if isinstance(payload.get("data"), list) else []
+        if meta_id:
+            for item in items:
+                if isinstance(item, dict) and str(item.get("id") or "").strip() == meta_id:
+                    live = str(item.get("name") or "").strip()
+                    if live:
+                        return live
+        if not name:
+            return None
+        lang = MetaWhatsappService._normalize_language_code(template_language) if template_language else None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("name") or "").strip().lower() != name.lower():
+                continue
+            if lang and MetaWhatsappService._normalize_language_code(item.get("language")) != lang:
+                continue
+            live = str(item.get("name") or "").strip()
+            if live:
+                return live
+        return None
+
+    @staticmethod
     def _resolve_template_name(
         db: Session,
         *,
         template_name: str | None,
         template_id: str | None,
+        config: dict[str, Any] | None = None,
+        template_language: str | None = None,
     ) -> str | None:
         resolved_name, resolved_id = TelnyxMessagingService.resolve_whatsapp_template_ref(
             template_name=template_name,
             template_id=template_id,
         )
         if resolved_name:
+            lookup_id = str(resolved_id or template_id or "").strip()
+            if config and lookup_id:
+                live = MetaWhatsappService._lookup_live_meta_template_name(
+                    config=config,
+                    meta_template_id=lookup_id,
+                    fallback_name=resolved_name,
+                    template_language=template_language,
+                )
+                if live:
+                    return live
             return resolved_name
         lookup_id = str(resolved_id or template_id or "").strip()
-        if not lookup_id:
+        if not lookup_id and not template_name:
             return None
-        if lookup_id.startswith(_META_RECORD_PREFIX):
-            lookup_id = lookup_id[len(_META_RECORD_PREFIX) :]
-        row = db.execute(
-            select(TelnyxWhatsappTemplate)
-            .where(
-                (TelnyxWhatsappTemplate.telnyx_record_id == lookup_id)
-                | (TelnyxWhatsappTemplate.telnyx_record_id == f"{_META_RECORD_PREFIX}{lookup_id}")
-                | (TelnyxWhatsappTemplate.template_id == lookup_id)
-                | (TelnyxWhatsappTemplate.name == lookup_id)
+        row = None
+        if lookup_id:
+            if lookup_id.startswith(_META_RECORD_PREFIX):
+                lookup_id = lookup_id[len(_META_RECORD_PREFIX) :]
+            row = db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(
+                    (TelnyxWhatsappTemplate.telnyx_record_id == lookup_id)
+                    | (TelnyxWhatsappTemplate.telnyx_record_id == f"{_META_RECORD_PREFIX}{lookup_id}")
+                    | (TelnyxWhatsappTemplate.template_id == lookup_id)
+                    | (TelnyxWhatsappTemplate.name == lookup_id)
+                )
+                .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        fallback = str(template_name or (row.name if row is not None else "") or "").strip()
+        meta_id = lookup_id or str(row.template_id if row is not None else "").strip()
+        if config and (meta_id or fallback):
+            live = MetaWhatsappService._lookup_live_meta_template_name(
+                config=config,
+                meta_template_id=meta_id,
+                fallback_name=fallback,
+                template_language=template_language or (row.language if row is not None else None),
             )
-            .order_by(TelnyxWhatsappTemplate.updated_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+            if live:
+                return live
         if row is not None:
-            return str(row.name or "").strip() or None
-        return None
+            return fallback or None
+        return fallback or None
 
     @staticmethod
     def fetch_all_templates(db: Session) -> list[dict[str, Any]]:
@@ -275,7 +373,7 @@ class MetaWhatsappService:
         messaging_profile_id: str | None = None,
     ) -> TelnyxMessageResult:
         del messaging_profile_id
-        config, enabled = MetaWhatsappService._config(db)
+        config, enabled = MetaWhatsappService._config_for_send(db, org_id=org_id, service_code="survey")
         if not enabled:
             return TelnyxMessageResult(
                 ok=False,
@@ -338,6 +436,8 @@ class MetaWhatsappService:
             db,
             template_name=template_name,
             template_id=template_id,
+            config=config,
+            template_language=template_language,
         )
         lang = MetaWhatsappService._normalize_language_code(template_language)
 

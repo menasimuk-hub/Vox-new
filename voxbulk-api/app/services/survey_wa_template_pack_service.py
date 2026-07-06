@@ -672,8 +672,37 @@ def _telnyx_pack_name(survey_slug: str, template_name: str) -> str:
     return f"voxbulk_survey_{slug}_{name}"[:128]
 
 
-def _ensure_unique_telnyx_name(db: Session, base_name: str) -> str:
-    candidate = base_name[:128]
+def _ensure_unique_telnyx_name(
+    db: Session,
+    base_name: str,
+    *,
+    survey_type_id: str | None = None,
+    step_role: str | None = None,
+    variant_type: str | None = None,
+    language: str | None = None,
+) -> str:
+    """Reuse canonical name for the same logical template; avoid _2 clones when a row already exists."""
+    canonical = base_name[:128]
+    if survey_type_id and step_role:
+        stmt = select(TelnyxWhatsappTemplate).where(
+            TelnyxWhatsappTemplate.survey_type_id == str(survey_type_id),
+            TelnyxWhatsappTemplate.step_role == str(step_role)[:32],
+        )
+        if variant_type:
+            stmt = stmt.where(TelnyxWhatsappTemplate.variant_type == str(variant_type))
+        if language:
+            stmt = stmt.where(TelnyxWhatsappTemplate.language == str(language))
+        existing = db.execute(stmt.order_by(TelnyxWhatsappTemplate.updated_at.desc()).limit(1)).scalar_one_or_none()
+        if existing is not None and str(existing.name or "").strip():
+            return str(existing.name).strip()
+
+    existing_name = db.execute(
+        select(TelnyxWhatsappTemplate.id).where(TelnyxWhatsappTemplate.name == canonical).limit(1)
+    ).scalar_one_or_none()
+    if existing_name is None:
+        return canonical
+
+    candidate = canonical
     suffix = 2
     while db.execute(
         select(TelnyxWhatsappTemplate.id).where(TelnyxWhatsappTemplate.name == candidate).limit(1)
@@ -2182,11 +2211,6 @@ class SurveyWaTemplatePackService:
             extracted = _extract_example_values(components)
             examples = extracted if extracted else []
 
-        telnyx_name = _ensure_unique_telnyx_name(
-            db, _telnyx_pack_name(survey_type.slug, item["template_name"])
-        )
-        now = _now()
-        local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
         privacy_mode = normalize_privacy_mode(item.get("privacy_mode") or privacy_mode)
         variant = privacy_mode_to_variant(privacy_mode)
         outcome_key = str(item.get("outcome_key") or "")[:16] or None
@@ -2198,6 +2222,51 @@ class SurveyWaTemplatePackService:
             from app.services.survey_outcome_template_service import default_outcome_variables
 
             outcome_vars = default_outcome_variables(outcome_key)
+
+        telnyx_name = _ensure_unique_telnyx_name(
+            db,
+            _telnyx_pack_name(survey_type.slug, item["template_name"]),
+            survey_type_id=str(survey_type.id),
+            step_role=str(item.get("step_role") or "")[:32] or None,
+            variant_type=variant,
+            language=str(item.get("language") or "en_US"),
+        )
+        now = _now()
+        step_role = str(item.get("step_role") or "")[:32] or None
+        existing = None
+        if step_role:
+            existing = db.execute(
+                select(TelnyxWhatsappTemplate)
+                .where(
+                    TelnyxWhatsappTemplate.survey_type_id == survey_type.id,
+                    TelnyxWhatsappTemplate.step_role == step_role,
+                    TelnyxWhatsappTemplate.variant_type == variant,
+                    TelnyxWhatsappTemplate.language == str(item.get("language") or "en_US"),
+                )
+                .order_by(TelnyxWhatsappTemplate.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if existing is not None:
+            existing.name = telnyx_name
+            existing.display_name = str(item.get("title") or item.get("template_name"))[:128]
+            existing.outcome_key = outcome_key
+            existing.outcome_variables_json = _dumps(outcome_vars) if outcome_vars else None
+            existing.category = _normalize_category(item.get("category"))
+            existing.body_preview = _body_preview(components)
+            existing.draft_components_json = _dumps(_normalize_draft_components(components))
+            existing.example_values_json = _dumps([str(v) for v in examples])
+            existing.local_sync_status = SYNC_DRAFT
+            existing.active_for_survey = True
+            existing.updated_at = now
+            if pack_id:
+                existing.pack_id = pack_id
+            db.add(existing)
+            db.flush()
+            apply_industry_to_template(existing, survey_type)
+            db.refresh(existing)
+            return existing
+
+        local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4().hex}"
         row = TelnyxWhatsappTemplate(
             telnyx_record_id=local_id,
             template_id=local_id,

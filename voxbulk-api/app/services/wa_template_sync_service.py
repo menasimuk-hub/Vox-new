@@ -155,7 +155,7 @@ class WaTemplateSyncService:
                 "message": status.get("message") or f"Refreshed status for {status.get('updated', 0)} template(s)",
             }
         catalog = WaTemplateSyncService.pull_catalog(db, remote=remote)
-        status = WaTemplateSyncService.pull_statuses(db, remote=remote, mirror_remote_body=True)
+        status = WaTemplateSyncService.pull_statuses(db, remote=remote, mirror_remote_body=False)
         ok = bool(catalog.get("ok", True) and status.get("ok", True))
         return {
             "ok": ok,

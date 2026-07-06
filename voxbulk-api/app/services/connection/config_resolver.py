@@ -130,3 +130,30 @@ def whatsapp_route_whatsapp_from(
         return None
     raw = route.whatsapp_from
     return raw or None
+
+
+def resolve_meta_api_config(
+    db: Session,
+    *,
+    org_id: str | None = None,
+    service_code: str | None = "survey",
+) -> tuple[dict[str, Any], bool]:
+    """Meta Graph API credentials for template push/pull — prefer connection profile over platform integration."""
+    route = resolve_whatsapp_config(db, org_id=org_id, service_code=service_code)
+    if route is not None and route.is_meta:
+        try:
+            cfg = validate_meta_whatsapp_config(route.config)
+            active = bool(route.profile.is_active) if route.profile is not None else True
+            return cfg, active
+        except Exception:
+            pass
+
+    platform = _platform_meta_config(db)
+    if platform is not None:
+        return platform, True
+
+    cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="meta_whatsapp")
+    try:
+        return validate_meta_whatsapp_config(cfg or {}), bool(enabled)
+    except Exception:
+        return {}, bool(enabled)
