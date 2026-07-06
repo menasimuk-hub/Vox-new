@@ -803,6 +803,9 @@ export function InterviewPreviewQuoteModal({
     data.waPreviewBody ||
     `Dear Alex 👋\nWe have sent you an email from 📧 careers@voxbulk.com regarding your interview for the position of *${data.role || "Interview"}* at *Your Company*\nPlease check your Spam / Junk folder in case it landed there 📁\nOnce you receive it, kindly book your interview slot as mentioned in the email 📅\nWe look forward to hearing from you! 🤝\nYour Company 🏢`;
 
+  const onRefreshQuoteRef = React.useRef(onRefreshQuote);
+  onRefreshQuoteRef.current = onRefreshQuote;
+
   React.useEffect(() => {
     if (open) {
       const approved = Boolean(data.scriptApproved);
@@ -811,9 +814,9 @@ export function InterviewPreviewQuoteModal({
       setPreviewApproved(approved);
       setLaunchActionError(null);
       setLaunching(false);
-      onRefreshQuote?.();
+      onRefreshQuoteRef.current?.();
     }
-  }, [open, data.scriptApproved, onRefreshQuote]);
+  }, [open, data.scriptApproved]);
 
   const handleLaunchClick = async () => {
     if (!onLaunch || !canLaunchPackage) return;

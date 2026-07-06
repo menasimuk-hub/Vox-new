@@ -189,6 +189,8 @@ export function InterviewAgentPicker({
 
   const handleRegionChange = (code: string) => {
     const normalized = String(code).trim().toUpperCase();
+    const currentRegion = String(selectedRegion || "GB").trim().toUpperCase();
+    if (normalized === currentRegion) return;
     onRegionChange(normalized);
     const pool = agentsForRegion(agents, normalized);
     const next = pickDefaultInterviewAgent(pool) || pool[0];

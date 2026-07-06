@@ -27,7 +27,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
-import { agentRegionCode, buildRegionMenuOptions } from "@/lib/interview-agents";
+import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
 import { isArabicRegionCode } from "@/lib/interview-agent-regions";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -95,6 +95,8 @@ export const Route = createFileRoute("/_app/interviews/new")({
   },
   component: CreateInterview,
 });
+
+const EMPTY_INTERVIEW_AGENTS: InterviewAgent[] = [];
 
 type CandidateRow = {
   id: string;
@@ -360,6 +362,7 @@ function CreateInterview() {
   const [activityCandidate, setActivityCandidate] = React.useState<CandidateRow | null>(null);
   const [wizardStep, setWizardStep] = React.useState(1);
   const [step1FieldsTouched, setStep1FieldsTouched] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const goWizardNext = () => setWizardStep((s) => Math.min(INTERVIEW_WIZARD_STEPS.length, s + 1));
   const goWizardPrev = () => setWizardStep((s) => Math.max(1, s - 1));
   const goWizardTo = (n: number) => setWizardStep(n);
@@ -423,37 +426,47 @@ function CreateInterview() {
     lastHydrationKeyRef.current = "";
   }, [draftOrderId]);
 
-  const agents = agentsQ.data || [];
-  const regionAgents = React.useMemo(
-    () => agents.filter((a) => agentRegionCode(a) === selectedRegion),
-    [agents, selectedRegion],
-  );
+  const agents = agentsQ.data ?? EMPTY_INTERVIEW_AGENTS;
+  const regionAgents = React.useMemo(() => agentsForRegion(agents, selectedRegion), [agents, selectedRegion]);
   const defaultAgent = pickDefaultInterviewAgent(regionAgents.length ? regionAgents : agents);
   const resolvedAgentId = agentId || defaultAgent?.id || "";
   const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || defaultAgent;
 
+  // Single sync pass — separate region/agent effects were ping-ponging setState (React #185).
   React.useEffect(() => {
     if (!agents.length) return;
-    const pool = agents.filter((a) => agentRegionCode(a) === selectedRegion);
-    if (!pool.length) {
-      const first = buildRegionMenuOptions(agents)[0];
-      if (first && first.code !== selectedRegion) {
-        setSelectedRegion(first.code);
+
+    const regionOptions = buildRegionMenuOptions(agents);
+    if (!regionOptions.length) return;
+
+    let nextRegion = String(selectedRegion || "GB").trim().toUpperCase();
+    if (!regionOptions.some((o) => o.code === nextRegion)) {
+      nextRegion = regionOptions[0]!.code;
+    }
+
+    let nextAgentId = agentId;
+    const selectedAgentRow = agentId ? agents.find((a) => a.id === agentId) : undefined;
+    if (selectedAgentRow) {
+      const agentRegion = agentRegionCode(selectedAgentRow);
+      if (agentsForRegion(agents, agentRegion).some((a) => a.id === agentId)) {
+        nextRegion = agentRegion;
+      } else {
+        const pool = agentsForRegion(agents, nextRegion);
+        nextAgentId = pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "";
       }
+    } else {
+      const pool = agentsForRegion(agents, nextRegion);
+      nextAgentId = pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "";
+    }
+
+    if (nextRegion !== selectedRegion) {
+      setSelectedRegion(nextRegion);
       return;
     }
-    if (!pool.some((a) => a.id === agentId)) {
-      setAgentId(pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "");
+    if (nextAgentId !== agentId) {
+      setAgentId(nextAgentId);
     }
-  }, [selectedRegion, agents, agentId]);
-
-  React.useEffect(() => {
-    if (!agentId || !agents.length) return;
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent) return;
-    const code = agentRegionCode(agent);
-    setSelectedRegion((prev) => (prev === code ? prev : code));
-  }, [agentId, agents]);
+  }, [agents, selectedRegion, agentId]);
   const createStartedRef = React.useRef(false);
   const createFailedRef = React.useRef(false);
 
@@ -638,11 +651,6 @@ function CreateInterview() {
     void loadWaPreview();
   }, [orderId, preview, role, loadWaPreview]);
 
-  React.useEffect(() => {
-    if (agentId || !defaultAgent?.id) return;
-    setAgentId(defaultAgent.id);
-  }, [agentId, defaultAgent?.id]);
-
   const candidates = React.useMemo<CandidateRow[]>(() => {
     const rows = draftQ.data?.recipients || [];
     return rows
@@ -710,7 +718,6 @@ function CreateInterview() {
     return countScreeningEligibleCandidates(candidates, appliedMinAtsScore);
   }, [candidates, appliedMinAtsScore, atsSkipped, config.ats_skipped]);
 
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const allSelected = selected.size > 0 && selected.size === candidates.length;
   const someSelected = selected.size > 0 && !allSelected;
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(candidates.map((c) => c.id)));
