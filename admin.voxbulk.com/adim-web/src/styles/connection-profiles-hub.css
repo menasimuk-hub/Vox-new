@@ -351,12 +351,44 @@
       font-size: 0.65rem;
     }
 
+.connectionProfilesHub .field-hint-warn {
+      color: #9a3412;
+    }
+
+.connectionProfilesHub .assignment-section {
+      margin-top: 1rem;
+      padding: 0.85rem 0.9rem;
+      border: 2px solid #d6d0c4;
+      border-radius: 6px;
+      background: #fffdf9;
+    }
+
+.connectionProfilesHub .assignment-section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #3b3630;
+      margin-bottom: 0.55rem;
+    }
+
+.connectionProfilesHub .info-box-warn {
+      background: #fff4eb;
+      border-color: #e8c4a8;
+      color: #7c4a1e;
+    }
+
 .connectionProfilesHub .test-result {
+      display: inline-block;
+      max-width: 100%;
+      white-space: normal;
+      word-break: break-word;
+      text-align: left;
+      vertical-align: middle;
       font-size: 0.72rem;
       padding: 0.1rem 0.6rem;
       border-radius: 10px;
       background: #f0ece6;
-      display: inline-block;
     }
 
 .connectionProfilesHub .test-result.success {
@@ -546,9 +578,10 @@
     }
 
 .connectionProfilesHub .form-container.open {
-      max-height: 2800px;
+      max-height: min(90vh, 5200px);
       opacity: 1;
       margin-bottom: 1rem;
+      overflow-y: auto;
     }
 
 .connectionProfilesHub .form-container .section {

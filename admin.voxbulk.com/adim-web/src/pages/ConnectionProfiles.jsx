@@ -89,32 +89,29 @@ function findServiceConflicts({ profiles, channel, editingId, isDefault, orgIds,
 }
 
 function buildProfileGuidance({ isDefault, isActive, orgIds, serviceCodes, services, conflicts, channelLabel }) {
-  const lines = []
+  const orgLines = []
+  const serviceLines = []
+
   if (isDefault) {
-    lines.push(
-      `${channelLabel} default profile: used as fallback for every organization. Leave Assigned Organizations empty.`,
-    )
-    lines.push('Only one default profile per channel. Toggle services ON for products that should use this line.')
+    orgLines.push(`${channelLabel} default profile applies to all organizations automatically.`)
+    serviceLines.push('Toggle ON only the services this default line should handle.')
   } else if (isActive) {
-    lines.push(
-      'Dedicated profile: assign one or more organizations below. Only those organizations use this profile (instead of the default).',
-    )
+    orgLines.push('Dedicated profile: use the picker below to assign one or more clinics.')
+    orgLines.push('Only assigned clinics use this profile instead of the default Telnyx line.')
     if (!normalizeOrgIds(orgIds).length) {
-      lines.push('Assign at least one organization — active non-default profiles are ignored without org assignment.')
+      orgLines.push('⚠ Assign at least one clinic — this profile is ignored until you do.')
     }
-    lines.push('Enable only the services this line should handle for the assigned organizations.')
+    const enabled = enabledServiceCodes(services, serviceCodes)
+    if (enabled.length) {
+      serviceLines.push(
+        `Assigned clinics will use this line for: ${enabled.map((c) => SERVICE_LABELS[c] || c).join(', ')}.`,
+      )
+    }
   } else {
-    lines.push('Profile is inactive and will not be used for routing until Active is turned on.')
+    orgLines.push('Profile is inactive — turn Active ON, then assign clinics if not default.')
   }
 
-  const enabled = enabledServiceCodes(services, serviceCodes)
-  if (enabled.length && !isDefault && isActive) {
-    lines.push(
-      `Assigned organizations will use this profile for: ${enabled.map((c) => SERVICE_LABELS[c] || c).join(', ')}. All other organizations keep the default profile for those services.`,
-    )
-  }
-
-  return { lines, conflicts }
+  return { orgLines, serviceLines, conflicts }
 }
 
 function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId, disabled = false, placeholder }) {
@@ -252,9 +249,10 @@ function ServiceGrid({ serviceCodes, services, onChange }) {
   )
 }
 
-function ProfileServicesInfo({ lines, conflicts, orgNameById }) {
+function ProfileServicesInfo({ lines, conflicts, orgNameById, variant = 'info' }) {
+  if (!lines.length && !conflicts.length) return null
   return (
-    <div className='info-box'>
+    <div className={`info-box${variant === 'warn' ? ' info-box-warn' : ''}`}>
       <Info />
       <span>
         {lines.map((line, idx) => (
@@ -540,7 +538,14 @@ export default function ConnectionProfiles() {
       org_ids: [...(profile.org_ids || [])],
     })
     setDefaultNote(profile.is_default ? 'replaces current default' : 'only one default per channel')
-    setWaTestResult({ text: '', kind: '' })
+    setWaTestResult(
+      profile.last_test_detail
+        ? {
+            text: profile.last_test_status === 'ok' ? `✓ ${profile.last_test_detail}` : `✗ ${profile.last_test_detail}`,
+            kind: profile.last_test_status === 'ok' ? 'success' : 'fail',
+          }
+        : { text: '', kind: '' },
+    )
     setWaFormOpen(true)
   }
 
@@ -681,12 +686,12 @@ export default function ConnectionProfiles() {
         body: JSON.stringify({}),
       })
       setWaTestResult({
-        text: result?.ok ? '✓ connected' : '✗ failed',
+        text: result?.ok ? '✓ connected' : `✗ ${String(result?.detail || 'failed').trim()}`,
         kind: result?.ok ? 'success' : 'fail',
       })
       await load()
     } catch (e) {
-      setWaTestResult({ text: '✗ failed', kind: 'fail' })
+      setWaTestResult({ text: `✗ ${e?.message || 'failed'}`, kind: 'fail' })
     } finally {
       setTesting(false)
     }
@@ -705,12 +710,12 @@ export default function ConnectionProfiles() {
         body: JSON.stringify({}),
       })
       setCallingTestResult({
-        text: result?.ok ? '✓ connected' : '✗ failed',
+        text: result?.ok ? '✓ connected' : `✗ ${String(result?.detail || 'failed').trim()}`,
         kind: result?.ok ? 'success' : 'fail',
       })
       await load()
     } catch (e) {
-      setCallingTestResult({ text: '✗ failed', kind: 'fail' })
+      setCallingTestResult({ text: `✗ ${e?.message || 'failed'}`, kind: 'fail' })
     } finally {
       setTesting(false)
     }
@@ -863,34 +868,6 @@ export default function ConnectionProfiles() {
                 </div>
               </div>
 
-              <div className='form-grid' style={{ marginTop: '0.5rem' }}>
-                <div className='field-group full-width'>
-                  <label>
-                    Assigned Organizations
-                    {waForm.is_default ? (
-                      <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
-                    ) : (
-                      <span style={{ fontWeight: 400, textTransform: 'none' }}> (required for dedicated profiles)</span>
-                    )}
-                  </label>
-                  {!waForm.is_default ? (
-                    <div className='field-hint'>
-                      Pick clinics below — click the search field or use the <strong>Add organization</strong> menu. Routing
-                      is per organization, not per user.
-                    </div>
-                  ) : null}
-                  <OrgMultiSelect
-                    orgOptions={orgOptions}
-                    selectedOrgIds={waForm.org_ids}
-                    onChange={(org_ids) => setWaForm((f) => ({ ...f, org_ids }))}
-                    inputId='orgInput'
-                    tagsId='orgTags'
-                    disabled={!!waForm.is_default}
-                    placeholder={waForm.is_default ? 'Default profile applies to all orgs' : 'Type org name...'}
-                  />
-                </div>
-              </div>
-
               <div className='form-grid' style={{ marginTop: '0.8rem' }}>
                 <div className='field-group full-width'>
                   <label>
@@ -926,8 +903,8 @@ export default function ConnectionProfiles() {
                     </button>
                   </div>
                   <ProfileServicesInfo
-                    lines={waGuidance.lines}
-                    conflicts={waGuidance.conflicts}
+                    lines={waGuidance.serviceLines}
+                    conflicts={[]}
                     orgNameById={orgNameById}
                   />
                 </div>
@@ -1038,6 +1015,36 @@ export default function ConnectionProfiles() {
                   </div>
                 </div>
               )}
+
+              <div className='assignment-section'>
+                <div className='assignment-section-title'>Assign clinics to this profile</div>
+                <ProfileServicesInfo
+                  lines={waGuidance.orgLines}
+                  conflicts={waGuidance.conflicts}
+                  orgNameById={orgNameById}
+                  variant={!waForm.is_default && waForm.is_active && !normalizeOrgIds(waForm.org_ids).length ? 'warn' : 'info'}
+                />
+                {!waForm.is_default && !orgOptions.length ? (
+                  <div className='field-hint field-hint-warn'>No clinics loaded — refresh the page. If this persists, contact support.</div>
+                ) : null}
+                <div className='field-group full-width'>
+                  <label>
+                    Assigned Organizations (clinics)
+                    {waForm.is_default ? (
+                      <span style={{ fontWeight: 400, textTransform: 'none' }}> — disabled while Default is ON</span>
+                    ) : null}
+                  </label>
+                  <OrgMultiSelect
+                    orgOptions={orgOptions}
+                    selectedOrgIds={waForm.org_ids}
+                    onChange={(org_ids) => setWaForm((f) => ({ ...f, org_ids }))}
+                    inputId='orgInput'
+                    tagsId='orgTags'
+                    disabled={!!waForm.is_default}
+                    placeholder={waForm.is_default ? 'Default = all clinics' : 'Click here, then pick from dropdown below…'}
+                  />
+                </div>
+              </div>
 
               <div className='action-bar'>
                 <button type='button' className='btn btn-primary' disabled={saving} onClick={saveWaProfile}>
@@ -1235,33 +1242,6 @@ export default function ConnectionProfiles() {
               </div>
             </div>
 
-            <div className='form-grid' style={{ marginTop: '0.5rem' }}>
-              <div className='field-group full-width'>
-                <label>
-                  Assigned Organizations
-                  {callingForm.is_default ? (
-                    <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
-                  ) : (
-                    <span style={{ fontWeight: 400, textTransform: 'none' }}> (required for dedicated profiles)</span>
-                  )}
-                </label>
-                {!callingForm.is_default ? (
-                  <div className='field-hint'>
-                    Pick clinics below — click the search field or use the <strong>Add organization</strong> menu.
-                  </div>
-                ) : null}
-                <OrgMultiSelect
-                  orgOptions={orgOptions}
-                  selectedOrgIds={callingForm.org_ids}
-                  onChange={(org_ids) => setCallingForm((f) => ({ ...f, org_ids }))}
-                  inputId='callingOrgInput'
-                  tagsId='callingOrgTags'
-                  disabled={!!callingForm.is_default}
-                  placeholder={callingForm.is_default ? 'Default profile applies to all orgs' : 'Type org name...'}
-                />
-              </div>
-            </div>
-
             <div className='form-grid' style={{ marginTop: '0.8rem' }}>
               <div className='field-group full-width'>
                 <label>
@@ -1297,9 +1277,40 @@ export default function ConnectionProfiles() {
                   </button>
                 </div>
                 <ProfileServicesInfo
-                  lines={callingGuidance.lines}
-                  conflicts={callingGuidance.conflicts}
+                  lines={callingGuidance.serviceLines}
+                  conflicts={[]}
                   orgNameById={orgNameById}
+                />
+              </div>
+            </div>
+
+            <div className='assignment-section'>
+              <div className='assignment-section-title'>Assign clinics to this profile</div>
+              <ProfileServicesInfo
+                lines={callingGuidance.orgLines}
+                conflicts={callingGuidance.conflicts}
+                orgNameById={orgNameById}
+                variant={
+                  !callingForm.is_default && callingForm.is_active && !normalizeOrgIds(callingForm.org_ids).length
+                    ? 'warn'
+                    : 'info'
+                }
+              />
+              <div className='field-group full-width'>
+                <label>
+                  Assigned Organizations (clinics)
+                  {callingForm.is_default ? (
+                    <span style={{ fontWeight: 400, textTransform: 'none' }}> — disabled while Default is ON</span>
+                  ) : null}
+                </label>
+                <OrgMultiSelect
+                  orgOptions={orgOptions}
+                  selectedOrgIds={callingForm.org_ids}
+                  onChange={(org_ids) => setCallingForm((f) => ({ ...f, org_ids }))}
+                  inputId='callingOrgInput'
+                  tagsId='callingOrgTags'
+                  disabled={!!callingForm.is_default}
+                  placeholder={callingForm.is_default ? 'Default = all clinics' : 'Click here, then pick from dropdown below…'}
                 />
               </div>
             </div>
