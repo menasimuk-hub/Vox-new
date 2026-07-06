@@ -129,6 +129,9 @@ def resolve_answer_text(item: dict[str, Any]) -> str:
     """Canonical free-text answer for reporting (typed or transcribed)."""
     if not isinstance(item, dict):
         return ""
+    translated = str(item.get("translated_text") or "").strip()
+    if translated:
+        return translated
     return str(
         item.get("answer_text")
         or item.get("answer_display")

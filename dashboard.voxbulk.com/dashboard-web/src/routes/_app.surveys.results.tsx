@@ -71,6 +71,14 @@ type WaAnswer = {
   answer_text?: string;
   answer_source?: string;
   transcription_status?: string;
+  original_text?: string | null;
+  translated_text?: string | null;
+};
+type ExtractedAnswer = {
+  question?: string;
+  answer?: string;
+  original_text?: string | null;
+  translated_text?: string | null;
 };
 type OpenFeedbackRow = {
   question?: string;
@@ -80,7 +88,6 @@ type OpenFeedbackRow = {
   original_text?: string | null;
   answer_source?: string;
 };
-type ExtractedAnswer = { question?: string; answer?: string };
 type Respondent = {
   id?: string;
   name?: string;
@@ -1114,13 +1121,17 @@ function RespondentDetailSheet({
                 : null}
               {waAnswers.length > 0
                 ? waAnswers.map((row, i) => {
-                    const answer = String(row.answer_text || row.answer || "—");
-                    const tone = toneForAnswer(answer);
+                    const english = String(row.translated_text || row.answer_text || row.answer || "—");
+                    const original = String(row.original_text || "").trim();
+                    const tone = toneForAnswer(english);
                     return (
                       <Card key={`wa-${i}`}>
                         <CardContent className="space-y-2 p-4">
                           <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                          <Badge className={cn(toneToColor(tone))}>{answer}</Badge>
+                          <Badge className={cn(toneToColor(tone))}>{english}</Badge>
+                          {original && original !== english ? (
+                            <p className="text-xs text-muted-foreground">Original: {original}</p>
+                          ) : null}
                         </CardContent>
                       </Card>
                     );

@@ -695,10 +695,59 @@ def derive_survey_recommendations(
     return recs[:5]
 
 
+def _answer_sort_key(item: dict[str, Any]) -> int:
+    for key in ("answer_index", "step_index", "sequence"):
+        try:
+            val = item.get(key)
+            if val is not None:
+                return int(val)
+        except (TypeError, ValueError):
+            continue
+    return 9999
+
+
+def sort_survey_answer_items(items: list[Any]) -> list[dict[str, Any]]:
+    """Preserve survey step order in results (not alphabetical or random append order)."""
+    indexed: list[tuple[int, int, dict[str, Any]]] = []
+    for pos, raw in enumerate(items or []):
+        if isinstance(raw, dict):
+            indexed.append((_answer_sort_key(raw), pos, raw))
+    indexed.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in indexed]
+
+
+def build_extracted_answer_entries(answers: list[Any]) -> list[dict[str, Any]]:
+    """Mirror wa_conversation.answers for reporting with original + English fields."""
+    out: list[dict[str, Any]] = []
+    for item in sort_survey_answer_items(answers):
+        question = str(item.get("question") or "").strip()
+        if not question:
+            continue
+        display = resolve_answer_text(item) or _voice_answer_placeholder(item) or str(item.get("answer") or "").strip()
+        entry: dict[str, Any] = {"question": question, "answer": display}
+        original = str(item.get("original_text") or "").strip()
+        translated = str(item.get("translated_text") or "").strip()
+        if original:
+            entry["original_text"] = original
+        if translated:
+            entry["translated_text"] = translated
+        if item.get("answer_index") is not None:
+            entry["answer_index"] = item.get("answer_index")
+        if item.get("step_index") is not None:
+            entry["step_index"] = item.get("step_index")
+        if item.get("step_role"):
+            entry["step_role"] = item.get("step_role")
+        if item.get("answer_source"):
+            entry["answer_source"] = item.get("answer_source")
+        out.append(entry)
+    return out
+
+
 def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dict[str, Any]]:
     """Anonymous roll-up of extracted answers — no respondent names."""
     buckets: dict[str, Counter[str]] = {}
     meta: dict[str, list[dict[str, Any]]] = {}
+    question_order: dict[str, int] = {}
 
     for row in recipients:
         if str(row.status or "").lower() != "completed":
@@ -706,7 +755,7 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
         result = _recipient_result(row)
         analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
         wa_conv = result.get("wa_conversation") if isinstance(result.get("wa_conversation"), dict) else {}
-        wa_answers = wa_conv.get("answers") if isinstance(wa_conv.get("answers"), list) else []
+        wa_answers = sort_survey_answer_items(wa_conv.get("answers") if isinstance(wa_conv.get("answers"), list) else [])
         answers = (
             analysis.get("extracted_answers")
             or analysis.get("answers")
@@ -716,6 +765,7 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
         )
         if not isinstance(answers, list):
             continue
+        answers = sort_survey_answer_items(answers)
         for item in answers:
             if not isinstance(item, dict):
                 continue
@@ -726,6 +776,9 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             answer = resolve_answer_text(item) or _voice_answer_placeholder(item) or ""
             if not question:
                 continue
+            order_key = _answer_sort_key(item)
+            if question not in question_order or order_key < question_order[question]:
+                question_order[question] = order_key
             if _is_rating_answer(item):
                 score = _parse_numeric_score(str(item.get("answer") or answer))
                 if score is None:
@@ -756,7 +809,12 @@ def build_answer_aggregates(recipients: list[ServiceOrderRecipient]) -> list[dic
             block["step_role"] = str((meta.get(question) or [{}])[0].get("step_role") or "rating")
         aggregates.append(block)
 
-    aggregates.sort(key=lambda row: (-int(row.get("total") or 0), str(row.get("question") or "")))
+    aggregates.sort(
+        key=lambda row: (
+            question_order.get(str(row.get("question") or ""), 9999),
+            str(row.get("question") or ""),
+        )
+    )
     return aggregates
 
 
@@ -841,7 +899,7 @@ def recipient_summary_row(
         ).strip()
 
     recommend_score = analysis.get("recommend_score", result.get("recommend_score"))
-    wa_answers = wa_conv.get("answers") or []
+    wa_answers = sort_survey_answer_items(wa_conv.get("answers") or [])
     if recommend_score is None:
         for item in wa_answers:
             if isinstance(item, dict) and _is_rating_answer(item):
@@ -850,10 +908,11 @@ def recipient_summary_row(
                     recommend_score = score
                     break
     rating_label = _rating_label_from_answers(wa_answers)
-    extracted_answers = (
+    extracted_answers = sort_survey_answer_items(
         analysis.get("extracted_answers")
         or analysis.get("answers")
         or result.get("extracted_answers")
+        or build_extracted_answer_entries(wa_answers)
         or []
     )
     completed_raw = getattr(recipient, "completed_at", None) or result.get("completed_at")
@@ -921,7 +980,7 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
     except (TypeError, ValueError):
         duration_seconds = None
 
-    wa_answers = wa_conv.get("answers") or []
+    wa_answers = sort_survey_answer_items(wa_conv.get("answers") or [])
     return {
         "id": recipient.id,
         "name": recipient.name,

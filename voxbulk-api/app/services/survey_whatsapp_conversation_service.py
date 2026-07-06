@@ -2157,6 +2157,27 @@ def _complete_linear_survey_thank_you(
     inbound_message_id: str | None,
 ) -> dict[str, Any]:
     """Send thank-you template/text and mark recipient completed."""
+    db.refresh(recipient)
+    try:
+        live_payload = _recipient_result(recipient)
+        live_conv = live_payload.get("wa_conversation") if isinstance(live_payload.get("wa_conversation"), dict) else {}
+    except Exception:
+        live_conv = conv if isinstance(conv, dict) else {}
+    if str(recipient.status or "").lower() == "completed" and live_conv.get("completed_at"):
+        logger.info(
+            "%s thank_you_skipped_already_completed order=%s recipient=%s",
+            LOG_PREFIX,
+            order.id,
+            recipient.id,
+        )
+        return {
+            "handled": True,
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "completed": True,
+            "duplicate_thank_you_skipped": True,
+            "log_id": log_id,
+        }
     closing_template = str(flow.get("closing") or "Thank you for your feedback.").strip()
     if has_builder_runtime(config):
         runtime = load_builder_runtime(config) or {}
@@ -2574,6 +2595,16 @@ def _handle_final_feedback_inbound(
             payload["wa_conversation"] = conv
             payload = mark_inbound_processed(payload, log_id=log_id, inbound_message_id=inbound_message_id)
             _save_recipient_result(db, recipient, payload)
+            db.refresh(recipient)
+            if str(recipient.status or "").lower() == "completed":
+                return {
+                    "handled": True,
+                    "order_id": order.id,
+                    "recipient_id": recipient.id,
+                    "completed": True,
+                    "final_feedback": "voice_completed",
+                    "log_id": log_id,
+                }
             return _complete_linear_survey_thank_you(
                 db,
                 order=order,
@@ -3036,7 +3067,9 @@ def handle_inbound_reply(
                 question_count=total,
             )
         payload = SurveySessionService.attach_session_to_result(payload, session)
-        extracted = [{"question": a["question"], "answer": a.get("answer_display") or a["answer"]} for a in answers]
+        from app.services.survey_results_service import build_extracted_answer_entries
+
+        extracted = build_extracted_answer_entries(answers)
         payload["extracted_answers"] = extracted
         payload["channel"] = "whatsapp"
         conv["answers"] = answers
@@ -3137,6 +3170,7 @@ def handle_inbound_reply(
             total=total,
             org_id=str(order.org_id),
         )
+        answer_order = len(answers)
         if isinstance(answer_entry, dict):
             answer_entry = {
                 **answer_entry,
@@ -3149,6 +3183,8 @@ def handle_inbound_reply(
                     or f"Question {step}"
                 ),
                 "reply_type": question.get("reply_type") or answer_entry.get("reply_type"),
+                "answer_index": answer_order,
+                "step_index": step,
             }
         answers.append(
             answer_entry
@@ -3158,8 +3194,12 @@ def handle_inbound_reply(
                 "question": str(q_display.get("preview_body") or q_display.get("body") or question.get("text") or f"Question {step}"),
                 "answer": answer,
                 "reply_type": question.get("reply_type"),
+                "answer_index": answer_order,
+                "step_index": step,
             }
         )
+
+        from app.services.survey_results_service import build_extracted_answer_entries
 
         session = SurveySessionService.get_active_by_recipient(db, recipient.id)
         if session is None:
@@ -3180,7 +3220,7 @@ def handle_inbound_reply(
             config=config,
         )
 
-        extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
+        extracted = build_extracted_answer_entries(answers)
         payload["extracted_answers"] = extracted
         payload["channel"] = "whatsapp"
         conv["answers"] = answers
@@ -3763,7 +3803,9 @@ def _handle_inbound_reply_graph(
         raw_body=body,
     )
 
-    extracted = [{"question": a["question"], "answer": a["answer"]} for a in answers]
+    from app.services.survey_results_service import build_extracted_answer_entries
+
+    extracted = build_extracted_answer_entries(answers)
     payload["extracted_answers"] = extracted
     payload["channel"] = "whatsapp"
     conv["answers"] = answers

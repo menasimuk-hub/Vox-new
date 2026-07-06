@@ -361,9 +361,22 @@ class SurveyWaVoiceNoteService:
             merge_elaboration_into_answers(answers, text)
             payload.setdefault("wa_conversation", {})["answers"] = answers
             payload["extracted_answers"] = [
-                {"question": a["question"], "answer": a.get("answer_display") or a["answer"]}
+                {
+                    "question": a["question"],
+                    "answer": a.get("answer_display") or a.get("answer_text") or a["answer"],
+                    **(
+                        {"original_text": a["original_text"]}
+                        if a.get("original_text")
+                        else {}
+                    ),
+                    **(
+                        {"translated_text": a["translated_text"]}
+                        if a.get("translated_text")
+                        else {}
+                    ),
+                }
                 for a in answers
-                if isinstance(a, dict)
+                if isinstance(a, dict) and a.get("question")
             ]
 
         recipient.result_json = json.dumps(payload, ensure_ascii=False)
