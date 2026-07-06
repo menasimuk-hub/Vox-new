@@ -67,7 +67,7 @@ def sync_platform_from_profile(db, profile) -> dict:
     ProviderSettingsService.upsert_platform_config(
         db,
         provider="meta_whatsapp",
-        config_json=payload,
+        config=payload,
         is_enabled=True,
     )
     db.commit()
