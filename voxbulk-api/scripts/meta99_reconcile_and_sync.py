@@ -75,7 +75,7 @@ def sync_platform_from_profile(db, profile) -> dict:
 
 
 def dedupe_welcome_rows(db) -> dict:
-    from sqlalchemy import select, text
+    from sqlalchemy import select
 
     from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 
@@ -90,11 +90,21 @@ def dedupe_welcome_rows(db) -> dict:
     for row in rows:
         if int(row.id) == keep_id:
             continue
-        if keep is not None and str(row.name or "").endswith("_2"):
-            keep.name = str(row.name)
-            keep.telnyx_record_id = str(row.telnyx_record_id or keep.telnyx_record_id)
-            keep.template_id = str(row.template_id or keep.template_id)
-            db.add(keep)
+        if keep is not None:
+            dup_name = str(row.name or "")
+            keep_name = str(keep.name or "")
+            if dup_name.endswith("_2") and not keep_name.endswith("_2"):
+                keep.name = dup_name
+            dup_rec = str(row.telnyx_record_id or "").strip()
+            keep_rec = str(keep.telnyx_record_id or "").strip()
+            if dup_rec and not keep_rec:
+                keep.telnyx_record_id = dup_rec
+                keep.template_id = str(row.template_id or dup_rec.replace("meta-", "", 1))
+                db.add(keep)
+                db.flush()
+        if str(row.telnyx_record_id or "").strip():
+            row.telnyx_record_id = f"retired-{row.id}"[:64]
+            row.template_id = f"retired-{row.id}"[:64]
         row.active_for_survey = False
         row.admin_hidden_from_survey = True
         db.add(row)
