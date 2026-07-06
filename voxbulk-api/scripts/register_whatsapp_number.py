@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """Register a Meta WhatsApp Cloud API number (e.g. +447822002099 / Connection Profile Meta 99).
 
-Copy-paste on VPS:
-  cd /www/voxbulk/voxbulk-api
-  source .venv/bin/activate
+Full flow (copy-paste on VPS):
+  cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
+  git pull origin main
+  python scripts/register_whatsapp_number.py --profile "Meta 99" --full-register
 
-  # Best: load token + phone_number_id from Connection Profile "Meta 99"
-  python scripts/register_whatsapp_number.py --profile "Meta 99" --interactive
-
-  # Or step by step:
-  python scripts/register_whatsapp_number.py --profile "Meta 99" --request-code
-  python scripts/register_whatsapp_number.py --profile "Meta 99" --verify-code 123456
-  # Add META_WHATSAPP_PIN=sixdigits to .env first, then:
-  python scripts/register_whatsapp_number.py --profile "Meta 99"
-
-SMS code arrives on the handset/SIM for the number (not in VoxBulk Admin).
-Two-step PIN is set in Meta WhatsApp Manager for that number.
+This will: request SMS code → you paste code when received → you choose a PIN → register.
+The PIN is NOT sent by Meta — you pick any 6 digits (two-step verification for this number).
+Do NOT put a demo PIN in .env unless you chose that PIN yourself in WhatsApp Manager.
 """
 
 from __future__ import annotations
@@ -45,6 +38,8 @@ from app.services.meta_whatsapp_register_service import (
 _CODE_RE = re.compile(r"\b(\d{6})\b")
 
 DEFAULT_PHONE = "+447822002099"
+CODE_LOG_FILE = ROOT / "meta_last_verify_code.txt"
+REGISTER_LOG_FILE = ROOT / "meta_register_result.txt"
 
 
 def _load_dotenv() -> None:
@@ -272,8 +267,7 @@ def cmd_request_code(cfg: dict[str, str], *, code_method: str = "SMS") -> int:
     if result.get("ok"):
         via = "voice call" if code_method.upper() == "VOICE" else "SMS"
         print(f"\nMeta sent a {via} to {cfg['phone']}.")
-        print("Meta does NOT return the code via Graph API — read it from Telnyx inbound:")
-        print('  python scripts/register_whatsapp_number.py --profile "Meta 99" --wait-inbound 180')
+        print("Paste the code when you receive it (script will ask on --full-register).")
     return rc
 
 
@@ -292,22 +286,34 @@ def cmd_verify_code(cfg: dict[str, str], code: str) -> int:
     return rc
 
 
-def cmd_register(cfg: dict[str, str]) -> int:
-    pin = cfg.get("pin") or ""
-    if not pin:
-        pin = getpass.getpass("Meta two-step PIN (6 digits, from WhatsApp Manager): ").strip()
-    if not pin:
-        print("Set META_WHATSAPP_PIN in .env or enter PIN when prompted.", file=sys.stderr)
+def _save_text(path: Path, text: str) -> None:
+    path.write_text(text.strip() + "\n", encoding="utf-8")
+    print(f"Saved → {path}")
+
+
+def cmd_register(cfg: dict[str, str], *, pin: str | None = None) -> int:
+    chosen = str(pin or cfg.get("pin") or "").strip()
+    if not chosen:
+        print(
+            "\nTwo-step PIN: Meta does NOT send this. YOU choose any 6 digits.\n"
+            "If the number has no PIN yet, pick a new one (remember it for WhatsApp Manager).\n"
+            "If you already set a PIN in Meta, enter that same PIN.\n"
+        )
+        chosen = getpass.getpass("Enter 6-digit two-step PIN: ").strip()
+    if not chosen or len(chosen) != 6 or not chosen.isdigit():
+        print("PIN must be exactly 6 digits.", file=sys.stderr)
         return 1
     result = register_phone_number(
         access_token=cfg["access_token"],
         phone_number_id=cfg["phone_number_id"],
-        pin=pin,
+        pin=chosen,
         phone_e164=cfg["phone"],
         graph_version=cfg["graph_version"],
     )
     rc = _print_result(result)
     if result.get("ok"):
+        msg = f"registered phone={cfg['phone']} at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
+        _save_text(REGISTER_LOG_FILE, msg)
         print(f"\nRegistered {cfg['phone']} with Meta Cloud API.")
         print("Check: https://business.facebook.com/latest/whatsapp_manager/phone_numbers")
     elif result.get("needs_sms_verify"):
@@ -315,10 +321,46 @@ def cmd_register(cfg: dict[str, str]) -> int:
     return rc
 
 
-def cmd_interactive(cfg: dict[str, str], *, code_method: str = "SMS", wait_seconds: int = 0) -> int:
-    print(f"=== Step 0: Meta phone status ===")
+def cmd_full_register(cfg: dict[str, str], *, code_method: str = "SMS") -> int:
+    """Request code → paste when received → verify → register (Meta 99 only)."""
+    print(f"=== Meta 99 full register for {cfg['phone']} ===")
+    print(f"Config from: {cfg.get('source', 'unknown')}\n")
+
     cmd_status(cfg)
-    print(f"\n=== Step 1/3: Request {code_method} code for {cfg['phone']} ===")
+
+    print(f"\n=== Step 1: Request verification code ({code_method}) ===")
+    if cmd_request_code(cfg, code_method=code_method) != 0:
+        return 1
+
+    print(
+        "\nMeta sends a 6-digit code by SMS or voice to +447822002099.\n"
+        "Meta does NOT return this code via API — paste it when you receive it\n"
+        "(SMS inbox, voice call, or Meta Business / your number provider).\n"
+    )
+
+    code = ""
+    for attempt in range(3):
+        code = input("Paste the 6-digit verification code here: ").strip()
+        if code and len(code) == 6 and code.isdigit():
+            break
+        print("Need exactly 6 digits.", file=sys.stderr)
+        code = ""
+    if not code:
+        return 1
+
+    _save_text(CODE_LOG_FILE, code)
+    print(f"Verification code recorded: {code}")
+
+    print(f"\n=== Step 2: Verify code with Meta ===")
+    if cmd_verify_code(cfg, code) != 0:
+        return 1
+
+    print(f"\n=== Step 3: Register (two-step PIN — you choose, not Meta) ===")
+    return cmd_register(cfg)
+
+
+def cmd_interactive(cfg: dict[str, str], *, code_method: str = "SMS", wait_seconds: int = 0) -> int:
+    cmd_status(cfg)
     if cmd_request_code(cfg, code_method=code_method) != 0:
         return 1
     code = ""
@@ -326,30 +368,20 @@ def cmd_interactive(cfg: dict[str, str], *, code_method: str = "SMS", wait_secon
         found = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
         if found:
             code = found
-            print(f"\nAuto-found verification code: {code}")
-        else:
-            print("\nNo code in inbound logs yet.", file=sys.stderr)
+            _save_text(CODE_LOG_FILE, code)
     if not code:
-        code = input("\nEnter verification code (6 digits, or from Admin Telnyx inbound): ").strip()
-    print(f"\n=== Step 2/3: Verify code ===")
+        code = input("\nPaste 6-digit verification code: ").strip()
     if cmd_verify_code(cfg, code) != 0:
         return 1
-    print(f"\n=== Step 3/3: Register with two-step PIN ===")
     return cmd_register(cfg)
 
 
 def cmd_wait_inbound(cfg: dict[str, str], wait_seconds: int) -> int:
     code = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
     if not code:
-        print(
-            "\nNo code found. Ensure:\n"
-            "  1) You ran --request-code first\n"
-            "  2) +447822002099 receives SMS on Telnyx (number must have SMS capability)\n"
-            "  3) Telnyx webhook is https://api.voxbulk.com/telnyx/webhooks/messages\n"
-            "  4) Admin → Integrations → Telnyx → Refresh inbound messages",
-            file=sys.stderr,
-        )
+        print("\nNo code in Telnyx inbound logs. Paste manually with --full-register.", file=sys.stderr)
         return 1
+    _save_text(CODE_LOG_FILE, code)
     print(f"\nUse: python scripts/register_whatsapp_number.py --profile \"Meta 99\" --verify-code {code}")
     return cmd_verify_code(cfg, code)
 
@@ -376,14 +408,19 @@ def main() -> int:
         help="Poll Telnyx inbound logs for 6-digit code (API-only; default 180s)",
     )
     parser.add_argument(
+        "--full-register",
+        action="store_true",
+        help="Request code → paste code → verify → register (recommended for Meta 99)",
+    )
+    parser.add_argument(
         "--interactive",
         action="store_true",
-        help="Status → request code → wait/prompt → verify → register",
+        help="Same as --full-register",
     )
     parser.add_argument(
         "--api-only",
         action="store_true",
-        help="No handset: request code + poll Telnyx inbound + verify + register",
+        help="Request + poll Telnyx inbound (only if 099 SMS is on Telnyx)",
     )
     args = parser.parse_args()
     cfg = _meta_config(profile=args.profile, use_db=args.from_db)
@@ -391,9 +428,9 @@ def main() -> int:
 
     if args.status:
         return cmd_status(cfg)
+    if args.full_register or args.interactive:
+        return cmd_full_register(cfg, code_method=method)
     if args.api_only:
-        return cmd_interactive(cfg, code_method=method, wait_seconds=180)
-    if args.interactive:
         return cmd_interactive(cfg, code_method=method, wait_seconds=180)
     if args.verify_code is not None:
         return cmd_verify_code(cfg, args.verify_code)
