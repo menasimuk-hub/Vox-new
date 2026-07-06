@@ -10,6 +10,7 @@ from app.services.connection.connection_profile_service import (
     ConnectionProfilesAdminService,
 )
 from app.services.connection.constants import ALL_SERVICE_CODES
+from app.services.admin_org_service import AdminOrganisationService
 
 router = APIRouter(prefix="/admin/connection-profiles", tags=["admin-connection-profiles"])
 
@@ -20,10 +21,13 @@ def list_connection_profiles(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
+    org_rows = AdminOrganisationService.list_orgs(db, limit=500, offset=0, search=None, zone=None)
+    org_options = [{"id": o.id, "name": o.name or o.id} for o in org_rows]
     return {
         "profiles": ConnectionProfilesAdminService.list_profiles(db, channel=channel),
         "webhook_urls": ConnectionProfilesAdminService.webhook_urls(),
         "service_codes": list(ALL_SERVICE_CODES),
+        "org_options": org_options,
     }
 
 

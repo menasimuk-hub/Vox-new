@@ -125,13 +125,18 @@ function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId,
     .map((id) => orgOptions.find((o) => o.id === id))
     .filter(Boolean)
 
+  const availableOrgs = useMemo(
+    () => orgOptions.filter((o) => !selectedOrgIds.includes(o.id)),
+    [orgOptions, selectedOrgIds],
+  )
+
   const suggestions = useMemo(() => {
     const q = query.toLowerCase().trim()
-    if (!q) return []
-    return orgOptions.filter(
-      (o) => !selectedOrgIds.includes(o.id) && String(o.name || '').toLowerCase().includes(q),
-    )
-  }, [orgOptions, query, selectedOrgIds])
+    const pool = q
+      ? availableOrgs.filter((o) => String(o.name || '').toLowerCase().includes(q))
+      : availableOrgs
+    return pool.slice(0, 50)
+  }, [availableOrgs, query])
 
   const addOrg = (org) => {
     if (!org || selectedOrgIds.includes(org.id)) return
@@ -145,44 +150,84 @@ function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId,
   }
 
   return (
-    <div className={`multi-select${disabled ? ' multi-select-disabled' : ''}`}>
-      <div id={tagsId} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', alignItems: 'center' }}>
-        {selectedNames.map((org) => (
-          <span key={org.id} className='tag'>
-            {org.name}
-            <button type='button' className='remove-tag' onClick={() => removeOrg(org.id)}>
-              ×
-            </button>
+    <div className={`org-picker${disabled ? ' org-picker-disabled' : ''}`}>
+      <div className={`multi-select${disabled ? ' multi-select-disabled' : ''}`}>
+        <div id={tagsId} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', alignItems: 'center' }}>
+          {selectedNames.length ? (
+            selectedNames.map((org) => (
+              <span key={org.id} className='tag'>
+                {org.name}
+                {!disabled ? (
+                  <button type='button' className='remove-tag' onClick={() => removeOrg(org.id)}>
+                    ×
+                  </button>
+                ) : null}
+              </span>
+            ))
+          ) : (
+            <span className='org-picker-empty'>No organizations selected</span>
+          )}
+        </div>
+        <input
+          id={inputId}
+          type='text'
+          value={query}
+          placeholder={placeholder || 'Type to search organizations…'}
+          autoComplete='off'
+          disabled={disabled}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setShowSuggestions(true)
+          }}
+          onFocus={() => !disabled && setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && suggestions[0]) {
+              e.preventDefault()
+              addOrg(suggestions[0])
+            }
+          }}
+        />
+        <div className={`org-suggestions${showSuggestions && suggestions.length ? ' show' : ''}`}>
+          {suggestions.map((org) => (
+            <div
+              key={org.id}
+              className='suggestion-item'
+              role='button'
+              tabIndex={0}
+              onMouseDown={() => addOrg(org)}
+            >
+              {org.name}
+            </div>
+          ))}
+        </div>
+      </div>
+      {!disabled ? (
+        <div className='org-picker-menu'>
+          <label className='org-picker-menu-label' htmlFor={`${inputId}-select`}>
+            Add organization
+          </label>
+          <select
+            id={`${inputId}-select`}
+            className='org-picker-select'
+            value=''
+            onChange={(e) => {
+              const org = orgOptions.find((o) => o.id === e.target.value)
+              if (org) addOrg(org)
+            }}
+          >
+            <option value=''>— Choose organization —</option>
+            {availableOrgs.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
+          <span className='org-picker-count'>
+            {selectedOrgIds.length} selected · {availableOrgs.length} available
           </span>
-        ))}
-      </div>
-      <input
-        id={inputId}
-        type='text'
-        value={query}
-        placeholder={placeholder || 'Type org name...'}
-        autoComplete='off'
-        disabled={disabled}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setShowSuggestions(true)
-        }}
-        onFocus={() => !disabled && setShowSuggestions(true)}
-        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && suggestions[0]) {
-            e.preventDefault()
-            addOrg(suggestions[0])
-          }
-        }}
-      />
-      <div className={`org-suggestions${showSuggestions && suggestions.length ? ' show' : ''}`}>
-        {suggestions.map((org) => (
-          <div key={org.id} className='suggestion-item' role='button' tabIndex={0} onMouseDown={() => addOrg(org)}>
-            {org.name}
-          </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -408,13 +453,20 @@ export default function ConnectionProfiles() {
     try {
       const [data, orgs] = await Promise.all([
         apiFetch('/admin/connection-profiles'),
-        apiFetch('/admin/organisations?limit=500'),
+        apiFetch('/admin/organisations?limit=500').catch(() => []),
       ])
       const codes = Array.isArray(data?.service_codes) ? data.service_codes : Object.keys(SERVICE_LABELS)
       setProfiles(Array.isArray(data?.profiles) ? data.profiles : [])
       setWebhookUrls(data?.webhook_urls || {})
       setServiceCodes(codes)
-      const orgRows = Array.isArray(orgs?.items) ? orgs.items : Array.isArray(orgs) ? orgs : []
+      const embedded = Array.isArray(data?.org_options) ? data.org_options : []
+      const orgRows = embedded.length
+        ? embedded
+        : Array.isArray(orgs?.items)
+          ? orgs.items
+          : Array.isArray(orgs)
+            ? orgs
+            : []
       setOrgOptions(orgRows.map((o) => ({ id: o.id, name: o.name || o.trading_name || o.id })))
     } catch (e) {
       window.alert(e?.message || 'Failed to load connection profiles')
@@ -817,8 +869,16 @@ export default function ConnectionProfiles() {
                     Assigned Organizations
                     {waForm.is_default ? (
                       <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
-                    ) : null}
+                    ) : (
+                      <span style={{ fontWeight: 400, textTransform: 'none' }}> (required for dedicated profiles)</span>
+                    )}
                   </label>
+                  {!waForm.is_default ? (
+                    <div className='field-hint'>
+                      Pick clinics below — click the search field or use the <strong>Add organization</strong> menu. Routing
+                      is per organization, not per user.
+                    </div>
+                  ) : null}
                   <OrgMultiSelect
                     orgOptions={orgOptions}
                     selectedOrgIds={waForm.org_ids}
@@ -1181,8 +1241,15 @@ export default function ConnectionProfiles() {
                   Assigned Organizations
                   {callingForm.is_default ? (
                     <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
-                  ) : null}
+                  ) : (
+                    <span style={{ fontWeight: 400, textTransform: 'none' }}> (required for dedicated profiles)</span>
+                  )}
                 </label>
+                {!callingForm.is_default ? (
+                  <div className='field-hint'>
+                    Pick clinics below — click the search field or use the <strong>Add organization</strong> menu.
+                  </div>
+                ) : null}
                 <OrgMultiSelect
                   orgOptions={orgOptions}
                   selectedOrgIds={callingForm.org_ids}
