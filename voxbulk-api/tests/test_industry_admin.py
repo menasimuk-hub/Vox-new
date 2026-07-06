@@ -152,6 +152,17 @@ def test_wa_survey_overview_counts():
         assert hc_row["approved_template_count"] >= 1
 
 
+def test_wa_survey_overview_fast_skips_template_scan():
+    Session = get_sessionmaker()
+    with Session() as db:
+        IndustryService.ensure_defaults(db)
+        overview = IndustryService.wa_survey_overview(db, fast=True)
+        assert overview.get("fast") is True
+        assert len(overview.get("industries") or []) >= 1
+        hc_row = next(row for row in overview["industries"] if row["slug"] == "healthcare")
+        assert hc_row.get("template_count") is None
+
+
 def test_duplicate_slug_rejected():
     Session = get_sessionmaker()
     with Session() as db:

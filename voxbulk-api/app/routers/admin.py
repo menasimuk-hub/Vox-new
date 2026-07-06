@@ -1186,6 +1186,30 @@ def list_telnyx_whatsapp_templates(
     }
 
 
+@router.get("/integrations/meta_whatsapp/whatsapp-templates/summary")
+def meta_whatsapp_templates_summary(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Fast header counts from local DB — no Meta API call (use for page load)."""
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    summary = TelnyxWhatsappTemplateSyncService.summarize_local_stored(db)
+    return {
+        "ok": True,
+        "live": False,
+        "summary": {
+            "total": summary["total"],
+            "approved": summary["approved"],
+            "localOnly": summary["local_only"],
+            "pending": summary["pending"],
+            "rejected": summary["rejected"],
+            "utility": summary["utility"],
+            "marketing": summary["marketing"],
+        },
+    }
+
+
 @router.get("/integrations/meta_whatsapp/whatsapp-templates/live-summary")
 def meta_whatsapp_templates_live_summary(
     db: Session = Depends(get_db),

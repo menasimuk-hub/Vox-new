@@ -458,6 +458,7 @@ export default function WaIndustryBrowser({
   product,
   industries,
   loadingIndustries,
+  industriesError = '',
   onReloadIndustries,
   onEditRow,
   onSyncRow,
@@ -937,6 +938,19 @@ export default function WaIndustryBrowser({
         </div>
         {loadingIndustries ? (
           <p className="py-8 text-center text-xs text-muted-foreground">Loading industries…</p>
+        ) : industriesError ? (
+          <div className="py-8 text-center text-xs">
+            <p className="text-destructive">{industriesError}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3 h-8 text-xs"
+              onClick={() => onReloadIndustries?.()}
+            >
+              Retry
+            </Button>
+          </div>
         ) : !industries.length ? (
           <p className="py-8 text-center text-xs text-muted-foreground">No industries yet.</p>
         ) : (

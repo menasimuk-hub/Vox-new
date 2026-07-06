@@ -93,7 +93,13 @@ def _is_template_approved(row: TelnyxWhatsappTemplate) -> bool:
     return str(row.status or "").strip().upper() == "APPROVED"
 
 
-def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
+def _template_ids_for_industry(
+    db: Session,
+    industry_id: str,
+    *,
+    survey_types: list[SurveyType] | None = None,
+    orphans: list[TelnyxWhatsappTemplate] | None = None,
+) -> set[int]:
     from app.services.survey_type_template_service import template_name_survey_slug
 
     ids: set[int] = set()
@@ -105,9 +111,10 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
         select(SurveyTypeTemplate.template_id).where(SurveyTypeTemplate.industry_id == industry_id)
     ).scalars():
         ids.add(int(tid))
-    survey_types = list(
-        db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
-    )
+    if survey_types is None:
+        survey_types = list(
+            db.execute(select(SurveyType).where(SurveyType.industry_id == industry_id)).scalars()
+        )
     survey_type_ids = [st.id for st in survey_types]
     if survey_type_ids:
         for tid in db.execute(
@@ -116,19 +123,20 @@ def _template_ids_for_industry(db: Session, industry_id: str) -> set[int]:
             )
         ).scalars():
             ids.add(int(tid))
-    # Orphans (industry_id/survey_type_id null) whose Meta name matches a type slug in this industry.
     known_slugs = [str(st.slug or "").strip().lower() for st in survey_types if str(st.slug or "").strip()]
     if known_slugs:
         slug_set = set(known_slugs)
-        orphans = list(
-            db.execute(
-                select(TelnyxWhatsappTemplate).where(
-                    TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
-                    TelnyxWhatsappTemplate.industry_id.is_(None),
-                )
-            ).scalars()
-        )
-        for row in orphans:
+        orphan_rows = orphans
+        if orphan_rows is None:
+            orphan_rows = list(
+                db.execute(
+                    select(TelnyxWhatsappTemplate).where(
+                        TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
+                        TelnyxWhatsappTemplate.industry_id.is_(None),
+                    )
+                ).scalars()
+            )
+        for row in orphan_rows:
             name_slug = template_name_survey_slug(str(row.name or ""), known_slugs=known_slugs)
             if name_slug and name_slug in slug_set:
                 ids.add(int(row.id))
@@ -312,7 +320,7 @@ class IndustryService:
         return [industry_to_dict(r, survey_type_count=counts.get(r.id, 0)) for r in rows]
 
     @staticmethod
-    def wa_survey_overview(db: Session) -> dict[str, Any]:
+    def wa_survey_overview(db: Session, *, fast: bool = False) -> dict[str, Any]:
         """KPI totals and per-industry template counts for the WA Survey admin landing page."""
         IndustryService.ensure_defaults(db)
         rows = list(
@@ -325,9 +333,57 @@ class IndustryService:
             if industry_id:
                 type_counts[str(industry_id)] = int(cnt or 0)
 
+        total_templates = int(
+            db.execute(select(func.count()).select_from(TelnyxWhatsappTemplate)).scalar_one() or 0
+        )
+        approved_templates = int(
+            db.execute(
+                select(func.count())
+                .select_from(TelnyxWhatsappTemplate)
+                .where(TelnyxWhatsappTemplate.status == "APPROVED")
+            ).scalar_one()
+            or 0
+        )
+        visible_industries = [row for row in rows if not bool(getattr(row, "is_hidden", False))]
+
+        if fast:
+            return {
+                "ok": True,
+                "fast": True,
+                "kpis": {
+                    "total_industries": len(visible_industries),
+                    "total_templates": total_templates,
+                    "approved_templates": approved_templates,
+                    "pending_templates": max(0, total_templates - approved_templates),
+                },
+                "industries": [
+                    industry_to_dict(row, survey_type_count=type_counts.get(row.id, 0))
+                    for row in rows
+                ],
+            }
+
+        survey_types_by_industry: dict[str, list[SurveyType]] = {}
+        for st in db.execute(select(SurveyType)).scalars():
+            if st.industry_id:
+                survey_types_by_industry.setdefault(str(st.industry_id), []).append(st)
+
+        orphans = list(
+            db.execute(
+                select(TelnyxWhatsappTemplate).where(
+                    TelnyxWhatsappTemplate.name.ilike("voxbulk_survey_%"),
+                    TelnyxWhatsappTemplate.industry_id.is_(None),
+                )
+            ).scalars()
+        )
+
         industries: list[dict[str, Any]] = []
         for row in rows:
-            template_ids = _template_ids_for_industry(db, row.id)
+            template_ids = _template_ids_for_industry(
+                db,
+                row.id,
+                survey_types=survey_types_by_industry.get(row.id, []),
+                orphans=orphans,
+            )
             counts = _template_count_payload(db, template_ids)
             industries.append(
                 industry_to_dict(
@@ -340,13 +396,9 @@ class IndustryService:
                 )
             )
 
-        all_templates = list(db.execute(select(TelnyxWhatsappTemplate)).scalars())
-        total_templates = len(all_templates)
-        approved_templates = sum(1 for tpl in all_templates if _is_template_approved(tpl))
-        visible_industries = [row for row in rows if not bool(getattr(row, "is_hidden", False))]
-
         return {
             "ok": True,
+            "fast": False,
             "kpis": {
                 "total_industries": len(visible_industries),
                 "total_templates": total_templates,

@@ -670,6 +670,51 @@ class TelnyxWhatsappTemplateSyncService:
         return [template_to_dict(row) for row in rows]
 
     @staticmethod
+    def summarize_local_stored(db: Session) -> dict[str, Any]:
+        """Fast read-only header counts from local DB — no Meta API round-trip."""
+        rows = list(
+            db.execute(
+                select(
+                    TelnyxWhatsappTemplate.status,
+                    TelnyxWhatsappTemplate.category,
+                    TelnyxWhatsappTemplate.telnyx_record_id,
+                )
+            ).all()
+        )
+        approved = pending = rejected = utility = marketing = local_only = 0
+        for status_raw, category_raw, rid_raw in rows:
+            status = str(status_raw or "").strip().upper()
+            rid = str(rid_raw or "").strip()
+            is_local = rid.startswith(_LOCAL_ID_PREFIX) or status == "LOCAL_DRAFT"
+            if is_local:
+                local_only += 1
+                continue
+            category = str(category_raw or "").strip().upper()
+            if "MARKET" in category:
+                marketing += 1
+            else:
+                utility += 1
+            if status == "APPROVED":
+                approved += 1
+            elif status == "REJECTED" or "REJECT" in status:
+                rejected += 1
+            else:
+                pending += 1
+        remote_total = approved + pending + rejected
+        return {
+            "ok": True,
+            "live": False,
+            "total": remote_total + local_only,
+            "approved": approved,
+            "local_only": local_only,
+            "pending": pending,
+            "rejected": rejected,
+            "utility": utility,
+            "marketing": marketing,
+            "remote_total": remote_total,
+        }
+
+    @staticmethod
     def _live_index(remote: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[tuple[str, str], dict[str, Any]]]:
         by_record: dict[str, dict[str, Any]] = {}
         by_name_lang: dict[tuple[str, str], dict[str, Any]] = {}

@@ -148,9 +148,11 @@ export default function WaTemplatesHub() {
   }
 
   const [surveyIndustries, setSurveyIndustries] = useState([])
-  const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(false)
+  const [surveyIndustriesLoading, setSurveyIndustriesLoading] = useState(true)
+  const [surveyIndustriesError, setSurveyIndustriesError] = useState('')
   const [feedbackIndustries, setFeedbackIndustries] = useState([])
   const [feedbackIndustriesLoading, setFeedbackIndustriesLoading] = useState(false)
+  const [feedbackIndustriesError, setFeedbackIndustriesError] = useState('')
 
   const [editTarget, setEditTarget] = useState(null)
   const [syncingId, setSyncingId] = useState(null)
@@ -162,31 +164,33 @@ export default function WaTemplatesHub() {
     setSearchParams(params, { replace: true })
   }
 
+  const applySummaryCounts = useCallback((summary) => {
+    if (!summary) return
+    setTemplateCounts({
+      total: summary.total ?? 0,
+      approved: summary.approved ?? 0,
+      localOnly: summary.localOnly ?? 0,
+      pending: summary.pending ?? 0,
+      rejected: summary.rejected ?? 0,
+      utility: summary.utility ?? 0,
+      marketing: summary.marketing ?? 0,
+    })
+  }, [])
+
   const loadTemplateCounts = useCallback(async () => {
     try {
-      // Live Meta/Telnyx statuses — rejected count matches Meta Manager, not stale local rows.
-      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/live-summary', {
-        timeoutMs: 120000,
+      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/summary', {
         quietNetworkHint: true,
       })
       if (data?.summary) {
-        setTemplateCounts({
-          total: data.summary.total ?? 0,
-          approved: data.summary.approved ?? 0,
-          localOnly: data.summary.localOnly ?? 0,
-          pending: data.summary.pending ?? 0,
-          rejected: data.summary.rejected ?? 0,
-          utility: data.summary.utility ?? 0,
-          marketing: data.summary.marketing ?? 0,
-        })
+        applySummaryCounts(data.summary)
         return
       }
-      const fallback = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false&live=true', {
-        timeoutMs: 120000,
+      const fallback = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false&live=false', {
         quietNetworkHint: true,
       })
       if (fallback?.summary) {
-        setTemplateCounts(fallback.summary)
+        applySummaryCounts(fallback.summary)
         return
       }
       setTemplateCounts(summarizeCatalog(Array.isArray(fallback?.templates) ? fallback.templates : []))
@@ -201,7 +205,23 @@ export default function WaTemplatesHub() {
         marketing: 0,
       })
     }
-  }, [])
+  }, [applySummaryCounts])
+
+  const loadTemplateCountsLive = useCallback(async () => {
+    try {
+      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/live-summary', {
+        timeoutMs: 120000,
+        quietNetworkHint: true,
+      })
+      if (data?.summary) {
+        applySummaryCounts(data.summary)
+        return
+      }
+      await loadTemplateCounts()
+    } catch {
+      await loadTemplateCounts()
+    }
+  }, [applySummaryCounts, loadTemplateCounts])
 
   const loadInterview = useCallback(async () => {
     setFlatLoading(true)
@@ -245,23 +265,55 @@ export default function WaTemplatesHub() {
 
   const loadSurveyIndustries = useCallback(async () => {
     setSurveyIndustriesLoading(true)
+    setSurveyIndustriesError('')
+    let listed = false
     try {
-      const data = await apiFetch('/admin/wa-survey/overview')
-      setSurveyIndustries(Array.isArray(data?.industries) ? data.industries : [])
+      const fast = await apiFetch('/admin/wa-survey/overview?fast=1', { quietNetworkHint: true })
+      const rows = Array.isArray(fast?.industries) ? fast.industries : []
+      setSurveyIndustries(rows)
+      listed = rows.length > 0
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not load survey industries').message)
+      try {
+        const fallback = await apiFetch(
+          '/admin/wa-survey/industries?include_hidden=true&include_inactive=true',
+          { quietNetworkHint: true },
+        )
+        const rows = Array.isArray(fallback?.industries) ? fallback.industries : []
+        setSurveyIndustries(rows)
+        listed = rows.length > 0
+        if (!rows.length) {
+          setSurveyIndustriesError(formatWaSurveyError(e, 'Could not load survey industries').message)
+        }
+      } catch (fallbackErr) {
+        setSurveyIndustries([])
+        setSurveyIndustriesError(
+          formatWaSurveyError(fallbackErr, 'Could not load survey industries').message,
+        )
+      }
     } finally {
       setSurveyIndustriesLoading(false)
+    }
+
+    if (!listed) return
+    try {
+      const full = await apiFetch('/admin/wa-survey/overview', { quietNetworkHint: true })
+      if (Array.isArray(full?.industries) && full.industries.length) {
+        setSurveyIndustries(full.industries)
+      }
+    } catch {
+      // Keep fast list when full template-count enrichment fails.
     }
   }, [])
 
   const loadFeedbackIndustries = useCallback(async () => {
     setFeedbackIndustriesLoading(true)
+    setFeedbackIndustriesError('')
     try {
-      const data = await apiFetch('/admin/customer-feedback/industries')
+      const data = await apiFetch('/admin/customer-feedback/industries', { quietNetworkHint: true })
       setFeedbackIndustries(Array.isArray(data?.items) ? data.items : [])
     } catch (e) {
-      setError(formatWaSurveyError(e, 'Could not load feedback industries').message)
+      setFeedbackIndustries([])
+      setFeedbackIndustriesError(formatWaSurveyError(e, 'Could not load feedback industries').message)
     } finally {
       setFeedbackIndustriesLoading(false)
     }
@@ -276,17 +328,13 @@ export default function WaTemplatesHub() {
   }, [tab, loadInterview, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
-    let cancelled = false
+    void loadTemplateCounts()
+  }, [loadTemplateCounts])
+
+  useEffect(() => {
     setError('')
-    ;(async () => {
-      // Apply live Meta statuses first so tab lists do not show stale REJECTED.
-      await loadTemplateCounts()
-      if (!cancelled) refreshTabData()
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [loadTemplateCounts, refreshTabData])
+    refreshTabData()
+  }, [refreshTabData])
 
   const patchJobStep = (stepId, patch) => {
     setJob((prev) => ({
@@ -989,6 +1037,7 @@ export default function WaTemplatesHub() {
                     product="survey"
                     industries={surveyIndustries}
                     loadingIndustries={surveyIndustriesLoading}
+                    industriesError={surveyIndustriesError}
                     onReloadIndustries={loadSurveyIndustries}
                     onEditRow={(row) => void openSurveyTypeEditor(row)}
                     onSyncRow={(row) => void pushSurveyType(row)}
@@ -1007,6 +1056,7 @@ export default function WaTemplatesHub() {
                     product="feedback"
                     industries={feedbackIndustries}
                     loadingIndustries={feedbackIndustriesLoading}
+                    industriesError={feedbackIndustriesError}
                     onReloadIndustries={loadFeedbackIndustries}
                     onEditRow={(row) => void openSurveyTypeEditor(row)}
                     onSyncRow={(row) => void pushSurveyType(row)}

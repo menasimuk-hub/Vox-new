@@ -58,10 +58,11 @@ def _raise_wa_survey_error(exc: SurveyWhatsappTemplateError, *, status_code: int
 
 @router.get("/overview")
 def wa_survey_overview(
+    fast: bool = False,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    return IndustryService.wa_survey_overview(db)
+    return IndustryService.wa_survey_overview(db, fast=bool(fast))
 
 
 @router.post("/templates/cleanup-retained-scopes")
