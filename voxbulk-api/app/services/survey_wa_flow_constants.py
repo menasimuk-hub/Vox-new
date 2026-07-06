@@ -28,6 +28,10 @@ LOG_CLOSING = "[wa-closing-question]"
 OPEN_TEXT_TIMEOUT_SEC = 300
 BUTTON_ABANDON_HOURS = 20
 
+WHATSAPP_SEND_FAILURE_HINT = (
+    "Could not send the WhatsApp message. Check Admin → Connection Profiles and template approval."
+)
+
 # tell_us_more outcome values (low rating branch only)
 TUM_OUTCOME_ANSWERED = "answered"
 TUM_OUTCOME_SKIPPED_TIMEOUT = "skipped_timeout"

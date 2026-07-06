@@ -140,10 +140,11 @@ export class ApiError extends Error {
 }
 
 /** Strip provider names/URLs from API errors shown to dashboard users. */
-export function sanitizeUserError(message: string): string {
+export function sanitizeUserError(message: string, path = ""): string {
   const raw = String(message || "").trim();
   if (!raw) return "Something went wrong. Please try again.";
   const lower = raw.toLowerCase();
+  const pathLower = String(path || "").toLowerCase();
   const isRecordingContext =
     lower.includes("recording") ||
     lower.includes("amazonaws.com") ||
@@ -161,8 +162,42 @@ export function sanitizeUserError(message: string): string {
     }
     return "Interview recording is temporarily unavailable. Please try again in a minute.";
   }
-  if (lower.includes("telnyx")) {
+
+  const isWhatsAppContext =
+    pathLower.includes("/wa-survey") ||
+    pathLower.includes("/whatsapp") ||
+    pathLower.includes("service-scripts/wa") ||
+    lower.includes("whatsapp") ||
+    lower.includes("wa template") ||
+    lower.includes("welcome message") ||
+    lower.includes("connection profile") ||
+    lower.includes("template approval") ||
+    lower.includes("template not approved");
+
+  if (lower.includes("telnyx") && isWhatsAppContext) {
+    return (
+      raw.replace(/\btelnyx\b/gi, "WhatsApp").trim() ||
+      "WhatsApp message could not be sent — check Admin → Connection Profiles and template approval."
+    );
+  }
+
+  const isVoiceContext =
+    pathLower.includes("/voice-preview") ||
+    pathLower.includes("/voice_preview") ||
+    pathLower.includes("/agents") ||
+    pathLower.includes("/interview") ||
+    lower.includes("voice preview") ||
+    lower.includes("assistant id") ||
+    lower.includes("elevenlabs") ||
+    lower.includes(" text-to-speech") ||
+    lower.includes("tts");
+
+  if (lower.includes("telnyx") && isVoiceContext) {
     return "Voice preview unavailable — check the Assistant ID and ElevenLabs voice in Admin → Agents.";
+  }
+
+  if (lower.includes("telnyx")) {
+    return raw.replace(/\btelnyx\b/gi, "messaging provider").trim() || raw;
   }
   return raw;
 }
@@ -312,7 +347,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit &
     const message =
       path.includes("/voice-preview") || path.includes("/voice_preview")
         ? rawMessage
-        : sanitizeUserError(rawMessage);
+        : sanitizeUserError(rawMessage, path);
     const err = new ApiError(message, { status: res.status, data });
     if (res.status === 401 && options.redirectOn401 !== false) handleUnauthorizedApiError(err);
     throw err;

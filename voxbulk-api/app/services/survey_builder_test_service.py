@@ -29,6 +29,7 @@ from app.services.survey_whatsapp_conversation_service import (
     is_whatsapp_survey_order,
     send_survey_opening,
 )
+from app.services.survey_wa_flow_constants import WHATSAPP_SEND_FAILURE_HINT
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     _validate_mobile_number,
@@ -369,7 +370,7 @@ class SurveyBuilderTestService:
             except Exception:
                 pass
             raise SurveyWhatsappTemplateError(
-                detail or "Could not send the welcome message. Check Telnyx settings and template approval."
+                detail or WHATSAPP_SEND_FAILURE_HINT
             )
 
         db.refresh(session)

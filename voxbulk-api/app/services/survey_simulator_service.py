@@ -29,6 +29,7 @@ from app.services.survey_generation_service import SurveyGenerationService
 from app.services.survey_session_service import SurveySessionService
 from app.services.survey_step_bank_service import SurveyStepBankService
 from app.services.survey_type_service import SurveyTypeService
+from app.services.survey_wa_flow_constants import WHATSAPP_SEND_FAILURE_HINT
 from app.services.survey_wa_readiness_service import SurveyWaReadinessService
 from app.services.survey_wa_test_pack_seed_service import SurveyWaTestPackSeedService
 from app.services.wa_template_privacy import privacy_mode_to_variant
@@ -242,28 +243,52 @@ def _resolve_messaging_org(db: Session) -> Organisation:
     org_id = str(SurveyWhatsappTemplateService._messaging_org_id(db) or "").strip()
     if not org_id:
         raise ValueError(
-            "Telnyx messaging org is not configured. Set it in Admin → Integrations → Telnyx before live WhatsApp tests."
+            "WhatsApp messaging org is not configured. Set it in Admin → Integrations before live WhatsApp tests."
         )
     org = db.get(Organisation, org_id)
     if org is None:
-        raise ValueError("Telnyx messaging org not found in database.")
+        raise ValueError("WhatsApp messaging org not found in database.")
     return org
+
+
+def _assert_whatsapp_send_ready(db: Session, *, org_id: str | None = None) -> None:
+    from app.models.connection_profile import PROVIDER_META, PROVIDER_TELNYX
+    from app.services.connection.profile_credentials import meta_config_from_profile, telnyx_config_from_profile
+    from app.services.connection.resolver import ConnectionProfileResolver
+
+    profile = ConnectionProfileResolver.resolve_whatsapp(db, org_id=org_id, service_code="survey")
+    if profile is not None:
+        if profile.provider == PROVIDER_META:
+            cfg = meta_config_from_profile(profile)
+            if not str(cfg.get("whatsapp_from") or "").strip():
+                raise ValueError("Meta WhatsApp sender is not configured on the active connection profile.")
+            return
+        if profile.provider == PROVIDER_TELNYX:
+            cfg = telnyx_config_from_profile(profile)
+            if not str(cfg.get("whatsapp_from") or "").strip():
+                raise ValueError("WhatsApp sender is not configured on the active connection profile.")
+            return
+
+    from app.services.telnyx_messaging_service import TelnyxMessagingService
+
+    telnyx = TelnyxMessagingService.is_configured(db)
+    if not telnyx.get("enabled"):
+        raise ValueError(
+            "WhatsApp is not configured. Add a connection profile in Admin → Connection Profiles."
+        )
+    if not telnyx.get("whatsapp"):
+        raise ValueError("WhatsApp sender is not configured or not approved yet.")
 
 
 def _prepare_live_test_phone(db: Session, raw_phone: str) -> str:
     from app.services.survey_whatsapp_template_service import _validate_mobile_number
-    from app.services.telnyx_messaging_service import TelnyxMessagingService
     from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
     normalized, phone_error = _validate_mobile_number(raw_phone)
     if phone_error or not normalized:
         raise ValueError(phone_error or "Enter a valid mobile number in E.164 format (e.g. +447700900123).")
 
-    telnyx = TelnyxMessagingService.is_configured(db)
-    if not telnyx.get("enabled"):
-        raise ValueError("Telnyx is not configured. Add your API key in Admin → Integrations → Telnyx.")
-    if not telnyx.get("whatsapp"):
-        raise ValueError("Telnyx WhatsApp sender is not configured or not approved yet.")
+    _assert_whatsapp_send_ready(db)
 
     allow = TelnyxPhoneAllowlistService.validate_phone_db(db, normalized)
     if not allow.get("allowed"):
@@ -710,7 +735,7 @@ class SurveySimulatorService:
             except Exception:
                 pass
             raise ValueError(
-                detail or "WhatsApp send failed. Check Telnyx configuration and template approval."
+                detail or WHATSAPP_SEND_FAILURE_HINT
             )
         return {
             "ok": True,
