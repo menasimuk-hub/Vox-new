@@ -399,6 +399,7 @@ export default function WaTemplatesHub() {
       patchJobStep('pull', { status: 'running', detail: 'Pulling catalog and status…' })
       last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
         method: 'POST',
+        body: JSON.stringify({ status_only: false }),
         timeoutMs: 300000,
         quietNetworkHint: true,
         signal: controller.signal,

@@ -1615,7 +1615,7 @@ def sync_meta_whatsapp_templates_step(
     limit = body.get("limit")
     try:
         if key == "pull":
-            status_only = bool(body.get("status_only", body.get("refresh_only", False)))
+            status_only = bool(body.get("status_only", body.get("refresh_only", True)))
             merged = WaTemplateSyncService.pull_from_meta(db, status_only=status_only)
             catalog = merged.get("catalog") or {}
             status = merged.get("status_pull") or {}
