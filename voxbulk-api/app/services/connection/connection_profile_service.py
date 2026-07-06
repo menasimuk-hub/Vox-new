@@ -59,6 +59,19 @@ class ConnectionProfilesAdminService:
         return ConnectionProfilesAdminService._serialize(db, row)
 
     @staticmethod
+    def _validate_assignment(payload: dict[str, Any]) -> None:
+        is_default = bool(payload.get("is_default"))
+        is_active = bool(payload.get("is_active", True))
+        org_ids = [str(x).strip() for x in (payload.get("org_ids") or []) if str(x).strip()]
+        if is_default:
+            payload["org_ids"] = []
+            return
+        if is_active and not org_ids:
+            raise ConnectionProfileError(
+                "Assign at least one organization for an active non-default profile"
+            )
+
+    @staticmethod
     def create_profile(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         channel = str(payload.get("channel") or CHANNEL_WHATSAPP).strip().lower()
         provider = str(payload.get("provider") or PROVIDER_TELNYX).strip().lower()
@@ -69,6 +82,7 @@ class ConnectionProfilesAdminService:
         if channel == CHANNEL_CALLING and provider != PROVIDER_TELNYX:
             raise ConnectionProfileError("Calling profiles must use Telnyx")
 
+        ConnectionProfilesAdminService._validate_assignment(payload)
         now = datetime.utcnow()
         row = ConnectionProfile(
             id=str(uuid.uuid4()),
@@ -96,6 +110,21 @@ class ConnectionProfilesAdminService:
         row = db.get(ConnectionProfile, profile_id)
         if row is None:
             raise ConnectionProfileError("Profile not found")
+        merged = {
+            "is_default": payload.get("is_default", row.is_default),
+            "is_active": payload.get("is_active", row.is_active),
+            "org_ids": payload.get("org_ids") if "org_ids" in payload else None,
+        }
+        if "org_ids" not in payload:
+            merged["org_ids"] = [
+                str(x)
+                for x in db.execute(
+                    select(ConnectionProfileOrg.org_id).where(ConnectionProfileOrg.profile_id == row.id)
+                ).scalars().all()
+            ]
+        ConnectionProfilesAdminService._validate_assignment(merged)
+        if merged.get("is_default"):
+            payload = {**payload, "org_ids": []}
         if "name" in payload:
             row.name = str(payload.get("name") or row.name).strip() or row.name
         if "is_active" in payload:

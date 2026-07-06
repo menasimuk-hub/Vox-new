@@ -57,8 +57,67 @@ function allServicesOff(codes) {
   return out
 }
 
+function normalizeOrgIds(orgIds) {
+  return (orgIds || []).map((id) => String(id).trim()).filter(Boolean)
+}
 
-function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId }) {
+function enabledServiceCodes(services, serviceCodes) {
+  return (serviceCodes || []).filter((code) => services?.[code])
+}
+
+function findServiceConflicts({ profiles, channel, editingId, isDefault, orgIds, services, serviceCodes }) {
+  const enabled = enabledServiceCodes(services, serviceCodes)
+  const conflicts = []
+  const others = (profiles || []).filter(
+    (p) => p.channel === channel && p.id !== editingId && p.is_active,
+  )
+  const myOrgs = normalizeOrgIds(orgIds)
+
+  for (const code of enabled) {
+    for (const other of others) {
+      if (!other.services?.[code]) continue
+      const label = SERVICE_LABELS[code] || code
+      if (!isDefault && !other.is_default) {
+        const overlap = myOrgs.filter((id) => (other.org_ids || []).includes(id))
+        if (overlap.length) {
+          conflicts.push({ service: label, profileName: other.name, orgIds: overlap })
+        }
+      }
+    }
+  }
+  return conflicts
+}
+
+function buildProfileGuidance({ isDefault, isActive, orgIds, serviceCodes, services, conflicts, channelLabel }) {
+  const lines = []
+  if (isDefault) {
+    lines.push(
+      `${channelLabel} default profile: used as fallback for every organization. Leave Assigned Organizations empty.`,
+    )
+    lines.push('Only one default profile per channel. Toggle services ON for products that should use this line.')
+  } else if (isActive) {
+    lines.push(
+      'Dedicated profile: assign one or more organizations below. Only those organizations use this profile (instead of the default).',
+    )
+    if (!normalizeOrgIds(orgIds).length) {
+      lines.push('Assign at least one organization — active non-default profiles are ignored without org assignment.')
+    }
+    lines.push('Enable only the services this line should handle for the assigned organizations.')
+  } else {
+    lines.push('Profile is inactive and will not be used for routing until Active is turned on.')
+  }
+
+  const enabled = enabledServiceCodes(services, serviceCodes)
+  if (enabled.length && !isDefault && isActive) {
+    lines.push(
+      `Assigned organizations will use this profile for: ${enabled.map((c) => SERVICE_LABELS[c] || c).join(', ')}. All other organizations keep the default profile for those services.`,
+    )
+  }
+
+  return { lines, conflicts }
+}
+
+function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId, disabled = false, placeholder }) {
   const [query, setQuery] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
 
@@ -86,7 +145,7 @@ function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId 
   }
 
   return (
-    <div className='multi-select'>
+    <div className={`multi-select${disabled ? ' multi-select-disabled' : ''}`}>
       <div id={tagsId} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', alignItems: 'center' }}>
         {selectedNames.map((org) => (
           <span key={org.id} className='tag'>
@@ -101,13 +160,14 @@ function OrgMultiSelect({ orgOptions, selectedOrgIds, onChange, inputId, tagsId 
         id={inputId}
         type='text'
         value={query}
-        placeholder='Type org name...'
+        placeholder={placeholder || 'Type org name...'}
         autoComplete='off'
+        disabled={disabled}
         onChange={(e) => {
           setQuery(e.target.value)
           setShowSuggestions(true)
         }}
-        onFocus={() => setShowSuggestions(true)}
+        onFocus={() => !disabled && setShowSuggestions(true)}
         onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && suggestions[0]) {
@@ -143,6 +203,35 @@ function ServiceGrid({ serviceCodes, services, onChange }) {
           <span className='service-label'>{SERVICE_LABELS[code] || code}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+function ProfileServicesInfo({ lines, conflicts, orgNameById }) {
+  return (
+    <div className='info-box'>
+      <Info />
+      <span>
+        {lines.map((line, idx) => (
+          <span key={idx}>
+            {idx > 0 ? ' ' : null}
+            {line}
+          </span>
+        ))}
+        {conflicts.length ? (
+          <>
+            {' '}
+            <strong>Conflict:</strong>{' '}
+            {conflicts
+              .map((c) => {
+                const orgNames = c.orgIds.map((id) => orgNameById[id] || id).join(', ')
+                return `${c.service} already enabled on “${c.profileName}” for ${orgNames}`
+              })
+              .join('; ')}
+            .
+          </>
+        ) : null}
+      </span>
     </div>
   )
 }
@@ -245,7 +334,59 @@ export default function ConnectionProfiles() {
   const [callingForm, setCallingForm] = useState(emptyCallingForm([]))
   const [waTestResult, setWaTestResult] = useState({ text: '', kind: '' })
   const [callingTestResult, setCallingTestResult] = useState({ text: '', kind: '' })
-  const [defaultNote, setDefaultNote] = useState('only one')
+  const [defaultNote, setDefaultNote] = useState('only one default per channel')
+
+  const waGuidance = useMemo(
+    () =>
+      buildProfileGuidance({
+        isDefault: !!waForm.is_default,
+        isActive: !!waForm.is_active,
+        orgIds: waForm.org_ids,
+        serviceCodes,
+        services: waForm.services,
+        conflicts: findServiceConflicts({
+          profiles,
+          channel: 'whatsapp',
+          editingId: editingWaId,
+          isDefault: !!waForm.is_default,
+          orgIds: waForm.org_ids,
+          services: waForm.services,
+          serviceCodes,
+        }),
+        channelLabel: 'WhatsApp',
+      }),
+    [waForm.is_default, waForm.is_active, waForm.org_ids, waForm.services, profiles, editingWaId, serviceCodes],
+  )
+
+  const callingGuidance = useMemo(
+    () =>
+      buildProfileGuidance({
+        isDefault: !!callingForm.is_default,
+        isActive: !!callingForm.is_active,
+        orgIds: callingForm.org_ids,
+        serviceCodes,
+        services: callingForm.services,
+        conflicts: findServiceConflicts({
+          profiles,
+          channel: 'calling',
+          editingId: editingCallingId,
+          isDefault: !!callingForm.is_default,
+          orgIds: callingForm.org_ids,
+          services: callingForm.services,
+          serviceCodes,
+        }),
+        channelLabel: 'Calling',
+      }),
+    [
+      callingForm.is_default,
+      callingForm.is_active,
+      callingForm.org_ids,
+      callingForm.services,
+      profiles,
+      editingCallingId,
+      serviceCodes,
+    ],
+  )
 
   const [sortKey, setSortKey] = useState('name')
   const [sortAsc, setSortAsc] = useState(true)
@@ -325,7 +466,7 @@ export default function ConnectionProfiles() {
     setEditingWaId('')
     setWaForm(emptyWaForm(serviceCodes))
     setWaTestResult({ text: '', kind: '' })
-    setDefaultNote('only one')
+    setDefaultNote('only one default per channel')
   }
 
   const clearCallingForm = () => {
@@ -346,7 +487,7 @@ export default function ConnectionProfiles() {
       services: { ...defaultServices(serviceCodes), ...(profile.services || {}) },
       org_ids: [...(profile.org_ids || [])],
     })
-    setDefaultNote(profile.is_default ? 'will unset other' : 'only one')
+    setDefaultNote(profile.is_default ? 'replaces current default' : 'only one default per channel')
     setWaTestResult({ text: '', kind: '' })
     setWaFormOpen(true)
   }
@@ -371,6 +512,13 @@ export default function ConnectionProfiles() {
       return
     }
     if (provider === 'meta') {
+      const phoneNumberId = String(waForm.meta_phone_number_id || '').trim()
+      if (phoneNumberId.startsWith('+') || /\s/.test(phoneNumberId)) {
+        window.alert(
+          'Phone Number ID must be the Meta Cloud API numeric ID (e.g. 1307579342430096), not the +44 display number.',
+        )
+        return
+      }
       if (
         !String(waForm.meta_waba_id || '').trim() ||
         !String(waForm.meta_phone_number_id || '').trim() ||
@@ -387,9 +535,25 @@ export default function ConnectionProfiles() {
       return
     }
 
+    if (waForm.is_active && !waForm.is_default && !normalizeOrgIds(waForm.org_ids).length) {
+      window.alert('Assign at least one organization — active non-default profiles are only used for assigned orgs.')
+      return
+    }
+    if (waGuidance.conflicts.length) {
+      const msg = waGuidance.conflicts
+        .map((c) => `${c.service} on “${c.profileName}”`)
+        .join('; ')
+      if (!window.confirm(`Service conflict for the same organization(s): ${msg}. Save anyway?`)) return
+    }
+
     setSaving(true)
     try {
-      const payload = { ...waForm, channel: 'whatsapp', provider }
+      const payload = {
+        ...waForm,
+        channel: 'whatsapp',
+        provider,
+        org_ids: waForm.is_default ? [] : normalizeOrgIds(waForm.org_ids),
+      }
       const saved = editingWaId
         ? await apiFetch(`/admin/connection-profiles/${encodeURIComponent(editingWaId)}`, {
             method: 'PUT',
@@ -414,6 +578,16 @@ export default function ConnectionProfiles() {
       window.alert('Name and Phone Number are required.')
       return
     }
+    if (callingForm.is_active && !callingForm.is_default && !normalizeOrgIds(callingForm.org_ids).length) {
+      window.alert('Assign at least one organization — active non-default profiles are only used for assigned orgs.')
+      return
+    }
+    if (callingGuidance.conflicts.length) {
+      const msg = callingGuidance.conflicts
+        .map((c) => `${c.service} on “${c.profileName}”`)
+        .join('; ')
+      if (!window.confirm(`Service conflict for the same organization(s): ${msg}. Save anyway?`)) return
+    }
 
     setSaving(true)
     try {
@@ -422,6 +596,7 @@ export default function ConnectionProfiles() {
         channel: 'calling',
         provider: 'telnyx',
         calling_number: phone,
+        org_ids: callingForm.is_default ? [] : normalizeOrgIds(callingForm.org_ids),
       }
       if (editingCallingId) {
         await apiFetch(`/admin/connection-profiles/${encodeURIComponent(editingCallingId)}`, {
@@ -611,8 +786,13 @@ export default function ConnectionProfiles() {
                         type='checkbox'
                         checked={!!waForm.is_default}
                         onChange={(e) => {
-                          setWaForm((f) => ({ ...f, is_default: e.target.checked }))
-                          setDefaultNote(e.target.checked ? 'will unset other' : 'only one')
+                          const checked = e.target.checked
+                          setWaForm((f) => ({
+                            ...f,
+                            is_default: checked,
+                            org_ids: checked ? [] : f.org_ids,
+                          }))
+                          setDefaultNote(checked ? 'replaces current default' : 'only one default per channel')
                         }}
                       />
                       <span className='toggle-slider' />
@@ -633,13 +813,20 @@ export default function ConnectionProfiles() {
 
               <div className='form-grid' style={{ marginTop: '0.5rem' }}>
                 <div className='field-group full-width'>
-                  <label>Assigned Organizations</label>
+                  <label>
+                    Assigned Organizations
+                    {waForm.is_default ? (
+                      <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
+                    ) : null}
+                  </label>
                   <OrgMultiSelect
                     orgOptions={orgOptions}
                     selectedOrgIds={waForm.org_ids}
                     onChange={(org_ids) => setWaForm((f) => ({ ...f, org_ids }))}
                     inputId='orgInput'
                     tagsId='orgTags'
+                    disabled={!!waForm.is_default}
+                    placeholder={waForm.is_default ? 'Default profile applies to all orgs' : 'Type org name...'}
                   />
                 </div>
               </div>
@@ -678,13 +865,11 @@ export default function ConnectionProfiles() {
                       <RefreshCw /> Default
                     </button>
                   </div>
-                  <div className='info-box'>
-                    <Info />
-                    <span>
-                      Organizations assigned to this profile will have access to the services toggled ON.{' '}
-                      <strong>Default</strong> means all services are available to all organizations.
-                    </span>
-                  </div>
+                  <ProfileServicesInfo
+                    lines={waGuidance.lines}
+                    conflicts={waGuidance.conflicts}
+                    orgNameById={orgNameById}
+                  />
                 </div>
               </div>
 
@@ -740,7 +925,7 @@ export default function ConnectionProfiles() {
                     <input
                       type='text'
                       value={waForm.meta_phone_number_id || ''}
-                      placeholder='Phone number ID'
+                      placeholder='1307579342430096 (numeric Cloud API ID)'
                       onChange={(e) => setWaForm((f) => ({ ...f, meta_phone_number_id: e.target.value }))}
                     />
                   </div>
@@ -966,7 +1151,14 @@ export default function ConnectionProfiles() {
                     <input
                       type='checkbox'
                       checked={!!callingForm.is_default}
-                      onChange={(e) => setCallingForm((f) => ({ ...f, is_default: e.target.checked }))}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setCallingForm((f) => ({
+                          ...f,
+                          is_default: checked,
+                          org_ids: checked ? [] : f.org_ids,
+                        }))
+                      }}
                     />
                     <span className='toggle-slider' />
                   </label>
@@ -985,13 +1177,20 @@ export default function ConnectionProfiles() {
 
             <div className='form-grid' style={{ marginTop: '0.5rem' }}>
               <div className='field-group full-width'>
-                <label>Assigned Organizations</label>
+                <label>
+                  Assigned Organizations
+                  {callingForm.is_default ? (
+                    <span style={{ fontWeight: 400, textTransform: 'none' }}> (not used when Default is on)</span>
+                  ) : null}
+                </label>
                 <OrgMultiSelect
                   orgOptions={orgOptions}
                   selectedOrgIds={callingForm.org_ids}
                   onChange={(org_ids) => setCallingForm((f) => ({ ...f, org_ids }))}
                   inputId='callingOrgInput'
                   tagsId='callingOrgTags'
+                  disabled={!!callingForm.is_default}
+                  placeholder={callingForm.is_default ? 'Default profile applies to all orgs' : 'Type org name...'}
                 />
               </div>
             </div>
@@ -1030,13 +1229,11 @@ export default function ConnectionProfiles() {
                     <RefreshCw /> Default
                   </button>
                 </div>
-                <div className='info-box'>
-                  <Info />
-                  <span>
-                    Organizations assigned to this profile will have access to the services toggled ON.{' '}
-                    <strong>Default</strong> means all services are available to all organizations.
-                  </span>
-                </div>
+                <ProfileServicesInfo
+                  lines={callingGuidance.lines}
+                  conflicts={callingGuidance.conflicts}
+                  orgNameById={orgNameById}
+                />
               </div>
             </div>
 
