@@ -33,6 +33,11 @@ function providerDisplay(provider) {
   return String(provider || '').toLowerCase() === 'meta' ? 'Meta' : 'Telnyx'
 }
 
+function profileTestOk(status) {
+  const s = String(status || '').toLowerCase()
+  return s === 'ok' || s === 'connected' || s === 'success'
+}
+
 function defaultServices(codes) {
   const out = {}
   ;(codes || []).forEach((code) => {
@@ -541,8 +546,10 @@ export default function ConnectionProfiles() {
     setWaTestResult(
       profile.last_test_detail
         ? {
-            text: profile.last_test_status === 'ok' ? `✓ ${profile.last_test_detail}` : `✗ ${profile.last_test_detail}`,
-            kind: profile.last_test_status === 'ok' ? 'success' : 'fail',
+            text: profileTestOk(profile.last_test_status)
+              ? `✓ ${profile.last_test_detail}`
+              : `✗ ${profile.last_test_detail}`,
+            kind: profileTestOk(profile.last_test_status) ? 'success' : 'fail',
           }
         : { text: '', kind: '' },
     )

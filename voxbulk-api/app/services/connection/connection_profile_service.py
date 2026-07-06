@@ -193,7 +193,7 @@ class ConnectionProfilesAdminService:
             config = meta_config_from_profile(row)
             test = MetaWhatsappService.test_connection_with_config(config)
             ok = bool(test.get("ok"))
-            status = str(test.get("status") or ("ok" if ok else "failed"))
+            status = "ok" if ok else str(test.get("status") or "failed")
             detail = str(test.get("detail") or "")
             if ok and to_number:
                 result = WhatsappMetaProvider.send(
