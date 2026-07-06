@@ -3325,6 +3325,7 @@ def handle_inbound_reply(
                     answer,
                     threshold=runtime_low_rating_threshold(config),
                     question=question,
+                    db=db,
                 )
             ):
                 variables = _survey_variables(config, recipient, db=db, org_id=str(order.org_id))

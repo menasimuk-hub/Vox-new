@@ -144,6 +144,10 @@ def test_is_low_answer_for_tell_us_more_feeling_word_and_yes_no():
     assert is_low_answer_for_tell_us_more("No", question=yes_no) is True
     assert is_low_answer_for_tell_us_more("Yes", question=yes_no) is False
 
+    good_bad = {"step_role": "step_0", "options": ["Good", "Bad"]}
+    assert is_low_answer_for_tell_us_more("Bad", question=good_bad) is True
+    assert is_low_answer_for_tell_us_more("Good", question=good_bad) is False
+
 
 def test_order_scale_labels_puts_worst_last():
     from app.services.survey_wa_flow_constants import order_scale_labels

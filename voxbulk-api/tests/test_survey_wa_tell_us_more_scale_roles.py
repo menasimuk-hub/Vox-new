@@ -104,6 +104,37 @@ def test_is_low_answer_for_feeling_word_poor():
     assert is_low_answer_for_tell_us_more("Excellent", question=question) is False
 
 
+def test_is_low_answer_for_good_bad_and_morale_low():
+    good_bad = {"step_role": "step_0", "options": ["Good", "Bad"]}
+    assert is_low_answer_for_tell_us_more("Bad", question=good_bad) is True
+    assert is_low_answer_for_tell_us_more("Good", question=good_bad) is False
+
+    morale = {"step_role": "abc_choice", "options": ["High", "Moderate", "Low"]}
+    assert is_low_answer_for_tell_us_more("Low", question=morale) is True
+    assert is_low_answer_for_tell_us_more("High", question=morale) is False
+
+
+def test_is_low_answer_hydrates_options_from_template(db):
+    row = _tpl(
+        db,
+        name="value_scale",
+        body="Rate value",
+        step_role="rating",
+    )
+    row.components_json = json.dumps(
+        [
+            {"type": "BODY", "text": "Rate value"},
+            {"type": "BUTTONS", "buttons": [{"type": "QUICK_REPLY", "text": "Good"}, {"type": "QUICK_REPLY", "text": "Bad"}]},
+        ]
+    )
+    db.add(row)
+    db.commit()
+
+    question = {"step_role": "step_0", "template_id": row.id, "options": []}
+    assert is_low_answer_for_tell_us_more("Bad", question=question, db=db) is True
+    assert is_low_answer_for_tell_us_more("Good", question=question, db=db) is False
+
+
 def test_step_snapshot_with_step_0_infers_rating_trigger():
     question = {
         "step_role": "step_0",

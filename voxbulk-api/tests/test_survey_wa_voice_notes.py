@@ -411,35 +411,100 @@ def test_prepare_voice_answer_accepts_open_text(mock_enqueue):
 
     with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
         with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
-            job = MagicMock()
-            job.id = "job-1"
-            job.transcription_status = "pending"
-            job.audio_file_path = None
-            job.audio_mime_type = "audio/ogg"
-            job.inbound_message_id = "msg-1"
-            job.provider_media_id = "m1"
-            create_job.return_value = job
-            result = SurveyWaVoiceNoteService.prepare_voice_answer(
-                db,
-                order=order,
-                recipient=recipient,
-                payload={"wa_conversation": {"answers": []}},
-                conv={"answers": []},
-                question={"reply_type": "long_text", "text": "Tell us more"},
-                reply=reply,
-                inbound_message_id="msg-1",
-                log_id=1,
-                session_id=None,
-                answer_context="normal",
-                step_index=1,
-                record=None,
-                config={},
-            )
+            with patch.object(
+                SurveyWaVoiceNoteService,
+                "process_transcription_job",
+                return_value={"ok": False, "error": "test_fallback"},
+            ):
+                job = MagicMock()
+                job.id = "job-1"
+                job.transcription_status = "pending"
+                job.audio_file_path = None
+                job.audio_mime_type = "audio/ogg"
+                job.inbound_message_id = "msg-1"
+                job.provider_media_id = "m1"
+                create_job.return_value = job
+                result = SurveyWaVoiceNoteService.prepare_voice_answer(
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    payload={"wa_conversation": {"answers": []}},
+                    conv={"answers": []},
+                    question={"reply_type": "long_text", "text": "Tell us more"},
+                    reply=reply,
+                    inbound_message_id="msg-1",
+                    log_id=1,
+                    session_id=None,
+                    answer_context="normal",
+                    step_index=1,
+                    record=None,
+                    config={},
+                )
 
     assert result["accepted"] is True
     assert result["answer"]["answer_source"] == "voice_note"
     assert result["answer"]["transcription_status"] == "pending"
     mock_enqueue.assert_called_once_with("job-1")
+
+
+@patch("app.services.survey_wa_voice_note_service.SurveyWaVoiceNoteService.enqueue_transcription")
+def test_prepare_voice_answer_inline_transcription(mock_enqueue):
+    from app.services.survey_wa_voice_note_service import SurveyWaVoiceNoteService
+
+    db = MagicMock()
+    db.flush = MagicMock()
+    db.commit = MagicMock()
+    db.add = MagicMock()
+    db.refresh = MagicMock()
+    order = MagicMock(id="order-1", org_id="org-1")
+    recipient = MagicMock(id="recipient-1")
+    reply = NormalizedWaInboundReply(
+        message_type="audio",
+        is_voice_note=True,
+        extracted_fields={
+            "media_items": [{"url": "https://example.com/a.ogg", "provider_media_id": "m1", "content_type": "audio/ogg"}]
+        },
+    )
+
+    with patch.object(SurveyWaVoiceNoteService, "find_existing_job", return_value=None):
+        with patch.object(SurveyWaVoiceNoteService, "create_pending_job") as create_job:
+            with patch.object(
+                SurveyWaVoiceNoteService,
+                "process_transcription_job",
+                return_value={"ok": True, "job_id": "job-1", "text_length": 12},
+            ):
+                job = MagicMock()
+                job.id = "job-1"
+                job.transcription_status = "completed"
+                job.answer_text = "Staff were rude"
+                job.detected_language = "en"
+                job.audio_file_path = "/tmp/job-1.ogg"
+                job.audio_mime_type = "audio/ogg"
+                job.inbound_message_id = "msg-1"
+                job.provider_media_id = "m1"
+                create_job.return_value = job
+                result = SurveyWaVoiceNoteService.prepare_voice_answer(
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    payload={"wa_conversation": {"answers": []}},
+                    conv={"answers": []},
+                    question={"reply_type": "long_text", "text": "Any other feedback?"},
+                    reply=reply,
+                    inbound_message_id="msg-1",
+                    log_id=1,
+                    session_id=None,
+                    answer_context="final_feedback",
+                    step_index=4,
+                    record=None,
+                    config={},
+                )
+
+    assert result["accepted"] is True
+    assert result["transcript_ready"] is True
+    assert result["answer"]["answer_text"] == "Staff were rude"
+    assert result["answer"]["transcription_status"] == "completed"
+    mock_enqueue.assert_not_called()
 
 
 def test_is_voice_message_type():

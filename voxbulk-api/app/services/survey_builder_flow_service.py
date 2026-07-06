@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -593,11 +594,83 @@ def is_tell_us_more_trigger_role(step_role: str) -> bool:
     return normalize_step_role(str(step_role or "")) in TELL_US_MORE_TRIGGER_ROLES
 
 
+_POSITIVE_SCALE_FIRST_LABELS = frozenset(
+    {
+        "excellent",
+        "great",
+        "very helpful",
+        "yes",
+        "good",
+        "high",
+        "likely",
+        "agree",
+        "strongly agree",
+        "10",
+        "9",
+    }
+)
+
+
+def _normalize_scale_token(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _match_scale_answer(body: str, options: list[str]) -> str:
+    raw = str(body or "").strip()
+    if not raw or not options:
+        return raw
+    lowered = _normalize_scale_token(raw)
+    for opt in options:
+        label = str(opt).strip()
+        if label and lowered == _normalize_scale_token(label):
+            return label
+    m = re.match(r"^(\d+)\b", raw)
+    if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(options):
+            return str(options[idx]).strip()
+    return raw
+
+
+def scale_options_for_question(
+    question: dict[str, Any] | None,
+    db: Session | None = None,
+) -> list[str]:
+    """Best-first scale labels from snapshot or live template row."""
+    from app.services.survey_wa_flow_constants import order_scale_labels
+
+    if not isinstance(question, dict):
+        return []
+    opts = question.get("options")
+    labels: list[str] = []
+    if isinstance(opts, list) and opts:
+        labels = [str(o).strip() for o in opts if str(o).strip()]
+    if not labels and db is not None:
+        tid = question.get("template_id")
+        try:
+            template_id = int(tid) if tid is not None else 0
+        except (TypeError, ValueError):
+            template_id = 0
+        if template_id > 0:
+            row = db.get(TelnyxWhatsappTemplate, template_id)
+            if row is not None:
+                role = effective_question_step_role(question)
+                if not role or str(role).startswith("step_"):
+                    stored = normalize_step_role(str(row.step_role or ""))
+                    role = stored if stored and not str(stored).startswith("step_") else role
+                labels = _options_from_template(row, role or "rating", strict=True)
+    if not labels:
+        return []
+    role = effective_question_step_role({**question, "options": labels})
+    return order_scale_labels(labels, step_role=role or "rating")
+
+
 def _rating_answer_is_low(
     answer: str,
     *,
     threshold: int = 6,
     question: dict[str, Any] | None = None,
+    db: Session | None = None,
 ) -> bool:
     """True when numeric rating is low or button label is the worst scale option."""
     from app.services.survey_wa_flow_constants import LOW_RATING_LABELS
@@ -609,17 +682,27 @@ def _rating_answer_is_low(
         return int(raw) < threshold + 1
     except ValueError:
         pass
-    lowered = raw.lower()
+
+    options = scale_options_for_question(question, db)
+    matched = _match_scale_answer(raw, options) if options else raw
+    lowered = _normalize_scale_token(matched)
+
     if lowered in LOW_RATING_LABELS:
         return True
-    opts = question.get("options") if isinstance(question, dict) else None
-    if isinstance(opts, list) and opts:
-        last = str(opts[-1] or "").strip().lower()
-        if lowered == last:
+
+    if options:
+        worst = _normalize_scale_token(options[-1])
+        if lowered == worst:
             return True
-        first = str(opts[0] or "").strip().lower()
-        if lowered == first and first in {"excellent", "great", "very helpful", "yes", "10"}:
+        if len(options) == 2:
+            first = _normalize_scale_token(options[0])
+            second = _normalize_scale_token(options[1])
+            if first in _POSITIVE_SCALE_FIRST_LABELS and lowered == second:
+                return True
+        first = _normalize_scale_token(options[0])
+        if lowered == first and first in _POSITIVE_SCALE_FIRST_LABELS:
             return False
+
     return False
 
 
@@ -628,15 +711,17 @@ def is_low_answer_for_tell_us_more(
     *,
     threshold: int = 6,
     question: dict[str, Any] | None = None,
+    db: Session | None = None,
 ) -> bool:
     """Worst scale button or low numeric score — triggers tell-us-more branch."""
     if isinstance(question, dict):
-        role = normalize_step_role(str(question.get("step_role") or ""))
+        role = effective_question_step_role(question)
         if role == "yes_no":
-            lowered = str(answer or "").strip().lower()
-            if lowered in {"no", "not really", "nah", "nope", "n"}:
+            matched = _match_scale_answer(answer, scale_options_for_question(question, db))
+            lowered = _normalize_scale_token(matched or answer)
+            if lowered in {"no", "not really", "nah", "nope", "n", "unlikely", "very unlikely", "not at all"}:
                 return True
-    return _rating_answer_is_low(answer, threshold=threshold, question=question)
+    return _rating_answer_is_low(answer, threshold=threshold, question=question, db=db)
 
 
 def resolve_next_conversation_step(
@@ -688,7 +773,7 @@ def resolve_next_conversation_step(
         and tell_us_more_active
         and not tell_already
         and is_tell_us_more_trigger_question(current_q)
-        and is_low_answer_for_tell_us_more(last_answer, threshold=threshold, question=current_q)
+        and is_low_answer_for_tell_us_more(last_answer, threshold=threshold, question=current_q, db=db)
     ):
         tell_q = question_from_tell_us_more_template(
             db,

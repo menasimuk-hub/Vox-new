@@ -602,6 +602,49 @@ class SurveyWaVoiceNoteService:
 
         if job.transcription_status in {"pending", "failed", "retrying"}:
             db.commit()
+            sync_ok = False
+            try:
+                sync_result = SurveyWaVoiceNoteService.process_transcription_job(db, str(job.id))
+                sync_ok = bool(sync_result.get("ok"))
+            except Exception as exc:
+                logger.warning(
+                    "%s inline_transcription_failed job_id=%s err=%s",
+                    LOG_PREFIX,
+                    job.id,
+                    str(exc)[:300],
+                )
+
+            if sync_ok:
+                db.refresh(job)
+                transcript = str(job.answer_text or "").strip()
+                if transcript:
+                    answer_entry = apply_transcript_to_answer(
+                        enrich_answer_with_voice_fields(
+                            {
+                                "step_role": str((question or {}).get("step_role") or answer_context),
+                                "question": q_text,
+                                "answer": transcript,
+                                "reply_type": (question or {}).get("reply_type") if question else "long_text",
+                                "audio_file_path": job.audio_file_path,
+                                "audio_mime_type": job.audio_mime_type,
+                                "inbound_message_id": job.inbound_message_id,
+                                "provider_media_id": job.provider_media_id,
+                            },
+                            job_id=job.id,
+                            status="completed",
+                        ),
+                        text=transcript,
+                        detected_language=job.detected_language,
+                        status="completed",
+                    )
+                    return {
+                        "accepted": True,
+                        "answer": answer_entry,
+                        "job_id": job.id,
+                        "transcript_ready": True,
+                        "normalized_value": transcript,
+                    }
+
             SurveyWaVoiceNoteService.enqueue_transcription(job.id)
 
         return {
