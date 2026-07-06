@@ -295,6 +295,57 @@ def test_extract_media_items_dedupes():
     assert len(items) == 1
 
 
+def test_extract_media_items_meta_audio_top_level():
+    record = {
+        "type": "audio",
+        "audio": {
+            "id": "1923377621670499",
+            "mime_type": "audio/ogg; codecs=opus",
+            "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1923377621670499",
+            "voice": True,
+        },
+    }
+    items = extract_media_items(record)
+    assert len(items) == 1
+    assert items[0]["provider_media_id"] == "1923377621670499"
+    assert "lookaside.fbsbx.com" in items[0]["url"]
+    assert items[0]["content_type"].startswith("audio/ogg")
+
+
+def test_parse_meta_voice_inbound_message():
+    from app.services.survey_wa_inbound_parse_service import parse_meta_wa_inbound_message
+
+    msg = {
+        "type": "audio",
+        "audio": {
+            "id": "1923377621670499",
+            "mime_type": "audio/ogg; codecs=opus",
+            "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1923377621670499",
+            "voice": True,
+        },
+    }
+    reply = parse_meta_wa_inbound_message(msg, sender_phone="+447954823445")
+    assert reply.is_voice_note is True
+    assert reply.normalized_answer == ""
+    media = reply.extracted_fields["media_items"]
+    assert len(media) == 1
+    assert media[0]["url"].startswith("https://lookaside.fbsbx.com")
+
+
+def test_parse_telnyx_meta_shaped_audio_record():
+    record = {
+        "type": "audio",
+        "audio": {
+            "id": "m-meta-1",
+            "mime_type": "audio/ogg",
+            "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=m-meta-1",
+        },
+    }
+    reply = parse_telnyx_wa_inbound_record(record, sender_phone="+447700900123")
+    assert reply.is_voice_note is True
+    assert reply.extracted_fields["media_items"][0]["provider_media_id"] == "m-meta-1"
+
+
 def test_resolve_answer_text_prefers_transcript():
     assert resolve_answer_text({"answer": "old", "answer_text": "transcribed"}) == "transcribed"
 

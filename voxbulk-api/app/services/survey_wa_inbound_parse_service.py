@@ -220,14 +220,21 @@ def parse_meta_wa_inbound_message(
     button_text = button_title or raw_text
     normalized_answer = button_title or raw_text or button_id or button_payload
 
-    pseudo_record = {
+    pseudo_record: dict[str, Any] = {
         "type": msg_type,
         "text": raw_text,
         "body": {"payload": button_payload, "id": button_id} if (button_payload or button_id) else raw_text,
         "button": {"text": button_title, "payload": button_payload} if button_title else None,
         "interactive": msg,
     }
+    if msg_type in {"audio", "voice"}:
+        audio_block = msg.get("audio") or msg.get("voice")
+        if isinstance(audio_block, dict):
+            pseudo_record["audio"] = audio_block
+            pseudo_record["media"] = [audio_block]
     media_items = extract_media_items(pseudo_record)
+    if not media_items:
+        media_items = extract_media_items(msg)
 
     reply = NormalizedWaInboundReply(
         sender_phone=_clean(sender_phone),

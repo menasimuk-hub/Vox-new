@@ -24,7 +24,7 @@ LOG_PREFIX = "[survey-wa-voice-media]"
 
 
 def extract_media_items(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Parse Telnyx inbound record for audio media attachments."""
+    """Parse Telnyx or Meta Cloud API inbound record for audio media attachments."""
     items: list[dict[str, Any]] = []
 
     def _append(raw: dict[str, Any]) -> None:
@@ -43,33 +43,40 @@ def extract_media_items(record: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    def _append_block(raw: Any) -> None:
+        if isinstance(raw, dict):
+            _append(raw)
+
     media = record.get("media")
     if isinstance(media, list):
         for row in media:
-            if isinstance(row, dict):
-                _append(row)
+            _append_block(row)
     elif isinstance(media, dict):
-        _append(media)
+        _append_block(media)
+
+    # Meta Cloud API — top-level audio/voice on inbound message dict
+    for key in ("audio", "voice", "ptt"):
+        _append_block(record.get(key))
 
     whatsapp_message = record.get("whatsapp_message")
     if isinstance(whatsapp_message, dict):
+        for key in ("audio", "voice", "ptt"):
+            _append_block(whatsapp_message.get(key))
         nested = whatsapp_message.get("media") or whatsapp_message.get("audio")
         if isinstance(nested, list):
             for row in nested:
-                if isinstance(row, dict):
-                    _append(row)
+                _append_block(row)
         elif isinstance(nested, dict):
-            _append(nested)
+            _append_block(nested)
 
     body = record.get("body")
     if isinstance(body, dict):
         nested = body.get("media") or body.get("audio")
         if isinstance(nested, dict):
-            _append(nested)
+            _append_block(nested)
         elif isinstance(nested, list):
             for row in nested:
-                if isinstance(row, dict):
-                    _append(row)
+                _append_block(row)
 
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -127,6 +134,29 @@ def resolve_telnyx_api_key(db: Session) -> str:
     return str(get_settings().telnyx_api_key or "").strip()
 
 
+def _download_auth_headers(db: Session, media_url: str) -> dict[str, str]:
+    """Meta lookaside URLs need Graph access token; Telnyx storage uses Telnyx API key."""
+    headers = {"Accept": "*/*"}
+    low = str(media_url or "").lower()
+    if any(host in low for host in ("lookaside.fbsbx.com", "fbcdn.net", "graph.facebook.com")):
+        try:
+            from app.services.meta_whatsapp_service import MetaWhatsappConfigError, MetaWhatsappService
+
+            config, enabled = MetaWhatsappService._config(db)
+            if enabled:
+                token = MetaWhatsappService._require_token(config)
+                headers["Authorization"] = f"Bearer {token}"
+                return headers
+        except MetaWhatsappConfigError as exc:
+            logger.warning("%s meta_media_auth_unavailable err=%s", LOG_PREFIX, exc)
+        except Exception as exc:
+            logger.warning("%s meta_media_auth_failed err=%s", LOG_PREFIX, exc)
+    api_key = resolve_telnyx_api_key(db)
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
 def download_media_file(
     db: Session,
     *,
@@ -143,10 +173,7 @@ def download_media_file(
         raise ValueError(f"Unsupported audio MIME type: {content_type}")
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    headers = {"Accept": "*/*"}
-    api_key = resolve_telnyx_api_key(db)
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    headers = _download_auth_headers(db, media_url)
 
     logger.info("%s download_started url=%s dest=%s", LOG_PREFIX, media_url[:180], dest_path)
     last_error: Exception | None = None
