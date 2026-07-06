@@ -194,47 +194,128 @@ def _extract_code_from_text(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _poll_inbound_verification_code(phone_e164: str, *, wait_seconds: int = 180) -> str | None:
-    """Read Meta verify SMS/voice transcript from Telnyx inbound logs (no handset needed)."""
+def _phone_status_payload(cfg: dict[str, str]) -> dict[str, Any]:
+    result = get_phone_number_status(
+        access_token=cfg["access_token"],
+        phone_number_id=cfg["phone_number_id"],
+        graph_version=cfg["graph_version"],
+    )
+    payload = result.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _is_phone_verified(payload: dict[str, Any]) -> bool:
+    return str(payload.get("code_verification_status") or "").upper() == "VERIFIED"
+
+
+def _meta_error_already_verified(result: dict[str, Any]) -> bool:
+    payload = result.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    err = payload.get("error")
+    if not isinstance(err, dict):
+        return False
+    if err.get("code") == 136024:
+        return True
+    msg = str(err.get("error_user_msg") or err.get("message") or "").lower()
+    return "already verified" in msg
+
+
+def _scan_log_rows(rows: list[dict], *, phone_e164: str, seen_ids: set[int]) -> str | None:
+    digits = re.sub(r"\D", "", phone_e164)
+    tail = digits[-10:] if len(digits) >= 10 else digits
+    for row in rows:
+        row_id = int(row.get("id") or 0)
+        if row_id in seen_ids:
+            continue
+        direction = str(row.get("direction") or "").lower()
+        if direction not in {"inbound", "in", "incoming", ""}:
+            seen_ids.add(row_id)
+            continue
+        to_num = re.sub(r"\D", "", str(row.get("to_number") or ""))
+        from_num = re.sub(r"\D", "", str(row.get("from_number") or ""))
+        body = str(row.get("body") or "")
+        haystack = f"{to_num} {from_num} {body}".lower()
+        if tail and tail not in haystack and "verif" not in haystack:
+            seen_ids.add(row_id)
+            continue
+        code = _extract_code_from_text(body)
+        if code:
+            provider = row.get("provider") or "unknown"
+            print(
+                f"Found code in {provider} message log id={row_id} "
+                f"from={row.get('from_number')} body={body[:200]!r}"
+            )
+            return code
+        seen_ids.add(row_id)
+    return None
+
+
+def _poll_webhook_events(phone_e164: str, *, seen_ids: set[int]) -> str | None:
+    from sqlalchemy import select
+
     from app.core.database import get_sessionmaker
-    from app.services.messaging_log_service import LogService
+    from app.models.webhook_event import WebhookEvent
 
     digits = re.sub(r"\D", "", phone_e164)
     tail = digits[-10:] if len(digits) >= 10 else digits
+    db = get_sessionmaker()()
+    try:
+        rows = db.execute(
+            select(WebhookEvent)
+            .where(WebhookEvent.provider.in_(("meta_whatsapp", "telnyx")))
+            .order_by(WebhookEvent.id.desc())
+            .limit(120)
+        ).scalars().all()
+    finally:
+        db.close()
+    for row in rows:
+        row_id = int(row.id or 0)
+        if row_id in seen_ids:
+            continue
+        raw = str(row.raw_body or "")
+        haystack = raw.lower()
+        if tail and tail not in re.sub(r"\D", "", raw) and "verif" not in haystack:
+            seen_ids.add(row_id)
+            continue
+        code = _extract_code_from_text(raw)
+        if code:
+            print(f"Found code in webhook_events id={row_id} provider={row.provider}")
+            return code
+        seen_ids.add(row_id)
+    return None
+
+
+def _poll_inbound_verification_code(phone_e164: str, *, wait_seconds: int = 180) -> str | None:
+    """Read Meta verify code from message webhooks (Meta WA + Telnyx SMS), not a handset."""
+    from app.core.database import get_sessionmaker
+    from app.services.messaging_log_service import LogService
+
     deadline = time.time() + max(30, wait_seconds)
-    seen_ids: set[int] = set()
-    print(f"Polling inbound messages for {phone_e164} (up to {wait_seconds}s)...")
-    print("Source: VoxBulk message logs (Telnyx webhook → /telnyx/webhooks/messages)")
-    print("Also check: Admin → Integrations → Telnyx → Refresh inbound")
+    seen_log_ids: set[int] = set()
+    seen_event_ids: set[int] = set()
+    print(f"Polling message webhooks for {phone_e164} (up to {wait_seconds}s)...")
+    print("Sources: /webhooks/meta/whatsapp + /telnyx/webhooks/messages → whatsapp_logs + webhook_events")
     while time.time() < deadline:
         db = get_sessionmaker()()
         try:
-            rows = LogService.list_platform_message_logs(
-                db,
-                limit=80,
-                to_number=phone_e164,
-                provider="telnyx",
-            )
-            if not rows:
-                rows = LogService.list_platform_message_logs(db, limit=120, provider="telnyx")
+            for provider in ("meta_whatsapp", "telnyx"):
+                rows = LogService.list_platform_message_logs(
+                    db,
+                    limit=80,
+                    to_number=phone_e164,
+                    provider=provider,
+                )
+                if not rows:
+                    rows = LogService.list_platform_message_logs(db, limit=120, provider=provider, q="verif")
+                code = _scan_log_rows(rows, phone_e164=phone_e164, seen_ids=seen_log_ids)
+                if code:
+                    return code
         finally:
             db.close()
-        for row in rows:
-            row_id = int(row.get("id") or 0)
-            if row_id in seen_ids:
-                continue
-            direction = str(row.get("direction") or "").lower()
-            if direction not in {"inbound", "in", "incoming", ""}:
-                continue
-            to_num = re.sub(r"\D", "", str(row.get("to_number") or ""))
-            if tail and tail not in to_num:
-                continue
-            body = str(row.get("body") or "")
-            code = _extract_code_from_text(body)
-            if code:
-                print(f"Found inbound log id={row_id} from={row.get('from_number')} body={body[:200]!r}")
-                return code
-            seen_ids.add(row_id)
+        code = _poll_webhook_events(phone_e164, seen_ids=seen_event_ids)
+        if code:
+            return code
         time.sleep(5)
     return None
 
@@ -251,7 +332,7 @@ def cmd_status(cfg: dict[str, str]) -> int:
     if cv:
         print(f"\ncode_verification_status={cv}")
         if cv.upper() == "VERIFIED":
-            print("Number already verified — you may only need: python scripts/register_whatsapp_number.py --profile \"Meta 99\"")
+            print('Number already verified — run: python scripts/register_whatsapp_number.py --profile "Meta 99" --register-only')
     return 0 if result.get("ok") else 1
 
 
@@ -263,11 +344,14 @@ def cmd_request_code(cfg: dict[str, str], *, code_method: str = "SMS") -> int:
         graph_version=cfg["graph_version"],
         code_method=code_method,
     )
+    if not result.get("ok") and _meta_error_already_verified(result):
+        print("Meta: phone number already verified — skip verify step, go to PIN register.")
+        return 0
     rc = _print_result(result)
     if result.get("ok"):
         via = "voice call" if code_method.upper() == "VOICE" else "SMS"
         print(f"\nMeta sent a {via} to {cfg['phone']}.")
-        print("Paste the code when you receive it (script will ask on --full-register).")
+        print("API-only: script polls message webhooks for the code (no handset needed).")
     return rc
 
 
@@ -321,30 +405,48 @@ def cmd_register(cfg: dict[str, str], *, pin: str | None = None) -> int:
     return rc
 
 
-def cmd_full_register(cfg: dict[str, str], *, code_method: str = "SMS") -> int:
-    """Request code → paste when received → verify → register (Meta 99 only)."""
+def cmd_full_register(cfg: dict[str, str], *, code_method: str = "SMS", wait_seconds: int = 180) -> int:
+    """API-only: request code → poll webhooks → verify (if needed) → register."""
     print(f"=== Meta 99 full register for {cfg['phone']} ===")
     print(f"Config from: {cfg.get('source', 'unknown')}\n")
 
-    cmd_status(cfg)
+    payload = _phone_status_payload(cfg)
+    print(json.dumps(payload, indent=2))
+    cv = str(payload.get("code_verification_status") or "")
+    if cv:
+        print(f"\ncode_verification_status={cv}")
+
+    if _is_phone_verified(payload):
+        print("\nAlready verified on Meta — skipping SMS code. Enter your two-step PIN to register.")
+        return cmd_register(cfg)
 
     print(f"\n=== Step 1: Request verification code ({code_method}) ===")
-    if cmd_request_code(cfg, code_method=code_method) != 0:
-        return 1
-
-    print(
-        "\nMeta sends a 6-digit code by SMS or voice to +447822002099.\n"
-        "Meta does NOT return this code via API — paste it when you receive it\n"
-        "(SMS inbox, voice call, or Meta Business / your number provider).\n"
+    req = request_verification_code(
+        access_token=cfg["access_token"],
+        phone_number_id=cfg["phone_number_id"],
+        phone_e164=cfg["phone"],
+        graph_version=cfg["graph_version"],
+        code_method=code_method,
     )
+    if not req.get("ok"):
+        if _meta_error_already_verified(req):
+            print("Meta: already verified — skipping to PIN register.")
+            return cmd_register(cfg)
+        return _print_result(req)
 
-    code = ""
-    for attempt in range(3):
-        code = input("Paste the 6-digit verification code here: ").strip()
-        if code and len(code) == 6 and code.isdigit():
-            break
-        print("Need exactly 6 digits.", file=sys.stderr)
-        code = ""
+    _print_result(req)
+    via = "voice call" if code_method.upper() == "VOICE" else "SMS"
+    print(f"\nMeta sent a {via}. Polling message webhooks for up to {wait_seconds}s...")
+
+    code = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
+    if not code:
+        print("\nNo code in webhooks yet. Paste it if you have it (or Ctrl+C and retry).")
+        for _attempt in range(3):
+            code = input("Paste the 6-digit verification code here: ").strip()
+            if code and len(code) == 6 and code.isdigit():
+                break
+            print("Need exactly 6 digits.", file=sys.stderr)
+            code = ""
     if not code:
         return 1
 
@@ -379,7 +481,7 @@ def cmd_interactive(cfg: dict[str, str], *, code_method: str = "SMS", wait_secon
 def cmd_wait_inbound(cfg: dict[str, str], wait_seconds: int) -> int:
     code = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
     if not code:
-        print("\nNo code in Telnyx inbound logs. Paste manually with --full-register.", file=sys.stderr)
+        print("\nNo code in message webhooks yet. Paste manually or retry with --full-register.", file=sys.stderr)
         return 1
     _save_text(CODE_LOG_FILE, code)
     print(f"\nUse: python scripts/register_whatsapp_number.py --profile \"Meta 99\" --verify-code {code}")
@@ -400,12 +502,17 @@ def main() -> int:
     parser.add_argument("--verify-code", metavar="CODE", help="Verify SMS/voice code")
     parser.add_argument("--status", action="store_true", help="Show Meta phone status from Graph API")
     parser.add_argument(
+        "--register-only",
+        action="store_true",
+        help="Skip verify — number already verified; prompt for PIN and register",
+    )
+    parser.add_argument(
         "--wait-inbound",
         nargs="?",
         const=180,
         type=int,
         metavar="SECONDS",
-        help="Poll Telnyx inbound logs for 6-digit code (API-only; default 180s)",
+        help="Alias for --wait-webhook (poll message webhooks)",
     )
     parser.add_argument(
         "--full-register",
@@ -420,16 +527,19 @@ def main() -> int:
     parser.add_argument(
         "--api-only",
         action="store_true",
-        help="Request + poll Telnyx inbound (only if 099 SMS is on Telnyx)",
+        help="Request + poll message webhooks + verify + register (API-only numbers)",
     )
     args = parser.parse_args()
     cfg = _meta_config(profile=args.profile, use_db=args.from_db)
     method = str(args.method or "sms").upper()
+    wait = int(args.wait_inbound or 180) if args.wait_inbound is not None else 180
 
     if args.status:
         return cmd_status(cfg)
+    if args.register_only:
+        return cmd_register(cfg)
     if args.full_register or args.interactive:
-        return cmd_full_register(cfg, code_method=method)
+        return cmd_full_register(cfg, code_method=method, wait_seconds=wait)
     if args.api_only:
         return cmd_interactive(cfg, code_method=method, wait_seconds=180)
     if args.verify_code is not None:
