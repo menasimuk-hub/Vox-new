@@ -24,7 +24,9 @@ import argparse
 import getpass
 import json
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,13 @@ if str(ROOT) not in sys.path:
 
 from app.services.meta_whatsapp_register_service import (
     DEFAULT_GRAPH_VERSION,
+    get_phone_number_status,
     register_phone_number,
     request_verification_code,
     verify_verification_code,
 )
+
+_CODE_RE = re.compile(r"\b(\d{6})\b")
 
 DEFAULT_PHONE = "+447822002099"
 
@@ -189,17 +194,86 @@ def _print_result(result: dict[str, Any]) -> int:
     return 0 if result.get("ok") else 1
 
 
-def cmd_request_code(cfg: dict[str, str]) -> int:
+def _extract_code_from_text(text: str) -> str | None:
+    match = _CODE_RE.search(str(text or ""))
+    return match.group(1) if match else None
+
+
+def _poll_inbound_verification_code(phone_e164: str, *, wait_seconds: int = 180) -> str | None:
+    """Read Meta verify SMS/voice transcript from Telnyx inbound logs (no handset needed)."""
+    from app.core.database import get_sessionmaker
+    from app.services.messaging_log_service import LogService
+
+    digits = re.sub(r"\D", "", phone_e164)
+    tail = digits[-10:] if len(digits) >= 10 else digits
+    deadline = time.time() + max(30, wait_seconds)
+    seen_ids: set[int] = set()
+    print(f"Polling inbound messages for {phone_e164} (up to {wait_seconds}s)...")
+    print("Source: VoxBulk message logs (Telnyx webhook → /telnyx/webhooks/messages)")
+    print("Also check: Admin → Integrations → Telnyx → Refresh inbound")
+    while time.time() < deadline:
+        db = get_sessionmaker()()
+        try:
+            rows = LogService.list_platform_message_logs(
+                db,
+                limit=80,
+                to_number=phone_e164,
+                provider="telnyx",
+            )
+            if not rows:
+                rows = LogService.list_platform_message_logs(db, limit=120, provider="telnyx")
+        finally:
+            db.close()
+        for row in rows:
+            row_id = int(row.get("id") or 0)
+            if row_id in seen_ids:
+                continue
+            direction = str(row.get("direction") or "").lower()
+            if direction not in {"inbound", "in", "incoming", ""}:
+                continue
+            to_num = re.sub(r"\D", "", str(row.get("to_number") or ""))
+            if tail and tail not in to_num:
+                continue
+            body = str(row.get("body") or "")
+            code = _extract_code_from_text(body)
+            if code:
+                print(f"Found inbound log id={row_id} from={row.get('from_number')} body={body[:200]!r}")
+                return code
+            seen_ids.add(row_id)
+        time.sleep(5)
+    return None
+
+
+def cmd_status(cfg: dict[str, str]) -> int:
+    result = get_phone_number_status(
+        access_token=cfg["access_token"],
+        phone_number_id=cfg["phone_number_id"],
+        graph_version=cfg["graph_version"],
+    )
+    print(json.dumps(result.get("payload") or result, indent=2))
+    payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
+    cv = str(payload.get("code_verification_status") or "")
+    if cv:
+        print(f"\ncode_verification_status={cv}")
+        if cv.upper() == "VERIFIED":
+            print("Number already verified — you may only need: python scripts/register_whatsapp_number.py --profile \"Meta 99\"")
+    return 0 if result.get("ok") else 1
+
+
+def cmd_request_code(cfg: dict[str, str], *, code_method: str = "SMS") -> int:
     result = request_verification_code(
         access_token=cfg["access_token"],
         phone_number_id=cfg["phone_number_id"],
         phone_e164=cfg["phone"],
         graph_version=cfg["graph_version"],
+        code_method=code_method,
     )
     rc = _print_result(result)
     if result.get("ok"):
-        print(f"\nSMS sent to {cfg['phone']} — check the phone/SIM (not VoxBulk Admin).")
-        print("Then: python scripts/register_whatsapp_number.py --profile \"Meta 99\" --verify-code YOUR_CODE")
+        via = "voice call" if code_method.upper() == "VOICE" else "SMS"
+        print(f"\nMeta sent a {via} to {cfg['phone']}.")
+        print("Meta does NOT return the code via Graph API — read it from Telnyx inbound:")
+        print('  python scripts/register_whatsapp_number.py --profile "Meta 99" --wait-inbound 180')
     return rc
 
 
@@ -241,11 +315,22 @@ def cmd_register(cfg: dict[str, str]) -> int:
     return rc
 
 
-def cmd_interactive(cfg: dict[str, str]) -> int:
-    print(f"=== Step 1/3: Request SMS code for {cfg['phone']} ===")
-    if cmd_request_code(cfg) != 0:
+def cmd_interactive(cfg: dict[str, str], *, code_method: str = "SMS", wait_seconds: int = 0) -> int:
+    print(f"=== Step 0: Meta phone status ===")
+    cmd_status(cfg)
+    print(f"\n=== Step 1/3: Request {code_method} code for {cfg['phone']} ===")
+    if cmd_request_code(cfg, code_method=code_method) != 0:
         return 1
-    code = input("\nEnter the SMS code received on the phone (6 digits): ").strip()
+    code = ""
+    if wait_seconds > 0:
+        found = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
+        if found:
+            code = found
+            print(f"\nAuto-found verification code: {code}")
+        else:
+            print("\nNo code in inbound logs yet.", file=sys.stderr)
+    if not code:
+        code = input("\nEnter verification code (6 digits, or from Admin Telnyx inbound): ").strip()
     print(f"\n=== Step 2/3: Verify code ===")
     if cmd_verify_code(cfg, code) != 0:
         return 1
@@ -253,26 +338,72 @@ def cmd_interactive(cfg: dict[str, str]) -> int:
     return cmd_register(cfg)
 
 
+def cmd_wait_inbound(cfg: dict[str, str], wait_seconds: int) -> int:
+    code = _poll_inbound_verification_code(cfg["phone"], wait_seconds=wait_seconds)
+    if not code:
+        print(
+            "\nNo code found. Ensure:\n"
+            "  1) You ran --request-code first\n"
+            "  2) +447822002099 receives SMS on Telnyx (number must have SMS capability)\n"
+            "  3) Telnyx webhook is https://api.voxbulk.com/telnyx/webhooks/messages\n"
+            "  4) Admin → Integrations → Telnyx → Refresh inbound messages",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"\nUse: python scripts/register_whatsapp_number.py --profile \"Meta 99\" --verify-code {code}")
+    return cmd_verify_code(cfg, code)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Meta WhatsApp phone register (+447822002099)")
     parser.add_argument("--profile", metavar="NAME", help='Connection profile name, e.g. "Meta 99"')
     parser.add_argument("--from-db", action="store_true", help="Fallback: Admin Integrations Meta config")
-    parser.add_argument("--request-code", action="store_true", help="Send SMS verification code")
-    parser.add_argument("--verify-code", metavar="CODE", help="Verify SMS code")
+    parser.add_argument("--request-code", action="store_true", help="Send SMS/voice verification code")
+    parser.add_argument(
+        "--method",
+        choices=("sms", "voice", "SMS", "VOICE"),
+        default="sms",
+        help="Delivery for --request-code: sms or voice (try voice if no SMS on Telnyx)",
+    )
+    parser.add_argument("--verify-code", metavar="CODE", help="Verify SMS/voice code")
+    parser.add_argument("--status", action="store_true", help="Show Meta phone status from Graph API")
+    parser.add_argument(
+        "--wait-inbound",
+        nargs="?",
+        const=180,
+        type=int,
+        metavar="SECONDS",
+        help="Poll Telnyx inbound logs for 6-digit code (API-only; default 180s)",
+    )
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="Request SMS → prompt for code → register (all in one run)",
+        help="Status → request code → wait/prompt → verify → register",
+    )
+    parser.add_argument(
+        "--api-only",
+        action="store_true",
+        help="No handset: request code + poll Telnyx inbound + verify + register",
     )
     args = parser.parse_args()
     cfg = _meta_config(profile=args.profile, use_db=args.from_db)
+    method = str(args.method or "sms").upper()
 
+    if args.status:
+        return cmd_status(cfg)
+    if args.api_only:
+        return cmd_interactive(cfg, code_method=method, wait_seconds=180)
     if args.interactive:
-        return cmd_interactive(cfg)
+        return cmd_interactive(cfg, code_method=method, wait_seconds=180)
     if args.verify_code is not None:
         return cmd_verify_code(cfg, args.verify_code)
     if args.request_code:
-        return cmd_request_code(cfg)
+        rc = cmd_request_code(cfg, code_method=method)
+        if rc == 0 and args.wait_inbound is not None:
+            return cmd_wait_inbound(cfg, int(args.wait_inbound or 180))
+        return rc
+    if args.wait_inbound is not None:
+        return cmd_wait_inbound(cfg, int(args.wait_inbound or 180))
     return cmd_register(cfg)
 
 

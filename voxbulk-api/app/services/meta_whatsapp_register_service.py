@@ -70,12 +70,16 @@ def request_verification_code(
     phone_number_id: str,
     phone_e164: str | None = None,
     graph_version: str = DEFAULT_GRAPH_VERSION,
+    code_method: str = "SMS",
 ) -> dict[str, Any]:
+    method = str(code_method or "SMS").strip().upper()
+    if method not in {"SMS", "VOICE"}:
+        method = "SMS"
     return meta_phone_post(
         access_token=access_token,
         phone_number_id=phone_number_id,
         path="request_code",
-        body={"code_method": "SMS", "language": "en"},
+        body={"code_method": method, "language": "en"},
         graph_version=graph_version,
         phone_e164=phone_e164,
     )
@@ -115,6 +119,32 @@ def register_phone_number(
         graph_version=graph_version,
         phone_e164=phone_e164,
     )
+
+
+def get_phone_number_status(
+    *,
+    access_token: str,
+    phone_number_id: str,
+    graph_version: str = DEFAULT_GRAPH_VERSION,
+) -> dict[str, Any]:
+    version = graph_version if graph_version.startswith("v") else f"v{graph_version}"
+    url = f"https://graph.facebook.com/{version}/{phone_number_id}"
+    params = {
+        "fields": "id,display_phone_number,verified_name,code_verification_status,quality_rating,status",
+    }
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(url, headers=headers, params=params)
+        payload = response.json() if response.content else {}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": str(exc), "payload": None}
+    return {
+        "ok": response.status_code < 400,
+        "status_code": response.status_code,
+        "url": url,
+        "payload": payload if isinstance(payload, dict) else {"raw": payload},
+    }
 
 
 def _pin_or_verify_error(status: int, payload: dict[str, Any] | str) -> bool:
