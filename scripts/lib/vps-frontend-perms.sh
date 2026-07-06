@@ -11,6 +11,11 @@ vox_frontend_dir_needs_chown() {
   if [[ ! -w "$dir" ]]; then return 0; fi
   if [[ -f "$lock" ]] && [[ ! -w "$lock" ]]; then return 0; fi
 
+  if [[ -d "$dir/dist" ]] && [[ ! -w "$dir/dist" ]]; then return 0; fi
+  if [[ -d "$dir/dist" ]] && find "$dir/dist" -maxdepth 3 ! -user "$uid" -print -quit 2>/dev/null | grep -q .; then
+    return 0
+  fi
+
   if [[ -d "$dir/node_modules" ]]; then
     [[ -w "$dir/node_modules" ]] || return 0
     if [[ -d "$dir/node_modules/.bin" ]] && [[ ! -w "$dir/node_modules/.bin" ]]; then
@@ -31,7 +36,7 @@ vox_ensure_frontend_dir_writable() {
   local me gn
   me=$(id -un)
   gn=$(id -gn)
-  echo "[perms] $dir has permission issues (often root-owned node_modules from prior sudo deploy) — fixing ownership …" >&2
+  echo "[perms] $dir has permission issues (often root-owned node_modules/dist from prior sudo deploy) — fixing ownership …" >&2
   sudo chown -R "$me:$gn" "$dir" || {
     echo "[perms] FAIL: Could not chown $dir — run: sudo chown -R $(whoami) $dir" >&2
     return 1
