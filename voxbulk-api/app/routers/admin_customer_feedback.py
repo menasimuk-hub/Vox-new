@@ -780,7 +780,7 @@ def delete_wa_template(template_id: str, db: Session = Depends(get_db), _admin=D
         )
     except Exception:
         name = None
-    if name and is_meta_whatsapp_primary(db):
+    if name and is_meta_whatsapp_primary(db, service_code="customer_feedback"):
         try:
             MetaWhatsappTemplateService.delete_message_template(db, name=name)
             meta_deleted = True

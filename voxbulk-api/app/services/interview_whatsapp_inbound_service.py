@@ -274,6 +274,7 @@ def _send_text_reply(
         body=body,
         org_id=org_id,
         meter_usage=False,
+        service_code="ai_interview",
     )
     try:
         TelnyxMessagingService.log_outbound(

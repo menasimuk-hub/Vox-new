@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from collections import defaultdict
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -168,10 +170,109 @@ class FeedbackCatalogService:
         rows = list(db.execute(q).scalars().all())
         if org_id is not None:
             rows = [r for r in rows if FeedbackCatalogService._industry_visible_to_org(db, r, org_id)]
+        stats_map = FeedbackCatalogService._batch_industry_template_stats(db, [r.id for r in rows])
         return [
-            FeedbackCatalogService.industry_with_stats(db, r, include_org_ids=include_org_ids)
+            FeedbackCatalogService.industry_with_stats(
+                db,
+                r,
+                include_org_ids=include_org_ids,
+                prefetched=stats_map.get(r.id),
+            )
             for r in rows
         ]
+
+    @staticmethod
+    def _map_feedback_sync_status(raw: str | None) -> str:
+        status = str(raw or "").strip().lower()
+        if status in {"rejected"}:
+            return "rejected"
+        if status in {"draft", "local", "local_draft"}:
+            return "local"
+        if status in {"pending", "submitted", "in_appeal"}:
+            return "pending"
+        if status in {"approved", "synced", "live"}:
+            return "approved"
+        return "pending"
+
+    @staticmethod
+    def _batch_industry_template_stats(
+        db: Session,
+        industry_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        if not industry_ids:
+            return {}
+        type_counts: dict[str, int] = {}
+        for industry_id, cnt in db.execute(
+            select(FeedbackSurveyType.industry_id, func.count())
+            .where(
+                FeedbackSurveyType.industry_id.in_(industry_ids),
+                FeedbackSurveyType.archived_at.is_(None),
+                FeedbackSurveyType.is_active.is_(True),
+            )
+            .group_by(FeedbackSurveyType.industry_id)
+        ):
+            if industry_id:
+                type_counts[str(industry_id)] = int(cnt or 0)
+
+        tpl_rows = list(
+            db.execute(
+                select(FeedbackWaTemplate, FeedbackSurveyType.industry_id)
+                .join(FeedbackSurveyType, FeedbackWaTemplate.survey_type_id == FeedbackSurveyType.id)
+                .where(
+                    FeedbackSurveyType.industry_id.in_(industry_ids),
+                    FeedbackSurveyType.archived_at.is_(None),
+                    FeedbackSurveyType.is_active.is_(True),
+                )
+            ).all()
+        )
+        by_industry_type: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        lang_counts: dict[str, int] = defaultdict(int)
+        for tpl, industry_id in tpl_rows:
+            if not industry_id or not tpl.survey_type_id:
+                continue
+            ind_key = str(industry_id)
+            type_key = str(tpl.survey_type_id)
+            by_industry_type[ind_key][type_key].append(
+                FeedbackCatalogService._map_feedback_sync_status(tpl.telnyx_sync_status)
+            )
+            lang_counts[ind_key] += 1
+
+        out: dict[str, dict[str, Any]] = {}
+        for ind_id in industry_ids:
+            topics = by_industry_type.get(ind_id, {})
+            approved = pending = rejected = 0
+            for statuses in topics.values():
+                agg = FeedbackCatalogService._aggregate_hub_status(
+                    [{"status": s} for s in statuses]
+                )
+                if agg == "approved":
+                    approved += 1
+                elif agg == "rejected":
+                    rejected += 1
+                else:
+                    pending += 1
+            total = len(topics)
+            if total <= 0:
+                health = "empty"
+            elif rejected > 0:
+                health = "rejected"
+            elif approved >= total:
+                health = "approved"
+            else:
+                health = "pending"
+            out[ind_id] = {
+                "survey_type_count": type_counts.get(ind_id, 0),
+                "template_count": total,
+                "topic_count": total,
+                "language_row_count": lang_counts.get(ind_id, 0),
+                "approved_count": approved,
+                "approved_template_count": approved,
+                "pending_count": pending,
+                "pending_template_count": pending,
+                "rejected_template_count": rejected,
+                "approval_health": health,
+            }
+        return out
 
     @staticmethod
     def industry_with_stats(
@@ -179,9 +280,18 @@ class FeedbackCatalogService:
         row: FeedbackIndustry,
         *,
         include_org_ids: bool = False,
+        prefetched: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         org_ids = FeedbackCatalogService.industry_org_ids(db, row.id) if include_org_ids else None
         base = industry_to_dict(row, org_ids=org_ids)
+        if prefetched is not None:
+            base.update(prefetched)
+            return base
+        stats = FeedbackCatalogService._batch_industry_template_stats(db, [row.id]).get(row.id)
+        if stats:
+            base.update(stats)
+            return base
+        # Legacy fallback — should rarely run.
         survey_type_count = int(
             db.execute(
                 select(func.count())
@@ -194,46 +304,18 @@ class FeedbackCatalogService:
             ).scalar_one()
             or 0
         )
-        # Topic rows (grouped) — matches hub list.
-        hub = FeedbackCatalogService.list_industry_hub_templates(db, row.id)
-        templates = list(hub.get("templates") or [])
-        language_row_count = sum(int(t.get("language_count") or 1) for t in templates)
-        approved = sum(
-            1
-            for t in templates
-            if str(t.get("aggregated_status") or t.get("status") or "").lower() == "approved"
-        )
-        rejected = sum(
-            1
-            for t in templates
-            if str(t.get("aggregated_status") or t.get("status") or "").lower() == "rejected"
-        )
-        pending = sum(
-            1
-            for t in templates
-            if str(t.get("aggregated_status") or t.get("status") or "").lower() in {"pending", "local"}
-        )
-        total = len(templates)
-        if total <= 0:
-            health = "empty"
-        elif rejected > 0:
-            health = "rejected"
-        elif approved >= total:
-            health = "approved"
-        else:
-            health = "pending"
         base.update(
             {
                 "survey_type_count": survey_type_count,
-                "template_count": total,
-                "topic_count": total,
-                "language_row_count": language_row_count,
-                "approved_count": approved,
-                "approved_template_count": approved,
-                "pending_count": pending,
-                "pending_template_count": pending,
-                "rejected_template_count": rejected,
-                "approval_health": health,
+                "template_count": 0,
+                "topic_count": 0,
+                "language_row_count": 0,
+                "approved_count": 0,
+                "approved_template_count": 0,
+                "pending_count": 0,
+                "pending_template_count": 0,
+                "rejected_template_count": 0,
+                "approval_health": "empty",
             }
         )
         return base

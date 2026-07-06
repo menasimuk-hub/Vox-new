@@ -49,6 +49,8 @@ type AdvanceResponse = {
   step_index?: number;
   step_count?: number;
   question?: SurveyQuestion;
+  pending_tell_us_more?: boolean;
+  deadline_at?: string | null;
 };
 
 type Phase = "choose" | "survey" | "thanks";
@@ -127,7 +129,10 @@ function PublicFeedbackSurvey() {
 
   // Move the local view to a step (or finish). Navigation is client-driven from the
   // full question list, so the visitor never waits on a network round-trip.
-  const goToStep = (idx: number, opts?: { reasonAfter?: ReasonOverlay | null }) => {
+  const goToStep = (
+    idx: number,
+    opts?: { reasonAfter?: ReasonOverlay | null; question?: SurveyQuestion | null },
+  ) => {
     setTextAnswer("");
     setReasonChips([]);
     setReasonText("");
@@ -137,7 +142,7 @@ function PublicFeedbackSurvey() {
       return;
     }
     setStepIndex(idx);
-    setQuestion(questions[idx] || null);
+    setQuestion(opts?.question ?? questions[idx] ?? null);
     setReasonOverlay(opts?.reasonAfter ?? null);
   };
 
@@ -181,12 +186,22 @@ function PublicFeedbackSurvey() {
       body: JSON.stringify({ reason, reason_source: reasonSource }),
     });
 
-  // Answer the current step (choice / typed text / skip) and advance instantly.
+  // Answer the current step. Low ratings wait on tell-us-more before advancing.
   const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
     if (!sessionId) return;
     setError("");
+    if (opts?.showReasonAfter) {
+      enqueue(async () => {
+        const data = (await postAnswer(answer)) as AdvanceResponse;
+        if (data.pending_tell_us_more && data.question) {
+          setQuestion(data.question);
+        }
+      });
+      setReasonOverlay(opts.showReasonAfter);
+      return;
+    }
     enqueue(() => postAnswer(answer));
-    goToStep(stepIndex + 1, { reasonAfter: opts?.showReasonAfter ?? null });
+    goToStep(stepIndex + 1);
   };
 
   // Submit a recorded voice note as the current step's answer and advance instantly.
@@ -197,23 +212,47 @@ function PublicFeedbackSurvey() {
     goToStep(stepIndex + 1);
   };
 
-  // Low-rating reason (chips/text) for the step we just answered — sent in background.
+  // Low-rating follow-up — server advances after tell-us-more is saved.
   const submitReason = (reason: string, reasonSource = "text") => {
     const clean = reason.trim();
     setReasonOverlay(null);
     setReasonChips([]);
     setReasonText("");
-    if (!sessionId || !clean || clean.toLowerCase() === "skip") return;
-    enqueue(() => postReason(clean, reasonSource));
+    if (!sessionId) return;
+    enqueue(async () => {
+      const data = (await postAnswer("", {
+        reason: clean.toLowerCase() === "skip" ? "skip" : clean,
+        reasonSource,
+      })) as AdvanceResponse;
+      if (data.completed) {
+        setPhase("thanks");
+        return;
+      }
+      if (typeof data.step_index === "number") {
+        goToStep(data.step_index, { question: data.question ?? null });
+      } else {
+        goToStep(stepIndex + 1);
+      }
+    });
   };
 
-  // Low-rating reason recorded as a voice note — sent in background, overlay closes.
   const voiceReason = (blob: Blob) => {
     setReasonOverlay(null);
     setReasonChips([]);
     setReasonText("");
     if (!sessionId) return;
-    enqueue(() => postVoice(blob, "reason_prev"));
+    enqueue(async () => {
+      const data = (await postVoice(blob, "reason_prev")) as AdvanceResponse;
+      if (data.completed) {
+        setPhase("thanks");
+        return;
+      }
+      if (typeof data.step_index === "number") {
+        goToStep(data.step_index, { question: data.question ?? null });
+      } else {
+        goToStep(stepIndex + 1);
+      }
+    });
   };
 
   const dismissReasonOverlay = () => {

@@ -1,4 +1,4 @@
-"""Resolve Customer Feedback WhatsApp number from platform Telnyx settings."""
+"""Resolve Customer Feedback WhatsApp number from connection profile or platform settings."""
 
 from __future__ import annotations
 
@@ -9,13 +9,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackWaSender
+from app.services.connection.config_resolver import whatsapp_route_whatsapp_from
+from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK
 from app.services.market_zone import country_to_zone
 
 PLACEHOLDER_WA_E164 = "+447700900000"
 
 
-def get_telnyx_whatsapp_from_e164(db: Session) -> str | None:
-    """Read WhatsApp From from Admin → Integrations → Telnyx (no send / enabled check)."""
+def get_telnyx_whatsapp_from_e164(db: Session, *, org_id: str | None = None) -> str | None:
+    """Resolved WhatsApp from-number for Customer Feedback (profile or platform Telnyx)."""
+    phone = whatsapp_route_whatsapp_from(
+        db,
+        org_id=org_id,
+        service_code=SERVICE_CUSTOMER_FEEDBACK,
+    )
+    if phone:
+        return phone
+
     from app.services.provider_settings import ProviderSettingsService
     from app.services.telnyx_api_key import normalize_telnyx_e164
 
@@ -58,7 +68,7 @@ def cache_feedback_wa_sender(db: Session, *, country_code: str, phone_e164: str)
 
 
 def sync_feedback_wa_senders_from_telnyx(db: Session) -> str | None:
-    """Copy Telnyx whatsapp_from into feedback_wa_senders for all market zones."""
+    """Copy resolved whatsapp_from into feedback_wa_senders for all market zones."""
     phone = get_telnyx_whatsapp_from_e164(db)
     if not phone:
         return None
@@ -67,9 +77,9 @@ def sync_feedback_wa_senders_from_telnyx(db: Session) -> str | None:
     return phone
 
 
-def resolve_feedback_wa_phone_for_qr(db: Session, country_code: str) -> str:
-    """Telnyx integration number first — same number used for outbound survey replies."""
-    phone = get_telnyx_whatsapp_from_e164(db)
+def resolve_feedback_wa_phone_for_qr(db: Session, country_code: str, *, org_id: str | None = None) -> str:
+    """Connection profile number first — same number used for outbound feedback replies."""
+    phone = get_telnyx_whatsapp_from_e164(db, org_id=org_id)
     if phone:
         cache_feedback_wa_sender(db, country_code=country_code, phone_e164=phone)
         return phone
@@ -83,5 +93,6 @@ def resolve_feedback_wa_phone_for_qr(db: Session, country_code: str) -> str:
 
     raise ValueError(
         "WhatsApp business number is not configured. "
-        "Open Admin → Integrations → Telnyx and set WhatsApp From (your Telnyx WhatsApp number), then try again."
+        "Open Admin → Connection Profiles and set an active Default WhatsApp profile, "
+        "or configure Telnyx / Meta under Integrations."
     )

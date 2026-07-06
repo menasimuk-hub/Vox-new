@@ -24,8 +24,8 @@ class MetaWhatsappTemplateError(RuntimeError):
         self.payload = payload
 
 
-def require_meta_whatsapp_primary(db: Session) -> dict[str, Any]:
-    if not is_meta_whatsapp_primary(db):
+def require_meta_whatsapp_primary(db: Session, *, service_code: str | None = "survey") -> dict[str, Any]:
+    if not is_meta_whatsapp_primary(db, service_code=service_code):
         raise MetaWhatsappTemplateError(
             "Meta WhatsApp is not configured. Open Admin → Integrations → Meta WhatsApp, "
             "enable the integration, and save WABA id, phone number id, and access token."

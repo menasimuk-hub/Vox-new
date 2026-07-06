@@ -1540,6 +1540,7 @@ class InterviewBookingService:
                 template_components=components,
                 org_id=order.org_id,
                 meter_usage=False,
+                service_code="ai_interview",
             )
             if result.ok:
                 wa_sent = True
@@ -1652,6 +1653,7 @@ class InterviewBookingService:
                     template_components=components,
                     org_id=order.org_id,
                     meter_usage=False,
+                    service_code="ai_interview",
                 )
             else:
                 result = TelnyxMessagingService.send_whatsapp(
@@ -1660,6 +1662,7 @@ class InterviewBookingService:
                     body=fallback_body,
                     org_id=order.org_id,
                     meter_usage=False,
+                    service_code="ai_interview",
                 )
             if result.ok:
                 TelnyxMessagingService.log_outbound(
@@ -1837,6 +1840,7 @@ class InterviewBookingService:
                             template_components=components,
                             org_id=order.org_id,
                             meter_usage=False,
+                            service_code="ai_interview",
                         )
                     else:
                         result = TelnyxMessagingService.send_whatsapp(
@@ -1845,6 +1849,7 @@ class InterviewBookingService:
                             body=fallback_body,
                             org_id=order.org_id,
                             meter_usage=False,
+                            service_code="ai_interview",
                         )
                     if result.ok:
                         recipient_wa_sent = True
@@ -2354,6 +2359,7 @@ class InterviewBookingService:
                             template_components=components,
                             org_id=order.org_id,
                             meter_usage=False,
+                            service_code="ai_interview",
                         )
                         if result.ok:
                             token_row.wa_sent_at = _now()

@@ -15,6 +15,7 @@ from app.models.connection_profile import (
     ConnectionProfileService,
 )
 from app.services.connection.constants import SERVICE_SURVEY
+from app.services.connection.config_resolver import resolve_whatsapp_config, whatsapp_provider_is_meta
 from app.services.connection.resolver import ConnectionProfileResolver
 
 
@@ -124,3 +125,57 @@ def test_resolver_meta_profile_when_assigned(db):
     resolved = ConnectionProfileResolver.resolve_whatsapp(db, org_id=org_id, service_code=SERVICE_SURVEY)
     assert resolved is not None
     assert resolved.provider == PROVIDER_META
+
+
+def test_resolve_whatsapp_config_uses_org_profile(db):
+    telnyx_default = _profile(is_default=True, name="Telnyx default")
+    meta = _profile(is_default=False, provider=PROVIDER_META, name="Meta org")
+    meta.meta_waba_id = "waba-1"
+    meta.meta_phone_number_id = "phone-1"
+    db.add(telnyx_default)
+    db.add(meta)
+    db.flush()
+    org_id = str(uuid.uuid4())
+    db.add(ConnectionProfileOrg(id=str(uuid.uuid4()), profile_id=meta.id, org_id=org_id, created_at=datetime.utcnow()))
+    for profile_id in (telnyx_default.id, meta.id):
+        db.add(
+            ConnectionProfileService(
+                id=str(uuid.uuid4()),
+                profile_id=profile_id,
+                service_code=SERVICE_SURVEY,
+                enabled=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+    db.commit()
+
+    route = resolve_whatsapp_config(db, org_id=org_id, service_code=SERVICE_SURVEY)
+    assert route is not None
+    assert route.is_meta
+    assert route.profile is not None
+    assert route.profile.id == meta.id
+    assert whatsapp_provider_is_meta(db, org_id=org_id, service_code=SERVICE_SURVEY)
+
+
+def test_resolve_whatsapp_config_default_telnyx(db):
+    default = _profile(is_default=True, name="Default Telnyx")
+    db.add(default)
+    db.flush()
+    db.add(
+        ConnectionProfileService(
+            id=str(uuid.uuid4()),
+            profile_id=default.id,
+            service_code=SERVICE_SURVEY,
+            enabled=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+    route = resolve_whatsapp_config(db, org_id=str(uuid.uuid4()), service_code=SERVICE_SURVEY)
+    assert route is not None
+    assert route.is_telnyx
+    assert route.profile is not None
+    assert route.profile.id == default.id

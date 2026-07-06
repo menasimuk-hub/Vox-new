@@ -233,6 +233,7 @@ class InterviewBookingReminderService:
                         body=body,
                         org_id=order.org_id,
                         meter_usage=False,
+                        service_code="ai_interview",
                     )
                     if result.ok:
                         wa_ok = True

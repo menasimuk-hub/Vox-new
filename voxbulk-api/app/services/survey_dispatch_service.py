@@ -331,6 +331,7 @@ class SurveyDispatchService:
                 template_language=template_row.language,
                 template_components=template_components,
                 meter_usage=False,
+                service_code="survey",
             )
         elif prefer_whatsapp:
             result = TelnyxMessagingService.send_whatsapp(
@@ -339,6 +340,7 @@ class SurveyDispatchService:
                 to_number=recipient.phone,
                 body=body,
                 meter_usage=False,
+                service_code="survey",
             )
         else:
             result = TelnyxMessagingService.send_sms(

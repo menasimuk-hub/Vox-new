@@ -116,6 +116,7 @@ class FeedbackWaSendService:
                 template_components=template_components,
                 org_id=org_id,
                 meter_usage=False,
+                service_code="customer_feedback",
             )
             result = attempt
             if attempt.ok:
@@ -189,4 +190,5 @@ class FeedbackWaSendService:
             body=body,
             org_id=org_id,
             meter_usage=False,
+            service_code="customer_feedback",
         )

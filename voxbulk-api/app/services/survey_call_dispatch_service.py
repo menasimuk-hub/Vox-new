@@ -1018,6 +1018,11 @@ async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                     from app.services.survey_wa_idle_timeout_service import process_wa_survey_idle_timeouts
 
                     timed_out = process_wa_survey_idle_timeouts(db)
+                    from app.services.customer_feedback.feedback_wa_idle_timeout_service import (
+                        process_feedback_wa_idle_timeouts,
+                    )
+
+                    timed_out += process_feedback_wa_idle_timeouts(db)
                     if timed_out:
                         logger.info("survey_wa_idle_timeouts", extra={"count": timed_out})
         except Exception:

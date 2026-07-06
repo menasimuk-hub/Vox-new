@@ -26,6 +26,13 @@ from app.services.customer_feedback.feedback_answer_service import (
 from app.services.customer_feedback.locale_service import resolve_session_language
 from app.services.customer_feedback.feedback_wa_send_service import FeedbackWaSendService
 from app.services.customer_feedback.location_service import FeedbackLocationService, SCAN_QR_HINT
+from app.services.customer_feedback.feedback_wa_session_state import (
+    clear_tell_us_more_pending,
+    is_tell_us_more_pending,
+    load_feedback_session_state,
+    save_feedback_session_state,
+    set_tell_us_more_pending,
+)
 from app.services.customer_feedback.survey_config_service import (
     format_template_message,
     get_system_template,
@@ -33,6 +40,7 @@ from app.services.customer_feedback.survey_config_service import (
     repair_survey_config_if_needed,
     template_for_step,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -406,6 +414,96 @@ class FeedbackWhatsappService:
         )
 
     @staticmethod
+    def _save_tell_us_more_answer(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        location: FeedbackLocation,
+        step_index: int,
+        topic_key: str,
+        survey_type_id: str,
+        answer: str,
+        answer_source: str,
+    ) -> None:
+        original = str(answer or "").strip()
+        if not original or original.lower() == "skip":
+            return
+        translated = translate_answer_to_english(
+            db,
+            answer=original,
+            detected_language=session.detected_language,
+            tpl=None,
+        )
+        answer_en = str(translated.get("answer_text_en") or original)
+        db.add(
+            FeedbackResponse(
+                id=str(uuid.uuid4()),
+                session_id=session.id,
+                org_id=session.org_id,
+                location_id=session.location_id,
+                survey_type_id=survey_type_id,
+                question_key=f"{topic_key}__tell_us_more",
+                answer_text=answer_en,
+                original_text=original,
+                answer_text_en=answer_en,
+                step_order=step_index + 1,
+                answer_source=answer_source or "text",
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    @staticmethod
+    def _continue_after_step(db: Session, *, session: FeedbackSession) -> dict[str, Any]:
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            session.status = "failed"
+            db.add(session)
+            db.commit()
+            return {"handled": True, "reason": "missing_location"}
+
+        steps = FeedbackWhatsappService._steps_for_location(db, location)
+        if int(session.current_step or 0) >= len(steps):
+            session.status = "completed"
+            session.completed_at = datetime.utcnow()
+            db.add(session)
+            db.commit()
+            thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
+            thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body=thank_body,
+                org_id=session.org_id,
+                tpl=thank_tpl,
+                location=location,
+                require_template=thank_tpl is not None,
+            )
+            return {"handled": True, "completed": True}
+
+        next_step = steps[int(session.current_step or 0)]
+        next_tpl = template_for_step(db, location, next_step, language=session.detected_language)
+        if next_tpl is None:
+            logger.error(
+                "feedback_wa_no_template location_id=%s step=%s language=%s session_id=%s",
+                location.id,
+                next_step,
+                session.detected_language,
+                session.id,
+            )
+            return {"handled": True, "reason": "missing_template", "session_id": session.id}
+        next_message = format_template_message(next_tpl)
+        FeedbackWhatsappService._send_wa(
+            db,
+            to_number=session.visitor_phone,
+            body=next_message,
+            org_id=session.org_id,
+            tpl=next_tpl,
+            location=location,
+            require_template=True,
+        )
+        return {"handled": True, "session_id": session.id}
+
+    @staticmethod
     def _advance_session(
         db: Session,
         *,
@@ -419,6 +517,26 @@ class FeedbackWhatsappService:
             db.add(session)
             db.commit()
             return {"handled": True, "reason": "missing_location"}
+
+        state = load_feedback_session_state(session)
+        if is_tell_us_more_pending(state):
+            step_index = int(state.get("tell_us_more_step_index") or session.current_step or 0)
+            FeedbackWhatsappService._save_tell_us_more_answer(
+                db,
+                session=session,
+                location=location,
+                step_index=step_index,
+                topic_key=str(state.get("tell_us_more_topic_key") or "topic"),
+                survey_type_id=str(state.get("tell_us_more_survey_type_id") or location.survey_type_id),
+                answer=answer,
+                answer_source=answer_source,
+            )
+            clear_tell_us_more_pending(state)
+            save_feedback_session_state(session, state)
+            session.current_step = step_index + 1
+            db.add(session)
+            db.commit()
+            return FeedbackWhatsappService._continue_after_step(db, session=session)
 
         steps = FeedbackWhatsappService._steps_for_location(db, location)
         step_index = int(session.current_step or 0)
@@ -498,6 +616,15 @@ class FeedbackWhatsappService:
             ):
                 tell_more = get_system_template(db, "tell_us_more", language=session.detected_language)
                 if tell_more:
+                    set_tell_us_more_pending(
+                        state,
+                        step_index=step_index,
+                        topic_key=str(tpl.template_key if tpl else "topic"),
+                        survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+                    )
+                    save_feedback_session_state(session, state)
+                    db.add(session)
+                    db.commit()
                     FeedbackWhatsappService._send_wa(
                         db,
                         to_number=session.visitor_phone,
@@ -507,48 +634,9 @@ class FeedbackWhatsappService:
                         location=location,
                         require_template=True,
                     )
+                    return {"handled": True, "awaiting_tell_us_more": True, "session_id": session.id}
 
         session.current_step = step_index + 1
         db.add(session)
         db.commit()
-
-        if session.current_step >= len(steps):
-            session.status = "completed"
-            session.completed_at = datetime.utcnow()
-            db.add(session)
-            db.commit()
-            thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
-            thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
-            FeedbackWhatsappService._send_wa(
-                db,
-                to_number=session.visitor_phone,
-                body=thank_body,
-                org_id=session.org_id,
-                tpl=thank_tpl,
-                location=location,
-                require_template=thank_tpl is not None,
-            )
-            return {"handled": True, "completed": True}
-
-        next_step = steps[session.current_step]
-        next_tpl = template_for_step(db, location, next_step, language=session.detected_language)
-        if next_tpl is None:
-            logger.error(
-                "feedback_wa_no_template location_id=%s step=%s language=%s session_id=%s",
-                location.id,
-                next_step,
-                session.detected_language,
-                session.id,
-            )
-            return {"handled": True, "reason": "missing_template", "session_id": session.id}
-        next_message = format_template_message(next_tpl)
-        FeedbackWhatsappService._send_wa(
-            db,
-            to_number=session.visitor_phone,
-            body=next_message,
-            org_id=session.org_id,
-            tpl=next_tpl,
-            location=location,
-            require_template=True,
-        )
-        return {"handled": True, "session_id": session.id}
+        return FeedbackWhatsappService._continue_after_step(db, session=session)

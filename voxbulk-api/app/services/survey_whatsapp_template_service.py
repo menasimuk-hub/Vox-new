@@ -2580,7 +2580,7 @@ class SurveyWhatsappTemplateService:
 
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db):
+        if is_meta_whatsapp_primary(db, service_code="survey"):
             return _push_row_to_meta(
                 db,
                 row,
@@ -3713,6 +3713,7 @@ class SurveyWhatsappTemplateService:
                 template_components=template_components,
                 org_id=org_id or None,
                 meter_usage=False,
+                service_code="survey",
             )
             result = attempt
             if attempt.ok:
@@ -3737,6 +3738,7 @@ class SurveyWhatsappTemplateService:
                     template_components=template_components,
                     org_id=org_id or None,
                     meter_usage=False,
+                    service_code="survey",
                 )
                 result = attempt
                 if attempt.ok:
@@ -3862,7 +3864,7 @@ class SurveyWhatsappTemplateService:
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
             from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-            if is_meta_whatsapp_primary(db):
+            if is_meta_whatsapp_primary(db, service_code="survey"):
                 try:
                     MetaWhatsappTemplateService.delete_message_template(db, name=template_name)
                     meta_deleted = True

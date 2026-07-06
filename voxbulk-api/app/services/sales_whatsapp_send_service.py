@@ -73,6 +73,7 @@ def send_sales_whatsapp(
                         template_components=components,
                         org_id=None,
                         meter_usage=False,
+                        service_code="marketing",
                     )
                     last_result = attempt
                     if attempt.ok:
@@ -99,6 +100,7 @@ def send_sales_whatsapp(
                     template_components=components,
                     org_id=None,
                     meter_usage=False,
+                    service_code="marketing",
                 )
                 last_result = attempt
                 if attempt.ok:
@@ -126,6 +128,7 @@ def send_sales_whatsapp(
                 template_components=base_components,
                 org_id=None,
                 meter_usage=False,
+                service_code="marketing",
             )
             last_result = result
             if result.ok:
@@ -164,4 +167,5 @@ def send_sales_whatsapp(
         body=body,
         org_id=None,
         meter_usage=False,
+        service_code="marketing",
     )

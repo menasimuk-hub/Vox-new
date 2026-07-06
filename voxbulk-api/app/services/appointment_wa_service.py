@@ -44,6 +44,7 @@ def send_confirmation(db: Session, appointment_id: str) -> dict:
         template_language="en_GB",
         org_id=appt.org_id,
         meter_usage=True,
+        service_code="booking",
     )
 
     now = datetime.utcnow()

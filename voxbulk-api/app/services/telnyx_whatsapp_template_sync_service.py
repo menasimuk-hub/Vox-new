@@ -335,7 +335,7 @@ class TelnyxWhatsappTemplateSyncService:
     def fetch_remote_templates(db: Session, *, filter_waba_id: bool = True) -> list[dict[str, Any]]:
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db):
+        if is_meta_whatsapp_primary(db, service_code="survey"):
             return TelnyxWhatsappTemplateSyncService.fetch_from_meta(db)
         return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=filter_waba_id)
 
@@ -348,7 +348,7 @@ class TelnyxWhatsappTemplateSyncService:
 
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db):
+        if is_meta_whatsapp_primary(db, service_code="survey"):
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
             try:
@@ -483,7 +483,7 @@ class TelnyxWhatsappTemplateSyncService:
 
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db):
+        if is_meta_whatsapp_primary(db, service_code="survey"):
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
             try:

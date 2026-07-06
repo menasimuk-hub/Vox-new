@@ -51,7 +51,9 @@ def handle_interview_wa_pecr_opt_out(
     )
     confirm = INTERVIEW_OPT_OUT_CONFIRM
     try:
-        TelnyxMessagingService.send_whatsapp(db, to=phone, body=confirm)
+        TelnyxMessagingService.send_whatsapp(
+            db, to_number=phone, body=confirm, org_id=org_id, service_code="ai_interview"
+        )
     except Exception as exc:
         logger.warning("interview_wa_opt_out_confirm_failed", extra={"org_id": org_id, "error": str(exc)})
     return {"handled": True, "action": "opt_out", "workflow": "interview"}

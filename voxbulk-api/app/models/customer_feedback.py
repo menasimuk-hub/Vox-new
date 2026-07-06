@@ -155,6 +155,7 @@ class FeedbackSession(Base):
     units_charged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     detected_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     trigger_dedupe_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    session_state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

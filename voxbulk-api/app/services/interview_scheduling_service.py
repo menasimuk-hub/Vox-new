@@ -250,6 +250,7 @@ class InterviewSchedulingService:
                         template_components=components,
                         org_id=order.org_id,
                         meter_usage=False,
+                        service_code="ai_interview",
                     )
                     if result.ok:
                         wa_sent += 1

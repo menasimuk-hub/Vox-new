@@ -351,7 +351,7 @@ def push_feedback_template_to_telnyx(
 
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-    if is_meta_whatsapp_primary(db):
+    if is_meta_whatsapp_primary(db, service_code="customer_feedback"):
         from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
         try:

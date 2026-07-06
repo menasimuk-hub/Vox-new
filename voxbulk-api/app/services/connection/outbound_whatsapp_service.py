@@ -112,7 +112,25 @@ class OutboundWhatsappService:
         messaging_profile_id: str | None = None,
         service_code: str | None = None,
     ) -> TelnyxMessageResult:
-        del service_code
+        from app.services.connection.config_resolver import resolve_whatsapp_config
+        from app.models.connection_profile import PROVIDER_META
+        from app.services.meta_whatsapp_service import MetaWhatsappService
+
+        route = resolve_whatsapp_config(db, org_id=org_id, service_code=service_code)
+        if route is not None and route.provider == PROVIDER_META:
+            return MetaWhatsappService.send_whatsapp_with_config(
+                db,
+                config=route.config,
+                to_number=to_number,
+                body=body,
+                from_number=from_number,
+                template_name=template_name,
+                template_id=template_id,
+                template_language=template_language,
+                template_components=template_components,
+                org_id=org_id,
+                meter_usage=meter_usage,
+            )
         return TelnyxMessagingService._send_whatsapp_telnyx_legacy(
             db,
             to_number=to_number,

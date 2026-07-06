@@ -30,6 +30,15 @@ from app.services.customer_feedback.survey_config_service import (
     repair_survey_config_if_needed,
     template_for_step,
 )
+from app.services.customer_feedback.feedback_answer_service import is_negative_topic_answer
+from app.services.customer_feedback.feedback_wa_session_state import (
+    clear_tell_us_more_pending,
+    is_tell_us_more_pending,
+    load_feedback_session_state,
+    save_feedback_session_state,
+    set_tell_us_more_pending,
+    parse_deadline,
+)
 from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
 
@@ -319,6 +328,43 @@ class FeedbackWebSurveyService:
             raise ValueError("Location not found")
 
         steps = _web_steps(db, location)
+        state = load_feedback_session_state(session)
+
+        if is_tell_us_more_pending(state):
+            step_index = int(state.get("tell_us_more_step_index") or session.current_step or 0)
+            reply = str(reason or answer or "").strip()
+            if reply and reply.lower() != "skip":
+                FeedbackWhatsappService._save_tell_us_more_answer(
+                    db,
+                    session=session,
+                    location=location,
+                    step_index=step_index,
+                    topic_key=str(state.get("tell_us_more_topic_key") or "topic"),
+                    survey_type_id=str(state.get("tell_us_more_survey_type_id") or location.survey_type_id),
+                    answer=reply,
+                    answer_source=reason_source if reason else answer_source,
+                )
+            clear_tell_us_more_pending(state)
+            save_feedback_session_state(session, state)
+            session.current_step = step_index + 1
+            db.add(session)
+            db.commit()
+            if session.current_step >= len(steps):
+                session.status = "completed"
+                session.completed_at = datetime.utcnow()
+                db.add(session)
+                db.commit()
+                return {"completed": True, "thank_you": True}
+            question = _step_to_question(
+                db, location, steps[session.current_step], language=session.detected_language
+            )
+            return {
+                "completed": False,
+                "step_index": session.current_step,
+                "step_count": len(steps),
+                "question": question,
+            }
+
         step_index = int(session.current_step or 0)
         if step_index >= len(steps):
             return {"completed": True, "thank_you": True}
@@ -345,7 +391,6 @@ class FeedbackWebSurveyService:
                 answer_source=answer_source,
             )
 
-        # Capture an optional low-rating reason ("why did you rate poor?") alongside the rating.
         if reason:
             FeedbackWebSurveyService._save_low_rating_reason(
                 db,
@@ -356,6 +401,58 @@ class FeedbackWebSurveyService:
                 reason=reason,
                 reason_source=reason_source,
             )
+            next_index = step_index + 1
+            session.current_step = next_index
+            if next_index >= len(steps):
+                session.status = "completed"
+                session.completed_at = datetime.utcnow()
+                db.add(session)
+                db.commit()
+                return {"completed": True, "thank_you": True}
+            db.add(session)
+            db.commit()
+            question = _step_to_question(db, location, steps[next_index], language=session.detected_language)
+            return {
+                "completed": False,
+                "step_index": next_index,
+                "step_count": len(steps),
+                "question": question,
+            }
+
+        if (
+            current_step.get("kind") == "topic"
+            and tpl is not None
+            and is_negative_topic_answer(
+                db,
+                answer=answer,
+                tpl=tpl,
+                detected_language=session.detected_language,
+            )
+        ):
+            set_tell_us_more_pending(
+                state,
+                step_index=step_index,
+                topic_key=str(tpl.template_key),
+                survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+            )
+            save_feedback_session_state(session, state)
+            db.add(session)
+            db.commit()
+            tell_q = _step_to_question(
+                db,
+                location,
+                {"kind": "tell_us_more", "template_key": "tell_us_more"},
+                language=session.detected_language,
+            )
+            deadline = parse_deadline(state)
+            return {
+                "completed": False,
+                "step_index": step_index,
+                "step_count": len(steps),
+                "question": tell_q,
+                "pending_tell_us_more": True,
+                "deadline_at": deadline.isoformat() if deadline else None,
+            }
 
         next_index = step_index + 1
         session.current_step = next_index

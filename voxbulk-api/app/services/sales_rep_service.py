@@ -416,7 +416,9 @@ class SalesRepService:
                 for key, val in variables.items():
                     body = body.replace(f"{{{{{key}}}}}", str(val))
                 body = f"{body}\n\nSign up: {signup_url}"
-                res = TelnyxMessagingService.send_whatsapp(db, to_number=customer.mobile, body=body)
+                res = TelnyxMessagingService.send_whatsapp(
+                    db, to_number=customer.mobile, body=body, service_code="marketing"
+                )
                 ok = bool(getattr(res, "ok", True))
                 log = {"channel": "wa", "ok": ok}
             except Exception as e:  # noqa: BLE001
@@ -459,7 +461,9 @@ class SalesRepService:
             from app.services.telnyx_messaging_service import TelnyxMessagingService
 
             body = "Hi! This is a quick VoxBulk demo survey — how would you rate your last visit? Reply 1-5."
-            res = TelnyxMessagingService.send_whatsapp(db, to_number=customer.mobile, body=body)
+            res = TelnyxMessagingService.send_whatsapp(
+                db, to_number=customer.mobile, body=body, service_code="marketing"
+            )
             ok = bool(getattr(res, "ok", True))
             if ok:
                 SalesRepService._mark_demoed(db, customer, channel="wa")
