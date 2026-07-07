@@ -1590,12 +1590,23 @@ def sync_meta_whatsapp_templates_step(
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     """Hub v2 chunked sync: pull status from Meta, then push changed DB drafts (same name)."""
+    from app.services.wa_template_sync_profile import resolve_sync_route_from_payload
     from app.services.wa_template_sync_service import WaTemplateSyncService
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
     body = payload or {}
+    try:
+        profile_id, route = resolve_sync_route_from_payload(db, body, service_code="survey")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    if not is_meta_whatsapp_primary(db):
+    if profile_id:
+        if route is None or not route.is_meta:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected connection profile is not a Meta WhatsApp profile",
+            )
+    elif not is_meta_whatsapp_primary(db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
@@ -1616,7 +1627,11 @@ def sync_meta_whatsapp_templates_step(
     try:
         if key == "pull":
             status_only = bool(body.get("status_only", body.get("refresh_only", True)))
-            merged = WaTemplateSyncService.pull_from_meta(db, status_only=status_only)
+            merged = WaTemplateSyncService.pull_from_meta(
+                db,
+                status_only=status_only,
+                connection_profile_id=profile_id,
+            )
             catalog = merged.get("catalog") or {}
             status = merged.get("status_pull") or {}
             result = {
@@ -1641,6 +1656,7 @@ def sync_meta_whatsapp_templates_step(
                 limit=int(limit) if limit is not None else 10,
                 force_push=bool(body.get("force_push", False)),
                 force_utility_category=bool(body.get("force_utility_category", False)),
+                connection_profile_id=profile_id,
             )
             result = {
                 "ok": push.get("ok", True),

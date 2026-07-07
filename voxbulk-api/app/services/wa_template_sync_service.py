@@ -139,14 +139,30 @@ class WaTemplateSyncService:
         }
 
     @staticmethod
-    def pull_from_meta(db: Session, *, status_only: bool = False) -> dict[str, Any]:
+    def pull_from_meta(
+        db: Session,
+        *,
+        status_only: bool = False,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
         """Fetch Meta once. status_only=True: refresh approval fields only (Refresh status button)."""
         try:
-            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:400]}
         if status_only:
-            status = WaTemplateSyncService.pull_statuses(db, remote=remote, mirror_remote_body=False)
+            status = WaTemplateSyncService.pull_statuses(
+                db,
+                remote=remote,
+                mirror_remote_body=False,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
             ok = bool(status.get("ok", True))
             return {
                 "ok": ok,
@@ -155,7 +171,13 @@ class WaTemplateSyncService:
                 "message": status.get("message") or f"Refreshed status for {status.get('updated', 0)} template(s)",
             }
         catalog = WaTemplateSyncService.pull_catalog(db, remote=remote)
-        status = WaTemplateSyncService.pull_statuses(db, remote=remote, mirror_remote_body=False)
+        status = WaTemplateSyncService.pull_statuses(
+            db,
+            remote=remote,
+            mirror_remote_body=False,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
         ok = bool(catalog.get("ok", True) and status.get("ok", True))
         return {
             "ok": ok,
@@ -175,10 +197,20 @@ class WaTemplateSyncService:
         row_ids: list[int] | None = None,
         remote: list[dict[str, Any]] | None = None,
         mirror_remote_body: bool = False,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         """Refresh status + category from live Meta for local rows (no draft overwrite)."""
         try:
-            items = remote if remote is not None else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+            items = (
+                remote
+                if remote is not None
+                else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                    db,
+                    connection_profile_id=connection_profile_id,
+                    service_code=service_code,
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:400]}
 
@@ -275,6 +307,8 @@ class WaTemplateSyncService:
         limit: int | None = 10,
         force_push: bool = False,
         force_utility_category: bool = False,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         from app.services.wa_template_push_batch_service import run_batched_push
 
@@ -283,7 +317,9 @@ class WaTemplateSyncService:
 
         if force_push and industry_id:
             work, pre_skipped = WaTemplateSyncService._collect_all_industry_templates(db, industry_id)
-            prefetched = _prefetch_remote_templates_for_push(db)
+            prefetched = _prefetch_remote_templates_for_push(
+                db, connection_profile_id=connection_profile_id, service_code=service_code
+            )
         elif force_push:
             work = [
                 row
@@ -291,7 +327,9 @@ class WaTemplateSyncService:
                 if _effective_components(row)
             ]
             work.sort(key=lambda item: str(item.name or item.id))
-            prefetched = _prefetch_remote_templates_for_push(db)
+            prefetched = _prefetch_remote_templates_for_push(
+                db, connection_profile_id=connection_profile_id, service_code=service_code
+            )
         else:
             work = WaTemplateSyncService._collect_push_work(db, industry_id=industry_id)
 
@@ -304,8 +342,15 @@ class WaTemplateSyncService:
                     row,
                     force_approved_update=True,
                     remote_items=prefetched,
+                    connection_profile_id=connection_profile_id,
+                    service_code=service_code,
                 )
-            return SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+            return SurveyWhatsappTemplateService.push_to_telnyx(
+                db,
+                row,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
 
         batch = run_batched_push(
             work,
@@ -412,6 +457,8 @@ class WaTemplateSyncService:
         phase: str = "full",
         force_push: bool = False,
         force_utility_category: bool = False,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         type_ids = [
             str(r)
@@ -423,7 +470,12 @@ class WaTemplateSyncService:
                 row_ids.append(int(mapping.template_id))
 
         if phase == "pull":
-            return WaTemplateSyncService.pull_statuses(db, row_ids=row_ids or None)
+            return WaTemplateSyncService.pull_statuses(
+                db,
+                row_ids=row_ids or None,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
 
         if phase == "push":
             return WaTemplateSyncService.push_changed_batch(
@@ -433,6 +485,8 @@ class WaTemplateSyncService:
                 limit=limit,
                 force_push=force_push,
                 force_utility_category=force_utility_category,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
 
         push = WaTemplateSyncService.push_changed_batch(
@@ -442,6 +496,8 @@ class WaTemplateSyncService:
             limit=limit,
             force_push=force_push,
             force_utility_category=force_utility_category,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
         )
         return push
 

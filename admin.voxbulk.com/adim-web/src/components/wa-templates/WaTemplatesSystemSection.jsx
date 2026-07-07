@@ -94,7 +94,13 @@ function templatesForCategory(kinds, product, category) {
   )
 }
 
-export default function WaTemplatesSystemSection({ product = 'survey', embedded = false, onOpenTemplate }) {
+export default function WaTemplatesSystemSection({
+  product = 'survey',
+  embedded = false,
+  onOpenTemplate,
+  syncProfileId = null,
+  onRequestSyncConfirm,
+}) {
   const [loading, setLoading] = useState(true)
   const [kinds, setKinds] = useState([])
   const [error, setError] = useState('')
@@ -340,21 +346,39 @@ export default function WaTemplatesSystemSection({ product = 'survey', embedded 
   }
 
   const syncSystemRow = async (row) => {
+    try {
+      await onRequestSyncConfirm?.({
+        title: row.syncFromMeta ? 'Pull from Meta' : 'Push to Meta',
+        action: row.syncFromMeta ? 'Pull' : 'Push',
+        detail: row.syncFromMeta
+          ? 'Copy the approved template body from Meta into the local draft.'
+          : 'Submit this system template to Meta for approval.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     setSyncingId(row.id)
     setError('')
     try {
+      const profileBody = syncProfileId ? { connection_profile_id: syncProfileId } : {}
       if (row.syncFromMeta) {
         const path =
           product === 'feedback'
             ? `/admin/customer-feedback/system-templates/${row.id}/pull-from-meta`
             : `/admin/wa-survey/system-templates/${row.id}/pull-from-meta`
-        await apiFetch(path, { method: 'POST', body: '{}' })
+        await apiFetch(path, { method: 'POST', body: JSON.stringify(profileBody) })
       } else {
         const path =
           product === 'feedback'
             ? `/admin/customer-feedback/wa-templates/${row.id}/push`
             : `/admin/wa-survey/templates/${row.id}/push`
-        await apiFetch(path, { method: 'POST', body: '{}', timeoutMs: 180000, quietNetworkHint: true })
+        await apiFetch(path, {
+          method: 'POST',
+          body: JSON.stringify({ force_push: false, ...profileBody }),
+          timeoutMs: 180000,
+          quietNetworkHint: true,
+        })
       }
       await load()
       await refreshSheetRows()

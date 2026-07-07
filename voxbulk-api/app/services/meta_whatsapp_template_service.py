@@ -24,13 +24,36 @@ class MetaWhatsappTemplateError(RuntimeError):
         self.payload = payload
 
 
-def require_meta_whatsapp_primary(db: Session, *, service_code: str | None = "survey") -> dict[str, Any]:
+def require_meta_whatsapp_primary(
+    db: Session,
+    *,
+    service_code: str | None = "survey",
+    connection_profile_id: str | None = None,
+) -> dict[str, Any]:
+    if connection_profile_id:
+        from app.services.connection.config_resolver import (
+            WhatsappSyncRouteError,
+            resolve_whatsapp_route_by_profile_id,
+        )
+
+        try:
+            route = resolve_whatsapp_route_by_profile_id(
+                db, connection_profile_id, service_code=service_code or "survey"
+            )
+        except WhatsappSyncRouteError as exc:
+            raise MetaWhatsappTemplateError(str(exc)) from exc
+        if not route.is_meta:
+            raise MetaWhatsappTemplateError(
+                f"Connection profile uses {route.provider}, not Meta — cannot push to Meta API."
+            )
+        return route.config
+
     if not is_meta_whatsapp_primary(db, service_code=service_code):
         raise MetaWhatsappTemplateError(
             "Meta WhatsApp is not configured. Open Admin → Integrations → Meta WhatsApp, "
             "enable the integration, and save WABA id, phone number id, and access token."
         )
-    config, _enabled = MetaWhatsappService._config(db)
+    config, _enabled = MetaWhatsappService._config(db, service_code=service_code)
     return config
 
 
@@ -89,8 +112,14 @@ class MetaWhatsappTemplateService:
         language: str,
         category: str,
         components: list[Any],
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
-        config = require_meta_whatsapp_primary(db)
+        config = require_meta_whatsapp_primary(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
         waba_id = str(config.get("waba_id") or "").strip()
         payload = {
             "name": str(name or "").strip(),
@@ -136,9 +165,15 @@ class MetaWhatsappTemplateService:
         components: list[Any],
         category: str | None = None,
         template_name: str | None = None,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         """Edit an existing Meta template in place (same name) — status returns to PENDING for re-review."""
-        config = require_meta_whatsapp_primary(db)
+        config = require_meta_whatsapp_primary(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
         waba_id = str(config.get("waba_id") or "").strip()
         raw_id = str(template_id or "").strip()
         if raw_id.startswith(_META_RECORD_PREFIX):
@@ -270,6 +305,8 @@ class MetaWhatsappTemplateService:
         language: str,
         category: str,
         components: list[Any],
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         """Create template on Meta WABA; enrich errors for admin UI."""
         try:
@@ -279,6 +316,8 @@ class MetaWhatsappTemplateService:
                 language=language,
                 category=category,
                 components=components,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
         except MetaWhatsappTemplateError:
             raise

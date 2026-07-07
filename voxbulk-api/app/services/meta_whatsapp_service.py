@@ -33,10 +33,16 @@ class MetaWhatsappService:
         *,
         org_id: str | None = None,
         service_code: str | None = "survey",
+        connection_profile_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         from app.services.connection.config_resolver import resolve_meta_api_config
 
-        return resolve_meta_api_config(db, org_id=org_id, service_code=service_code)
+        return resolve_meta_api_config(
+            db,
+            org_id=org_id,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
 
     @staticmethod
     def _config_for_send(
@@ -326,8 +332,17 @@ class MetaWhatsappService:
         return fallback or None
 
     @staticmethod
-    def fetch_all_templates(db: Session) -> list[dict[str, Any]]:
-        config, enabled = MetaWhatsappService._config(db)
+    def fetch_all_templates(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[dict[str, Any]]:
+        config, enabled = MetaWhatsappService._config(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
         if not enabled:
             raise MetaWhatsappConfigError("Meta WhatsApp integration is disabled")
         waba_id = str(config.get("waba_id") or "").strip()

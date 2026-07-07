@@ -1417,11 +1417,17 @@ def _prefetch_remote_templates_for_push(
     *,
     remote_items: list[dict[str, Any]] | None = None,
     template_id: str | None = None,
+    connection_profile_id: str | None = None,
+    service_code: str | None = "survey",
 ) -> list[dict[str, Any]]:
     if remote_items is not None:
         return remote_items
     try:
-        return TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+        return TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
     except Exception as exc:
         logger.warning(
             "survey_wa_template_prefetch_remote_failed",
@@ -1490,6 +1496,8 @@ def _push_row_to_meta(
     lang_code: str,
     branch: str,
     prefetched: list[dict[str, Any]] | None,
+    connection_profile_id: str | None = None,
+    service_code: str | None = "survey",
 ) -> dict[str, Any]:
     from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
 
@@ -1528,6 +1536,8 @@ def _push_row_to_meta(
                 components=components,
                 category=category,
                 template_name=template_name,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
         else:
             item = MetaWhatsappTemplateService.push_template_payload(
@@ -1536,6 +1546,8 @@ def _push_row_to_meta(
                 language=lang_code,
                 category=category,
                 components=components,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
     except MetaWhatsappTemplateError as exc:
         detail = str(exc)
@@ -2326,7 +2338,29 @@ class SurveyWhatsappTemplateService:
         return row
 
     @staticmethod
-    def _telnyx_config(db: Session) -> dict[str, Any]:
+    def _telnyx_config(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        if connection_profile_id:
+            from app.services.connection.config_resolver import (
+                WhatsappSyncRouteError,
+                resolve_whatsapp_route_by_profile_id,
+            )
+
+            try:
+                route = resolve_whatsapp_route_by_profile_id(
+                    db, connection_profile_id, service_code=service_code or "survey"
+                )
+            except WhatsappSyncRouteError as exc:
+                raise SurveyWhatsappTemplateError(str(exc)) from exc
+            if not route.is_telnyx:
+                raise SurveyWhatsappTemplateError(
+                    f"Connection profile uses {route.provider}, not Telnyx."
+                )
+            return route.config
         try:
             return _telnyx_config(db)
         except TelnyxConfigError as e:
@@ -2445,6 +2479,8 @@ class SurveyWhatsappTemplateService:
         force_approved_update: bool = True,
         allow_clone: bool = False,
         allow_recovery: bool = True,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         raw_components = _draft_components_for_push(row)
         if not raw_components:
@@ -2470,6 +2506,8 @@ class SurveyWhatsappTemplateService:
             db,
             remote_items=remote_items,
             template_id=str(row.id or ""),
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
         )
         branch, branch_error, linked = _try_link_remote_and_resolve_branch(
             db,
@@ -2580,7 +2618,11 @@ class SurveyWhatsappTemplateService:
 
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db, service_code="survey"):
+        if is_meta_whatsapp_primary(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        ):
             return _push_row_to_meta(
                 db,
                 row,
@@ -2589,9 +2631,15 @@ class SurveyWhatsappTemplateService:
                 lang_code=lang_code,
                 branch=branch,
                 prefetched=prefetched,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
 
-        config = SurveyWhatsappTemplateService._telnyx_config(db)
+        config = SurveyWhatsappTemplateService._telnyx_config(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
@@ -2820,6 +2868,8 @@ class SurveyWhatsappTemplateService:
         remote_items: list[dict[str, Any]] | None = None,
         offset: int = 0,
         limit: int | None = None,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
     ) -> dict[str, Any]:
         from app.services.wa_template_push_batch_service import run_batched_push
 
@@ -2827,7 +2877,12 @@ class SurveyWhatsappTemplateService:
         if survey_type is None:
             raise SurveyWhatsappTemplateError("Survey type not found")
 
-        prefetched = _prefetch_remote_templates_for_push(db, remote_items=remote_items)
+        prefetched = _prefetch_remote_templates_for_push(
+            db,
+            remote_items=remote_items,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
 
         work: list[TelnyxWhatsappTemplate] = []
         skipped = 0
@@ -2850,7 +2905,13 @@ class SurveyWhatsappTemplateService:
             work.append(row)
 
         def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
-            return SurveyWhatsappTemplateService.push_to_telnyx(db, row, remote_items=prefetched)
+            return SurveyWhatsappTemplateService.push_to_telnyx(
+                db,
+                row,
+                remote_items=prefetched,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
 
         batch = run_batched_push(
             work,

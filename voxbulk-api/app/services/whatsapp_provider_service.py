@@ -11,9 +11,20 @@ from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_con
 from app.services.provider_settings import ProviderSettingsService
 
 
-def is_meta_whatsapp_primary(db: Session, *, org_id: str | None = None, service_code: str | None = None) -> bool:
+def is_meta_whatsapp_primary(
+    db: Session,
+    *,
+    org_id: str | None = None,
+    service_code: str | None = None,
+    connection_profile_id: str | None = None,
+) -> bool:
     """True when the resolved WhatsApp route uses Meta Cloud API."""
-    return whatsapp_provider_is_meta(db, org_id=org_id, service_code=service_code)
+    return whatsapp_provider_is_meta(
+        db,
+        org_id=org_id,
+        service_code=service_code,
+        connection_profile_id=connection_profile_id,
+    )
 
 
 def meta_whatsapp_config(db: Session) -> tuple[dict[str, Any], bool]:

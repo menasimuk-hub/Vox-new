@@ -248,7 +248,7 @@ function Stat({ label, value }) {
  * Design EditSheet wired to real template APIs.
  * editTarget: { product: 'survey'|'interview'|'appointment'|'feedback', templateId, surveyTypeId?, systemMode? }
  */
-export default function WaEditSheet({ editTarget, onClose, onSaved }) {
+export default function WaEditSheet({ editTarget, onClose, onSaved, syncProfile = null, onRequestSyncConfirm }) {
   const open = Boolean(editTarget?.templateId)
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -471,9 +471,20 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
 
   const sync = async () => {
     if (!editTarget) return
+    try {
+      await onRequestSyncConfirm?.({
+        title: 'Sync template',
+        action: 'Push',
+        detail: 'Submit the local draft to Meta for approval.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     setSyncing(true)
     setError('')
     try {
+      const profileBody = syncProfile?.id ? { connection_profile_id: syncProfile.id } : {}
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
       const ids =
         langVariants.length > 1
@@ -483,7 +494,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
         for (const id of ids) {
           await apiFetch(`/admin/wa-survey/templates/${id}/push`, {
             method: 'POST',
-            body: JSON.stringify({ force_push: false }),
+            body: JSON.stringify({ force_push: false, ...profileBody }),
             timeoutMs: 180000,
           })
         }
@@ -514,14 +525,26 @@ export default function WaEditSheet({ editTarget, onClose, onSaved }) {
 
   const fixAndSync = async () => {
     if (!editTarget) return
+    try {
+      await onRequestSyncConfirm?.({
+        title: 'Fix & sync',
+        action: 'Push',
+        detail: 'Repair draft, then push or link to Meta.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     const templateId = activeTemplateId || editTarget.templateId
     setFixSyncing(true)
     setError('')
+    const profileBody = syncProfile?.id ? { connection_profile_id: syncProfile.id } : {}
     const payload = {
       fix_and_sync: true,
       repair: true,
       utility_rewrite: false,
       force_push: true,
+      ...profileBody,
     }
     const pushPath = `/admin/wa-survey/templates/${templateId}/push`
     const fixPath = `/admin/wa-survey/templates/${templateId}/fix-and-sync`

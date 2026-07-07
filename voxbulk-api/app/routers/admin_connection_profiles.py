@@ -31,6 +31,21 @@ def list_connection_profiles(
     }
 
 
+@router.get("/whatsapp-sync-options")
+def whatsapp_sync_profile_options(
+    service_code: str = Query(default="survey"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_template_sync_profile import list_whatsapp_sync_options
+
+    items = list_whatsapp_sync_options(db, service_code=service_code)
+    default_id = next((item["id"] for item in items if item.get("is_default")), None)
+    if default_id is None and items:
+        default_id = items[0]["id"]
+    return {"ok": True, "items": items, "default_profile_id": default_id}
+
+
 @router.get("/{profile_id}")
 def get_connection_profile(
     profile_id: str,

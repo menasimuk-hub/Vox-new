@@ -21,7 +21,17 @@ import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
 import WaEditSheet from '../components/wa-templates/WaEditSheet'
 import WaRejectedDialog from '../components/wa-templates/WaRejectedDialog'
 import WaJobProgressDialog from '../components/wa-templates/WaJobProgressDialog'
+import WaSyncProfileSelect from '../components/wa-templates/WaSyncProfileSelect'
+import WaSyncConfirmDialog from '../components/wa-templates/WaSyncConfirmDialog'
 import { summarizeCatalog, toHubRow } from '../components/wa-templates/waTemplatesUi'
+import {
+  fetchWaSyncProfileOptions,
+  getStoredSyncProfileId,
+  resolveSelectedSyncProfile,
+  setStoredSyncProfileId,
+  syncProfilePayload,
+  syncProfileActionLabel,
+} from '../lib/waSyncProfile'
 import '../styles/wa-templates-hub.css'
 
 const EMPTY_JOB = {
@@ -157,6 +167,46 @@ export default function WaTemplatesHub() {
   const [editTarget, setEditTarget] = useState(null)
   const [syncingId, setSyncingId] = useState(null)
   const [rejectRow, setRejectRow] = useState(null)
+  const [syncProfileItems, setSyncProfileItems] = useState([])
+  const [syncProfileId, setSyncProfileIdState] = useState(() => getStoredSyncProfileId())
+  const [syncProfilesLoading, setSyncProfilesLoading] = useState(true)
+  const [syncConfirm, setSyncConfirm] = useState(null)
+
+  const syncProfile = useMemo(
+    () => resolveSelectedSyncProfile(syncProfileItems, syncProfileId, null),
+    [syncProfileItems, syncProfileId],
+  )
+
+  const setSyncProfileId = useCallback((id) => {
+    setSyncProfileIdState(id)
+    setStoredSyncProfileId(id)
+  }, [])
+
+  const syncBodyExtra = useCallback(() => syncProfilePayload(syncProfile), [syncProfile])
+
+  const requestSyncConfirm = useCallback(
+    ({ title, action, detail }) =>
+      new Promise((resolve, reject) => {
+        if (!syncProfile?.id) {
+          reject(new Error('Select a WhatsApp connection profile first'))
+          return
+        }
+        setSyncConfirm({
+          title,
+          action,
+          detail,
+          onConfirm: () => {
+            setSyncConfirm(null)
+            resolve(true)
+          },
+          onCancel: () => {
+            setSyncConfirm(null)
+            reject(new Error('cancelled'))
+          },
+        })
+      }),
+    [syncProfile],
+  )
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams)
@@ -332,6 +382,27 @@ export default function WaTemplatesHub() {
   }, [loadTemplateCounts])
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setSyncProfilesLoading(true)
+      try {
+        const { items, defaultId } = await fetchWaSyncProfileOptions(apiFetch, { serviceCode: 'survey' })
+        if (cancelled) return
+        setSyncProfileItems(items)
+        const resolved = resolveSelectedSyncProfile(items, getStoredSyncProfileId(), defaultId)
+        if (resolved?.id) setSyncProfileIdState(resolved.id)
+      } catch {
+        if (!cancelled) setSyncProfileItems([])
+      } finally {
+        if (!cancelled) setSyncProfilesLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     setError('')
     refreshTabData()
   }, [refreshTabData])
@@ -344,13 +415,23 @@ export default function WaTemplatesHub() {
   }
 
   const pullFromMeta = async () => {
+    try {
+      await requestSyncConfirm({
+        title: 'Refresh status from Meta',
+        action: 'Pull',
+        detail: 'Pull approval status and category from Meta (does not push local changes).',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     setRefreshing(true)
     setError('')
     setMsg('')
     try {
       const last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
         method: 'POST',
-        body: JSON.stringify({ status_only: true }),
+        body: JSON.stringify({ status_only: true, ...syncBodyExtra() }),
         timeoutMs: 300000,
         quietNetworkHint: true,
       })
@@ -376,6 +457,16 @@ export default function WaTemplatesHub() {
   }
 
   const syncFromMeta = async () => {
+    try {
+      await requestSyncConfirm({
+        title: 'Sync with Meta',
+        action: 'Sync',
+        detail: 'Pull catalog and status from Meta, then push locally changed templates.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     const stepDefs = [
       { id: 'pull', label: '1. Pull status from Meta' },
       { id: 'push', label: '2. Push changed templates' },
@@ -399,7 +490,7 @@ export default function WaTemplatesHub() {
       patchJobStep('pull', { status: 'running', detail: 'Pulling catalog and status…' })
       last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
         method: 'POST',
-        body: JSON.stringify({ status_only: false }),
+        body: JSON.stringify({ status_only: false, ...syncBodyExtra() }),
         timeoutMs: 300000,
         quietNetworkHint: true,
         signal: controller.signal,
@@ -420,7 +511,13 @@ export default function WaTemplatesHub() {
       for (let batchNum = 1; ; batchNum += 1) {
         last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push', {
           method: 'POST',
-          body: JSON.stringify({ offset, limit: PUSH_BATCH, force_push: false, force_utility_category: false }),
+          body: JSON.stringify({
+            offset,
+            limit: PUSH_BATCH,
+            force_push: false,
+            force_utility_category: false,
+            ...syncBodyExtra(),
+          }),
           timeoutMs: 300000,
           quietNetworkHint: true,
           signal: controller.signal,
@@ -505,13 +602,24 @@ export default function WaTemplatesHub() {
   }
 
   const pushSurveyType = async (row) => {
+    try {
+      await requestSyncConfirm({
+        title: `Sync ${row.name || 'template'}`,
+        action: 'Push',
+        detail: 'Push this template (or topic) to Meta.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
     setError('')
     setSyncingId(row.id)
+    const profileBody = syncBodyExtra()
     try {
       if (row.rowKind === 'survey_template') {
         const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
           method: 'POST',
-          body: JSON.stringify({ force_push: false }),
+          body: JSON.stringify({ force_push: false, ...profileBody }),
           timeoutMs: 180000,
           quietNetworkHint: true,
         })
@@ -547,7 +655,7 @@ export default function WaTemplatesHub() {
           : `/admin/wa-survey/types/${typeId}/templates/push-all`
       const result = await apiFetch(path, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify(profileBody),
         timeoutMs: 300000,
         quietNetworkHint: true,
       })
@@ -978,12 +1086,19 @@ export default function WaTemplatesHub() {
                 </Button>
               </>
             ) : null}
+            <WaSyncProfileSelect
+              items={syncProfileItems}
+              value={syncProfile?.id}
+              onChange={setSyncProfileId}
+              loading={syncProfilesLoading}
+              disabled={syncing || refreshing || cleaning}
+            />
             <Button
               size="sm"
               variant="outline"
               className="h-8 gap-1.5 text-xs"
               onClick={() => void pullFromMeta()}
-              disabled={refreshing || syncing || cleaning}
+              disabled={refreshing || syncing || cleaning || !syncProfile?.id}
               title="Pull approval status and category from Meta (does not push local changes)"
             >
               <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
@@ -993,10 +1108,14 @@ export default function WaTemplatesHub() {
               size="sm"
               className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
               onClick={() => void syncFromMeta()}
-              disabled={syncing || refreshing || cleaning}
+              disabled={syncing || refreshing || cleaning || !syncProfile?.id}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
-              {syncing ? (syncProgress ? `Syncing ${syncProgress}` : 'Syncing…') : 'Sync with Meta'}
+              {syncing
+                ? syncProgress
+                  ? `Syncing ${syncProgress}`
+                  : 'Syncing…'
+                : syncProfileActionLabel(syncProfile, 'Sync')}
             </Button>
           </div>
         </div>
@@ -1050,6 +1169,8 @@ export default function WaTemplatesHub() {
                     onOpenSystemTemplate={setEditTarget}
                     onError={setError}
                     onMessage={setMsg}
+                    syncProfileId={syncProfile?.id}
+                    onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}
 
@@ -1069,6 +1190,8 @@ export default function WaTemplatesHub() {
                     onOpenSystemTemplate={setEditTarget}
                     onError={setError}
                     onMessage={setMsg}
+                    syncProfileId={syncProfile?.id}
+                    onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}
 
@@ -1132,6 +1255,8 @@ export default function WaTemplatesHub() {
       <WaEditSheet
         editTarget={editTarget}
         onClose={() => setEditTarget(null)}
+        syncProfile={syncProfile}
+        onRequestSyncConfirm={requestSyncConfirm}
         onSaved={() => {
           if (editTarget?.product === 'interview') void loadInterview()
           setEditTarget(null)
@@ -1166,6 +1291,16 @@ export default function WaTemplatesHub() {
         progressPct={job.progressPct}
         onStop={stopHubJob}
         onClose={() => setJob(EMPTY_JOB)}
+      />
+
+      <WaSyncConfirmDialog
+        open={Boolean(syncConfirm)}
+        title={syncConfirm?.title}
+        action={syncConfirm?.action}
+        detail={syncConfirm?.detail}
+        profile={syncProfile}
+        onConfirm={syncConfirm?.onConfirm}
+        onCancel={syncConfirm?.onCancel}
       />
     </div>
   )

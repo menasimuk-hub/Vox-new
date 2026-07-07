@@ -215,6 +215,7 @@ def push_all_industry_templates_to_telnyx(
 ):
     body = payload or {}
     try:
+        from app.services.wa_template_sync_profile import connection_profile_id_from_payload
         from app.services.wa_template_sync_service import WaTemplateSyncService
 
         offset = int(body.get("offset") or 0)
@@ -222,6 +223,7 @@ def push_all_industry_templates_to_telnyx(
         phase = str(body.get("phase") or "full").strip().lower()
         force_push = bool(body.get("force_push", False))
         force_utility_category = bool(body.get("force_utility_category", False))
+        profile_id = connection_profile_id_from_payload(body)
         return WaTemplateSyncService.sync_industry(
             db,
             industry_id,
@@ -230,6 +232,7 @@ def push_all_industry_templates_to_telnyx(
             phase=phase,
             force_push=force_push,
             force_utility_category=force_utility_category,
+            connection_profile_id=profile_id,
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
@@ -852,10 +855,13 @@ def push_template_to_telnyx(
     try:
         if body.get("fix_and_sync") or body.get("fixAndSync"):
             return _run_template_fix_and_sync(db, row, body)
+        from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
         result = SurveyWhatsappTemplateService.push_to_telnyx(
             db,
             row,
             force_approved_update=bool(body.get("force_push", False)),
+            connection_profile_id=connection_profile_id_from_payload(body),
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
@@ -933,11 +939,14 @@ def push_all_templates_to_telnyx(
 ):
     body = payload or {}
     try:
+        from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
         return SurveyWhatsappTemplateService.push_all_for_survey_type(
             db,
             type_id,
             offset=int(body.get("offset") or 0),
             limit=body.get("limit"),
+            connection_profile_id=connection_profile_id_from_payload(body),
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)

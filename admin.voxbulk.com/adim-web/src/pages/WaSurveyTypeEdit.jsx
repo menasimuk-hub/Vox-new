@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { syncProfilePayload, getStoredSyncProfileId } from '../lib/waSyncProfile'
 import { formatActionSuccess, formatSyncSummary, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import { buildWaSurveySimulatorUrl } from '../lib/waSurveySimulatorLink'
 import { resolveTelnyxSyncLabel, telnyxSyncPillClass, validateCategoryBeforeSync } from '../lib/waSurveyTelnyxSync'
@@ -209,7 +210,12 @@ export default function WaSurveyTypeEdit() {
     setWorking(`push-${templateId}`)
     clearFeedback()
     try {
-      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, { method: 'POST', body: '{}' })
+      const data = await apiFetch(`/admin/wa-survey/templates/${templateId}/push`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...syncProfilePayload({ id: getStoredSyncProfileId() }),
+        }),
+      })
       showOk({ message: data.sync_message || data.message || `Pushed “${tpl.display_name || tpl.name}” to Meta.` })
       await load()
     } catch (e) {
@@ -229,7 +235,11 @@ export default function WaSurveyTypeEdit() {
       for (;;) {
         const summary = await apiFetch(`/admin/wa-survey/types/${encodeURIComponent(typeId)}/templates/push-all`, {
           method: 'POST',
-          body: JSON.stringify({ offset, limit: PUSH_BATCH }),
+          body: JSON.stringify({
+            offset,
+            limit: PUSH_BATCH,
+            ...syncProfilePayload({ id: getStoredSyncProfileId() }),
+          }),
           timeoutMs: 280000,
           quietNetworkHint: true,
         })

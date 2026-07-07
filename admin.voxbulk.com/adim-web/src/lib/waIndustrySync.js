@@ -159,7 +159,8 @@ export function buildIndustrySyncJobCancelled(acc, { industryName = '' } = {}) {
   }
 }
 
-export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, signal } = {}) {
+export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, signal, connectionProfileId } = {}) {
+  const profileBody = connectionProfileId ? { connection_profile_id: connectionProfileId } : {}
   const acc = {
     content_updated: 0,
     refreshed: 0,
@@ -188,6 +189,7 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, s
         force_push: false,
         force_utility_category: false,
         phase: 'push',
+        ...profileBody,
       }),
       timeoutMs: 300000,
       quietNetworkHint: true,
@@ -213,7 +215,7 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, s
   try {
     const pullSummary = await apiFetch(path, {
       method: 'POST',
-      body: JSON.stringify({ phase: 'pull' }),
+      body: JSON.stringify({ phase: 'pull', ...profileBody }),
       timeoutMs: 300000,
       quietNetworkHint: true,
       signal,

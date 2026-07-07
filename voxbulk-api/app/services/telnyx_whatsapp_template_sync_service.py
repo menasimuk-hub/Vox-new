@@ -263,15 +263,44 @@ def _normalize_meta_template_item(item: dict[str, Any], *, waba_id: str | None =
 
 class TelnyxWhatsappTemplateSyncService:
     @staticmethod
-    def _config(db: Session) -> dict[str, Any]:
+    def _config(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        if connection_profile_id:
+            from app.services.connection.config_resolver import (
+                WhatsappSyncRouteError,
+                resolve_whatsapp_route_by_profile_id,
+            )
+
+            route = resolve_whatsapp_route_by_profile_id(
+                db, connection_profile_id, service_code=service_code or "survey"
+            )
+            if not route.is_telnyx:
+                raise TelnyxWhatsappTemplateSyncError(
+                    f"Profile uses {route.provider}, not Telnyx — cannot fetch Telnyx templates"
+                )
+            return route.config
         try:
             return _telnyx_config(db)
         except TelnyxConfigError as e:
             raise TelnyxWhatsappTemplateSyncError(str(e)) from e
 
     @staticmethod
-    def fetch_from_telnyx(db: Session, *, filter_waba_id: bool = True) -> list[dict[str, Any]]:
-        config = TelnyxWhatsappTemplateSyncService._config(db)
+    def fetch_from_telnyx(
+        db: Session,
+        *,
+        filter_waba_id: bool = True,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[dict[str, Any]]:
+        config = TelnyxWhatsappTemplateSyncService._config(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
@@ -312,19 +341,32 @@ class TelnyxWhatsappTemplateSyncService:
         return rows
 
     @staticmethod
-    def fetch_from_meta(db: Session) -> list[dict[str, Any]]:
+    def fetch_from_meta(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[dict[str, Any]]:
         from app.services.meta_whatsapp_config_service import MetaWhatsappConfigError
         from app.services.meta_whatsapp_service import MetaWhatsappService
 
         try:
-            config, enabled = MetaWhatsappService._config(db)
+            config, enabled = MetaWhatsappService._config(
+                db,
+                service_code=service_code,
+                connection_profile_id=connection_profile_id,
+            )
         except Exception as exc:
             raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
         if not enabled:
             raise TelnyxWhatsappTemplateSyncError("Meta WhatsApp integration is disabled")
         waba_id = str(config.get("waba_id") or "").strip()
         try:
-            remote = MetaWhatsappService.fetch_all_templates(db)
+            remote = MetaWhatsappService.fetch_all_templates(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
         except MetaWhatsappConfigError as exc:
             raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
         except Exception as exc:
@@ -332,12 +374,31 @@ class TelnyxWhatsappTemplateSyncService:
         return [_normalize_meta_template_item(item, waba_id=waba_id or None) for item in remote if isinstance(item, dict)]
 
     @staticmethod
-    def fetch_remote_templates(db: Session, *, filter_waba_id: bool = True) -> list[dict[str, Any]]:
+    def fetch_remote_templates(
+        db: Session,
+        *,
+        filter_waba_id: bool = True,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[dict[str, Any]]:
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db, service_code="survey"):
-            return TelnyxWhatsappTemplateSyncService.fetch_from_meta(db)
-        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db, filter_waba_id=filter_waba_id)
+        if is_meta_whatsapp_primary(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        ):
+            return TelnyxWhatsappTemplateSyncService.fetch_from_meta(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
+        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
+            db,
+            filter_waba_id=filter_waba_id,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
 
     @staticmethod
     def fetch_template_by_record_id(db: Session, record_id: str) -> dict[str, Any]:

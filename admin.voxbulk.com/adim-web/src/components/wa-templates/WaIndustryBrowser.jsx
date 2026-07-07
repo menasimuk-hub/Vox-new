@@ -469,6 +469,8 @@ export default function WaIndustryBrowser({
   onOpenSystemTemplate,
   onError,
   onMessage,
+  syncProfileId = null,
+  onRequestSyncConfirm,
 }) {
   const [industry, setIndustry] = useState(null)
   const [rows, setRows] = useState([])
@@ -614,6 +616,16 @@ export default function WaIndustryBrowser({
 
   const syncIndustry = async ({ batchSize = 5 } = {}) => {
     if (!industry?.id) return
+    try {
+      await onRequestSyncConfirm?.({
+        title: `Sync ${industry.name}`,
+        action: 'Sync',
+        detail: `Push changed templates for ${industry.name}, then refresh approval status from Meta.`,
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') onError?.(e?.message || 'Sync cancelled')
+      return
+    }
 
     syncAbortRef.current?.abort()
     const controller = new AbortController()
@@ -666,6 +678,7 @@ export default function WaIndustryBrowser({
             })
           : await runWaIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
+              connectionProfileId: syncProfileId,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
                 if (partial) syncAccRef.current = partial
                 if (step === 'pull') {
@@ -780,6 +793,8 @@ export default function WaIndustryBrowser({
           product={product}
           embedded
           onOpenTemplate={onOpenSystemTemplate}
+          syncProfileId={syncProfileId}
+          onRequestSyncConfirm={onRequestSyncConfirm}
         />
         <div className="flex flex-wrap items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
           <Button variant="ghost" size="sm" className="-ml-2 h-7 gap-1 text-xs" onClick={() => setIndustry(null)}>
@@ -919,6 +934,8 @@ export default function WaIndustryBrowser({
         product={product}
         embedded
         onOpenTemplate={onOpenSystemTemplate}
+        syncProfileId={syncProfileId}
+        onRequestSyncConfirm={onRequestSyncConfirm}
       />
       <div className="p-3">
         <div className="mb-3 flex items-center justify-between">
