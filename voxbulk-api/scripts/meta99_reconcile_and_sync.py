@@ -253,6 +253,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Meta 99 DB↔Meta reconcile and chunked sync")
     parser.add_argument("--report-only", action="store_true")
     parser.add_argument("--push-only", action="store_true")
+    parser.add_argument("--skip-status-pull", action="store_true", help="Skip Meta status refresh (faster; use for chunked push runs)")
     parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--pause-sec", type=float, default=3.0)
     parser.add_argument("--industry-id", default="", help="Single industry; default = dental + welcome pack")
@@ -288,11 +289,15 @@ def main() -> int:
 
         dedupe = dedupe_welcome_rows(db)
         summary["steps"].append({"dedupe_welcome": dedupe})
-        print("OK welcome dedupe", dedupe)
+        print("OK welcome dedupe", dedupe, flush=True)
 
-        pull = status_only_pull(db)
-        summary["steps"].append({"status_pull": pull})
-        print("OK status-only pull", pull.get("message"))
+        if not args.skip_status_pull:
+            pull = status_only_pull(db)
+            summary["steps"].append({"status_pull": pull})
+            print("OK status-only pull", pull.get("message"), flush=True)
+        else:
+            summary["steps"].append({"status_pull": "skipped"})
+            print("SKIP status-only pull", flush=True)
 
     if args.report_only:
         print(json.dumps(summary, indent=2, default=str))
