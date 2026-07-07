@@ -280,6 +280,11 @@ function TemplateCard({
           <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Pending Meta approval</p>
         ) : null}
         {tpl.description ? <p className="mt-1 text-xs text-muted-foreground">{tpl.description}</p> : null}
+        {tpl.bodyPreview ? (
+          <p className="mt-2 whitespace-pre-line rounded-lg bg-muted/40 px-3 py-2 text-xs text-foreground/80 line-clamp-4">
+            {tpl.bodyPreview.replace(/\{\{1\}\}/g, "Alex").replace(/\{\{2\}\}/g, "your business")}
+          </p>
+        ) : null}
       </div>
       <div className="mt-auto flex items-center gap-2">
         <Button size="sm" variant="outline" className="gap-1.5" type="button" onClick={onPreview}>
