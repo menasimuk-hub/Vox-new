@@ -21,6 +21,10 @@ META99_BUSINESS_ID = "959487190007928"
 META99_PHONE_NUMBER_ID = "1307579342430096"
 META99_WABA_ID = "1033532842963987"
 META99_WHATSAPP_FROM = "+447822002099"
+META99_DEFAULT_INDUSTRY_ID = "104d8bda-95b5-49b7-af3c-901bf051e36e"  # Healthcare & dental
+META99_EXTRA_INDUSTRY_IDS = (
+    "0330a2e3-46fd-4af8-af46-9dfd2069fd5f",  # Welcome Templates
+)
 TEST_TO = "+447954823445"
 
 
@@ -154,34 +158,59 @@ def report_duplicates(db) -> list[dict]:
     return out
 
 
-def chunked_push(db, *, batch_size: int = 5, pause_sec: float = 3.0, industry_id: str | None = None) -> dict:
+def chunked_push(
+    db,
+    *,
+    batch_size: int = 5,
+    pause_sec: float = 3.0,
+    industry_ids: list[str] | None = None,
+    max_batches: int | None = None,
+) -> dict:
     from app.services.wa_template_sync_service import WaTemplateSyncService
 
-    offset = 0
-    rounds: list[dict] = []
-    while True:
-        result = WaTemplateSyncService.push_changed_batch(
-            db,
-            industry_id=industry_id,
-            offset=offset,
-            limit=batch_size,
-            force_push=False,
-        )
-        rounds.append(
-            {
-                "offset": offset,
-                "pushed": result.get("pushed"),
-                "linked": result.get("linked"),
-                "skipped": result.get("skipped"),
-                "errors": result.get("errors"),
-                "message": result.get("message"),
-            }
-        )
-        if not result.get("has_more"):
-            break
-        offset = int(result.get("next_offset") or 0)
-        time.sleep(max(pause_sec, 1.0))
-    return {"rounds": rounds, "batch_size": batch_size}
+    ids = [str(i).strip() for i in (industry_ids or []) if str(i).strip()]
+    if not ids:
+        ids = [META99_DEFAULT_INDUSTRY_ID, *META99_EXTRA_INDUSTRY_IDS]
+
+    all_rounds: list[dict] = []
+    for industry_id in ids:
+        offset = 0
+        batch_num = 0
+        while True:
+            if max_batches is not None and batch_num >= max_batches:
+                all_rounds.append(
+                    {
+                        "industry_id": industry_id,
+                        "offset": offset,
+                        "stopped": "max_batches",
+                        "message": f"Stopped after {max_batches} batches for industry {industry_id}",
+                    }
+                )
+                break
+            result = WaTemplateSyncService.push_changed_batch(
+                db,
+                industry_id=industry_id,
+                offset=offset,
+                limit=batch_size,
+                force_push=False,
+            )
+            all_rounds.append(
+                {
+                    "industry_id": industry_id,
+                    "offset": offset,
+                    "pushed": result.get("pushed"),
+                    "linked": result.get("linked"),
+                    "skipped": result.get("skipped"),
+                    "errors": result.get("errors"),
+                    "message": result.get("message"),
+                }
+            )
+            batch_num += 1
+            if not result.get("has_more"):
+                break
+            offset = int(result.get("next_offset") or 0)
+            time.sleep(max(pause_sec, 1.0))
+    return {"rounds": all_rounds, "batch_size": batch_size, "industry_ids": ids}
 
 
 def status_only_pull(db) -> dict:
@@ -226,7 +255,8 @@ def main() -> int:
     parser.add_argument("--push-only", action="store_true")
     parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--pause-sec", type=float, default=3.0)
-    parser.add_argument("--industry-id", default="")
+    parser.add_argument("--industry-id", default="", help="Single industry; default = dental + welcome pack")
+    parser.add_argument("--max-batches", type=int, default=0, help="Cap batches per industry (0 = no cap)")
     args = parser.parse_args()
 
     from app.core.database import get_sessionmaker
@@ -269,8 +299,15 @@ def main() -> int:
         db.close()
         return 0
 
-    industry_id = str(args.industry_id or "").strip() or None
-    push = chunked_push(db, batch_size=max(1, min(args.batch_size, 10)), pause_sec=args.pause_sec, industry_id=industry_id)
+    industry_ids = [str(args.industry_id).strip()] if str(args.industry_id or "").strip() else None
+    max_batches = int(args.max_batches or 0) or None
+    push = chunked_push(
+        db,
+        batch_size=max(1, min(args.batch_size, 10)),
+        pause_sec=args.pause_sec,
+        industry_ids=industry_ids,
+        max_batches=max_batches,
+    )
     summary["steps"].append({"chunked_push": push})
     print("OK chunked push rounds", len(push.get("rounds") or []))
     for rnd in push.get("rounds") or []:
