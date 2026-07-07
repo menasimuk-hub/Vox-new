@@ -88,9 +88,11 @@ from app.services.survey_wa_open_text_state import (
     is_buttonless_open_text_question,
     mark_survey_started,
     mark_tell_us_more_answered,
+    mark_tell_us_more_fired_for_step,
     mark_tell_us_more_prompt_sent,
     mark_vague_followup_answered,
     mark_vague_followup_prompt_sent,
+    tell_us_more_already_fired_for_step,
 )
 from app.services.survey_wa_vague_negative_followup_service import (
     evaluate_vague_negative_followup,
@@ -218,8 +220,10 @@ def _save_recipient_result(
     recipient.updated_at = datetime.utcnow()
     db.add(recipient)
     db.commit()
-    if enqueue_translation:
-        _enqueue_text_answer_translation(recipient, payload)
+    # Always sweep for untranslated text answers: this is idempotent and cheap
+    # (it only enqueues non-English, not-yet-translated typed answers), so it
+    # covers every save path — mid-survey, tell-us-more, and final feedback.
+    _enqueue_text_answer_translation(recipient, payload)
 
 
 def _enqueue_text_answer_translation(recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
@@ -227,18 +231,25 @@ def _enqueue_text_answer_translation(recipient: ServiceOrderRecipient, payload: 
     answers = conv.get("answers") if isinstance(conv.get("answers"), list) else []
     if not answers:
         return
-    last_index = len(answers) - 1
-    last = answers[last_index] if isinstance(answers[last_index], dict) else None
-    if not last:
-        return
-    if str(last.get("answer_source") or "") == "voice_note":
-        return
-    text = str(last.get("answer") or last.get("answer_text") or "").strip()
-    if not text:
-        return
     from app.services.survey_wa_translation_service import SurveyWaTranslationService
 
-    SurveyWaTranslationService.enqueue_answer_translation(recipient.id, answer_index=last_index)
+    for idx, answer in enumerate(answers):
+        if not isinstance(answer, dict):
+            continue
+        # Voice notes are translated by the voice-note pipeline after transcription.
+        if str(answer.get("answer_source") or "") == "voice_note":
+            continue
+        # Skip answers already translated (or confirmed English).
+        if str(answer.get("translation_status") or "") in {"completed", "not_needed"}:
+            continue
+        if str(answer.get("translated_text") or "").strip():
+            continue
+        text = str(answer.get("answer") or answer.get("answer_text") or "").strip()
+        if not text:
+            continue
+        if not SurveyWaTranslationService.needs_translation(text, answer.get("detected_language")):
+            continue
+        SurveyWaTranslationService.enqueue_answer_translation(recipient.id, answer_index=idx)
 
 
 def _survey_variables(
@@ -3363,7 +3374,8 @@ def handle_inbound_reply(
             elif (
                 should_use_builder_linear_runtime(config)
                 and runtime_tell_us_more_enabled(config)
-                and not conv.get("tell_us_more_asked")
+                and not conv.get("tell_us_more_pending")
+                and not tell_us_more_already_fired_for_step(conv, step)
                 and is_tell_us_more_trigger_question(question)
                 and is_low_answer_for_tell_us_more(
                     answer,
@@ -3385,6 +3397,7 @@ def handle_inbound_reply(
                 payload_source = "builder_tell_us_more_template"
                 conv["tell_us_more_asked"] = True
                 conv["tell_us_more_pending"] = True
+                mark_tell_us_more_fired_for_step(conv, step)
                 mark_tell_us_more_prompt_sent(conv)
                 log_wa_test_mode(
                     "branch_taken",
@@ -3422,6 +3435,7 @@ def handle_inbound_reply(
         if payload_source == "builder_tell_us_more_template":
             conv["tell_us_more_asked"] = True
             conv["tell_us_more_pending"] = True
+            mark_tell_us_more_fired_for_step(conv, step)
             if not conv.get("tell_us_more_sent_at"):
                 mark_tell_us_more_prompt_sent(conv)
         log_builder_step_resolution(

@@ -14,6 +14,7 @@ from app.services.survey_wa_flow_constants import (
     KEY_SURVEY_STARTED_AT,
     KEY_TUM_DEADLINE,
     KEY_TUM_ELIGIBLE_FOLLOWUP,
+    KEY_TUM_FIRED_STEPS,
     KEY_TUM_FOLLOWUP_HANDLED,
     KEY_TUM_OUTCOME,
     KEY_TUM_PENDING,
@@ -51,6 +52,33 @@ def mark_tell_us_more_answered(conv: dict[str, Any]) -> None:
     conv[KEY_TUM_ELIGIBLE_FOLLOWUP] = False
     conv.pop(KEY_TUM_PENDING, None)
     conv.pop(KEY_TUM_DEADLINE, None)
+
+
+def _fired_step_set(conv: dict[str, Any]) -> set[int]:
+    fired = conv.get(KEY_TUM_FIRED_STEPS)
+    out: set[int] = set()
+    if isinstance(fired, list):
+        for raw in fired:
+            try:
+                out.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def tell_us_more_already_fired_for_step(conv: dict[str, Any], step: int) -> bool:
+    """True if a tell-us-more prompt was already sent for this rating step.
+
+    Replaces the old session-wide one-shot gate so a fresh tell-us-more can
+    fire after every low-rated question (but never twice for the same step).
+    """
+    return int(step or 0) in _fired_step_set(conv)
+
+
+def mark_tell_us_more_fired_for_step(conv: dict[str, Any], step: int) -> None:
+    fired = _fired_step_set(conv)
+    fired.add(int(step or 0))
+    conv[KEY_TUM_FIRED_STEPS] = sorted(fired)
 
 
 def mark_tell_us_more_timeout(conv: dict[str, Any]) -> None:

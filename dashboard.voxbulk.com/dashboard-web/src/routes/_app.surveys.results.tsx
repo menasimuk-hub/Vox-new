@@ -73,6 +73,8 @@ type WaAnswer = {
   transcription_status?: string;
   original_text?: string | null;
   translated_text?: string | null;
+  step_role?: string | null;
+  reply_type?: string | null;
 };
 type ExtractedAnswer = {
   question?: string;
@@ -1067,7 +1069,6 @@ function RespondentDetailSheet({
   const open = Boolean(respondent);
   const waAnswers = respondent?.wa_answers || [];
   const extracted = respondent?.extracted_answers || [];
-  const openFeedback = respondent?.open_feedback || [];
 
   const unhappyReason =
     waAnswers.find((row) => {
@@ -1123,12 +1124,24 @@ function RespondentDetailSheet({
                 ? waAnswers.map((row, i) => {
                     const english = String(row.translated_text || row.answer_text || row.answer || "—");
                     const original = String(row.original_text || "").trim();
+                    const role = String(row.step_role || "").toLowerCase();
+                    const replyType = String(row.reply_type || "").toLowerCase();
+                    const isOpenText =
+                      row.answer_source === "voice_note" ||
+                      ["reason", "final_feedback_text", "followup", "tell_us_more"].includes(role) ||
+                      ["long_text", "text"].includes(replyType);
                     const tone = toneForAnswer(english);
                     return (
                       <Card key={`wa-${i}`}>
                         <CardContent className="space-y-2 p-4">
                           <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                          <Badge className={cn(toneToColor(tone))}>{english}</Badge>
+                          {isOpenText ? (
+                            <blockquote className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-muted-foreground">
+                              {english}
+                            </blockquote>
+                          ) : (
+                            <Badge className={cn(toneToColor(tone))}>{english}</Badge>
+                          )}
                           {original && original !== english ? (
                             <p className="text-xs text-muted-foreground">Original: {original}</p>
                           ) : null}
@@ -1136,21 +1149,6 @@ function RespondentDetailSheet({
                       </Card>
                     );
                   })
-                : null}
-              {openFeedback.length > 0
-                ? openFeedback.map((row, i) => (
-                    <Card key={`open-${i}`}>
-                      <CardContent className="space-y-2 p-4">
-                        <p className="text-xs font-medium text-muted-foreground">{row.question}</p>
-                        <blockquote className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-muted-foreground">
-                          {row.translated_text || row.transcript || row.text || "—"}
-                        </blockquote>
-                        {row.original_text && row.translated_text && row.original_text !== row.translated_text ? (
-                          <p className="text-xs text-muted-foreground">Original: {row.original_text}</p>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  ))
                 : null}
             </div>
           </>

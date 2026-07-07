@@ -45,6 +45,7 @@ CLOSING_OUTCOME_DECLINED = "declined"
 # wa_conversation keys — tell_us_more (low rating)
 KEY_TUM_PENDING = "tell_us_more_pending"
 KEY_TUM_ASKED = "tell_us_more_asked"
+KEY_TUM_FIRED_STEPS = "tell_us_more_fired_steps"
 KEY_TUM_SENT_AT = "tell_us_more_sent_at"
 KEY_TUM_DEADLINE = "tell_us_more_deadline"
 KEY_TUM_OUTCOME = "tell_us_more_outcome"

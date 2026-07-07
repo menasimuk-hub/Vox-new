@@ -340,6 +340,7 @@ def persist_final_feedback_yes_no(
             "question": question,
             "answer": choice,
             "reply_type": "true_false",
+            "answer_index": len(answers),
         }
     )
     conv["answers"] = answers
@@ -370,6 +371,7 @@ def persist_final_feedback_text(
         "answer": cleaned,
         "answer_text": cleaned,
         "reply_type": "long_text",
+        "answer_index": len(answers),
     }
     if isinstance(voice_answer, dict):
         entry = merge_voice_metadata(entry, voice_answer)

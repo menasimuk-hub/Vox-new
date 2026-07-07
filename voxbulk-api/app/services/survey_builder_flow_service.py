@@ -757,7 +757,11 @@ def resolve_next_conversation_step(
 
     payload_source = "builder_step_sequence"
     tell_tid = config.get("tell_us_more_template_id")
-    tell_already = bool(conv.get("tell_us_more_asked"))
+    from app.services.survey_wa_open_text_state import tell_us_more_already_fired_for_step
+
+    tell_already = bool(conv.get("tell_us_more_pending")) or tell_us_more_already_fired_for_step(
+        conv, current_step
+    )
     role = normalize_step_role(str(current_q.get("step_role") or ""))
     last_answer = str(answers[-1].get("answer") or "") if answers else ""
 
