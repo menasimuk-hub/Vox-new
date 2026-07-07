@@ -355,7 +355,12 @@ class IndustryService:
             ).scalar_one()
             or 0
         )
-        visible_industries = [row for row in rows if not bool(getattr(row, "is_hidden", False))]
+        visible_industries = [
+            row
+            for row in rows
+            if not bool(getattr(row, "is_hidden", False))
+            and str(row.slug or "").strip().lower() not in LEGACY_DELETABLE_INDUSTRY_SLUGS
+        ]
 
         if fast:
             return {
