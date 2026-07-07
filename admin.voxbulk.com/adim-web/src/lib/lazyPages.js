@@ -94,3 +94,4 @@ export const CampaignTemplates = lazy(() => import('../pages/campaigns/CampaignT
 export const PlatformKpis = lazy(() => import('../pages/analytics/PlatformKpis'))
 export const CostRevenue = lazy(() => import('../pages/analytics/CostRevenue'))
 export const ConnectionProfiles = lazy(() => import('../pages/ConnectionProfiles'))
+export const CustomOrg = lazy(() => import('../pages/CustomOrg'))

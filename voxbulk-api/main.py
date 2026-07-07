@@ -27,6 +27,7 @@ from app.routers.admin_email import router as admin_email_router
 from app.routers.admin_email_legal import router as admin_email_legal_router
 from app.routers.admin_messaging import router as admin_messaging_router
 from app.routers.admin_connection_profiles import router as admin_connection_profiles_router
+from app.routers.admin_custom_org import router as admin_custom_org_router
 from app.routers.admin_wa_survey import router as admin_wa_survey_router
 from app.routers.admin_wa_interview import router as admin_wa_interview_router
 from app.routers.admin_wa_appointment import router as admin_wa_appointment_router
@@ -575,6 +576,7 @@ app.include_router(admin_email_router)
 app.include_router(admin_email_legal_router)
 app.include_router(admin_messaging_router)
 app.include_router(admin_connection_profiles_router)
+app.include_router(admin_custom_org_router)
 app.include_router(admin_wa_survey_router)
 app.include_router(admin_wa_interview_router)
 app.include_router(admin_wa_appointment_router)

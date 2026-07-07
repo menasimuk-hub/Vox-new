@@ -60,6 +60,7 @@ export default function App() {
         <Route path='/campaigns' element={<P.CampaignsHub />} />
         <Route path='/campaigns/templates' element={<P.CampaignTemplates />} />
 
+        <Route path='/operations/custom-org' element={<P.CustomOrg />} />
         <Route path='/operations/running-surveys' element={<P.RunningSurveys />} />
         <Route path='/operations/wa-survey-insights' element={<P.WaSurveyInsights />} />
         <Route path='/operations/running-interviews' element={<P.RunningInterviews />} />

@@ -226,6 +226,8 @@ const NAV = [
 
     [
 
+      ['Custom Org', '/operations/custom-org'],
+
       ['Failed jobs', '/operations/failed-jobs'],
 
       ['Manual retry', '/operations/manual-retry'],
