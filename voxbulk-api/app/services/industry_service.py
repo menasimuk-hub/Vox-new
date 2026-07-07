@@ -33,6 +33,17 @@ _SLUG_RE = re.compile(r"^[a-z0-9_]{2,64}$")
 
 SYSTEM_SURVEY_INDUSTRY_SLUG = "system-survey-templates"
 
+# Legacy / duplicate industry slugs safe to hard-delete (not the canonical system industry).
+LEGACY_DELETABLE_INDUSTRY_SLUGS: frozenset[str] = frozenset(
+    {
+        "general",
+        "saas",
+        "services",
+        "welcome_templates",
+        "system_survey_templates",
+    }
+)
+
 
 def _normalize_slug(raw: str) -> str:
     token = re.sub(r"[^a-z0-9_]+", "_", str(raw or "").strip().lower()).strip("_")
@@ -358,7 +369,7 @@ class IndustryService:
                 },
                 "industries": [
                     industry_to_dict(row, survey_type_count=type_counts.get(row.id, 0))
-                    for row in rows
+                    for row in visible_industries
                 ],
             }
 
@@ -377,7 +388,7 @@ class IndustryService:
         )
 
         industries: list[dict[str, Any]] = []
-        for row in rows:
+        for row in visible_industries:
             template_ids = _template_ids_for_industry(
                 db,
                 row.id,
@@ -520,8 +531,12 @@ class IndustryService:
         return row
 
     @staticmethod
+    def _is_protected_system_industry(row: Industry) -> bool:
+        return str(row.slug or "").strip().lower() == SYSTEM_SURVEY_INDUSTRY_SLUG
+
+    @staticmethod
     def set_active(db: Session, row: Industry, *, is_active: bool) -> Industry:
-        if bool(getattr(row, "is_hidden", False)) and not is_active:
+        if IndustryService._is_protected_system_industry(row) and not is_active:
             raise ValueError("The system survey-templates industry cannot be disabled.")
         row.is_active = bool(is_active)
         row.updated_at = datetime.utcnow()
@@ -543,7 +558,7 @@ class IndustryService:
             TelnyxWhatsappTemplateSyncService,
         )
 
-        if bool(getattr(row, "is_hidden", False)):
+        if IndustryService._is_protected_system_industry(row):
             raise ValueError("The system survey-templates industry cannot be deleted.")
 
         industry_id = row.id
