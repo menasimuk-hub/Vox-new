@@ -46,16 +46,23 @@ from app.services.wa_template_utility_lint import clamp_utility_button_labels, l
 from seed_data.wa_survey_abc_catalog import WA_SURVEY_ABC_CATALOG
 from seed_data.wa_survey_button_diversify import diversify_question_options
 
-# Reuse employee helpers
-from scripts.fix_employee_survey_local_db import (  # noqa: E402
-    _EXTRA_TOPIC_BUTTONS,
-    _best_first_button_labels,
-    _button_label_strings,
-    _find_template_for_type,
-    _full_update_from_md,
-    _is_marketing_row,
-    _update_buttons_only,
+import importlib.util
+
+_emp_spec = importlib.util.spec_from_file_location(
+    "fix_employee_survey_local_db",
+    ROOT / "scripts" / "fix_employee_survey_local_db.py",
 )
+_emp = importlib.util.module_from_spec(_emp_spec)
+assert _emp_spec.loader is not None
+_emp_spec.loader.exec_module(_emp)
+
+_EXTRA_TOPIC_BUTTONS = _emp._EXTRA_TOPIC_BUTTONS
+_best_first_button_labels = _emp._best_first_button_labels
+_button_label_strings = _emp._button_label_strings
+_find_template_for_type = _emp._find_template_for_type
+_full_update_from_md = _emp._full_update_from_md
+_is_marketing_row = _emp._is_marketing_row
+_update_buttons_only = _emp._update_buttons_only
 
 EMPLOYEE_MD = ROOT / "seed-data" / "wa-survey" / "employee-experience.md"
 REPORT_DIR = ROOT / "seed-data" / "wa-survey" / "migration-reports"
