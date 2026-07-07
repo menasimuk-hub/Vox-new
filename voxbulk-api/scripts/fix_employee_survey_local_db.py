@@ -47,12 +47,37 @@ REPORT_DIR = ROOT / "seed-data" / "wa-survey" / "migration-reports"
 INDUSTRY_SLUG = "employee_survey"
 
 _EXTRA_TOPIC_BUTTONS: dict[str, list[str]] = {
-    "facility access comfort": ["Difficult", "Comfortable", "Very easy"],
-    "hand-off wait time": ["Too long", "Acceptable", "Very short"],
-    "information clarity": ["Unclear", "Clear", "Very clear"],
-    "issue resolution rating": ["Unsatisfied", "Satisfied", "Very satisfied"],
-    "overall experience today": ["Below expectations", "Met expectations", "Exceeded"],
+    "facility access comfort": ["Very easy", "Comfortable", "Difficult"],
+    "hand-off wait time": ["Very short", "Acceptable", "Too long"],
+    "information clarity": ["Very clear", "Clear", "Unclear"],
+    "issue resolution rating": ["Very satisfied", "Satisfied", "Unsatisfied"],
+    "overall experience today": ["Exceeded", "Met expectations", "Below expectations"],
 }
+
+
+def _best_first_button_labels(options: list[str]) -> list[str]:
+    """Best/highest rating first, worst/lowest last (WhatsApp shows button 1 at top)."""
+    from app.services.survey_wa_flow_constants import LOW_RATING_LABELS, order_scale_labels
+
+    labels = [str(o).strip() for o in options if str(o).strip()][:3]
+    if len(labels) < 2:
+        return labels
+    ordered = order_scale_labels(labels, step_role="rating")
+    if ordered != labels:
+        return ordered
+    first = labels[0].lower()
+    last = labels[-1].lower()
+    low_first = (
+        first in LOW_RATING_LABELS
+        or first.startswith(("not ", "no", "rare", "poor", "dissat", "un", "below", "too long"))
+        or "difficult" in first
+        or "unclear" in first
+        or "overwhelm" in first
+    )
+    high_last = last not in LOW_RATING_LABELS and not last.startswith(("not ", "no "))
+    if low_first and high_last:
+        return list(reversed(labels))
+    return labels
 
 
 def _find_template_for_type(
@@ -99,7 +124,7 @@ def _update_buttons_only(row: TelnyxWhatsappTemplate, options: list[str]) -> boo
     comps = _loads(row.draft_components_json) or _loads(row.components_json) or []
     if not isinstance(comps, list) or not comps:
         return False
-    labels = clamp_utility_button_labels([str(o).strip() for o in options if str(o).strip()][:3])
+    labels = clamp_utility_button_labels(_best_first_button_labels(options))
     if len(labels) < 2:
         return False
     changed = False
@@ -123,16 +148,16 @@ def _update_buttons_only(row: TelnyxWhatsappTemplate, options: list[str]) -> boo
             new_comps.append(comp)
     if not changed:
         return False
-    normalized = _normalize_draft_components(new_comps)
+    normalized = _normalize_draft_components(new_comps, step_role="rating")
     row.draft_components_json = _dumps(normalized)
     row.body_preview = _body_preview(normalized)
     return True
 
 
 def _full_update_from_md(row: TelnyxWhatsappTemplate, question: MdSurveyQuestion) -> None:
-    options = clamp_utility_button_labels(question.options)
+    options = clamp_utility_button_labels(_best_first_button_labels(question.options))
     components = _build_abc_choice_components(body=question.body, options=options)
-    normalized = _normalize_draft_components(components)
+    normalized = _normalize_draft_components(components, step_role="rating")
     row.draft_components_json = _dumps(normalized)
     row.body_preview = _body_preview(normalized)
     row.customer_description = question.wizard_description or question.body
@@ -231,38 +256,40 @@ def main() -> int:
                 )
             elif q is not None:
                 old_btns = _button_label_strings(row)
+                target_btns = clamp_utility_button_labels(_best_first_button_labels(q.options))
                 body_text = (_body_from_components(_effective_components(row)) or "").lower()
                 needs_body = "recent visit" in body_text or "following your visit" in body_text
                 if args.apply:
                     if needs_body:
                         _full_update_from_md(row, q)
-                    elif old_btns != q.options:
+                    elif old_btns != target_btns:
                         _update_buttons_only(row, q.options)
                     row.category = "UTILITY"
                     row.local_sync_status = SYNC_LOCAL_CHANGES
                     row.step_role = row.step_role or "abc_choice"
                     db.add(row)
-                if old_btns != q.options or needs_body:
+                if old_btns != target_btns or needs_body:
                     report["button_fixes"].append(
                         {
                             **entry_base,
                             "old_buttons": old_btns,
-                            "new_buttons": q.options,
+                            "new_buttons": target_btns,
                             "body_rewritten": needs_body,
                         }
                     )
             elif extra_buttons is not None:
                 old_btns = _button_label_strings(row)
+                target_btns = clamp_utility_button_labels(_best_first_button_labels(extra_buttons))
                 if args.apply:
-                    if old_btns != extra_buttons:
+                    if old_btns != target_btns:
                         _update_buttons_only(row, extra_buttons)
                     row.category = "UTILITY"
                     row.local_sync_status = SYNC_LOCAL_CHANGES
                     row.step_role = row.step_role or "abc_choice"
                     db.add(row)
-                if old_btns != extra_buttons:
+                if old_btns != target_btns:
                     report["button_fixes"].append(
-                        {**entry_base, "old_buttons": old_btns, "new_buttons": extra_buttons}
+                        {**entry_base, "old_buttons": old_btns, "new_buttons": target_btns}
                     )
             else:
                 if args.apply:

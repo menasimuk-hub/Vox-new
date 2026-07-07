@@ -1,0 +1,377 @@
+[
+  {
+    "id": 1208,
+    "template_name": "was_employee_career_progression_001_en",
+    "topic": "Career progression",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📈 How satisfied are you with the information provided about opportunities to grow and progress at work?",
+    "buttons": [
+      "Yes",
+      "Neutral",
+      "No"
+    ],
+    "file_slug": "career_progression"
+  },
+  {
+    "id": 1714,
+    "template_name": "was_employee_facility_access_comfort_001_en",
+    "topic": "Facility access comfort",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🏢 How comfortable was facility access at work?",
+    "buttons": [
+      "Very easy",
+      "Comfortable",
+      "Difficult"
+    ],
+    "file_slug": "facility_access_comfort"
+  },
+  {
+    "id": 1206,
+    "template_name": "was_employee_feeling_valued_001_en",
+    "topic": "Feeling valued",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "💙 Do you feel that your contributions are genuinely appreciated here?",
+    "buttons": [
+      "Yes, absolutely",
+      "Somewhat",
+      "No"
+    ],
+    "file_slug": "feeling_valued"
+  },
+  {
+    "id": 1205,
+    "template_name": "was_employee_goal_clarity_001_en",
+    "topic": "Goal clarity",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🎯 Do you clearly understand your most important work goals right now?",
+    "buttons": [
+      "Yes, clearly",
+      "Partially",
+      "No"
+    ],
+    "file_slug": "goal_clarity"
+  },
+  {
+    "id": 1839,
+    "template_name": "was_employee_hand_off_wait_time_001_en",
+    "topic": "Hand-off wait time",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "⏱️ How would you rate the hand-off wait time at work?",
+    "buttons": [
+      "Very short",
+      "Acceptable",
+      "Too long"
+    ],
+    "file_slug": "hand_off_wait_time"
+  },
+  {
+    "id": 1203,
+    "template_name": "was_employee_inclusion_belonging_001_en",
+    "topic": "Inclusion & belonging",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🌈 At work, do you feel safe, welcome, and able to be your authentic self?",
+    "buttons": [
+      "Yes, fully",
+      "Sometimes",
+      "No"
+    ],
+    "file_slug": "inclusion_belonging"
+  },
+  {
+    "id": 1707,
+    "template_name": "was_employee_information_clarity_001_en",
+    "topic": "Information clarity",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📋 How clear was the information you received at work?",
+    "buttons": [
+      "Very clear",
+      "Clear",
+      "Unclear"
+    ],
+    "file_slug": "information_clarity"
+  },
+  {
+    "id": 1201,
+    "template_name": "was_employee_internal_communication_001_en",
+    "topic": "Internal communication",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📢 How would you rate the clarity of company news and important updates shared with you at work?",
+    "buttons": [
+      "Excellent",
+      "Good",
+      "Poor"
+    ],
+    "file_slug": "internal_communication"
+  },
+  {
+    "id": 1758,
+    "template_name": "was_employee_issue_resolution_rating_001_en",
+    "topic": "Issue resolution rating",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🛠️ How would you rate the resolution of your recent issue at work?",
+    "buttons": [
+      "Very satisfied",
+      "Satisfied",
+      "Unsatisfied"
+    ],
+    "file_slug": "issue_resolution_rating"
+  },
+  {
+    "id": 1199,
+    "template_name": "was_employee_job_satisfaction_001_en",
+    "topic": "Job satisfaction",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "😊 How satisfied are you with your current role and day-to-day experience at work?",
+    "buttons": [
+      "Satisfied",
+      "Neutral",
+      "Dissatisfied"
+    ],
+    "file_slug": "job_satisfaction"
+  },
+  {
+    "id": 1198,
+    "template_name": "was_employee_manager_communication_001_en",
+    "topic": "Manager communication",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🗣️ At work, does your manager share information, feedback, and expectations clearly?",
+    "buttons": [
+      "Consistently",
+      "Sometimes",
+      "Rarely"
+    ],
+    "file_slug": "manager_communication"
+  },
+  {
+    "id": 1197,
+    "template_name": "was_employee_manager_fairness_001_en",
+    "topic": "Manager fairness",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "⚖️ At work, do you feel your manager treats all team members fairly and without favouritism?",
+    "buttons": [
+      "Yes, always",
+      "Sometimes",
+      "No"
+    ],
+    "file_slug": "manager_fairness"
+  },
+  {
+    "id": 1196,
+    "template_name": "was_employee_morale_001_en",
+    "topic": "Morale",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🙂 How would you rate morale at work at the moment?",
+    "buttons": [
+      "High",
+      "Moderate",
+      "Low"
+    ],
+    "file_slug": "morale"
+  },
+  {
+    "id": 1195,
+    "template_name": "was_employee_motivation_001_en",
+    "topic": "Motivation",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🔥 How energized and driven do you feel to perform well in your role?",
+    "buttons": [
+      "Highly motivated",
+      "Moderately motivated",
+      "Not motivated"
+    ],
+    "file_slug": "motivation"
+  },
+  {
+    "id": 1194,
+    "template_name": "was_employee_overall_employee_experience_001_en",
+    "topic": "Overall employee experience",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "💼 Overall, how would you rate your experience at work?",
+    "buttons": [
+      "Excellent",
+      "Good",
+      "Poor"
+    ],
+    "file_slug": "overall_employee_experience"
+  },
+  {
+    "id": 1813,
+    "template_name": "was_employee_overall_experience_today_001_en",
+    "topic": "Overall experience today",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📋 How was your overall experience at work today?",
+    "buttons": [
+      "Exceeded",
+      "Met expectations",
+      "Below expectations"
+    ],
+    "file_slug": "overall_experience_today"
+  },
+  {
+    "id": 1192,
+    "template_name": "was_employee_pay_benefits_fairness_001_en",
+    "topic": "Pay & benefits fairness",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "💰 Do you feel your pay and benefits are fair for your role and effort at work?",
+    "buttons": [
+      "Yes",
+      "Neutral",
+      "No"
+    ],
+    "file_slug": "pay_benefits_fairness"
+  },
+  {
+    "id": 1191,
+    "template_name": "was_employee_psychological_safety_001_en",
+    "topic": "Psychological safety",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🛡️ At work, do you feel able to speak up about concerns or suggestions without fear of negative consequences?",
+    "buttons": [
+      "Yes, confidently",
+      "Sometimes",
+      "No"
+    ],
+    "file_slug": "psychological_safety"
+  },
+  {
+    "id": 1190,
+    "template_name": "was_employee_recognition_001_en",
+    "topic": "Recognition",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🏆 How often do you receive meaningful recognition for your efforts?",
+    "buttons": [
+      "Regularly",
+      "Sometimes",
+      "Rarely or never"
+    ],
+    "file_slug": "recognition"
+  },
+  {
+    "id": 1189,
+    "template_name": "was_employee_remote_hybrid_flexibility_001_en",
+    "topic": "Remote/hybrid flexibility",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🏡 Does your current work arrangement give you the flexibility you need?",
+    "buttons": [
+      "Yes, fully",
+      "Partially",
+      "No"
+    ],
+    "file_slug": "remote_hybrid_flexibility"
+  },
+  {
+    "id": 1188,
+    "template_name": "was_employee_role_clarity_001_en",
+    "topic": "Role clarity",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📄 At work, are your daily responsibilities and expectations clear?",
+    "buttons": [
+      "Yes, very clear",
+      "Partly",
+      "No"
+    ],
+    "file_slug": "role_clarity"
+  },
+  {
+    "id": 1187,
+    "template_name": "was_employee_team_collaboration_001_en",
+    "topic": "Team collaboration",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "🤝 At work, how well does your team share information and support one another?",
+    "buttons": [
+      "Excellently",
+      "Well",
+      "Poorly"
+    ],
+    "file_slug": "team_collaboration"
+  },
+  {
+    "id": 1186,
+    "template_name": "was_employee_training_quality_001_en",
+    "topic": "Training quality",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📚 How would you rate the quality and relevance of your recent training at work?",
+    "buttons": [
+      "Very useful",
+      "Somewhat useful",
+      "Not useful"
+    ],
+    "file_slug": "training_quality"
+  },
+  {
+    "id": 1184,
+    "template_name": "was_employee_work_life_balance_001_en",
+    "topic": "Work-life balance",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "⚖️ At work, how would you rate your ability to balance work responsibilities with personal time?",
+    "buttons": [
+      "Very well",
+      "Adequately",
+      "Poorly"
+    ],
+    "file_slug": "work_life_balance"
+  },
+  {
+    "id": 1185,
+    "template_name": "was_employee_workload_001_en",
+    "topic": "Workload",
+    "category": "UTILITY",
+    "language": "en_GB",
+    "local_sync_status": "local_changes",
+    "body": "📊 How would you rate your current workload at work?",
+    "buttons": [
+      "Too light",
+      "Manageable",
+      "Overwhelming"
+    ],
+    "file_slug": "workload"
+  }
+]

@@ -96,4 +96,4 @@ def test_seed_from_markdown_file_creates_templates():
         assert "example" not in body
         assert json.loads(tpl.example_values_json or "[]") == []
         buttons = next(c for c in components if c.get("type") == "BUTTONS")["buttons"]
-        assert [b["text"] for b in buttons] == ["Low", "Moderate", "High"]
+        assert [b["text"] for b in buttons] == ["High", "Moderate", "Low"]
