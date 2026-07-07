@@ -98,15 +98,15 @@ def _topic_slug(name: str) -> str:
     return s.strip("_")[:48] or "topic"
 
 
+from seed_data.wa_survey_template_naming import lang_suffix as _naming_lang, was_industry_topic_name
+
+
 def _was_name(topic_name: str, *, seq: int = 1, lang: str = "en") -> str:
-    return f"was_employee_{_topic_slug(topic_name)}_{seq:03d}_{lang}"
+    return was_industry_topic_name(INDUSTRY_SLUG, topic_name, seq=seq, language=lang)
 
 
 def _lang_suffix(language: str | None) -> str:
-    lang = str(language or "en_GB").strip().lower().replace("-", "_")
-    if lang.startswith("ar"):
-        return "ar"
-    return "en"
+    return _naming_lang(language)
 
 
 def _is_marketing_row(row: TelnyxWhatsappTemplate) -> bool:

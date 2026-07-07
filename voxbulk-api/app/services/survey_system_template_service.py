@@ -43,8 +43,11 @@ from app.services.wa_template_privacy import PRIVACY_MODE_OFF, PRIVACY_MODE_ON, 
 
 logger = logging.getLogger(__name__)
 
-WELCOME_TEMPLATE_ANONYMOUS_NAME = "voxbulk_survey_welcome_templates_global_welcome_anonymous_start_2"
-WELCOME_TEMPLATE_NAMED_NAME = "voxbulk_survey_welcome_templates_standard"
+WELCOME_TEMPLATE_ANONYMOUS_NAME = "was_system_welcome_anonymous_001_en"
+WELCOME_TEMPLATE_NAMED_NAME = "was_system_welcome_named_001_en"
+SYSTEM_THANK_YOU_TEMPLATE_NAME = "was_system_thank_you_001_en"
+SYSTEM_TELL_US_MORE_TEMPLATE_NAME = "was_system_tell_us_more_001_en"
+SYSTEM_CLOSING_TEMPLATE_NAME = "was_system_closing_001_en"
 
 # WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE — health/build deploy marker (runtime_build_info).
 FINAL_FEEDBACK_SYSTEM_TEMPLATE_MARKER = "WA_FINAL_FEEDBACK_SYSTEM_TEMPLATE_ACTIVE"
@@ -1022,11 +1025,15 @@ class SurveySystemTemplateService:
         if kind == "thank_you":
             row.outcome_key = "neutral"
         row.industry_id = survey_type.industry_id
-        # Prefer canonical Meta names so live survey resolver finds them.
+        # Prefer canonical WAS names so live survey resolver finds them.
+        from seed_data.wa_survey_template_naming import was_system_template_name
+
         if kind == "welcome":
             canonical = SurveySystemTemplateService._canonical_welcome_name(privacy_mode)
-            if SurveySystemTemplateService._name_is_free(db, canonical, exclude_id=int(row.id)):
-                row.name = canonical
+        else:
+            canonical = was_system_template_name(kind, language=language)
+        if SurveySystemTemplateService._name_is_free(db, canonical, exclude_id=int(row.id)):
+            row.name = canonical
         db.add(row)
         SurveySystemTemplateService._ensure_system_mapping(db, survey_type=survey_type, template=row)
         db.commit()

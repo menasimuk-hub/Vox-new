@@ -35,6 +35,7 @@ from app.services.survey_whatsapp_template_service import (
 from app.services.wa_template_meta_sync import default_wa_template_language, normalize_wa_template_language
 from app.services.wa_template_admin_visibility_service import may_auto_enable_for_survey
 from app.services.wa_template_privacy import PRIVACY_MODE_OFF
+from seed_data.wa_survey_template_naming import was_industry_topic_name
 
 _LOCAL_ID_PREFIX = "local-"
 _OPTION_LINE_RE = re.compile(r"[A-Z]\)\s*")
@@ -461,6 +462,7 @@ def _upsert_question_template(
     db: Session,
     *,
     survey_type: SurveyType,
+    industry_slug: str,
     question: MdSurveyQuestion,
     overwrite: bool,
     language: str,
@@ -507,7 +509,7 @@ def _upsert_question_template(
         row = TelnyxWhatsappTemplate(
             telnyx_record_id=local_id,
             template_id=local_id,
-            name=_telnyx_name_for(survey_type.slug, f"abc_{uuid.uuid4().hex[:6]}"),
+            name=was_industry_topic_name(industry_slug, survey_type.name, language=lang_code),
             display_name=display_name,
             customer_description=question.wizard_description,
             language=lang_code,
@@ -631,6 +633,7 @@ class SurveyWaMdSeedService:
             template, action = _upsert_question_template(
                 db,
                 survey_type=survey_type,
+                industry_slug=industry.slug,
                 question=question,
                 overwrite=overwrite_templates,
                 language=language,
@@ -710,6 +713,7 @@ class SurveyWaMdSeedService:
             template, action = _upsert_question_template(
                 db,
                 survey_type=survey_type,
+                industry_slug=industry.slug,
                 question=question,
                 overwrite=overwrite_templates,
                 language=language,
