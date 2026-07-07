@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""Delete ALL WhatsApp templates on ONE connection profile's remote store.
+"""Delete ALL WhatsApp templates on ONE remote WABA / connection profile store.
 
 REMOTE-ONLY: talks to the profile's provider (Meta Graph API for meta profiles, or
 Telnyx API for telnyx profiles). Never writes to the local DB and never writes local
 files (unless --report is given). Reads credentials straight off the profile row, so it
-works even when the profile is inactive. Hard-refuses the Meta 99 profile / WABA / phone.
+works even when the profile is inactive.
+
+IMPORTANT WABA map (verified on server 2026-07-07):
+  * KEEP  : WABA 959487190007928 ("Voxbulk") = +447822002099 = Meta 99  -> HARD-REFUSED
+  * DELETE: WABA 1033532842963987 ("Voxbulk Ltd") = +447822002055 (old 55 account)
+The Meta 99 access token can manage BOTH WABAs, so to clear the 55 WABA to zero use the
+Meta 99 profile for its token and target the 55 WABA explicitly with --meta-waba.
 
 Usage (from voxbulk-api, venv active):
-  # 1) DRY RUN — just count, delete nothing (default):
-  python scripts/purge_profile_remote_wa_templates.py --profile-id <PROFILE_UUID>
+  # DRY RUN — clear the 55 WABA using the Meta 99 token (counts only):
+  python scripts/purge_profile_remote_wa_templates.py \
+      --profile-id b19c8d5b-2406-4bd0-8d56-610574ab491b --meta-waba 1033532842963987
 
-  # 2) DELETE everything on that profile's remote store:
-  python scripts/purge_profile_remote_wa_templates.py --profile-id <PROFILE_UUID> --apply --yes
+  # DELETE everything on the 55 WABA:
+  python scripts/purge_profile_remote_wa_templates.py \
+      --profile-id b19c8d5b-2406-4bd0-8d56-610574ab491b --meta-waba 1033532842963987 --apply --yes
 
 Optional:
   --only-prefix voxbulk_survey_     # delete only names starting with this
@@ -57,26 +65,37 @@ from app.services.telnyx_voice_service import _telnyx_headers
 
 TELNYX_WHATSAPP_TEMPLATES_URL = "https://api.telnyx.com/v2/whatsapp/message_templates"
 
-# --- Meta 99 = NEVER TOUCH (from docs/wa-template-sync-contract.md) ---
-META99_PROFILE_ID = "b19c8d5b-2406-4bd0-8d56-610574ab491b"
-META99_WABA_ID = "1033532842963987"
-META99_PHONE_NUMBER_ID = "1307579342430096"
-
-
-def _refuse_if_meta99(profile: ConnectionProfile, meta_cfg: dict) -> None:
-    if str(profile.id) == META99_PROFILE_ID:
-        sys.exit("REFUSED: this is the Meta 99 profile id — aborting.")
-    if str(meta_cfg.get("waba_id") or "") == META99_WABA_ID:
-        sys.exit(f"REFUSED: profile WABA {meta_cfg.get('waba_id')} == Meta 99 WABA — aborting.")
-    if str(meta_cfg.get("phone_number_id") or "") == META99_PHONE_NUMBER_ID:
-        sys.exit("REFUSED: profile phone_number_id == Meta 99 — aborting.")
+# --- Meta 99 = the KEEPER account, NEVER TOUCH (verified against live Meta) ---
+META99_KEEP_WABA_ID = "959487190007928"
+META99_KEEP_PHONE_NUMBER_ID = "1307579342430096"
+META99_KEEP_DISPLAY_FRAGMENT = "002099"
 
 
 # ---------------------------------------------------------------------------
 # Meta provider
 # ---------------------------------------------------------------------------
-def _meta_fetch_all(cfg: dict) -> list[dict]:
-    waba_id = str(cfg.get("waba_id") or "").strip()
+def _meta_waba_info(cfg: dict, waba_id: str) -> dict:
+    return MetaWhatsappService._graph_request(
+        config=cfg,
+        method="GET",
+        path=waba_id,
+        params={"fields": "id,name,phone_numbers{display_phone_number,verified_name,id}"},
+    )
+
+
+def _assert_safe_target_waba(waba_id: str, info: dict) -> None:
+    """Refuse if the target WABA is the Meta 99 keeper or contains the 002099 number."""
+    if str(waba_id) == META99_KEEP_WABA_ID:
+        sys.exit(f"REFUSED: target WABA {waba_id} is the Meta 99 keeper WABA — aborting.")
+    nums = ((info or {}).get("phone_numbers") or {}).get("data") or []
+    for n in nums:
+        if str(n.get("id")) == META99_KEEP_PHONE_NUMBER_ID:
+            sys.exit("REFUSED: target WABA contains the Meta 99 phone_number_id (002099) — aborting.")
+        if META99_KEEP_DISPLAY_FRAGMENT in str(n.get("display_phone_number") or "").replace(" ", ""):
+            sys.exit("REFUSED: target WABA contains the Meta 99 number (+447822002099) — aborting.")
+
+
+def _meta_fetch_all(cfg: dict, waba_id: str) -> list[dict]:
     rows: list[dict] = []
     after: str | None = None
     fields = "id,name,language,status,category"
@@ -97,8 +116,7 @@ def _meta_fetch_all(cfg: dict) -> list[dict]:
     return rows
 
 
-def _meta_delete_by_name(cfg: dict, name: str) -> None:
-    waba_id = str(cfg.get("waba_id") or "").strip()
+def _meta_delete_by_name(cfg: dict, waba_id: str, name: str) -> None:
     MetaWhatsappService._graph_request(
         config=cfg, method="DELETE", path=f"{waba_id}/message_templates", params={"name": name}
     )
@@ -142,8 +160,9 @@ def _telnyx_delete_by_id(api_key: str, record_id: str) -> None:
 
 # ---------------------------------------------------------------------------
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Purge remote WA templates on ONE connection profile")
-    ap.add_argument("--profile-id", required=True, help="Connection profile UUID")
+    ap = argparse.ArgumentParser(description="Purge remote WA templates on ONE WABA / connection profile")
+    ap.add_argument("--profile-id", required=True, help="Connection profile UUID (used for its token/credentials)")
+    ap.add_argument("--meta-waba", default="", help="(meta only) target this WABA id instead of the profile's own")
     ap.add_argument("--apply", action="store_true", help="Actually delete (default: dry-run)")
     ap.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
     ap.add_argument("--only-prefix", default="", help="Only names starting with this prefix")
@@ -169,9 +188,6 @@ def main() -> int:
         if provider not in (PROVIDER_META, PROVIDER_TELNYX):
             sys.exit(f"Unsupported provider '{provider}'.")
 
-        # Meta 99 guard applies regardless of provider (belt and braces).
-        _refuse_if_meta99(profile, meta_config_from_profile(profile))
-
         report: dict = {
             "at": datetime.now(timezone.utc).isoformat(),
             "profile_id": str(profile.id),
@@ -185,15 +201,28 @@ def main() -> int:
         # --- Gather remote rows ---
         if provider == PROVIDER_META:
             cfg = meta_config_from_profile(profile)
-            if not (cfg.get("access_token") and cfg.get("waba_id")):
-                sys.exit("Meta profile is missing access_token or waba_id — cannot proceed.")
-            print("=== Target profile (Meta) ===")
-            print(f"  name         : {profile.name}")
-            print(f"  waba_id      : {cfg.get('waba_id')}")
-            print(f"  phone_number : {cfg.get('whatsapp_from') or profile.meta_whatsapp_from}")
-            print(f"  graph base   : {graph_api_base(cfg)}")
+            if not cfg.get("access_token"):
+                sys.exit("Meta profile is missing access_token — cannot proceed.")
+            target_waba = str(args.meta_waba or cfg.get("waba_id") or "").strip()
+            if not target_waba:
+                sys.exit("No target WABA (profile has no waba_id and --meta-waba not given).")
+
+            info = _meta_waba_info(cfg, target_waba)
+            if isinstance(info, dict) and info.get("error"):
+                sys.exit(f"Cannot read WABA {target_waba}: {json.dumps(info.get('error'))[:300]}")
+            _assert_safe_target_waba(target_waba, info)
+
+            nums = ", ".join(
+                f"{n.get('display_phone_number')} ({n.get('verified_name')})"
+                for n in ((info or {}).get("phone_numbers") or {}).get("data") or []
+            )
+            print("=== Target WABA (Meta) ===")
+            print(f"  token profile : {profile.name} ({profile.id})")
+            print(f"  target waba   : {target_waba}  name='{info.get('name')}'")
+            print(f"  numbers       : {nums or '(none listed)'}")
+            print(f"  graph base    : {graph_api_base(cfg)}")
             print()
-            rows = _meta_fetch_all(cfg)
+            rows = _meta_fetch_all(cfg, target_waba)
         else:
             tcfg = telnyx_config_from_profile(profile)
             api_key = normalize_telnyx_api_key(str(tcfg.get("api_key") or ""))
@@ -204,6 +233,8 @@ def main() -> int:
             print(f"  name         : {profile.name}")
             print(f"  number       : {tcfg.get('whatsapp_from') or profile.telnyx_number}")
             print(f"  waba filter  : {waba_filter or '(all WABAs on this key)'}")
+            print("  NOTE: Telnyx only lists templates it registered — it may be far fewer")
+            print("        than Meta shows. To clear a Meta WABA to zero, use --meta-waba.")
             print()
             rows = _telnyx_fetch_all(api_key, waba_filter)
 
@@ -225,9 +256,9 @@ def main() -> int:
         report["total_rows"] = len(kept)
         report["excluded_names"] = len(skipped_excluded)
 
+        by_name: dict[str, list[dict]] = defaultdict(list)
         if provider == PROVIDER_META:
             # Meta deletes by name (removes all languages at once).
-            by_name: dict[str, list[dict]] = defaultdict(list)
             for r in kept:
                 by_name[str(r.get("name"))].append(r)
             units = sorted(by_name.keys())
@@ -241,8 +272,7 @@ def main() -> int:
 
         if skipped_excluded:
             print(f"Excluded by prefix: {len(skipped_excluded)} names")
-        preview = units[:15]
-        for u in preview:
+        for u in units[:15]:
             if provider == PROVIDER_META:
                 langs = ",".join(sorted(str(x.get("language") or "?") for x in by_name[u]))
                 print(f"  - {u} [{langs}]")
@@ -257,7 +287,7 @@ def main() -> int:
         else:
             target = report["unique_names"]
             if not args.yes:
-                confirm = input(f"Delete {target} template(s) from profile '{profile.name}'? type DELETE: ")
+                confirm = input(f"Delete {target} template(s)? type DELETE: ")
                 if confirm.strip() != "DELETE":
                     sys.exit("Aborted.")
             deleted = 0
@@ -267,7 +297,7 @@ def main() -> int:
                     break
                 try:
                     if provider == PROVIDER_META:
-                        _meta_delete_by_name(cfg, u)
+                        _meta_delete_by_name(cfg, target_waba, u)
                         report["deleted"].append(u)
                     else:
                         _telnyx_delete_by_id(api_key, str(u.get("id")))
