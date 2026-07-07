@@ -56,3 +56,32 @@ export function syncProfileActionLabel(profile, verb = 'Sync') {
   }
   return profile.label ? `${verb} — ${profile.label}` : verb
 }
+
+export async function fetchProfileTemplateSummary(apiFetch, profileId, { serviceCode = 'survey', timeoutMs = 120000 } = {}) {
+  const id = String(profileId || '').trim()
+  if (!id) throw new Error('Profile id is required')
+  return apiFetch(
+    `/admin/connection-profiles/${encodeURIComponent(id)}/whatsapp-template-summary?service_code=${encodeURIComponent(serviceCode)}`,
+    { quietNetworkHint: true, timeoutMs },
+  )
+}
+
+export async function fetchProfileTemplateSummariesBatch(
+  apiFetch,
+  profileIds,
+  { serviceCode = 'survey', timeoutMs = 180000 } = {},
+) {
+  const ids = (Array.isArray(profileIds) ? profileIds : []).map((x) => String(x).trim()).filter(Boolean)
+  if (!ids.length) return { ok: true, items: [] }
+  return apiFetch(
+    `/admin/connection-profiles/whatsapp-template-summaries?profile_ids=${encodeURIComponent(ids.join(','))}&service_code=${encodeURIComponent(serviceCode)}`,
+    { quietNetworkHint: true, timeoutMs },
+  )
+}
+
+export const EMPTY_PROFILE_SUMMARY_ROW = {
+  loading: false,
+  error: null,
+  summary: null,
+  fetchedAt: null,
+}

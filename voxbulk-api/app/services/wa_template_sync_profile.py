@@ -93,3 +93,110 @@ def list_whatsapp_sync_options(db: Session, *, service_code: str = "survey") -> 
             }
         )
     return out
+
+
+def summarize_for_connection_profile(
+    db: Session,
+    profile_id: str,
+    *,
+    service_code: str = "survey",
+) -> dict[str, Any]:
+    """Read-only live template counts for one WhatsApp connection profile (no DB mutation)."""
+    from sqlalchemy import select
+
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+    from app.services.survey_whatsapp_template_service import _effective_components
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    pid = str(profile_id or "").strip()
+    if not pid:
+        return {"ok": False, "profile_id": profile_id, "error": "Profile id is required"}
+
+    try:
+        route = resolve_whatsapp_route_for_sync(db, connection_profile_id=pid, service_code=service_code)
+    except WhatsappSyncRouteError as exc:
+        return {"ok": False, "profile_id": pid, "error": str(exc)}
+
+    profile = route.profile
+    provider = str(route.provider or "").strip().lower()
+    waba_id = str((route.config or {}).get("waba_id") or getattr(profile, "meta_waba_id", None) or "").strip() or None
+    whatsapp_from = (
+        str((route.config or {}).get("whatsapp_from") or getattr(profile, "meta_whatsapp_from", None) or "")
+        .strip()
+        or str(getattr(profile, "telnyx_number", None) or "").strip()
+        or None
+    )
+    label_bits = [str(getattr(profile, "name", None) or pid)]
+    if provider == "meta":
+        if waba_id:
+            label_bits.append(f"WABA {waba_id}")
+        if whatsapp_from:
+            label_bits.append(whatsapp_from)
+    elif whatsapp_from:
+        label_bits.append(whatsapp_from)
+
+    try:
+        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=pid,
+            service_code=service_code,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "profile_id": pid,
+            "profile_label": " · ".join(label_bits),
+            "provider": provider,
+            "waba_id": waba_id,
+            "whatsapp_from": whatsapp_from,
+            "error": str(exc)[:400],
+        }
+
+    live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
+    by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
+    local_only = 0
+    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
+        if not _effective_components(row):
+            continue
+        live = TelnyxWhatsappTemplateSyncService._match_live_item(
+            row,
+            by_record=by_record,
+            by_name_lang=by_name_lang,
+        )
+        if live is None:
+            local_only += 1
+
+    remote_total = int(live_summary.get("remote_total") or 0)
+    return {
+        "ok": True,
+        "live": True,
+        "profile_id": pid,
+        "profile_label": " · ".join(label_bits),
+        "provider": provider,
+        "waba_id": waba_id,
+        "whatsapp_from": whatsapp_from,
+        "summary": {
+            "utility": int(live_summary.get("utility") or 0),
+            "marketing": int(live_summary.get("marketing") or 0),
+            "approved": int(live_summary.get("approved") or 0),
+            "pending": int(live_summary.get("pending") or 0),
+            "rejected": int(live_summary.get("rejected") or 0),
+            "localOnly": local_only,
+            "total": remote_total + local_only,
+        },
+    }
+
+
+def summarize_connection_profiles_batch(
+    db: Session,
+    profile_ids: list[str],
+    *,
+    service_code: str = "survey",
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for pid in profile_ids:
+        pid = str(pid or "").strip()
+        if not pid:
+            continue
+        items.append(summarize_for_connection_profile(db, pid, service_code=service_code))
+    return items

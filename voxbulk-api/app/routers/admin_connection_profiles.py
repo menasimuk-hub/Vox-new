@@ -46,6 +46,42 @@ def whatsapp_sync_profile_options(
     return {"ok": True, "items": items, "default_profile_id": default_id}
 
 
+@router.get("/whatsapp-template-summaries")
+def whatsapp_template_summaries_batch(
+    profile_ids: str = Query(..., description="Comma-separated connection profile ids"),
+    service_code: str = Query(default="survey"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_template_sync_profile import summarize_connection_profiles_batch
+
+    ids = [part.strip() for part in str(profile_ids or "").split(",") if part.strip()]
+    if not ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="profile_ids is required")
+    if len(ids) > 10:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At most 10 profile ids per request")
+    items = summarize_connection_profiles_batch(db, ids, service_code=service_code)
+    return {"ok": True, "items": items}
+
+
+@router.get("/{profile_id}/whatsapp-template-summary")
+def whatsapp_template_summary_for_profile(
+    profile_id: str,
+    service_code: str = Query(default="survey"),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_template_sync_profile import summarize_for_connection_profile
+
+    result = summarize_for_connection_profile(db, profile_id, service_code=service_code)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(result.get("error") or "Could not load template summary for profile"),
+        )
+    return result
+
+
 @router.get("/{profile_id}")
 def get_connection_profile(
     profile_id: str,

@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  BarChart3,
   Building2,
-  ClipboardList,
   Megaphone,
   MessageSquareHeart,
   RefreshCw,
@@ -23,8 +21,11 @@ import WaRejectedDialog from '../components/wa-templates/WaRejectedDialog'
 import WaJobProgressDialog from '../components/wa-templates/WaJobProgressDialog'
 import WaSyncProfileSelect from '../components/wa-templates/WaSyncProfileSelect'
 import WaSyncConfirmDialog from '../components/wa-templates/WaSyncConfirmDialog'
-import { summarizeCatalog, toHubRow } from '../components/wa-templates/waTemplatesUi'
+import WaSyncProfileMatrix from '../components/wa-templates/WaSyncProfileMatrix'
+import { toHubRow } from '../components/wa-templates/waTemplatesUi'
 import {
+  EMPTY_PROFILE_SUMMARY_ROW,
+  fetchProfileTemplateSummary,
   fetchWaSyncProfileOptions,
   getStoredSyncProfileId,
   resolveSelectedSyncProfile,
@@ -128,16 +129,6 @@ export default function WaTemplatesHub() {
   const [syncProgress, setSyncProgress] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-  const [templateCounts, setTemplateCounts] = useState({
-    total: 0,
-    approved: 0,
-    localOnly: 0,
-    pending: 0,
-    rejected: 0,
-    utility: 0,
-    marketing: 0,
-  })
-
   const [interviewTemplates, setInterviewTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
   const [salesTemplates, setSalesTemplates] = useState([])
@@ -171,6 +162,11 @@ export default function WaTemplatesHub() {
   const [syncProfileId, setSyncProfileIdState] = useState(() => getStoredSyncProfileId())
   const [syncProfilesLoading, setSyncProfilesLoading] = useState(true)
   const [syncConfirm, setSyncConfirm] = useState(null)
+  const [profileSummaries, setProfileSummaries] = useState({})
+  const [refreshingAllProfiles, setRefreshingAllProfiles] = useState(false)
+  const profileSummariesRef = useRef({})
+  const profileLoadInFlightRef = useRef(new Set())
+  const staggerTimersRef = useRef([])
 
   const syncProfile = useMemo(
     () => resolveSelectedSyncProfile(syncProfileItems, syncProfileId, null),
@@ -208,70 +204,87 @@ export default function WaTemplatesHub() {
     [syncProfile],
   )
 
+  const patchProfileSummary = useCallback((profileId, patch) => {
+    const id = String(profileId || '').trim()
+    if (!id) return
+    setProfileSummaries((prev) => ({
+      ...prev,
+      [id]: { ...EMPTY_PROFILE_SUMMARY_ROW, ...prev[id], ...patch },
+    }))
+  }, [])
+
+  const loadProfileSummary = useCallback(async (profileId, { force = false } = {}) => {
+    const id = String(profileId || '').trim()
+    if (!id) return
+    if (profileLoadInFlightRef.current.has(id)) return
+    if (!force) {
+      const cur = profileSummariesRef.current[id]
+      if (cur?.summary && cur?.fetchedAt) return
+    }
+    profileLoadInFlightRef.current.add(id)
+    patchProfileSummary(id, { loading: true, error: null })
+    try {
+      const data = await fetchProfileTemplateSummary(apiFetch, id)
+      patchProfileSummary(id, {
+        loading: false,
+        error: null,
+        summary: data?.summary || null,
+        fetchedAt: Date.now(),
+      })
+    } catch (e) {
+      patchProfileSummary(id, {
+        loading: false,
+        error: formatWaSurveyError(e, 'Could not load profile stats').message || e?.message || 'Load failed',
+      })
+    } finally {
+      profileLoadInFlightRef.current.delete(id)
+    }
+  }, [patchProfileSummary])
+
+  const refreshSelectedProfileSummary = useCallback(() => {
+    if (syncProfile?.id) void loadProfileSummary(syncProfile.id, { force: true })
+  }, [syncProfile?.id, loadProfileSummary])
+
+  const queueBackgroundProfileLoads = useCallback(
+    (profiles, selectedId) => {
+      staggerTimersRef.current.forEach(clearTimeout)
+      staggerTimersRef.current = []
+      const others = (Array.isArray(profiles) ? profiles : [])
+        .filter((p) => String(p.id) !== String(selectedId))
+        .map((p) => p.id)
+      let delay = 2000
+      for (const pid of others) {
+        const timer = setTimeout(() => {
+          void loadProfileSummary(pid)
+        }, delay)
+        staggerTimersRef.current.push(timer)
+        delay += 2000
+      }
+    },
+    [loadProfileSummary],
+  )
+
+  const refreshAllProfileSummaries = useCallback(async () => {
+    if (!syncProfileItems.length) return
+    setRefreshingAllProfiles(true)
+    try {
+      for (const profile of syncProfileItems) {
+        await loadProfileSummary(profile.id, { force: true })
+      }
+    } finally {
+      setRefreshingAllProfiles(false)
+    }
+  }, [syncProfileItems, loadProfileSummary])
+
+  useEffect(() => {
+    profileSummariesRef.current = profileSummaries
+  }, [profileSummaries])
+
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams)
     params.set('tab', next)
     setSearchParams(params, { replace: true })
   }
-
-  const applySummaryCounts = useCallback((summary) => {
-    if (!summary) return
-    setTemplateCounts({
-      total: summary.total ?? 0,
-      approved: summary.approved ?? 0,
-      localOnly: summary.localOnly ?? 0,
-      pending: summary.pending ?? 0,
-      rejected: summary.rejected ?? 0,
-      utility: summary.utility ?? 0,
-      marketing: summary.marketing ?? 0,
-    })
-  }, [])
-
-  const loadTemplateCounts = useCallback(async () => {
-    try {
-      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/summary', {
-        quietNetworkHint: true,
-      })
-      if (data?.summary) {
-        applySummaryCounts(data.summary)
-        return
-      }
-      const fallback = await apiFetch('/admin/integrations/telnyx/whatsapp-templates?approved_only=false&live=false', {
-        quietNetworkHint: true,
-      })
-      if (fallback?.summary) {
-        applySummaryCounts(fallback.summary)
-        return
-      }
-      setTemplateCounts(summarizeCatalog(Array.isArray(fallback?.templates) ? fallback.templates : []))
-    } catch {
-      setTemplateCounts({
-        total: 0,
-        approved: 0,
-        localOnly: 0,
-        pending: 0,
-        rejected: 0,
-        utility: 0,
-        marketing: 0,
-      })
-    }
-  }, [applySummaryCounts])
-
-  const loadTemplateCountsLive = useCallback(async () => {
-    try {
-      const data = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/live-summary', {
-        timeoutMs: 120000,
-        quietNetworkHint: true,
-      })
-      if (data?.summary) {
-        applySummaryCounts(data.summary)
-        return
-      }
-      await loadTemplateCounts()
-    } catch {
-      await loadTemplateCounts()
-    }
-  }, [applySummaryCounts, loadTemplateCounts])
 
   const loadInterview = useCallback(async () => {
     setFlatLoading(true)
@@ -378,10 +391,6 @@ export default function WaTemplatesHub() {
   }, [tab, loadInterview, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
-    void loadTemplateCounts()
-  }, [loadTemplateCounts])
-
-  useEffect(() => {
     let cancelled = false
     ;(async () => {
       setSyncProfilesLoading(true)
@@ -401,6 +410,16 @@ export default function WaTemplatesHub() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!syncProfileItems.length) return
+    const selected = syncProfile?.id
+    if (selected) void loadProfileSummary(selected)
+    queueBackgroundProfileLoads(syncProfileItems, selected)
+    return () => {
+      staggerTimersRef.current.forEach(clearTimeout)
+    }
+  }, [syncProfileItems, queueBackgroundProfileLoads, loadProfileSummary, syncProfile?.id])
 
   useEffect(() => {
     setError('')
@@ -441,7 +460,7 @@ export default function WaTemplatesHub() {
           ? `Status refreshed from Meta (${updated} template(s) updated)`
           : formatActionSuccess(last, 'Status refreshed from Meta').message
       setMsg(text)
-      await loadTemplateCounts()
+      refreshSelectedProfileSummary()
       refreshTabData()
     } catch (e) {
       const raw = e?.message || String(e)
@@ -542,7 +561,7 @@ export default function WaTemplatesHub() {
         summaryRows,
         tables: {},
       }))
-      await loadTemplateCounts()
+      refreshSelectedProfileSummary()
       refreshTabData()
     } catch (e) {
       if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
@@ -624,7 +643,7 @@ export default function WaTemplatesHub() {
           quietNetworkHint: true,
         })
         setMsg(formatActionSuccess(result, 'Synced with Meta').message)
-        await loadTemplateCounts()
+        refreshSelectedProfileSummary()
         return
       }
       if (row.rowKind === 'feedback_template') {
@@ -660,7 +679,7 @@ export default function WaTemplatesHub() {
         quietNetworkHint: true,
       })
       setMsg(formatActionSuccess(result, 'Synced survey type with Meta').message)
-      await loadTemplateCounts()
+      refreshSelectedProfileSummary()
     } catch (e) {
       setError(formatWaSurveyError(e, 'Sync failed').detailText)
     } finally {
@@ -727,14 +746,14 @@ export default function WaTemplatesHub() {
           await apiFetch(`/admin/wa-survey/templates/${row.id}`, { method: 'DELETE' })
         }
         setMsg('Template deleted from database and Meta')
-        await loadTemplateCounts()
+        refreshSelectedProfileSummary()
         refreshTabData()
         return
       }
       if (row.rowKind === 'feedback_template') {
         await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}`, { method: 'DELETE' })
         setMsg('Template deleted from database and Meta')
-        await loadTemplateCounts()
+        refreshSelectedProfileSummary()
         refreshTabData()
         return
       }
@@ -823,7 +842,7 @@ export default function WaTemplatesHub() {
         })
         setMsg(formatActionSuccess(null, 'Sales template submitted to Meta').message)
         await loadSales()
-        await loadTemplateCounts()
+        refreshSelectedProfileSummary()
       } catch (e) {
         setError(formatWaSurveyError(e, 'Sales sync failed').detailText || e?.message)
       } finally {
@@ -971,7 +990,7 @@ export default function WaTemplatesHub() {
           }))
         }
       }
-      await loadTemplateCounts()
+      refreshSelectedProfileSummary()
       refreshTabData()
     } catch (e) {
       if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
@@ -1007,116 +1026,93 @@ export default function WaTemplatesHub() {
   return (
     <div className="waTemplatesHub ds-scope min-h-full bg-background">
       <header className="sticky top-0 z-30 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
-        <div className="mx-auto flex h-12 max-w-[1400px] items-center gap-3 px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#25D366]/15 text-[#128C7E]">
-              <MessageSquareHeart className="h-4 w-4" />
+        <div className="mx-auto max-w-[1400px] px-4 py-2">
+          <div className="flex min-h-10 flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#25D366]/15 text-[#128C7E]">
+                <MessageSquareHeart className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold leading-none">WA Templates</div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">Internal · WhatsApp Business Templates</div>
+              </div>
             </div>
-            <div>
-              <div className="text-sm font-semibold leading-none">WA Templates</div>
-              <div className="mt-0.5 text-[10px] text-muted-foreground">Internal · WhatsApp Business Templates</div>
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Link
+                to="/ai/wa-messages"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                Inbound messages
+              </Link>
+              {showCleanupActions ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => void runCleanupAndSync({ dryRun: true })}
+                    disabled={cleaning || syncing}
+                  >
+                    <Trash2 className={cn('h-3.5 w-3.5', cleaning && 'animate-pulse')} />
+                    Dry-run cleanup
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => void runCleanupAndSync({ dryRun: false })}
+                    disabled={cleaning || syncing}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {cleaning ? 'Cleaning…' : 'Cleanup + push buttoned'}
+                  </Button>
+                </>
+              ) : null}
+              <WaSyncProfileSelect
+                items={syncProfileItems}
+                value={syncProfile?.id}
+                onChange={setSyncProfileId}
+                loading={syncProfilesLoading}
+                disabled={syncing || refreshing || cleaning}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => void pullFromMeta()}
+                disabled={refreshing || syncing || cleaning || !syncProfile?.id}
+                title="Pull approval status and category from Meta (does not push local changes)"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                {refreshing ? 'Refreshing…' : 'Refresh status'}
+              </Button>
+              <Button
+                size="sm"
+                className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
+                onClick={() => void syncFromMeta()}
+                disabled={syncing || refreshing || cleaning || !syncProfile?.id}
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+                {syncing
+                  ? syncProgress
+                    ? `Syncing ${syncProgress}`
+                    : 'Syncing…'
+                  : syncProfileActionLabel(syncProfile, 'Sync')}
+              </Button>
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
-            <div className="hidden items-center gap-3 text-[11px] text-muted-foreground lg:flex">
-              <span className="inline-flex items-center gap-1" title="Live Meta: Utility category">
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.utility}</span> utility
-              </span>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1',
-                  templateCounts.marketing > 0 && 'font-medium text-warning-foreground',
-                )}
-                title="Live Meta: Marketing category"
-              >
-                <span className="tabular-nums">{templateCounts.marketing}</span> marketing
-              </span>
-              <span className="h-3 w-px bg-border" />
-              <span className="inline-flex items-center gap-1 text-success" title="Live Meta: approved">
-                <ClipboardList className="h-3 w-3" />
-                <span className="font-medium tabular-nums">{templateCounts.approved}</span> approved
-              </span>
-              {templateCounts.rejected > 0 ? (
-                <span className="inline-flex items-center gap-1 font-medium text-destructive" title="Live Meta: rejected">
-                  <span className="tabular-nums">{templateCounts.rejected}</span> rejected
-                </span>
-              ) : null}
-              <span
-                className="inline-flex items-center gap-1"
-                title="Local only (buttonless / drafts — not on Meta). Local is source of truth."
-              >
-                <BarChart3 className="h-3 w-3" />
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.localOnly}</span> local-only
-              </span>
-              <span
-                className="inline-flex items-center gap-1"
-                title="Live Meta WABA rows + local-only drafts (not the same as Meta Manager alone)"
-              >
-                <span className="font-medium tabular-nums text-foreground">{templateCounts.total}</span> meta+local
-              </span>
-            </div>
-            <Link
-              to="/ai/wa-messages"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              Inbound messages
-            </Link>
-            {showCleanupActions ? (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => void runCleanupAndSync({ dryRun: true })}
-                  disabled={cleaning || syncing}
-                >
-                  <Trash2 className={cn('h-3.5 w-3.5', cleaning && 'animate-pulse')} />
-                  Dry-run cleanup
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => void runCleanupAndSync({ dryRun: false })}
-                  disabled={cleaning || syncing}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {cleaning ? 'Cleaning…' : 'Cleanup + push buttoned'}
-                </Button>
-              </>
-            ) : null}
-            <WaSyncProfileSelect
-              items={syncProfileItems}
-              value={syncProfile?.id}
-              onChange={setSyncProfileId}
-              loading={syncProfilesLoading}
-              disabled={syncing || refreshing || cleaning}
+          <div className="mt-2 border-t border-border/60 pt-2">
+            <WaSyncProfileMatrix
+              profiles={syncProfileItems}
+              selectedProfileId={syncProfile?.id}
+              rowState={profileSummaries}
+              onSelectProfile={setSyncProfileId}
+              onRefreshProfile={(id) => void loadProfileSummary(id, { force: true })}
+              onRefreshAll={() => void refreshAllProfileSummaries()}
+              refreshingAll={refreshingAllProfiles}
             />
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
-              onClick={() => void pullFromMeta()}
-              disabled={refreshing || syncing || cleaning || !syncProfile?.id}
-              title="Pull approval status and category from Meta (does not push local changes)"
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
-              {refreshing ? 'Refreshing…' : 'Refresh status'}
-            </Button>
-            <Button
-              size="sm"
-              className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
-              onClick={() => void syncFromMeta()}
-              disabled={syncing || refreshing || cleaning || !syncProfile?.id}
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
-              {syncing
-                ? syncProgress
-                  ? `Syncing ${syncProgress}`
-                  : 'Syncing…'
-                : syncProfileActionLabel(syncProfile, 'Sync')}
-            </Button>
           </div>
         </div>
       </header>
@@ -1269,7 +1265,7 @@ export default function WaTemplatesHub() {
         onClose={() => setRejectRow(null)}
         onDone={(message) => {
           setMsg(message)
-          void loadTemplateCounts()
+          void refreshSelectedProfileSummary()
           if (tab === 'ai') void loadInterview()
           if (tab === 'survey') void loadSurveyIndustries()
           if (tab === 'feedback') void loadFeedbackIndustries()
