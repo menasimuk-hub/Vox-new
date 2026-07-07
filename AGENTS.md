@@ -74,6 +74,7 @@ Rules of the road:
 - **Schema changes require an Alembic migration.** After editing a model, create/adjust a migration in `alembic/` and run `alembic upgrade head`. Never edit the DB by hand.
 - **Secrets are Fernet-encrypted** (`core/security.py`, `ENCRYPTION_KEY`). Don't log or expose decrypted integration credentials.
 - **Webhooks** verify HMAC signatures — preserve signature checks when touching webhook handlers (e.g. Telnyx).
+- **WA template sync:** local DB is source of truth for survey/feedback names and bodies — pull from Meta is **status only**; push is **DB → Meta**. See `docs/wa-template-sync-contract.md` and `.cursor/rules/wa-template-db-source-of-truth.mdc`.
 - **Timezone:** UK-local logic uses `zoneinfo` `Europe/London`. On Windows install the `tzdata` package if it's missing.
 - **Password hashing** is deliberately `pbkdf2_sha256` (Passlib) for Windows stability — don't switch to bcrypt/argon2 without being asked.
 

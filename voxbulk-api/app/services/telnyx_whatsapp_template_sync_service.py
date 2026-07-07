@@ -220,6 +220,36 @@ def _delete_stale_template_row(db: Session, row: TelnyxWhatsappTemplate) -> bool
     return True
 
 
+def _apply_managed_product_status_only(
+    existing: TelnyxWhatsappTemplate,
+    item: dict[str, Any],
+    *,
+    now: datetime,
+) -> None:
+    """Refresh Meta approval fields only — never overwrite local name/body (DB is master)."""
+    from app.services.survey_whatsapp_template_service import _refresh_local_sync_status
+
+    send_template_id = _send_template_id_from_api_item(item)
+    record_id = str(item.get("id") or "").strip()
+    status = str(item.get("status") or "UNKNOWN").strip().upper()
+    category = str(item.get("category") or "").strip() or None
+    waba = item.get("whatsapp_business_account")
+    waba_id = str(waba.get("id") or "").strip() if isinstance(waba, dict) else None
+
+    existing.template_id = send_template_id
+    existing.telnyx_record_id = record_id
+    if category:
+        existing.category = category
+    existing.status = status
+    if status == "APPROVED":
+        existing.last_push_error = None
+    existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
+    existing.waba_id = waba_id
+    existing.synced_at = now
+    existing.updated_at = now
+    existing.local_sync_status = _refresh_local_sync_status(existing)
+
+
 def template_to_dict(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
     send_id = send_template_id_for_row(row)
     return {
@@ -585,6 +615,7 @@ class TelnyxWhatsappTemplateSyncService:
         approved = 0
         remote_record_ids: set[str] = set()
         from app.services.survey_whatsapp_template_service import _refresh_local_sync_status, _sync_content_hash
+        from app.services.wa_template_product_scope import is_managed_product_remote_name, is_managed_product_row
 
         for item in items:
             record_id = str(item.get("id") or "").strip()
@@ -601,7 +632,43 @@ class TelnyxWhatsappTemplateSyncService:
                     select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
                 ).scalar_one_or_none()
                 if existing is not None:
-                    db.delete(existing)
+                    if is_managed_product_row(db, existing) or is_managed_product_remote_name(name):
+                        existing.status = status
+                        existing.updated_at = now
+                        db.flush()
+                    else:
+                        db.delete(existing)
+                continue
+
+            sales_key = _sales_key_for_name(name)
+            canonical_name = canonical_telnyx_name_for_sales_key(sales_key)
+            local_name = canonical_name or name
+
+            if is_managed_product_remote_name(name):
+                existing = db.execute(
+                    select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
+                ).scalar_one_or_none()
+                if existing is None:
+                    merged = TelnyxWhatsappTemplateSyncService._find_local_row_to_merge(
+                        db,
+                        local_name=local_name,
+                        language=language,
+                        sales_key=sales_key,
+                        record_id=record_id,
+                    )
+                    existing = merged
+                if existing is None:
+                    continue
+                remote_record_ids.add(record_id)
+                try:
+                    with db.begin_nested():
+                        _apply_managed_product_status_only(existing, item, now=now)
+                        db.flush()
+                except Exception:
+                    continue
+                synced += 1
+                if status == "APPROVED":
+                    approved += 1
                 continue
 
             remote_record_ids.add(record_id)
@@ -610,9 +677,6 @@ class TelnyxWhatsappTemplateSyncService:
             components_json = json.dumps(components, ensure_ascii=False) if components is not None else None
             waba = item.get("whatsapp_business_account")
             waba_id = str(waba.get("id") or "").strip() if isinstance(waba, dict) else None
-            sales_key = _sales_key_for_name(name)
-            canonical_name = canonical_telnyx_name_for_sales_key(sales_key)
-            local_name = canonical_name or name
 
             existing = db.execute(
                 select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
@@ -663,6 +727,18 @@ class TelnyxWhatsappTemplateSyncService:
             for duplicate in duplicate_rows:
                 _detach_template_references(db, int(duplicate.id))
                 db.delete(duplicate)
+
+            if is_managed_product_row(db, existing):
+                try:
+                    with db.begin_nested():
+                        _apply_managed_product_status_only(existing, item, now=now)
+                        db.flush()
+                except Exception:
+                    continue
+                synced += 1
+                if status == "APPROVED":
+                    approved += 1
+                continue
 
             try:
                 with db.begin_nested():
@@ -715,6 +791,8 @@ class TelnyxWhatsappTemplateSyncService:
                 ).scalars().all()
             )
             for row in stale_rows:
+                if is_managed_product_row(db, row):
+                    continue
                 if _delete_stale_template_row(db, row):
                     removed += 1
 

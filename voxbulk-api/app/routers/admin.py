@@ -1595,8 +1595,11 @@ def sync_meta_whatsapp_templates_step(
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
     body = payload or {}
+    from app.services.connection.constants import normalize_service_code
+
+    service_code = normalize_service_code(body.get("service_code")) or "survey"
     try:
-        profile_id, route = resolve_sync_route_from_payload(db, body, service_code="survey")
+        profile_id, route = resolve_sync_route_from_payload(db, body, service_code=service_code)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -1626,11 +1629,12 @@ def sync_meta_whatsapp_templates_step(
     limit = body.get("limit")
     try:
         if key == "pull":
-            status_only = bool(body.get("status_only", body.get("refresh_only", True)))
+            status_only = True
             merged = WaTemplateSyncService.pull_from_meta(
                 db,
                 status_only=status_only,
                 connection_profile_id=profile_id,
+                service_code=service_code,
             )
             catalog = merged.get("catalog") or {}
             status = merged.get("status_pull") or {}
@@ -1639,13 +1643,14 @@ def sync_meta_whatsapp_templates_step(
                 "step": key,
                 "step_index": idx,
                 "step_total": total,
-                "status_only": status_only,
+                "status_only": True,
+                "catalog_import_disabled": True,
                 "message": merged.get("message")
                 or (
-                    f"Step {idx}/{total}: pulled Meta catalog "
-                    f"({catalog.get('synced', 0)} rows) and refreshed status ({status.get('updated', 0)} rows)"
+                    f"Step {idx}/{total}: refreshed status "
+                    f"({status.get('updated', 0)} rows) — local DB is source of truth"
                 ),
-                "catalog": catalog if not status_only else None,
+                "catalog": catalog if catalog else None,
                 "status_pull": status,
                 "has_more": False,
             }
@@ -1657,6 +1662,7 @@ def sync_meta_whatsapp_templates_step(
                 force_push=bool(body.get("force_push", False)),
                 force_utility_category=bool(body.get("force_utility_category", False)),
                 connection_profile_id=profile_id,
+                service_code=service_code,
             )
             result = {
                 "ok": push.get("ok", True),

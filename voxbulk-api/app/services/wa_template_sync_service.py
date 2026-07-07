@@ -124,29 +124,27 @@ def _apply_live_meta_to_row(
 class WaTemplateSyncService:
     @staticmethod
     def pull_catalog(db: Session, *, remote: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        """Pull Meta catalog into local rows — status/category + remote mirror; never overwrite draft."""
-        try:
-            result = TelnyxWhatsappTemplateSyncService.sync(db, remote=remote)
-        except TelnyxWhatsappTemplateSyncError as exc:
-            return {"ok": False, "error": str(exc)[:400]}
+        """Disabled — local DB is source of truth (see docs/wa-template-sync-contract.md)."""
+        _ = (db, remote)
         return {
             "ok": True,
-            "synced": int(result.get("synced") or 0),
-            "approved": int(result.get("approved") or 0),
-            "removed": int(result.get("removed") or 0),
-            "remote_count": int(result.get("remote_count") or 0),
-            "message": f"Pulled Meta catalog ({result.get('synced') or 0} templates updated locally)",
+            "synced": 0,
+            "approved": 0,
+            "removed": 0,
+            "remote_count": 0,
+            "catalog_import_disabled": True,
+            "message": "Catalog import disabled — use status-only pull (DB is source of truth).",
         }
 
     @staticmethod
     def pull_from_meta(
         db: Session,
         *,
-        status_only: bool = False,
+        status_only: bool = True,
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
     ) -> dict[str, Any]:
-        """Fetch Meta once. status_only=True: refresh approval fields only (Refresh status button)."""
+        """Fetch Meta once and refresh approval fields only — never import names/bodies (DB is master)."""
         try:
             remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
                 db,
@@ -155,22 +153,9 @@ class WaTemplateSyncService:
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:400]}
-        if status_only:
-            status = WaTemplateSyncService.pull_statuses(
-                db,
-                remote=remote,
-                mirror_remote_body=False,
-                connection_profile_id=connection_profile_id,
-                service_code=service_code,
-            )
-            ok = bool(status.get("ok", True))
-            return {
-                "ok": ok,
-                "status_pull": status,
-                "remote_count": len(remote),
-                "message": status.get("message") or f"Refreshed status for {status.get('updated', 0)} template(s)",
-            }
-        catalog = WaTemplateSyncService.pull_catalog(db, remote=remote)
+        from app.services.wa_template_product_scope import filter_remote_for_service_code
+
+        remote = filter_remote_for_service_code(remote, service_code)
         status = WaTemplateSyncService.pull_statuses(
             db,
             remote=remote,
@@ -178,16 +163,18 @@ class WaTemplateSyncService:
             connection_profile_id=connection_profile_id,
             service_code=service_code,
         )
-        ok = bool(catalog.get("ok", True) and status.get("ok", True))
+        ok = bool(status.get("ok", True))
+        catalog_note = None
+        if not status_only:
+            catalog_note = WaTemplateSyncService.pull_catalog(db, remote=remote)
         return {
             "ok": ok,
-            "catalog": catalog,
+            "status_only": True,
+            "catalog_import_disabled": True,
+            "catalog": catalog_note,
             "status_pull": status,
             "remote_count": len(remote),
-            "message": (
-                f"Pulled Meta catalog ({catalog.get('synced', 0)} rows) "
-                f"and refreshed status ({status.get('updated', 0)} rows)"
-            ),
+            "message": status.get("message") or f"Refreshed status for {status.get('updated', 0)} template(s)",
         }
 
     @staticmethod
@@ -214,12 +201,19 @@ class WaTemplateSyncService:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:400]}
 
+        from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, normalize_service_code
+        from app.services.wa_template_product_scope import filter_remote_for_service_code, is_survey_platform_row
+
+        code = normalize_service_code(service_code) or "survey"
+        items = filter_remote_for_service_code(items, code)
         by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(items)
         if row_ids:
             rows = [db.get(TelnyxWhatsappTemplate, int(rid)) for rid in row_ids]
             rows = [r for r in rows if r is not None]
         else:
             rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+            if code != SERVICE_CUSTOMER_FEEDBACK:
+                rows = [row for row in rows if is_survey_platform_row(db, row)]
 
         updated = 0
         for row in rows:
@@ -259,8 +253,12 @@ class WaTemplateSyncService:
             return work
 
         rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+        from app.services.wa_template_product_scope import is_survey_platform_row
+
         for row in rows:
             if int(row.id) in seen:
+                continue
+            if not is_survey_platform_row(db, row):
                 continue
             if _row_needs_push(row):
                 work.append(row)
@@ -321,10 +319,12 @@ class WaTemplateSyncService:
                 db, connection_profile_id=connection_profile_id, service_code=service_code
             )
         elif force_push:
+            from app.services.wa_template_product_scope import is_survey_platform_row
+
             work = [
                 row
                 for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all()
-                if _effective_components(row)
+                if _effective_components(row) and is_survey_platform_row(db, row)
             ]
             work.sort(key=lambda item: str(item.name or item.id))
             prefetched = _prefetch_remote_templates_for_push(
@@ -540,19 +540,17 @@ class WaTemplateSyncService:
             return WaTemplateSyncService.pull_from_meta(db, status_only=True)
         if phase == "push":
             return WaTemplateSyncService.push_changed_batch(db, offset=offset, limit=limit)
-        pull = WaTemplateSyncService.pull_from_meta(db, status_only=False)
+        pull = WaTemplateSyncService.pull_from_meta(db, status_only=True)
         push = WaTemplateSyncService.push_changed_batch(db, offset=offset, limit=limit)
-        catalog = pull.get("catalog") or {}
         status = pull.get("status_pull") or {}
         return {
-            "ok": all(x.get("ok", True) for x in (catalog, status, push)),
-            "catalog": catalog,
-            "status": status,
+            "ok": all(x.get("ok", True) for x in (status, push)),
+            "status_pull": status,
             "push": push,
             "has_more": bool(push.get("has_more")),
             "next_offset": push.get("next_offset", offset),
             "message": (
-                f"Pull: {catalog.get('synced', 0)} catalog row(s). "
+                f"Pull: refreshed status for {status.get('updated', 0)} row(s). "
                 f"Push: {push.get('pushed', 0)} changed template(s)."
             ),
         }

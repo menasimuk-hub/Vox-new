@@ -1,0 +1,59 @@
+---
+description: WA Survey/Feedback templates — local DB is source of truth; pull status only; push from DB only
+globs:
+  - voxbulk-api/app/services/wa_template*.py
+  - voxbulk-api/app/services/telnyx_whatsapp_template_sync_service.py
+  - voxbulk-api/app/services/survey_whatsapp_template_service.py
+  - voxbulk-api/app/services/meta_whatsapp_template_service.py
+  - voxbulk-api/app/routers/admin.py
+  - admin.voxbulk.com/adim-web/src/**/wa-templates/**
+  - admin.voxbulk.com/adim-web/src/pages/WaTemplatesHub.jsx
+  - docs/wa-template-sync-contract.md
+alwaysApply: false
+---
+
+# WA templates — DB source of truth (strict)
+
+Full contract: `docs/wa-template-sync-contract.md`
+
+## Non-negotiable rules
+
+1. **Local DB owns identity and content** for survey (`was_*`, `voxbulk_survey_*`) and feedback (`voxbulk_cf_*`) templates: `name`, `draft_components_json`, body text, buttons, display names.
+2. **Pull from Meta = status only** — update `status`, `rejection_reason`, remote IDs, and optionally remote `category` when Meta sends it. **Never** import Meta template names, bodies, or buttons into DB on pull/sync.
+3. **Push = DB → Meta only** — create/update remote from local draft; always pass explicit `connection_profile_id` when using Connection Profiles (Meta 99, Telnyx 55).
+4. **One row per template** — do not create duplicate DB rows from Meta catalog import; do not add `_2` suffix rows unless an explicit admin repair path documents why.
+5. **Do not guess production state** — before claiming why a name exists in DB, query the row or say unknown.
+
+## Forbidden patterns
+
+```python
+# BAD — Meta overwrites local name on pull
+existing.name = remote_name
+
+# BAD — hub/admin pull with catalog import for survey/feedback
+pull_from_meta(..., status_only=False)
+
+# BAD — push without profile when hub profile is selected
+push_changed_batch(db)  # missing connection_profile_id
+```
+
+## Allowed pull fields (Meta → DB)
+
+- `status`, `rejection_reason`, `telnyx_record_id`, `template_id`, `synced_at`
+- Remote link only when row had `local-*` id and Meta match is found
+- `mirror_remote_body=True` only for explicit per-row `sync_from_meta` admin toggle (system templates), never hub bulk pull
+
+## Admin UI
+
+- Hub **Sync with Meta**: step 1 must use `status_only: true` (label: refresh status, not import catalog).
+- **Refresh status** button: same — status only.
+- Push steps send local draft; show which `connection_profile_id` / WABA was used in API response when possible.
+
+## Seeds and restore
+
+- MD packs under `voxbulk-api/seed-data/wa-survey/` are the **content source** for local DB rewrites (`employee-experience.md`, `all-industries-abc-templates.md`).
+- Rename scripts (`rename_all_wa_survey_templates_local_db.py`, `fix_employee_survey_local_db.py`) are **DB-only** until an explicit push step runs.
+
+## Before changing sync code
+
+Read `docs/wa-template-sync-contract.md` and add/update tests in `tests/test_wa_template_sync_service.py` if pull or push behaviour changes.

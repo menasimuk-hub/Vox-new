@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   Building2,
+  ClipboardList,
   Megaphone,
   MessageSquareHeart,
   RefreshCw,
@@ -119,10 +120,15 @@ function isMarketingTemplate(t) {
 
 const TAB_ALIASES = { interview: 'ai', appointment: 'ai' }
 
+function syncServiceCodeForTab(tabId) {
+  return tabId === 'feedback' ? 'customer_feedback' : 'survey'
+}
+
 export default function WaTemplatesHub() {
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get('tab') || 'survey'
   const tab = TAB_ALIASES[rawTab] || (TAGS.some((t) => t.id === rawTab) ? rawTab : 'survey')
+  const syncServiceCode = syncServiceCodeForTab(tab)
 
   const [syncing, setSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -178,7 +184,10 @@ export default function WaTemplatesHub() {
     setStoredSyncProfileId(id)
   }, [])
 
-  const syncBodyExtra = useCallback(() => syncProfilePayload(syncProfile), [syncProfile])
+  const syncBodyExtra = useCallback(
+    () => ({ ...syncProfilePayload(syncProfile), service_code: syncServiceCode }),
+    [syncProfile, syncServiceCode],
+  )
 
   const requestSyncConfirm = useCallback(
     ({ title, action, detail }) =>
@@ -224,7 +233,7 @@ export default function WaTemplatesHub() {
     profileLoadInFlightRef.current.add(id)
     patchProfileSummary(id, { loading: true, error: null })
     try {
-      const data = await fetchProfileTemplateSummary(apiFetch, id)
+      const data = await fetchProfileTemplateSummary(apiFetch, id, { serviceCode: syncServiceCode })
       patchProfileSummary(id, {
         loading: false,
         error: null,
@@ -239,7 +248,7 @@ export default function WaTemplatesHub() {
     } finally {
       profileLoadInFlightRef.current.delete(id)
     }
-  }, [patchProfileSummary])
+  }, [patchProfileSummary, syncServiceCode])
 
   const refreshSelectedProfileSummary = useCallback(() => {
     if (syncProfile?.id) void loadProfileSummary(syncProfile.id, { force: true })
@@ -392,10 +401,13 @@ export default function WaTemplatesHub() {
 
   useEffect(() => {
     let cancelled = false
+    setProfileSummaries({})
     ;(async () => {
       setSyncProfilesLoading(true)
       try {
-        const { items, defaultId } = await fetchWaSyncProfileOptions(apiFetch, { serviceCode: 'survey' })
+        const { items, defaultId } = await fetchWaSyncProfileOptions(apiFetch, {
+          serviceCode: syncServiceCode,
+        })
         if (cancelled) return
         setSyncProfileItems(items)
         const resolved = resolveSelectedSyncProfile(items, getStoredSyncProfileId(), defaultId)
@@ -409,7 +421,7 @@ export default function WaTemplatesHub() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [syncServiceCode])
 
   useEffect(() => {
     if (!syncProfileItems.length) return
@@ -487,8 +499,8 @@ export default function WaTemplatesHub() {
       return
     }
     const stepDefs = [
-      { id: 'pull', label: '1. Pull status from Meta' },
-      { id: 'push', label: '2. Push changed templates' },
+      { id: 'pull', label: '1. Refresh status from Meta (DB is source of truth)' },
+      { id: 'push', label: '2. Push changed templates from DB' },
     ]
     const controller = beginHubJobAbort()
     setSyncing(true)
@@ -506,19 +518,16 @@ export default function WaTemplatesHub() {
     const summaryRows = []
     try {
       let last = null
-      patchJobStep('pull', { status: 'running', detail: 'Pulling catalog and status…' })
+      patchJobStep('pull', { status: 'running', detail: 'Refreshing approval status from Meta…' })
       last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
         method: 'POST',
-        body: JSON.stringify({ status_only: false, ...syncBodyExtra() }),
+        body: JSON.stringify({ status_only: true, ...syncBodyExtra() }),
         timeoutMs: 300000,
         quietNetworkHint: true,
         signal: controller.signal,
       })
       messages.push(last?.message || 'Pull complete')
       patchJobStep('pull', { status: 'done', detail: last?.message || 'Done' })
-      if (last?.catalog?.synced != null) {
-        summaryRows.push({ metric: 'Catalog synced', count: last.catalog.synced })
-      }
       if (last?.status_pull?.updated != null) {
         summaryRows.push({ metric: 'Status refreshed', count: last.status_pull.updated })
       }

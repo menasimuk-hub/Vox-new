@@ -3203,102 +3203,37 @@ class SurveyWhatsappTemplateService:
                         select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
                     ).scalar_one_or_none()
                     if existing is not None:
-                        db.delete(existing)
+                        existing.status = status
+                        existing.updated_at = now
                     skipped += 1
                     continue
 
-                components = item.get("components")
-                components_json = _dumps(components) if components is not None else None
-                remote_hash = _sync_content_hash(components if isinstance(components, list) else None)
                 send_id = _send_template_id_from_api_item(item)
 
                 existing = db.execute(
                     select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.telnyx_record_id == record_id)
                 ).scalar_one_or_none()
-                is_new = existing is None
                 if existing is None:
-                    existing = TelnyxWhatsappTemplate(
-                        telnyx_record_id=record_id,
-                        template_id=send_id,
-                        name=name,
-                        language=str(item.get("language") or "en_US"),
-                        created_at=now,
-                    )
-                    db.add(existing)
-                    imported += 1
-                else:
-                    updated += 1
+                    skipped += 1
+                    continue
 
+                updated += 1
                 existing.template_id = send_id
-                existing.name = name
-                existing.language = str(item.get("language") or "en_US")
-                existing.category = str(item.get("category") or "").strip() or None
+                existing.category = str(item.get("category") or "").strip() or existing.category
                 existing.status = status
-                all_slugs = [
-                    str(st.slug or "")
-                    for st in db.execute(select(SurveyType)).scalars().all()
-                ]
-                owner = None
-                if scoped_type_id:
-                    owner = db.get(SurveyType, scoped_type_id)
-                elif str(existing.survey_type_id or "").strip():
-                    owner = db.get(SurveyType, str(existing.survey_type_id).strip())
-                else:
-                    name_slug = template_name_survey_slug(name, known_slugs=all_slugs)
-                    industry_id = str(existing.industry_id or "").strip()
-                    if industry_id and name_slug:
-                        owner = SurveyTypeService.get_by_slug(
-                            db,
-                            name_slug,
-                            industry_id=industry_id,
-                            default_industry_fallback=False,
-                        )
-                    elif name_slug:
-                        owner = SurveyTypeService.resolve_unique_by_slug(db, name_slug)
-                # Only claim ownership when the row already belongs to this type (id or name).
-                # Scoped sync must not attach unrelated remote templates to the open survey type.
-                if owner is not None and (
-                    str(existing.survey_type_id or "").strip() == str(owner.id)
-                    or template_belongs_to_survey_type(existing, owner)
-                ):
-                    existing.survey_type_id = owner.id
-                    apply_industry_to_template(existing, owner)
-                if isinstance(components, list) and components:
-                    existing.components_json = components_json
-                    preview = _body_preview(components)
-                    if preview:
-                        existing.body_preview = preview
-                    existing.example_values_json = _dumps(_extract_example_values(components))
-                    existing.remote_content_hash = remote_hash
                 existing.rejection_reason = str(item.get("rejection_reason") or "").strip() or None
                 existing.synced_at = now
                 existing.updated_at = now
-
-                if "anonymous" in name.lower():
-                    existing.variant_type = VARIANT_ANONYMOUS
-                elif not existing.variant_type:
-                    existing.variant_type = VARIANT_STANDARD
-
+                existing.local_sync_status = _refresh_local_sync_status(existing)
                 db.flush()
 
                 if SurveyWhatsappTemplateService._ensure_mapping_for_sync(
                     db,
                     template=existing,
-                    name=name,
+                    name=str(existing.name or name),
                     survey_type_id=scoped_type_id,
                 ):
                     linked += 1
-
-                draft_hash = _sync_content_hash(_loads(existing.draft_components_json))
-                if draft_hash and remote_hash and draft_hash != remote_hash:
-                    existing.local_sync_status = SYNC_REMOTE_CHANGED
-                elif not draft_hash and isinstance(components, list) and components:
-                    existing.draft_components_json = _dumps(
-                        _normalize_draft_components(components)
-                    )
-                    existing.local_sync_status = SYNC_IN_SYNC
-                else:
-                    existing.local_sync_status = _refresh_local_sync_status(existing)
             except Exception as exc:
                 failed += 1
                 err = f"template parsing error for {item.get('name') or 'unknown'}: {exc}"

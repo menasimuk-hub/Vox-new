@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from sqlalchemy import select
+
 from app.core.database import get_sessionmaker
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.survey_type_service import SurveyTypeService
@@ -357,3 +359,75 @@ def test_pull_statuses_reconciles_stale_remote_hash():
         db.refresh(row)
         assert row.local_sync_status == "in_sync"
         assert row.remote_content_hash == _sync_content_hash(components)
+
+
+def test_pull_from_meta_is_status_only_never_catalog_import(monkeypatch):
+    remote = [
+        {
+            "id": "meta-new-orphan",
+            "template_id": "999",
+            "name": "voxbulk_survey_complaint_followup_standard",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Meta-only body"}],
+        }
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        lambda db, **kwargs: remote,
+    )
+
+    with get_sessionmaker()() as db:
+        before = db.execute(select(TelnyxWhatsappTemplate)).scalars().all()
+        assert before == []
+
+        result = WaTemplateSyncService.pull_from_meta(db, status_only=False)
+        assert result.get("status_only") is True
+        assert result.get("catalog_import_disabled") is True
+
+        after = db.execute(select(TelnyxWhatsappTemplate)).scalars().all()
+        assert after == []
+
+
+def test_telnyx_sync_preserves_local_was_name_when_meta_has_legacy_name(monkeypatch):
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+
+    remote = [
+        {
+            "id": "meta-legacy-1",
+            "template_id": "777",
+            "name": "voxbulk_survey_complaint_followup_standard",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Legacy Meta body"}],
+        }
+    ]
+
+    with get_sessionmaker()() as db:
+        row = TelnyxWhatsappTemplate(
+            telnyx_record_id="meta-legacy-1",
+            template_id="777",
+            name="was_complaint_followup_001_en",
+            display_name="Complaint follow-up",
+            language="en_GB",
+            category="UTILITY",
+            status="PENDING",
+            variant_type=VARIANT_STANDARD,
+            body_preview="Local draft body",
+            draft_components_json=json.dumps([{"type": "BODY", "text": "Local draft body"}]),
+            local_sync_status="local_changes",
+        )
+        db.add(row)
+        db.commit()
+
+        result = TelnyxWhatsappTemplateSyncService.sync(db, remote=remote)
+        assert result["ok"] is True
+        db.refresh(row)
+        assert row.name == "was_complaint_followup_001_en"
+        assert row.status == "APPROVED"
+        draft = _loads(row.draft_components_json)
+        assert draft[0]["text"] == "Local draft body"
+
