@@ -14,6 +14,10 @@ export function filterApprovedSurveyTemplates(
 ): Array<Record<string, unknown>> {
   return rows.filter((row) => {
     if (row.active_for_survey === false) return false;
+    // Server session-text templates (Thank you, Tell us more, Closing, buttonless
+    // middle questions) are sent by the server and never need Meta approval.
+    const sendMode = String(row.send_mode || "").toLowerCase();
+    if (sendMode === "session_text") return true;
     if (row.is_approved === false) return false;
     if (row.is_approved === true) return true;
     const status = String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase();

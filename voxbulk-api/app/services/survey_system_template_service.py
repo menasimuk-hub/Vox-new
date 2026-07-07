@@ -554,14 +554,17 @@ class SurveySystemTemplateService:
         db: Session,
         tpl: TelnyxWhatsappTemplate,
     ) -> TelnyxWhatsappTemplate | None:
-        """Dashboard picker row: one mapped row — enabled and Meta-approved only."""
+        """Dashboard picker row: enabled row that is Meta-sendable OR sent as server session text."""
         if not tpl.active_for_survey:
             return None
-        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+        from app.services.survey_whatsapp_template_service import (
+            template_row_is_sendable_on_meta,
+            template_row_must_send_as_session_text,
+        )
 
-        if not template_row_is_sendable_on_meta(tpl):
-            return None
-        return tpl
+        if template_row_is_sendable_on_meta(tpl) or template_row_must_send_as_session_text(tpl):
+            return tpl
+        return None
 
     @staticmethod
     def is_builder_listed_system_template_id(db: Session, template_id: int, kind: str) -> bool:
@@ -592,7 +595,10 @@ class SurveySystemTemplateService:
         SurveySystemTemplateService.ensure_system_survey_types(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
         seen_ids: dict[str, set[int]] = {k: set() for k in SYSTEM_TEMPLATE_KINDS}
-        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+        from app.services.survey_whatsapp_template_service import (
+            template_row_is_sendable_on_meta,
+            template_row_must_send_as_session_text,
+        )
 
         types = list(
             db.execute(
@@ -626,7 +632,8 @@ class SurveySystemTemplateService:
                         "survey_type_id": st.id,
                         "survey_type_name": st.name,
                         "survey_type_slug": st.slug,
-                        "is_approved": template_row_is_sendable_on_meta(listed),
+                        "is_approved": template_row_is_sendable_on_meta(listed)
+                        or template_row_must_send_as_session_text(listed),
                     }
                 )
         return {"ok": True, "templates": grouped}

@@ -58,6 +58,7 @@ function templateFromApiRow(
   }
   const title = wizardTemplateDisplayName(row, fallback, questionNumber);
   const approved =
+    String(row.send_mode || "").toLowerCase() === "session_text" ||
     row.is_approved === true ||
     String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase() === "APPROVED";
   return {
@@ -78,6 +79,7 @@ export function mapSystemTemplates(
   const fallback = String(options?.fallback || "").trim();
   const selectable = rows.filter((row) => {
     if (row.active_for_survey === false) return false;
+    if (String(row.send_mode || "").toLowerCase() === "session_text") return true;
     if (row.is_approved === false) return false;
     if (row.is_approved === true) return true;
     const status = String(row.approval_status || row.telnyx_status || row.status || "").toUpperCase();

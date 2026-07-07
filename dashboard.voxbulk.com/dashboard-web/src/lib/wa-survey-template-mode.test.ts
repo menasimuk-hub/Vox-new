@@ -43,4 +43,14 @@ describe("wa-survey-template-mode", () => {
     ];
     expect(filterSelectableSurveyTemplates(rows).map((r) => r.id)).toEqual([1, 5]);
   });
+
+  it("keeps active server session-text templates selectable without Meta approval", () => {
+    const rows = [
+      { id: 1, active_for_survey: true, send_mode: "session_text", status: "LOCAL_DRAFT" },
+      { id: 2, active_for_survey: true, send_mode: "session_text", is_approved: false, status: "LOCAL_DRAFT" },
+      { id: 3, active_for_survey: false, send_mode: "session_text" },
+      { id: 4, active_for_survey: true, send_mode: "meta_hsm", status: "PENDING" },
+    ];
+    expect(filterApprovedSurveyTemplates(rows).map((r) => r.id)).toEqual([1, 2]);
+  });
 });

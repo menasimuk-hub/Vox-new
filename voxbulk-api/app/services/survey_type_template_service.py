@@ -122,7 +122,10 @@ class SurveyTypeTemplateService:
 
     @staticmethod
     def template_counts_for_survey_type(db: Session, survey_type_id: str) -> dict[str, int]:
-        from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+        from app.services.survey_whatsapp_template_service import (
+            template_row_is_sendable_on_meta,
+            template_row_must_send_as_session_text,
+        )
 
         survey_type = db.get(SurveyType, survey_type_id)
         rows = SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id)
@@ -131,7 +134,7 @@ class SurveyTypeTemplateService:
             tpl = db.get(TelnyxWhatsappTemplate, row.template_id)
             if tpl is None or not tpl.active_for_survey:
                 continue
-            if not template_row_is_sendable_on_meta(tpl):
+            if not template_row_is_sendable_on_meta(tpl) and not template_row_must_send_as_session_text(tpl):
                 continue
             if survey_type is not None:
                 if not template_belongs_to_survey_type(tpl, survey_type):

@@ -37,7 +37,11 @@ class SurveyBuilderValidationService:
         from app.services.survey_whatsapp_template_service import (
             resolve_sendable_template_row,
             template_row_is_sendable_on_meta,
+            template_row_must_send_as_session_text,
         )
+
+        if template_row_must_send_as_session_text(tpl):
+            return
 
         sendable = resolve_sendable_template_row(db, tpl)
         if sendable is None or not template_row_is_sendable_on_meta(sendable):

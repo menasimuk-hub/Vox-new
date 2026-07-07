@@ -669,6 +669,104 @@ def test_template_row_must_send_as_session_text_for_no_button_kinds(db):
     assert template_row_needs_meta_approval(rating) is True
 
 
+def test_template_count_keeps_named_and_anonymous_welcome_separate(db):
+    """System-kind welcome type keeps named + anonymous variants (fixes 380 vs 381)."""
+    from app.models.industry import Industry
+    from app.models.survey_type import SurveyType
+    from app.services.industry_service import _template_count_payload
+
+    industry = Industry(id="ind-welcome-count", name="Welcome Industry", slug="welcome-industry")
+    db.add(industry)
+    db.commit()
+
+    welcome_type = SurveyType(
+        id="st-welcome-count",
+        industry_id=industry.id,
+        name="Welcome",
+        slug="welcome_templates",
+        system_template_kind="welcome",
+    )
+    db.add(welcome_type)
+    db.commit()
+
+    named = _welcome_row(db, name="voxbulk_survey_welcome_templates_standard", status="APPROVED")
+    named.survey_type_id = welcome_type.id
+    named.language = "en_GB"
+    named.variant_type = "standard"
+    anon = _welcome_row(db, name="voxbulk_survey_welcome_templates_anonymous", status="APPROVED")
+    anon.survey_type_id = welcome_type.id
+    anon.language = "en_GB"
+    anon.variant_type = "anonymous"
+    db.add(named)
+    db.add(anon)
+    db.commit()
+
+    counts = _template_count_payload(db, {int(named.id), int(anon.id)})
+    assert counts["template_count"] == 2
+
+
+def test_picker_accepts_local_session_text_thank_you(db):
+    """Local (never-synced) session-text Thank you must be selectable in the wizard picker."""
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id="local-thankyou-001",
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_thank_you_standard",
+        display_name="Thank you",
+        language="en_GB",
+        category="UTILITY",
+        body_preview="Thank you for your feedback.",
+        step_role="completion",
+        status="LOCAL_DRAFT",
+        active_for_survey=True,
+        variant_type="standard",
+        privacy_mode="off",
+        components_json=json.dumps([{"type": "BODY", "text": "Thank you for your feedback."}]),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    from app.services.survey_whatsapp_template_service import template_row_is_sendable_on_meta
+
+    assert template_row_is_sendable_on_meta(row) is False
+    listed = SurveySystemTemplateService.picker_row_for_mapped_system_template(db, row)
+    assert listed is not None
+    assert int(listed.id) == int(row.id)
+
+    row.active_for_survey = False
+    db.add(row)
+    db.commit()
+    assert SurveySystemTemplateService.picker_row_for_mapped_system_template(db, row) is None
+
+
+def test_assert_meta_sendable_skips_local_session_text(db):
+    """Generate/launch validation must not block a local session-text Thank you."""
+    from app.services.survey_builder_validation_service import SurveyBuilderValidationService
+
+    row = TelnyxWhatsappTemplate(
+        telnyx_record_id="local-thankyou-002",
+        template_id=str(uuid.uuid4()),
+        name="voxbulk_survey_thank_you_standard_2",
+        display_name="Thank you",
+        language="en_GB",
+        category="UTILITY",
+        body_preview="Thank you for your time.",
+        step_role="completion",
+        status="LOCAL_DRAFT",
+        active_for_survey=True,
+        variant_type="standard",
+        privacy_mode="off",
+        components_json=json.dumps([{"type": "BODY", "text": "Thank you for your time."}]),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    errors: list[str] = []
+    SurveyBuilderValidationService._assert_meta_sendable(db, row, "Thank you", errors)
+    assert errors == []
+
+
 def test_survey_template_to_dict_strips_legacy_done_for_thank_you(db):
     from app.services.survey_whatsapp_template_service import survey_template_to_dict
 

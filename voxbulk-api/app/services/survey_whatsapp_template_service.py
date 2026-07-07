@@ -1906,8 +1906,15 @@ class SurveyWhatsappTemplateService:
                 if lang.lower().startswith("en")
                 else lang.lower()
             )
-            key = (type_key, lang_key)
             name = str(row.name or "").lower()
+            # System-kind types (e.g. welcome) legitimately keep two variants — a named
+            # welcome and an anonymous welcome — under one survey type. Keep them apart so
+            # both are counted/listed instead of collapsing into one.
+            variant_key = ""
+            if st is not None and str(st.system_template_kind or "").strip():
+                is_anon = "anonymous" in name or str(row.variant_type or "").strip().lower() == "anonymous"
+                variant_key = "anon" if is_anon else "named"
+            key = (type_key, lang_key, variant_key)
             score = (
                 1 if "_standard" in name and "_abc_" not in name and "_utu_" not in name else 0,
                 0 if ("_abc_" in name or "_utu_" in name) else 1,
@@ -1980,7 +1987,11 @@ class SurveyWhatsappTemplateService:
                 continue
             if not include_inactive and not bool(row.active_for_survey):
                 continue
-            if require_approved and not template_row_is_sendable_on_meta(row):
+            if (
+                require_approved
+                and not template_row_is_sendable_on_meta(row)
+                and not template_row_must_send_as_session_text(row)
+            ):
                 continue
             if strict_scope and survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue

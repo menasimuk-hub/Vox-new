@@ -169,7 +169,12 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.id.in_(template_ids))
         ).scalars()
     )
-    best: dict[tuple[str, str], TelnyxWhatsappTemplate] = {}
+    st_type_ids = {str(row.survey_type_id) for row in rows if row.survey_type_id}
+    system_kind_by_type: dict[str, str] = {}
+    if st_type_ids:
+        for st in db.execute(select(SurveyType).where(SurveyType.id.in_(st_type_ids))).scalars():
+            system_kind_by_type[str(st.id)] = str(st.system_template_kind or "").strip()
+    best: dict[tuple[str, str, str], TelnyxWhatsappTemplate] = {}
     for row in rows:
         type_key = str(row.survey_type_id or f"row:{row.id}")
         lang = str(row.language or "en_GB")
@@ -180,8 +185,13 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             if lang.lower().startswith("en")
             else lang.lower()
         )
-        key = (type_key, lang_key)
         name = str(row.name or "").lower()
+        # Keep named + anonymous variants of system-kind types (e.g. welcome) separate.
+        variant_key = ""
+        if system_kind_by_type.get(type_key):
+            is_anon = "anonymous" in name or str(row.variant_type or "").strip().lower() == "anonymous"
+            variant_key = "anon" if is_anon else "named"
+        key = (type_key, lang_key, variant_key)
         score = (
             1 if "_standard" in name and "_abc_" not in name and "_utu_" not in name else 0,
             0 if ("_abc_" in name or "_utu_" in name) else 1,
