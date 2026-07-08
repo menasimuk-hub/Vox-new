@@ -150,7 +150,7 @@ const NAV = [
 
       ['Overview', '/customer-feedback/overview'],
 
-      ['Packages', '/customer-feedback/packages'],
+      ['Packages & pricing', '/customer-feedback/packages'],
 
       ['Subscriptions', '/customer-feedback/subscriptions'],
 

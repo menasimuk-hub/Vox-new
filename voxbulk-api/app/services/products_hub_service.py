@@ -174,7 +174,7 @@ class ProductsHubService:
         line = ProductsHubService.product_line_for_plan(plan)
         if line == "customer_feedback":
             return {
-                "dashboard": f"/account/feedback/packages?plan={code}",
+                "dashboard": f"/account/packages?tab=feedback&product=feedback&plan={code}",
                 "website": f"https://voxbulk.com/pricing?plan={code}&product=feedback",
             }
         return {

@@ -209,6 +209,29 @@
   background: var(--ph-line);
 }
 
+.phHub .phGroupAction {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ph-rust);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.phHub .phGroupAction:hover {
+  text-decoration: underline;
+}
+
+.phHub .phIntroLink {
+  color: var(--ph-rust);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.phHub .phIntroLink:hover {
+  text-decoration: underline;
+}
+
 .phHub .phTableCard {
   background: var(--ph-white);
   border: 1px solid var(--ph-line);

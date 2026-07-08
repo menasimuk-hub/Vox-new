@@ -34,3 +34,10 @@ def test_picker_label_core():
     plan = Plan(code="pro", name="Pro", service_kind="voxbulk", interval="monthly")
     parts = ProductsHubService.picker_parts(plan)
     assert parts["picker_label"] == "Core platform · Pro · Global"
+
+
+def test_feedback_preview_urls_use_unified_packages_page():
+    plan = Plan(code="cf_growth_gb", name="Growth", service_kind="customer_feedback", interval="monthly")
+    urls = ProductsHubService.preview_urls(plan)
+    assert urls["dashboard"] == "/account/packages?tab=feedback&product=feedback&plan=cf_growth_gb"
+    assert "product=feedback" in urls["website"]

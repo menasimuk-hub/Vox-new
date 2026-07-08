@@ -15,6 +15,15 @@ import {
 } from './productsHubUtils'
 import './productsHubTheme.css'
 
+const GROUP_ACTIONS = {
+  voxbulk: [{ label: 'Edit core pricing', to: '/pricing/plans' }],
+  customer_feedback: [
+    { label: 'Edit feedback pricing', to: '/customer-feedback/packages' },
+    { label: 'Feedback hub', to: '/customer-feedback/overview' },
+  ],
+  campaign: [{ label: 'Campaign pricing', to: '/pricing/services' }],
+}
+
 function StatusBadge({ active }) {
   return (
     <span className={`phStatus ${active ? 'active' : 'stopped'}`}>
@@ -426,7 +435,8 @@ export default function ProductsHub() {
             <h1>Products hub</h1>
             <p>
               Catalogue for Core platform, Customer Feedback, and campaign packs. Edit marketing copy here; change
-              prices in Core platform pricing or Customer feedback pricing.
+              prices in <Link className="phIntroLink" to="/pricing/plans">Core platform pricing</Link> or{' '}
+              <Link className="phIntroLink" to="/customer-feedback/packages">Customer feedback pricing</Link>.
             </p>
           </div>
         </div>
@@ -515,6 +525,11 @@ export default function ProductsHub() {
                     {groupRows.length} plan{groupRows.length === 1 ? '' : 's'}
                   </span>
                   <span className="phGroupLine" />
+                  {(GROUP_ACTIONS[key] || []).map((action) => (
+                    <Link key={action.to} className="phGroupAction" to={action.to}>
+                      {action.label} →
+                    </Link>
+                  ))}
                 </div>
                 <div className="phTableCard">
                   <table>
