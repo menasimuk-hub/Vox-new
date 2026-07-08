@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, Circle, Loader2, Octagon, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -75,6 +75,7 @@ export default function WaJobProgressDialog({
   onStop,
 }) {
   const [tab, setTab] = useState('summary')
+  const autoLogTabRef = useRef(false)
   const running = phase === 'running'
   const done = phase === 'done'
   const failed = phase === 'error'
@@ -82,16 +83,31 @@ export default function WaJobProgressDialog({
 
   const doneCount = useMemo(() => steps.filter((s) => s.status === 'done').length, [steps])
   const totalSteps = steps.length || 1
-  const hasDetail = summaryRows.length > 0 || Object.keys(tables || {}).some((k) => (tables[k] || []).length > 0)
+  const hasDetail =
+    summaryRows.length > 0 ||
+    Object.keys(tables || {}).some((k) => (tables[k] || []).length > 0) ||
+    running
+
+  useEffect(() => {
+    if (!open) autoLogTabRef.current = false
+  }, [open])
+
+  useEffect(() => {
+    if (running && !autoLogTabRef.current && open) {
+      setTab('sync_log')
+      autoLogTabRef.current = true
+    }
+  }, [running, open])
 
   if (!open) return null
 
   const activeTab = DETAIL_TABS.some((t) => t.id === tab) ? tab : 'summary'
+  const syncLogCount = Array.isArray(tables?.sync_log) ? tables.sync_log.length : 0
   const pct = Math.max(progressPct || 0, running ? Math.round((doneCount / totalSteps) * 50) : 100)
 
   const dialog = (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4"
       role="presentation"
       onClick={running ? undefined : onClose}
     >
@@ -184,7 +200,18 @@ export default function WaJobProgressDialog({
             </div>
           ) : null}
 
-          {message && running ? <p className="mb-3 text-xs text-muted-foreground">{message}</p> : null}
+          {running ? (
+            <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+              <div className="font-medium text-foreground">{message || 'Starting sync…'}</div>
+              {syncLogCount > 0 ? (
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {syncLogCount} template(s) logged — open <span className="font-medium">Progress log</span> below
+                </div>
+              ) : (
+                <div className="mt-1 text-[11px] text-muted-foreground">Waiting for first template…</div>
+              )}
+            </div>
+          ) : null}
           {message && (done || failed || cancelled) && !error ? (
             <p className="mb-3 text-xs text-muted-foreground">{message}</p>
           ) : null}
@@ -199,7 +226,9 @@ export default function WaJobProgressDialog({
                       : Array.isArray(tables?.[t.id])
                         ? tables[t.id].length
                         : 0
-                  if (t.id !== 'summary' && count === 0 && t.id !== 'meta_orphans_remaining') return null
+                  if (t.id !== 'summary' && count === 0 && t.id !== 'meta_orphans_remaining') {
+                    if (!(running && t.id === 'sync_log')) return null
+                  }
                   return (
                     <button
                       key={t.id}
@@ -349,11 +378,17 @@ export default function WaJobProgressDialog({
               ■ Stop — cancel job
             </Button>
           ) : null}
-          <div className="flex justify-end">
-            <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onClose} disabled={running && !onStop}>
-              {running ? 'Working…' : 'Close'}
-            </Button>
-          </div>
+          {!running ? (
+            <div className="flex justify-end">
+              <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          ) : (
+            <p className="text-center text-[10px] text-muted-foreground">
+              Sync is running — use Stop above to cancel. This window stays open until finished.
+            </p>
+          )}
         </div>
       </div>
     </div>

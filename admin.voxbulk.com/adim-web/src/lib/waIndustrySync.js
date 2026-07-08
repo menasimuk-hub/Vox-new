@@ -49,7 +49,7 @@ export function flattenIndustryPushBatch(summary) {
   }
 }
 
-function outcomeLabel(outcome) {
+export function outcomeLabel(outcome) {
   const map = {
     content_updated: 'Updated on Meta',
     status_refreshed: 'Status refreshed',
@@ -58,6 +58,37 @@ function outcomeLabel(outcome) {
     failed: 'Failed',
   }
   return map[outcome] || outcome || '—'
+}
+
+export function flattenHubPushBatch(last) {
+  if (!last) return flattenIndustryPushBatch({})
+  if (last.survey_push) return flattenIndustryPushBatch(last.survey_push)
+  return flattenIndustryPushBatch(last)
+}
+
+export function createHubPushAccumulator() {
+  return {
+    content_updated: 0,
+    refreshed: 0,
+    linked: 0,
+    skipped: 0,
+    error_count: 0,
+    errors: [],
+    results: [],
+    total: 0,
+  }
+}
+
+export function mergePushBatchIntoAcc(acc, flat) {
+  acc.content_updated += flat.content_updated
+  acc.refreshed += flat.refreshed
+  acc.linked += flat.linked
+  acc.skipped += flat.skipped
+  acc.error_count += flat.error_count
+  acc.errors.push(...(flat.errors || []))
+  acc.results.push(...(flat.results || []))
+  if (flat.total) acc.total = flat.total
+  return acc
 }
 
 function buildSyncTables(acc) {

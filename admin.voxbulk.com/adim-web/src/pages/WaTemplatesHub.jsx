@@ -36,6 +36,13 @@ import {
   syncProfilePayload,
   syncProfileActionLabel,
 } from '../lib/waSyncProfile'
+import {
+  buildIndustrySyncJobProgress,
+  createHubPushAccumulator,
+  flattenHubPushBatch,
+  mergePushBatchIntoAcc,
+  outcomeLabel,
+} from '../lib/waIndustrySync'
 import '../styles/wa-templates-hub.css'
 
 const EMPTY_JOB = {
@@ -522,12 +529,15 @@ export default function WaTemplatesHub() {
     setSyncProgress('')
     setError('')
     setMsg('')
+    const acc = createHubPushAccumulator()
     setJob({
       ...EMPTY_JOB,
       open: true,
       title,
       phase: 'running',
-      steps: [{ id: 'push', label: 'Push templates', status: 'running', detail: '' }],
+      steps: [{ id: 'push', label: 'Push templates', status: 'running', detail: 'Starting…' }],
+      tables: { sync_log: [], pushed: [], refreshed: [], push_failed: [] },
+      progressPct: 0,
     })
     const PUSH_BATCH = 10
     let offset = 0
@@ -548,15 +558,29 @@ export default function WaTemplatesHub() {
           quietNetworkHint: true,
           signal: controller.signal,
         })
-        pushTotal += Number(last?.content_updated || last?.pushed || 0)
+        const flat = flattenHubPushBatch(last)
+        mergePushBatchIntoAcc(acc, flat)
+        pushTotal = acc.content_updated
+        const progress = buildIndustrySyncJobProgress(acc, {
+          running: Boolean(last?.has_more),
+          industryName: 'survey templates',
+        })
+        const lastResult = acc.results[acc.results.length - 1]
+        const lastName = lastResult?.template_name || lastResult?.label || ''
+        setSyncProgress(acc.total ? `${acc.results.length}/${acc.total}` : '')
         setJob((prev) => ({
           ...prev,
+          ...progress,
+          phase: 'running',
+          open: true,
           steps: prev.steps.map((s) =>
             s.id === 'push'
               ? {
                   ...s,
                   status: last?.has_more ? 'running' : 'done',
-                  detail: last?.message || `Batch ${batchNum}`,
+                  detail: lastName
+                    ? `Last: ${lastName} — ${outcomeLabel(lastResult?.outcome)}`
+                    : last?.message || `Batch ${batchNum}`,
                 }
               : s,
           ),
@@ -565,22 +589,37 @@ export default function WaTemplatesHub() {
         offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
       }
       const branchNote = last?.results?.[0]?.sync_branch ? ` (${last.results[0].sync_branch})` : ''
+      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
       const finalMsg = formatActionSuccess(last || {}, last?.message || `Pushed ${pushTotal} template(s)${branchNote}`).message
       setMsg(finalMsg)
       setJob((prev) => ({
         ...prev,
         phase: 'done',
         message: finalMsg,
-        summaryRows: [
-          ...(pushTotal ? [{ metric: 'Templates pushed', count: pushTotal }] : []),
-          ...(Number(last?.skipped) > 0 ? [{ metric: 'Skipped (already in sync)', count: last.skipped }] : []),
-          ...(Number(last?.total) > 0 ? [{ metric: 'Total in batch scope', count: last.total }] : []),
-        ],
+        progressPct: 100,
+        summaryRows: finalProgress.summaryRows?.length
+          ? finalProgress.summaryRows
+          : [
+              ...(pushTotal ? [{ metric: 'Templates pushed', count: pushTotal }] : []),
+              ...(Number(last?.skipped) > 0 ? [{ metric: 'Skipped (already in sync)', count: last.skipped }] : []),
+              ...(Number(last?.total) > 0 ? [{ metric: 'Total in batch scope', count: last.total }] : []),
+            ],
+        tables: finalProgress.tables,
       }))
       refreshSelectedProfileSummary()
       refreshAllProfileSummaries()
       refreshTabData()
     } catch (e) {
+      if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
+        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
+        setJob((prev) => ({
+          ...prev,
+          ...partial,
+          phase: 'cancelled',
+          message: 'Stopped — push cancelled',
+        }))
+        return
+      }
       const errText = formatWaSurveyError(e, 'Push failed').detailText || e?.message || 'Push failed'
       setError(errText)
       setJob((prev) => ({ ...prev, phase: 'error', error: errText }))
@@ -641,9 +680,12 @@ export default function WaTemplatesHub() {
       title: 'Sync with Meta',
       phase: 'running',
       steps: stepDefs.map((s) => ({ ...s, status: 'pending', detail: '' })),
+      tables: { sync_log: [], pushed: [], refreshed: [], push_failed: [] },
+      progressPct: 0,
     })
     const messages = []
     const summaryRows = []
+    const acc = createHubPushAccumulator()
     try {
       let last = null
       patchJobStep('pull', { status: 'running', detail: 'Refreshing approval status from Meta…' })
@@ -678,16 +720,34 @@ export default function WaTemplatesHub() {
           quietNetworkHint: true,
           signal: controller.signal,
         })
-        pushTotal += Number(last?.survey_push?.pushed || 0)
+        const flat = flattenHubPushBatch(last)
+        mergePushBatchIntoAcc(acc, flat)
+        pushTotal = acc.content_updated
+        const progress = buildIndustrySyncJobProgress(acc, {
+          running: Boolean(last?.has_more),
+          industryName: 'survey templates',
+        })
+        const lastResult = acc.results[acc.results.length - 1]
+        const lastName = lastResult?.template_name || lastResult?.label || ''
+        setSyncProgress(acc.total ? `${acc.results.length}/${acc.total}` : '')
         patchJobStep('push', {
           status: last?.has_more ? 'running' : 'done',
-          detail: last?.message || `Batch ${batchNum}`,
+          detail: lastName
+            ? `Last: ${lastName} — ${outcomeLabel(lastResult?.outcome)}`
+            : last?.message || `Batch ${batchNum}`,
         })
+        setJob((prev) => ({
+          ...prev,
+          ...progress,
+          phase: 'running',
+          open: true,
+        }))
         if (!last?.has_more) break
         offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
       }
       messages.push(last?.message || 'Push complete')
       if (pushTotal) summaryRows.push({ metric: 'Templates pushed', count: pushTotal })
+      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
 
       const finalMsg = formatActionSuccess(last || {}, messages.join(' · ')).message
       setMsg(finalMsg)
@@ -695,15 +755,18 @@ export default function WaTemplatesHub() {
         ...prev,
         phase: 'done',
         message: finalMsg,
-        summaryRows,
-        tables: {},
+        progressPct: 100,
+        summaryRows: summaryRows.length ? summaryRows : finalProgress.summaryRows,
+        tables: finalProgress.tables,
       }))
       refreshSelectedProfileSummary()
       refreshTabData()
     } catch (e) {
       if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
+        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
         setJob((prev) => ({
           ...prev,
+          ...partial,
           phase: 'cancelled',
           message: 'Stopped — sync cancelled',
           summaryRows,
@@ -1277,6 +1340,15 @@ export default function WaTemplatesHub() {
       </header>
 
       <main className="mx-auto max-w-[1400px] p-4">
+        {syncing && !job.open ? (
+          <button
+            type="button"
+            className="mb-3 w-full rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-left text-xs text-primary hover:bg-primary/15"
+            onClick={() => setJob((prev) => ({ ...prev, open: true }))}
+          >
+            Sync in progress{syncProgress ? ` (${syncProgress})` : ''} — click here to show progress window
+          </button>
+        ) : null}
         {error ? (
           <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
