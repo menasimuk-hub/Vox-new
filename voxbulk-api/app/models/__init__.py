@@ -18,6 +18,7 @@ from app.models.connection_profile import (  # noqa: F401
     ConnectionProfileService,
 )
 from app.models.custom_org_profile import CustomOrgProfile  # noqa: F401
+from app.models.wa_template_profile_status import WaTemplateProfileStatus  # noqa: F401
 from app.models.plan import Plan  # noqa: F401
 from app.models.promo_offer import PromoOffer, PromoRedemption  # noqa: F401
 from app.models.org_usage_period import OrgUsagePeriod  # noqa: F401

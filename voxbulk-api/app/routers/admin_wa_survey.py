@@ -148,6 +148,9 @@ def list_industry_templates(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found")
     templates = SurveyWhatsappTemplateService.list_for_industry(db, industry_id)
+    from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
+    WaTemplateProfileStatusService.attach_to_dicts(db, templates)
     types = SurveyTypeService.list_types(db, industry_id=industry_id)
     linked_type_ids = {
         str(t.get("survey_type_id") or "")
@@ -554,7 +557,11 @@ def create_custom_template(
 
 @router.get("/templates")
 def list_template_library(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
-    return {"ok": True, "templates": SurveyWhatsappTemplateService.list_library(db)}
+    from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
+    templates = SurveyWhatsappTemplateService.list_library(db)
+    WaTemplateProfileStatusService.attach_to_dicts(db, templates)
+    return {"ok": True, "templates": templates}
 
 
 @router.get("/templates/{template_id}")
@@ -562,6 +569,11 @@ def get_template_detail(template_id: int, db: Session = Depends(get_db), _admin=
     detail = SurveyWhatsappTemplateService.get_template_detail(db, template_id)
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
+    tpl = detail.get("template") if isinstance(detail, dict) else None
+    if isinstance(tpl, dict):
+        WaTemplateProfileStatusService.attach_to_dicts(db, [tpl])
     return {"ok": True, **detail}
 
 
@@ -857,11 +869,17 @@ def push_template_to_telnyx(
             return _run_template_fix_and_sync(db, row, body)
         from app.services.wa_template_sync_profile import connection_profile_id_from_payload
 
+        profile_id = connection_profile_id_from_payload(body)
         result = SurveyWhatsappTemplateService.push_to_telnyx(
             db,
             row,
             force_approved_update=bool(body.get("force_push", False)),
-            connection_profile_id=connection_profile_id_from_payload(body),
+            connection_profile_id=profile_id,
+        )
+        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
+        WaTemplateProfileStatusService.record_from_row(
+            db, row, connection_profile_id=profile_id, mark_pushed=True, commit=True
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)

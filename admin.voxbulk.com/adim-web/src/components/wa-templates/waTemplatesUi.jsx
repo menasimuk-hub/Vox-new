@@ -80,6 +80,53 @@ export function StatusDot({ status }) {
   )
 }
 
+/** Map a raw Meta/Telnyx approval status to a StatusDot colour key. */
+function metaStatusToKey(status) {
+  const s = String(status || '').trim().toUpperCase()
+  if (s === 'APPROVED') return 'approved'
+  if (s === 'REJECTED') return 'rejected'
+  if (s.startsWith('PENDING') || s === 'IN_APPEAL' || s === 'PENDING_DELETION') return 'pending'
+  if (s === 'LOCAL_DRAFT' || s === 'DRAFT' || s === '' || s === 'UNKNOWN') return 'local'
+  if (s === 'DISABLED' || s === 'PAUSED') return 'disabled'
+  return 'pending'
+}
+
+const PROFILE_STATUS_DOT = {
+  approved: 'bg-success',
+  pending: 'bg-warning',
+  rejected: 'bg-destructive',
+  local: 'bg-info',
+  disabled: 'bg-muted-foreground/50',
+}
+
+/** Per-connection-profile status chips (e.g. "Meta 99 · Approved", "Telnyx 55 · Pending"). */
+export function ProfileStatusBadges({ statuses }) {
+  const list = Array.isArray(statuses) ? statuses : []
+  if (!list.length) return null
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {list.map((p) => {
+        const key = metaStatusToKey(p.status)
+        const label = p.profile_label || p.provider || p.profile_key || 'Profile'
+        const statusText = String(p.status || 'UNKNOWN').replace(/_/g, ' ').toLowerCase()
+        const tip = p.rejection_reason
+          ? `${label}: ${statusText} — ${p.rejection_reason}`
+          : `${label}: ${statusText}`
+        return (
+          <span
+            key={p.profile_key || label}
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
+            title={tip}
+          >
+            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', PROFILE_STATUS_DOT[key] || 'bg-warning')} />
+            <span className="max-w-[90px] truncate">{label}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 export function CategoryPill({ category }) {
   const label = category === 'Marketing' ? 'Marketing' : 'Utility'
   return (
@@ -430,6 +477,7 @@ export function toHubRow(tpl, overrides = {}) {
     syncFromMeta: Boolean(tpl.sync_from_meta),
     hiddenFromSurvey: overrides.hiddenFromSurvey ?? isHiddenWaTemplate(tpl, overrides.product),
     rejectionReason: tpl.rejection_reason || tpl.last_push_error || '',
+    profileStatuses: Array.isArray(tpl.profile_statuses) ? tpl.profile_statuses : [],
     raw: tpl,
     ...overrides,
     status,

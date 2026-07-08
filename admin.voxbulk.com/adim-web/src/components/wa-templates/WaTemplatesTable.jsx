@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
-import { CategoryPill, IconBtn, LangChip, MetaNamePreview, STATUS_FILTERS, StatusDot, isHubRowHidden } from './waTemplatesUi'
+import { CategoryPill, IconBtn, LangChip, MetaNamePreview, ProfileStatusBadges, STATUS_FILTERS, StatusDot, isHubRowHidden } from './waTemplatesUi'
 
 export default function WaTemplatesTable({
   templates,
@@ -254,6 +254,7 @@ export default function WaTemplatesTable({
                   </td>
                   <td className="px-2 py-1.5">
                     <StatusDot status={t.status} />
+                    <ProfileStatusBadges statuses={t.profileStatuses} />
                   </td>
                   {showMetaSyncColumn ? (
                     <td className="px-2 py-1.5">

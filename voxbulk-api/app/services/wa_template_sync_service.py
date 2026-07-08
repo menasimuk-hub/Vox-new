@@ -215,7 +215,10 @@ class WaTemplateSyncService:
             if code != SERVICE_CUSTOMER_FEEDBACK:
                 rows = [row for row in rows if is_survey_platform_row(db, row)]
 
+        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
         updated = 0
+        synced_rows: list[TelnyxWhatsappTemplate] = []
         for row in rows:
             live = TelnyxWhatsappTemplateSyncService._match_live_item(
                 row, by_record=by_record, by_name_lang=by_name_lang
@@ -223,7 +226,12 @@ class WaTemplateSyncService:
             if live is None:
                 continue
             _apply_live_meta_to_row(db, row, live, mirror_remote_body=mirror_remote_body)
+            synced_rows.append(row)
             updated += 1
+        # Record per-profile status ledger from the freshly-refreshed rows (same txn).
+        WaTemplateProfileStatusService.record_many(
+            db, synced_rows, connection_profile_id=connection_profile_id, commit=False
+        )
         db.commit()
         return {
             "ok": True,
@@ -366,7 +374,10 @@ class WaTemplateSyncService:
         linked = 0
         skipped_count = len(pre_skipped) if offset == 0 else 0
 
+        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
         row_by_label = {str(row.name or row.id): row for row in work}
+        pushed_rows: list[TelnyxWhatsappTemplate] = []
         for raw in batch.get("results") or []:
             label = str(raw.get("label") or raw.get("template_name") or "")
             row = row_by_label.get(label)
@@ -379,6 +390,7 @@ class WaTemplateSyncService:
                 continue
             normalized = _normalize_batch_result(row, raw)
             normalized_results.append(normalized)
+            pushed_rows.append(row)
             outcome = normalized["outcome"]
             if outcome == "status_refreshed":
                 refreshed += 1
@@ -388,6 +400,11 @@ class WaTemplateSyncService:
                 linked += 1
             elif outcome == "skipped":
                 skipped_count += 1
+
+        # Record per-profile status ledger from the freshly-pushed rows.
+        WaTemplateProfileStatusService.record_many(
+            db, pushed_rows, connection_profile_id=connection_profile_id, mark_pushed=True, commit=True
+        )
 
         normalized_errors: list[dict[str, Any]] = []
         for err in batch.get("errors") or []:
