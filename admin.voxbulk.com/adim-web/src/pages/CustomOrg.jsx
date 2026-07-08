@@ -198,7 +198,11 @@ export default function CustomOrg() {
     try {
       await apiFetch('/admin/wa-survey/industries', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim(), org_ids: [form.org_id] }),
+        body: JSON.stringify({
+          name: name.trim(),
+          visibility_mode: 'restricted',
+          org_ids: [form.org_id],
+        }),
       })
       // Reload detail so the new dedicated industry shows up.
       await openDetail(form.id)

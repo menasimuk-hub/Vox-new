@@ -325,6 +325,7 @@ class IndustryService:
     ) -> list[dict[str, Any]]:
         """Full industries table for the Industries admin page."""
         IndustryService.ensure_defaults(db)
+        IndustryService.repair_restricted_visibility(db)
         stmt = select(Industry).order_by(Industry.sort_order.asc(), Industry.name.asc())
         if not include_inactive:
             stmt = stmt.where(Industry.is_active.is_(True))
@@ -338,7 +339,19 @@ class IndustryService:
         ):
             if industry_id:
                 counts[str(industry_id)] = int(cnt or 0)
-        return [industry_to_dict(r, survey_type_count=counts.get(r.id, 0)) for r in rows]
+        org_map = IndustryService._industry_org_labels(db, [r.id for r in rows])
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            org_ids, org_names = org_map.get(r.id, ([], []))
+            out.append(
+                industry_to_dict(
+                    r,
+                    survey_type_count=counts.get(r.id, 0),
+                    org_ids=org_ids,
+                )
+                | {"org_names": org_names}
+            )
+        return out
 
     @staticmethod
     def wa_survey_overview(db: Session, *, fast: bool = False) -> dict[str, Any]:
@@ -373,6 +386,8 @@ class IndustryService:
         ]
 
         if fast:
+            IndustryService.repair_restricted_visibility(db)
+            org_map = IndustryService._industry_org_labels(db, [row.id for row in visible_industries])
             return {
                 "ok": True,
                 "fast": True,
@@ -383,7 +398,12 @@ class IndustryService:
                     "pending_templates": max(0, total_templates - approved_templates),
                 },
                 "industries": [
-                    industry_to_dict(row, survey_type_count=type_counts.get(row.id, 0))
+                    industry_to_dict(
+                        row,
+                        survey_type_count=type_counts.get(row.id, 0),
+                        org_ids=org_map.get(row.id, ([], []))[0],
+                    )
+                    | {"org_names": org_map.get(row.id, ([], []))[1]}
                     for row in visible_industries
                 ],
             }
@@ -403,6 +423,8 @@ class IndustryService:
         )
 
         industries: list[dict[str, Any]] = []
+        IndustryService.repair_restricted_visibility(db)
+        org_map = IndustryService._industry_org_labels(db, [row.id for row in visible_industries])
         for row in visible_industries:
             template_ids = _template_ids_for_industry(
                 db,
@@ -411,6 +433,7 @@ class IndustryService:
                 orphans=orphans,
             )
             counts = _template_count_payload(db, template_ids)
+            org_ids, org_names = org_map.get(row.id, ([], []))
             industries.append(
                 industry_to_dict(
                     row,
@@ -419,7 +442,9 @@ class IndustryService:
                     approved_template_count=counts["approved_template_count"],
                     pending_template_count=counts["pending_template_count"],
                     rejected_template_count=counts["rejected_template_count"],
+                    org_ids=org_ids,
                 )
+                | {"org_names": org_names}
             )
 
         return {
@@ -490,10 +515,13 @@ class IndustryService:
         if existing is not None:
             raise ValueError(f"An industry with slug “{slug}” already exists")
         now = datetime.utcnow()
-        visibility_mode = str(payload.get("visibility_mode") or "all").strip().lower()
+        org_ids = [str(x).strip() for x in (payload.get("org_ids") or []) if str(x).strip()]
+        visibility_mode = str(payload.get("visibility_mode") or "").strip().lower()
         if visibility_mode not in {"all", "restricted"}:
-            org_ids_raw = payload.get("org_ids")
-            visibility_mode = "restricted" if org_ids_raw else "all"
+            # org_ids imply a dedicated (restricted) industry — used by Custom Org create.
+            visibility_mode = "restricted" if org_ids else "all"
+        elif org_ids and visibility_mode == "all":
+            visibility_mode = "restricted"
         row = Industry(
             id=str(uuid.uuid4()),
             slug=slug,
@@ -508,8 +536,7 @@ class IndustryService:
         db.add(row)
         db.commit()
         db.refresh(row)
-        if visibility_mode == "restricted" or payload.get("org_ids"):
-            org_ids = list(payload.get("org_ids") or [])
+        if visibility_mode == "restricted" or org_ids:
             IndustryService.set_industry_orgs(db, row.id, org_ids)
             if len(org_ids) == 1:
                 from app.services.custom_org_profile_service import CustomOrgProfileService
@@ -711,6 +738,56 @@ class IndustryService:
         )
 
     @staticmethod
+    def _industry_org_labels(db: Session, industry_ids: list[str]) -> dict[str, tuple[list[str], list[str]]]:
+        """Map industry_id → (org_ids, org_names) for admin cards."""
+        ids = [str(x).strip() for x in industry_ids if str(x or "").strip()]
+        if not ids:
+            return {}
+        from app.models.organisation import Organisation
+
+        links = list(
+            db.execute(
+                select(IndustryOrganisation.industry_id, IndustryOrganisation.org_id).where(
+                    IndustryOrganisation.industry_id.in_(ids)
+                )
+            ).all()
+        )
+        org_id_set = sorted({str(oid) for _, oid in links if oid})
+        name_by_id: dict[str, str] = {}
+        if org_id_set:
+            for org in db.execute(select(Organisation).where(Organisation.id.in_(org_id_set))).scalars().all():
+                name_by_id[str(org.id)] = str(org.name or org.id)
+        by_industry: dict[str, list[str]] = {}
+        for iid, oid in links:
+            by_industry.setdefault(str(iid), []).append(str(oid))
+        out: dict[str, tuple[list[str], list[str]]] = {}
+        for iid in ids:
+            oids = by_industry.get(iid, [])
+            out[iid] = (oids, [name_by_id.get(oid, oid) for oid in oids])
+        return out
+
+    @staticmethod
+    def repair_restricted_visibility(db: Session) -> int:
+        """Industries with org links must be visibility=restricted (Custom Org create used to miss this)."""
+        linked_ids = {
+            str(x)
+            for x in db.execute(select(IndustryOrganisation.industry_id).distinct()).scalars().all()
+            if x
+        }
+        if not linked_ids:
+            return 0
+        fixed = 0
+        for row in db.execute(select(Industry).where(Industry.id.in_(linked_ids))).scalars().all():
+            if str(getattr(row, "visibility_mode", None) or "all").strip().lower() != "restricted":
+                row.visibility_mode = "restricted"
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                fixed += 1
+        if fixed:
+            db.commit()
+        return fixed
+
+    @staticmethod
     def set_industry_orgs(db: Session, industry_id: str, org_ids: list[str]) -> list[str]:
         cleaned = []
         seen: set[str] = set()
@@ -746,6 +823,7 @@ class IndustryService:
 
     @staticmethod
     def list_industries_for_org(db: Session, org_id: str) -> list[dict[str, Any]]:
+        IndustryService.repair_restricted_visibility(db)
         rows = IndustryService.list_industries(db, active_only=True, include_inactive=False)
         visible: list[dict[str, Any]] = []
         for payload in rows:

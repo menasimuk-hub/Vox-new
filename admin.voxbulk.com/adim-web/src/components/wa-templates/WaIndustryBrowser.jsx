@@ -994,9 +994,11 @@ export default function WaIndustryBrowser({
                   <div className="mt-0.5 text-[10px] text-muted-foreground">{industryHealthLabel(ind)}</div>
                   {ind.visibility_mode === 'restricted' ? (
                     <div className="mt-0.5 text-[10px] font-medium text-primary">
-                      {(ind.org_ids || []).length === 1
-                        ? '1 organisation only'
-                        : `${(ind.org_ids || []).length} organisations only`}
+                      {(ind.org_names || []).length
+                        ? `Only: ${(ind.org_names || []).slice(0, 2).join(', ')}${(ind.org_names || []).length > 2 ? '…' : ''}`
+                        : (ind.org_ids || []).length === 1
+                          ? '1 organisation only'
+                          : `${(ind.org_ids || []).length} organisations only`}
                     </div>
                   ) : null}
                 </div>
