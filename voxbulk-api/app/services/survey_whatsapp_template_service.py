@@ -2918,7 +2918,12 @@ class SurveyWhatsappTemplateService:
         record_id = str(row.telnyx_record_id or "").strip()
         if record_id and not record_id.startswith(_LOCAL_ID_PREFIX):
             try:
-                remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(db, record_id)
+                remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(
+                    db,
+                    record_id,
+                    connection_profile_id=connection_profile_id,
+                    service_code=service_code or "survey",
+                )
                 _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False)
             except Exception as exc:
                 logger.warning(

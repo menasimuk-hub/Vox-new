@@ -450,15 +450,34 @@ class TelnyxWhatsappTemplateSyncService:
         )
 
     @staticmethod
-    def fetch_template_by_record_id(db: Session, record_id: str) -> dict[str, Any]:
+    def fetch_template_by_record_id(
+        db: Session,
+        record_id: str,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str = "survey",
+    ) -> dict[str, Any]:
         """Fetch a single WhatsApp template from Meta or Telnyx by record id."""
+        from app.services.meta_whatsapp_service import _META_RECORD_PREFIX
+        from app.services.telnyx_messaging_service import _TEMPLATE_UUID_RE
+
         rid = str(record_id or "").strip()
         if not rid:
             raise TelnyxWhatsappTemplateSyncError("Template record id is required")
 
-        from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+        use_meta_api = rid.startswith(_META_RECORD_PREFIX) or rid.startswith("meta-")
+        if not use_meta_api and _TEMPLATE_UUID_RE.match(rid):
+            use_meta_api = False
+        elif not use_meta_api:
+            from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db, service_code="survey"):
+            use_meta_api = is_meta_whatsapp_primary(
+                db,
+                service_code=service_code,
+                connection_profile_id=connection_profile_id,
+            )
+
+        if use_meta_api:
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
             try:
@@ -466,7 +485,17 @@ class TelnyxWhatsappTemplateSyncService:
             except MetaWhatsappTemplateError as exc:
                 raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
 
-        config = TelnyxWhatsappTemplateSyncService._config(db)
+        if connection_profile_id:
+            from app.services.connection.config_resolver import resolve_whatsapp_route_by_profile_id
+
+            route = resolve_whatsapp_route_by_profile_id(
+                db,
+                connection_profile_id,
+                service_code=service_code,
+            )
+            config = route.config
+        else:
+            config = TelnyxWhatsappTemplateSyncService._config(db)
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
