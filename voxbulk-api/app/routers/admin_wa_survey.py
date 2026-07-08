@@ -876,11 +876,6 @@ def push_template_to_telnyx(
             force_approved_update=bool(body.get("force_push", False)),
             connection_profile_id=profile_id,
         )
-        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
-
-        WaTemplateProfileStatusService.record_from_row(
-            db, row, connection_profile_id=profile_id, mark_pushed=True, commit=True
-        )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
     return result
@@ -1441,6 +1436,44 @@ def pull_system_templates_from_meta(
         return SurveySystemTemplateService.pull_from_meta(db)
     except SurveySystemTemplateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/system-templates/push-all")
+def push_all_system_templates(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+    from app.services.wa_template_sync_service import WaTemplateSyncService
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    return WaTemplateSyncService.push_all_system_templates(
+        db,
+        connection_profile_id=profile_id,
+        offset=int(body.get("offset") or 0),
+        limit=body.get("limit") if body.get("limit") is not None else 10,
+    )
+
+
+@router.post("/templates/mirror-backup")
+def mirror_survey_templates_to_backup(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+    from app.services.wa_template_sync_service import WaTemplateSyncService
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    return WaTemplateSyncService.mirror_to_backup_profile(
+        db,
+        connection_profile_id=profile_id,
+        offset=int(body.get("offset") or 0),
+        limit=body.get("limit") if body.get("limit") is not None else 10,
+    )
 
 
 @router.get("/system-templates")

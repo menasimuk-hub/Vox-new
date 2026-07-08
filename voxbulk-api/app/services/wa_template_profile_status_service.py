@@ -166,6 +166,58 @@ class WaTemplateProfileStatusService:
         return out
 
     @staticmethod
+    def record_from_live_item(
+        db: Session,
+        template_id: int,
+        live: dict[str, Any],
+        *,
+        connection_profile_id: str | None,
+        commit: bool = False,
+    ) -> WaTemplateProfileStatus | None:
+        """Upsert ledger row from a live Meta/Telnyx template item (status pull, non-primary)."""
+        from app.services.telnyx_whatsapp_template_sync_service import _send_template_id_from_api_item
+
+        profile_key, resolved_id, provider, label = WaTemplateProfileStatusService._resolve_identity(
+            db, connection_profile_id
+        )
+        now = datetime.utcnow()
+        entry = db.execute(
+            select(WaTemplateProfileStatus).where(
+                WaTemplateProfileStatus.template_id == int(template_id),
+                WaTemplateProfileStatus.profile_key == profile_key,
+            )
+        ).scalar_one_or_none()
+        if entry is None:
+            entry = WaTemplateProfileStatus(template_id=int(template_id), profile_key=profile_key)
+            db.add(entry)
+
+        entry.connection_profile_id = resolved_id
+        if provider:
+            entry.provider = provider
+        if label:
+            entry.profile_label = label
+        status = str(live.get("status") or "UNKNOWN").strip().upper() or "UNKNOWN"
+        entry.status = status
+        entry.rejection_reason = str(live.get("rejection_reason") or "").strip() or None
+        record_id = str(live.get("id") or "").strip() or None
+        entry.remote_record_id = record_id
+        entry.remote_template_id = _send_template_id_from_api_item(live) or record_id
+        waba = live.get("whatsapp_business_account")
+        entry.waba_id = str(waba.get("id") or "").strip() if isinstance(waba, dict) else None
+        category = str(live.get("category") or "").strip() or None
+        if category:
+            entry.category = category
+        entry.last_synced_at = now
+        entry.updated_at = now
+        if commit:
+            try:
+                db.commit()
+            except Exception:  # noqa: BLE001
+                logger.exception("wa_template_profile_status_live_commit_failed template_id=%s", template_id)
+                db.rollback()
+        return entry
+
+    @staticmethod
     def attach_to_dicts(db: Session, dicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Attach a ``profile_statuses`` list onto each serialized template dict (keyed by ``id``)."""
         if not dicts:

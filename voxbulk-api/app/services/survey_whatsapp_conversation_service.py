@@ -1425,7 +1425,14 @@ def _send_whatsapp_template(
         variables=variables,
         db=db,
     )
-    send_id = send_template_id_for_row(sendable)
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    send_id = WaTemplateProfilePushService.send_template_id_for_active_profile(
+        db,
+        sendable,
+        org_id=order.org_id,
+        service_code="survey",
+    )
     rendered = str(body or preview.get("rendered_body") or sendable.body_preview or "Survey message").strip()
     langs: list[str] = []
     for candidate in (sendable.language, "en_US", "en_GB", "en"):

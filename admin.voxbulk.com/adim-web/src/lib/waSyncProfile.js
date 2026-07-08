@@ -79,6 +79,21 @@ export async function fetchProfileTemplateSummariesBatch(
   )
 }
 
+export function resolveBackupSyncProfile(items, primaryProfile) {
+  const list = Array.isArray(items) ? items : []
+  const primaryId = primaryProfile?.id
+  return (
+    list.find((item) => String(item.provider || '').toLowerCase() === 'telnyx' && String(item.id) !== String(primaryId)) ||
+    list.find((item) => !item.is_default && String(item.id) !== String(primaryId)) ||
+    null
+  )
+}
+
+export function resolvePrimarySyncProfile(items) {
+  const list = Array.isArray(items) ? items : []
+  return list.find((item) => item.is_default) || list.find((item) => String(item.provider || '').toLowerCase() === 'meta') || list[0] || null
+}
+
 export const EMPTY_PROFILE_SUMMARY_ROW = {
   loading: false,
   error: null,

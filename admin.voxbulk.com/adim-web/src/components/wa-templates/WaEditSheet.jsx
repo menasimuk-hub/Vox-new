@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Label } from '@/components/ui/Label'
 import { Switch } from '@/components/ui/Switch'
 import { Sheet, SheetClose, SheetContent } from '@/components/ui/Sheet'
+import WaSyncConfirmDialog from './WaSyncConfirmDialog'
 import { apiFetch } from '../../lib/api'
 import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaPhonePreview from './WaPhonePreview'
@@ -248,7 +249,14 @@ function Stat({ label, value }) {
  * Design EditSheet wired to real template APIs.
  * editTarget: { product: 'survey'|'interview'|'appointment'|'feedback', templateId, surveyTypeId?, systemMode? }
  */
-export default function WaEditSheet({ editTarget, onClose, onSaved, syncProfile = null, onRequestSyncConfirm }) {
+export default function WaEditSheet({
+  editTarget,
+  onClose,
+  onSaved,
+  syncProfile = null,
+  onRequestSyncConfirm,
+  syncConfirm = null,
+}) {
   const open = Boolean(editTarget?.templateId)
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -720,6 +728,7 @@ export default function WaEditSheet({ editTarget, onClose, onSaved, syncProfile 
         side="right"
         className="waTemplatesHub ds-scope w-full overflow-hidden border-l p-0 sm:max-w-[960px]"
       >
+        <div className="relative flex h-full min-h-0 w-full flex-col">
         {loading ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Loading template…</div>
         ) : null}
@@ -1172,6 +1181,19 @@ export default function WaEditSheet({ editTarget, onClose, onSaved, syncProfile 
             </div>
           </div>
         ) : null}
+        {syncConfirm ? (
+          <WaSyncConfirmDialog
+            embedded
+            open
+            title={syncConfirm.title}
+            action={syncConfirm.action}
+            detail={syncConfirm.detail}
+            profile={syncProfile}
+            onConfirm={syncConfirm.onConfirm}
+            onCancel={syncConfirm.onCancel}
+          />
+        ) : null}
+        </div>
       </SheetContent>
     </Sheet>
   )

@@ -216,22 +216,47 @@ class WaTemplateSyncService:
                 rows = [row for row in rows if is_survey_platform_row(db, row)]
 
         from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        is_primary = WaTemplateProfilePushService.is_primary_profile(
+            db, connection_profile_id, service_code=code
+        )
 
         updated = 0
         synced_rows: list[TelnyxWhatsappTemplate] = []
         for row in rows:
-            live = TelnyxWhatsappTemplateSyncService._match_live_item(
-                row, by_record=by_record, by_name_lang=by_name_lang
+            live = None
+            entry = (
+                WaTemplateProfilePushService.get_ledger_entry(db, int(row.id), connection_profile_id)
+                if connection_profile_id
+                else None
             )
+            if entry is not None and WaTemplateProfilePushService._ledger_has_remote(entry):
+                rid = str(entry.remote_record_id or "").strip()
+                if rid and rid in by_record:
+                    live = by_record[rid]
+            if live is None:
+                live = TelnyxWhatsappTemplateSyncService._match_live_item(
+                    row, by_record=by_record, by_name_lang=by_name_lang
+                )
             if live is None:
                 continue
-            _apply_live_meta_to_row(db, row, live, mirror_remote_body=mirror_remote_body)
-            synced_rows.append(row)
+            if is_primary or not connection_profile_id:
+                _apply_live_meta_to_row(db, row, live, mirror_remote_body=mirror_remote_body)
+                synced_rows.append(row)
+            else:
+                WaTemplateProfileStatusService.record_from_live_item(
+                    db,
+                    int(row.id),
+                    live,
+                    connection_profile_id=connection_profile_id,
+                    commit=False,
+                )
             updated += 1
-        # Record per-profile status ledger from the freshly-refreshed rows (same txn).
-        WaTemplateProfileStatusService.record_many(
-            db, synced_rows, connection_profile_id=connection_profile_id, commit=False
-        )
+        if synced_rows:
+            WaTemplateProfileStatusService.record_many(
+                db, synced_rows, connection_profile_id=connection_profile_id, commit=False
+            )
         db.commit()
         return {
             "ok": True,
@@ -374,10 +399,7 @@ class WaTemplateSyncService:
         linked = 0
         skipped_count = len(pre_skipped) if offset == 0 else 0
 
-        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
-
         row_by_label = {str(row.name or row.id): row for row in work}
-        pushed_rows: list[TelnyxWhatsappTemplate] = []
         for raw in batch.get("results") or []:
             label = str(raw.get("label") or raw.get("template_name") or "")
             row = row_by_label.get(label)
@@ -390,7 +412,6 @@ class WaTemplateSyncService:
                 continue
             normalized = _normalize_batch_result(row, raw)
             normalized_results.append(normalized)
-            pushed_rows.append(row)
             outcome = normalized["outcome"]
             if outcome == "status_refreshed":
                 refreshed += 1
@@ -400,11 +421,6 @@ class WaTemplateSyncService:
                 linked += 1
             elif outcome == "skipped":
                 skipped_count += 1
-
-        # Record per-profile status ledger from the freshly-pushed rows.
-        WaTemplateProfileStatusService.record_many(
-            db, pushed_rows, connection_profile_id=connection_profile_id, mark_pushed=True, commit=True
-        )
 
         normalized_errors: list[dict[str, Any]] = []
         for err in batch.get("errors") or []:
@@ -570,4 +586,176 @@ class WaTemplateSyncService:
                 f"Pull: refreshed status for {status.get('updated', 0)} row(s). "
                 f"Push: {push.get('pushed', 0)} changed template(s)."
             ),
+        }
+
+    @staticmethod
+    def collect_survey_mirror_templates(db: Session) -> list[TelnyxWhatsappTemplate]:
+        from app.services.wa_template_product_scope import is_survey_platform_row
+
+        rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+        work = [row for row in rows if _effective_components(row) and is_survey_platform_row(db, row)]
+        work.sort(key=lambda item: str(item.name or item.id))
+        return work
+
+    @staticmethod
+    def mirror_to_backup_profile(
+        db: Session,
+        *,
+        offset: int = 0,
+        limit: int | None = 10,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        backup_id = str(connection_profile_id or "").strip() or None
+        if not backup_id:
+            backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+                db, service_code=service_code or "survey"
+            )
+        if not backup_id:
+            return {"ok": False, "error": "No backup Telnyx WhatsApp profile is configured."}
+
+        work = WaTemplateSyncService.collect_survey_mirror_templates(db)
+        prefetched = _prefetch_remote_templates_for_push(
+            db, connection_profile_id=backup_id, service_code=service_code
+        )
+        from app.services.wa_template_push_batch_service import run_batched_push
+
+        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            return SurveyWhatsappTemplateService.push_to_telnyx(
+                db,
+                row,
+                force_approved_update=True,
+                remote_items=prefetched,
+                connection_profile_id=backup_id,
+                service_code=service_code,
+            )
+
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=push_one,
+            item_label=lambda row: str(row.name or row.id),
+        )
+
+        normalized_results: list[dict[str, Any]] = []
+        row_by_label = {str(row.name or row.id): row for row in work}
+        content_updated = 0
+        for raw in batch.get("results") or []:
+            label = str(raw.get("label") or raw.get("template_name") or "")
+            row = row_by_label.get(label)
+            if row is None:
+                continue
+            normalized_results.append(_normalize_batch_result(row, raw))
+            if _classify_push_outcome(raw) == "content_updated":
+                content_updated += 1
+
+        normalized_errors: list[dict[str, Any]] = []
+        for err in batch.get("errors") or []:
+            label = str(err.get("label") or "")
+            row = row_by_label.get(label)
+            normalized_errors.append(
+                _normalize_batch_error(row, label, str(err.get("error") or "Mirror push failed"))
+            )
+
+        return {
+            "ok": batch.get("ok", True),
+            "mirror_profile_id": backup_id,
+            "pushed": content_updated,
+            "content_updated": content_updated,
+            "error_count": batch.get("error_count", 0),
+            "errors": normalized_errors,
+            "results": normalized_results,
+            "offset": batch.get("offset", offset),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "total": len(work),
+            "message": batch.get("message")
+            or f"Mirrored {content_updated} of {len(work)} survey template(s) to backup profile",
+        }
+
+    @staticmethod
+    def push_all_system_templates(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        offset: int = 0,
+        limit: int | None = 10,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        from app.services.survey_system_template_service import SurveySystemTemplateService
+
+        grouped = SurveySystemTemplateService.list_grouped_admin(db)
+        work: list[TelnyxWhatsappTemplate] = []
+        seen: set[int] = set()
+        for kind in grouped.get("kinds") or []:
+            for tpl in kind.get("templates") or []:
+                tid = tpl.get("id")
+                if not str(tid or "").isdigit():
+                    continue
+                row = db.get(TelnyxWhatsappTemplate, int(tid))
+                if row is None or int(row.id) in seen:
+                    continue
+                if not _effective_components(row):
+                    continue
+                seen.add(int(row.id))
+                work.append(row)
+        work.sort(key=lambda item: str(item.name or item.id))
+
+        prefetched = _prefetch_remote_templates_for_push(
+            db, connection_profile_id=connection_profile_id, service_code=service_code
+        )
+        from app.services.wa_template_push_batch_service import run_batched_push
+
+        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            return SurveyWhatsappTemplateService.push_to_telnyx(
+                db,
+                row,
+                force_approved_update=True,
+                remote_items=prefetched,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
+
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=push_one,
+            item_label=lambda row: str(row.name or row.id),
+        )
+        normalized_results: list[dict[str, Any]] = []
+        row_by_label = {str(row.name or row.id): row for row in work}
+        content_updated = 0
+        for raw in batch.get("results") or []:
+            label = str(raw.get("label") or raw.get("template_name") or "")
+            row = row_by_label.get(label)
+            if row is None:
+                continue
+            normalized_results.append(_normalize_batch_result(row, raw))
+            if _classify_push_outcome(raw) == "content_updated":
+                content_updated += 1
+        normalized_errors: list[dict[str, Any]] = []
+        for err in batch.get("errors") or []:
+            label = str(err.get("label") or "")
+            row = row_by_label.get(label)
+            normalized_errors.append(
+                _normalize_batch_error(row, label, str(err.get("error") or "Push failed"))
+            )
+        return {
+            "ok": batch.get("ok", True),
+            "pushed": content_updated,
+            "content_updated": content_updated,
+            "error_count": batch.get("error_count", 0),
+            "errors": normalized_errors,
+            "results": normalized_results,
+            "offset": batch.get("offset", offset),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "total": len(work),
+            "connection_profile_id": connection_profile_id,
+            "message": batch.get("message")
+            or f"Pushed {content_updated} of {len(work)} system template(s)",
         }

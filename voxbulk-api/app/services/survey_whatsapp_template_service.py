@@ -1350,32 +1350,60 @@ def _push_success_response(
     telnyx_request_mode: str,
     linked: bool = False,
     sync_branch: str | None = None,
+    profile_ctx: Any | None = None,
 ) -> dict[str, Any]:
-    row.last_pushed_at = _now()
-    row.last_push_error = None
-    row.local_sync_status = _refresh_local_sync_status(row)
-    row.synced_at = _now()
-    row.updated_at = _now()
-    db.add(row)
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    backup_result = None
+    if profile_ctx is not None and not profile_ctx.is_primary:
+        backup_result = WaTemplateProfilePushService._snapshot_row(row)
+
+    if profile_ctx is not None:
+        WaTemplateProfilePushService.finalize_push(db, row, profile_ctx, mark_pushed=True)
+
+    update_main_row = profile_ctx is None or profile_ctx.is_primary
+    if update_main_row:
+        row.last_pushed_at = _now()
+        row.last_push_error = None
+        row.local_sync_status = _refresh_local_sync_status(row)
+        row.synced_at = _now()
+        row.updated_at = _now()
+        db.add(row)
     db.commit()
-    db.refresh(row)
-    sync_message = telnyx_sync_action_message(row, ok=True, linked=linked)
-    tpl = survey_template_to_dict(row)
+    if update_main_row:
+        db.refresh(row)
+
+    response_row = row
+    if backup_result is not None:
+        row.telnyx_record_id = backup_result.telnyx_record_id
+        row.template_id = backup_result.template_id
+        row.status = backup_result.status
+        row.category = backup_result.category
+        row.rejection_reason = backup_result.rejection_reason
+        response_row = row
+        if profile_ctx and profile_ctx.snapshot:
+            WaTemplateProfilePushService._restore_row(db, row, profile_ctx.snapshot)
+            db.add(row)
+            db.commit()
+
+    sync_message = telnyx_sync_action_message(response_row, ok=True, linked=linked)
+    tpl = survey_template_to_dict(response_row)
     return {
         "ok": True,
         "success": True,
         "message": sync_message,
         "sync_message": sync_message,
-        "telnyx_sync_label": telnyx_sync_ui_label(row),
+        "telnyx_sync_label": telnyx_sync_ui_label(response_row),
         "template": tpl,
-        "template_name": row.name,
-        "approval_status": str(row.status or "").upper(),
+        "template_name": response_row.name,
+        "approval_status": str(response_row.status or "").upper(),
         "telnyx_request_mode": telnyx_request_mode,
-        "telnyx_template_id": row.telnyx_record_id,
-        "category": row.category,
-        "rejection_reason": row.rejection_reason,
+        "telnyx_template_id": response_row.telnyx_record_id,
+        "category": response_row.category,
+        "rejection_reason": response_row.rejection_reason,
         "linked_existing_remote": linked,
         "sync_branch": sync_branch or telnyx_request_mode,
+        "connection_profile_id": getattr(profile_ctx, "connection_profile_id", None) if profile_ctx else None,
     }
 
 
@@ -1503,6 +1531,7 @@ def _push_row_to_meta(
     prefetched: list[dict[str, Any]] | None,
     connection_profile_id: str | None = None,
     service_code: str | None = "survey",
+    profile_ctx: Any | None = None,
 ) -> dict[str, Any]:
     from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
 
@@ -1599,6 +1628,7 @@ def _push_row_to_meta(
         row,
         telnyx_request_mode=meta_request_mode,
         sync_branch=branch,
+        profile_ctx=profile_ctx,
     )
 
 
@@ -2503,6 +2533,43 @@ class SurveyWhatsappTemplateService:
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
     ) -> dict[str, Any]:
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        profile_ctx = WaTemplateProfilePushService.begin_push(
+            db,
+            row,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
+        try:
+            return SurveyWhatsappTemplateService._push_to_telnyx_inner(
+                db,
+                row,
+                remote_items=remote_items,
+                force_approved_update=force_approved_update,
+                allow_clone=allow_clone,
+                allow_recovery=allow_recovery,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                profile_ctx=profile_ctx,
+            )
+        except Exception:
+            WaTemplateProfilePushService.abort_push(db, row, profile_ctx)
+            raise
+
+    @staticmethod
+    def _push_to_telnyx_inner(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+        *,
+        remote_items: list[dict[str, Any]] | None = None,
+        force_approved_update: bool = True,
+        allow_clone: bool = False,
+        allow_recovery: bool = True,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+        profile_ctx: Any | None = None,
+    ) -> dict[str, Any]:
         raw_components = _draft_components_for_push(row)
         if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
@@ -2654,6 +2721,7 @@ class SurveyWhatsappTemplateService:
                 prefetched=prefetched,
                 connection_profile_id=connection_profile_id,
                 service_code=service_code,
+                profile_ctx=profile_ctx,
             )
 
         config = SurveyWhatsappTemplateService._telnyx_config(
@@ -2818,6 +2886,7 @@ class SurveyWhatsappTemplateService:
             row,
             telnyx_request_mode=telnyx_request_mode,
             sync_branch=branch,
+            profile_ctx=profile_ctx,
         )
 
     @staticmethod

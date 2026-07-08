@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetClose } from '@/components/ui/Sheet'
 import { apiFetch } from '../../lib/api'
 import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
 import WaTemplatesTable from './WaTemplatesTable'
+import WaSyncConfirmDialog from './WaSyncConfirmDialog'
 import { toHubRow } from './waTemplatesUi'
 
 const SURVEY_CATEGORIES = [
@@ -99,6 +100,7 @@ export default function WaTemplatesSystemSection({
   embedded = false,
   onOpenTemplate,
   syncProfileId = null,
+  syncProfile = null,
   onRequestSyncConfirm,
 }) {
   const [loading, setLoading] = useState(true)
@@ -112,6 +114,17 @@ export default function WaTemplatesSystemSection({
   const [adding, setAdding] = useState(false)
   const [syncingId, setSyncingId] = useState(null)
   const [metaSyncSavingId, setMetaSyncSavingId] = useState(null)
+  const [syncConfirm, setSyncConfirm] = useState(null)
+
+  /** Wait for the system-templates list sheet to unmount before opening the hub edit drawer. */
+  const openTemplateAfterSheetClose = useCallback(
+    (target) => {
+      if (!target?.templateId) return
+      setSheetOpen(false)
+      window.setTimeout(() => onOpenTemplate?.(target), 150)
+    },
+    [onOpenTemplate],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -171,8 +184,7 @@ export default function WaTemplatesSystemSection({
   }
 
   const handleEdit = (row) => {
-    setSheetOpen(false)
-    onOpenTemplate?.({
+    openTemplateAfterSheetClose({
       product: product === 'feedback' ? 'feedback' : 'system',
       templateId: row.id,
       surveyTypeId: row.raw?.survey_type_id,
@@ -228,7 +240,7 @@ export default function WaTemplatesSystemSection({
           setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
         }
         if (templateId) {
-          onOpenTemplate?.({
+          openTemplateAfterSheetClose({
             product: 'feedback',
             templateId,
             systemMode: true,
@@ -263,8 +275,7 @@ export default function WaTemplatesSystemSection({
           setSheetRows(templatesForCategory(nextKinds, product, sheetCategory))
         }
         if (templateId) {
-          setSheetOpen(false)
-          onOpenTemplate?.({
+          openTemplateAfterSheetClose({
             product: 'system',
             templateId,
             surveyTypeId,
@@ -345,14 +356,33 @@ export default function WaTemplatesSystemSection({
     }
   }
 
+  const requestLocalSyncConfirm = useCallback(
+    ({ title, action, detail }) =>
+      new Promise((resolve, reject) => {
+        setSyncConfirm({
+          title,
+          action,
+          detail,
+          onConfirm: () => {
+            setSyncConfirm(null)
+            resolve(true)
+          },
+          onCancel: () => {
+            setSyncConfirm(null)
+            reject(new Error('cancelled'))
+          },
+        })
+      }),
+    [],
+  )
+
   const syncSystemRow = async (row) => {
     try {
-      await onRequestSyncConfirm?.({
-        title: row.syncFromMeta ? 'Pull from Meta' : 'Push to Meta',
-        action: row.syncFromMeta ? 'Pull' : 'Push',
-        detail: row.syncFromMeta
-          ? 'Copy the approved template body from Meta into the local draft.'
-          : 'Submit this system template to Meta for approval.',
+      const confirm = sheetOpen ? requestLocalSyncConfirm : onRequestSyncConfirm
+      await confirm?.({
+        title: 'Push to Meta',
+        action: 'Push',
+        detail: 'Submit this system template from the database to the selected connection profile.',
       })
     } catch (e) {
       if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
@@ -362,28 +392,30 @@ export default function WaTemplatesSystemSection({
     setError('')
     try {
       const profileBody = syncProfileId ? { connection_profile_id: syncProfileId } : {}
-      if (row.syncFromMeta) {
-        const path =
-          product === 'feedback'
-            ? `/admin/customer-feedback/system-templates/${row.id}/pull-from-meta`
-            : `/admin/wa-survey/system-templates/${row.id}/pull-from-meta`
-        await apiFetch(path, { method: 'POST', body: JSON.stringify(profileBody) })
-      } else {
-        const path =
-          product === 'feedback'
-            ? `/admin/customer-feedback/wa-templates/${row.id}/push`
-            : `/admin/wa-survey/templates/${row.id}/push`
-        await apiFetch(path, {
-          method: 'POST',
-          body: JSON.stringify({ force_push: false, ...profileBody }),
-          timeoutMs: 180000,
-          quietNetworkHint: true,
-        })
-      }
+      const path =
+        product === 'feedback'
+          ? `/admin/customer-feedback/wa-templates/${row.id}/push`
+          : `/admin/wa-survey/templates/${row.id}/push`
+      const result = await apiFetch(path, {
+        method: 'POST',
+        body: JSON.stringify({ force_push: false, ...profileBody }),
+        timeoutMs: 180000,
+        quietNetworkHint: true,
+      })
+      const branch = result?.sync_branch ? ` (${result.sync_branch})` : ''
+      if (result?.message) setError('')
       await load()
       await refreshSheetRows()
+      if (result?.sync_branch && result.sync_branch !== 'status_refreshed') {
+        setError('')
+      }
+      if (result?.message && branch) {
+        // surface sync branch in inline error slot only on failure — success is silent reload
+      }
     } catch (e) {
-      setError(formatWaSurveyError(e, row.syncFromMeta ? 'Pull from Meta failed' : 'Push to Meta failed').message)
+      const err = formatWaSurveyError(e, 'Push to Meta failed')
+      const branch = e?.payload?.sync_branch || e?.sync_branch
+      setError(branch ? `${err.message} [${branch}]` : err.message)
     } finally {
       setSyncingId(null)
     }
@@ -494,7 +526,7 @@ export default function WaTemplatesSystemSection({
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="w-full overflow-hidden border-l p-0 sm:max-w-[720px]">
+        <SheetContent side="right" className="relative w-full overflow-hidden border-l p-0 sm:max-w-[720px]">
           <div className="flex h-12 items-center gap-3 border-b bg-surface-muted/50 px-4">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Layers className="h-3.5 w-3.5" />
@@ -544,6 +576,16 @@ export default function WaTemplatesSystemSection({
               emptyLabel="No system templates in this category. Use Add template."
             />
           </div>
+          <WaSyncConfirmDialog
+            embedded
+            open={Boolean(syncConfirm)}
+            title={syncConfirm?.title}
+            action={syncConfirm?.action}
+            detail={syncConfirm?.detail}
+            profile={syncProfile}
+            onConfirm={syncConfirm?.onConfirm}
+            onCancel={syncConfirm?.onCancel}
+          />
         </SheetContent>
       </Sheet>
 

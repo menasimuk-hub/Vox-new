@@ -473,6 +473,7 @@ export default function WaIndustryBrowser({
   onError,
   onMessage,
   syncProfileId = null,
+  syncProfile = null,
   onRequestSyncConfirm,
 }) {
   const [industry, setIndustry] = useState(null)
@@ -798,6 +799,7 @@ export default function WaIndustryBrowser({
           embedded
           onOpenTemplate={onOpenSystemTemplate}
           syncProfileId={syncProfileId}
+          syncProfile={syncProfile}
           onRequestSyncConfirm={onRequestSyncConfirm}
         />
         <div className="flex flex-wrap items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
@@ -940,6 +942,7 @@ export default function WaIndustryBrowser({
         embedded
         onOpenTemplate={onOpenSystemTemplate}
         syncProfileId={syncProfileId}
+        syncProfile={syncProfile}
         onRequestSyncConfirm={onRequestSyncConfirm}
       />
       <div className="p-3">

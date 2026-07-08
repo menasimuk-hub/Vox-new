@@ -431,3 +431,161 @@ def test_telnyx_sync_preserves_local_was_name_when_meta_has_legacy_name(monkeypa
         draft = _loads(row.draft_components_json)
         assert draft[0]["text"] == "Local draft body"
 
+
+def _seed_dual_profiles(db):
+    import uuid
+    from datetime import datetime
+
+    from app.models.connection_profile import (
+        CHANNEL_WHATSAPP,
+        PROVIDER_META,
+        PROVIDER_TELNYX,
+        ConnectionProfile,
+        ConnectionProfileService,
+    )
+    from app.services.connection.constants import SERVICE_SURVEY
+
+    now = datetime.utcnow()
+    meta_id = str(uuid.uuid4())
+    telnyx_id = str(uuid.uuid4())
+    db.add(
+        ConnectionProfile(
+            id=meta_id,
+            name="Meta 99",
+            channel=CHANNEL_WHATSAPP,
+            provider=PROVIDER_META,
+            is_default=True,
+            is_active=True,
+            meta_waba_id="waba-meta",
+            meta_whatsapp_from="+4499",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.add(
+        ConnectionProfile(
+            id=telnyx_id,
+            name="Telnyx 55",
+            channel=CHANNEL_WHATSAPP,
+            provider=PROVIDER_TELNYX,
+            is_default=False,
+            is_active=True,
+            telnyx_number="+447822002055",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    for pid in (meta_id, telnyx_id):
+        db.add(
+            ConnectionProfileService(
+                id=str(uuid.uuid4()),
+                profile_id=pid,
+                service_code=SERVICE_SURVEY,
+                enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    db.commit()
+    return meta_id, telnyx_id
+
+
+def test_backup_status_pull_updates_ledger_not_main_row(monkeypatch):
+    remote = [
+        {
+            "id": "telnyx-backup-rid",
+            "template_id": "telnyx-backup-rid",
+            "name": "voxbulk_survey_welcome_templates_standard_utu_2",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "PENDING",
+            "components": [{"type": "BODY", "text": "Backup body"}],
+        }
+    ]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        lambda db, **kwargs: remote,
+    )
+
+    with get_sessionmaker()() as db:
+        meta_id, telnyx_id = _seed_dual_profiles(db)
+        row = _template(
+            db,
+            name="voxbulk_survey_welcome_templates_standard_utu_2",
+            remote_text="Primary body for {{1}} thanks",
+        )
+        row.telnyx_record_id = "meta-primary-rid"
+        row.template_id = "meta-primary-rid"
+        row.status = "APPROVED"
+        db.add(row)
+        db.commit()
+
+        result = WaTemplateSyncService.pull_statuses(
+            db,
+            row_ids=[int(row.id)],
+            connection_profile_id=telnyx_id,
+        )
+        assert result.get("ok") is True
+        db.refresh(row)
+        assert row.telnyx_record_id == "meta-primary-rid"
+        assert row.status == "APPROVED"
+
+        from app.models.wa_template_profile_status import WaTemplateProfileStatus
+
+        entry = db.execute(
+            select(WaTemplateProfileStatus).where(
+                WaTemplateProfileStatus.template_id == int(row.id),
+                WaTemplateProfileStatus.profile_key == telnyx_id,
+            )
+        ).scalar_one_or_none()
+        assert entry is not None
+        assert entry.remote_record_id == "telnyx-backup-rid"
+        assert entry.status == "PENDING"
+
+
+def test_send_template_id_uses_ledger_for_active_backup_profile():
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+    from app.models.wa_template_profile_status import WaTemplateProfileStatus
+
+    with get_sessionmaker()() as db:
+        meta_id, telnyx_id = _seed_dual_profiles(db)
+        row = _template(db, name="voxbulk_survey_test_send_ledger")
+        row.telnyx_record_id = "meta-primary-rid"
+        row.template_id = "meta-primary-rid"
+        row.status = "APPROVED"
+        db.add(row)
+        db.flush()
+        db.add(
+            WaTemplateProfileStatus(
+                template_id=int(row.id),
+                profile_key=telnyx_id,
+                connection_profile_id=telnyx_id,
+                provider="telnyx",
+                status="APPROVED",
+                remote_record_id="telnyx-send-rid",
+                remote_template_id="telnyx-send-rid",
+            )
+        )
+        db.commit()
+
+        # Default profile is Meta — should use main row id.
+        meta_send = WaTemplateProfilePushService.send_template_id_for_active_profile(
+            db, row, org_id=None, service_code="survey"
+        )
+        assert meta_send == "meta-primary-rid"
+
+        # Switch default to Telnyx backup.
+        from app.models.connection_profile import ConnectionProfile
+
+        meta = db.get(ConnectionProfile, meta_id)
+        telnyx = db.get(ConnectionProfile, telnyx_id)
+        meta.is_default = False
+        telnyx.is_default = True
+        db.commit()
+
+        telnyx_send = WaTemplateProfilePushService.send_template_id_for_active_profile(
+            db, row, org_id=None, service_code="survey"
+        )
+        assert telnyx_send == "telnyx-send-rid"
+

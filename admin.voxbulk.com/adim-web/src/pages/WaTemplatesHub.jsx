@@ -30,6 +30,8 @@ import {
   fetchWaSyncProfileOptions,
   getStoredSyncProfileId,
   resolveSelectedSyncProfile,
+  resolvePrimarySyncProfile,
+  resolveBackupSyncProfile,
   setStoredSyncProfileId,
   syncProfilePayload,
   syncProfileActionLabel,
@@ -177,6 +179,14 @@ export default function WaTemplatesHub() {
   const syncProfile = useMemo(
     () => resolveSelectedSyncProfile(syncProfileItems, syncProfileId, null),
     [syncProfileItems, syncProfileId],
+  )
+  const primarySyncProfile = useMemo(
+    () => resolvePrimarySyncProfile(syncProfileItems),
+    [syncProfileItems],
+  )
+  const backupSyncProfile = useMemo(
+    () => resolveBackupSyncProfile(syncProfileItems, primarySyncProfile),
+    [syncProfileItems, primarySyncProfile],
   )
 
   const setSyncProfileId = useCallback((id) => {
@@ -485,6 +495,117 @@ export default function WaTemplatesHub() {
     } finally {
       setRefreshing(false)
     }
+  }
+
+  const runProfilePushBatch = async ({
+    path,
+    profile,
+    title,
+    detail,
+    forcePush = true,
+    extraBody = {},
+  }) => {
+    if (!profile?.id) {
+      setError('Connection profile is not configured.')
+      return
+    }
+    try {
+      await requestSyncConfirm({ title, action: 'Push', detail })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
+    const controller = beginHubJobAbort()
+    setSyncing(true)
+    setSyncProgress('')
+    setError('')
+    setMsg('')
+    setJob({
+      ...EMPTY_JOB,
+      open: true,
+      title,
+      phase: 'running',
+      steps: [{ id: 'push', label: 'Push templates', status: 'running', detail: '' }],
+    })
+    const PUSH_BATCH = 10
+    let offset = 0
+    let pushTotal = 0
+    let last = null
+    try {
+      for (let batchNum = 1; ; batchNum += 1) {
+        last = await apiFetch(path, {
+          method: 'POST',
+          body: JSON.stringify({
+            offset,
+            limit: PUSH_BATCH,
+            force_push: forcePush,
+            connection_profile_id: profile.id,
+            ...extraBody,
+          }),
+          timeoutMs: 300000,
+          quietNetworkHint: true,
+          signal: controller.signal,
+        })
+        pushTotal += Number(last?.content_updated || last?.pushed || 0)
+        setJob((prev) => ({
+          ...prev,
+          steps: prev.steps.map((s) =>
+            s.id === 'push'
+              ? {
+                  ...s,
+                  status: last?.has_more ? 'running' : 'done',
+                  detail: last?.message || `Batch ${batchNum}`,
+                }
+              : s,
+          ),
+        }))
+        if (!last?.has_more) break
+        offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
+      }
+      const branchNote = last?.results?.[0]?.sync_branch ? ` (${last.results[0].sync_branch})` : ''
+      const finalMsg = formatActionSuccess(last || {}, last?.message || `Pushed ${pushTotal} template(s)${branchNote}`).message
+      setMsg(finalMsg)
+      setJob((prev) => ({
+        ...prev,
+        phase: 'done',
+        message: finalMsg,
+        summaryRows: pushTotal ? [{ metric: 'Templates pushed', count: pushTotal }] : [],
+      }))
+      refreshSelectedProfileSummary()
+      refreshAllProfileSummaries()
+      refreshTabData()
+    } catch (e) {
+      const errText = formatWaSurveyError(e, 'Push failed').detailText || e?.message || 'Push failed'
+      setError(errText)
+      setJob((prev) => ({ ...prev, phase: 'error', error: errText }))
+    } finally {
+      if (hubJobAbortRef.current === controller) hubJobAbortRef.current = null
+      setSyncing(false)
+      setSyncProgress('')
+    }
+  }
+
+  const pushToPrimary = () =>
+    void runProfilePushBatch({
+      path: '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push',
+      profile: primarySyncProfile,
+      title: 'Push to primary profile',
+      detail:
+        'Push changed survey templates from the database to the primary (default) connection profile. Runtime sends use whichever profile is marked default.',
+      forcePush: false,
+      extraBody: syncBodyExtra(),
+    })
+
+  const mirrorToBackup = () => {
+    if (tab !== 'survey') return
+    void runProfilePushBatch({
+      path: '/admin/wa-survey/templates/mirror-backup',
+      profile: backupSyncProfile,
+      title: 'Mirror to Telnyx backup',
+      detail:
+        'Push all survey and system templates to the backup Telnyx profile with the same names and bodies as the database.',
+      forcePush: true,
+    })
   }
 
   const syncFromMeta = async () => {
@@ -1089,6 +1210,28 @@ export default function WaTemplatesHub() {
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 text-xs"
+                onClick={() => pushToPrimary()}
+                disabled={syncing || refreshing || cleaning || !primarySyncProfile?.id}
+                title="Push changed templates to the primary (default) connection profile"
+              >
+                {syncProfileActionLabel(primarySyncProfile, 'Push primary')}
+              </Button>
+              {tab === 'survey' && backupSyncProfile?.id ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => mirrorToBackup()}
+                  disabled={syncing || refreshing || cleaning}
+                  title="Mirror all survey templates to the backup Telnyx profile"
+                >
+                  {syncProfileActionLabel(backupSyncProfile, 'Mirror backup')}
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
                 onClick={() => void pullFromMeta()}
                 disabled={refreshing || syncing || cleaning || !syncProfile?.id}
                 title="Pull approval status and category from Meta (does not push local changes)"
@@ -1175,6 +1318,7 @@ export default function WaTemplatesHub() {
                     onError={setError}
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
+                    syncProfile={syncProfile}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}
@@ -1196,6 +1340,7 @@ export default function WaTemplatesHub() {
                     onError={setError}
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
+                    syncProfile={syncProfile}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}
@@ -1259,8 +1404,12 @@ export default function WaTemplatesHub() {
 
       <WaEditSheet
         editTarget={editTarget}
-        onClose={() => setEditTarget(null)}
+        onClose={() => {
+          setSyncConfirm(null)
+          setEditTarget(null)
+        }}
         syncProfile={syncProfile}
+        syncConfirm={editTarget ? syncConfirm : null}
         onRequestSyncConfirm={requestSyncConfirm}
         onSaved={() => {
           if (editTarget?.product === 'interview') void loadInterview()
@@ -1298,15 +1447,17 @@ export default function WaTemplatesHub() {
         onClose={() => setJob(EMPTY_JOB)}
       />
 
-      <WaSyncConfirmDialog
-        open={Boolean(syncConfirm)}
-        title={syncConfirm?.title}
-        action={syncConfirm?.action}
-        detail={syncConfirm?.detail}
-        profile={syncProfile}
-        onConfirm={syncConfirm?.onConfirm}
-        onCancel={syncConfirm?.onCancel}
-      />
+      {!editTarget ? (
+        <WaSyncConfirmDialog
+          open={Boolean(syncConfirm)}
+          title={syncConfirm?.title}
+          action={syncConfirm?.action}
+          detail={syncConfirm?.detail}
+          profile={syncProfile}
+          onConfirm={syncConfirm?.onConfirm}
+          onCancel={syncConfirm?.onCancel}
+        />
+      ) : null}
     </div>
   )
 }
