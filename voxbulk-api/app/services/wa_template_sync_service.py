@@ -598,6 +598,153 @@ class WaTemplateSyncService:
         return work
 
     @staticmethod
+    def _live_was_name_lang_keys(
+        db: Session,
+        connection_profile_id: str,
+        *,
+        service_code: str = "survey",
+    ) -> set[tuple[str, str]]:
+        from seed_data.wa_survey_template_naming import is_was_survey_name
+
+        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+            allow_account_waba_fallback=False,
+        )
+        keys: set[tuple[str, str]] = set()
+        for item in remote:
+            name = str(item.get("name") or "").strip().lower()
+            if not is_was_survey_name(name):
+                continue
+            lang = str(item.get("language") or item.get("language_code") or "en_GB").strip().lower()
+            keys.add((name, lang))
+        return keys
+
+    @staticmethod
+    def collect_survey_mirror_gap_templates(
+        db: Session,
+        *,
+        primary_profile_id: str | None = None,
+        backup_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[TelnyxWhatsappTemplate]:
+        """Local survey rows whose was_* name exists on Meta primary but not on backup live."""
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        code = service_code or "survey"
+        primary_id = str(primary_profile_id or "").strip() or WaTemplateProfilePushService.resolve_primary_connection_profile_id(
+            db, service_code=code
+        )
+        backup_id = str(backup_profile_id or "").strip() or WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+            db, service_code=code
+        )
+        if not primary_id or not backup_id:
+            return []
+
+        meta_keys = WaTemplateSyncService._live_was_name_lang_keys(db, primary_id, service_code=code)
+        backup_keys = WaTemplateSyncService._live_was_name_lang_keys(db, backup_id, service_code=code)
+        missing = meta_keys - backup_keys
+        if not missing:
+            return []
+
+        rows = WaTemplateSyncService.collect_survey_mirror_templates(db)
+        by_key = {
+            (str(row.name or "").strip().lower(), str(row.language or "en_GB").strip().lower()): row
+            for row in rows
+        }
+        work: list[TelnyxWhatsappTemplate] = []
+        for name, lang in sorted(missing):
+            row = by_key.get((name, lang))
+            if row is None:
+                row = by_key.get((name, "en_gb"))
+            if row is not None and _effective_components(row):
+                work.append(row)
+        return work
+
+    @staticmethod
+    def mirror_meta_gap_to_backup(
+        db: Session,
+        *,
+        offset: int = 0,
+        limit: int | None = 10,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        """Push survey templates that exist on Meta primary live but not on backup live."""
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+        from app.services.wa_template_push_batch_service import run_batched_push
+
+        backup_id = str(connection_profile_id or "").strip() or WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+            db, service_code=service_code or "survey"
+        )
+        if not backup_id:
+            return {"ok": False, "error": "No backup Telnyx WhatsApp profile is configured."}
+
+        work = WaTemplateSyncService.collect_survey_mirror_gap_templates(
+            db,
+            backup_profile_id=backup_id,
+            service_code=service_code,
+        )
+        prefetched = _prefetch_remote_templates_for_push(
+            db, connection_profile_id=backup_id, service_code=service_code
+        )
+
+        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+            return SurveyWhatsappTemplateService.push_to_telnyx(
+                db,
+                row,
+                force_approved_update=True,
+                remote_items=prefetched,
+                connection_profile_id=backup_id,
+                service_code=service_code,
+            )
+
+        batch = run_batched_push(
+            work,
+            offset=offset,
+            limit=limit,
+            push_one=push_one,
+            item_label=lambda row: str(row.name or row.id),
+        )
+
+        normalized_results: list[dict[str, Any]] = []
+        row_by_label = {str(row.name or row.id): row for row in work}
+        content_updated = 0
+        for raw in batch.get("results") or []:
+            label = str(raw.get("label") or raw.get("template_name") or "")
+            row = row_by_label.get(label)
+            if row is None:
+                continue
+            normalized_results.append(_normalize_batch_result(row, raw))
+            if _classify_push_outcome(raw) == "content_updated":
+                content_updated += 1
+
+        normalized_errors: list[dict[str, Any]] = []
+        for err in batch.get("errors") or []:
+            label = str(err.get("label") or "")
+            row = row_by_label.get(label)
+            normalized_errors.append(
+                _normalize_batch_error(row, label, str(err.get("error") or "Mirror gap push failed"))
+            )
+
+        return {
+            "ok": batch.get("ok", True),
+            "mirror_profile_id": backup_id,
+            "gap_total": len(work),
+            "pushed": content_updated,
+            "content_updated": content_updated,
+            "error_count": batch.get("error_count", 0),
+            "errors": normalized_errors,
+            "results": normalized_results,
+            "offset": batch.get("offset", offset),
+            "next_offset": batch.get("next_offset", offset),
+            "has_more": bool(batch.get("has_more")),
+            "message": batch.get("message")
+            or f"Mirrored {content_updated} Meta-gap template(s) to backup ({len(work)} missing on backup live)",
+        }
+
+    @staticmethod
     def mirror_to_backup_profile(
         db: Session,
         *,

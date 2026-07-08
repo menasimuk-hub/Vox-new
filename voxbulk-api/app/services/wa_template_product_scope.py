@@ -89,7 +89,7 @@ def filter_remote_for_service_code(remote: list[dict], service_code: str | None)
             if is_feedback_platform_name(name):
                 out.append(item)
         elif code == SERVICE_SURVEY:
-            if is_survey_platform_name(name):
+            if is_was_survey_name(name):
                 out.append(item)
         else:
             out.append(item)
