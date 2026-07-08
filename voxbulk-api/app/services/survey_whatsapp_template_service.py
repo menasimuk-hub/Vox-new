@@ -2577,6 +2577,7 @@ class SurveyWhatsappTemplateService:
         allow_recovery: bool = True,
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
+        template_name_override: str | None = None,
     ) -> dict[str, Any]:
         from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 
@@ -2597,6 +2598,7 @@ class SurveyWhatsappTemplateService:
                 connection_profile_id=connection_profile_id,
                 service_code=service_code,
                 profile_ctx=profile_ctx,
+                template_name_override=template_name_override,
             )
         except Exception:
             WaTemplateProfilePushService.abort_push(db, row, profile_ctx)
@@ -2614,7 +2616,9 @@ class SurveyWhatsappTemplateService:
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
         profile_ctx: Any | None = None,
+        template_name_override: str | None = None,
     ) -> dict[str, Any]:
+        push_name = str(template_name_override or row.name or "").strip()
         raw_components = _draft_components_for_push(row)
         if not raw_components:
             raise SurveyWhatsappTemplateError("Template has no components to push")
@@ -2873,7 +2877,7 @@ class SurveyWhatsappTemplateService:
             )
 
         payload = {
-            "name": str(row.name or "").strip(),
+            "name": push_name,
             "category": category,
             "language": lang_code,
             "waba_id": waba_id,

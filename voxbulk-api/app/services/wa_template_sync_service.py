@@ -628,8 +628,8 @@ class WaTemplateSyncService:
         primary_profile_id: str | None = None,
         backup_profile_id: str | None = None,
         service_code: str | None = "survey",
-    ) -> list[TelnyxWhatsappTemplate]:
-        """Local survey rows whose was_* name exists on Meta primary but not on backup live."""
+    ) -> list[tuple[TelnyxWhatsappTemplate, str]]:
+        """Local survey rows for Meta live was_* names missing on backup (row, meta_live_name)."""
         from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 
         code = service_code or "survey"
@@ -649,18 +649,42 @@ class WaTemplateSyncService:
             return []
 
         rows = WaTemplateSyncService.collect_survey_mirror_templates(db)
+        work: list[tuple[TelnyxWhatsappTemplate, str]] = []
+        for name, lang in sorted(missing):
+            row = WaTemplateSyncService._find_local_row_for_meta_live_name(rows, name, lang)
+            if row is not None and _effective_components(row):
+                work.append((row, name))
+        return work
+
+    @staticmethod
+    def _find_local_row_for_meta_live_name(
+        rows: list[TelnyxWhatsappTemplate],
+        meta_name: str,
+        lang: str,
+    ) -> TelnyxWhatsappTemplate | None:
+        """Match a Meta live template name to a local row (exact or renamed suffix clone)."""
+        target_name = str(meta_name or "").strip().lower()
+        target_lang = str(lang or "en_gb").strip().lower()
+        if not target_name:
+            return None
+
         by_key = {
             (str(row.name or "").strip().lower(), str(row.language or "en_GB").strip().lower()): row
             for row in rows
         }
-        work: list[TelnyxWhatsappTemplate] = []
-        for name, lang in sorted(missing):
-            row = by_key.get((name, lang))
-            if row is None:
-                row = by_key.get((name, "en_gb"))
-            if row is not None and _effective_components(row):
-                work.append(row)
-        return work
+        direct = by_key.get((target_name, target_lang)) or by_key.get((target_name, "en_gb"))
+        if direct is not None:
+            return direct
+
+        prefix = f"{target_name}_"
+        for row in rows:
+            row_name = str(row.name or "").strip().lower()
+            row_lang = str(row.language or "en_GB").strip().lower()
+            if not row_name.startswith(prefix):
+                continue
+            if row_lang == target_lang or row_lang.startswith(target_lang[:2]):
+                return row
+        return None
 
     @staticmethod
     def mirror_meta_gap_to_backup(
@@ -690,7 +714,8 @@ class WaTemplateSyncService:
             db, connection_profile_id=backup_id, service_code=service_code
         )
 
-        def push_one(row: TelnyxWhatsappTemplate) -> dict[str, Any]:
+        def push_one(item: tuple[TelnyxWhatsappTemplate, str]) -> dict[str, Any]:
+            row, meta_live_name = item
             return SurveyWhatsappTemplateService.push_to_telnyx(
                 db,
                 row,
@@ -698,6 +723,7 @@ class WaTemplateSyncService:
                 remote_items=prefetched,
                 connection_profile_id=backup_id,
                 service_code=service_code,
+                template_name_override=meta_live_name,
             )
 
         batch = run_batched_push(
@@ -705,11 +731,11 @@ class WaTemplateSyncService:
             offset=offset,
             limit=limit,
             push_one=push_one,
-            item_label=lambda row: str(row.name or row.id),
+            item_label=lambda item: str(item[1] or item[0].name or item[0].id),
         )
 
         normalized_results: list[dict[str, Any]] = []
-        row_by_label = {str(row.name or row.id): row for row in work}
+        row_by_label = {str(meta_name or row.name or row.id): row for row, meta_name in work}
         content_updated = 0
         for raw in batch.get("results") or []:
             label = str(raw.get("label") or raw.get("template_name") or "")
