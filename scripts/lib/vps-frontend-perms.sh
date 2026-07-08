@@ -56,7 +56,7 @@ vox_npm_ci_or_install() {
   local run_npm
   run_npm() {
     if [[ -f package-lock.json ]]; then
-      npm ci
+      npm ci || return 1
     else
       npm install
     fi
@@ -66,7 +66,15 @@ vox_npm_ci_or_install() {
     return 0
   fi
 
-  echo "[perms] npm failed — removing node_modules and retrying after chown …" >&2
+  if [[ -f package-lock.json ]]; then
+    echo "[npm] npm ci failed — syncing lock with npm install …" >&2
+    vox_ensure_frontend_dir_writable "$dir" || return 1
+    rm -rf node_modules
+    npm install || return 1
+    return 0
+  fi
+
+  echo "[npm] npm failed — removing node_modules and retrying after chown …" >&2
   vox_ensure_frontend_dir_writable "$dir" || return 1
   rm -rf node_modules
   run_npm

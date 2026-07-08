@@ -140,9 +140,16 @@ api_deps_and_migrate() {
   info "Migration OK"
 }
 
-build_frontend() {
+  build_frontend() {
   local dir="$1"
   local name="$2"
+  if [[ "$name" == "dashboard" ]]; then
+    local node_major
+    node_major=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo "0")
+    if [[ "${node_major:-0}" -lt 22 ]]; then
+      warn "Node $(node -v) — dashboard TanStack Start recommends >=22.12.0 (see dashboard-web/.nvmrc). EBADENGINE warnings are expected on Node 20."
+    fi
+  fi
   info "Building $name …"
   vox_npm_ci_or_install "$dir" || fail "npm install failed in $dir"
   cd "$dir"
