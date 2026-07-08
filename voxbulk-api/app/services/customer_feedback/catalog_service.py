@@ -66,13 +66,10 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
     plan = db.get(Plan, row.plan_id)
     prices = PlanPriceService.list_for_plan(db, row.plan_id) if plan else []
     features: list[str] = []
-    if plan and plan.features_json:
-        try:
-            parsed = json.loads(plan.features_json)
-            if isinstance(parsed, list):
-                features = [str(item) for item in parsed]
-        except json.JSONDecodeError:
-            features = []
+    if plan:
+        from app.services.products_hub_service import ProductsHubService
+
+        features = ProductsHubService.effective_features(plan, fb_pkg=row)
     return {
         "id": row.id,
         "plan_id": row.plan_id,

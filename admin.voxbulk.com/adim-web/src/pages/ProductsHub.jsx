@@ -86,8 +86,10 @@ function ProductRow({ row, selected, onSelect }) {
       <td>
         <PriceCell row={row} />
       </td>
-      <td className="phLimitsCol">
-        <span className="phLimits">{row.limits_summary || '—'}</span>
+      <td className="phFeaturesCol">
+        <span className="phFeatures" title={Array.isArray(row.features) ? row.features.join('\n') : ''}>
+          {row.features_summary || '—'}
+        </span>
       </td>
       <td>
         <StatusBadge active={row.is_active} />
@@ -156,7 +158,15 @@ function DetailPanel({ row, draft, setDraft, onClose, onSave, saving, isMobile }
           </div>
         </div>
         <div>
-          <label>Limits</label>
+          <label>Features preview (dashboard &amp; website)</label>
+          <ul className="phFeaturesPreview">
+            {(Array.isArray(row.features) ? row.features : []).map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <label>Limits (read-only)</label>
           <div className="phPanelReadonly">{row.limits_summary || '—'}</div>
         </div>
         <div>
@@ -384,8 +394,8 @@ export default function ProductsHub() {
               <span className="phPrice">{summary.priceRange.join(' – ')}</span>
               {summary.anyGap ? <span className="phGapFlag">gaps</span> : null}
             </td>
-            <td className="phLimitsCol">
-              <span className="phLimits">{summary.rows[0]?.limits_summary}</span>
+            <td className="phFeaturesCol">
+              <span className="phFeatures">{summary.rows[0]?.features_summary || summary.rows[0]?.limits_summary}</span>
             </td>
             <td>
               <span className="phLimits">
@@ -540,7 +550,7 @@ export default function ProductsHub() {
                         <th>Code</th>
                         <th>Region</th>
                         <th>Price</th>
-                        <th className="phLimitsCol">Limits</th>
+                        <th className="phFeaturesCol">Features (dashboard &amp; website)</th>
                         <th>Status</th>
                         <th />
                       </tr>

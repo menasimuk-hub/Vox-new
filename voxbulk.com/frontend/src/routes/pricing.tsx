@@ -134,13 +134,38 @@ function fmtTotalResponses(wa: number | "Unlimited", web: number | "Unlimited") 
   return (wa + web).toLocaleString();
 }
 
-function feedbackPlanFeatures(p: FeedbackPlan): string[] {
+function feedbackPlanFeatures(p: FeedbackPlan, apiPlan?: PublicFeedbackPlan | null): string[] {
+  if (apiPlan?.features?.length) return apiPlan.features;
   return [
     `${fmtSurveyCount(p.waSurveys)} WhatsApp surveys/mo`,
     `${fmtSurveyCount(p.webSurveys)} Web surveys/mo`,
     `${fmtTotalResponses(p.waSurveys, p.webSurveys)} total responses/mo`,
     "Voice-note transcription included",
     ...p.extraFeatures,
+  ];
+}
+
+function corePlanFeatureLines(p: CorePlanView, apiPlan?: PublicPlan | null): string[] {
+  if (apiPlan?.features?.length) return apiPlan.features;
+  if (p.enterprise) {
+    return ["Custom minutes & allowances", "Volume rates · SLA", "Dedicated support"];
+  }
+  if (p.payg) {
+    return [
+      "No monthly fee",
+      "Pay per minute for interview calls",
+      "Pay per WhatsApp survey sent",
+      "Pay per CV scan",
+      "Wallet top-up credits — no expiry",
+    ];
+  }
+  const waV = typeof p.wa === "number" ? p.wa.toLocaleString() : String(p.wa);
+  const cvV = typeof p.cv === "number" ? p.cv.toLocaleString() : String(p.cv);
+  const minsV = p.mins == null ? "0" : p.mins.toLocaleString();
+  return [
+    `${minsV} minutes included`,
+    `${waV} WhatsApp survey recipients/mo`,
+    `${cvV} CV scans/mo`,
   ];
 }
 
@@ -160,7 +185,7 @@ function SimplePlanCard({
   const minor = feedbackPriceMinor(p, billing, apiPlan);
   const displayPrice = minor != null ? (minor / 100).toFixed(0) : "—";
   const period = billing === "yearly" ? "/yr" : "/mo";
-  const features = feedbackPlanFeatures(p);
+  const features = feedbackPlanFeatures(p, apiPlan);
   return (
     <div
       id={`pricing-feedback-${p.code}`}
@@ -256,8 +281,6 @@ function PricingPage() {
                 const apiPlan = coreApiPlans.find((row) => row.code === p.code);
                 const featured = p.badge === "Most popular";
                 const highlighted = highlightProduct !== "feedback" && highlightPlan === p.code;
-                const waV = typeof p.wa === "number" ? p.wa.toLocaleString() : p.wa;
-                const cvV = typeof p.cv === "number" ? p.cv.toLocaleString() : p.cv;
                 const priceMinor = corePriceMinor(p, coreBilling, apiPlan);
                 const displayPrice = priceMinor != null ? (priceMinor / 100).toFixed(0) : null;
                 const perMinDisplay = apiPlan?.per_min_display
@@ -298,10 +321,13 @@ function PricingPage() {
                       </>
                     )}
                     <div className={`my-4 h-px ${featured ? "bg-white/15" : "bg-border"}`} />
-                    <ul className="space-y-2.5 text-[13px] flex-1">
-                      <li className="flex justify-between gap-2"><span className={`flex items-center gap-1.5 ${featured ? "text-white/70" : "text-body"}`}><Clock size={13} /> Mins</span><span className={`font-semibold ${featured ? "text-white" : "text-heading"}`}>{p.mins === null ? (p.payg ? "0" : "Custom") : p.mins.toLocaleString()}</span></li>
-                      <li className="flex justify-between gap-2"><span className={`flex items-center gap-1.5 ${featured ? "text-white/70" : "text-body"}`}><MessageCircle size={13} /> WA surveys</span><span className={`font-semibold ${featured ? "text-white" : "text-heading"}`}>{waV}</span></li>
-                      <li className="flex justify-between gap-2"><span className={`flex items-center gap-1.5 ${featured ? "text-white/70" : "text-body"}`}><FileText size={13} /> CV scans</span><span className={`font-semibold ${featured ? "text-white" : "text-heading"}`}>{cvV}</span></li>
+                    <ul className={`space-y-2.5 text-[13px] flex-1 ${featured ? "text-white/80" : "text-body"}`}>
+                      {corePlanFeatureLines(p, apiPlan).map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <Check size={13} className={`mt-0.5 shrink-0 ${featured ? "text-gold" : "text-primary"}`} />
+                          <span>{f}</span>
+                        </li>
+                      ))}
                     </ul>
                     <Link to="/contact" className={`mt-5 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${featured ? "bg-gold text-navy hover:brightness-105" : p.payg ? "bg-primary text-white hover:bg-primary-dark" : "bg-navy text-white hover:bg-navy/90"}`}>
                       {p.enterprise ? "Contact us" : p.payg ? "Start free" : "Subscribe"} <ArrowRight size={13} />

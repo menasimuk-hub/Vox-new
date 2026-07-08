@@ -47,6 +47,19 @@ _CAMPAIGN_TIER: dict[str, str] = {
 }
 
 
+_FB_TIER_EXTRAS: dict[str, list[str]] = {
+    "starter": ["Monthly report", "Email support"],
+    "pro": ["Live dashboard", "Priority support"],
+    "business": ["Real-time dashboard", "Branded PDF report", "Dedicated account manager"],
+}
+
+
+def _fmt_count(n: int) -> str:
+    if n < 0:
+        return "Unlimited"
+    return f"{int(n):,}"
+
+
 class ProductsHubService:
     @staticmethod
     def is_dental_plan(plan: Plan) -> bool:
@@ -140,6 +153,98 @@ class ProductsHubService:
         return str(campaign_desc or "No limits set")
 
     @staticmethod
+    def marketing_features_for_plan(plan: Plan, *, fb_pkg: FeedbackPackage | None = None) -> list[str]:
+        """Canonical feature bullets matching dashboard billing and public pricing cards."""
+        line = ProductsHubService.product_line_for_plan(plan)
+        if line == "customer_feedback" and fb_pkg is not None:
+            wa = int(fb_pkg.wa_units_included or 0)
+            web = int(fb_pkg.web_units_included or 0)
+            wa_label = _fmt_count(wa)
+            web_label = _fmt_count(web)
+            if web < 0 or wa < 0:
+                total_label = "Unlimited"
+            else:
+                total_label = f"{(max(wa, 0) + max(web, 0)):,}"
+            tier_key = ProductsHubService.tier_key_for_plan(plan)
+            features = [
+                f"{wa_label} WhatsApp surveys/mo",
+                f"{web_label} Web surveys/mo",
+                f"{total_label} total responses/mo",
+                "Voice-note transcription included",
+                f"{int(fb_pkg.max_locations or 1)} location(s)",
+            ]
+            for extra in _FB_TIER_EXTRAS.get(tier_key, []):
+                if extra not in features:
+                    features.append(extra)
+            return features
+
+        if line == "voxbulk":
+            code = str(plan.code or "").strip().lower()
+            if bool(getattr(plan, "is_enterprise", False)):
+                return [
+                    "Custom minutes & allowances",
+                    "Volume rates · SLA",
+                    "Dedicated support",
+                ]
+            if code == "payg":
+                return [
+                    "No monthly fee",
+                    "Pay per minute for interview calls",
+                    "Pay per WhatsApp survey sent",
+                    "Pay per CV scan",
+                    "Wallet top-up credits — no expiry",
+                ]
+            mins = int(getattr(plan, "minutes_included", 0) or plan.calls_included or 0)
+            wa = int(plan.whatsapp_included or 0)
+            cv = int(getattr(plan, "cv_scans_included", 0) or 0)
+            return [
+                f"{_fmt_count(mins)} minutes included",
+                f"{_fmt_count(wa)} WhatsApp survey recipients/mo",
+                f"{_fmt_count(cv)} CV scans/mo",
+            ]
+
+        return []
+
+    @staticmethod
+    def effective_features(plan: Plan, *, fb_pkg: FeedbackPackage | None = None) -> list[str]:
+        stored = PlanAdminService.parse_features(plan.features_json)
+        if stored:
+            return stored
+        return ProductsHubService.marketing_features_for_plan(plan, fb_pkg=fb_pkg)
+
+    @staticmethod
+    def features_summary(features: list[str], *, max_items: int = 3) -> str:
+        if not features:
+            return "—"
+        shown = features[:max_items]
+        text = " · ".join(shown)
+        if len(features) > max_items:
+            text += "…"
+        return text
+
+    @staticmethod
+    def backfill_marketing_copy(db: Session) -> int:
+        """Fill empty plan features_json from billing display templates (idempotent)."""
+        fb_by_plan = {str(p.plan_id): p for p in db.execute(select(FeedbackPackage)).scalars().all()}
+        updated = 0
+        for plan in PlanAdminService.list_plans(db):
+            if ProductsHubService.product_line_for_plan(plan) is None:
+                continue
+            if PlanAdminService.parse_features(plan.features_json):
+                continue
+            fb_pkg = fb_by_plan.get(str(plan.id))
+            features = ProductsHubService.marketing_features_for_plan(plan, fb_pkg=fb_pkg)
+            if not features:
+                continue
+            plan.features_json = json.dumps(features)
+            plan.updated_at = datetime.utcnow()
+            db.add(plan)
+            updated += 1
+        if updated:
+            db.commit()
+        return updated
+
+    @staticmethod
     def picker_parts(plan: Plan, *, fb_pkg: FeedbackPackage | None = None) -> dict[str, str]:
         line = ProductsHubService.product_line_for_plan(plan) or "plan"
         group_label = _GROUP_LABELS.get(line, line)
@@ -192,6 +297,7 @@ class ProductsHubService:
         base = PlanAdminService.plan_to_dict(plan)
         picker = ProductsHubService.picker_parts(plan, fb_pkg=fb_pkg)
         previews = ProductsHubService.preview_urls(plan)
+        features = ProductsHubService.effective_features(plan, fb_pkg=fb_pkg)
         return {
             **base,
             **picker,
@@ -204,6 +310,8 @@ class ProductsHubService:
             "price_display": money_display(price_minor, currency) if price_minor is not None else None,
             "price_gap": False,
             "limits_summary": ProductsHubService.limits_summary(plan, fb_pkg=fb_pkg),
+            "features": features,
+            "features_summary": ProductsHubService.features_summary(features),
             "pricing_url": ProductsHubService.pricing_editor_url(plan, currency=currency),
             "preview_dashboard_url": previews["dashboard"],
             "preview_website_url": previews["website"],
@@ -252,6 +360,7 @@ class ProductsHubService:
     def list_catalog(db: Session) -> list[dict[str, Any]]:
         BillingService.ensure_default_plans(db)
         PlatformCatalogService.ensure_defaults(db)
+        ProductsHubService.backfill_marketing_copy(db)
         fb_by_plan = {str(p.plan_id): p for p in db.execute(select(FeedbackPackage)).scalars().all()}
         rows: list[dict[str, Any]] = []
         for plan in PlanAdminService.list_plans(db):

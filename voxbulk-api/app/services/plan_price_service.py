@@ -347,6 +347,10 @@ class PlanPriceService:
             features = [str(x) for x in features] if isinstance(features, list) else []
         except Exception:
             features = []
+        if not features:
+            from app.services.products_hub_service import ProductsHubService
+
+            features = ProductsHubService.marketing_features_for_plan(plan)
         return {
             "id": plan.id,
             "code": plan.code,

@@ -82,7 +82,9 @@ def get_public_feedback_pricing(currency: str = "GBP", market: str = "", db: Ses
     """Anonymous Customer Feedback plan catalogue for the marketing site (read-only)."""
     from app.services.billing_currency import money_display, normalize_currency
     from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+    from app.models.customer_feedback import FeedbackPackage
     from app.models.plan import Plan
+    from app.services.products_hub_service import ProductsHubService
 
     code = normalize_currency(str(market or currency or "GBP"))
     zone_by_currency = {"GBP": "gb", "EUR": "eu", "USD": "us", "CAD": "ca", "AUD": "au"}
@@ -106,10 +108,8 @@ def get_public_feedback_pricing(currency: str = "GBP", market: str = "", db: Ses
         )
         features = list(row.get("features") or [])
         if not features and plan:
-            wa = int(row.get("wa_units_included") or 0)
-            web = int(row.get("web_units_included") or 0)
-            web_label = "Unlimited Web surveys" if web < 0 else f"{web} Web surveys/mo"
-            features = [f"{int(row.get('max_locations') or 1)} location(s)", f"{wa} WhatsApp surveys/mo", web_label]
+            fb_pkg = db.get(FeedbackPackage, row.get("id")) if row.get("id") else None
+            features = ProductsHubService.effective_features(plan, fb_pkg=fb_pkg)
         plans.append(
             {
                 "code": row.get("plan_code"),

@@ -176,6 +176,28 @@ function interviewCost(perMin: number, duration: number, conn: number, count: nu
   return { perCall, total: perCall * count };
 }
 
+function corePlanFeatures(p: PlanRow): string[] {
+  const raw = p.features;
+  if (Array.isArray(raw) && raw.length) return raw.map((x) => String(x));
+  const ent = Boolean(p.is_enterprise);
+  const payg = isPaygPlan(p);
+  if (ent) return ["Custom minutes & allowances", "Volume rates · SLA", "Dedicated support"];
+  if (payg) {
+    return [
+      "No monthly fee",
+      "Pay per minute for interview calls",
+      "Pay per WhatsApp survey sent",
+      "Pay per CV scan",
+      "Wallet top-up credits — no expiry",
+    ];
+  }
+  return [
+    `${Number(p.minutes_included || 0).toLocaleString()} minutes included`,
+    `${Number(p.whatsapp_included || 0).toLocaleString()} WhatsApp survey recipients/mo`,
+    `${Number(p.cv_scans_included || 0).toLocaleString()} CV scans/mo`,
+  ];
+}
+
 function PackagesPage() {
   const { tab: tabFromUrl, plan: highlightPlan, product: highlightProduct } = Route.useSearch();
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
@@ -662,16 +684,13 @@ function PackagesPage() {
                           <p className="text-muted-foreground">Typical interview<br />{sym(data)}{low.toFixed(2)} – {sym(data)}{high.toFixed(2)} per call</p>
                         </>
                       )}
-                      <div className="mt-auto space-y-1 border-t border-border pt-2">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Mins included</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.minutes_included || 0).toLocaleString()}</span></div>
-                        {!ent && !payg ? (
-                          <p className="text-muted-foreground">
-                            Plan includes: <strong>{Number(p.whatsapp_included || 0).toLocaleString()}</strong> WA survey recipients/month.
+                      <div className="mt-auto space-y-1.5 border-t border-border pt-2">
+                        {corePlanFeatures(p).map((f) => (
+                          <p key={f} className="flex items-start gap-2 text-muted-foreground">
+                            <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                            <span>{f}</span>
                           </p>
-                        ) : (
-                          <div className="flex justify-between"><span className="text-muted-foreground">WA survey recipients</span><span>{ent ? "Custom" : "Pay per use"}</span></div>
-                        )}
-                        <div className="flex justify-between"><span className="text-muted-foreground">CV scans</span><span>{ent ? "Custom" : payg ? "Pay per use" : Number(p.cv_scans_included || 0).toLocaleString()}</span></div>
+                        ))}
                       </div>
                       <Button
                         className="mt-3 w-full"
@@ -843,11 +862,7 @@ function PackagesPage() {
                                   </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm">
-                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.wa_units_included.toLocaleString()} WhatsApp surveys/mo</p>
-                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {feedbackWebSurveyLine(pkg.web_units_included ?? 0)}</p>
-                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {feedbackTotalResponsesLine(pkg.wa_units_included, pkg.web_units_included ?? 0)}</p>
-                                  <p className="flex items-center gap-2"><Check className="size-4 text-success" /> {pkg.max_locations} location{pkg.max_locations === 1 ? "" : "s"} & QR codes</p>
-                                  {(pkg.features || []).slice(0, 2).map((f) => (
+                                  {(pkg.features || []).map((f) => (
                                     <p key={f} className="flex items-center gap-2"><Check className="size-4 text-success" /> {f}</p>
                                   ))}
                                   <Button
