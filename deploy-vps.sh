@@ -216,22 +216,47 @@ verify_api_import() {
   info "API import OK"
 }
 
-require_api_health() {
+_poll_api_health() {
   local attempts="${1:-30}"
   local i=0
-  info "Waiting for API /health (up to ${attempts}s) …"
   while (( i < attempts )); do
-    if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1; then
-      info "API health OK on 127.0.0.1:8000"
-      return 0
-    fi
-    if curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health >/dev/null 2>&1; then
-      info "API health OK on 127.0.0.1:8000"
+    if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1 \
+      || curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
     i=$((i + 1))
   done
+  return 1
+}
+
+# Force-start uvicorn as a fully detached daemon (own session), independent of
+# this deploy shell. Mirrors vox.sh start_api so recovery matches normal boot.
+_force_start_api() {
+  (
+    cd "$API_DIR" || exit 1
+    # shellcheck disable=SC1091
+    source .venv/bin/activate 2>/dev/null || true
+    setsid nohup uvicorn main:app --host 127.0.0.1 --port 8000 \
+      --workers "${VOX_UVICORN_WORKERS:-1}" >>/tmp/voxbulk-api.log 2>&1 </dev/null &
+  )
+}
+
+require_api_health() {
+  local attempts="${1:-30}"
+  info "Waiting for API /health (up to ${attempts}s) …"
+  if _poll_api_health "$attempts"; then
+    info "API health OK on 127.0.0.1:8000"
+    return 0
+  fi
+
+  warn "API not healthy after restart — attempting one recovery start …"
+  _force_start_api
+  if _poll_api_health "$attempts"; then
+    info "API recovered and healthy on 127.0.0.1:8000"
+    return 0
+  fi
+
   warn "API health check failed — tail of /tmp/voxbulk-api.log:"
   tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
   fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
