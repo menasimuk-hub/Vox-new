@@ -236,7 +236,7 @@ class WaTemplateSyncService:
         return {
             "ok": True,
             "updated": updated,
-            "message": f"Refreshed status/category for {updated} template(s) from Meta",
+            "message": f"Refreshed status/category for {updated} template(s) from live WhatsApp provider",
         }
 
     @staticmethod

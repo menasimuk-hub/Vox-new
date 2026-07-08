@@ -164,7 +164,7 @@ def list_wa_survey_system_templates(
 ):
     from app.services.survey_system_template_service import SurveySystemTemplateService
 
-    return SurveySystemTemplateService.list_templates_for_builder(db)
+    return SurveySystemTemplateService.list_templates_for_builder(db, org_id=principal.org_id)
 
 
 @router.post("/wa-survey/validate-builder")
@@ -240,6 +240,7 @@ def list_wa_survey_library_templates(
         privacy_mode=privacy_mode,
         include_inactive=False,
         require_approved=True,
+        org_id=principal.org_id,
     )
     middle_roles = set(MIDDLE_STEP_ROLES)
     templates = [
@@ -297,6 +298,7 @@ def generate_wa_survey(payload: dict, db: Session = Depends(get_db), principal=D
                 allow_final_additional_feedback=bool(body.get("allow_final_additional_feedback", False)),
                 privacy_mode=body.get("privacy_mode"),
                 anonymous_responses=bool(body.get("anonymous_responses")),
+                org_id=principal.org_id,
             )
             primary_survey_type_id = str(builder_config.get("primary_survey_type_id") or primary_survey_type_id)
             type_ids = list(builder_config.get("selected_survey_type_ids") or [])

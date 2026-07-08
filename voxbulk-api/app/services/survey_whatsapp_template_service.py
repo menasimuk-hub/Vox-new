@@ -24,7 +24,12 @@ from app.services.sales_whatsapp_telnyx_service import (
     legacy_telnyx_names_for_sales_key,
     resolve_whatsapp_template_languages,
 )
-from app.services.survey_industry_scope import apply_industry_to_template, template_matches_survey_industry
+from app.services.survey_industry_scope import (
+    apply_industry_to_template,
+    apply_org_ownership_from_industry,
+    template_matches_survey_industry,
+    template_visible_to_org,
+)
 from app.services.survey_type_service import SurveyTypeService
 from app.services.survey_type_template_service import (
     SurveyTypeTemplateError,
@@ -1846,6 +1851,8 @@ def survey_template_to_dict(
         "outcome_variables": _loads(row.outcome_variables_json),
         "privacy_mode": resolve_row_privacy_mode(row),
         "industry_id": row.industry_id,
+        "org_id": getattr(row, "org_id", None),
+        "org_owned": bool(str(getattr(row, "org_id", "") or "").strip()),
         "pack_id": row.pack_id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         **workflow,
@@ -1970,6 +1977,7 @@ class SurveyWhatsappTemplateService:
         include_inactive: bool = True,
         require_approved: bool = False,
         strict_scope: bool = True,
+        org_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """List templates linked to a survey type.
 
@@ -1984,6 +1992,8 @@ class SurveyWhatsappTemplateService:
         for mapping in SurveyTypeTemplateService.list_for_survey_type(db, survey_type_id):
             row = db.get(TelnyxWhatsappTemplate, mapping.template_id)
             if row is None:
+                continue
+            if org_id is not None and not template_visible_to_org(row, org_id):
                 continue
             if not include_inactive and not bool(row.active_for_survey):
                 continue
@@ -3147,6 +3157,7 @@ class SurveyWhatsappTemplateService:
                 linked = True
             try:
                 apply_industry_to_template(template, st)
+                apply_org_ownership_from_industry(db, template, str(st.industry_id or ""))
             except Exception:
                 pass
             if variant == VARIANT_ANONYMOUS:
@@ -3438,6 +3449,7 @@ class SurveyWhatsappTemplateService:
                     # resolve orphans by name slug via _template_ids_for_industry.
                     if not str(row.industry_id or "").strip():
                         apply_industry_to_template(row, owner)
+                        apply_org_ownership_from_industry(db, row, str(owner.industry_id or ""))
                     else:
                         row.survey_type_id = owner.id
                     db.add(row)

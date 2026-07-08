@@ -509,7 +509,12 @@ class IndustryService:
         db.commit()
         db.refresh(row)
         if visibility_mode == "restricted" or payload.get("org_ids"):
-            IndustryService.set_industry_orgs(db, row.id, list(payload.get("org_ids") or []))
+            org_ids = list(payload.get("org_ids") or [])
+            IndustryService.set_industry_orgs(db, row.id, org_ids)
+            if len(org_ids) == 1:
+                from app.services.custom_org_profile_service import CustomOrgProfileService
+
+                CustomOrgProfileService._stamp_org_owned_templates(db, org_ids[0])
         return row
 
     @staticmethod

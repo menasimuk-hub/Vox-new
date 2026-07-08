@@ -11,6 +11,7 @@ from app.services.connection.config_resolver import (
     WhatsappSyncRouteError,
     resolve_whatsapp_route_for_sync,
 )
+from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, normalize_service_code
 
 
 def connection_profile_id_from_payload(payload: dict[str, Any] | None) -> str | None:
@@ -136,7 +137,7 @@ def summarize_for_connection_profile(
         label_bits.append(whatsapp_from)
 
     try:
-        remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+        remote_all = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
             db,
             connection_profile_id=pid,
             service_code=service_code,
@@ -152,19 +153,32 @@ def summarize_for_connection_profile(
             "error": str(exc)[:400],
         }
 
+    from app.services.wa_template_product_scope import (
+        count_feedback_local_only,
+        filter_remote_for_service_code,
+        is_survey_platform_row,
+    )
+
+    code = normalize_service_code(service_code) or "survey"
+    remote = filter_remote_for_service_code(remote_all, code)
     live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
     by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
     local_only = 0
-    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
-        if not _effective_components(row):
-            continue
-        live = TelnyxWhatsappTemplateSyncService._match_live_item(
-            row,
-            by_record=by_record,
-            by_name_lang=by_name_lang,
-        )
-        if live is None:
-            local_only += 1
+    if code == SERVICE_CUSTOMER_FEEDBACK:
+        local_only = count_feedback_local_only(db, by_record=by_record, by_name_lang=by_name_lang)
+    else:
+        for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
+            if not is_survey_platform_row(db, row):
+                continue
+            if not _effective_components(row):
+                continue
+            live = TelnyxWhatsappTemplateSyncService._match_live_item(
+                row,
+                by_record=by_record,
+                by_name_lang=by_name_lang,
+            )
+            if live is None:
+                local_only += 1
 
     remote_total = int(live_summary.get("remote_total") or 0)
     return {
@@ -175,6 +189,7 @@ def summarize_for_connection_profile(
         "provider": provider,
         "waba_id": waba_id,
         "whatsapp_from": whatsapp_from,
+        "service_code": code,
         "summary": {
             "utility": int(live_summary.get("utility") or 0),
             "marketing": int(live_summary.get("marketing") or 0),

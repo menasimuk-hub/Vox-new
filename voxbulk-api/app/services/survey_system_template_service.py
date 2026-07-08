@@ -590,11 +590,12 @@ class SurveySystemTemplateService:
         return tid in listed_ids
 
     @staticmethod
-    def list_templates_for_builder(db: Session) -> dict[str, Any]:
+    def list_templates_for_builder(db: Session, *, org_id: str | None = None) -> dict[str, Any]:
         """Templates grouped by kind for dashboard survey builder."""
         SurveySystemTemplateService.ensure_system_survey_types(db)
         grouped: dict[str, list[dict[str, Any]]] = {k: [] for k in SYSTEM_TEMPLATE_KINDS}
         seen_ids: dict[str, set[int]] = {k: set() for k in SYSTEM_TEMPLATE_KINDS}
+        from app.services.survey_industry_scope import template_visible_to_org
         from app.services.survey_whatsapp_template_service import (
             template_row_is_sendable_on_meta,
             template_row_must_send_as_session_text,
@@ -617,6 +618,8 @@ class SurveySystemTemplateService:
             for mapping in mappings:
                 tpl = db.get(TelnyxWhatsappTemplate, mapping.template_id)
                 if tpl is None:
+                    continue
+                if org_id is not None and not template_visible_to_org(tpl, org_id):
                     continue
                 listed = SurveySystemTemplateService.picker_row_for_mapped_system_template(db, tpl)
                 if listed is None:

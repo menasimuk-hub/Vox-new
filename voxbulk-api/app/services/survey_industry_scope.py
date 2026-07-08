@@ -47,6 +47,31 @@ def apply_industry_to_template(row: TelnyxWhatsappTemplate, survey_type: SurveyT
         row.survey_type_id = survey_type.id
 
 
+def resolve_dedicated_org_id_for_industry(db: Session, industry_id: str) -> str | None:
+    """When an industry is restricted to exactly one org, return that org id."""
+    industry = IndustryService.get_industry(db, str(industry_id or "").strip())
+    if industry is None or str(industry.visibility_mode or "all").strip().lower() != "restricted":
+        return None
+    org_ids = IndustryService.industry_org_ids(db, industry.id)
+    if len(org_ids) == 1:
+        return str(org_ids[0])
+    return None
+
+
+def apply_org_ownership_from_industry(db: Session, row: TelnyxWhatsappTemplate, industry_id: str) -> None:
+    dedicated_org = resolve_dedicated_org_id_for_industry(db, industry_id)
+    if dedicated_org and not str(getattr(row, "org_id", "") or "").strip():
+        row.org_id = dedicated_org
+
+
+def template_visible_to_org(row: TelnyxWhatsappTemplate, org_id: str | None) -> bool:
+    owner = str(getattr(row, "org_id", "") or "").strip()
+    if not owner:
+        return True
+    viewer = str(org_id or "").strip()
+    return bool(viewer) and owner == viewer
+
+
 def mapping_matches_survey_industry(mapping: SurveyTypeTemplate, survey_type: SurveyType) -> bool:
     expected = resolve_survey_type_industry_id(survey_type)
     actual = str(getattr(mapping, "industry_id", "") or "").strip()

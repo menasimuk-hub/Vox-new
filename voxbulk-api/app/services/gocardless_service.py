@@ -122,9 +122,15 @@ class BillingService:
     @staticmethod
     def resolve_active_plan(db: Session, org_id: str) -> Plan | None:
         """Resolve the org's current plan from subscription, usage wallet, or pending checkout."""
+        from app.services.custom_org_profile_service import CustomOrgProfileService
         from app.services.usage_wallet_service import UsageWalletService
 
         BillingService.ensure_default_plans(db)
+
+        custom_plan = CustomOrgProfileService.resolve_plan_for_org(db, org_id)
+        if custom_plan is not None:
+            return custom_plan
+
         sub = BillingService.get_subscription(db, org_id)
 
         sub_plan: Plan | None = None

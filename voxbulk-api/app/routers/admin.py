@@ -1603,13 +1603,12 @@ def sync_meta_whatsapp_templates_step(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    if profile_id:
-        if route is None or not route.is_meta:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Selected connection profile is not a Meta WhatsApp profile",
-            )
-    elif not is_meta_whatsapp_primary(db):
+    if profile_id and route is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection profile not found or invalid for WhatsApp sync",
+        )
+    if not profile_id and not is_meta_whatsapp_primary(db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
@@ -1637,7 +1636,7 @@ def sync_meta_whatsapp_templates_step(
                 service_code=service_code,
             )
             catalog = merged.get("catalog") or {}
-            status = merged.get("status_pull") or {}
+            pull_status_result = merged.get("status_pull") or {}
             result = {
                 "ok": bool(merged.get("ok", True)),
                 "step": key,
@@ -1648,10 +1647,10 @@ def sync_meta_whatsapp_templates_step(
                 "message": merged.get("message")
                 or (
                     f"Step {idx}/{total}: refreshed status "
-                    f"({status.get('updated', 0)} rows) — local DB is source of truth"
+                    f"({pull_status_result.get('updated', 0)} rows) — local DB is source of truth"
                 ),
                 "catalog": catalog if catalog else None,
-                "status_pull": status,
+                "status_pull": pull_status_result,
                 "has_more": False,
             }
         else:

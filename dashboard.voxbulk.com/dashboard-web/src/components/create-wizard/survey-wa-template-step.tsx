@@ -15,6 +15,7 @@ export type WaBuilderTemplateRow = {
   footer?: string;
   buttons?: Array<{ label: string; type?: string }>;
   isApproved?: boolean;
+  orgOwned?: boolean;
 };
 
 function buttonsFromApiRow(row: Record<string, unknown>): Array<{ label: string; type?: string }> {
@@ -69,6 +70,7 @@ function templateFromApiRow(
     footer: String(row.footer || "Reply STOP to opt out").trim() || undefined,
     buttons: buttonsFromApiRow(row),
     isApproved: approved,
+    orgOwned: row.org_owned === true,
   };
 }
 
@@ -276,6 +278,9 @@ function TemplateCard({
     >
       <div>
         <p className="text-sm font-semibold">{tpl.title}</p>
+        {tpl.orgOwned ? (
+          <p className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-400">Only you</p>
+        ) : null}
         {pending ? (
           <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">Pending Meta approval</p>
         ) : null}

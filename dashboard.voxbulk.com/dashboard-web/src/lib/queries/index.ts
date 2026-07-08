@@ -1785,8 +1785,9 @@ export function useWaSurveyTypes(industryId?: string | null) {
 }
 
 export function useWaSurveySystemTemplates() {
+  const orgId = readOrgIdFromStorage() || "";
   return useQuery({
-    queryKey: ["dashboard", "wa-survey-system-templates"],
+    queryKey: ["dashboard", "wa-survey-system-templates", orgId],
     queryFn: () =>
       apiFetch<{ ok?: boolean; templates?: Record<string, Array<Record<string, unknown>>> }>(
         "/dashboard/service-scripts/wa-survey/system-templates",
@@ -1809,9 +1810,10 @@ export function useWaSurveyStepBank(surveyTypeId: string | null, privacyMode: "o
 }
 
 export function useWaSurveyLibraryTemplates(typeIds: string[], privacyMode: "off" | "on", enabled = true) {
+  const orgId = readOrgIdFromStorage() || "";
   return useQueries({
     queries: typeIds.map((surveyTypeId) => ({
-      queryKey: ["dashboard", "wa-survey-library-templates", surveyTypeId, privacyMode],
+      queryKey: ["dashboard", "wa-survey-library-templates", orgId, surveyTypeId, privacyMode],
       enabled: enabled && Boolean(surveyTypeId),
       staleTime: 30_000,
       refetchOnMount: "always" as const,

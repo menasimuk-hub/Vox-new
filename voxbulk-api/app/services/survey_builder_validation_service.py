@@ -199,6 +199,8 @@ class SurveyBuilderValidationService:
         anonymous_responses: bool = False,
         org_id: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.survey_industry_scope import template_visible_to_org
+
         errors: list[str] = []
         industry = db.get(Industry, str(industry_id or "").strip())
         if industry is None or not industry.is_active or bool(getattr(industry, "is_hidden", False)):
@@ -256,6 +258,9 @@ class SurveyBuilderValidationService:
                 else:
                     errors.append(f"{label} template must be from system {kind} templates.")
                 continue
+            if org_id and tpl is not None and not template_visible_to_org(tpl, org_id):
+                errors.append(f"{label} template is not available for your organisation.")
+                continue
             if require_approved:
                 SurveyBuilderValidationService._assert_meta_sendable(db, tpl, label, errors)
         middle_pairs: list[tuple[str, int]] = []
@@ -290,6 +295,11 @@ class SurveyBuilderValidationService:
                     if linked is None:
                         errors.append(
                             f"Template for \"{st.name if st else type_id}\" is not linked to that survey type."
+                        )
+                        continue
+                    if org_id and not template_visible_to_org(tpl, org_id):
+                        errors.append(
+                            f"Template for \"{st.name if st else type_id}\" is not available for your organisation."
                         )
                         continue
                     role = str(tpl.step_role or "").strip().lower()

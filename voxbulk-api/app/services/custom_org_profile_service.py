@@ -11,10 +11,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.models.connection_profile import ConnectionProfile
+from app.models.connection_profile import ConnectionProfile, ConnectionProfileOrg, ConnectionProfileService
 from app.models.custom_org_profile import (
     STATUS_ACTIVE,
     STATUS_PAUSED,
@@ -25,6 +25,10 @@ from app.models.industry import Industry
 from app.models.industry_organisation import IndustryOrganisation
 from app.models.organisation import Organisation
 from app.models.plan import Plan
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, SERVICE_SURVEY
+from app.services.industry_service import IndustryService
+from app.services.survey_industry_scope import resolve_dedicated_org_id_for_industry
 
 _VALID_STATUS = {STATUS_SETUP, STATUS_ACTIVE, STATUS_PAUSED}
 
@@ -93,6 +97,8 @@ class CustomOrgProfileService:
             "contact_phone": row.contact_phone,
             "region": row.region,
             "notes": row.notes,
+            "survey_enabled": bool(getattr(row, "survey_enabled", True)),
+            "feedback_enabled": bool(getattr(row, "feedback_enabled", False)),
             "industries": industries,
             "industry_count": len(industries),
             "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -163,6 +169,155 @@ class CustomOrgProfileService:
             if st not in _VALID_STATUS:
                 raise CustomOrgProfileError(f"Invalid status: {st}")
             row.status = st
+        if "survey_enabled" in payload:
+            row.survey_enabled = bool(payload.get("survey_enabled"))
+        if "feedback_enabled" in payload:
+            row.feedback_enabled = bool(payload.get("feedback_enabled"))
+
+    @staticmethod
+    def _ensure_org_on_profile(db: Session, profile_id: str | None, org_id: str | None) -> None:
+        if not profile_id or not org_id:
+            return
+        exists = db.execute(
+            select(ConnectionProfileOrg).where(
+                ConnectionProfileOrg.profile_id == profile_id,
+                ConnectionProfileOrg.org_id == org_id,
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        db.add(
+            ConnectionProfileOrg(
+                profile_id=profile_id,
+                org_id=org_id,
+            )
+        )
+
+    @staticmethod
+    def _sync_connection_profile_services(
+        db: Session,
+        profile_id: str | None,
+        *,
+        survey_enabled: bool,
+        feedback_enabled: bool,
+    ) -> None:
+        if not profile_id:
+            return
+        services: dict[str, bool] = {}
+        if survey_enabled:
+            services[SERVICE_SURVEY] = True
+        if feedback_enabled:
+            services[SERVICE_CUSTOMER_FEEDBACK] = True
+        if not services:
+            return
+        existing = {
+            svc.service_code: svc
+            for svc in db.execute(
+                select(ConnectionProfileService).where(ConnectionProfileService.profile_id == profile_id)
+            ).scalars().all()
+        }
+        now = datetime.utcnow()
+        for code, enabled in services.items():
+            row = existing.get(code)
+            if row is None:
+                db.add(
+                    ConnectionProfileService(
+                        profile_id=profile_id,
+                        service_code=code,
+                        enabled=bool(enabled),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            elif not row.enabled and enabled:
+                row.enabled = True
+                row.updated_at = now
+                db.add(row)
+
+    @staticmethod
+    def _sync_org_service_grants(
+        db: Session,
+        org_id: str | None,
+        *,
+        survey_enabled: bool,
+        feedback_enabled: bool,
+    ) -> None:
+        if not org_id:
+            return
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return
+        from app.services.org_enabled_services import parse_enabled_services, serialize_enabled_services
+
+        allowed = parse_enabled_services(org.allowed_services_json)
+        allowed["survey"] = bool(survey_enabled)
+        allowed["customer_feedback"] = bool(feedback_enabled)
+        org.allowed_services_json = serialize_enabled_services(allowed)
+
+        enabled = parse_enabled_services(org.enabled_services_json)
+        if survey_enabled:
+            enabled["survey"] = True
+        if feedback_enabled:
+            enabled["customer_feedback"] = True
+        enabled = {key: bool(allowed.get(key)) and bool(enabled.get(key)) for key in allowed}
+        if not any(enabled.values()):
+            enabled = dict(allowed)
+        org.enabled_services_json = serialize_enabled_services(enabled)
+        db.add(org)
+
+    @staticmethod
+    def _stamp_org_owned_templates(db: Session, org_id: str | None) -> None:
+        if not org_id:
+            return
+        for industry_id in CustomOrgProfileService._org_industry_ids(db, org_id):
+            dedicated = resolve_dedicated_org_id_for_industry(db, industry_id)
+            if dedicated != org_id:
+                continue
+            db.execute(
+                update(TelnyxWhatsappTemplate)
+                .where(TelnyxWhatsappTemplate.industry_id == industry_id)
+                .where(TelnyxWhatsappTemplate.org_id.is_(None))
+                .values(org_id=org_id)
+            )
+
+    @staticmethod
+    def _apply_runtime_bindings(db: Session, row: CustomOrgProfile) -> None:
+        org_id = str(row.org_id or "").strip() or None
+        if not org_id:
+            return
+        CustomOrgProfileService._ensure_org_on_profile(db, row.wa_profile_id, org_id)
+        CustomOrgProfileService._ensure_org_on_profile(db, row.calling_profile_id, org_id)
+        CustomOrgProfileService._sync_connection_profile_services(
+            db,
+            row.wa_profile_id,
+            survey_enabled=bool(getattr(row, "survey_enabled", True)),
+            feedback_enabled=bool(getattr(row, "feedback_enabled", False)),
+        )
+        CustomOrgProfileService._sync_org_service_grants(
+            db,
+            org_id,
+            survey_enabled=bool(getattr(row, "survey_enabled", True)),
+            feedback_enabled=bool(getattr(row, "feedback_enabled", False)),
+        )
+        CustomOrgProfileService._stamp_org_owned_templates(db, org_id)
+
+    @staticmethod
+    def resolve_plan_for_org(db: Session, org_id: str) -> Plan | None:
+        row = (
+            db.execute(
+                select(CustomOrgProfile)
+                .where(CustomOrgProfile.org_id == org_id)
+                .where(CustomOrgProfile.status == STATUS_ACTIVE)
+                .where(CustomOrgProfile.plan_id.isnot(None))
+                .order_by(CustomOrgProfile.updated_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if row is None or not row.plan_id:
+            return None
+        return db.get(Plan, row.plan_id)
 
     @staticmethod
     def create_profile(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -175,6 +330,9 @@ class CustomOrgProfileService:
         db.add(row)
         db.commit()
         db.refresh(row)
+        CustomOrgProfileService._apply_runtime_bindings(db, row)
+        db.commit()
+        db.refresh(row)
         return CustomOrgProfileService._serialize_row(db, row)
 
     @staticmethod
@@ -184,6 +342,9 @@ class CustomOrgProfileService:
             raise CustomOrgProfileError("Profile not found")
         CustomOrgProfileService._apply_payload(row, payload or {})
         row.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(row)
+        CustomOrgProfileService._apply_runtime_bindings(db, row)
         db.commit()
         db.refresh(row)
         return CustomOrgProfileService._serialize_row(db, row)
