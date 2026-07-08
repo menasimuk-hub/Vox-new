@@ -148,6 +148,17 @@
 
 .custom-org-page .form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
 
+.custom-org-page .planPickerWrap .custom-org-plan-picker-input{
+  padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;
+  font-size:12.5px;color:var(--ink);font-family:inherit;width:100%;
+}
+.custom-org-page .planPickerWrap select.custom-org-plan-picker-input{
+  min-height:100px;
+}
+.custom-org-page .planPickerWrap .muted{
+  color:var(--ink-soft);
+}
+
 .custom-org-page .iphone-label{color:#B9C2DA;font-size:10.5px;letter-spacing:.3px;text-transform:uppercase;font-weight:700;}
 .custom-org-page .phone{width:260px;height:540px;background:#000;border-radius:42px;padding:11px;box-shadow:0 18px 36px rgba(0,0,0,.5);position:relative;flex-shrink:0;}
 .custom-org-page .phone-screen{width:100%;height:100%;background:#E5DDD0;border-radius:32px;overflow:hidden;position:relative;display:flex;flex-direction:column;}

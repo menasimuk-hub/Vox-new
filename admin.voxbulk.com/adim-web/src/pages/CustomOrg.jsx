@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import '../styles/custom-org.css'
 
 /**
@@ -534,7 +535,11 @@ export default function CustomOrg() {
             <div>
               <div className="org-name">{form.name || 'Untitled'}</div>
               <div className="org-meta">
-                {form.internal_ref || 'WAP-—'} &nbsp;·&nbsp; {(form.industries || []).map((i) => i.name).join(', ') || 'No industry'} &nbsp;·&nbsp;{' '}
+                {form.internal_ref || 'WAP-—'} &nbsp;·&nbsp; {(form.industries || []).map((i) => i.name).join(', ') || 'No industry'}
+                {form.plan_service ? (
+                  <> &nbsp;·&nbsp; {form.plan_service}{form.plan_name ? ` · ${form.plan_name}` : ''}{form.plan_currency ? ` (${form.plan_currency})` : ''}</>
+                ) : null}
+                &nbsp;·&nbsp;{' '}
                 <span className={`badge ${STATUS_BADGE[form.status] || 'setup'}`}>{statusLabel(form.status)}</span>
               </div>
             </div>
@@ -569,12 +574,19 @@ export default function CustomOrg() {
                         {(options.orgs || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                       </select>
                     </td>
-                    <td className="k">Billing package</td>
-                    <td className="v">
-                      <select value={form.plan_id || ''} onChange={(e) => setField('plan_id', e.target.value)}>
-                        <option value="">— select plan —</option>
-                        {(options.plans || []).map((pl) => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
-                      </select>
+                    <td className="k">Billing plan</td>
+                    <td className="v" colSpan={1}>
+                      <PlanPickerSelect
+                        value={form.plan_id || ''}
+                        onChange={(id) => setField('plan_id', id || null)}
+                        valueKey="id"
+                        grouped
+                        placeholder="— select plan —"
+                        className="custom-org-plan-picker-input"
+                      />
+                      <div className="muted" style={{ fontSize: '11px', marginTop: 4 }}>
+                        Grouped by service. Shows package, region, and currency. Overrides org billing when this WA profile is active.
+                      </div>
                     </td>
                   </tr>
                   <tr>

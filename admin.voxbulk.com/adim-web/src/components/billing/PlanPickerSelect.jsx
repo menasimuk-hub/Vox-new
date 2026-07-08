@@ -1,6 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 
+const LINE_ORDER = { voxbulk: 0, customer_feedback: 1, campaign: 2 }
+
+function itemValue(p, valueKey) {
+  return valueKey === 'id' ? String(p.id || '') : String(p.code || '')
+}
+
+function optionLabel(p, grouped) {
+  if (grouped) {
+    const title = p.picker_title || p.name || p.code
+    const region = p.region || (p.product_line === 'voxbulk' ? 'Global' : '')
+    const currency = p.currency || ''
+    const suffix = currency ? `${region} (${currency})` : region
+    return suffix ? `${title} · ${suffix}` : title
+  }
+  return p.picker_label || `${p.name} (${p.code})`
+}
+
+function groupLabel(p) {
+  return p.group_label || p.picker_subtitle?.split(' · ')[0] || p.product_line || 'Plans'
+}
+
 /**
  * Searchable plan picker with title + subtitle labels.
  * Uses GET /admin/products/assignable-plans — display only, no billing changes.
@@ -14,6 +35,8 @@ export default function PlanPickerSelect({
   disabled,
   className = 'occ-modal-input',
   id,
+  valueKey = 'code',
+  grouped = false,
 }) {
   const [items, setItems] = useState([])
   const [query, setQuery] = useState('')
@@ -47,11 +70,47 @@ export default function PlanPickerSelect({
       (p) =>
         String(p.picker_label || '').toLowerCase().includes(q) ||
         String(p.code || '').toLowerCase().includes(q) ||
-        String(p.picker_title || '').toLowerCase().includes(q),
+        String(p.picker_title || '').toLowerCase().includes(q) ||
+        String(p.group_label || '').toLowerCase().includes(q) ||
+        String(p.currency || '').toLowerCase().includes(q),
     )
   }, [items, query])
 
-  const selected = items.find((p) => p.code === value)
+  const groupedItems = useMemo(() => {
+    if (!grouped) return null
+    const buckets = new Map()
+    for (const p of filtered) {
+      const key = groupLabel(p)
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key).push(p)
+    }
+    return [...buckets.entries()].sort((a, b) => {
+      const lineA = a[1][0]?.product_line || ''
+      const lineB = b[1][0]?.product_line || ''
+      return (LINE_ORDER[lineA] ?? 9) - (LINE_ORDER[lineB] ?? 9)
+    })
+  }, [filtered, grouped])
+
+  const selected = items.find((p) => itemValue(p, valueKey) === String(value || ''))
+
+  const renderOptions = () => {
+    if (grouped && groupedItems) {
+      return groupedItems.map(([label, plans]) => (
+        <optgroup key={label} label={label}>
+          {plans.map((p) => (
+            <option key={itemValue(p, valueKey)} value={itemValue(p, valueKey)}>
+              {optionLabel(p, true)}
+            </option>
+          ))}
+        </optgroup>
+      ))
+    }
+    return filtered.map((p) => (
+      <option key={itemValue(p, valueKey)} value={itemValue(p, valueKey)}>
+        {optionLabel(p, false)}
+      </option>
+    ))
+  }
 
   return (
     <div className="planPickerWrap">
@@ -74,17 +133,16 @@ export default function PlanPickerSelect({
         style={{ minHeight: 120 }}
       >
         <option value="">{placeholder}</option>
-        {filtered.map((p) => (
-          <option key={p.code} value={p.code}>
-            {p.picker_label || `${p.name} (${p.code})`}
-          </option>
-        ))}
+        {renderOptions()}
       </select>
       {selected ? (
         <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
-          <strong>{selected.picker_title}</strong>
+          <strong>{selected.group_label || selected.picker_subtitle?.split(' · ')[0] || 'Plan'}</strong>
           <br />
-          {selected.picker_subtitle}
+          {selected.picker_title || selected.name}
+          {selected.region || selected.currency
+            ? ` · ${[selected.region, selected.currency ? `(${selected.currency})` : ''].filter(Boolean).join(' ')}`
+            : ''}
           {selected.price_display ? ` · ${selected.price_display}` : ''}
         </p>
       ) : null}

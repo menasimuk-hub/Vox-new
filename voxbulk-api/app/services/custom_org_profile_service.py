@@ -24,10 +24,12 @@ from app.models.custom_org_profile import (
 from app.models.industry import Industry
 from app.models.industry_organisation import IndustryOrganisation
 from app.models.organisation import Organisation
+from app.models.customer_feedback import FeedbackPackage
 from app.models.plan import Plan
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, SERVICE_SURVEY
 from app.services.industry_service import IndustryService
+from app.services.products_hub_service import ProductsHubService
 from app.services.survey_industry_scope import resolve_dedicated_org_id_for_industry
 
 _VALID_STATUS = {STATUS_SETUP, STATUS_ACTIVE, STATUS_PAUSED}
@@ -50,6 +52,33 @@ class CustomOrgProfileService:
     def _next_internal_ref(db: Session) -> str:
         count = db.execute(select(func.count(CustomOrgProfile.id))).scalar() or 0
         return f"WAP-{count + 1:04d}"
+
+    @staticmethod
+    def _plan_display_fields(db: Session, plan: Plan | None) -> dict[str, Any]:
+        empty = {
+            "plan_code": None,
+            "plan_service": None,
+            "plan_currency": None,
+            "plan_region": None,
+            "plan_price_display": None,
+        }
+        if plan is None:
+            return empty
+        fb_pkg = None
+        if ProductsHubService.product_line_for_plan(plan) == "customer_feedback":
+            fb_pkg = db.execute(
+                select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)
+            ).scalar_one_or_none()
+        enriched = ProductsHubService.enrich_plan_row(db, plan, fb_pkg=fb_pkg)
+        if enriched is None:
+            return {**empty, "plan_code": plan.code}
+        return {
+            "plan_code": plan.code,
+            "plan_service": enriched.get("group_label"),
+            "plan_currency": enriched.get("currency"),
+            "plan_region": enriched.get("region"),
+            "plan_price_display": enriched.get("price_display"),
+        }
 
     @staticmethod
     def _org_industry_ids(db: Session, org_id: str | None) -> list[str]:
@@ -92,6 +121,7 @@ class CustomOrgProfileService:
             "calling_profile_name": (calling.name if calling else None),
             "plan_id": row.plan_id,
             "plan_name": (plan.name if plan else None),
+            **CustomOrgProfileService._plan_display_fields(db, plan),
             "contact_name": row.contact_name,
             "contact_email": row.contact_email,
             "contact_phone": row.contact_phone,
@@ -121,7 +151,7 @@ class CustomOrgProfileService:
             select(ConnectionProfile).where(ConnectionProfile.channel == "voice").order_by(ConnectionProfile.name)
         ).scalars().all()
         orgs = db.execute(select(Organisation).order_by(Organisation.name)).scalars().all()
-        plans = db.execute(select(Plan).order_by(Plan.name)).scalars().all()
+        plans = ProductsHubService.list_assignable_plans(db)
         return {
             "wa_profiles": [
                 {"id": p.id, "name": p.name, "provider": p.provider, "wa_number": _wa_number(p)}
@@ -129,7 +159,7 @@ class CustomOrgProfileService:
             ],
             "calling_profiles": [{"id": p.id, "name": p.name, "provider": p.provider} for p in voice_profiles],
             "orgs": [{"id": o.id, "name": o.name or o.id} for o in orgs],
-            "plans": [{"id": p.id, "name": p.name} for p in plans],
+            "plans": plans,
         }
 
     @staticmethod

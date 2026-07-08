@@ -408,6 +408,7 @@ class ProductsHubService:
                     "code": row.get("code"),
                     "name": row.get("name"),
                     "product_line": line,
+                    "group_label": row.get("group_label"),
                     "picker_title": row.get("picker_title"),
                     "picker_subtitle": row.get("picker_subtitle"),
                     "picker_label": row.get("picker_label"),
