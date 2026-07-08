@@ -1487,25 +1487,37 @@ def _try_link_remote_and_resolve_branch(
     *,
     raw_components: list[Any],
     language: str,
-    remote_items: list[dict[str, Any]],
+    remote_items: list[dict[str, Any]] | None,
+    connection_profile_id: str | None = None,
+    service_code: str | None = "survey",
+    skip_remote_link: bool = False,
 ) -> tuple[str, str | None, bool]:
     linked = False
-    if not _has_remote_telnyx_id(row) or str(row.local_sync_status or "") == SYNC_ERROR:
+    if not skip_remote_link and (not _has_remote_telnyx_id(row) or str(row.local_sync_status or "") == SYNC_ERROR):
         linked = _link_existing_remote_template(
             db,
             row,
             language=language,
-            remote_items=remote_items,
+            remote_items=remote_items if remote_items is not None else [],
         )
         if not linked:
-            try:
-                all_items = (
-                    remote_items
-                    if remote_items
-                    else TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
-                )
-            except Exception:
-                all_items = remote_items or []
+            all_items: list[dict[str, Any]] = []
+            if remote_items is not None:
+                all_items = remote_items
+            elif connection_profile_id:
+                try:
+                    all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                        db,
+                        connection_profile_id=connection_profile_id,
+                        service_code=service_code,
+                    )
+                except Exception:
+                    all_items = []
+            else:
+                try:
+                    all_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+                except Exception:
+                    all_items = []
             if all_items:
                 linked = _link_existing_remote_template(
                     db,
@@ -2603,6 +2615,9 @@ class SurveyWhatsappTemplateService:
             raw_components=raw_components,
             language=lang_code,
             remote_items=prefetched,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+            skip_remote_link=bool(profile_ctx and not profile_ctx.is_primary),
         )
         if linked:
             logger.info(
@@ -2652,6 +2667,15 @@ class SurveyWhatsappTemplateService:
                     "sync_branch": branch,
                 },
             )
+
+        if (
+            force_approved_update
+            and branch == SYNC_BRANCH_STATUS_REFRESH
+            and profile_ctx is not None
+            and not profile_ctx.is_primary
+        ):
+            branch = SYNC_BRANCH_FIRST_PUSH
+            branch_error = None
 
         if (
             force_approved_update

@@ -589,3 +589,44 @@ def test_send_template_id_uses_ledger_for_active_backup_profile():
         )
         assert telnyx_send == "telnyx-send-rid"
 
+
+def test_backup_link_skips_empty_prefetch_platform_fallback(monkeypatch):
+    """Empty Telnyx prefetch must not fall back to platform Meta catalog (mirror bug)."""
+    from app.services.survey_whatsapp_template_service import (
+        SYNC_BRANCH_FIRST_PUSH,
+        _try_link_remote_and_resolve_branch,
+    )
+
+    platform_fetch_called = {"count": 0}
+
+    def _platform_fetch(db, **kwargs):
+        platform_fetch_called["count"] += 1
+        return [{"id": "meta-only", "name": "voxbulk_survey_welcome_templates_standard_utu_2", "language": "en_GB", "status": "APPROVED"}]
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        _platform_fetch,
+    )
+
+    with get_sessionmaker()() as db:
+        row = _template(db, name="voxbulk_survey_welcome_templates_standard_utu_2")
+        row.telnyx_record_id = "local-test-id"
+        row.template_id = "local-test-id"
+        row.status = "LOCAL_DRAFT"
+        db.add(row)
+        db.commit()
+
+        components = _loads(row.draft_components_json)
+        branch, _err, linked = _try_link_remote_and_resolve_branch(
+            db,
+            row,
+            raw_components=components,
+            language="en_US",
+            remote_items=[],
+            connection_profile_id="telnyx-backup-profile",
+            skip_remote_link=True,
+        )
+        assert linked is False
+        assert platform_fetch_called["count"] == 0
+        assert branch == SYNC_BRANCH_FIRST_PUSH
+
