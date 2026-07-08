@@ -12,7 +12,9 @@ import {
   createIndustrySyncJob,
   EMPTY_INDUSTRY_SYNC_JOB,
   runWaFeedbackIndustryPushAll,
+  runWaFeedbackIndustryMirror,
   runWaIndustryPushAll,
+  runWaIndustryMirror,
 } from '../../lib/waIndustrySync'
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
@@ -474,6 +476,7 @@ export default function WaIndustryBrowser({
   onMessage,
   syncProfileId = null,
   syncProfile = null,
+  backupSyncProfileId = null,
   onRequestSyncConfirm,
 }) {
   const [industry, setIndustry] = useState(null)
@@ -658,6 +661,7 @@ export default function WaIndustryBrowser({
           ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
               batchSize,
+              connectionProfileId: syncProfileId,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
                 if (partial) syncAccRef.current = partial
                 if (step === 'pull') {
@@ -742,6 +746,95 @@ export default function WaIndustryBrowser({
         return
       }
       const errText = formatWaSurveyError(e, 'Industry sync failed').detailText || e?.message
+      onError?.(errText)
+      setSyncJob((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: errText,
+        open: true,
+      }))
+    } finally {
+      if (syncAbortRef.current === controller) syncAbortRef.current = null
+      setIndustrySyncing(false)
+    }
+  }
+
+  const mirrorIndustry = async ({ batchSize = 5 } = {}) => {
+    if (!industry?.id || !backupSyncProfileId) return
+    try {
+      await onRequestSyncConfirm?.({
+        title: `Mirror ${industry.name} to backup`,
+        action: 'Mirror',
+        detail: `Force-push every template in ${industry.name} to the Telnyx backup profile.`,
+        profile: { id: backupSyncProfileId },
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') onError?.(e?.message || 'Mirror cancelled')
+      return
+    }
+
+    syncAbortRef.current?.abort()
+    const controller = new AbortController()
+    syncAbortRef.current = controller
+    syncAccRef.current = null
+
+    setIndustrySyncing(true)
+    setSyncJob({
+      ...createIndustrySyncJob(`Mirror ${industry.name} to backup`),
+      steps: [{ id: 'push', label: '1. Mirror templates to backup', status: 'running', detail: '' }],
+    })
+
+    const applyProgress = (acc, { running = true } = {}) => {
+      syncAccRef.current = acc
+      const progress = buildIndustrySyncJobProgress(acc, { running, industryName: industry.name })
+      setSyncJob((prev) => ({
+        ...prev,
+        ...progress,
+        open: true,
+        title: prev.title || `Mirror ${industry.name} to backup`,
+        steps: prev.steps,
+      }))
+    }
+
+    try {
+      const mirrorFn =
+        product === 'feedback' ? runWaFeedbackIndustryMirror : runWaIndustryMirror
+      const acc = await mirrorFn(apiFetch, industry.id, {
+        signal: controller.signal,
+        batchSize,
+        connectionProfileId: backupSyncProfileId,
+        onProgress: ({ batchNum, flat, acc: partial, done, running }) => {
+          if (partial) syncAccRef.current = partial
+          patchSyncJobStep('push', {
+            status: done ? 'done' : 'running',
+            detail: flat?.message || `Batch ${batchNum}…`,
+          })
+          if (partial) applyProgress(partial, { running: Boolean(running) && !done })
+        },
+      })
+
+      patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })
+      const doneState = buildIndustrySyncJobDone(acc, industry.name)
+      setSyncJob((prev) => ({ ...prev, ...doneState, open: true }))
+      onMessage?.(doneState.message)
+      await loadIndustryRows(industry)
+      onReloadIndustries?.()
+    } catch (e) {
+      if (e?.name === 'IndustrySyncCancelledError' || controller.signal.aborted) {
+        const partial = syncAccRef.current || {
+          total: 0,
+          results: [],
+          errors: [],
+          content_updated: 0,
+          error_count: 0,
+        }
+        const doneState = buildIndustrySyncJobCancelled(partial, { industryName: industry.name })
+        patchSyncJobStep('push', { status: 'error', detail: 'Stopped' })
+        setSyncJob((prev) => ({ ...prev, ...doneState, open: true, steps: prev.steps }))
+        onMessage?.(doneState.message)
+        return
+      }
+      const errText = formatWaSurveyError(e, 'Industry mirror failed').detailText || e?.message
       onError?.(errText)
       setSyncJob((prev) => ({
         ...prev,
@@ -858,6 +951,17 @@ export default function WaIndustryBrowser({
               <RefreshCw className={cn('h-3.5 w-3.5', industrySyncing && 'animate-spin')} />
               {industrySyncing ? 'Syncing industry…' : 'Sync this industry'}
             </Button>
+            {backupSyncProfileId ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                disabled={industrySyncing || deletingIndustry}
+                onClick={() => void mirrorIndustry({ batchSize: 5 })}
+              >
+                Mirror this industry
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="ghost"

@@ -304,6 +304,9 @@ def push_feedback_template_to_telnyx(
     *,
     dry_run: bool = False,
     remote_items: list[dict[str, Any]] | None = None,
+    connection_profile_id: str | None = None,
+    service_code: str = "customer_feedback",
+    force_push: bool = False,
 ) -> dict[str, Any]:
     industry_slug: str | None = None
     survey_slug: str | None = None
@@ -350,7 +353,12 @@ def push_feedback_template_to_telnyx(
     prefetched = remote_items
     if prefetched is None and not dry_run:
         try:
-            prefetched = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+            prefetched = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                allow_account_waba_fallback=not bool(connection_profile_id),
+            )
         except Exception as exc:
             logger.warning("feedback_meta_prefetch_failed: %s", str(exc)[:200])
             prefetched = []
@@ -378,7 +386,7 @@ def push_feedback_template_to_telnyx(
         }
 
     existing_remote = find_remote_feedback_template(prefetched or [], name=name, language=language)
-    if existing_remote:
+    if existing_remote and not force_push:
         _mark_template_submitted(db, tpl)
         return {
             "ok": True,
@@ -396,7 +404,11 @@ def push_feedback_template_to_telnyx(
 
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-    if is_meta_whatsapp_primary(db, service_code="customer_feedback"):
+    if is_meta_whatsapp_primary(
+        db,
+        service_code=service_code,
+        connection_profile_id=connection_profile_id,
+    ):
         from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
         try:
@@ -406,6 +418,8 @@ def push_feedback_template_to_telnyx(
                 language=language,
                 category=category,
                 components=components,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
             )
         except MetaWhatsappTemplateError as exc:
             raise FeedbackTelnyxPushError(str(exc), payload=getattr(exc, "payload", None)) from exc
@@ -423,11 +437,32 @@ def push_feedback_template_to_telnyx(
             "message": "Template submitted to Meta for approval.",
         }
 
-    config = _telnyx_config(db)
+    if connection_profile_id:
+        from app.services.connection.config_resolver import resolve_whatsapp_route_by_profile_id
+
+        route = resolve_whatsapp_route_by_profile_id(
+            db,
+            connection_profile_id,
+            service_code=service_code,
+        )
+        if route.is_meta:
+            raise FeedbackTelnyxPushError("Connection profile uses Meta, not Telnyx.")
+        config = route.config
+    else:
+        config = _telnyx_config(db)
     api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
     if not api_key:
         api_key, _ = require_telnyx_api_key(db)
-    waba_id = resolve_telnyx_whatsapp_waba_id(db, config)
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    waba_hint = None
+    if connection_profile_id and not WaTemplateProfilePushService.is_primary_profile(
+        db,
+        connection_profile_id,
+        service_code=service_code,
+    ):
+        waba_hint = None
+    waba_id = resolve_telnyx_whatsapp_waba_id(db, config, template_waba_id=waba_hint)
     if not waba_id:
         raise FeedbackTelnyxPushError(
             "WhatsApp Business Account ID is not configured. "
@@ -651,7 +686,13 @@ def push_all_feedback_templates_for_industry(
     for tpl in templates:
         try:
             result = push_feedback_template_to_telnyx(
-                db, tpl, dry_run=dry_run, remote_items=remote_items
+                db,
+                tpl,
+                dry_run=dry_run,
+                remote_items=remote_items,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                force_push=force_push,
             )
             pushed += 1
             if result.get("skipped_push") or result.get("linked"):
@@ -698,6 +739,173 @@ def push_all_feedback_templates_for_industry(
     }
 
 
+def list_all_feedback_platform_templates(db: Session) -> list[FeedbackWaTemplate]:
+    rows = list(
+        db.execute(
+            select(FeedbackWaTemplate)
+            .where(FeedbackWaTemplate.is_active.is_(True))
+            .order_by(
+                FeedbackWaTemplate.industry_id,
+                FeedbackWaTemplate.survey_type_id,
+                FeedbackWaTemplate.step_order,
+                FeedbackWaTemplate.template_key,
+                FeedbackWaTemplate.language,
+            )
+        ).scalars().all()
+    )
+    return [
+        tpl
+        for tpl in rows
+        if not is_marketing_wa_template(tpl) and str(tpl.body_text or "").strip()
+    ]
+
+
+def push_feedback_platform_batch(
+    db: Session,
+    *,
+    offset: int = 0,
+    limit: int = 10,
+    force_push: bool = False,
+    connection_profile_id: str | None = None,
+    industry_id: str | None = None,
+    service_code: str = "customer_feedback",
+) -> dict[str, Any]:
+    """Hub or industry batch — push changed (default) or mirror-all (force_push) for Customer Feedback."""
+    if industry_id:
+        industry = resolve_feedback_industry(db, industry_id=industry_id)
+        work = list_feedback_templates_for_industry(db, industry.id)
+        scope_label = industry.name
+    else:
+        industry = None
+        work = list_all_feedback_platform_templates(db)
+        scope_label = "all customer feedback templates"
+
+    work = [tpl for tpl in work if not is_marketing_wa_template(tpl) and str(tpl.body_text or "").strip()]
+    total = len(work)
+    if total == 0:
+        return {
+            "ok": True,
+            "total": 0,
+            "processed": 0,
+            "offset": offset,
+            "limit": limit,
+            "has_more": False,
+            "next_offset": 0,
+            "pushed": 0,
+            "linked": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+            "results": [],
+            "content_updated": 0,
+            "error_count": 0,
+            "message": f"No customer feedback templates to sync ({scope_label}).",
+        }
+
+    start = max(0, int(offset or 0))
+    batch_limit = max(1, min(int(limit or 10), 50))
+    slice_rows = work[start : start + batch_limit]
+
+    remote_items: list[dict[str, Any]] | None = None
+    try:
+        remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+            allow_account_waba_fallback=not bool(connection_profile_id),
+        )
+    except Exception as exc:
+        logger.warning("feedback_platform_prefetch_failed: %s", str(exc)[:200])
+        remote_items = []
+
+    pushed = 0
+    linked = 0
+    skipped = 0
+    failed = 0
+    errors: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+
+    for tpl in slice_rows:
+        if not force_push and not _feedback_template_needs_push(db, tpl, remote_items or []):
+            skipped += 1
+            results.append(
+                {
+                    "ok": True,
+                    "template_id": tpl.id,
+                    "template_key": tpl.template_key,
+                    "template_name": _feedback_meta_name_for_template(db, tpl),
+                    "outcome": "skipped",
+                    "message": "Already in sync on selected profile",
+                }
+            )
+            continue
+        try:
+            result = push_feedback_template_to_telnyx(
+                db,
+                tpl,
+                remote_items=remote_items,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                force_push=force_push,
+            )
+            pushed += 1
+            if result.get("skipped_push") or result.get("linked"):
+                linked += 1
+            results.append(
+                {
+                    "ok": True,
+                    "template_id": tpl.id,
+                    "template_key": tpl.template_key,
+                    "template_name": result.get("meta_name") or tpl.template_key,
+                    "language": tpl.language,
+                    "message": result.get("message"),
+                    "linked": bool(result.get("linked")),
+                    "outcome": "content_updated" if not result.get("linked") else "linked",
+                }
+            )
+        except FeedbackTelnyxPushError as exc:
+            failed += 1
+            err = {
+                "template_id": tpl.id,
+                "template_key": tpl.template_key,
+                "template_name": _feedback_meta_name_for_template(db, tpl),
+                "language": tpl.language,
+                "error": str(exc),
+            }
+            errors.append(err)
+            results.append({"ok": False, **err, "outcome": "failed"})
+
+    has_more = start + len(slice_rows) < total
+    next_offset = start + len(slice_rows)
+    db.commit()
+    return {
+        "ok": failed == 0,
+        "total": total,
+        "processed": next_offset,
+        "offset": start,
+        "limit": batch_limit,
+        "has_more": has_more,
+        "next_offset": next_offset,
+        "pushed": pushed,
+        "linked": linked,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors,
+        "results": results,
+        "content_updated": pushed - linked,
+        "error_count": failed,
+        "connection_profile_id": connection_profile_id,
+        "force_push": force_push,
+        "industry_id": industry.id if industry else None,
+        "message": (
+            f"{'Mirrored' if force_push else 'Pushed'} batch {start + 1}–{next_offset} of {total} "
+            f"for {scope_label}"
+            + (f" ({skipped} unchanged skipped)" if skipped else "")
+            + (f", {failed} failed" if failed else "")
+        ),
+    }
+
+
 def push_feedback_templates_batch(
     db: Session,
     *,
@@ -706,13 +914,21 @@ def push_feedback_templates_batch(
     limit: int = 10,
     dry_run: bool = False,
     phase: str = "push",
+    connection_profile_id: str | None = None,
+    force_push: bool = False,
+    service_code: str = "customer_feedback",
 ) -> dict[str, Any]:
     """Batched industry sync — push slice or pull statuses (mirrors WA Survey push-all)."""
     industry = resolve_feedback_industry(db, industry_id=industry_id)
     phase_norm = str(phase or "push").strip().lower()
 
     if phase_norm == "pull":
-        refresh = refresh_feedback_template_status_from_telnyx_for_industry(db, industry_id=industry.id)
+        refresh = refresh_feedback_template_status_from_telnyx_for_industry(
+            db,
+            industry_id=industry.id,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
         return {
             "ok": True,
             "phase": "pull",
@@ -724,6 +940,17 @@ def push_feedback_templates_batch(
             "processed": int(refresh.get("matched") or 0),
             "message": str(refresh.get("message") or "Status refresh complete"),
         }
+
+    if force_push and not dry_run:
+        return push_feedback_platform_batch(
+            db,
+            offset=offset,
+            limit=limit,
+            force_push=True,
+            connection_profile_id=connection_profile_id,
+            industry_id=industry.id,
+            service_code=service_code,
+        )
 
     templates = list_feedback_templates_for_industry(db, industry.id)
     total = len(templates)
@@ -754,7 +981,12 @@ def push_feedback_templates_batch(
     remote_items: list[dict[str, Any]] | None = None
     if not dry_run and slice_rows:
         try:
-            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                allow_account_waba_fallback=not bool(connection_profile_id),
+            )
         except Exception as exc:
             logger.warning("feedback_telnyx_batch_prefetch_failed: %s", str(exc)[:200])
             remote_items = []
@@ -762,7 +994,7 @@ def push_feedback_templates_batch(
     batch: list[FeedbackWaTemplate] = []
     skipped = 0
     for tpl in slice_rows:
-        if dry_run or _feedback_template_needs_push(db, tpl, remote_items or []):
+        if dry_run or force_push or _feedback_template_needs_push(db, tpl, remote_items or []):
             batch.append(tpl)
         else:
             skipped += 1
@@ -779,7 +1011,13 @@ def push_feedback_templates_batch(
     for tpl in batch:
         try:
             result = push_feedback_template_to_telnyx(
-                db, tpl, dry_run=dry_run, remote_items=remote_items
+                db,
+                tpl,
+                dry_run=dry_run,
+                remote_items=remote_items,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                force_push=force_push,
             )
             pushed += 1
             if result.get("skipped_push") or result.get("linked"):
@@ -910,6 +1148,8 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
     *,
     industry_id: str | None = None,
     industry_slug: str | None = None,
+    connection_profile_id: str | None = None,
+    service_code: str = "customer_feedback",
 ) -> dict[str, Any]:
     """Pull Meta/Telnyx approval status for all templates in an industry."""
     industry = resolve_feedback_industry(db, industry_id=industry_id, industry_slug=industry_slug)
@@ -930,9 +1170,14 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
         }
 
     try:
-        remote_items = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(db)
+        remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+            allow_account_waba_fallback=not bool(connection_profile_id),
+        )
     except Exception as exc:
-        raise FeedbackTelnyxPushError(f"Could not fetch templates from Telnyx: {exc}") from exc
+        raise FeedbackTelnyxPushError(f"Could not fetch templates from provider: {exc}") from exc
 
     matched = 0
     updated = 0
@@ -1001,9 +1246,64 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
         "not_found": not_found,
         "results": results,
         "message": (
-            f"Refreshed {matched}/{len(templates)} template(s) from Telnyx for {industry.name}"
+            f"Refreshed {matched}/{len(templates)} template(s) for {industry.name}"
             + (f" — {approved} approved" if approved else "")
             + (f", {pending} pending" if pending else "")
             + (f", {not_found} not on Meta yet" if not_found else "")
+        ),
+    }
+
+
+def refresh_feedback_platform_status(
+    db: Session,
+    *,
+    connection_profile_id: str | None = None,
+    service_code: str = "customer_feedback",
+) -> dict[str, Any]:
+    """Pull approval status for all active customer feedback templates (hub refresh)."""
+    industries = list(
+        db.execute(
+            select(FeedbackIndustry)
+            .where(FeedbackIndustry.is_active.is_(True))
+            .order_by(FeedbackIndustry.sort_order, FeedbackIndustry.name)
+        ).scalars().all()
+    )
+    total_templates = 0
+    matched = 0
+    updated = 0
+    approved = 0
+    pending = 0
+    not_found = 0
+    industry_results: list[dict[str, Any]] = []
+
+    for industry in industries:
+        refresh = refresh_feedback_template_status_from_telnyx_for_industry(
+            db,
+            industry_id=industry.id,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
+        industry_results.append(refresh)
+        total_templates += int(refresh.get("template_count") or 0)
+        matched += int(refresh.get("matched") or 0)
+        updated += int(refresh.get("updated") or 0)
+        approved += int(refresh.get("approved") or 0)
+        pending += int(refresh.get("pending") or 0)
+        not_found += int(refresh.get("not_found") or 0)
+
+    return {
+        "ok": True,
+        "template_count": total_templates,
+        "matched": matched,
+        "updated": updated,
+        "approved": approved,
+        "pending": pending,
+        "not_found": not_found,
+        "industry_count": len(industries),
+        "industries": industry_results,
+        "connection_profile_id": connection_profile_id,
+        "message": (
+            f"Refreshed status for {matched}/{total_templates} customer feedback template(s)"
+            + (f" — {updated} row(s) updated" if updated else "")
         ),
     }

@@ -267,11 +267,74 @@ export async function runWaIndustryPushAll(apiFetch, industryId, { onProgress, s
   return acc
 }
 
+export async function runWaIndustryMirror(
+  apiFetch,
+  industryId,
+  { onProgress, signal, batchSize = 10, connectionProfileId } = {},
+) {
+  if (!connectionProfileId) throw new Error('Backup connection profile is required for mirror')
+  const profileBody = { connection_profile_id: connectionProfileId }
+  const acc = {
+    content_updated: 0,
+    refreshed: 0,
+    linked: 0,
+    skipped: 0,
+    error_count: 0,
+    errors: [],
+    results: [],
+    total: 0,
+    ok: true,
+  }
+  let offset = 0
+  let batchNum = 0
+  const path = `/admin/wa-survey/industries/${encodeURIComponent(industryId)}/templates/push-all`
+
+  for (;;) {
+    throwIfCancelled(signal)
+    batchNum += 1
+    onProgress?.({ batchNum, offset, step: 'push', acc: { ...acc }, running: true })
+    const summary = await apiFetch(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        offset,
+        limit: batchSize,
+        force_push: true,
+        phase: 'push',
+        ...profileBody,
+      }),
+      timeoutMs: 300000,
+      quietNetworkHint: true,
+      signal,
+    })
+    const flat = flattenIndustryPushBatch(summary)
+    acc.content_updated += flat.content_updated
+    acc.refreshed += flat.refreshed
+    acc.linked += flat.linked
+    acc.skipped += flat.skipped
+    acc.error_count += flat.error_count
+    acc.errors.push(...flat.errors)
+    acc.results.push(...flat.results)
+    acc.total = flat.total || acc.total
+    acc.ok = acc.ok && flat.ok
+    onProgress?.({ batchNum, offset, flat, acc: { ...acc }, done: !flat.has_more, running: flat.has_more, step: 'push' })
+    if (!flat.has_more) break
+    offset = flat.next_offset
+  }
+
+  onProgress?.({ step: 'push', acc: { ...acc }, done: true, running: false })
+  return acc
+}
+
 export function buildIndustrySyncJobDone(acc, industryName) {
   return buildIndustrySyncJobProgress(acc, { running: false, industryName })
 }
 
-export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onProgress, signal, batchSize = 10 } = {}) {
+export async function runWaFeedbackIndustryPushAll(
+  apiFetch,
+  industryId,
+  { onProgress, signal, batchSize = 10, connectionProfileId, forcePush = false } = {},
+) {
+  const profileBody = connectionProfileId ? { connection_profile_id: connectionProfileId } : {}
   const acc = {
     content_updated: 0,
     refreshed: 0,
@@ -298,6 +361,8 @@ export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onPro
         offset,
         limit: batchSize,
         phase: 'push',
+        force_push: forcePush,
+        ...profileBody,
       }),
       timeoutMs: 300000,
       quietNetworkHint: true,
@@ -323,7 +388,7 @@ export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onPro
   try {
     const pullSummary = await apiFetch(path, {
       method: 'POST',
-      body: JSON.stringify({ phase: 'pull' }),
+      body: JSON.stringify({ phase: 'pull', ...profileBody }),
       timeoutMs: 300000,
       quietNetworkHint: true,
       signal,
@@ -341,5 +406,60 @@ export async function runWaFeedbackIndustryPushAll(apiFetch, industryId, { onPro
   }
   onProgress?.({ step: 'pull', acc: { ...acc }, done: true, running: false })
 
+  return acc
+}
+
+export async function runWaFeedbackIndustryMirror(
+  apiFetch,
+  industryId,
+  { onProgress, signal, batchSize = 10, connectionProfileId } = {},
+) {
+  if (!connectionProfileId) throw new Error('Backup connection profile is required for mirror')
+  const acc = {
+    content_updated: 0,
+    refreshed: 0,
+    linked: 0,
+    skipped: 0,
+    error_count: 0,
+    errors: [],
+    results: [],
+    total: 0,
+    ok: true,
+  }
+  let offset = 0
+  let batchNum = 0
+  const path = `/admin/customer-feedback/industries/${encodeURIComponent(industryId)}/mirror-backup`
+
+  for (;;) {
+    throwIfCancelled(signal)
+    batchNum += 1
+    onProgress?.({ batchNum, offset, step: 'push', acc: { ...acc }, running: true })
+    const summary = await apiFetch(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        offset,
+        limit: batchSize,
+        connection_profile_id: connectionProfileId,
+      }),
+      timeoutMs: 300000,
+      quietNetworkHint: true,
+      signal,
+    })
+    const flat = flattenIndustryPushBatch(summary)
+    acc.content_updated += flat.content_updated
+    acc.refreshed += flat.refreshed
+    acc.linked += flat.linked
+    acc.skipped += flat.skipped
+    acc.error_count += flat.error_count
+    acc.errors.push(...flat.errors)
+    acc.results.push(...flat.results)
+    acc.total = flat.total || acc.total
+    acc.ok = acc.ok && flat.ok
+    onProgress?.({ batchNum, offset, flat, acc: { ...acc }, done: !flat.has_more, running: flat.has_more, step: 'push' })
+    if (!flat.has_more) break
+    offset = flat.next_offset
+  }
+
+  onProgress?.({ step: 'push', acc: { ...acc }, done: true, running: false })
   return acc
 }

@@ -138,6 +138,7 @@ export default function WaTemplatesHub() {
   const rawTab = searchParams.get('tab') || 'survey'
   const tab = TAB_ALIASES[rawTab] || (TAGS.some((t) => t.id === rawTab) ? rawTab : 'survey')
   const syncServiceCode = syncServiceCodeForTab(tab)
+  const hubScopeLabel = tab === 'feedback' ? 'customer feedback templates' : 'survey templates'
 
   const [syncing, setSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -479,9 +480,17 @@ export default function WaTemplatesHub() {
     setError('')
     setMsg('')
     try {
-      const last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
+      const pullPath =
+        tab === 'feedback'
+          ? '/admin/customer-feedback/templates/pull-status'
+          : '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull'
+      const pullBody =
+        tab === 'feedback'
+          ? syncBodyExtra()
+          : { status_only: true, ...syncBodyExtra() }
+      const last = await apiFetch(pullPath, {
         method: 'POST',
-        body: JSON.stringify({ status_only: true, ...syncBodyExtra() }),
+        body: JSON.stringify(pullBody),
         timeoutMs: 300000,
         quietNetworkHint: true,
       })
@@ -513,6 +522,7 @@ export default function WaTemplatesHub() {
     detail,
     forcePush = true,
     extraBody = {},
+    scopeLabel = 'templates',
   }) => {
     if (!profile?.id) {
       setError('Connection profile is not configured.')
@@ -563,7 +573,7 @@ export default function WaTemplatesHub() {
         pushTotal = acc.content_updated
         const progress = buildIndustrySyncJobProgress(acc, {
           running: Boolean(last?.has_more),
-          industryName: 'survey templates',
+          industryName: scopeLabel,
         })
         const lastResult = acc.results[acc.results.length - 1]
         const lastName = lastResult?.template_name || lastResult?.label || ''
@@ -589,7 +599,7 @@ export default function WaTemplatesHub() {
         offset = Number(last?.next_offset ?? offset + PUSH_BATCH)
       }
       const branchNote = last?.results?.[0]?.sync_branch ? ` (${last.results[0].sync_branch})` : ''
-      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
+      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
       const finalMsg = formatActionSuccess(last || {}, last?.message || `Pushed ${pushTotal} template(s)${branchNote}`).message
       setMsg(finalMsg)
       setJob((prev) => ({
@@ -611,7 +621,7 @@ export default function WaTemplatesHub() {
       refreshTabData()
     } catch (e) {
       if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
-        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
+        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
         setJob((prev) => ({
           ...prev,
           ...partial,
@@ -630,7 +640,19 @@ export default function WaTemplatesHub() {
     }
   }
 
-  const pushToPrimary = () =>
+  const pushToPrimary = () => {
+    if (tab === 'feedback') {
+      void runProfilePushBatch({
+        path: '/admin/customer-feedback/templates/push-changed',
+        profile: primarySyncProfile,
+        title: 'Push changed customer feedback templates to primary',
+        detail:
+          'Pushes only customer feedback templates that need syncing (local edits, not yet on Meta, or out of sync). Skips templates already in sync on the selected profile.',
+        forcePush: false,
+        scopeLabel: hubScopeLabel,
+      })
+      return
+    }
     void runProfilePushBatch({
       path: '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push',
       profile: primarySyncProfile,
@@ -639,18 +661,27 @@ export default function WaTemplatesHub() {
         'Pushes only survey templates that need syncing (local edits, not yet on Meta, or out of sync). Includes industry topics and system templates (Welcome, Thank you, etc.). Skips templates already in sync. Opens a progress window. Does not push Custom Org service-only templates.',
       forcePush: false,
       extraBody: { service_code: syncServiceCode },
+      scopeLabel: hubScopeLabel,
     })
+  }
 
   const mirrorToBackup = () => {
-    if (tab !== 'survey') return
+    if (tab !== 'survey' && tab !== 'feedback') return
+    const isFeedback = tab === 'feedback'
     void runProfilePushBatch({
-      path: '/admin/wa-survey/templates/mirror-backup',
+      path: isFeedback
+        ? '/admin/customer-feedback/templates/mirror-backup'
+        : '/admin/wa-survey/templates/mirror-backup',
       profile: backupSyncProfile,
-      title: 'Mirror all survey templates to Telnyx backup',
-      detail:
-        'Force-pushes every survey industry topic and system template (Welcome, Thank you, Tell us more, Closing) to the Telnyx backup profile — same names and bodies as the database. Opens a progress window. Skips empty/local-only rows with no body.',
+      title: isFeedback
+        ? 'Mirror all customer feedback templates to Telnyx backup'
+        : 'Mirror all survey templates to Telnyx backup',
+      detail: isFeedback
+        ? 'Force-pushes every customer feedback industry template to the Telnyx backup profile — same names and bodies as the database. Opens a progress window.'
+        : 'Force-pushes every survey industry topic and system template (Welcome, Thank you, Tell us more, Closing) to the Telnyx backup profile — same names and bodies as the database. Opens a progress window. Skips empty/local-only rows with no body.',
       forcePush: true,
-      extraBody: { service_code: syncServiceCode },
+      extraBody: isFeedback ? {} : { service_code: syncServiceCode },
+      scopeLabel: hubScopeLabel,
     })
   }
 
@@ -686,12 +717,21 @@ export default function WaTemplatesHub() {
     const messages = []
     const summaryRows = []
     const acc = createHubPushAccumulator()
+    const isFeedback = tab === 'feedback'
+    const pullPath = isFeedback
+      ? '/admin/customer-feedback/templates/pull-status'
+      : '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull'
+    const pushPath = isFeedback
+      ? '/admin/customer-feedback/templates/push-changed'
+      : '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push'
     try {
       let last = null
       patchJobStep('pull', { status: 'running', detail: 'Refreshing approval status from Meta…' })
-      last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/pull', {
+      last = await apiFetch(pullPath, {
         method: 'POST',
-        body: JSON.stringify({ status_only: true, ...syncBodyExtra() }),
+        body: JSON.stringify(
+          isFeedback ? syncBodyExtra() : { status_only: true, ...syncBodyExtra() },
+        ),
         timeoutMs: 300000,
         quietNetworkHint: true,
         signal: controller.signal,
@@ -707,13 +747,13 @@ export default function WaTemplatesHub() {
       let pushTotal = 0
       patchJobStep('push', { status: 'running', detail: 'Pushing changed templates…' })
       for (let batchNum = 1; ; batchNum += 1) {
-        last = await apiFetch('/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push', {
+        last = await apiFetch(pushPath, {
           method: 'POST',
           body: JSON.stringify({
             offset,
             limit: PUSH_BATCH,
             force_push: false,
-            force_utility_category: false,
+            ...(isFeedback ? {} : { force_utility_category: false }),
             ...syncBodyExtra(),
           }),
           timeoutMs: 300000,
@@ -725,7 +765,7 @@ export default function WaTemplatesHub() {
         pushTotal = acc.content_updated
         const progress = buildIndustrySyncJobProgress(acc, {
           running: Boolean(last?.has_more),
-          industryName: 'survey templates',
+          industryName: hubScopeLabel,
         })
         const lastResult = acc.results[acc.results.length - 1]
         const lastName = lastResult?.template_name || lastResult?.label || ''
@@ -747,7 +787,7 @@ export default function WaTemplatesHub() {
       }
       messages.push(last?.message || 'Push complete')
       if (pushTotal) summaryRows.push({ metric: 'Templates pushed', count: pushTotal })
-      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
+      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
 
       const finalMsg = formatActionSuccess(last || {}, messages.join(' · ')).message
       setMsg(finalMsg)
@@ -763,7 +803,7 @@ export default function WaTemplatesHub() {
       refreshTabData()
     } catch (e) {
       if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
-        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: 'survey templates' })
+        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
         setJob((prev) => ({
           ...prev,
           ...partial,
@@ -1286,14 +1326,18 @@ export default function WaTemplatesHub() {
               >
                 {syncProfileActionLabel(primarySyncProfile, 'Push changed')}
               </Button>
-              {tab === 'survey' && backupSyncProfile?.id ? (
+              {(tab === 'survey' || tab === 'feedback') && backupSyncProfile?.id ? (
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-8 gap-1.5 text-xs"
                   onClick={() => mirrorToBackup()}
                   disabled={syncing || refreshing || cleaning}
-                  title="Force-push all survey industry + system templates to Telnyx backup. Shows progress."
+                  title={
+                    tab === 'feedback'
+                      ? 'Force-push all customer feedback templates to Telnyx backup. Shows progress.'
+                      : 'Force-push all survey industry + system templates to Telnyx backup. Shows progress.'
+                  }
                 >
                   {syncProfileActionLabel(backupSyncProfile, 'Mirror all')}
                 </Button>
@@ -1398,6 +1442,7 @@ export default function WaTemplatesHub() {
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
                     syncProfile={syncProfile}
+                    backupSyncProfileId={backupSyncProfile?.id}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}
@@ -1420,6 +1465,7 @@ export default function WaTemplatesHub() {
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
                     syncProfile={syncProfile}
+                    backupSyncProfileId={backupSyncProfile?.id}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
                 ) : null}

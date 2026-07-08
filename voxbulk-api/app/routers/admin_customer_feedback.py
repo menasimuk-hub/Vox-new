@@ -89,9 +89,11 @@ def sync_industry_templates(
         FeedbackTelnyxPushError,
         push_feedback_templates_batch,
     )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
 
     body = payload or {}
     phase = str(body.get("phase") or "push").strip().lower()
+    profile_id = connection_profile_id_from_payload(body)
     try:
         summary = push_feedback_templates_batch(
             db,
@@ -100,6 +102,8 @@ def sync_industry_templates(
             limit=int(body.get("limit") or 10),
             dry_run=bool(body.get("dry_run")),
             phase=phase,
+            connection_profile_id=profile_id,
+            force_push=bool(body.get("force_push")),
         )
     except FeedbackTelnyxPushError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -120,11 +124,128 @@ def sync_industry_templates(
         "next_offset": push_summary.get("next_offset"),
         "pushed": push_summary.get("pushed"),
         "linked": push_summary.get("linked"),
+        "skipped": push_summary.get("skipped"),
         "failed": failed,
         "errors": push_summary.get("errors"),
         "results": push_summary.get("results"),
         "content_updated": push_summary.get("content_updated"),
         "error_count": push_summary.get("error_count"),
+    }
+
+
+@router.post("/templates/push-changed")
+def push_changed_feedback_templates(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_feedback_platform_batch,
+    )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    try:
+        result = push_feedback_platform_batch(
+            db,
+            offset=int(body.get("offset") or 0),
+            limit=int(body.get("limit") or 10),
+            force_push=False,
+            connection_profile_id=profile_id,
+            service_code="customer_feedback",
+        )
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": result.get("ok", True), "push": result, **result}
+
+
+@router.post("/templates/mirror-backup")
+def mirror_feedback_templates_to_backup(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_feedback_platform_batch,
+    )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    try:
+        result = push_feedback_platform_batch(
+            db,
+            offset=int(body.get("offset") or 0),
+            limit=int(body.get("limit") or 10),
+            force_push=True,
+            connection_profile_id=profile_id,
+            service_code="customer_feedback",
+        )
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": result.get("ok", True), "push": result, **result}
+
+
+@router.post("/industries/{industry_id}/mirror-backup")
+def mirror_industry_feedback_templates_to_backup(
+    industry_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_feedback_platform_batch,
+    )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    try:
+        result = push_feedback_platform_batch(
+            db,
+            offset=int(body.get("offset") or 0),
+            limit=int(body.get("limit") or 10),
+            force_push=True,
+            connection_profile_id=profile_id,
+            industry_id=industry_id,
+            service_code="customer_feedback",
+        )
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": result.get("ok", True), "push": result, **result}
+
+
+@router.post("/templates/pull-status")
+def pull_feedback_template_status(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        refresh_feedback_platform_status,
+    )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    try:
+        result = refresh_feedback_platform_status(
+            db,
+            connection_profile_id=profile_id,
+            service_code="customer_feedback",
+        )
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "status_pull": result,
+        "message": result.get("message"),
+        **result,
     }
 
 
