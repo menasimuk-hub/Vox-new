@@ -91,6 +91,9 @@ def feedback_meta_template_name(
     survey_type_slug: str | None = None,
     name_anchor_id: str | None = None,
 ) -> str:
+    stored = str(getattr(tpl, "meta_template_name", "") or "").strip()
+    if stored:
+        return stored[:512]
     parts = ["voxbulk", "cf"]
     if industry_slug:
         parts.append(_slug_underscore(industry_slug))

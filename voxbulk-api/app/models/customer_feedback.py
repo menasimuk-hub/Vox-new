@@ -130,6 +130,7 @@ class FeedbackWaTemplate(Base):
     survey_type_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("feedback_survey_types.id"), nullable=True, index=True)
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     template_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    meta_template_name: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
     body_text: Mapped[str] = mapped_column(Text, nullable=False)
     step_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="en_GB")
