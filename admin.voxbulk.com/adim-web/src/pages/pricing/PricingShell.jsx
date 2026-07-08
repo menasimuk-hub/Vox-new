@@ -38,11 +38,11 @@ export default function PricingShell() {
 
       <header className="pricingShellHeader">
 
-        <h1 className="pageTitle">VoxBulk pricing</h1>
+        <h1 className="pageTitle">Core platform pricing</h1>
 
         <p className="pricingShellIntro">
 
-          Configure what customers see on the dashboard. Each currency (GBP, EUR, USD, CAD, AUD) has its own explicit prices — no FX conversion.
+          Configure what customers see on the dashboard for Interview, WA Surveys, and ATS. Each currency (GBP, EUR, USD, CAD, AUD) has its own explicit prices — no FX conversion.
 
         </p>
 

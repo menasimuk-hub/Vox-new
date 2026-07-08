@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Globe, Info, Infinity, PackageOpen, Plus, Save, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
@@ -21,6 +21,7 @@ function webUnitsUnlimited(webUnits) {
 }
 
 export default function FeedbackPackagesPricing() {
+  const [searchParams] = useSearchParams()
   const [currency, setCurrency] = useState('GBP')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -56,6 +57,19 @@ export default function FeedbackPackagesPricing() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const cur = searchParams.get('currency')
+    const plan = searchParams.get('plan')
+    if (cur) setCurrency(String(cur).toUpperCase())
+    if (plan && items.length) {
+      const t = window.setTimeout(() => {
+        document.getElementById(`fb-plan-${plan}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 200)
+      return () => window.clearTimeout(t)
+    }
+    return undefined
+  }, [searchParams, items])
 
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -233,8 +247,13 @@ export default function FeedbackPackagesPricing() {
               const frozen = Boolean(row.is_frozen)
               const unlimitedWeb = webUnitsUnlimited(row.web_units_included)
               const canEditCode = codeEditable(row.code)
+              const highlight = searchParams.get('plan') === row.code
               return (
-                <div key={row.plan_id} className="package-row">
+                <div
+                  key={row.plan_id}
+                  id={`fb-plan-${row.code}`}
+                  className={`package-row${highlight ? ' package-row-highlight' : ''}`}
+                >
                   <div className="row-header">
                     <div className="left">
                       <input

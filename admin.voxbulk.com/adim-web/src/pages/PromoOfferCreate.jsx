@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 
 import { Link, useNavigate } from 'react-router-dom'
 
+import PlanPickerSelect from '../components/billing/PlanPickerSelect'
+
 import { apiFetch } from '../lib/api'
 
 
@@ -62,13 +64,9 @@ function limitsPreview(plan) {
 
   const parts = []
 
-  if (plan.calls_included) parts.push(`${plan.calls_included} calls/mo`)
+  if (plan.picker_subtitle) parts.push(plan.picker_subtitle)
 
-  if (plan.whatsapp_included) parts.push(`${plan.whatsapp_included} WhatsApp`)
-
-  if (plan.sms_included) parts.push(`${plan.sms_included} SMS`)
-
-  if (plan.overage_per_min_pence) parts.push(`${plan.overage_per_min_pence}p/min overage`)
+  if (plan.price_display) parts.push(plan.price_display)
 
   return parts.join(' · ') || 'Uses plan defaults'
 
@@ -110,7 +108,7 @@ export default function PromoOfferCreate() {
 
       try {
 
-        const planRows = await apiFetch('/admin/products/plans/active')
+        const planRows = await apiFetch('/admin/products/assignable-plans?product_line=core')
 
         if (cancelled) return
 
@@ -454,19 +452,12 @@ export default function PromoOfferCreate() {
 
                   Plan
 
-                  <select className='input' value={draft.plan_code} onChange={(e) => setDraft({ ...draft, plan_code: e.target.value })}>
-
-                    {plans.map((p) => (
-
-                      <option key={p.id} value={p.code}>
-
-                        {p.name} ({p.code}) — {money(p.price_gbp_pence)}/mo
-
-                      </option>
-
-                    ))}
-
-                  </select>
+                  <PlanPickerSelect
+                    productLine="core"
+                    value={draft.plan_code}
+                    onChange={(code) => setDraft({ ...draft, plan_code: code })}
+                    disabled={loading}
+                  />
 
                 </label>
 
@@ -484,7 +475,7 @@ export default function PromoOfferCreate() {
 
                     <span className='productPrice'>
 
-                      {money(selectedPlan.price_gbp_pence)}
+                      {selectedPlan.price_display || '—'}
 
                       <span> / month after trial</span>
 

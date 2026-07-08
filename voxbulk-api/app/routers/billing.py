@@ -77,6 +77,61 @@ def get_public_pricing_anonymous(currency: str = "GBP", market: str = "", db: Se
     return VoxbulkPricingService.public_pricing_payload(db, currency=resolved, org_id=None)
 
 
+@router.get("/feedback-pricing/public")
+def get_public_feedback_pricing(currency: str = "GBP", market: str = "", db: Session = Depends(get_db)):
+    """Anonymous Customer Feedback plan catalogue for the marketing site (read-only)."""
+    from app.services.billing_currency import money_display, normalize_currency
+    from app.services.customer_feedback.catalog_service import FeedbackCatalogService
+    from app.models.plan import Plan
+
+    code = normalize_currency(str(market or currency or "GBP"))
+    zone_by_currency = {"GBP": "gb", "EUR": "eu", "USD": "us", "CAD": "ca", "AUD": "au"}
+    zone = zone_by_currency.get(code, "gb")
+    FeedbackCatalogService.ensure_ready(db)
+    rows = FeedbackCatalogService.list_packages(db, market_zone=zone, active_only=True)
+    plans: list[dict] = []
+    for row in rows:
+        plan = db.get(Plan, row.get("plan_id")) if row.get("plan_id") else None
+        prices = row.get("prices") or []
+        price_row = next((p for p in prices if str(p.get("currency") or "").upper() == code), None)
+        monthly = (
+            int(price_row["monthly_price_minor"])
+            if price_row and price_row.get("monthly_price_minor") is not None
+            else None
+        )
+        yearly = (
+            int(price_row["yearly_price_minor"])
+            if price_row and price_row.get("yearly_price_minor") is not None
+            else None
+        )
+        features = list(row.get("features") or [])
+        if not features and plan:
+            wa = int(row.get("wa_units_included") or 0)
+            web = int(row.get("web_units_included") or 0)
+            web_label = "Unlimited Web surveys" if web < 0 else f"{web} Web surveys/mo"
+            features = [f"{int(row.get('max_locations') or 1)} location(s)", f"{wa} WhatsApp surveys/mo", web_label]
+        plans.append(
+            {
+                "code": row.get("plan_code"),
+                "name": row.get("plan_name"),
+                "description": getattr(plan, "description", None) if plan else None,
+                "features": features,
+                "is_featured": bool(row.get("is_featured")),
+                "sort_order": int(getattr(plan, "sort_order", 100) or 100) if plan else 100,
+                "wa_units_included": row.get("wa_units_included"),
+                "web_units_included": row.get("web_units_included"),
+                "max_locations": row.get("max_locations"),
+                "monthly_price_minor": monthly,
+                "yearly_price_minor": yearly,
+                "monthly_price_display": money_display(monthly, code) if monthly is not None else None,
+                "yearly_price_display": money_display(yearly, code) if yearly is not None else None,
+                "market_zone": zone,
+            }
+        )
+    plans.sort(key=lambda p: (p.get("sort_order") or 100, str(p.get("code") or "")))
+    return {"currency": code, "market_zone": zone, "plans": plans}
+
+
 @router.get("/wallet")
 def get_wallet(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.models.organisation import Organisation

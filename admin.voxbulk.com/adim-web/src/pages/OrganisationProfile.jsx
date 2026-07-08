@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { money } from '../lib/billingAdminUtils'
+import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import { adminOrderViewPath, interviewFormatLabel, nextColumnSort, orderListSortTs, orderMatchesSearch, sortRowsByColumn } from '../lib/serviceOrderAdmin'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
@@ -1252,12 +1253,14 @@ export default function OrganisationProfile() {
               ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>C.P plan</span>
-                <select className='select' value={planCode} onChange={(e) => setPlanCode(e.target.value)} disabled={!orgId}>
-                  <option value=''>Choose plan…</option>
-                  {(plans || []).map((p) => (
-                    <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
-                  ))}
-                </select>
+                <PlanPickerSelect
+                  value={planCode}
+                  onChange={setPlanCode}
+                  productLine='core'
+                  placeholder='Choose Core platform plan…'
+                  disabled={!orgId}
+                  className='select'
+                />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
@@ -1295,12 +1298,15 @@ export default function OrganisationProfile() {
               ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>F.B plan</span>
-                <select className='select' value={feedbackPlanCode} onChange={(e) => setFeedbackPlanCode(e.target.value)} disabled={!orgId}>
-                  <option value=''>Choose plan…</option>
-                  {(feedbackPlans || []).map((p) => (
-                    <option key={p.id || p.code} value={p.code}>{p.name} ({p.code})</option>
-                  ))}
-                </select>
+                <PlanPickerSelect
+                  value={feedbackPlanCode}
+                  onChange={setFeedbackPlanCode}
+                  productLine='feedback'
+                  marketZone={org?.market_zone || 'gb'}
+                  placeholder='Choose Customer feedback plan…'
+                  disabled={!orgId}
+                  className='select'
+                />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>

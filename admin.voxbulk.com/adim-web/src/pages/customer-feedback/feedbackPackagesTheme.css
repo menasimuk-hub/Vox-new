@@ -179,6 +179,11 @@
   transition: 0.15s;
 }
 
+.cfpTheme .package-row-highlight {
+  outline: 2px solid rgba(156, 75, 40, 0.45);
+  outline-offset: 2px;
+}
+
 .cfpTheme .package-row:hover {
   border-color: #b8aa96;
 }

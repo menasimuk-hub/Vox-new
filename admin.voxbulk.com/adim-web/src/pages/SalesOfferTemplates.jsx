@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import { apiFetch } from '../lib/api'
 import { SALES_OFFER_TYPES } from '../lib/salesOfferTypes'
 
 const EMPTY = {
   name: '',
   offer_type: 'dental_trial',
-  plan_code: 'dental_1',
+  plan_code: '',
   trial_days: 15,
   survey_contacts_included: 3,
   interview_contacts_included: 3,
@@ -24,7 +25,6 @@ function summaryLine(row) {
 
 export default function SalesOfferTemplates() {
   const [templates, setTemplates] = useState([])
-  const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
   const [creating, setCreating] = useState(false)
@@ -33,12 +33,8 @@ export default function SalesOfferTemplates() {
   const [msg, setMsg] = useState('')
 
   const load = useCallback(async () => {
-    const [tplData, planRows] = await Promise.all([
-      apiFetch('/admin/frontpage/lead-sales/offer-templates'),
-      apiFetch('/admin/products/plans/active').catch(() => []),
-    ])
+    const tplData = await apiFetch('/admin/frontpage/lead-sales/offer-templates')
     setTemplates(Array.isArray(tplData?.templates) ? tplData.templates : [])
-    setPlans(Array.isArray(planRows) ? planRows : [])
   }, [])
 
   useEffect(() => {
@@ -166,7 +162,7 @@ export default function SalesOfferTemplates() {
               </div>
             </div>
             {editId === row.id ? (
-              <TemplateEditor draft={draft} setDraft={setDraft} plans={plans} onSave={saveDraft} saving={savingId === row.id} onCancel={() => setEditId('')} />
+              <TemplateEditor draft={draft} setDraft={setDraft} onSave={saveDraft} saving={savingId === row.id} onCancel={() => setEditId('')} />
             ) : null}
           </section>
         ))}
@@ -176,7 +172,7 @@ export default function SalesOfferTemplates() {
         <section className='card salesTplRow isEditing' style={{ marginTop: 14 }}>
           <div className='cardHead'><h3>New template</h3></div>
           <div className='cardBody'>
-            <TemplateEditor draft={draft} setDraft={setDraft} plans={plans} onSave={saveDraft} saving={creating} onCancel={() => setEditId('')} />
+            <TemplateEditor draft={draft} setDraft={setDraft} onSave={saveDraft} saving={creating} onCancel={() => setEditId('')} />
           </div>
         </section>
       ) : null}
@@ -184,7 +180,7 @@ export default function SalesOfferTemplates() {
   )
 }
 
-function TemplateEditor({ draft, setDraft, plans, onSave, saving, onCancel }) {
+function TemplateEditor({ draft, setDraft, onSave, saving, onCancel }) {
   const set = (field, value) => setDraft((d) => ({ ...d, [field]: value }))
 
   return (
@@ -220,9 +216,12 @@ function TemplateEditor({ draft, setDraft, plans, onSave, saving, onCancel }) {
         <div className='salesTplFieldGrid'>
           <label className='salesTplField'>
             <span>Plan</span>
-            <select className='input inputCompact' value={draft.plan_code || ''} onChange={(e) => set('plan_code', e.target.value)}>
-              {plans.length ? plans.map((p) => <option key={p.code} value={p.code}>{p.name}</option>) : <option value='dental_1'>dental_1</option>}
-            </select>
+            <PlanPickerSelect
+              productLine="core"
+              value={draft.plan_code || ''}
+              onChange={(code) => set('plan_code', code)}
+              className="input inputCompact"
+            />
           </label>
           <label className='salesTplField'>
             <span>Trial days</span>

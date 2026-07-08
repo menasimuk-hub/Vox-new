@@ -55,9 +55,15 @@ export const Route = createFileRoute("/_app/account/packages")({
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
   validateSearch: (search: Record<string, unknown>) => {
     const tab = typeof search.tab === "string" ? search.tab : undefined;
-    return {
-      tab: tab === "core" || tab === "feedback" || tab === "campaigns" ? tab : undefined,
-    };
+    const product = search.product === "feedback" ? ("feedback" as const) : undefined;
+    const plan = typeof search.plan === "string" && search.plan.trim() ? search.plan.trim() : undefined;
+    const resolvedTab =
+      tab === "core" || tab === "feedback" || tab === "campaigns"
+        ? tab
+        : product === "feedback"
+          ? "feedback"
+          : undefined;
+    return { tab: resolvedTab, plan, product };
   },
   component: PackagesPage,
 });
@@ -171,7 +177,7 @@ function interviewCost(perMin: number, duration: number, conn: number, count: nu
 }
 
 function PackagesPage() {
-  const { tab: tabFromUrl } = Route.useSearch();
+  const { tab: tabFromUrl, plan: highlightPlan, product: highlightProduct } = Route.useSearch();
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const { session, refetch: refetchSession } = useSession();
   const qc = useQueryClient();
@@ -358,6 +364,16 @@ function PackagesPage() {
       setPackagesTab(tabFromUrl);
     }
   }, [tabFromUrl]);
+
+  React.useEffect(() => {
+    if (!highlightPlan) return;
+    const isFeedback = highlightProduct === "feedback" || tabFromUrl === "feedback";
+    const id = isFeedback ? `package-feedback-${highlightPlan}` : `package-core-${highlightPlan}`;
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [highlightPlan, highlightProduct, tabFromUrl, plans.length, feedbackPackages.length]);
 
   const formatFeedbackPrice = (pkg: FeedbackPackage) =>
     formatFeedbackPackagePrice(pkg, orgCurrency, feedbackBillingInterval === "yearly");
@@ -599,6 +615,11 @@ function PackagesPage() {
                 currentPlanId: effectiveCorePlanId,
                 pendingPlanId: pendingCorePlanId,
               });
+              const coreHighlighted =
+                highlightProduct !== "feedback" &&
+                highlightPlan &&
+                (String(p.code || "").toLowerCase() === highlightPlan.toLowerCase() ||
+                  String(p.id) === highlightPlan);
               return (
                 <div key={String(p.id)} className="relative flex pt-3">
                   {isFeatured && (
@@ -606,7 +627,10 @@ function PackagesPage() {
                       Most popular
                     </span>
                   )}
-                  <Card className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""}`}>
+                  <Card
+                    id={`package-core-${String(p.code || p.id)}`}
+                    className={`flex h-full w-full flex-col ${isFeatured ? "border-primary shadow-md" : ""} ${isCurrent ? "ring-2 ring-primary/30" : ""} ${coreHighlighted ? "ring-2 ring-amber-400 shadow-md" : ""}`}
+                  >
                     <CardHeader className="pb-2 pt-5">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className="w-fit border-primary/40 text-primary">Core platform</Badge>
@@ -798,8 +822,16 @@ function PackagesPage() {
                               busy: busyFeedbackPlanId === pkg.plan_id,
                               currentPlanId: currentFeedbackPlanId,
                             });
+                            const fbHighlighted =
+                              (highlightProduct === "feedback" || tabFromUrl === "feedback") &&
+                              highlightPlan &&
+                              String(pkg.plan_code || "").toLowerCase() === highlightPlan.toLowerCase();
                             return (
-                              <Card key={pkg.id} className={featured ? "border-success shadow-md" : ""}>
+                              <Card
+                                key={pkg.id}
+                                id={`package-feedback-${pkg.plan_code || pkg.plan_id}`}
+                                className={`${featured ? "border-success shadow-md" : ""} ${fbHighlighted ? "ring-2 ring-amber-400 shadow-md" : ""}`}
+                              >
                                 <CardHeader className="pb-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <Badge variant="outline" className="border-success/40 text-success">Customer Feedback</Badge>

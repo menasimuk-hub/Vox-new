@@ -8194,7 +8194,10 @@ body.dark .matrix th {
   padding: 12px 8px; vertical-align: middle; border-top: 1px solid var(--b1); border-bottom: 1px solid var(--b1);
 }
 .pricingTable tbody tr.pricingPlanRow td:first-child { border-left: 1px solid var(--b1); border-radius: 10px 0 0 10px; padding-left: 16px; }
-.pricingTable tbody tr.pricingPlanRow td:last-child { border-right: 1px solid var(--b1); border-radius: 0 10px 10px 0; padding-right: 12px; }
+.pricingTable tbody tr.pricingPlanRowHighlight td {
+  background: rgba(156, 75, 40, 0.08);
+  box-shadow: inset 0 0 0 2px rgba(156, 75, 40, 0.35);
+}
 .pricingTableCompact tbody tr td { padding: 10px 8px; vertical-align: middle; }
 .pricingThPlan { text-align: left; min-width: 88px; }
 .pricingThNum, .pricingThCalc { text-align: center; }

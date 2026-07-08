@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { usePricingPlans, usePricingSettings, penceToPounds, poundsToPence } from './pricingUtils'
 import PricingPageFrame, { PricingFormulaBox, PricingLoadGate } from './PricingPageFrame'
 
@@ -36,15 +37,22 @@ function CalcBox({ value, title }) {
   )
 }
 
-function PlanRow({ plan, settings, onSave }) {
+function PlanRow({ plan, settings, onSave, highlight }) {
   const [draft, setDraft] = useState(null)
   const d = draft || plan
   const set = (field, value) => setDraft({ ...d, [field]: value })
   const preview = calcPreview(d, settings)
 
+  useEffect(() => {
+    if (highlight && plan.code === highlight) {
+      const el = document.getElementById(`pricing-plan-row-${plan.code}`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlight, plan.code])
+
   if (plan.is_enterprise) {
     return (
-      <tr className="pricingPlanRow">
+      <tr id={`pricing-plan-row-${plan.code}`} className={`pricingPlanRow${highlight === plan.code ? ' pricingPlanRowHighlight' : ''}`}>
         <td className="pricingPlanName">
           <strong>{plan.name}</strong>
           <span className="pricingPlanCode">{plan.code}</span>
@@ -65,7 +73,7 @@ function PlanRow({ plan, settings, onSave }) {
   const cvTip = `${penceToPounds(d.price_gbp_pence)} ÷ ${penceToPounds(settings?.ats_cv_scan_fee_pence)}`
 
   return (
-    <tr className="pricingPlanRow">
+    <tr id={`pricing-plan-row-${plan.code}`} className={`pricingPlanRow${highlight === plan.code ? ' pricingPlanRowHighlight' : ''}`}>
       <td className="pricingPlanName">
         <strong>{plan.name}</strong>
         <span className="pricingPlanCode">{plan.code}</span>
@@ -96,6 +104,8 @@ function PlanRow({ plan, settings, onSave }) {
 }
 
 export default function PricingPlans() {
+  const [searchParams] = useSearchParams()
+  const highlightPlan = searchParams.get('plan')
   const { plans, loading, error, msg, savePlan, seed, load } = usePricingPlans()
   const { settings, error: settingsError } = usePricingSettings()
 
@@ -152,7 +162,7 @@ export default function PricingPlans() {
               </thead>
               <tbody>
                 {visiblePlans.map((p) => (
-                  <PlanRow key={p.id} plan={p} settings={settings} onSave={savePlan} />
+                  <PlanRow key={p.id} plan={p} settings={settings} onSave={savePlan} highlight={highlightPlan} />
                 ))}
               </tbody>
             </table>

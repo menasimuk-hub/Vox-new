@@ -5,6 +5,7 @@ import { apiFetch } from '../lib/api'
 import { adminOrderViewPath, filterOrdersByWorkflow, interviewFormatLabel, nextColumnSort, orderMatchesSearch, sortRowsByColumn, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
 import { KpiCard } from '@/components/ui/KpiCard'
+import PlanPickerSelect from '@/components/billing/PlanPickerSelect'
 import './orgControlCenter.css'
 
 const TABS = [
@@ -2373,14 +2374,12 @@ export default function OrgControlCenter() {
                 <div className="occ-modal-title">Change C.P plan</div>
                 <div className="occ-modal-sub">Core Platform subscription — does not change the F.B plan.</div>
                 <label className="occ-modal-label">C.P plan</label>
-                <select className="occ-modal-input" value={planCode} onChange={(e) => setPlanCode(e.target.value)}>
-                  <option value="">Select plan…</option>
-                  {plans.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.name || p.code}
-                    </option>
-                  ))}
-                </select>
+                <PlanPickerSelect
+                  value={planCode}
+                  onChange={setPlanCode}
+                  productLine="core"
+                  placeholder="Select Core platform plan…"
+                />
                 <label className="occ-modal-label">Reason</label>
                 <input className="occ-modal-input" type="text" value={planReason} onChange={(e) => setPlanReason(e.target.value)} />
                 {upgradePreview ? (
@@ -2412,14 +2411,13 @@ export default function OrgControlCenter() {
                 <div className="occ-modal-title">Change F.B plan</div>
                 <div className="occ-modal-sub">Customer Feedback subscription — separate from C.P billing.</div>
                 <label className="occ-modal-label">F.B plan</label>
-                <select className="occ-modal-input" value={feedbackPlanCode} onChange={(e) => setFeedbackPlanCode(e.target.value)}>
-                  <option value="">Select plan…</option>
-                  {feedbackPlans.map((p) => (
-                    <option key={p.id || p.code} value={p.code}>
-                      {p.name || p.code}
-                    </option>
-                  ))}
-                </select>
+                <PlanPickerSelect
+                  value={feedbackPlanCode}
+                  onChange={setFeedbackPlanCode}
+                  productLine="feedback"
+                  marketZone={detail?.organisation?.market_zone || org?.market_zone || 'gb'}
+                  placeholder="Select Customer feedback plan…"
+                />
                 <div className="occ-modal-footer">
                   <button type="button" className="occ-btn" onClick={() => setModal(null)}>
                     Cancel
