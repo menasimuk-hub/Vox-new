@@ -222,6 +222,7 @@ class WaTemplateProfilePushService:
             local_id = f"{_LOCAL_ID_PREFIX}{uuid.uuid4()}"
             row.telnyx_record_id = local_id
             row.template_id = local_id
+            row.waba_id = None
             if str(row.status or "").upper() in {"APPROVED", "PENDING", "REJECTED"}:
                 row.status = "LOCAL_DRAFT"
         db.add(row)
@@ -240,8 +241,9 @@ class WaTemplateProfilePushService:
         WaTemplateProfilePushService._restore_row(db, row, ctx.snapshot)
         db.add(row)
         try:
-            db.flush()
+            db.commit()
         except Exception:  # noqa: BLE001
+            db.rollback()
             logger.exception("wa_profile_push_abort_restore_failed template_id=%s", row.id)
 
     @staticmethod

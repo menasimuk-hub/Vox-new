@@ -2761,7 +2761,18 @@ class SurveyWhatsappTemplateService:
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
-        waba_id = resolve_telnyx_whatsapp_waba_id(db, config, template_waba_id=row.waba_id)
+        waba_hint = str(row.waba_id or "").strip() or None
+        if profile_ctx is not None and not profile_ctx.is_primary:
+            from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+            ledger = WaTemplateProfilePushService.get_ledger_entry(
+                db,
+                int(row.id),
+                profile_ctx.connection_profile_id,
+            )
+            ledger_waba = str(ledger.waba_id or "").strip() if ledger else ""
+            waba_hint = ledger_waba or None
+        waba_id = resolve_telnyx_whatsapp_waba_id(db, config, template_waba_id=waba_hint)
         if not waba_id:
             raise SurveyWhatsappTemplateError(
                 "WhatsApp Business Account ID is not configured in Telnyx settings. "

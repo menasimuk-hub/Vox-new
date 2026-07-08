@@ -18,6 +18,7 @@ def decrypt_profile_secret(token: str | None) -> str | None:
 
 
 def telnyx_config_from_profile(profile: ConnectionProfile) -> dict[str, Any]:
+    waba_id = str(profile.meta_waba_id or "").strip()
     return {
         "api_key": decrypt_profile_secret(profile.telnyx_api_key_encrypted) or "",
         "whatsapp_from": str(profile.telnyx_number or "").strip(),
@@ -25,6 +26,8 @@ def telnyx_config_from_profile(profile: ConnectionProfile) -> dict[str, Any]:
         "whatsapp_messaging_profile_id": str(profile.telnyx_messaging_profile_id or "").strip(),
         "connection_id": str(profile.telnyx_connection_id or "").strip(),
         "outbound_voice_profile_id": str(profile.telnyx_outbound_voice_profile_id or "").strip(),
+        "waba_id": waba_id,
+        "whatsapp_waba_id": waba_id,
     }
 
 

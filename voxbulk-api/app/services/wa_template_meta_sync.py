@@ -278,6 +278,8 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_LANGUAGE_UNSUPPORTED
     elif "content in this language already exists" in text.lower() or "already exists" in text.lower():
         out["kind"] = META_ERROR_CONTENT_ALREADY_EXISTS
+    elif "waba not found" in text.lower():
+        out["kind"] = "waba_not_found"
 
     return out
 
@@ -324,6 +326,13 @@ def admin_guidance_for_meta_error(
             f"Meta will not change the category on approved template “{template_name}”. "
             f"Clone/rename locally to a new template name (suggested: {suggested}), "
             "set category to UTILITY, then push as a new template."
+        )
+    if kind == "waba_not_found":
+        return (
+            f"Telnyx could not find the WhatsApp Business Account for template “{template_name}”. "
+            "Backup mirror was using the primary Meta WABA id on the wrong profile. "
+            "Set the backup connection profile WABA (Admin → Connection profiles → Telynx 55 → Meta WABA id) "
+            "to the WABA shown in Telnyx Portal for +447822002055, then mirror again."
         )
     if meta_user_message:
         return str(meta_user_message)
