@@ -148,7 +148,9 @@ start_api() {
   if [[ "${VOX_SKIP_MIGRATE:-0}" != "1" ]]; then
     python -m alembic upgrade head || echo "Warning: alembic upgrade failed — API will retry migrations on boot"
   fi
-  nohup uvicorn main:app --host 127.0.0.1 --port 8000 --workers "${VOX_UVICORN_WORKERS:-1}" >>"$API_LOG" 2>&1 &
+  # setsid + </dev/null fully detaches uvicorn into its own session so it keeps
+  # running after the launching shell (e.g. deploy-vps.sh) exits or aborts.
+  setsid nohup uvicorn main:app --host 127.0.0.1 --port 8000 --workers "${VOX_UVICORN_WORKERS:-1}" >>"$API_LOG" 2>&1 </dev/null &
   echo "API started (log: $API_LOG)"
 }
 
