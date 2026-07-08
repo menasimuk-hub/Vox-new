@@ -232,7 +232,7 @@ require_api_health() {
     sleep 1
     i=$((i + 1))
   done
-  warn "API health check failed — tail of $API_LOG:"
+  warn "API health check failed — tail of /tmp/voxbulk-api.log:"
   tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
   fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
 }
