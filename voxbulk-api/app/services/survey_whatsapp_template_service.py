@@ -2686,6 +2686,11 @@ class SurveyWhatsappTemplateService:
             branch = SYNC_BRANCH_APPROVED_UPDATE
             branch_error = None
 
+        # Explicit /templates/{id}/push must submit local edits on approved templates.
+        if branch == SYNC_BRANCH_APPROVED_UPDATE and not force_approved_update:
+            force_approved_update = True
+            branch_error = None
+
         if branch == SYNC_BRANCH_APPROVED_UPDATE and force_approved_update:
             logger.info(
                 "survey_wa_template_force_approved_update",

@@ -32,6 +32,7 @@ import {
   resolveSelectedSyncProfile,
   resolvePrimarySyncProfile,
   resolveBackupSyncProfile,
+  resolveDualSyncProfileIds,
   setStoredSyncProfileId,
   syncProfilePayload,
   syncProfileActionLabel,
@@ -876,13 +877,24 @@ export default function WaTemplatesHub() {
     const profileBody = syncBodyExtra()
     try {
       if (row.rowKind === 'survey_template') {
-        const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
-          method: 'POST',
-          body: JSON.stringify({ force_push: false, ...profileBody }),
-          timeoutMs: 180000,
-          quietNetworkHint: true,
+        const dual = resolveDualSyncProfileIds(syncProfileItems, {
+          primaryProfile: primarySyncProfile,
+          backupProfile: backupSyncProfile,
         })
-        setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+        for (const profileId of dual.ids) {
+          const result = await apiFetch(`/admin/wa-survey/templates/${row.id}/push`, {
+            method: 'POST',
+            body: JSON.stringify({
+              force_push: true,
+              connection_profile_id: profileId,
+            }),
+            timeoutMs: 180000,
+            quietNetworkHint: true,
+          })
+          if (profileId === dual.ids[dual.ids.length - 1]) {
+            setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+          }
+        }
         refreshSelectedProfileSummary()
         return
       }
@@ -1442,6 +1454,9 @@ export default function WaTemplatesHub() {
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
                     syncProfile={syncProfile}
+                    syncProfileItems={syncProfileItems}
+                    primarySyncProfile={primarySyncProfile}
+                    backupSyncProfile={backupSyncProfile}
                     backupSyncProfileId={backupSyncProfile?.id}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
@@ -1465,6 +1480,9 @@ export default function WaTemplatesHub() {
                     onMessage={setMsg}
                     syncProfileId={syncProfile?.id}
                     syncProfile={syncProfile}
+                    syncProfileItems={syncProfileItems}
+                    primarySyncProfile={primarySyncProfile}
+                    backupSyncProfile={backupSyncProfile}
                     backupSyncProfileId={backupSyncProfile?.id}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
@@ -1534,6 +1552,9 @@ export default function WaTemplatesHub() {
           setEditTarget(null)
         }}
         syncProfile={syncProfile}
+        syncProfileItems={syncProfileItems}
+        primarySyncProfile={primarySyncProfile}
+        backupSyncProfile={backupSyncProfile}
         syncConfirm={editTarget ? syncConfirm : null}
         onRequestSyncConfirm={requestSyncConfirm}
         onSaved={() => {

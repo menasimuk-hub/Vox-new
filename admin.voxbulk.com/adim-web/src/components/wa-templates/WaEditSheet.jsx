@@ -25,6 +25,7 @@ import { Sheet, SheetClose, SheetContent } from '@/components/ui/Sheet'
 import WaSyncConfirmDialog from './WaSyncConfirmDialog'
 import { apiFetch } from '../../lib/api'
 import { formatWaSurveyError } from '../../lib/waSurveyFeedback'
+import { resolveDualSyncProfileIds } from '../../lib/waSyncProfile'
 import WaPhonePreview from './WaPhonePreview'
 import {
   IconBtn,
@@ -254,6 +255,9 @@ export default function WaEditSheet({
   onClose,
   onSaved,
   syncProfile = null,
+  syncProfileItems = [],
+  primarySyncProfile = null,
+  backupSyncProfile = null,
   onRequestSyncConfirm,
   syncConfirm = null,
 }) {
@@ -374,7 +378,15 @@ export default function WaEditSheet({
     }
   }, [open, load])
 
-  const update = (k, v) => setDraft((d) => (d ? { ...d, [k]: v } : d))
+  const update = (k, v) =>
+    setDraft((d) => {
+      if (!d) return d
+      const next = { ...d, [k]: v }
+      if (['body', 'buttons', 'footer', 'header', 'variables'].includes(k)) {
+        if (String(d.status || '').toLowerCase() === 'approved') next.draft_not_live_on_meta = true
+      }
+      return next
+    })
 
   const addVariable = () =>
     setDraft((d) =>
@@ -403,9 +415,9 @@ export default function WaEditSheet({
       return { ...d, buttons: [...d.buttons, nb] }
     })
 
-  const save = async () => {
-    if (!draft || !editTarget) return
-    setSaving(true)
+  const persistDraft = async ({ quiet = false } = {}) => {
+    if (!draft || !editTarget) return false
+    if (!quiet) setSaving(true)
     setError('')
     try {
       const templateId = activeTemplateId || editTarget.templateId
@@ -415,7 +427,6 @@ export default function WaEditSheet({
       }
       const category = draft.category === 'Marketing' ? 'MARKETING' : 'UTILITY'
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
-
       const displayName = draft.display_name || draft.name
       if (product === 'survey') {
         await apiFetch(`/admin/wa-survey/templates/${templateId}`, {
@@ -468,13 +479,46 @@ export default function WaEditSheet({
           }),
         })
       }
-      showToast('Template saved')
+      if (!quiet) showToast('Template saved')
       onSaved?.(draft)
+      return true
     } catch (e) {
       setError(formatWaSurveyError(e, 'Could not save template').message)
+      return false
     } finally {
-      setSaving(false)
+      if (!quiet) setSaving(false)
     }
+  }
+
+  const save = async () => {
+    await persistDraft()
+  }
+
+  const pushSurveyTemplateToProfiles = async (templateIds, { forcePush = true } = {}) => {
+    const dual = resolveDualSyncProfileIds(syncProfileItems, {
+      primaryProfile: primarySyncProfile,
+      backupProfile: backupSyncProfile,
+    })
+    const profileIds = dual.ids.length
+      ? dual.ids
+      : syncProfile?.id
+        ? [String(syncProfile.id)]
+        : []
+    if (!profileIds.length) throw new Error('No WhatsApp connection profile configured')
+    let last = null
+    for (const profileId of profileIds) {
+      for (const id of templateIds) {
+        last = await apiFetch(`/admin/wa-survey/templates/${id}/push`, {
+          method: 'POST',
+          body: JSON.stringify({
+            force_push: forcePush,
+            connection_profile_id: profileId,
+          }),
+          timeoutMs: 240000,
+        })
+      }
+    }
+    return last
   }
 
   const sync = async () => {
@@ -483,7 +527,7 @@ export default function WaEditSheet({
       await onRequestSyncConfirm?.({
         title: 'Sync template',
         action: 'Push',
-        detail: 'Submit the local draft to Meta for approval.',
+        detail: 'Save local edits, then push to Meta primary and Telnyx backup for re-approval.',
       })
     } catch (e) {
       if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
@@ -492,20 +536,15 @@ export default function WaEditSheet({
     setSyncing(true)
     setError('')
     try {
-      const profileBody = syncProfile?.id ? { connection_profile_id: syncProfile.id } : {}
       const product = editTarget.product === 'system' ? 'survey' : editTarget.product
       const ids =
         langVariants.length > 1
           ? langVariants.map((v) => v.id)
           : [activeTemplateId || editTarget.templateId]
-      if (product === 'survey') {
-        for (const id of ids) {
-          await apiFetch(`/admin/wa-survey/templates/${id}/push`, {
-            method: 'POST',
-            body: JSON.stringify({ force_push: false, ...profileBody }),
-            timeoutMs: 180000,
-          })
-        }
+      if (product === 'survey' || product === 'system') {
+        const saved = await persistDraft({ quiet: true })
+        if (!saved) return
+        await pushSurveyTemplateToProfiles(ids, { forcePush: true })
       } else if (product === 'interview') {
         await apiFetch(`/admin/wa-interview/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
       } else if (product === 'appointment') {
@@ -521,7 +560,11 @@ export default function WaEditSheet({
         showToast('Synced with Meta')
         return
       }
-      showToast(ids.length > 1 ? `Synced ${ids.length} languages with Meta` : 'Synced with Meta')
+      showToast(
+        ids.length > 1
+          ? `Synced ${ids.length} languages to primary + backup`
+          : 'Synced to primary + backup',
+      )
       onSaved?.()
       await load()
     } catch (e) {
@@ -546,33 +589,45 @@ export default function WaEditSheet({
     const templateId = activeTemplateId || editTarget.templateId
     setFixSyncing(true)
     setError('')
-    const profileBody = syncProfile?.id ? { connection_profile_id: syncProfile.id } : {}
     const payload = {
       fix_and_sync: true,
       repair: true,
       utility_rewrite: false,
       force_push: true,
-      ...profileBody,
     }
     const pushPath = `/admin/wa-survey/templates/${templateId}/push`
     const fixPath = `/admin/wa-survey/templates/${templateId}/fix-and-sync`
     try {
-      let data
-      try {
-        data = await apiFetch(pushPath, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          timeoutMs: 240000,
-        })
-      } catch (firstErr) {
-        if (firstErr?.status === 404) {
-          data = await apiFetch(fixPath, {
+      const saved = await persistDraft({ quiet: true })
+      if (!saved) return
+      const dual = resolveDualSyncProfileIds(syncProfileItems, {
+        primaryProfile: primarySyncProfile,
+        backupProfile: backupSyncProfile,
+      })
+      const profileIds = dual.ids.length
+        ? dual.ids
+        : syncProfile?.id
+          ? [String(syncProfile.id)]
+          : []
+      let data = null
+      for (const profileId of profileIds) {
+        const body = { ...payload, connection_profile_id: profileId }
+        try {
+          data = await apiFetch(pushPath, {
             method: 'POST',
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
             timeoutMs: 240000,
           })
-        } else {
-          throw firstErr
+        } catch (firstErr) {
+          if (firstErr?.status === 404) {
+            data = await apiFetch(fixPath, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              timeoutMs: 240000,
+            })
+          } else {
+            throw firstErr
+          }
         }
       }
       const action = String(data?.action || 'ok')
@@ -1115,7 +1170,9 @@ export default function WaEditSheet({
 
                 {t.draft_not_live_on_meta ? (
                   <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                    DB draft is not live on WhatsApp yet — Sync to Meta and wait for approval.
+                    {String(t.status || '').toLowerCase() === 'approved'
+                      ? 'Local edits are not live on WhatsApp yet — Sync saves and pushes to Meta primary + Telnyx backup for re-review.'
+                      : 'DB draft is not live on WhatsApp yet — Sync to Meta and wait for approval.'}
                   </p>
                 ) : null}
 

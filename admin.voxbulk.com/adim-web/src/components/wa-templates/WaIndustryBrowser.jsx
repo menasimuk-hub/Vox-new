@@ -16,6 +16,7 @@ import {
   runWaIndustryPushAll,
   runWaIndustryMirror,
 } from '../../lib/waIndustrySync'
+import { resolveDualSyncProfileIds } from '../../lib/waSyncProfile'
 import WaTemplatesTable from './WaTemplatesTable'
 import WaTemplatesSystemSection from './WaTemplatesSystemSection'
 import WaJobProgressDialog from './WaJobProgressDialog'
@@ -476,6 +477,9 @@ export default function WaIndustryBrowser({
   onMessage,
   syncProfileId = null,
   syncProfile = null,
+  syncProfileItems = [],
+  primarySyncProfile = null,
+  backupSyncProfile = null,
   backupSyncProfileId = null,
   onRequestSyncConfirm,
 }) {
@@ -627,7 +631,7 @@ export default function WaIndustryBrowser({
       await onRequestSyncConfirm?.({
         title: `Sync ${industry.name}`,
         action: 'Sync',
-        detail: `Push changed templates for ${industry.name}, then refresh approval status from Meta.`,
+        detail: `Push changed templates for ${industry.name} to primary and Telnyx backup, then refresh approval status from Meta.`,
       })
     } catch (e) {
       if (e?.message !== 'cancelled') onError?.(e?.message || 'Sync cancelled')
@@ -656,12 +660,19 @@ export default function WaIndustryBrowser({
     }
 
     try {
-      const acc =
+      const dual = resolveDualSyncProfileIds(syncProfileItems, {
+        primaryProfile: primarySyncProfile,
+        backupProfile: backupSyncProfile,
+      })
+      const primaryId = dual.primary?.id || syncProfileId
+      const backupId = dual.backup?.id || backupSyncProfileId
+
+      let acc =
         product === 'feedback'
           ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
               batchSize,
-              connectionProfileId: syncProfileId,
+              connectionProfileId: primaryId,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
                 if (partial) syncAccRef.current = partial
                 if (step === 'pull') {
@@ -686,11 +697,11 @@ export default function WaIndustryBrowser({
             })
           : await runWaIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
-              connectionProfileId: syncProfileId,
+              connectionProfileId: primaryId,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
                 if (partial) syncAccRef.current = partial
                 if (step === 'pull') {
-                  patchSyncJobStep('push', { status: 'done', detail: 'Push complete' })
+                  patchSyncJobStep('push', { status: 'done', detail: 'Primary push complete' })
                   patchSyncJobStep('pull', {
                     status: running ? 'running' : done ? 'done' : 'running',
                     detail: running
@@ -709,6 +720,35 @@ export default function WaIndustryBrowser({
                 }
               },
             })
+
+      if (backupId) {
+        patchSyncJobStep('push', { status: 'running', detail: 'Mirroring industry to Telnyx backup…' })
+        const mirrorFn =
+          product === 'feedback' ? runWaFeedbackIndustryMirror : runWaIndustryMirror
+        const mirrorAcc = await mirrorFn(apiFetch, industry.id, {
+          signal: controller.signal,
+          batchSize,
+          connectionProfileId: backupId,
+          onProgress: ({ batchNum, flat, acc: partial, done }) => {
+            if (partial) {
+              acc.error_count += partial.error_count || 0
+              acc.errors.push(...(partial.errors || []))
+              acc.results.push(...(partial.results || []))
+              acc.content_updated += partial.content_updated || 0
+              acc.ok = acc.ok && partial.ok !== false
+              syncAccRef.current = acc
+              applyProgress(acc, { running: !done })
+            }
+            patchSyncJobStep('push', {
+              status: done ? 'done' : 'running',
+              detail: flat?.message || `Backup batch ${batchNum}…`,
+            })
+          },
+        })
+        acc.error_count += mirrorAcc.error_count || 0
+        acc.errors.push(...(mirrorAcc.errors || []))
+        acc.ok = acc.ok && mirrorAcc.ok !== false
+      }
 
       if (product !== 'feedback') {
         patchSyncJobStep('push', { status: acc.error_count ? 'error' : 'done', detail: 'Complete' })

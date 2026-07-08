@@ -94,6 +94,15 @@ export function resolvePrimarySyncProfile(items) {
   return list.find((item) => item.is_default) || list.find((item) => String(item.provider || '').toLowerCase() === 'meta') || list[0] || null
 }
 
+export function resolveDualSyncProfileIds(items, { primaryProfile = null, backupProfile = null } = {}) {
+  const primary = primaryProfile || resolvePrimarySyncProfile(items)
+  const backup = backupProfile || resolveBackupSyncProfile(items, primary)
+  const ids = []
+  if (primary?.id) ids.push(String(primary.id))
+  if (backup?.id && !ids.includes(String(backup.id))) ids.push(String(backup.id))
+  return { primary, backup, ids }
+}
+
 export const EMPTY_PROFILE_SUMMARY_ROW = {
   loading: false,
   error: null,
