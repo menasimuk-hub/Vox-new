@@ -2704,6 +2704,11 @@ class SurveyWhatsappTemplateService:
                 raw_components=raw_components,
             )
             if refresh_result is not None:
+                if profile_ctx is not None and not profile_ctx.is_primary:
+                    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+                    WaTemplateProfilePushService.abort_push(db, row, profile_ctx)
+                    db.commit()
                 return refresh_result
 
         components = prepare_components_for_telnyx_push(raw_components, row=row)
