@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, Layers, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -115,6 +115,7 @@ export default function WaTemplatesSystemSection({
   const [syncingId, setSyncingId] = useState(null)
   const [metaSyncSavingId, setMetaSyncSavingId] = useState(null)
   const [syncConfirm, setSyncConfirm] = useState(null)
+  const prevSyncProfileRef = useRef(syncProfileId)
 
   /** Wait for the system-templates list sheet to unmount before opening the hub edit drawer. */
   const openTemplateAfterSheetClose = useCallback(
@@ -147,6 +148,16 @@ export default function WaTemplatesSystemSection({
   useEffect(() => {
     void load()
   }, [load])
+
+  /** Profile switch should not leave a stale confirm overlay or half-open sheet. */
+  useEffect(() => {
+    if (prevSyncProfileRef.current === syncProfileId) return
+    prevSyncProfileRef.current = syncProfileId
+    setSyncConfirm(null)
+    setSheetOpen(false)
+    setSheetCategory(null)
+    setSheetRows([])
+  }, [syncProfileId])
 
   const kindMap = useMemo(() => {
     const map = {}
@@ -525,8 +536,13 @@ export default function WaTemplatesSystemSection({
         )}
       </div>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="relative w-full overflow-hidden border-l p-0 sm:max-w-[720px]">
+      <Sheet modal={!embedded} open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          side="right"
+          overlay={!embedded}
+          hideDefaultClose
+          className="relative w-full overflow-hidden border-l p-0 shadow-xl duration-200 data-[state=closed]:duration-150 data-[state=open]:duration-200 sm:max-w-[720px]"
+        >
           <div className="flex h-12 items-center gap-3 border-b bg-surface-muted/50 px-4">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Layers className="h-3.5 w-3.5" />

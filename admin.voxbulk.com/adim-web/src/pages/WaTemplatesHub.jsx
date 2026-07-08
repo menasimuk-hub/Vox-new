@@ -200,9 +200,10 @@ export default function WaTemplatesHub() {
   )
 
   const requestSyncConfirm = useCallback(
-    ({ title, action, detail }) =>
+    ({ title, action, detail, profile: confirmProfile = null }) =>
       new Promise((resolve, reject) => {
-        if (!syncProfile?.id) {
+        const profile = confirmProfile || syncProfile
+        if (!profile?.id) {
           reject(new Error('Select a WhatsApp connection profile first'))
           return
         }
@@ -210,6 +211,7 @@ export default function WaTemplatesHub() {
           title,
           action,
           detail,
+          profile,
           onConfirm: () => {
             setSyncConfirm(null)
             resolve(true)
@@ -510,7 +512,7 @@ export default function WaTemplatesHub() {
       return
     }
     try {
-      await requestSyncConfirm({ title, action: 'Push', detail })
+      await requestSyncConfirm({ title, action: 'Push', detail, profile })
     } catch (e) {
       if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
       return
@@ -539,8 +541,8 @@ export default function WaTemplatesHub() {
             offset,
             limit: PUSH_BATCH,
             force_push: forcePush,
-            connection_profile_id: profile.id,
             ...extraBody,
+            connection_profile_id: profile.id,
           }),
           timeoutMs: 300000,
           quietNetworkHint: true,
@@ -569,7 +571,11 @@ export default function WaTemplatesHub() {
         ...prev,
         phase: 'done',
         message: finalMsg,
-        summaryRows: pushTotal ? [{ metric: 'Templates pushed', count: pushTotal }] : [],
+        summaryRows: [
+          ...(pushTotal ? [{ metric: 'Templates pushed', count: pushTotal }] : []),
+          ...(Number(last?.skipped) > 0 ? [{ metric: 'Skipped (already in sync)', count: last.skipped }] : []),
+          ...(Number(last?.total) > 0 ? [{ metric: 'Total in batch scope', count: last.total }] : []),
+        ],
       }))
       refreshSelectedProfileSummary()
       refreshAllProfileSummaries()
@@ -589,11 +595,11 @@ export default function WaTemplatesHub() {
     void runProfilePushBatch({
       path: '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-step/push',
       profile: primarySyncProfile,
-      title: 'Push to primary profile',
+      title: 'Push changed survey templates to primary',
       detail:
-        'Push changed survey templates from the database to the primary (default) connection profile. Runtime sends use whichever profile is marked default.',
+        'Pushes only survey templates that need syncing (local edits, not yet on Meta, or out of sync). Includes industry topics and system templates (Welcome, Thank you, etc.). Skips templates already in sync. Opens a progress window. Does not push Custom Org service-only templates.',
       forcePush: false,
-      extraBody: syncBodyExtra(),
+      extraBody: { service_code: syncServiceCode },
     })
 
   const mirrorToBackup = () => {
@@ -601,10 +607,11 @@ export default function WaTemplatesHub() {
     void runProfilePushBatch({
       path: '/admin/wa-survey/templates/mirror-backup',
       profile: backupSyncProfile,
-      title: 'Mirror to Telnyx backup',
+      title: 'Mirror all survey templates to Telnyx backup',
       detail:
-        'Push all survey and system templates to the backup Telnyx profile with the same names and bodies as the database.',
+        'Force-pushes every survey industry topic and system template (Welcome, Thank you, Tell us more, Closing) to the Telnyx backup profile — same names and bodies as the database. Opens a progress window. Skips empty/local-only rows with no body.',
       forcePush: true,
+      extraBody: { service_code: syncServiceCode },
     })
   }
 
@@ -1212,9 +1219,9 @@ export default function WaTemplatesHub() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={() => pushToPrimary()}
                 disabled={syncing || refreshing || cleaning || !primarySyncProfile?.id}
-                title="Push changed templates to the primary (default) connection profile"
+                title="Push changed survey + system templates to the default Meta profile (skips already in-sync). Shows progress."
               >
-                {syncProfileActionLabel(primarySyncProfile, 'Push primary')}
+                {syncProfileActionLabel(primarySyncProfile, 'Push changed')}
               </Button>
               {tab === 'survey' && backupSyncProfile?.id ? (
                 <Button
@@ -1223,9 +1230,9 @@ export default function WaTemplatesHub() {
                   className="h-8 gap-1.5 text-xs"
                   onClick={() => mirrorToBackup()}
                   disabled={syncing || refreshing || cleaning}
-                  title="Mirror all survey templates to the backup Telnyx profile"
+                  title="Force-push all survey industry + system templates to Telnyx backup. Shows progress."
                 >
-                  {syncProfileActionLabel(backupSyncProfile, 'Mirror backup')}
+                  {syncProfileActionLabel(backupSyncProfile, 'Mirror all')}
                 </Button>
               ) : null}
               <Button
@@ -1453,7 +1460,7 @@ export default function WaTemplatesHub() {
           title={syncConfirm?.title}
           action={syncConfirm?.action}
           detail={syncConfirm?.detail}
-          profile={syncProfile}
+          profile={syncConfirm?.profile || syncProfile}
           onConfirm={syncConfirm?.onConfirm}
           onCancel={syncConfirm?.onCancel}
         />
