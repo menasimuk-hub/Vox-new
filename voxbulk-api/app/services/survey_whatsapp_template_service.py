@@ -1481,6 +1481,39 @@ def _resolve_push_language(db: Session, row: TelnyxWhatsappTemplate) -> tuple[st
     return resolved, None
 
 
+def _hydrate_profile_remote_for_branch(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    connection_profile_id: str | None,
+    service_code: str | None = "survey",
+) -> None:
+    """Load this profile's live remote template onto row for sync-branch checks."""
+    record_id = str(row.telnyx_record_id or "").strip()
+    if not record_id or record_id.startswith(_LOCAL_ID_PREFIX):
+        return
+    try:
+        remote_item = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(
+            db,
+            record_id,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code or "survey",
+        )
+        _apply_remote_telnyx_item(db, row, remote_item, overwrite_draft=False, mirror_content=True)
+        db.flush()
+    except Exception as exc:
+        logger.warning(
+            "survey_wa_template_profile_remote_hydrate_failed",
+            extra={
+                "template_id": row.id,
+                "template_name": row.name,
+                "connection_profile_id": connection_profile_id,
+                "telnyx_record_id": record_id,
+                "error": str(exc),
+            },
+        )
+
+
 def _try_link_remote_and_resolve_branch(
     db: Session,
     row: TelnyxWhatsappTemplate,
@@ -2609,6 +2642,13 @@ class SurveyWhatsappTemplateService:
             connection_profile_id=connection_profile_id,
             service_code=service_code,
         )
+        if profile_ctx is not None and not profile_ctx.is_primary:
+            _hydrate_profile_remote_for_branch(
+                db,
+                row,
+                connection_profile_id=profile_ctx.connection_profile_id,
+                service_code=service_code,
+            )
         branch, branch_error, linked = _try_link_remote_and_resolve_branch(
             db,
             row,
@@ -2667,6 +2707,16 @@ class SurveyWhatsappTemplateService:
                     "sync_branch": branch,
                 },
             )
+
+        if (
+            force_approved_update
+            and branch == SYNC_BRANCH_STATUS_REFRESH
+            and str(row.status or "").upper() == "REJECTED"
+            and profile_ctx is not None
+            and not profile_ctx.is_primary
+        ):
+            branch = SYNC_BRANCH_REJECTED_RECOVERY
+            branch_error = None
 
         if (
             force_approved_update
