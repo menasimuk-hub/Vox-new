@@ -579,7 +579,7 @@ export default function CustomOrg() {
                       </select>
                     </td>
                   </tr>
-                  <tr>
+                  <tr className="billing-packages-row">
                     <td className="k">Billing packages</td>
                     <td className="v" colSpan={3}>
                       <PlanPackageMultiPicker

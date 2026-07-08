@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { apiFetch } from '@/lib/api'
 
 const LINE_ORDER = { voxbulk: 0, customer_feedback: 1, campaign: 2 }
+const PANEL_GAP = 6
+const VIEWPORT_PAD = 12
 
 function groupLabel(p) {
   return p.group_label || p.picker_subtitle?.split(' · ')[0] || p.product_line || 'Plans'
@@ -16,8 +19,8 @@ function planMeta(p) {
 }
 
 /**
- * White dropdown multi-package picker — one plan per service (Core + Feedback).
- * Uses GET /admin/products/assignable-plans.
+ * Multi-package picker — portal dropdown (escapes overflow:hidden parents).
+ * One plan per service: Core platform + Customer Feedback.
  */
 export default function PlanPackageMultiPicker({
   corePlanId,
@@ -31,7 +34,10 @@ export default function PlanPackageMultiPicker({
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [panelStyle, setPanelStyle] = useState(null)
   const rootRef = useRef(null)
+  const triggerRef = useRef(null)
+  const panelRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -51,13 +57,71 @@ export default function PlanPackageMultiPicker({
     }
   }, [])
 
+  const positionPanel = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const width = Math.min(Math.max(rect.width, 320), 440)
+    let left = rect.left
+    if (left + width > vw - VIEWPORT_PAD) left = vw - width - VIEWPORT_PAD
+    if (left < VIEWPORT_PAD) left = VIEWPORT_PAD
+
+    const spaceBelow = vh - rect.bottom - PANEL_GAP - VIEWPORT_PAD
+    const spaceAbove = rect.top - PANEL_GAP - VIEWPORT_PAD
+    const preferBelow = spaceBelow >= 200 || spaceBelow >= spaceAbove
+    const maxHeight = Math.min(360, Math.max(160, preferBelow ? spaceBelow : spaceAbove))
+
+    if (preferBelow) {
+      setPanelStyle({
+        position: 'fixed',
+        top: rect.bottom + PANEL_GAP,
+        left,
+        width,
+        maxHeight,
+        zIndex: 10050,
+      })
+    } else {
+      setPanelStyle({
+        position: 'fixed',
+        bottom: vh - rect.top + PANEL_GAP,
+        left,
+        width,
+        maxHeight,
+        zIndex: 10050,
+      })
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    positionPanel()
+    const onReflow = () => positionPanel()
+    window.addEventListener('resize', onReflow)
+    window.addEventListener('scroll', onReflow, true)
+    return () => {
+      window.removeEventListener('resize', onReflow)
+      window.removeEventListener('scroll', onReflow, true)
+    }
+  }, [open, positionPanel, items.length])
+
   useEffect(() => {
     if (!open) return undefined
     const onDoc = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false)
+      const t = e.target
+      if (rootRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   const filtered = useMemo(() => {
@@ -108,24 +172,100 @@ export default function PlanPackageMultiPicker({
 
   const chips = [selectedCore, selectedFeedback].filter(Boolean)
 
-  const triggerLabel =
-    chips.length === 0
-      ? loading
-        ? 'Loading packages…'
-        : 'Select billing packages…'
-      : `${chips.length} package${chips.length === 1 ? '' : 's'} selected`
+  const panel = open && panelStyle
+    ? createPortal(
+        <>
+          <div className="planPackagePicker-backdrop" aria-hidden onClick={() => setOpen(false)} />
+          <div
+            ref={panelRef}
+            className="planPackagePicker-panel planPackagePicker-panel--portal"
+            style={panelStyle}
+            role="listbox"
+            aria-multiselectable="true"
+          >
+            <div className="planPackagePicker-panelHead">
+              <span className="planPackagePicker-panelTitle">Billing packages</span>
+              <button type="button" className="planPackagePicker-panelClose" onClick={() => setOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <input
+              type="search"
+              className="planPackagePicker-search"
+              placeholder="Search service, package, currency…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+            />
+            <div className="planPackagePicker-list" style={{ maxHeight: Math.max(120, (panelStyle.maxHeight || 280) - 108) }}>
+              {groupedItems.length === 0 ? (
+                <div className="planPackagePicker-empty">No packages match your search.</div>
+              ) : (
+                groupedItems.map(([label, plans]) => (
+                  <div className="planPackagePicker-group" key={label}>
+                    <div className="planPackagePicker-groupTitle">{label}</div>
+                    {plans.map((p) => {
+                      const { title, bits, price } = planMeta(p)
+                      const checked = isChecked(p)
+                      return (
+                        <button
+                          type="button"
+                          key={p.id}
+                          className={`planPackagePicker-option${checked ? ' selected' : ''}`}
+                          onClick={() => togglePlan(p)}
+                          role="option"
+                          aria-selected={checked}
+                        >
+                          <span className={`planPackagePicker-check${checked ? ' on' : ''}`} aria-hidden>
+                            {checked ? '✓' : ''}
+                          </span>
+                          <span className="planPackagePicker-optionBody">
+                            <span className="planPackagePicker-optionTitle">{title}</span>
+                            <span className="planPackagePicker-optionMeta">
+                              {[bits, price].filter(Boolean).join(' · ')}
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="planPackagePicker-foot">
+              Pick up to one per service — Core platform + Customer Feedback.
+            </div>
+          </div>
+        </>,
+        document.body,
+      )
+    : null
 
   return (
-    <div className={`planPackagePicker ${className}`.trim()} ref={rootRef}>
+    <div className={`planPackagePicker ${open ? 'open' : ''} ${className}`.trim()} ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
-        className="planPackagePicker-trigger"
+        className={`planPackagePicker-trigger${open ? ' open' : ''}`}
         onClick={() => !disabled && !loading && setOpen((v) => !v)}
         disabled={disabled || loading}
         aria-expanded={open}
+        aria-haspopup="listbox"
       >
-        <span className="planPackagePicker-triggerText">{triggerLabel}</span>
-        <span className="planPackagePicker-chevron">{open ? '▴' : '▾'}</span>
+        <span className="planPackagePicker-triggerMain">
+          {chips.length === 0 ? (
+            <span className="planPackagePicker-placeholder">
+              {loading ? 'Loading packages…' : 'Choose billing packages…'}
+            </span>
+          ) : (
+            <span className="planPackagePicker-summary">
+              {chips.length} package{chips.length === 1 ? '' : 's'} selected — click to change
+            </span>
+          )}
+        </span>
+        <span className="planPackagePicker-chevron" aria-hidden>
+          {open ? '▴' : '▾'}
+        </span>
       </button>
 
       {chips.length > 0 ? (
@@ -162,44 +302,7 @@ export default function PlanPackageMultiPicker({
         </div>
       ) : null}
 
-      {open ? (
-        <div className="planPackagePicker-panel">
-          <input
-            type="search"
-            className="planPackagePicker-search"
-            placeholder="Search by service, package, or currency…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="planPackagePicker-list">
-            {groupedItems.length === 0 ? (
-              <div className="planPackagePicker-empty">No packages match your search.</div>
-            ) : (
-              groupedItems.map(([label, plans]) => (
-                <div className="planPackagePicker-group" key={label}>
-                  <div className="planPackagePicker-groupTitle">{label}</div>
-                  {plans.map((p) => {
-                    const { title, bits, price } = planMeta(p)
-                    const checked = isChecked(p)
-                    return (
-                      <label className={`planPackagePicker-option${checked ? ' selected' : ''}`} key={p.id}>
-                        <input type="checkbox" checked={checked} onChange={() => togglePlan(p)} />
-                        <span className="planPackagePicker-optionBody">
-                          <span className="planPackagePicker-optionTitle">{title}</span>
-                          <span className="planPackagePicker-optionMeta">
-                            {[bits, price].filter(Boolean).join(' · ')}
-                          </span>
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              ))
-            )}
-          </div>
-          <div className="planPackagePicker-foot">Select one package per service. Core platform overrides org C.P billing when active.</div>
-        </div>
-      ) : null}
+      {panel}
     </div>
   )
 }
