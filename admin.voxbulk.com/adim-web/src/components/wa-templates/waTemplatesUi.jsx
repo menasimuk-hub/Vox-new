@@ -81,14 +81,16 @@ export function StatusDot({ status }) {
 }
 
 /** Map a raw Meta/Telnyx approval status to a StatusDot colour key. */
-function metaStatusToKey(status) {
+function metaStatusToKey(status, remoteId) {
   const s = String(status || '').trim().toUpperCase()
+  const remote = String(remoteId || '').trim()
+  const hasRemote = Boolean(remote) && !remote.startsWith('local-')
   if (s === 'APPROVED') return 'approved'
   if (s === 'REJECTED') return 'rejected'
-  if (s.startsWith('PENDING') || s === 'IN_APPEAL' || s === 'PENDING_DELETION') return 'pending'
-  if (s === 'LOCAL_DRAFT' || s === 'DRAFT' || s === '' || s === 'UNKNOWN') return 'local'
+  if ((s.startsWith('PENDING') || s === 'IN_APPEAL' || s === 'PENDING_DELETION') && hasRemote) return 'pending'
+  if (s === 'LOCAL_DRAFT' || s === 'DRAFT' || s === '' || s === 'UNKNOWN' || !hasRemote) return 'local'
   if (s === 'DISABLED' || s === 'PAUSED') return 'disabled'
-  return 'pending'
+  return hasRemote ? 'pending' : 'local'
 }
 
 const PROFILE_STATUS_DOT = {
@@ -106,9 +108,13 @@ export function ProfileStatusBadges({ statuses }) {
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {list.map((p) => {
-        const key = metaStatusToKey(p.status)
+        const remoteId = p.remote_template_id || p.remote_record_id
+        const key = metaStatusToKey(p.status, remoteId)
         const label = p.profile_label || p.provider || p.profile_key || 'Profile'
-        const statusText = String(p.status || 'UNKNOWN').replace(/_/g, ' ').toLowerCase()
+        const statusText =
+          key === 'local'
+            ? 'local draft'
+            : String(p.status || 'UNKNOWN').replace(/_/g, ' ').toLowerCase()
         const tip = p.rejection_reason
           ? `${label}: ${statusText} — ${p.rejection_reason}`
           : `${label}: ${statusText}`
@@ -332,11 +338,14 @@ export function mapApprovalStatus(tpl) {
   if (meta === 'APPROVED' || meta.includes('APPROV')) return 'approved'
   if (meta === 'DISABLED' || meta === 'PAUSED') return 'disabled'
   if (meta === 'PENDING' || meta === 'PENDING_APPROVAL' || meta === 'IN_APPEAL' || meta === 'SUBMITTED') {
-    return 'pending'
+    return isLocalOnlyRow(tpl) ? 'local' : 'pending'
   }
   if (meta === 'LOCAL_DRAFT' || meta === 'DRAFT') return 'local'
   if (meta === 'UNKNOWN' && isLocalOnlyRow(tpl)) return 'local'
-  if (meta === 'UNKNOWN') return 'pending'
+  if (meta === 'UNKNOWN') {
+    const remote = String(tpl?.telnyx_record_id || tpl?.template_id || '').trim()
+    return remote && !remote.startsWith('local-') ? 'pending' : 'local'
+  }
 
   if (isLocalOnlyRow(tpl)) return 'local'
 

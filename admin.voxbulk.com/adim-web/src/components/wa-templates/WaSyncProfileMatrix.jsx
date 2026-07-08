@@ -56,7 +56,7 @@ export default function WaSyncProfileMatrix({
     <div className="w-full overflow-x-auto">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Live template monitor · per connection profile
+          Live template monitor · remote on profile only (not local DB)
         </span>
         <button
           type="button"

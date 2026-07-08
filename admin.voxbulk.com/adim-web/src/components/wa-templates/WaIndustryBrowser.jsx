@@ -31,6 +31,7 @@ function industryHealthClass(ind) {
   if (health === 'approved') return 'border-success/40 bg-success/5'
   if (health === 'rejected') return 'border-destructive/40 bg-destructive/5'
   if (health === 'pending') return 'border-warning/40 bg-warning-soft/40'
+  if (health === 'local') return 'border-info/40 bg-info-soft/40'
   return 'bg-surface'
 }
 
@@ -39,6 +40,7 @@ function industryHealthDot(ind) {
   if (health === 'approved') return 'bg-success'
   if (health === 'rejected') return 'bg-destructive'
   if (health === 'pending') return 'bg-warning'
+  if (health === 'local') return 'bg-info'
   return 'bg-muted-foreground/40'
 }
 
@@ -46,7 +48,8 @@ function industryHealthLabel(ind) {
   const health = ind.approval_health
   if (health === 'approved') return 'All approved'
   if (health === 'rejected') return 'Some rejected'
-  if (health === 'pending') return 'Pending approval'
+  if (health === 'pending') return 'Pending on Meta/Telnyx'
+  if (health === 'local') return 'Local only — not pushed yet'
   return 'No templates'
 }
 
@@ -785,7 +788,8 @@ export default function WaIndustryBrowser({
   if (industry) {
     const rejectedCount = rows.filter((r) => r.status === 'rejected').length
     const approvedCount = rows.filter((r) => r.status === 'approved').length
-    const pendingCount = rows.filter((r) => r.status === 'pending' || r.status === 'local').length
+    const pendingCount = rows.filter((r) => r.status === 'pending').length
+    const localCount = rows.filter((r) => r.status === 'local').length
     const exampleMetaName = rows.find((r) => r.metaName)?.metaName || ''
     return (
       <div className="animate-fade-in">
@@ -807,7 +811,8 @@ export default function WaIndustryBrowser({
             {industry.language_row_count ? ` · ${industry.language_row_count} language versions` : ''}
           </span>
           <span className="text-xs text-success">· {approvedCount} approved</span>
-          {pendingCount > 0 ? <span className="text-xs text-warning">· {pendingCount} pending</span> : null}
+          {localCount > 0 ? <span className="text-xs text-info">· {localCount} local</span> : null}
+          {pendingCount > 0 ? <span className="text-xs text-warning">· {pendingCount} pending on Meta</span> : null}
           {rejectedCount > 0 ? (
             <span className="text-xs font-medium text-destructive">· {rejectedCount} rejected — fix</span>
           ) : null}

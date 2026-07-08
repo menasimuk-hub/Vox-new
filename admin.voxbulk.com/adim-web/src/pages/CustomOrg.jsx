@@ -19,13 +19,15 @@ function statusLabel(s) {
 function approvalBadgeClass(status) {
   const s = String(status || '').toUpperCase()
   if (s === 'APPROVED') return 'approved'
+  if (s === 'LOCAL_DRAFT' || s === 'DRAFT') return 'local'
   return 'pending'
 }
 
 function approvalLabel(status) {
   const s = String(status || '').toUpperCase()
   if (s === 'APPROVED') return 'Approved'
-  if (s === 'PENDING' || s === 'IN_APPEAL' || s === 'PENDING_DELETION') return 'Pending'
+  if (s === 'LOCAL_DRAFT' || s === 'DRAFT') return 'Local draft'
+  if (s === 'PENDING' || s === 'IN_APPEAL' || s === 'PENDING_DELETION') return 'Pending on Meta'
   if (s === 'REJECTED') return 'Rejected'
   return s ? s.charAt(0) + s.slice(1).toLowerCase() : 'Draft'
 }
@@ -138,6 +140,26 @@ export default function CustomOrg() {
     loadList()
   }, [loadList])
 
+  const deleteProfile = useCallback(async () => {
+    if (!form?.id) return
+    const label = form.name || 'Untitled'
+    const ok = window.confirm(
+      `Delete WA profile "${label}"?\n\nThis removes the admin workspace only. The customer Organisation record is kept. Linked industries and templates are not deleted — use ✕ on each industry block to remove those.`,
+    )
+    if (!ok) return
+    setBusy('delete')
+    setError('')
+    try {
+      await apiFetch(`/admin/custom-org-profiles/${form.id}`, { method: 'DELETE' })
+      flash('Profile deleted')
+      closeDetail()
+    } catch (e) {
+      setError(e?.message || 'Could not delete profile')
+    } finally {
+      setBusy('')
+    }
+  }, [form, closeDetail, flash])
+
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   const saveDetail = useCallback(async () => {
@@ -162,8 +184,19 @@ export default function CustomOrg() {
         method: 'PUT',
         body: JSON.stringify(body),
       })
-      setDetail(data?.profile)
-      setForm({ ...data?.profile })
+      const p = data?.profile
+      setDetail(p)
+      setForm({ ...p })
+      const map = {}
+      for (const ind of p?.industries || []) {
+        try {
+          const t = await apiFetch(`/admin/wa-survey/industries/${ind.id}/templates`)
+          map[ind.id] = t?.templates || []
+        } catch {
+          map[ind.id] = []
+        }
+      }
+      setIndustryTemplates(map)
       flash('Changes saved')
     } catch (e) {
       setError(e?.message || 'Save failed')
@@ -190,7 +223,7 @@ export default function CustomOrg() {
     const name = window.prompt('New industry name for this customer (dedicated to this org)')
     if (!name || !name.trim()) return
     if (!form?.org_id) {
-      setError('Assign a User / Organisation in General first, so the industry is dedicated to them.')
+      setError('Assign a User / Organisation in General first, then Save — the industry is dedicated to that customer.')
       return
     }
     setBusy('add-industry')
@@ -204,7 +237,6 @@ export default function CustomOrg() {
           org_ids: [form.org_id],
         }),
       })
-      // Reload detail so the new dedicated industry shows up.
       await openDetail(form.id)
       flash('Industry created')
     } catch (e) {
@@ -213,6 +245,71 @@ export default function CustomOrg() {
       setBusy('')
     }
   }, [form, openDetail, flash])
+
+  const linkExistingIndustry = useCallback(async () => {
+    if (!form?.org_id) {
+      setError('Assign a User / Organisation in General first, then Save — industries are linked to that customer org.')
+      return
+    }
+    setBusy('link-industry')
+    setError('')
+    try {
+      const data = await apiFetch('/admin/wa-survey/industries?include_inactive=true')
+      const all = Array.isArray(data?.industries) ? data.industries : []
+      const linkedIds = new Set((form.industries || []).map((i) => i.id))
+      const candidates = all.filter((i) => i?.id && !linkedIds.has(i.id))
+      if (!candidates.length) {
+        setError('No other survey industries available to link. Create a new one instead.')
+        return
+      }
+      const lines = candidates.slice(0, 30).map((i, idx) => `${idx + 1}. ${i.name}${i.visibility_mode === 'restricted' ? ' (restricted)' : ''}`)
+      const pick = window.prompt(
+        `Link an existing survey industry to this customer org.\n\n${lines.join('\n')}\n\nEnter the number (1–${Math.min(candidates.length, 30)}):`,
+      )
+      const n = Number.parseInt(String(pick || '').trim(), 10)
+      if (!Number.isFinite(n) || n < 1 || n > Math.min(candidates.length, 30)) return
+      const chosen = candidates[n - 1]
+      const orgIds = Array.from(new Set([...(chosen.org_ids || []), form.org_id]))
+      await apiFetch(`/admin/wa-survey/industries/${chosen.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          visibility_mode: 'restricted',
+          org_ids: orgIds,
+        }),
+      })
+      await openDetail(form.id)
+      flash(`Linked “${chosen.name}” to this profile`)
+    } catch (e) {
+      setError(e?.message || 'Could not link industry')
+    } finally {
+      setBusy('')
+    }
+  }, [form, openDetail, flash])
+
+  const deleteIndustry = useCallback(
+    async (industryId, industryName) => {
+      if (!industryId) return
+      const ok = window.confirm(
+        `Delete industry “${industryName || 'Untitled'}” and ALL its templates from the local DB (and Meta/Telnyx if pushed)?\n\nThis cannot be undone.`,
+      )
+      if (!ok) return
+      setBusy(`del-ind-${industryId}`)
+      setError('')
+      try {
+        const result = await apiFetch(`/admin/wa-survey/industries/${industryId}`, {
+          method: 'DELETE',
+          timeoutMs: 180000,
+        })
+        flash(`Deleted industry (${result?.deleted_templates ?? 0} template(s) removed)`)
+        await openDetail(form.id)
+      } catch (e) {
+        setError(e?.message || 'Could not delete industry')
+      } finally {
+        setBusy('')
+      }
+    },
+    [form, openDetail, flash],
+  )
 
   const syncTargets = useMemo(() => {
     const ids = []
@@ -441,7 +538,12 @@ export default function CustomOrg() {
                 <span className={`badge ${STATUS_BADGE[form.status] || 'setup'}`}>{statusLabel(form.status)}</span>
               </div>
             </div>
-            <button className="btn" onClick={saveDetail} disabled={busy === 'save'}>{busy === 'save' ? 'Saving…' : 'Save changes'}</button>
+            <div className="detail-header-actions">
+              <button className="btn ghost danger" onClick={deleteProfile} disabled={!!busy}>
+                {busy === 'delete' ? 'Deleting…' : 'Delete profile'}
+              </button>
+              <button className="btn" onClick={saveDetail} disabled={busy === 'save'}>{busy === 'save' ? 'Saving…' : 'Save changes'}</button>
+            </div>
           </div>
 
           {/* GENERAL */}
@@ -574,7 +676,10 @@ export default function CustomOrg() {
             </div>
             <div className="acc-body">
               {(form.industries || []).length === 0 ? (
-                <div className="empty">No dedicated industries yet. Assign a customer above, then add one.</div>
+                <div className="empty">
+                  No dedicated industries yet. In <strong>General</strong>, assign a customer org and click <strong>Save</strong>, then use
+                  <strong> + Add industry</strong> or <strong>Link existing</strong> below.
+                </div>
               ) : (
                 (form.industries || []).map((ind) => {
                   const tpls = industryTemplates[ind.id] || []
@@ -582,7 +687,17 @@ export default function CustomOrg() {
                     <div className="industry-block" key={ind.id}>
                       <div className="industry-block-head">
                         <div className="name">{ind.name}</div>
-                        <button className="icon-btn" title="Sync this industry" onClick={() => syncIndustry(ind.id)} disabled={!!busy}>⟲</button>
+                        <div className="industry-block-actions">
+                          <button className="icon-btn" title="Sync this industry" onClick={() => syncIndustry(ind.id)} disabled={!!busy}>⟲</button>
+                          <button
+                            className="icon-btn danger"
+                            title="Delete this industry and all its templates"
+                            onClick={() => deleteIndustry(ind.id, ind.name)}
+                            disabled={!!busy}
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                       <table>
                         <thead>
@@ -617,7 +732,10 @@ export default function CustomOrg() {
                 })
               )}
 
-              <button className="btn ghost small" onClick={addIndustry} disabled={!!busy}>+ Add industry</button>
+              <div className="industry-block-foot">
+                <button className="btn ghost small" onClick={addIndustry} disabled={!!busy}>+ Add industry</button>
+                <button className="btn ghost small" onClick={linkExistingIndustry} disabled={!!busy}>Link existing</button>
+              </div>
             </div>
           </div>
         </div>

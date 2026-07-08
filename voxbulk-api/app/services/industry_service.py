@@ -57,6 +57,7 @@ def industry_to_dict(
     template_count: int | None = None,
     approved_template_count: int | None = None,
     pending_template_count: int | None = None,
+    local_only_template_count: int | None = None,
     rejected_template_count: int | None = None,
     org_ids: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -81,18 +82,26 @@ def industry_to_dict(
         payload["approved_template_count"] = int(approved_template_count)
     if pending_template_count is not None:
         payload["pending_template_count"] = int(pending_template_count)
+    if local_only_template_count is not None:
+        payload["local_only_template_count"] = int(local_only_template_count)
     if rejected_template_count is not None:
         payload["rejected_template_count"] = int(rejected_template_count)
-    # green = all approved, red = any rejected, orange = pending/none rejected
+    # green = all approved, red = any rejected, orange = pending on provider, blue = local-only
     total = int(payload.get("template_count") or 0)
     approved = int(payload.get("approved_template_count") or 0)
     rejected = int(payload.get("rejected_template_count") or 0)
+    pending = int(payload.get("pending_template_count") or 0)
+    local_only = int(payload.get("local_only_template_count") or 0)
     if total <= 0:
         payload["approval_health"] = "empty"
     elif rejected > 0:
         payload["approval_health"] = "rejected"
     elif approved >= total:
         payload["approval_health"] = "approved"
+    elif pending > 0:
+        payload["approval_health"] = "pending"
+    elif local_only > 0:
+        payload["approval_health"] = "local"
     else:
         payload["approval_health"] = "pending"
     if org_ids is not None:
@@ -102,6 +111,24 @@ def industry_to_dict(
 
 def _is_template_approved(row: TelnyxWhatsappTemplate) -> bool:
     return str(row.status or "").strip().upper() == "APPROVED"
+
+
+def _has_remote_provider_link(row: TelnyxWhatsappTemplate) -> bool:
+    rid = str(row.telnyx_record_id or "").strip()
+    return bool(rid) and not rid.startswith("local-")
+
+
+def _is_local_only_template(row: TelnyxWhatsappTemplate) -> bool:
+    if not _has_remote_provider_link(row):
+        return True
+    return str(row.status or "").strip().upper() in {"LOCAL_DRAFT", "DRAFT"}
+
+
+def _is_pending_on_provider(row: TelnyxWhatsappTemplate) -> bool:
+    if not _has_remote_provider_link(row):
+        return False
+    status = str(row.status or "").strip().upper()
+    return status in {"PENDING", "SUBMITTED", "IN_APPEAL", "PENDING_APPROVAL", "PENDING_DELETION"}
 
 
 def _template_ids_for_industry(
@@ -161,6 +188,7 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
             "template_count": 0,
             "approved_template_count": 0,
             "pending_template_count": 0,
+            "local_only_template_count": 0,
             "rejected_template_count": 0,
         }
 
@@ -216,20 +244,24 @@ def _template_count_payload(db: Session, template_ids: set[int]) -> dict[str, in
     approved = 0
     rejected = 0
     pending = 0
+    local_only = 0
     for row in best.values():
         status = str(row.status or "").strip().upper()
         if status == "REJECTED":
             rejected += 1
-        elif status in {"PENDING", "SUBMITTED", "IN_APPEAL"}:
-            pending += 1
         elif _is_template_approved(row):
             approved += 1
-        else:
+        elif _is_pending_on_provider(row):
             pending += 1
+        elif _is_local_only_template(row):
+            local_only += 1
+        else:
+            local_only += 1
     return {
         "template_count": total,
         "approved_template_count": approved,
         "pending_template_count": pending,
+        "local_only_template_count": local_only,
         "rejected_template_count": rejected,
     }
 
@@ -441,6 +473,7 @@ class IndustryService:
                     template_count=counts["template_count"],
                     approved_template_count=counts["approved_template_count"],
                     pending_template_count=counts["pending_template_count"],
+                    local_only_template_count=counts["local_only_template_count"],
                     rejected_template_count=counts["rejected_template_count"],
                     org_ids=org_ids,
                 )
