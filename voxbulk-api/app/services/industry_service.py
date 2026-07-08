@@ -753,6 +753,13 @@ class IndustryService:
             if row is None:
                 continue
             if IndustryService._industry_visible_to_org(db, row, org_id):
+                mode = str(getattr(row, "visibility_mode", None) or "all").strip().lower()
+                org_ids = IndustryService.industry_org_ids(db, row.id) if mode == "restricted" else []
+                payload = {
+                    **payload,
+                    "visibility_mode": mode,
+                    "org_owned": mode == "restricted" and org_id in org_ids,
+                }
                 visible.append(payload)
         return visible
 

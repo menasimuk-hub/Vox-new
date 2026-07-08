@@ -323,6 +323,7 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                     const active = props.industryId === id;
                     const industryName = String(ind.name || ind.label || "");
                     const industrySlug = String(ind.slug || ind.industry_slug || "");
+                    const onlyYou = ind.org_owned === true || String(ind.visibility_mode || "") === "restricted";
                     return (
                       <button
                         key={id}
@@ -342,6 +343,9 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
                           <WaIndustryIcon name={industryName} slug={industrySlug} className="size-5" />
                         </div>
                         <p className="text-sm font-semibold leading-tight">{industryName || "Industry"}</p>
+                        {onlyYou ? (
+                          <span className="text-[11px] font-medium text-sky-700 dark:text-sky-400">Only you</span>
+                        ) : null}
                         {active ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary">
                             <Check className="size-3" /> Selected

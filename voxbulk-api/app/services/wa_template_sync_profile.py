@@ -11,7 +11,7 @@ from app.services.connection.config_resolver import (
     WhatsappSyncRouteError,
     resolve_whatsapp_route_for_sync,
 )
-from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, normalize_service_code
+from app.services.connection.constants import normalize_service_code
 
 
 def connection_profile_id_from_payload(payload: dict[str, Any] | None) -> str | None:
@@ -103,10 +103,6 @@ def summarize_for_connection_profile(
     service_code: str = "survey",
 ) -> dict[str, Any]:
     """Read-only live template counts for one WhatsApp connection profile (no DB mutation)."""
-    from sqlalchemy import select
-
-    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
-    from app.services.survey_whatsapp_template_service import _effective_components
     from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
 
     pid = str(profile_id or "").strip()
@@ -141,6 +137,8 @@ def summarize_for_connection_profile(
             db,
             connection_profile_id=pid,
             service_code=service_code,
+            # Never fall back to another account WABA for live per-profile counts.
+            allow_account_waba_fallback=False,
         )
     except Exception as exc:  # noqa: BLE001
         return {
@@ -153,34 +151,13 @@ def summarize_for_connection_profile(
             "error": str(exc)[:400],
         }
 
-    from app.services.wa_template_product_scope import (
-        count_feedback_local_only,
-        filter_remote_for_service_code,
-        is_survey_platform_row,
-    )
+    from app.services.wa_template_product_scope import filter_remote_for_service_code
 
     code = normalize_service_code(service_code) or "survey"
     remote = filter_remote_for_service_code(remote_all, code)
     live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
-    by_record, by_name_lang = TelnyxWhatsappTemplateSyncService._live_index(remote)
-    local_only = 0
-    if code == SERVICE_CUSTOMER_FEEDBACK:
-        local_only = count_feedback_local_only(db, by_record=by_record, by_name_lang=by_name_lang)
-    else:
-        for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
-            if not is_survey_platform_row(db, row):
-                continue
-            if not _effective_components(row):
-                continue
-            live = TelnyxWhatsappTemplateSyncService._match_live_item(
-                row,
-                by_record=by_record,
-                by_name_lang=by_name_lang,
-            )
-            if live is None:
-                local_only += 1
-
     remote_total = int(live_summary.get("remote_total") or 0)
+    # Live monitor shows only what exists on this connection profile.
     return {
         "ok": True,
         "live": True,
@@ -196,8 +173,8 @@ def summarize_for_connection_profile(
             "approved": int(live_summary.get("approved") or 0),
             "pending": int(live_summary.get("pending") or 0),
             "rejected": int(live_summary.get("rejected") or 0),
-            "localOnly": local_only,
-            "total": remote_total + local_only,
+            "localOnly": 0,
+            "total": remote_total,
         },
     }
 

@@ -325,6 +325,7 @@ class TelnyxWhatsappTemplateSyncService:
         filter_waba_id: bool = True,
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
+        allow_account_waba_fallback: bool = True,
     ) -> list[dict[str, Any]]:
         config = TelnyxWhatsappTemplateSyncService._config(
             db,
@@ -335,10 +336,26 @@ class TelnyxWhatsappTemplateSyncService:
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)
 
-        waba_id = resolve_telnyx_whatsapp_waba_id(db, config) if filter_waba_id else None
+        # Prefer an explicit WABA on the profile/config. For live profile monitors we must NOT
+        # fall back to "first WABA on this Telnyx account" — that steals Meta/other numbers.
+        configured_waba = (
+            str(config.get("whatsapp_waba_id") or "").strip()
+            or str(config.get("waba_id") or "").strip()
+        )
+        if filter_waba_id and not configured_waba and not allow_account_waba_fallback:
+            # Empty / unlinked Telnyx profile → report 0 live templates.
+            return []
+        waba_id = (
+            configured_waba
+            if configured_waba
+            else (resolve_telnyx_whatsapp_waba_id(db, config) if filter_waba_id else "")
+        )
         params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
         if waba_id:
             params["filter[waba_id]"] = waba_id
+        elif filter_waba_id and connection_profile_id:
+            # Profile selected but no WABA — do not dump the whole account catalog.
+            return []
 
         rows: list[dict[str, Any]] = []
         try:
@@ -410,6 +427,7 @@ class TelnyxWhatsappTemplateSyncService:
         filter_waba_id: bool = True,
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
+        allow_account_waba_fallback: bool = True,
     ) -> list[dict[str, Any]]:
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
@@ -428,6 +446,7 @@ class TelnyxWhatsappTemplateSyncService:
             filter_waba_id=filter_waba_id,
             connection_profile_id=connection_profile_id,
             service_code=service_code,
+            allow_account_waba_fallback=allow_account_waba_fallback,
         )
 
     @staticmethod

@@ -6,9 +6,9 @@ const COLS = [
   { key: 'utility', label: 'utility', title: 'Utility category on this account' },
   { key: 'marketing', label: 'marketing', title: 'Marketing category on this account' },
   { key: 'approved', label: 'approved', title: 'Approved on this account' },
+  { key: 'pending', label: 'pending', title: 'Pending on this account' },
   { key: 'rejected', label: 'rejected', title: 'Rejected on this account' },
-  { key: 'localOnly', label: 'local-only', title: 'In VoxBulk DB but not on this account yet' },
-  { key: 'total', label: 'meta+local', title: 'Remote rows on this account + local-only drafts' },
+  { key: 'total', label: 'total', title: 'Live templates on this connection profile' },
 ]
 
 function fmtCell(value, loading) {
