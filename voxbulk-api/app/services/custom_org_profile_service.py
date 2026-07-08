@@ -54,13 +54,13 @@ class CustomOrgProfileService:
         return f"WAP-{count + 1:04d}"
 
     @staticmethod
-    def _plan_display_fields(db: Session, plan: Plan | None) -> dict[str, Any]:
+    def _plan_display_fields(db: Session, plan: Plan | None, *, prefix: str = "plan_") -> dict[str, Any]:
         empty = {
-            "plan_code": None,
-            "plan_service": None,
-            "plan_currency": None,
-            "plan_region": None,
-            "plan_price_display": None,
+            f"{prefix}code": None,
+            f"{prefix}service": None,
+            f"{prefix}currency": None,
+            f"{prefix}region": None,
+            f"{prefix}price_display": None,
         }
         if plan is None:
             return empty
@@ -71,13 +71,13 @@ class CustomOrgProfileService:
             ).scalar_one_or_none()
         enriched = ProductsHubService.enrich_plan_row(db, plan, fb_pkg=fb_pkg)
         if enriched is None:
-            return {**empty, "plan_code": plan.code}
+            return {**empty, f"{prefix}code": plan.code}
         return {
-            "plan_code": plan.code,
-            "plan_service": enriched.get("group_label"),
-            "plan_currency": enriched.get("currency"),
-            "plan_region": enriched.get("region"),
-            "plan_price_display": enriched.get("price_display"),
+            f"{prefix}code": plan.code,
+            f"{prefix}service": enriched.get("group_label"),
+            f"{prefix}currency": enriched.get("currency"),
+            f"{prefix}region": enriched.get("region"),
+            f"{prefix}price_display": enriched.get("price_display"),
         }
 
     @staticmethod
@@ -97,6 +97,7 @@ class CustomOrgProfileService:
         calling = db.get(ConnectionProfile, row.calling_profile_id) if row.calling_profile_id else None
         org = db.get(Organisation, row.org_id) if row.org_id else None
         plan = db.get(Plan, row.plan_id) if row.plan_id else None
+        feedback_plan = db.get(Plan, row.feedback_plan_id) if getattr(row, "feedback_plan_id", None) else None
 
         industry_ids = CustomOrgProfileService._org_industry_ids(db, row.org_id)
         industries = []
@@ -122,6 +123,9 @@ class CustomOrgProfileService:
             "plan_id": row.plan_id,
             "plan_name": (plan.name if plan else None),
             **CustomOrgProfileService._plan_display_fields(db, plan),
+            "feedback_plan_id": getattr(row, "feedback_plan_id", None),
+            "feedback_plan_name": (feedback_plan.name if feedback_plan else None),
+            **CustomOrgProfileService._plan_display_fields(db, feedback_plan, prefix="feedback_plan_"),
             "contact_name": row.contact_name,
             "contact_email": row.contact_email,
             "contact_phone": row.contact_phone,
@@ -187,6 +191,7 @@ class CustomOrgProfileService:
         row.wa_profile_id = _s("wa_profile_id")
         row.calling_profile_id = _s("calling_profile_id")
         row.plan_id = _s("plan_id")
+        row.feedback_plan_id = _s("feedback_plan_id")
         row.contact_name = _s("contact_name")
         row.contact_email = _s("contact_email")
         row.contact_phone = _s("contact_phone")

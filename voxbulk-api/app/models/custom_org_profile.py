@@ -40,6 +40,9 @@ class CustomOrgProfile(Base):
     plan_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("plans.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    feedback_plan_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("plans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     contact_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(190), nullable=True)

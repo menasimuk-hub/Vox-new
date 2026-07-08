@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import PlanPickerSelect from '../components/billing/PlanPickerSelect'
+import PlanPackageMultiPicker from '../components/billing/PlanPackageMultiPicker'
 import '../styles/custom-org.css'
 
 /**
@@ -175,6 +175,7 @@ export default function CustomOrg() {
         wa_profile_id: form.wa_profile_id || null,
         calling_profile_id: form.calling_profile_id || null,
         plan_id: form.plan_id || null,
+        feedback_plan_id: form.feedback_plan_id || null,
         contact_name: form.contact_name || null,
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
@@ -539,6 +540,9 @@ export default function CustomOrg() {
                 {form.plan_service ? (
                   <> &nbsp;·&nbsp; {form.plan_service}{form.plan_name ? ` · ${form.plan_name}` : ''}{form.plan_currency ? ` (${form.plan_currency})` : ''}</>
                 ) : null}
+                {form.feedback_plan_service ? (
+                  <> &nbsp;·&nbsp; {form.feedback_plan_service}{form.feedback_plan_name ? ` · ${form.feedback_plan_name}` : ''}{form.feedback_plan_currency ? ` (${form.feedback_plan_currency})` : ''}</>
+                ) : null}
                 &nbsp;·&nbsp;{' '}
                 <span className={`badge ${STATUS_BADGE[form.status] || 'setup'}`}>{statusLabel(form.status)}</span>
               </div>
@@ -568,25 +572,22 @@ export default function CustomOrg() {
                   </tr>
                   <tr>
                     <td className="k">User / Organisation</td>
-                    <td className="v">
+                    <td className="v" colSpan={3}>
                       <select value={form.org_id || ''} onChange={(e) => setField('org_id', e.target.value)}>
                         <option value="">— select customer —</option>
                         {(options.orgs || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                       </select>
                     </td>
-                    <td className="k">Billing plan</td>
-                    <td className="v" colSpan={1}>
-                      <PlanPickerSelect
-                        value={form.plan_id || ''}
-                        onChange={(id) => setField('plan_id', id || null)}
-                        valueKey="id"
-                        grouped
-                        placeholder="— select plan —"
-                        className="custom-org-plan-picker-input"
+                  </tr>
+                  <tr>
+                    <td className="k">Billing packages</td>
+                    <td className="v" colSpan={3}>
+                      <PlanPackageMultiPicker
+                        corePlanId={form.plan_id || ''}
+                        feedbackPlanId={form.feedback_plan_id || ''}
+                        onChangeCore={(id) => setField('plan_id', id || null)}
+                        onChangeFeedback={(id) => setField('feedback_plan_id', id || null)}
                       />
-                      <div className="muted" style={{ fontSize: '11px', marginTop: 4 }}>
-                        Grouped by service. Shows package, region, and currency. Overrides org billing when this WA profile is active.
-                      </div>
                     </td>
                   </tr>
                   <tr>

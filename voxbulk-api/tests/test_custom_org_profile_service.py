@@ -49,6 +49,29 @@ def test_options_plans_core_before_feedback(db):
         assert lines.index("voxbulk") < lines.index("customer_feedback")
 
 
+def test_serialize_row_includes_feedback_plan_fields(db):
+    core = db.execute(select(Plan).where(Plan.code == "starter").limit(1)).scalar_one_or_none()
+    if core is None:
+        core = db.execute(select(Plan).limit(1)).scalar_one()
+    fb = db.execute(
+        select(Plan).where(Plan.code.like("cf_%")).limit(1)
+    ).scalar_one_or_none()
+    row = CustomOrgProfile(
+        name="WA multi",
+        plan_id=core.id,
+        feedback_plan_id=fb.id if fb else None,
+        status="setup",
+    )
+    db.add(row)
+    db.commit()
+    data = CustomOrgProfileService._serialize_row(db, row)
+    assert data["plan_id"] == core.id
+    assert data["plan_code"] == core.code
+    if fb is not None:
+        assert data["feedback_plan_id"] == fb.id
+        assert data["feedback_plan_code"] == fb.code
+
+
 def test_serialize_row_includes_plan_service_and_currency(db):
     plan = db.execute(
         select(Plan).where(Plan.code == "starter").limit(1)
