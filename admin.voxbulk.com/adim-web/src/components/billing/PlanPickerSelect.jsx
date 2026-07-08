@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../lib/api'
+import { apiFetch } from '../../lib/api'
 
 /**
  * Searchable plan picker with title + subtitle labels.
