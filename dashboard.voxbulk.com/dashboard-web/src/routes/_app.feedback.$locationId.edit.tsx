@@ -1,11 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -14,6 +17,8 @@ import {
   useFeedbackSurveyTypes,
   useUpdateFeedbackLocation,
 } from "@/lib/queries";
+import { BASE_TEMPLATE, CATEGORY_TEMPLATES } from "@/lib/feedback-templates";
+import { buildWebThemePayload, previewThemeUrl, webThemeFromApi, type WebThemeWizardState } from "@/lib/feedback-theme-preview";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/feedback/$locationId/edit")({
@@ -32,6 +37,11 @@ function EditFeedbackSurvey() {
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
   const [marketingOptIn, setMarketingOptIn] = React.useState(false);
+  const [aiFollowUp, setAiFollowUp] = React.useState<AiFollowUpConfig>(defaultAiFollowUp);
+  const [baseTemplateId, setBaseTemplateId] = React.useState("auto");
+  const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
+  const [overlayMode, setOverlayMode] = React.useState<WebThemeWizardState["overlayMode"]>("auto");
+  const [customEventLabel, setCustomEventLabel] = React.useState("");
   const marketingCountQ = useFeedbackMarketingSubscriberCount();
   const initialized = React.useRef(false);
 
@@ -45,6 +55,12 @@ function EditFeedbackSurvey() {
     );
     setOpenQuestion(location.open_question_enabled !== false);
     setMarketingOptIn(Boolean(location.marketing_opt_in_enabled));
+    const wt = webThemeFromApi(location.web_theme as Record<string, unknown> | undefined);
+    setBaseTemplateId(wt.baseTemplateId);
+    setOverlayIds(wt.overlayIds);
+    setOverlayMode(wt.overlayMode);
+    setCustomEventLabel(wt.customEventLabel);
+    setAiFollowUp(aiFollowUpFromApi(location.ai_follow_up as Record<string, unknown> | undefined));
   }, [location]);
 
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
@@ -72,6 +88,13 @@ function EditFeedbackSurvey() {
           selected_survey_type_ids: selectedTypeIds,
           open_question_enabled: openQuestion,
           marketing_opt_in_enabled: marketingOptIn,
+          web_theme: buildWebThemePayload({
+            baseTemplateId,
+            overlayIds,
+            overlayMode,
+            customEventLabel,
+          }),
+          ai_follow_up: aiFollowUpToApi(aiFollowUp),
         },
       });
       toast.success("Survey updated. Your existing QR code still works.");
@@ -235,16 +258,95 @@ function EditFeedbackSurvey() {
             managed centrally and must be approved on WhatsApp.
           </p>
 
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button onClick={onSave} disabled={updateM.isPending || selectedTypeIds.length === 0}>
-              {updateM.isPending ? "Saving…" : "Save changes"}
-            </Button>
-            <Button asChild variant="outline">
-              <Link to="/feedback">Cancel</Link>
-            </Button>
-          </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Palette className="size-4 text-primary" /> Web survey look &amp; feel
+          </CardTitle>
+          <CardDescription>Skin shown when customers complete the survey on the web link (not WhatsApp templates).</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Base template</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={baseTemplateId}
+              onChange={(e) => setBaseTemplateId(e.target.value)}
+            >
+              <option value="auto">Auto — match industry</option>
+              <option value={BASE_TEMPLATE.id}>{BASE_TEMPLATE.label}</option>
+              {CATEGORY_TEMPLATES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.emoji} {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>Seasonal / event overlays (optional)</Label>
+            <div className="flex flex-wrap gap-2">
+              {["survey-summer", "survey-winter", "christmas", "new-year", "halloween"].map((id) => {
+                const active = overlayIds.includes(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() =>
+                      setOverlayIds((arr) => (active ? arr.filter((x) => x !== id) : [...arr, id]))
+                    }
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs",
+                      active ? "border-primary bg-primary text-primary-foreground" : "border-border",
+                    )}
+                  >
+                    {id}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {overlayIds.length > 0 ? (
+            <div className="flex gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={overlayMode === "auto"} onChange={() => setOverlayMode("auto")} />
+                Auto swap by date
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={overlayMode === "fixed"} onChange={() => setOverlayMode("fixed")} />
+                Always on
+              </label>
+            </div>
+          ) : null}
+          <Input
+            value={customEventLabel}
+            onChange={(e) => setCustomEventLabel(e.target.value)}
+            placeholder="Optional custom event label"
+          />
+          <Button asChild variant="outline" size="sm">
+            <a
+              href={previewThemeUrl(baseTemplateId === "auto" ? "survey-temp" : baseTemplateId)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open web preview
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <AiFollowUpStep stepLabel="Settings" config={aiFollowUp} onChange={setAiFollowUp} />
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onSave} disabled={updateM.isPending || selectedTypeIds.length === 0}>
+          {updateM.isPending ? "Saving…" : "Save changes"}
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/feedback">Cancel</Link>
+        </Button>
+      </div>
     </div>
   );
 }

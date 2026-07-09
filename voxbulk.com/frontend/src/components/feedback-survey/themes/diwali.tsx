@@ -1,4 +1,4 @@
-import type { Theme, Copy } from "../types";
+import type { Theme } from "../types";
 
 export const theme: Theme = {
   bgClass: "bg-diwali-gradient",

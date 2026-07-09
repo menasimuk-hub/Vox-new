@@ -4,6 +4,8 @@
     radial-gradient(120% 80% at 100% 100%, oklch(0.95 0.03 60) 0%, transparent 55%),
     oklch(0.98 0.012 85);
   --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --gold: oklch(0.78 0.13 82);
+  --gold-foreground: oklch(0.2 0.02 70);
 }
 .feedback-survey-root .font-display {
   font-family: var(--font-display);
@@ -110,6 +112,18 @@
 .feedback-survey-root .animate-tilt-hover { animation: tilt-hover 6s ease-in-out infinite; }
 .feedback-survey-root .bg-warm-gradient {
   background: var(--gradient-warm);
+}
+.feedback-survey-root .bg-gold {
+  background-color: var(--gold);
+}
+.feedback-survey-root .text-gold {
+  color: var(--gold);
+}
+.feedback-survey-root .text-gold-foreground {
+  color: var(--gold-foreground);
+}
+.feedback-survey-root .ring-gold\/40 {
+  --tw-ring-color: color-mix(in oklch, var(--gold) 40%, transparent);
 }
 .feedback-survey-root .bg-summer-gradient {
   background:

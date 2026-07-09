@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -727,6 +727,24 @@ class FeedbackWebSurveyService:
         if location is None:
             raise ValueError("Location not found")
         steps = _web_steps(db, location)
+        state = load_feedback_session_state(session)
+        if is_tell_us_more_pending(state):
+            deadline = parse_deadline(state)
+            now = datetime.now(timezone.utc)
+            if deadline is not None and deadline <= now:
+                step_index = int(state.get("tell_us_more_step_index") or session.current_step or 0)
+                clear_tell_us_more_pending(state)
+                save_feedback_session_state(session, state)
+                session.current_step = step_index + 1
+                db.add(session)
+                db.commit()
+                if session.current_step >= len(steps):
+                    session.status = "completed"
+                    session.completed_at = datetime.utcnow()
+                    db.add(session)
+                    db.commit()
+                    _maybe_schedule_ai_followup(db, session, location)
+                    return {"active": False, "completed": True}
         state = load_feedback_session_state(session)
         step_index = int(session.current_step or 0)
         deadline = parse_deadline(state) if is_tell_us_more_pending(state) else None

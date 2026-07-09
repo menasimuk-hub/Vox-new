@@ -394,6 +394,7 @@ export function PublicFeedbackSurvey({
   const stepIndexRef = useRef(0);
   const detailRef = useRef<VoiceDetailHandle>(null);
   const reasonRef = useRef<VoiceDetailHandle>(null);
+  const isPreview = Boolean(previewThemeId);
 
   const themePack = useMemo(() => {
     if (!payload) return getThemePack("survey-temp", "Your business");
@@ -579,9 +580,17 @@ export function PublicFeedbackSurvey({
   };
 
   const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
-    if (!sessionId) return;
+    if (!sessionId && !isPreview) return;
     setError("");
     const epoch = navEpochRef.current;
+    if (isPreview) {
+      if (opts?.showReasonAfter) {
+        setReasonOverlay(opts.showReasonAfter);
+        return;
+      }
+      goToStep(stepIndex + 1);
+      return;
+    }
     if (opts?.showReasonAfter) {
       enqueue(async () => {
         const data = (await postAnswer(answer)) as AdvanceResponse;
@@ -590,23 +599,26 @@ export function PublicFeedbackSurvey({
           setTellUsMorePending(true);
           setDeadlineAt(data.deadline_at ?? null);
           if (data.question) setQuestion(data.question);
+          setReasonOverlay(opts.showReasonAfter ?? null);
+          return;
         }
+        setReasonOverlay(opts.showReasonAfter);
       });
-      setReasonOverlay(opts.showReasonAfter);
       return;
     }
-    enqueue(() => postAnswer(answer));
-    goToStep(stepIndex + 1);
+    enqueue(async () => {
+      const data = (await postAnswer(answer)) as AdvanceResponse;
+      applyAdvance(epoch, data, stepIndex + 1);
+    });
   };
 
-  const submitDetailStep = (mode: "answer" | "reason") => {
-    if (!sessionId) return;
+  const submitDetailStep = async (mode: "answer" | "reason") => {
+    if (!sessionId && !isPreview) return;
     const ref = mode === "reason" ? reasonRef : detailRef;
     const voiceBlob = ref.current?.getBlob();
     const text = (ref.current?.getText() || (mode === "reason" ? reasonText : textAnswer)).trim();
     const chips = mode === "reason" ? reasonChips : [];
     const combinedText = [chips.join(", "), text].filter(Boolean).join(" — ");
-    const tellUsMoreActive = tellUsMorePending;
 
     if (mode === "reason") {
       setReasonOverlay(null);
@@ -616,41 +628,85 @@ export function PublicFeedbackSurvey({
       setDeadlineAt(null);
     }
 
-    if (voiceBlob) {
-      if (mode === "reason" && !tellUsMoreActive) {
-        enqueue(() => postVoice(voiceBlob, "reason_prev"));
-      } else {
-        enqueue(() => postVoice(voiceBlob, "answer"));
-      }
+    if (isPreview) {
       goToStep(stepIndexRef.current + 1);
+      return;
+    }
+
+    const epoch = navEpochRef.current;
+
+    if (voiceBlob) {
+      if (mode === "reason") {
+        setBusy(true);
+        try {
+          const voiceRes = (await postVoice(voiceBlob, "transcribe")) as { transcript?: string };
+          const transcript = String(voiceRes.transcript || "").trim();
+          if (!transcript) {
+            setError("Could not transcribe your voice note. Please try again or type your answer.");
+            return;
+          }
+          const data = (await postAnswer("skip", {
+            reason: transcript,
+            reasonSource: "voice",
+          })) as AdvanceResponse;
+          applyAdvance(epoch, data, stepIndexRef.current + 1);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not save voice answer");
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+      setBusy(true);
+      try {
+        const data = (await postVoice(voiceBlob, "answer")) as AdvanceResponse & { saved?: boolean };
+        if (data.saved === false) {
+          setError("Could not save your voice answer. Please try again.");
+          return;
+        }
+        applyAdvance(epoch, data, stepIndexRef.current + 1);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save voice answer");
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
     if (mode === "reason") {
       const reason = combinedText || "skip";
-      enqueue(() =>
-        postAnswer("skip", {
+      enqueue(async () => {
+        const data = (await postAnswer("skip", {
           reason: reason.toLowerCase() === "skip" ? "skip" : reason,
           reasonSource: "text",
-        }),
-      );
-      goToStep(stepIndex + 1);
+        })) as AdvanceResponse;
+        applyAdvance(epoch, data, stepIndex + 1);
+      });
       return;
     }
 
     if (combinedText) {
-      enqueue(() => postAnswer(combinedText));
-      goToStep(stepIndex + 1);
+      enqueue(async () => {
+        const data = (await postAnswer(combinedText)) as AdvanceResponse;
+        applyAdvance(epoch, data, stepIndex + 1);
+      });
     }
   };
 
   const skipDetailStep = (mode: "answer" | "reason") => {
+    if (isPreview) {
+      goToStep(stepIndex + 1);
+      return;
+    }
     if (mode === "reason") {
       setReasonOverlay(null);
       setReasonChips([]);
       setReasonText("");
-      enqueue(() => postAnswer("skip", { reason: "skip", reasonSource: "text" }));
-      goToStep(stepIndex + 1);
+      const epoch = navEpochRef.current;
+      enqueue(async () => {
+        const data = (await postAnswer("skip", { reason: "skip", reasonSource: "text" })) as AdvanceResponse;
+        applyAdvance(epoch, data, stepIndex + 1);
+      });
       return;
     }
     answerStep("skip");
@@ -660,6 +716,14 @@ export function PublicFeedbackSurvey({
     setBusy(true);
     setError("");
     try {
+      if (isPreview && payload) {
+        setSessionId("preview");
+        setStepIndex(0);
+        setStepCount(payload.questions.length);
+        setQuestion(payload.questions[0] ?? null);
+        setPhase("survey");
+        return;
+      }
       const data = await apiFetch<{ ok?: boolean; session_id?: string } & AdvanceResponse>(
         `/public/feedback/survey/${encodeURIComponent(token)}/sessions`,
         { method: "POST" },
@@ -700,7 +764,7 @@ export function PublicFeedbackSurvey({
   };
 
   useEffect(() => {
-    if (!tellUsMorePending || !sessionId) return;
+    if (!tellUsMorePending || !sessionId || isPreview) return;
 
     let cancelled = false;
     let intervalId = 0;

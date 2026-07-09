@@ -5,6 +5,7 @@ import {
   Download,
   Eye,
   FileText,
+  PhoneCall,
   Rocket,
   Sparkles,
   Target,
@@ -21,6 +22,7 @@ import { CrmSurveyAutomationCard } from "@/components/integrations/crm-survey-au
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { buildWaPreviewSlides, SurveyWaPreviewCarousel } from "@/components/create-wizard/survey-wa-preview-carousel";
 import { SurveyWaLaunchStep } from "@/components/create-wizard/survey-wa-launch-step";
+import { AiFollowUpStep, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { WizardAlert } from "@/components/create-wizard/wizard-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +46,8 @@ const WA_STEPS: WizardStepDef[] = [
   { id: 3, title: "Template", icon: FileText },
   { id: 4, title: "Contacts", icon: Users },
   { id: 5, title: "Preview", icon: Eye },
-  { id: 6, title: "Launch", icon: Rocket },
+  { id: 6, title: "AI follow-up", icon: PhoneCall },
+  { id: 7, title: "Launch", icon: Rocket },
 ];
 
 export type SurveyWaWizardProps = {
@@ -140,6 +143,8 @@ export type SurveyWaWizardProps = {
   onOpenLaunch: (mode: "now" | "schedule" | "recurring") => void | Promise<void>;
   launchPending?: boolean;
   costHint?: string;
+  aiFollowUp: AiFollowUpConfig;
+  setAiFollowUp: (v: AiFollowUpConfig) => void;
 };
 
 export function SurveyWaWizard(props: SurveyWaWizardProps) {
@@ -686,6 +691,10 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         )}
 
         {step === 6 && (
+          <AiFollowUpStep stepLabel="Step 6" config={props.aiFollowUp} onChange={props.setAiFollowUp} />
+        )}
+
+        {step === 7 && (
           <div className="space-y-4">
             {props.orderId ? <CrmSurveyAutomationCard orderId={props.orderId} /> : null}
           <SurveyWaLaunchStep

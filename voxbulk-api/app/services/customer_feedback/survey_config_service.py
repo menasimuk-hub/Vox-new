@@ -219,14 +219,31 @@ def survey_config_needs_rebuild(location: FeedbackLocation, steps: list[dict[str
     return topic_ids != expected
 
 
+def _preserve_survey_config_extras(existing_raw: str | None, config: dict[str, Any]) -> dict[str, Any]:
+    """Keep wizard extras (web theme, AI follow-up) when rebuilding step lists."""
+    out = dict(config)
+    if not existing_raw:
+        return out
+    try:
+        parsed = json.loads(existing_raw)
+        if isinstance(parsed, dict):
+            for key in ("web_theme", "ai_follow_up"):
+                if key in parsed:
+                    out[key] = parsed[key]
+    except json.JSONDecodeError:
+        pass
+    return out
+
+
 def rebuild_survey_config_for_location(db: Session, location: FeedbackLocation) -> dict[str, Any]:
-    return build_survey_config(
+    config = build_survey_config(
         db,
         industry_id=str(location.industry_id),
         selected_type_ids=parse_selected_type_ids_from_location(location),
         open_question_enabled=bool(location.open_question_enabled),
         marketing_opt_in_enabled=effective_marketing_opt_in_enabled(location.marketing_opt_in_enabled),
     )
+    return _preserve_survey_config_extras(location.survey_config_json, config)
 
 
 def load_survey_config(
@@ -253,7 +270,7 @@ def load_survey_config(
 
     interactive = _strip_non_interactive_steps(steps or [])
     interactive = filter_survey_steps(interactive)
-    return {"steps": interactive}
+    return _preserve_survey_config_extras(raw, {"steps": interactive})
 
 
 def repair_survey_config_if_needed(db: Session, location: FeedbackLocation) -> bool:

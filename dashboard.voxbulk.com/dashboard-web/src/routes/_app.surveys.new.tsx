@@ -24,6 +24,7 @@ import {
 import { toIsoFromLocal } from "@/lib/datetime";
 import { buildSurveyDraftCreateBody, buildSurveyDraftPatchBody, resolveSurveyNameForSave } from "@/lib/survey-draft-payload";
 import { buildFullSurveyDraftConfig, hydrateSurveyDraftFromOrder, type SurveyDraftWizardSnapshot } from "@/lib/survey-draft-config";
+import { aiFollowUpFromApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { scriptModerationBanner } from "@/lib/script-moderation";
 import {
   pickDefaultSurveyAgent,
@@ -185,6 +186,7 @@ function CreateSurvey() {
   const [uploading, setUploading] = React.useState(false);
   const [uploadConsent, setUploadConsent] = React.useState(false);
   const [launchConsent, setLaunchConsent] = React.useState(false);
+  const [aiFollowUp, setAiFollowUp] = React.useState<AiFollowUpConfig>(defaultAiFollowUp);
   const qc = useQueryClient();
   const orderQ = useServiceOrder(orderId);
   const recipientsQ = useOrderRecipients(orderId);
@@ -371,6 +373,7 @@ function CreateSurvey() {
     if (hydrated.channel) setChannel(hydrated.channel);
     if (hydrated.approved) setApproved(true);
     if (hydrated.waPreview) setWaPreview(hydrated.waPreview);
+    if (hydrated.aiFollowUp) setAiFollowUp(hydrated.aiFollowUp);
     const cfg = (order.config || {}) as Record<string, unknown>;
     if (cfg.upload_consent_at) {
       setUploadConsent(true);
@@ -515,6 +518,7 @@ function CreateSurvey() {
         agentId,
         systemPrompt,
         expectedDurationMinutes,
+        aiFollowUp,
         ...overrides,
       },
       persisted,
@@ -544,6 +548,7 @@ function CreateSurvey() {
     agentId,
     systemPrompt,
     expectedDurationMinutes,
+    aiFollowUp,
     orderQ.data?.config,
   ]);
 
@@ -1536,6 +1541,8 @@ function CreateSurvey() {
           onOpenLaunch={onOpenLaunch}
           launchPending={launchM.isPending || payBusy}
           costHint={launchCostHint || "See launch summary"}
+          aiFollowUp={aiFollowUp}
+          setAiFollowUp={setAiFollowUp}
         />
       )}
 

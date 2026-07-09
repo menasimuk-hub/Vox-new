@@ -42,3 +42,15 @@ export function buildWebThemePayload(state: WebThemeWizardState) {
     custom_event_label: state.customEventLabel.trim() || undefined,
   };
 }
+
+export function webThemeFromApi(raw?: Record<string, unknown> | null): WebThemeWizardState {
+  if (!raw) {
+    return { baseTemplateId: "auto", overlayIds: [], overlayMode: "auto", customEventLabel: "" };
+  }
+  return {
+    baseTemplateId: String(raw.base_template_id || "auto"),
+    overlayIds: Array.isArray(raw.overlay_ids) ? raw.overlay_ids.map((id) => String(id)) : [],
+    overlayMode: raw.overlay_mode === "fixed" ? "fixed" : "auto",
+    customEventLabel: String(raw.custom_event_label || ""),
+  };
+}

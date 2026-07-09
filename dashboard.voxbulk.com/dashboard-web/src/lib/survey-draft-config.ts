@@ -4,6 +4,9 @@
  * from waPreview or the last persisted order config.
  */
 
+import type { AiFollowUpConfig } from "@/components/ai-follow-up-step";
+import { aiFollowUpFromApi, aiFollowUpToApi } from "@/components/ai-follow-up-step";
+
 export type SurveyDraftWizardSnapshot = {
   channel: "whatsapp" | "phone" | null;
   goal: string;
@@ -28,6 +31,7 @@ export type SurveyDraftWizardSnapshot = {
   agentId?: string;
   systemPrompt?: string;
   expectedDurationMinutes?: number;
+  aiFollowUp?: AiFollowUpConfig;
 };
 
 const BUILDER_PERSIST_KEYS = [
@@ -137,6 +141,7 @@ export function buildFullSurveyDraftConfig(
       allow_final_additional_feedback: wizard.allowFinalAdditionalFeedback,
       auto_select_steps: wizard.autoSelectSteps,
       selected_step_roles: wizard.autoSelectSteps ? undefined : wizard.resolvedPageRoles,
+      ai_follow_up: wizard.aiFollowUp ? aiFollowUpToApi(wizard.aiFollowUp) : undefined,
       ...(wizard.approved || isBuilderFlow
         ? {
             page_roles: builder.page_roles || wizard.resolvedPageRoles,
@@ -194,6 +199,7 @@ export type HydratedSurveyDraftState = {
   systemPrompt?: string;
   expectedDurationMinutes?: number;
   waPreview?: Record<string, unknown> | null;
+  aiFollowUp?: AiFollowUpConfig;
 };
 
 function toLocalInput(iso?: string | null): string {
@@ -275,6 +281,10 @@ export function hydrateSurveyDraftFromOrder(order: {
     out.waPreview = pickBuilderFields(cfg, cfg);
     if (cfg.approved_script) out.waPreview.approved_script = cfg.approved_script;
     if (cfg.script) out.waPreview.approved_script = cfg.script;
+  }
+
+  if (cfg.ai_follow_up) {
+    out.aiFollowUp = aiFollowUpFromApi(cfg.ai_follow_up as Record<string, unknown>);
   }
 
   return out;

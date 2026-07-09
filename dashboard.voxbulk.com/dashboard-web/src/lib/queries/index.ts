@@ -108,6 +108,9 @@ export type FeedbackLocation = {
   trigger_text: string;
   wa_url: string;
   qr_image_url: string;
+  web_survey_url?: string;
+  web_theme?: Record<string, unknown>;
+  ai_follow_up?: Record<string, unknown>;
   created_at?: string | null;
 };
 

@@ -57,7 +57,6 @@ export type SurveyPayload = {
   branch_name?: string;
   industry_name?: string;
   industry_slug?: string;
-  industry_slug?: string;
   wa_url?: string;
   logo_url?: string;
   step_count: number;

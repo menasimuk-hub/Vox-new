@@ -35,6 +35,9 @@ export function Art() {
       <svg className="animate-squiggle absolute -left-10 top-1/2 h-10 w-40 text-foreground/10" viewBox="0 0 200 40" fill="none">
         <path d="M0 20 Q 20 0 40 20 T 80 20 T 120 20 T 160 20 T 200 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
+      <svg className="animate-squiggle absolute -right-10 bottom-40 h-10 w-40 text-gold/25" viewBox="0 0 200 40" fill="none" style={{ animationDelay: "1.5s" }}>
+        <path d="M0 20 Q 20 40 40 20 T 80 20 T 120 20 T 160 20 T 200 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
     </div>
   );
 }

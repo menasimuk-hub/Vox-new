@@ -25,12 +25,14 @@ from app.services.customer_feedback.survey_config_service import (
     rebuild_survey_config_for_location,
     validate_feedback_survey_templates_ready,
 )
+from app.services.market_zone import country_to_zone
 from app.services.customer_feedback.web_theme_service import (
     load_web_theme_from_location,
     merge_web_theme_into_config,
     parse_web_theme_config,
     resolve_theme_id,
 )
+from app.services.customer_feedback.feedback_ai_followup_service import load_ai_follow_up_from_location
 
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
@@ -137,6 +139,8 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "wa_url": wa_url,
         "qr_image_url": qr_image_url,
         "web_survey_url": web_survey_url,
+        "web_theme": load_web_theme_from_location(row),
+        "ai_follow_up": load_ai_follow_up_from_location(row),
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 

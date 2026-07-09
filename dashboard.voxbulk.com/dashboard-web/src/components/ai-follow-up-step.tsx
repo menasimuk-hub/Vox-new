@@ -40,6 +40,19 @@ export function aiFollowUpToApi(config: AiFollowUpConfig) {
   };
 }
 
+export function aiFollowUpFromApi(raw?: Record<string, unknown> | null): AiFollowUpConfig {
+  if (!raw) return defaultAiFollowUp();
+  const delay = Number(raw.delay_hours ?? raw.delayHours ?? 24);
+  return {
+    enabled: Boolean(raw.enabled),
+    businessContext: String(raw.business_context ?? raw.businessContext ?? ""),
+    promoEnabled: Boolean(raw.promo_enabled ?? raw.promoEnabled),
+    promoCode: String(raw.promo_code ?? raw.promoCode ?? ""),
+    promoDescription: String(raw.promo_description ?? raw.promoDescription ?? ""),
+    delayHours: delay === 48 ? "48" : "24",
+  };
+}
+
 export function AiFollowUpStep({
   stepLabel,
   config,

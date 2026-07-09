@@ -50,6 +50,12 @@ export function Art() {
           strokeLinecap="round"
         />
       </svg>
+      <div className="animate-drift-a absolute left-8 top-1/2 h-3 w-3 rounded-full" style={{ background: theme.accent }} />
+      <div className="animate-drift-b absolute right-10 top-1/3 h-4 w-4 rotate-12 rounded-sm" style={{ background: theme.cool }} />
+      <div className="animate-drift-c absolute left-1/3 bottom-28 h-2.5 w-2.5 rounded-full" style={{ background: theme.accent2 }} />
+      <svg className="animate-squiggle absolute -right-10 bottom-32 h-10 w-48 opacity-40" viewBox="0 0 200 40" fill="none">
+        <path d="M0 20 Q 20 0 40 20 T 80 20 T 120 20 T 160 20 T 200 20" stroke={theme.cool} strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Theme, Copy } from "../types";
+import type { Theme } from "../types";
 
 export const theme: Theme = {
   bgClass: "bg-island-gradient",
@@ -25,10 +25,10 @@ export function Art() {
       <div className="animate-sun-spin absolute -right-8 -top-8 h-40 w-40 opacity-70" style={{ background: "conic-gradient(from 0deg,#fde68a,#f59e0b,#fde68a)", borderRadius: "9999px", filter: "blur(2px)" }} />
       {/* Waves */}
       <svg className="animate-squiggle absolute bottom-24 left-0 w-full opacity-40" viewBox="0 0 400 40" fill="none" stroke="#06b6d4" strokeWidth="2">
-        <path d="M0 20 Q 25 5 50 20 T 100 20 T 150 20 T 200 20 T 250 20 T 300 20 T 350 20 T 400 20" />
+        <path d="M0 20 Q 25 5 50 20 theme 100 20 theme 150 20 theme 200 20 theme 250 20 theme 300 20 theme 350 20 theme 400 20" />
       </svg>
       <svg className="animate-squiggle absolute bottom-16 left-0 w-full opacity-30" viewBox="0 0 400 40" fill="none" stroke="#14b8a6" strokeWidth="2" style={{ animationDelay: "0.6s" }}>
-        <path d="M0 20 Q 30 30 60 20 T 120 20 T 180 20 T 240 20 T 300 20 T 360 20 T 400 20" />
+        <path d="M0 20 Q 30 30 60 20 theme 120 20 theme 180 20 theme 240 20 theme 300 20 theme 360 20 theme 400 20" />
       </svg>
       {/* Palm tree */}
       <svg className="animate-sway absolute -left-2 bottom-20 h-44 w-40 opacity-70" viewBox="0 0 120 160" style={{ transformOrigin: "50% 100%" }}>

@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AiFollowUpStep, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
+import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,7 +65,7 @@ import {
   EVENT_TEMPLATES,
   type SurveyTemplate,
 } from "@/lib/feedback-templates";
-import { buildWebThemePayload, previewThemeUrl, themePreviewQrUrl } from "@/lib/feedback-theme-preview";
+import { buildWebThemePayload, previewThemeUrl, themePreviewQrUrl, webThemeFromApi } from "@/lib/feedback-theme-preview";
 
 export const Route = createFileRoute("/_app/feedback/new")({
   head: () => ({ meta: [{ title: "Create QR survey — VoxBulk" }] }),
@@ -280,6 +280,12 @@ function CreateFeedback() {
     );
     setOpenQuestion(source.open_question_enabled !== false);
     setBranches([{ id: "dup1", name: "" }]);
+    const wt = webThemeFromApi(source.web_theme as Record<string, unknown> | undefined);
+    setBaseTemplateId(wt.baseTemplateId);
+    setOverlayIds(wt.overlayIds);
+    setOverlayMode(wt.overlayMode);
+    setCustomEventLabel(wt.customEventLabel);
+    setAiFollowUp(aiFollowUpFromApi(source.ai_follow_up as Record<string, unknown> | undefined));
     setStep(4);
   }, [duplicateFrom, locationsQ.data, subscriptionQ.data]);
 
