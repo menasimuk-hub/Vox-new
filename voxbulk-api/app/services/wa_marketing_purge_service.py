@@ -17,6 +17,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _extract_body_and_buttons,
     _find_template_row,
     _industry_for_template_row,
+    _normalize_leading_emoji_text,
     _prepare_approved_template_for_utility_push,
     _template_body_text,
     _topic_for_template_row,
@@ -205,7 +206,11 @@ def build_marketing_purge_plan(
 
         process_name = str(item.get("process_name") or item.get("name") or "")
         remote_name = str(item.get("remote_name") or process_name)
-        row = _find_template_row(db, process_name)
+        row = None
+        if item.get("id"):
+            row = db.get(TelnyxWhatsappTemplate, int(item["id"]))
+        if row is None:
+            row = _find_template_row(db, process_name)
         preview: dict[str, Any] = {
             "body_before": item.get("body_preview"),
             "keeps_local_db_row": True,
@@ -249,12 +254,14 @@ def build_marketing_purge_plan(
         preview["deletes"] = (
             f"Meta/Telnyx only: {remote_name}" if will_delete_old_remote else "nothing (same name update)"
         )
+        if preview.get("body_after") and preview.get("body_before") == preview.get("body_after"):
+            preview["llm_on_apply"] = "DeepSeek will rephrase on apply (rule-based preview unchanged)"
 
         plan.append(
             PurgePlanItem(
                 action="survey_rewrite_push",
                 product="survey",
-                label=process_name,
+                label=str(row.name if row is not None else process_name),
                 old_meta_name=remote_name if will_delete_old_remote else None,
                 new_meta_name=new_name,
                 local_template_id=item.get("id"),
@@ -283,6 +290,64 @@ def build_marketing_purge_plan(
     return overview, plan
 
 
+def _row_for_plan_item(db: Session, item: PurgePlanItem) -> TelnyxWhatsappTemplate | None:
+    if item.local_template_id is not None:
+        row = db.get(TelnyxWhatsappTemplate, int(item.local_template_id))
+        if row is not None:
+            return row
+    return _find_template_row(db, item.label)
+
+
+def _ensure_meta_was_name_available(db: Session, row: TelnyxWhatsappTemplate) -> TelnyxWhatsappTemplate:
+    """Bump was_* seq if this name already exists on Meta (e.g. after a prior failed push)."""
+    from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+
+    if not is_was_survey_name(row.name):
+        return row
+    used = {
+        str(r[0]).strip().lower()
+        for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
+        if r[0]
+    }
+    for _ in range(20):
+        existing = MetaWhatsappTemplateService.find_template(
+            db, name=str(row.name or ""), language=row.language
+        )
+        if not existing:
+            return row
+        nxt = suggest_next_was_seq_name(row.name, used_names=used)
+        if not nxt or nxt.lower() == str(row.name or "").strip().lower():
+            return row
+        row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, nxt)
+        used.add(nxt.lower())
+    return row
+
+
+def _rewrite_row_for_purge(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    use_llm: bool,
+    llm_provider: str,
+) -> tuple[str, str]:
+    body_text = _template_body_text(row)
+    rule_only = not use_llm or _body_has_recommend_intent(body_text)
+    old_body, new_body = apply_utility_rewrite_to_row(
+        db,
+        row,
+        use_llm=not rule_only,
+        llm_provider=llm_provider,
+    )
+    if use_llm and not rule_only and _normalize_leading_emoji_text(new_body) == _normalize_leading_emoji_text(old_body):
+        old_body, new_body = apply_utility_rewrite_to_row(
+            db,
+            row,
+            use_llm=True,
+            llm_provider=llm_provider,
+        )
+    return old_body, new_body
+
+
 def apply_purge_plan_item(
     db: Session,
     item: PurgePlanItem,
@@ -291,25 +356,26 @@ def apply_purge_plan_item(
     push: bool,
     sync_remote: bool,
     use_llm: bool,
+    llm_provider: str = "deepseek",
 ) -> dict[str, Any]:
     if dry_run:
         return {"ok": True, "dry_run": True, "action": item.action, "label": item.label}
 
     try:
         if item.action == "survey_rewrite_push":
-            row = _find_template_row(db, item.label)
+            row = _row_for_plan_item(db, item)
             if row is None:
-                return {"ok": False, "error": f"Local row not found: {item.label}"}
+                return {"ok": False, "error": f"Local row not found: {item.label} (id={item.local_template_id})"}
             old_remote = str(item.meta.get("remote_name") or item.old_meta_name or row.name)
             if sync_remote and _has_remote_telnyx_id(row):
                 refresh_row_from_telnyx(db, row)
                 db.refresh(row)
-            body_text = _template_body_text(row)
-            use_llm_local = use_llm and not _body_has_recommend_intent(body_text)
             renamed_to: str | None = None
             if push:
                 row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
-            old_body, new_body = apply_utility_rewrite_to_row(db, row, use_llm=use_llm_local)
+            old_body, new_body = _rewrite_row_for_purge(
+                db, row, use_llm=use_llm, llm_provider=llm_provider
+            )
             from app.services.wa_template_utility_lint import lint_utility_template
 
             components = _effective_components(row)
@@ -335,6 +401,7 @@ def apply_purge_plan_item(
             pushed = False
             push_msg = ""
             if push:
+                row = _ensure_meta_was_name_available(db, row)
                 result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
                 pushed = True
                 push_msg = str(result.get("sync_message") or result.get("message") or "pushed")
@@ -382,7 +449,12 @@ def apply_purge_plan_item(
 
         return {"ok": False, "error": f"Unknown action {item.action}"}
     except (SurveyWhatsappTemplateError, TelnyxWhatsappTemplateSyncError, MetaWhatsappTemplateError) as exc:
-        return {"ok": False, "action": item.action, "label": item.label, "error": str(exc)}
+        msg = str(exc)
+        payload = getattr(exc, "payload", None) or {}
+        provider_error = str(payload.get("provider_error") or "").strip()
+        if provider_error:
+            msg = f"{msg} | {provider_error[:500]}"
+        return {"ok": False, "action": item.action, "label": item.label, "error": msg}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "action": item.action, "label": item.label, "error": str(exc)}
 
@@ -395,6 +467,7 @@ def apply_purge_plan(
     push: bool,
     sync_remote: bool,
     use_llm: bool,
+    llm_provider: str = "deepseek",
     push_delay_seconds: float = 30.0,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
@@ -418,6 +491,7 @@ def apply_purge_plan(
             push=push if is_push_action else False,
             sync_remote=sync_remote,
             use_llm=use_llm,
+            llm_provider=llm_provider,
         )
         result["index"] = index
         result["total"] = total
