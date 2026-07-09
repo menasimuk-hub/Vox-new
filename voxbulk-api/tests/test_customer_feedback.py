@@ -354,7 +354,7 @@ def test_template_meta_labels_tell_us_more_follow_up():
     from app.services.customer_feedback.feedback_results_aggregate import template_meta
 
     label, role = template_meta({}, survey_type_id="st-1", question_key="bed_comfort__tell_us_more")
-    assert label == "Tell us more"
+    assert label == "Tell us more — Bed Comfort"
     assert role == "tell_us_more"
 
 

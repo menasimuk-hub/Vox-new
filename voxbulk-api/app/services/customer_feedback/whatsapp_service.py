@@ -109,6 +109,7 @@ class FeedbackWhatsappService:
     ) -> dict[str, Any]:
         normalized_body = str(body or "").strip()
         answer_source = "text"
+        source_language: str | None = None
         if not normalized_body:
             from app.services.customer_feedback.feedback_voice_service import is_voice_inbound, transcribe_inbound
 
@@ -124,6 +125,7 @@ class FeedbackWhatsappService:
                 if ok and transcript:
                     normalized_body = transcript
                     answer_source = "voice"
+                    source_language = stt_lang
                     if session and stt_lang:
                         from app.services.customer_feedback.locale_service import map_stt_language_code
 
@@ -181,6 +183,7 @@ class FeedbackWhatsappService:
             session=session,
             answer=normalized_body,
             answer_source=answer_source,
+            source_language=source_language,
         )
 
     @staticmethod
@@ -386,6 +389,7 @@ class FeedbackWhatsappService:
         answer: str,
         step_index: int,
         answer_source: str = "text",
+        source_language: str | None = None,
     ) -> None:
         original = str(answer or "").strip()
         translated = translate_answer_to_english(
@@ -393,6 +397,7 @@ class FeedbackWhatsappService:
             answer=original,
             detected_language=session.detected_language,
             tpl=tpl,
+            source_language=source_language,
         )
         answer_en = str(translated.get("answer_text_en") or original)
         survey_type_id = str(step.get("survey_type_id") or location.survey_type_id)
@@ -424,6 +429,7 @@ class FeedbackWhatsappService:
         survey_type_id: str,
         answer: str,
         answer_source: str,
+        source_language: str | None = None,
     ) -> bool:
         original = str(answer or "").strip()
         if not original or original.lower() == "skip":
@@ -433,6 +439,7 @@ class FeedbackWhatsappService:
             answer=original,
             detected_language=session.detected_language,
             tpl=None,
+            source_language=source_language,
         )
         answer_en = str(translated.get("answer_text_en") or original)
         db.add(
@@ -526,6 +533,7 @@ class FeedbackWhatsappService:
         session: FeedbackSession,
         answer: str,
         answer_source: str = "text",
+        source_language: str | None = None,
     ) -> dict[str, Any]:
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
@@ -564,6 +572,7 @@ class FeedbackWhatsappService:
                 survey_type_id=str(state.get("tell_us_more_survey_type_id") or location.survey_type_id),
                 answer=clean,
                 answer_source=answer_source,
+                source_language=source_language,
             )
             if not saved:
                 FeedbackWhatsappService._send_wa(
@@ -652,6 +661,7 @@ class FeedbackWhatsappService:
                 answer=answer,
                 step_index=step_index,
                 answer_source=answer_source,
+                source_language=source_language,
             )
         else:
             FeedbackWhatsappService._save_answer(
@@ -663,6 +673,7 @@ class FeedbackWhatsappService:
                 answer=answer,
                 step_index=step_index,
                 answer_source=answer_source,
+                source_language=source_language,
             )
             if (
                 current_step.get("kind") == "topic"

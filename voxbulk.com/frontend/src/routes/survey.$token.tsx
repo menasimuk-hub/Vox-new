@@ -80,9 +80,16 @@ function PublicFeedbackSurvey() {
   const [reasonChips, setReasonChips] = useState<string[]>([]);
   const [reasonText, setReasonText] = useState("");
   const [voiceRecState, setVoiceRecState] = useState<VoiceRecState>("idle");
+  const [voiceSubmitting, setVoiceSubmitting] = useState(false);
   // Background, strictly-ordered send queue so the visitor never waits on uploads.
   const [pendingSends, setPendingSends] = useState(0);
   const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const navEpochRef = useRef(0);
+  const stepIndexRef = useRef(0);
+
+  useEffect(() => {
+    stepIndexRef.current = stepIndex;
+  }, [stepIndex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,12 +134,35 @@ function PublicFeedbackSurvey() {
 
   const drainQueue = () => sendQueueRef.current.catch(() => undefined);
 
+  const bumpNavEpoch = () => {
+    navEpochRef.current += 1;
+    return navEpochRef.current;
+  };
+
+  const applyAdvance = (
+    epoch: number,
+    data: AdvanceResponse & { saved?: boolean; transcript?: string; stt_error?: string },
+    fallbackNext: number,
+  ) => {
+    if (epoch !== navEpochRef.current) return;
+    if (data.completed) {
+      setPhase("thanks");
+      return;
+    }
+    if (typeof data.step_index === "number") {
+      goToStep(data.step_index, { question: data.question ?? null });
+      return;
+    }
+    goToStep(fallbackNext);
+  };
+
   // Move the local view to a step (or finish). Navigation is client-driven from the
   // full question list, so the visitor never waits on a network round-trip.
   const goToStep = (
     idx: number,
     opts?: { reasonAfter?: ReasonOverlay | null; question?: SurveyQuestion | null },
   ) => {
+    bumpNavEpoch();
     setTextAnswer("");
     setReasonChips([]);
     setReasonText("");
@@ -190,9 +220,11 @@ function PublicFeedbackSurvey() {
   const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
     if (!sessionId) return;
     setError("");
+    const epoch = navEpochRef.current;
     if (opts?.showReasonAfter) {
       enqueue(async () => {
         const data = (await postAnswer(answer)) as AdvanceResponse;
+        if (epoch !== navEpochRef.current) return;
         if (data.pending_tell_us_more && data.question) {
           setQuestion(data.question);
         }
@@ -204,11 +236,15 @@ function PublicFeedbackSurvey() {
     goToStep(stepIndex + 1);
   };
 
-  // Submit a recorded voice note as the current step's answer; advance only after server confirms.
-  const voiceAnswerStep = (blob: Blob) => {
-    if (!sessionId) return;
+  // Submit voice for the current step — wait for server save before advancing (no stale queue jumps).
+  const voiceAnswerStep = async (blob: Blob) => {
+    if (!sessionId || voiceSubmitting) return;
+    setVoiceSubmitting(true);
+    setVoiceRecState("uploading");
     setError("");
-    enqueue(async () => {
+    const epoch = navEpochRef.current;
+    try {
+      await drainQueue();
       const data = (await postVoice(blob, "answer")) as AdvanceResponse & {
         saved?: boolean;
         transcript?: string;
@@ -220,61 +256,68 @@ function PublicFeedbackSurvey() {
             ? "Could not transcribe your voice note. Please try again or type your answer."
             : "Could not save your voice note. Please try again.",
         );
+        setVoiceRecState("recorded");
         return;
       }
-      if (data.completed) {
-        setPhase("thanks");
-        return;
-      }
-      if (typeof data.step_index === "number") {
-        goToStep(data.step_index, { question: data.question ?? null });
-      } else {
-        goToStep(stepIndex + 1);
-      }
-    });
+      applyAdvance(epoch, data, stepIndexRef.current + 1);
+      setVoiceRecState("idle");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your voice note. Please try again.");
+      setVoiceRecState("recorded");
+    } finally {
+      setVoiceSubmitting(false);
+    }
   };
 
   // Low-rating follow-up — server advances after tell-us-more is saved.
-  const submitReason = (reason: string, reasonSource = "text") => {
+  const submitReason = async (reason: string, reasonSource = "text") => {
     const clean = reason.trim();
     setReasonOverlay(null);
     setReasonChips([]);
     setReasonText("");
-    if (!sessionId) return;
-    enqueue(async () => {
+    if (!sessionId || voiceSubmitting) return;
+    setVoiceSubmitting(true);
+    setError("");
+    const epoch = navEpochRef.current;
+    try {
+      await drainQueue();
       const data = (await postAnswer("", {
         reason: clean.toLowerCase() === "skip" ? "skip" : clean,
         reasonSource,
       })) as AdvanceResponse;
-      if (data.completed) {
-        setPhase("thanks");
-        return;
-      }
-      if (typeof data.step_index === "number") {
-        goToStep(data.step_index, { question: data.question ?? null });
-      } else {
-        goToStep(stepIndex + 1);
-      }
-    });
+      applyAdvance(epoch, data, stepIndexRef.current + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your answer");
+    } finally {
+      setVoiceSubmitting(false);
+    }
   };
 
-  const voiceReason = (blob: Blob) => {
+  const voiceReason = async (blob: Blob) => {
     setReasonOverlay(null);
     setReasonChips([]);
     setReasonText("");
-    if (!sessionId) return;
-    enqueue(async () => {
-      const data = (await postVoice(blob, "reason_prev")) as AdvanceResponse;
-      if (data.completed) {
-        setPhase("thanks");
+    if (!sessionId || voiceSubmitting) return;
+    setVoiceSubmitting(true);
+    setError("");
+    const epoch = navEpochRef.current;
+    try {
+      await drainQueue();
+      const data = (await postVoice(blob, "reason_prev")) as AdvanceResponse & {
+        saved?: boolean;
+        transcript?: string;
+        stt_error?: string;
+      };
+      if (data.saved === false && !data.transcript) {
+        setError("Could not save your voice note. Please try again.");
         return;
       }
-      if (typeof data.step_index === "number") {
-        goToStep(data.step_index, { question: data.question ?? null });
-      } else {
-        goToStep(stepIndex + 1);
-      }
-    });
+      applyAdvance(epoch, data, stepIndexRef.current + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your voice note");
+    } finally {
+      setVoiceSubmitting(false);
+    }
   };
 
   const dismissReasonOverlay = () => {
@@ -388,7 +431,11 @@ function PublicFeedbackSurvey() {
   const q = question;
   const isText = q?.input === "text";
   const isLast = stepIndex >= stepCount - 1;
-  const voicePending = voiceRecState === "recording" || voiceRecState === "recorded" || voiceRecState === "uploading";
+  const voicePending =
+    voiceRecState === "recording" ||
+    voiceRecState === "recorded" ||
+    voiceRecState === "uploading" ||
+    voiceSubmitting;
 
   return (
     <main className="fb-survey-page">
@@ -426,10 +473,11 @@ function PublicFeedbackSurvey() {
 
           {isText ? (
             <TextStep
+              key={`text-${stepIndex}`}
               text={textAnswer}
               onText={setTextAnswer}
               allowVoice={Boolean(q?.allow_voice)}
-              busy={busy}
+              busy={busy || voiceSubmitting}
               onSubmitVoice={voiceAnswerStep}
               onRecStateChange={setVoiceRecState}
               voicePrimaryLabel={isLast ? "Submit" : "Next"}
@@ -526,7 +574,7 @@ function ReasonScreen({
   text: string;
   onText: (v: string) => void;
   busy: boolean;
-  onSubmitVoice: (blob: Blob) => void;
+  onSubmitVoice: (blob: Blob) => void | Promise<void>;
   onSkip: () => void;
   onSubmit: () => void;
 }) {
@@ -599,7 +647,7 @@ function TextStep({
   onText: (v: string) => void;
   allowVoice: boolean;
   busy: boolean;
-  onSubmitVoice: (blob: Blob) => void;
+  onSubmitVoice: (blob: Blob) => void | Promise<void>;
   onRecStateChange?: (state: VoiceRecState) => void;
   voicePrimaryLabel?: string;
 }) {
@@ -678,7 +726,7 @@ function VoiceRecorder({
   primaryLabel = "Next",
 }: {
   busy: boolean;
-  onSubmit: (blob: Blob) => void;
+  onSubmit: (blob: Blob) => void | Promise<void>;
   onRecStateChange?: (state: RecState) => void;
   primaryLabel?: string;
 }) {
@@ -836,14 +884,15 @@ function VoiceRecorder({
     }
   };
 
-  // Hand the recording to the parent (which uploads it in the background) and let the
-  // parent advance the flow — the visitor does not wait for the upload/transcription.
+  // Upload voice and let the parent advance only after the server confirms save.
   const submitRecording = () => {
     const blob = blobRef.current;
     if (!blob || busy) return;
     setRecError("");
-    revokeAudioUrl();
-    onSubmit(blob);
+    setState("uploading");
+    void Promise.resolve(onSubmit(blob)).catch(() => {
+      setState("recorded");
+    });
   };
 
   const handleMicDown = (e: React.MouseEvent | React.TouchEvent) => {
@@ -879,6 +928,14 @@ function VoiceRecorder({
 
   if (!supported) {
     return <p className="fb-voice-hint">Voice notes aren't supported on this browser — please type instead.</p>;
+  }
+
+  if (recState === "uploading") {
+    return (
+      <div className="fb-rec-preview">
+        <p className="fb-rec-label">Uploading and transcribing your voice note…</p>
+      </div>
+    );
   }
 
   if (recState === "recorded") {

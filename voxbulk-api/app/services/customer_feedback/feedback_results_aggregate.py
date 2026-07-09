@@ -68,9 +68,13 @@ def template_meta(
 ) -> tuple[str, str | None]:
     qk = str(question_key or "")
     if qk.endswith("__tell_us_more"):
-        return "Tell us more", "tell_us_more"
+        topic = qk[: -len("__tell_us_more")].replace("-", " ").replace("_", " ").strip().title()
+        label = f"Tell us more — {topic}" if topic else "Tell us more"
+        return label, "tell_us_more"
     if qk.endswith("__low_reason"):
-        return "Tell us more", "tell_us_more"
+        topic = qk[: -len("__low_reason")].replace("-", " ").replace("_", " ").strip().title()
+        label = f"Tell us more — {topic}" if topic else "Tell us more"
+        return label, "tell_us_more"
     if qk == "open_question":
         return "Share your feedback", "final_feedback_text"
     tpl = templates.get((survey_type_id, question_key))

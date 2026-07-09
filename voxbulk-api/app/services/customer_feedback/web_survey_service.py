@@ -320,6 +320,7 @@ class FeedbackWebSurveyService:
         answer_source: str = "text",
         reason: str | None = None,
         reason_source: str = "text",
+        source_language: str | None = None,
     ) -> dict[str, Any]:
         session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
 
@@ -343,6 +344,7 @@ class FeedbackWebSurveyService:
                     survey_type_id=str(state.get("tell_us_more_survey_type_id") or location.survey_type_id),
                     answer=reply,
                     answer_source=reason_source if reason else answer_source,
+                    source_language=source_language,
                 )
             clear_tell_us_more_pending(state)
             save_feedback_session_state(session, state)
@@ -389,6 +391,7 @@ class FeedbackWebSurveyService:
                 answer=answer,
                 step_index=step_index,
                 answer_source=answer_source,
+                source_language=source_language,
             )
 
         if reason:
@@ -684,5 +687,6 @@ class FeedbackWebSurveyService:
             session_id=session_id,
             answer=transcript,
             answer_source="voice",
+            source_language=stt_language,
         )
         return {"transcript": transcript, "saved": True, **result}

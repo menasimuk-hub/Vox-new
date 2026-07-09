@@ -211,15 +211,22 @@ function mapRespondentAnswers(
     const q = questions.find((x) => x.id === qid);
     const raw = String(a.answer || "").trim();
     const role = String(a.step_role || "").toLowerCase();
-    if (a.answer_source === "voice" || role.includes("voice") || role.includes("open") || q?.scale === "OPEN") {
-      if (raw) {
-        const original = String((a as { original_text?: string }).original_text || "").trim();
+    const original = String((a as { original_text?: string }).original_text || "").trim();
+    const isVoiceLike =
+      a.answer_source === "voice" ||
+      role.includes("voice") ||
+      role.includes("open") ||
+      role === "tell_us_more" ||
+      q?.scale === "OPEN";
+    if (isVoiceLike) {
+      if (raw || original) {
         const translationPending = raw === TRANSLATION_UNAVAILABLE && Boolean(original);
+        const english = translationPending ? TRANSLATION_UNAVAILABLE : raw || original;
         answers.push({
           qid,
           type: "Voice",
-          value: translationPending ? TRANSLATION_UNAVAILABLE : raw,
-          ...(original && original !== raw ? { original } : {}),
+          value: english,
+          ...(original && original !== english ? { original } : {}),
           ...(translationPending ? { translationPending: true as const } : {}),
         });
       }

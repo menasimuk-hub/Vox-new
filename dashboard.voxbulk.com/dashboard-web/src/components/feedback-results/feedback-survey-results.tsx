@@ -630,13 +630,13 @@ function VoiceCard({ v }: { v: VoiceComment }) {
         </span>
         <Badge variant="outline" className="text-[10px]">{v.reason}</Badge>
       </div>
-      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">Transcript · {v.question}</p>
+      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">English · {v.question}</p>
       <p className="text-sm leading-relaxed">"{v.transcript}"</p>
       {v.translationPending ? (
         <p className="mt-2 text-xs font-medium text-warning">Translation unavailable — see original below</p>
       ) : null}
       {v.originalTranscript ? (
-        <p className="mt-2 text-xs text-muted-foreground">Original: {v.originalTranscript}</p>
+        <p className="mt-2 text-xs text-muted-foreground"><span className="font-medium">Original:</span> {v.originalTranscript}</p>
       ) : null}
     </div>
   );
@@ -799,12 +799,16 @@ function RespondentSheet({
                   {a.type === "Yes/No" && <YNChip value={a.value} />}
                   {a.type === "Voice" && (
                     <>
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">English</p>
                       <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{a.value}"</p>
                       {"translationPending" in a && a.translationPending ? (
                         <p className="mt-1 text-xs font-medium text-warning">Translation unavailable</p>
                       ) : null}
-                      {"original" in a && a.original && a.original !== a.value ? (
-                        <p className="mt-1 text-xs text-muted-foreground">Original: {a.original}</p>
+                      {"original" in a && a.original ? (
+                        <>
+                          <p className="mt-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original</p>
+                          <p className="rounded-md bg-muted/30 p-2 text-sm leading-relaxed">{a.original}</p>
+                        </>
                       ) : null}
                     </>
                   )}
