@@ -33,6 +33,7 @@ from app.services.telnyx_voice_service import (
     _telnyx_headers,
     _telnyx_http_error_detail,
     resolve_telnyx_whatsapp_waba_id,
+    resolve_telnyx_whatsapp_waba_filter_id,
     TelnyxConfigError,
 )
 
@@ -345,11 +346,14 @@ class TelnyxWhatsappTemplateSyncService:
         if filter_waba_id and not configured_waba and not allow_account_waba_fallback:
             # Empty / unlinked Telnyx profile → report 0 live templates.
             return []
-        waba_id = (
-            configured_waba
-            if configured_waba
-            else (resolve_telnyx_whatsapp_waba_id(db, config) if filter_waba_id else "")
-        )
+        if filter_waba_id:
+            waba_id = (
+                resolve_telnyx_whatsapp_waba_filter_id(db, config)
+                if configured_waba
+                else resolve_telnyx_whatsapp_waba_id(db, config)
+            )
+        else:
+            waba_id = ""
         params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
         if waba_id:
             params["filter[waba_id]"] = waba_id

@@ -133,13 +133,20 @@ def summarize_for_connection_profile(
         label_bits.append(whatsapp_from)
 
     try:
-        remote_all = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
-            db,
-            connection_profile_id=pid,
-            service_code=service_code,
-            # Never fall back to another account WABA for live per-profile counts.
-            allow_account_waba_fallback=False,
-        )
+        if route.is_meta:
+            remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_meta(
+                db,
+                connection_profile_id=pid,
+                service_code=service_code,
+            )
+        else:
+            remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
+                db,
+                connection_profile_id=pid,
+                service_code=service_code,
+                filter_waba_id=True,
+                allow_account_waba_fallback=False,
+            )
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -155,9 +162,11 @@ def summarize_for_connection_profile(
 
     code = normalize_service_code(service_code) or "survey"
     remote = filter_remote_for_service_code(remote_all, code)
+    all_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote_all)
     live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
     remote_total = int(live_summary.get("remote_total") or 0)
-    # Live monitor shows only what exists on this connection profile.
+    profile_total = int(all_summary.get("remote_total") or 0)
+    # Live monitor: scoped total matches active hub tab; profileTotal = all templates on this WABA/account.
     return {
         "ok": True,
         "live": True,
@@ -175,6 +184,8 @@ def summarize_for_connection_profile(
             "rejected": int(live_summary.get("rejected") or 0),
             "localOnly": 0,
             "total": remote_total,
+            "profileTotal": profile_total,
+            "scopedTotal": remote_total,
         },
     }
 

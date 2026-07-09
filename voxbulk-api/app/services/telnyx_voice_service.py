@@ -131,6 +131,54 @@ def resolve_telnyx_whatsapp_waba_id(
     return ""
 
 
+def resolve_telnyx_whatsapp_waba_filter_id(
+    db: Session,
+    config: dict[str, Any] | None = None,
+) -> str:
+    """Resolve ``filter[waba_id]`` for Telnyx template list — map Meta numeric WABA to Telnyx account id."""
+    cfg: dict[str, Any] = dict(config or {})
+    configured = str(cfg.get("whatsapp_waba_id") or cfg.get("waba_id") or "").strip()
+    if not configured:
+        return resolve_telnyx_whatsapp_waba_id(db, cfg)
+
+    # Telnyx filter accepts account UUID; profiles often store Meta's numeric WABA id.
+    if not configured.isdigit():
+        return configured
+
+    api_key = normalize_telnyx_api_key(str(cfg.get("api_key") or ""))
+    if not api_key:
+        try:
+            api_key, _ = require_telnyx_api_key(db)
+        except Exception:
+            return configured
+
+    try:
+        with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
+            response = client.get(
+                TELNYX_WHATSAPP_BUSINESS_ACCOUNTS_URL,
+                headers=_telnyx_headers(api_key),
+                params={"page[size]": 50, "page[number]": 1},
+            )
+            response.raise_for_status()
+            body = response.json()
+    except Exception:
+        return configured
+
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list):
+        return configured
+
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        meta_waba = str(item.get("waba_id") or "").strip()
+        if meta_waba == configured:
+            internal = str(item.get("id") or "").strip()
+            if internal:
+                return internal
+    return configured
+
+
 def _encode_client_state(state: dict[str, Any]) -> str:
     """Telnyx requires client_state as a base64-encoded JSON string."""
     raw = json.dumps(state, separators=(",", ":")).encode("utf-8")

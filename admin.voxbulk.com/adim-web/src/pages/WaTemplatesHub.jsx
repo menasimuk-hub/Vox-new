@@ -1436,6 +1436,7 @@ export default function WaTemplatesHub() {
               onRefreshProfile={(id) => void loadProfileSummary(id, { force: true })}
               onRefreshAll={() => void refreshAllProfileSummaries()}
               refreshingAll={refreshingAllProfiles}
+              scopeLabel={hubScopeLabel}
             />
           </div>
         </div>

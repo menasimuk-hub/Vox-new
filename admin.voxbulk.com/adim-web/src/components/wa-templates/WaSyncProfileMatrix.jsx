@@ -2,13 +2,13 @@ import React from 'react'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const COLS = [
+const BASE_COLS = [
   { key: 'utility', label: 'utility', title: 'Utility category on this account' },
   { key: 'marketing', label: 'marketing', title: 'Marketing category on this account' },
   { key: 'approved', label: 'approved', title: 'Approved on this account' },
   { key: 'pending', label: 'pending', title: 'Pending on this account' },
   { key: 'rejected', label: 'rejected', title: 'Rejected on this account' },
-  { key: 'total', label: 'total', title: 'Live templates on this connection profile' },
+  { key: 'total', label: 'total', title: 'Live templates on profile for the active tab scope' },
 ]
 
 function fmtCell(value, loading) {
@@ -44,8 +44,10 @@ export default function WaSyncProfileMatrix({
   onRefreshProfile,
   onRefreshAll,
   refreshingAll = false,
+  scopeLabel = 'this tab',
 }) {
   const items = Array.isArray(profiles) ? profiles : []
+  const cols = BASE_COLS
   if (items.length === 0) {
     return (
       <p className="text-[11px] text-muted-foreground">No WhatsApp connection profiles — add one in Integrations.</p>
@@ -56,7 +58,7 @@ export default function WaSyncProfileMatrix({
     <div className="w-full overflow-x-auto">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Live template monitor · remote on profile only (not local DB)
+          Live template monitor · remote on profile · scoped to {scopeLabel}
         </span>
         <button
           type="button"
@@ -73,7 +75,7 @@ export default function WaSyncProfileMatrix({
         <thead>
           <tr className="border-b text-muted-foreground">
             <th className="py-1 pr-3 text-left font-medium">Profile</th>
-            {COLS.map((col) => (
+            {cols.map((col) => (
               <th key={col.key} className="px-2 py-1 text-right font-medium" title={col.title}>
                 {col.label}
               </th>
@@ -90,6 +92,11 @@ export default function WaSyncProfileMatrix({
             const loading = Boolean(state.loading)
             const err = state.error
             const label = profile.label || profile.name || id
+            const profileTotal = summary?.profileTotal
+            const scopedMismatch =
+              profileTotal != null &&
+              Number(profileTotal) > Number(summary?.total ?? 0) &&
+              Number(summary?.total ?? 0) >= 0
             return (
               <tr
                 key={id}
@@ -99,7 +106,15 @@ export default function WaSyncProfileMatrix({
                   err && !loading && 'bg-destructive/5',
                 )}
                 onClick={() => onSelectProfile?.(id)}
-                title={err ? err : selected ? 'Sync target' : 'Click to select sync profile'}
+                title={
+                  err
+                    ? err
+                    : scopedMismatch
+                      ? `${profileTotal} total on WABA · ${summary?.total ?? 0} match ${scopeLabel}`
+                      : selected
+                        ? 'Sync target'
+                        : 'Click to select sync profile'
+                }
               >
                 <td className="max-w-[200px] truncate py-1.5 pr-3 align-middle">
                   <div className="flex items-center gap-1.5">
@@ -113,7 +128,7 @@ export default function WaSyncProfileMatrix({
                     <span className={cn('truncate font-medium', selected && 'text-foreground')}>{label}</span>
                   </div>
                 </td>
-                {COLS.map((col) => {
+                {cols.map((col) => {
                   const raw = summary?.[col.key]
                   const warn = col.key === 'marketing' && Number(raw) > 0
                   const bad = col.key === 'rejected' && Number(raw) > 0
@@ -128,6 +143,9 @@ export default function WaSyncProfileMatrix({
                       )}
                     >
                       {fmtCell(raw, loading && summary == null)}
+                      {col.key === 'total' && scopedMismatch && !loading ? (
+                        <span className="ml-0.5 text-[9px] text-muted-foreground">/{profileTotal}</span>
+                      ) : null}
                     </td>
                   )
                 })}
