@@ -1,0 +1,85 @@
+---
+description: Always commit+push after code work; ask upfront questions so sync fixes land once
+alwaysApply: true
+---
+
+# Commit, push, and clarify first
+
+## After completing requested code changes
+
+When the user asked for implementation (bug fix, feature, wiring, deploy prep):
+
+1. **Commit** relevant files only — never `.env`, secrets, or one-off diag scripts unless the user asked.
+2. **Push** immediately: `git push origin main` (repo: `menasimuk-hub/Vox-new`).
+3. Tell the user the **commit hash** and that VPS still needs `git pull origin main` + `./deploy-vps.sh`.
+
+Do **not** wait for the user to say "commit" or "push" unless they explicitly said **do not commit** in that task.
+
+### Do not commit when
+
+- The task was **read-only** (explain, review, plan only).
+- User said **no commit**, **paste in chat**, or **local only**.
+- Changes are incomplete or untested and the user asked to stop mid-task.
+- Only unrelated local junk would be included — stage the fix files only.
+
+### Commit message
+
+- 1–2 sentences, focus on **why**.
+- Match recent repo style (`git log -3 --oneline`).
+
+---
+
+## Clarify before building (fix once)
+
+For WA templates, Customer Feedback, surveys, or dual-profile sync — **ask these before coding** if the user has not already answered. Use `AskQuestion` when choices are finite; otherwise list in chat and wait.
+
+### Scope — which UI action?
+
+| Entry point | Location |
+|-------------|----------|
+| Row **Sync** in industry table | `WaTemplatesHub.jsx` → `pushSurveyType` |
+| **Sync this industry** button | `WaIndustryBrowser.jsx` → `syncIndustry` |
+| Hub **Push changed** / **Mirror all** | `WaTemplatesHub.jsx` toolbar |
+| Bulk script | `voxbulk-api/scripts/sync_wa_templates_both_profiles.py` |
+| Backend-only / send path | dispatch, webhooks, `push_template_to_both_profiles` |
+
+**Rule:** Every entry point must be checked — fixing one button does not fix the others.
+
+### Profiles
+
+- Primary = **Meta 99** (+447822002099)?
+- Backup = **Telnyx 55** (+447822002055)?
+- Push to **both** on every sync, or primary only with separate mirror step?
+- If backup profile missing — hard error or warn and continue?
+
+### Push behaviour
+
+- **Changed only** (skip already on provider) vs **force push all**?
+- Same rule for Meta and Telnyx, or Meta changed-only + Telnyx full mirror?
+- All **language variants** per topic, or English anchor only?
+
+### Data contract
+
+- Local **DB is source of truth** — push DB → Meta/Telnyx; pull **status only** from Meta?
+- No template renames (`voxbulk_cf_*`, `was_*` stay)?
+
+### Product area
+
+- Customer Feedback, WA Survey, system templates, interview, marketing, or send/dispatch?
+
+### Deploy
+
+- Should the agent only push to GitHub, or also remind/run VPS deploy steps?
+
+---
+
+## Definition of done (sync tasks)
+
+Before marking done, confirm in the summary:
+
+- [ ] All relevant **entry points** updated (table row, industry button, toolbar if applicable)
+- [ ] **Both profiles** wired where required
+- [ ] **All languages** handled where required
+- [ ] Backend accepts `connection_profile_id` + `force_push` on touched endpoints
+- [ ] **Committed and pushed** to `origin main`
+- [ ] User told to **deploy on VPS** if production is affected
