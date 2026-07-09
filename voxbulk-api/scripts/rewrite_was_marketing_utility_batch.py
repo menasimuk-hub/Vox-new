@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Batch rewrite was_* WA survey templates with bad English / Marketing classification.
+"""Batch rewrite WA survey templates live-classified as Marketing on Meta/Telnyx.
 
-Finds templates whose BODY still uses NPS/recommend wording or failed Meta utility lint,
-rewrites to industry-aware UTILITY copy, bumps was_* sequence when Meta blocks category
-changes on APPROVED rows (_002_ -> _003_), then optionally pushes to Meta/Telnyx.
+Default discovery reads live remote categories (admin matrix: Meta marketing / Telnyx marketing),
+not local DB category — Meta often reclassifies while local rows still show UTILITY.
 
 Usage (VPS):
   cd /www/voxbulk/voxbulk-api
   .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --discover
-  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --dry-run --name-contains would_recommend
-  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --sync-remote --push --name-contains would_recommend
-  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --sync-remote --push --no-llm --limit 5
+  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --discover --include-non-actionable
+  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --dry-run --limit 5
+  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --sync-remote --push --no-llm
+  .venv/bin/python scripts/rewrite_was_marketing_utility_batch.py --discover --source local
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 
 from app.core.database import get_sessionmaker
 from app.services.survey_wa_utility_rewrite_service import (
+    discover_remote_marketing_survey_templates,
     discover_was_utility_rewrite_candidates,
     process_template_names,
 )
@@ -36,12 +37,23 @@ REPORT_DIR = ROOT / "seed-data" / "wa-survey" / "migration-reports"
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Batch UTILITY rewrite for was_* templates (bad English / Marketing bodies)"
+        description="Batch UTILITY rewrite for survey templates live-classified as Marketing"
     )
     parser.add_argument(
         "--discover",
         action="store_true",
         help="List candidate templates and exit (no rewrite)",
+    )
+    parser.add_argument(
+        "--source",
+        choices=("remote", "local"),
+        default="remote",
+        help="remote = live Meta/Telnyx MARKETING (default); local = DB-only heuristics",
+    )
+    parser.add_argument(
+        "--include-non-actionable",
+        action="store_true",
+        help="With --discover, include remote marketing rows with no local DB match",
     )
     parser.add_argument(
         "--dry-run",
@@ -87,7 +99,7 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Re-push even when local row is already UTILITY on Meta",
+        help="Re-push even when local row looks UTILITY+APPROVED (remote mode ignores skip by default)",
     )
     parser.add_argument(
         "--push-delay",
@@ -104,29 +116,59 @@ def main() -> int:
         parser.error("Specify --discover, --dry-run, --save, and/or --push")
 
     db = get_sessionmaker()()
+    overview: dict = {}
     try:
-        candidates = discover_was_utility_rewrite_candidates(
-            db,
-            name_contains=args.name_contains or None,
-            industry_slug=args.industry or None,
-        )
+        if args.discover and args.source == "remote":
+            overview, all_candidates = discover_remote_marketing_survey_templates(
+                db,
+                name_contains=args.name_contains or None,
+                industry_slug=args.industry or None,
+            )
+            candidates = all_candidates if args.include_non_actionable else [
+                item for item in all_candidates if item.get("actionable")
+            ]
+        else:
+            candidates = discover_was_utility_rewrite_candidates(
+                db,
+                name_contains=args.name_contains or None,
+                industry_slug=args.industry or None,
+                source=args.source,
+            )
+            all_candidates = candidates
     finally:
         db.close()
+
+    if args.discover:
+        payload = {
+            "overview": overview,
+            "candidates": candidates,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        if overview:
+            print(
+                f"\nLive marketing — Meta: {overview.get('remote_marketing_meta', '—')}, "
+                f"Telnyx: {overview.get('remote_marketing_telnyx', '—')}, "
+                f"unique remote: {overview.get('unique_remote_marketing', '—')}, "
+                f"actionable local matches: {overview.get('actionable_local_matches', len(candidates))}"
+            )
+        print(f"\n{len(candidates)} candidate(s) listed")
+        return 0
 
     if args.limit and args.limit > 0:
         candidates = candidates[: args.limit]
 
-    if args.discover:
-        print(json.dumps(candidates, indent=2, ensure_ascii=False))
-        print(f"\n{candidates and len(candidates) or 0} candidate(s)")
-        return 0
-
     if not candidates:
-        print("No was_* templates need utility rewrite for the current filters.", file=sys.stderr)
+        print("No survey templates need utility rewrite for the current filters.", file=sys.stderr)
         return 0
 
-    names = [str(item["name"]) for item in candidates if item.get("name")]
+    names = [
+        str(item.get("process_name") or item.get("name"))
+        for item in candidates
+        if item.get("process_name") or item.get("name")
+    ]
     print(f"Processing {len(names)} template(s)…", flush=True)
+
+    skip_already = args.force is False and args.source == "local"
 
     with get_sessionmaker()() as db:
         results = process_template_names(
@@ -138,19 +180,22 @@ def main() -> int:
             dry_run=bool(args.dry_run),
             use_llm=not args.no_llm,
             llm_provider="openai",
-            skip_already_pushed=not args.force,
+            skip_already_pushed=skip_already,
             push_delay_seconds=max(0.0, float(args.push_delay or 0)),
         )
 
     ok_count = 0
     fail_count = 0
     report_rows: list[dict] = []
-    candidate_by_name = {str(c["name"]): c for c in candidates if c.get("name")}
+    candidate_by_name = {
+        str(c.get("process_name") or c.get("name")): c for c in candidates if c.get("process_name") or c.get("name")
+    }
 
     for item in results:
         candidate = candidate_by_name.get(item.template_name, {})
         entry = {
             "name": item.template_name,
+            "remote_name": candidate.get("remote_name"),
             "ok": item.ok,
             "message": item.message,
             "pushed": item.pushed,
@@ -185,8 +230,10 @@ def main() -> int:
         json.dumps(
             {
                 "at": datetime.now(timezone.utc).isoformat(),
+                "source": args.source,
                 "dry_run": bool(args.dry_run),
                 "pushed": bool(args.push),
+                "overview": overview,
                 "filters": {
                     "name_contains": args.name_contains or None,
                     "industry": args.industry or None,

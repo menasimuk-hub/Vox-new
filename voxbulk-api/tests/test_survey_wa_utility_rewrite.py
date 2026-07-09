@@ -7,6 +7,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _mentions_recent_interaction,
     _needs_utility_clone_for_category_change,
     _prepend_leading_emoji,
+    _remote_item_is_marketing,
     _rule_based_utility_body,
     _topic_from_template_name,
     rewrite_body_for_utility,
@@ -16,6 +17,11 @@ from app.services.wa_template_meta_sync import (
     suggest_utility_clone_template_name,
 )
 from seed_data.wa_survey_template_naming import suggest_next_was_seq_name
+
+
+def test_remote_item_is_marketing():
+    assert _remote_item_is_marketing({"category": "MARKETING", "status": "APPROVED"}) is True
+    assert _remote_item_is_marketing({"category": "UTILITY", "status": "APPROVED"}) is False
 
 
 def test_topic_from_template_name():

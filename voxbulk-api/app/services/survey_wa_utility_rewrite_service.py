@@ -531,23 +531,57 @@ def _template_needs_utility_rewrite(
     return bool(reasons), reasons
 
 
-def discover_was_utility_rewrite_candidates(
+def _remote_item_is_marketing(item: dict[str, Any]) -> bool:
+    category = str(item.get("category") or "").strip().upper()
+    return "MARKET" in category
+
+
+def _serialize_local_candidate(
+    row: TelnyxWhatsappTemplate,
+    *,
+    st: SurveyType | None,
+    ind: Any,
+    body: str,
+    reasons: list[str],
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": row.id,
+        "name": row.name,
+        "process_name": row.name,
+        "actionable": True,
+        "status": row.status,
+        "category": row.category,
+        "industry_slug": getattr(ind, "slug", None),
+        "survey_type": getattr(st, "name", None),
+        "body_preview": body[:160],
+        "reasons": reasons,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def discover_was_utility_rewrite_candidates_local(
     db: Session,
     *,
     name_contains: str | None = None,
     industry_slug: str | None = None,
     include_already_utility: bool = False,
+    was_only: bool = True,
 ) -> list[dict[str, Any]]:
-    """Find was_* templates that need UTILITY-compliant BODY rewrites."""
+    """Find survey templates needing rewrite from local DB signals only."""
     from app.models.industry import Industry
+    from app.services.wa_template_product_scope import is_survey_platform_row
 
     query = (
         select(TelnyxWhatsappTemplate, SurveyType, Industry)
         .outerjoin(SurveyType, SurveyType.id == TelnyxWhatsappTemplate.survey_type_id)
         .outerjoin(Industry, Industry.id == SurveyType.industry_id)
-        .where(TelnyxWhatsappTemplate.name.like("was_%"))
         .order_by(TelnyxWhatsappTemplate.name.asc())
     )
+    if was_only:
+        query = query.where(TelnyxWhatsappTemplate.name.like("was_%"))
     if name_contains:
         query = query.where(TelnyxWhatsappTemplate.name.ilike(f"%{name_contains.strip()}%"))
     if industry_slug:
@@ -555,25 +589,197 @@ def discover_was_utility_rewrite_candidates(
 
     out: list[dict[str, Any]] = []
     for row, st, ind in db.execute(query).all():
+        if was_only is False and not is_survey_platform_row(db, row):
+            continue
         if not include_already_utility and _already_submitted_utility_migration(row):
             continue
         body = _template_body_text(row)
         needs, reasons = _template_needs_utility_rewrite(row, body=body)
         if not needs:
             continue
-        out.append(
-            {
-                "id": row.id,
-                "name": row.name,
-                "status": row.status,
-                "category": row.category,
-                "industry_slug": getattr(ind, "slug", None),
-                "survey_type": getattr(st, "name", None),
-                "body_preview": body[:160],
-                "reasons": reasons,
-            }
-        )
+        out.append(_serialize_local_candidate(row, st=st, ind=ind, body=body, reasons=reasons))
     return out
+
+
+def discover_remote_marketing_survey_templates(
+    db: Session,
+    *,
+    name_contains: str | None = None,
+    industry_slug: str | None = None,
+    profile_ids: list[str] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Match admin matrix: live MARKETING templates on Meta/Telnyx survey scope."""
+    from app.models.industry import Industry
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    from app.services.wa_template_product_scope import filter_remote_for_service_code, is_survey_platform_name
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+    from app.services.wa_template_sync_profile import summarize_for_connection_profile
+    from app.services.wa_template_sync_service import WaTemplateSyncService
+
+    primary_id = WaTemplateProfilePushService.resolve_primary_connection_profile_id(db, service_code="survey")
+    backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(db, service_code="survey")
+    pids = [str(pid).strip() for pid in (profile_ids or []) if str(pid or "").strip()]
+    if not pids:
+        pids = [pid for pid in (primary_id, backup_id) if pid]
+
+    profile_summaries: list[dict[str, Any]] = []
+    marketing_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for pid in pids:
+        summary = summarize_for_connection_profile(db, pid, service_code="survey")
+        profile_summaries.append(summary)
+        if not summary.get("ok"):
+            continue
+        remote_all = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+            db,
+            connection_profile_id=pid,
+            service_code="survey",
+            allow_account_waba_fallback=False,
+        )
+        remote = filter_remote_for_service_code(remote_all, "survey")
+        provider = str(summary.get("provider") or "unknown").strip().lower()
+        for item in remote:
+            if not isinstance(item, dict) or not _remote_item_is_marketing(item):
+                continue
+            remote_name = str(item.get("name") or "").strip().lower()
+            if not remote_name or not is_survey_platform_name(remote_name):
+                continue
+            if name_contains and name_contains.strip().lower() not in remote_name:
+                continue
+            lang = str(item.get("language") or item.get("language_code") or "en_gb").strip().lower()
+            key = (remote_name, lang)
+            entry = marketing_by_key.setdefault(
+                key,
+                {
+                    "remote_name": remote_name,
+                    "remote_language": lang,
+                    "remote_status": str(item.get("status") or "").upper() or None,
+                    "remote_profiles": [],
+                    "reasons": [],
+                },
+            )
+            entry["remote_profiles"].append(
+                {
+                    "profile_id": pid,
+                    "provider": provider,
+                    "status": str(item.get("status") or "").upper() or None,
+                    "label": summary.get("profile_label"),
+                }
+            )
+            reason = f"remote_marketing_{provider}"
+            if reason not in entry["reasons"]:
+                entry["reasons"].append(reason)
+
+    local_rows = WaTemplateSyncService.collect_survey_mirror_templates(db)
+    candidates: list[dict[str, Any]] = []
+    needle = name_contains.strip().lower() if name_contains else ""
+
+    for (_remote_name, _lang), entry in sorted(marketing_by_key.items()):
+        row = WaTemplateSyncService._find_local_row_for_meta_live_name(
+            local_rows, entry["remote_name"], entry["remote_language"]
+        )
+        st: SurveyType | None = None
+        ind: Industry | None = None
+        if row is not None and row.survey_type_id:
+            st = db.get(SurveyType, row.survey_type_id)
+            if st is not None and st.industry_id:
+                ind = db.get(Industry, st.industry_id)
+        if industry_slug and str(getattr(ind, "slug", None) or "").lower() != str(industry_slug).strip().lower():
+            continue
+        if needle and row is not None and needle not in str(row.name or "").lower():
+            if needle not in entry["remote_name"]:
+                continue
+
+        body = _template_body_text(row) if row is not None else ""
+        reasons = list(entry["reasons"])
+        local_category = str(row.category or "").upper() if row is not None else None
+        if row is not None and local_category == "UTILITY":
+            reasons.append("local_category_utility_desync")
+
+        if row is None:
+            candidates.append(
+                {
+                    "id": None,
+                    "name": entry["remote_name"],
+                    "process_name": None,
+                    "actionable": False,
+                    "status": entry.get("remote_status"),
+                    "category": "MARKETING",
+                    "local_category": None,
+                    "industry_slug": None,
+                    "survey_type": None,
+                    "body_preview": "",
+                    "remote_name": entry["remote_name"],
+                    "remote_profiles": entry["remote_profiles"],
+                    "reasons": reasons + ["no_local_row"],
+                }
+            )
+            continue
+
+        candidates.append(
+            _serialize_local_candidate(
+                row,
+                st=st,
+                ind=ind,
+                body=body,
+                reasons=reasons,
+                extra={
+                    "remote_name": entry["remote_name"],
+                    "remote_profiles": entry["remote_profiles"],
+                    "local_category": row.category,
+                },
+            )
+        )
+
+    meta_marketing = telnyx_marketing = 0
+    for summary in profile_summaries:
+        if not summary.get("ok"):
+            continue
+        count = int((summary.get("summary") or {}).get("marketing") or 0)
+        provider = str(summary.get("provider") or "").strip().lower()
+        if provider == "meta":
+            meta_marketing = count
+        elif provider == "telnyx":
+            telnyx_marketing = count
+
+    overview = {
+        "profiles": profile_summaries,
+        "remote_marketing_meta": meta_marketing,
+        "remote_marketing_telnyx": telnyx_marketing,
+        "unique_remote_marketing": len(marketing_by_key),
+        "actionable_local_matches": sum(1 for item in candidates if item.get("actionable")),
+        "missing_local_row": sum(1 for item in candidates if not item.get("actionable")),
+    }
+    return overview, candidates
+
+
+def discover_was_utility_rewrite_candidates(
+    db: Session,
+    *,
+    name_contains: str | None = None,
+    industry_slug: str | None = None,
+    include_already_utility: bool = False,
+    source: str = "remote",
+) -> list[dict[str, Any]]:
+    """Find survey templates that need UTILITY-compliant BODY rewrites.
+
+    ``source=remote`` (default) lists live MARKETING rows on Meta/Telnyx — matches admin matrix.
+    ``source=local`` uses DB-only heuristics (often far fewer rows when Meta reclassified).
+    """
+    mode = str(source or "remote").strip().lower()
+    if mode == "local":
+        return discover_was_utility_rewrite_candidates_local(
+            db,
+            name_contains=name_contains,
+            industry_slug=industry_slug,
+            include_already_utility=include_already_utility,
+        )
+    _overview, candidates = discover_remote_marketing_survey_templates(
+        db,
+        name_contains=name_contains,
+        industry_slug=industry_slug,
+    )
+    return [item for item in candidates if item.get("actionable")]
 
 
 def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:
