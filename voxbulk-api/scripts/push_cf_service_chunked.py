@@ -418,6 +418,7 @@ def main() -> int:
 
             while lang_offset < len(templates):
                 batch_num = (lang_offset // lang_batch) + 1
+                batch_start = lang_offset
                 _log(f"  Lang batch {batch_num} offset={lang_offset} size={lang_batch}")
                 batch_result = _push_lang_slice(
                     db,
@@ -433,7 +434,10 @@ def main() -> int:
                     force_backup=bool(args.force_backup),
                 )
                 topic_result["batches"].append(batch_result)
-                lang_offset = int(batch_result.get("next_lang_offset") or lang_offset)
+                if batch_result.get("failed"):
+                    lang_offset = batch_start
+                else:
+                    lang_offset = int(batch_result.get("next_lang_offset") or lang_offset)
 
                 _save_state(
                     args.industry_slug,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -570,21 +571,33 @@ def push_feedback_template_to_telnyx(
 
 
 def _post_feedback_template_to_telnyx(*, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    try:
-        with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
-            response = client.post(
-                TELNYX_WHATSAPP_TEMPLATES_URL,
-                headers=_telnyx_headers(api_key),
-                json=payload,
-            )
-    except httpx.HTTPError as exc:
-        raise FeedbackTelnyxPushError(f"HTTP error calling Telnyx: {exc}") from exc
+    transient_statuses = {429, 500, 502, 503, 504}
+    last_exc: FeedbackTelnyxPushError | None = None
+    for attempt in range(1, 4):
+        try:
+            with httpx.Client(timeout=45.0, verify=httpx_ssl_verify()) as client:
+                response = client.post(
+                    TELNYX_WHATSAPP_TEMPLATES_URL,
+                    headers=_telnyx_headers(api_key),
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            last_exc = FeedbackTelnyxPushError(f"HTTP error calling Telnyx: {exc}")
+            if attempt < 3:
+                time.sleep(5 * attempt)
+                continue
+            raise last_exc from exc
 
-    try:
-        body = response.json()
-    except ValueError:
-        body = {"raw": response.text[:2000]}
-    return {"status_code": response.status_code, "body": body}
+        try:
+            body = response.json()
+        except ValueError:
+            body = {"raw": response.text[:2000]}
+        if response.status_code not in transient_statuses or attempt >= 3:
+            return {"status_code": response.status_code, "body": body}
+        time.sleep(5 * attempt)
+    if last_exc is not None:
+        raise last_exc
+    return {"status_code": 503, "body": {"errors": [{"detail": "Telnyx transient error retries exhausted"}]}}
 
 
 def load_feedback_template(
