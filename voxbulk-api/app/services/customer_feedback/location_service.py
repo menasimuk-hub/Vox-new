@@ -25,6 +25,7 @@ from app.services.customer_feedback.survey_config_service import (
     rebuild_survey_config_for_location,
     validate_feedback_survey_templates_ready,
 )
+from app.services.customer_feedback.feedback_marketing_policy import effective_marketing_opt_in_enabled
 from app.services.market_zone import country_to_zone
 from app.services.customer_feedback.web_theme_service import (
     load_web_theme_from_location,

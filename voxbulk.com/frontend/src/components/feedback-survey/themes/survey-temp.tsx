@@ -20,8 +20,11 @@ export function Art() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
       <div className="animate-float-blob absolute -right-20 top-0 h-64 w-64 rounded-full bg-gold/10 blur-3xl" />
-      <div className="animate-float-blob-2 absolute -left-20 bottom-20 h-72 w-72 rounded-full bg-accent/25 blur-3xl" />
-      <svg className="animate-orbit-slow absolute -left-16 top-16 h-56 w-56 text-foreground/10" viewBox="0 0 200 200" fill="none">
+      <div
+        className="animate-float-blob-2 absolute -left-20 bottom-20 h-72 w-72 rounded-full blur-3xl"
+        style={{ background: "rgba(184,149,74,0.25)" }}
+      />
+      <svg className="animate-orbit-slow absolute -left-16 top-16 h-56 w-56 opacity-10" viewBox="0 0 200 200" fill="none" style={{ color: theme.ink }}>
         <circle cx="100" cy="100" r="80" stroke="currentColor" strokeDasharray="2 8" />
         <circle cx="100" cy="20" r="4" fill="currentColor" />
       </svg>
@@ -30,9 +33,9 @@ export function Art() {
         <circle cx="190" cy="100" r="5" fill="currentColor" />
       </svg>
       <div className="animate-drift-a absolute left-6 top-1/3 h-3 w-3 rounded-full bg-gold/60" />
-      <div className="animate-drift-b absolute right-8 top-1/4 h-4 w-4 rotate-12 rounded-sm bg-foreground/40" />
-      <div className="animate-drift-c absolute left-1/2 bottom-24 h-2.5 w-2.5 rounded-full bg-foreground/25" />
-      <svg className="animate-squiggle absolute -left-10 top-1/2 h-10 w-40 text-foreground/10" viewBox="0 0 200 40" fill="none">
+      <div className="animate-drift-b absolute right-8 top-1/4 h-4 w-4 rotate-12 rounded-sm" style={{ background: "rgba(45,41,38,0.4)" }} />
+      <div className="animate-drift-c absolute left-1/2 bottom-24 h-2.5 w-2.5 rounded-full" style={{ background: "rgba(45,41,38,0.25)" }} />
+      <svg className="animate-squiggle absolute -left-10 top-1/2 h-10 w-40 opacity-10" viewBox="0 0 200 40" fill="none" style={{ color: theme.ink }}>
         <path d="M0 20 Q 20 0 40 20 T 80 20 T 120 20 T 160 20 T 200 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
       <svg className="animate-squiggle absolute -right-10 bottom-40 h-10 w-40 text-gold/25" viewBox="0 0 200 40" fill="none" style={{ animationDelay: "1.5s" }}>

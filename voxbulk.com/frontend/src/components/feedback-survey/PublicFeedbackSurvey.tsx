@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import { buildCopy, getThemePack, resolveThemeId } from "./theme-registry";
 import type { Copy, SurveyPayload, SurveyQuestion, Theme, ThemePack } from "./types";
@@ -32,6 +32,18 @@ export type PublicFeedbackSurveyProps = {
   previewThemeId?: string;
   previewCompanyName?: string;
 };
+
+function themeStyleVars(theme: Theme): CSSProperties {
+  return {
+    "--survey-ink": theme.ink,
+    "--survey-sub": theme.sub,
+    "--survey-card": theme.card,
+    "--survey-border": theme.border,
+    "--survey-accent": theme.accent,
+    "--survey-accent2": theme.accent2,
+    color: theme.ink,
+  } as CSSProperties;
+}
 
 function logoSrc(logoUrl?: string) {
   if (!logoUrl) return "";
@@ -96,7 +108,7 @@ function SurveyThankYou({
             <path d="M5 12l5 5L20 7" />
           </svg>
         </div>
-        <h1 className="animate-confetti-rise mt-6 font-display text-4xl" style={{ animationDelay: "120ms" }}>
+        <h1 className="animate-confetti-rise mt-6 font-display text-4xl" style={{ animationDelay: "120ms", color: theme.ink }}>
           {copy.thankYouTitle}
           <span style={{ color: theme.accent }}>.</span>
         </h1>
@@ -156,7 +168,7 @@ function WelcomeChoose({
               style={{ background: theme.card, borderColor: theme.border }}
             />
           ) : null}
-          <span className="font-display text-[15px] tracking-tight">{copy.companyName}</span>
+          <span className="font-display text-[15px] tracking-tight" style={{ color: theme.ink }}>{copy.companyName}</span>
         </header>
 
         <div className="mt-5 sm:mt-8">
@@ -273,7 +285,7 @@ function QuestionView({
       <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
         Question {index + 1}
       </p>
-      <h1 className="mt-2 font-display text-[28px] leading-[1.15] sm:text-[32px]">{question.title}</h1>
+      <h1 className="mt-2 font-display text-[28px] leading-[1.15] sm:text-[32px]" style={{ color: theme.ink }}>{question.title}</h1>
       {question.body ? (
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: theme.sub }}>{question.body}</p>
       ) : null}
@@ -824,7 +836,7 @@ export function PublicFeedbackSurvey({
       (inReasonOverlay && reasonChips.length > 0));
 
   return (
-    <div className="feedback-survey-root">
+    <div className="feedback-survey-root" style={themeStyleVars(theme)}>
       {phase === "loading" && (
         <main className={`grid h-[100svh] place-items-center ${theme.bgClass}`} style={{ color: theme.ink }}>
           <p className="text-sm" style={{ color: theme.sub }}>Loading survey…</p>
@@ -870,7 +882,7 @@ export function PublicFeedbackSurvey({
                   />
                 ) : null}
                 <div className="flex flex-col leading-tight">
-                  <span className="font-display text-sm tracking-tight">{copy.companyName}</span>
+                  <span className="font-display text-sm tracking-tight" style={{ color: theme.ink }}>{copy.companyName}</span>
                   <span className="text-[10px] font-medium uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
                     {copy.serviceLabel}
                   </span>

@@ -6,6 +6,27 @@
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --gold: oklch(0.78 0.13 82);
   --gold-foreground: oklch(0.2 0.02 70);
+  /* Map feedback-flow semantic tokens to the active survey theme (set inline on root). */
+  --foreground: var(--survey-ink);
+  --color-foreground: var(--survey-ink);
+  --muted-foreground: var(--survey-sub);
+  --color-muted-foreground: var(--survey-sub);
+  --color-heading: var(--survey-ink);
+  --card: var(--survey-card);
+  --color-card: var(--survey-card);
+  --border: var(--survey-border);
+  --color-border: var(--survey-border);
+  --accent: var(--survey-accent);
+  --color-accent: var(--survey-accent);
+  color: var(--survey-ink);
+}
+.feedback-survey-root h1,
+.feedback-survey-root h2,
+.feedback-survey-root h3,
+.feedback-survey-root h4 {
+  color: var(--survey-ink);
+  font-weight: inherit;
+  letter-spacing: inherit;
 }
 .feedback-survey-root .font-display {
   font-family: var(--font-display);

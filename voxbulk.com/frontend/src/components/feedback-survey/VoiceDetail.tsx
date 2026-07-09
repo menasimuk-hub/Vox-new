@@ -116,7 +116,7 @@ function PlaybackBar({
             />
           ))}
         </div>
-        <span className="font-display text-sm tabular-nums">{fmt(duration)}</span>
+        <span className="font-display text-sm tabular-nums" style={{ color: theme.ink }}>{fmt(duration)}</span>
       </div>
       <button
         type="button"
@@ -320,7 +320,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
       <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
         {eyebrow}
       </p>
-      <h1 className="mt-2 font-display text-[26px] leading-[1.15] sm:text-[30px]">{title}</h1>
+      <h1 className="mt-2 font-display text-[26px] leading-[1.15] sm:text-[30px]" style={{ color: theme.ink }}>{title}</h1>
       <p className="mt-2 text-[12.5px] leading-relaxed" style={{ color: theme.sub }}>{hint}</p>
 
       {(reasonOptions || []).length > 0 ? (
@@ -409,7 +409,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
               {recState === "recording" && (
                 <div className="mt-3 flex flex-col items-center gap-1.5">
                   <Waveform color={theme.accent} />
-                  <div className="font-display text-sm tabular-nums">{fmt(recSeconds)}</div>
+                  <div className="font-display text-sm tabular-nums" style={{ color: theme.ink }}>{fmt(recSeconds)}</div>
                 </div>
               )}
               {recState === "idle" && (
