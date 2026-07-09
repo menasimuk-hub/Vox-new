@@ -15,11 +15,27 @@ from app.services.wa_template_meta_sync import (
     is_utility_clone_template_name,
     suggest_utility_clone_template_name,
 )
+from seed_data.wa_survey_template_naming import suggest_next_was_seq_name
 
 
 def test_topic_from_template_name():
     assert _topic_from_template_name("voxbulk_survey_food_quality_abc_d85d5a") == "food quality"
     assert _topic_from_template_name("voxbulk_survey_would_recommend_standard") == "would recommend"
+    assert _topic_from_template_name("was_logistics_delivery_would_recommend_002_en") == "would recommend"
+    assert _topic_from_template_name("was_employee_career_progression_001_en") == "career progression"
+
+
+def test_rule_based_rewrites_nps_wording_without_lint_violation():
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    body = _rule_based_utility_body(
+        "Based on your experience, how likely are you to recommend us to a friend?",
+        topic_hint="would recommend",
+        industry_slug="logistics_delivery",
+    )
+    lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
+    assert lint.ok
+    assert "recommend" not in body.lower() or "recent" in body.lower()
 
 
 def test_rule_based_rewrites_would_recommend_without_lint_violation():
@@ -41,6 +57,15 @@ def test_suggest_utility_clone_template_name():
         == "voxbulk_survey_staff_friendliness_utu_875f3a"
     )
     assert is_utility_clone_template_name("voxbulk_survey_staff_friendliness_utu_875f3a")
+
+
+def test_suggest_next_was_seq_name():
+    used = {"was_logistics_delivery_would_recommend_003_en"}
+    assert (
+        suggest_next_was_seq_name("was_logistics_delivery_would_recommend_002_en", used_names=used)
+        == "was_logistics_delivery_would_recommend_004_en"
+    )
+    assert suggest_next_was_seq_name("voxbulk_survey_food_abc_123", used_names=set()) is None
 
 
 def test_needs_utility_clone_for_category_change():

@@ -51,9 +51,13 @@ _EMOJI_RE = re.compile(
 )
 
 _RECOMMEND_INTENT_RE = re.compile(
-    r"\bwould you recommend\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b",
+    r"\bwould you recommend\b|\bhow likely are you\b.*\brecommend\b|\blikely are you to recommend\b|"
+    r"\brecommend us\b|\brecommend us to\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b|"
+    r"\bnet promoter\b|\bnps\b",
     re.IGNORECASE,
 )
+
+_WAS_TOPIC_SUFFIX_RE = re.compile(r"^was_(?:system_)?(.+)_(\d{3})_(en|ar)$", re.I)
 
 _UTILITY_CONTEXT_PHRASES = (
     "recent visit",
@@ -217,12 +221,42 @@ def _parse_rewrite_json(raw: str) -> dict[str, Any] | None:
 
 def _topic_from_template_name(name: str) -> str:
     base = str(name or "").strip().lower()
+    was_match = _WAS_TOPIC_SUFFIX_RE.match(base)
+    if was_match:
+        middle = str(was_match.group(1) or "").strip("_")
+        if "would_recommend" in middle:
+            return "would recommend"
+        if "return_intent" in middle:
+            return "return intent"
+        parts = [p for p in middle.split("_") if p]
+        if parts and parts[0] == "employee" and len(parts) > 1:
+            return " ".join(parts[1:])
+        if len(parts) >= 2:
+            return " ".join(parts[-2:])
+        return middle.replace("_", " ").strip() or "your recent experience"
     if base.startswith("voxbulk_survey_"):
         base = base[len("voxbulk_survey_") :]
     base = re.sub(r"_abc_[a-f0-9]{6}$", "", base)
     base = re.sub(r"_standard$", "", base)
     base = base.replace("_", " ")
     return base.strip() or "your recent experience"
+
+
+def _survey_type_for_template_row(db: Session, row: TelnyxWhatsappTemplate) -> tuple[str | None, str | None]:
+    st_id = str(row.survey_type_id or "").strip()
+    if not st_id:
+        return None, None
+    st = db.get(SurveyType, st_id)
+    if st is None:
+        return None, None
+    return str(st.slug or "") or None, str(st.name or "") or None
+
+
+def _topic_for_template_row(db: Session, row: TelnyxWhatsappTemplate) -> str:
+    _slug, st_name = _survey_type_for_template_row(db, row)
+    if st_name:
+        return st_name.strip()
+    return _topic_from_template_name(row.name)
 
 
 def _industry_for_template_row(db: Session, row: TelnyxWhatsappTemplate) -> tuple[str | None, str | None]:
@@ -359,6 +393,7 @@ def apply_utility_rewrite_to_row(
     buttons = clamp_utility_button_labels(buttons)
 
     industry_slug, industry_name = _industry_for_template_row(db, row)
+    topic_name = _topic_for_template_row(db, row)
     if _body_has_recommend_intent(old_body):
         use_llm = False
 
@@ -372,6 +407,7 @@ def apply_utility_rewrite_to_row(
         llm_provider=llm_provider,
         industry_slug=industry_slug,
         industry_name=industry_name,
+        topic_name=topic_name,
     )
     lint = lint_utility_template(
         body=new_body,
@@ -445,6 +481,101 @@ def _find_template_row(db: Session, name: str) -> TelnyxWhatsappTemplate | None:
     return clone_rows[0] if clone_rows else None
 
 
+def _template_body_text(row: TelnyxWhatsappTemplate) -> str:
+    components = _effective_components(row)
+    body, _buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
+    if body:
+        return body
+    return str(row.body_preview or "").strip()
+
+
+def _template_needs_utility_rewrite(
+    row: TelnyxWhatsappTemplate,
+    *,
+    body: str | None = None,
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    name_lower = str(row.name or "").lower()
+    text = body if body is not None else _template_body_text(row)
+    category = str(row.category or "").upper()
+    status = str(row.status or "").upper()
+
+    if category == "MARKETING":
+        reasons.append("category_marketing")
+    if status == "REJECTED":
+        reasons.append("status_rejected")
+    if str(row.last_push_error or "").strip():
+        reasons.append("last_push_error")
+    if "would_recommend" in name_lower or "return_intent" in name_lower:
+        reasons.append("name_recommend_topic")
+    if _body_has_recommend_intent(text):
+        reasons.append("body_recommend_intent")
+
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    buttons: list[str] = []
+    components = _effective_components(row)
+    if isinstance(components, list):
+        _body, buttons = _extract_body_and_buttons(components)
+        if not text:
+            text = _body
+    lint = lint_utility_template(
+        body=text,
+        buttons=buttons,
+        language=row.language,
+        meta_category=row.category,
+    )
+    if not lint.ok:
+        reasons.append("utility_lint_fail")
+
+    return bool(reasons), reasons
+
+
+def discover_was_utility_rewrite_candidates(
+    db: Session,
+    *,
+    name_contains: str | None = None,
+    industry_slug: str | None = None,
+    include_already_utility: bool = False,
+) -> list[dict[str, Any]]:
+    """Find was_* templates that need UTILITY-compliant BODY rewrites."""
+    from app.models.industry import Industry
+
+    query = (
+        select(TelnyxWhatsappTemplate, SurveyType, Industry)
+        .outerjoin(SurveyType, SurveyType.id == TelnyxWhatsappTemplate.survey_type_id)
+        .outerjoin(Industry, Industry.id == SurveyType.industry_id)
+        .where(TelnyxWhatsappTemplate.name.like("was_%"))
+        .order_by(TelnyxWhatsappTemplate.name.asc())
+    )
+    if name_contains:
+        query = query.where(TelnyxWhatsappTemplate.name.ilike(f"%{name_contains.strip()}%"))
+    if industry_slug:
+        query = query.where(Industry.slug == str(industry_slug).strip().lower())
+
+    out: list[dict[str, Any]] = []
+    for row, st, ind in db.execute(query).all():
+        if not include_already_utility and _already_submitted_utility_migration(row):
+            continue
+        body = _template_body_text(row)
+        needs, reasons = _template_needs_utility_rewrite(row, body=body)
+        if not needs:
+            continue
+        out.append(
+            {
+                "id": row.id,
+                "name": row.name,
+                "status": row.status,
+                "category": row.category,
+                "industry_slug": getattr(ind, "slug", None),
+                "survey_type": getattr(st, "name", None),
+                "body_preview": body[:160],
+                "reasons": reasons,
+            }
+        )
+    return out
+
+
 def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:
     """Meta never allows category changes on APPROVED templates.
 
@@ -466,7 +597,18 @@ def _prepare_approved_template_for_utility_push(
 ) -> tuple[TelnyxWhatsappTemplate, str | None]:
     if not _needs_utility_clone_for_category_change(row):
         return row, None
-    clone_name = suggest_utility_clone_template_name(row.name)
+    from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+
+    used_names = {
+        str(r[0]).strip().lower()
+        for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
+        if r[0]
+    }
+    clone_name: str | None = None
+    if is_was_survey_name(row.name):
+        clone_name = suggest_next_was_seq_name(row.name, used_names=used_names)
+    if not clone_name:
+        clone_name = suggest_utility_clone_template_name(row.name)
     clash = db.execute(
         select(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.name == clone_name)
     ).scalar_one_or_none()
@@ -578,19 +720,38 @@ def process_template_names(
             old_body, buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
 
             if dry_run:
+                industry_slug, industry_name = _industry_for_template_row(db, row)
+                topic_name = _topic_for_template_row(db, row)
+                use_llm_local = use_llm
+                if _body_has_recommend_intent(old_body):
+                    use_llm_local = False
                 new_body = rewrite_body_for_utility(
                     db,
                     original_body=old_body,
                     button_labels=buttons,
                     template_name=row.name,
                     display_name=row.display_name,
-                    use_llm=use_llm,
+                    use_llm=use_llm_local,
                     llm_provider=llm_provider,
+                    industry_slug=industry_slug,
+                    industry_name=industry_name,
+                    topic_name=topic_name,
                 )
                 dry_msg = "dry-run"
                 if _needs_utility_clone_for_category_change(row):
+                    from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+
+                    used_names = {
+                        str(r[0]).strip().lower()
+                        for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
+                        if r[0]
+                    }
+                    next_name = None
+                    if is_was_survey_name(row.name):
+                        next_name = suggest_next_was_seq_name(row.name, used_names=used_names)
+                    next_name = next_name or suggest_utility_clone_template_name(row.name)
                     dry_msg = (
-                        f"dry-run — would rename to {suggest_utility_clone_template_name(row.name)} "
+                        f"dry-run — would rename to {next_name} "
                         "and push as new UTILITY template"
                     )
                 results.append(

@@ -76,3 +76,27 @@ def lang_suffix(language: str | None) -> str:
 
 def is_was_survey_name(name: str | None) -> bool:
     return str(name or "").strip().lower().startswith("was_")
+
+
+_WAS_SEQ_SUFFIX_RE = re.compile(r"^(.+_)(\d{3})_(en|ar)$", re.I)
+
+
+def suggest_next_was_seq_name(
+    current_name: str,
+    *,
+    used_names: set[str] | None = None,
+) -> str | None:
+    """Bump was_* _00N_en|ar to the next free sequence (e.g. _002_ -> _003_)."""
+    base = str(current_name or "").strip().lower()
+    if not base.startswith("was_"):
+        return None
+    match = _WAS_SEQ_SUFFIX_RE.match(base)
+    if not match:
+        return None
+    prefix, seq, lang = match.group(1), int(match.group(2)), match.group(3)
+    used = {str(n or "").strip().lower() for n in (used_names or set()) if str(n or "").strip()}
+    for next_seq in range(seq + 1, 100):
+        candidate = f"{prefix}{next_seq:03d}_{lang}"
+        if candidate.lower() not in used:
+            return candidate
+    return None
