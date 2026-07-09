@@ -590,6 +590,53 @@ def test_send_template_id_uses_ledger_for_active_backup_profile():
         assert telnyx_send == "telnyx-send-rid"
 
 
+def test_send_template_id_backup_without_ledger_returns_empty():
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    with get_sessionmaker()() as db:
+        meta_id, telnyx_id = _seed_dual_profiles(db)
+        row = _template(db, name="voxbulk_survey_test_send_no_ledger")
+        row.telnyx_record_id = "meta-primary-rid"
+        row.template_id = "meta-primary-rid"
+        db.add(row)
+        db.commit()
+
+        from app.models.connection_profile import ConnectionProfile
+
+        meta = db.get(ConnectionProfile, meta_id)
+        telnyx = db.get(ConnectionProfile, telnyx_id)
+        meta.is_default = False
+        telnyx.is_default = True
+        db.commit()
+
+        send_id = WaTemplateProfilePushService.send_template_id_for_active_profile(
+            db, row, org_id=None, service_code="survey"
+        )
+        assert send_id == ""
+
+
+def test_push_template_to_both_profiles_dry_run_survey():
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    with get_sessionmaker()() as db:
+        meta_id, telnyx_id = _seed_dual_profiles(db)
+        row = _template(db, name="was_test_dual_push_001_en")
+        db.add(row)
+        db.commit()
+
+        result = WaTemplateProfilePushService.push_template_to_both_profiles(
+            db,
+            survey_row=row,
+            service_code="survey",
+            primary_profile_id=meta_id,
+            backup_profile_id=telnyx_id,
+            dry_run=True,
+        )
+        assert result.get("ok") is True
+        assert result.get("primary", {}).get("dry_run") is True
+        assert result.get("backup", {}).get("dry_run") is True
+
+
 def test_backup_link_skips_empty_prefetch_platform_fallback(monkeypatch):
     """Empty Telnyx prefetch must not fall back to platform Meta catalog (mirror bug)."""
     from app.services.survey_whatsapp_template_service import (

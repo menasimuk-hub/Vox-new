@@ -289,8 +289,8 @@ class SurveyDispatchService:
                 )
                 from app.services.telnyx_whatsapp_template_sync_service import (
                     TelnyxWhatsappTemplateSyncService,
-                    send_template_id_for_row,
                 )
+                from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 
                 raw_row = SurveyWhatsappTemplateService.get_template(db, int(wa_template_id))
                 template_row = resolve_sendable_template_row(db, raw_row) if raw_row is not None else None
@@ -319,14 +319,23 @@ class SurveyDispatchService:
             and template_components is not None
             and messaging_ready.get("whatsapp")
         ):
-            from app.services.telnyx_whatsapp_template_sync_service import send_template_id_for_row
+            from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+            send_template_id = WaTemplateProfilePushService.send_template_id_for_active_profile(
+                db,
+                template_row,
+                org_id=order.org_id,
+                service_code="survey",
+            )
+            if not send_template_id:
+                return {"ok": False, "error": "WhatsApp template is not available on the active connection profile."}
 
             result = TelnyxMessagingService.send_whatsapp(
                 db,
                 org_id=order.org_id,
                 to_number=recipient.phone,
                 body=body,
-                template_id=send_template_id_for_row(template_row),
+                template_id=send_template_id,
                 template_name=template_row.name,
                 template_language=template_row.language,
                 template_components=template_components,

@@ -227,6 +227,39 @@ class LogService:
         return out
 
     @staticmethod
+    def find_cross_provider_inbound_duplicate(
+        db: Session,
+        *,
+        from_number: str | None,
+        body: str | None,
+        current_provider: str,
+        window_seconds: int = 120,
+    ) -> WhatsAppLog | None:
+        from datetime import datetime, timedelta
+
+        from_n = str(from_number or "").strip()
+        body_n = str(body or "").strip()
+        if not from_n or not body_n:
+            return None
+        cutoff = datetime.utcnow() - timedelta(seconds=max(30, int(window_seconds)))
+        candidates = list(
+            db.execute(
+                select(WhatsAppLog)
+                .where(WhatsAppLog.direction == "inbound")
+                .where(WhatsAppLog.from_number == from_n)
+                .where(WhatsAppLog.provider != str(current_provider or "").strip())
+                .where(WhatsAppLog.created_at >= cutoff)
+                .order_by(WhatsAppLog.created_at.desc())
+                .limit(8)
+            ).scalars()
+        )
+        for row in candidates:
+            existing_body = str(row.body or "").strip()
+            if existing_body == body_n or body_n in existing_body or existing_body in body_n:
+                return row
+        return None
+
+    @staticmethod
     def create_whatsapp_log(db: Session, org_id: str, **kwargs) -> WhatsAppLog:
         LogService._validate_optional_relations(
             db, org_id, appointment_id=kwargs.get("appointment_id"), patient_id=kwargs.get("patient_id")

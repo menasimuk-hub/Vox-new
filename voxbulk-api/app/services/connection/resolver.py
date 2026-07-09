@@ -71,6 +71,43 @@ class ConnectionProfileResolver:
         return defaults[0] if defaults else None
 
     @staticmethod
+    def resolve_whatsapp_by_business_number(
+        db: Session,
+        *,
+        to_number: str | None,
+    ) -> ConnectionProfile | None:
+        """Match inbound business line (Meta whatsapp_from or Telnyx number) to a profile."""
+        from app.services.messaging_log_service import normalize_e164
+
+        raw = str(to_number or "").strip()
+        if not raw:
+            return None
+        try:
+            target = normalize_e164(raw)
+        except ValueError:
+            target = raw
+
+        rows = list(
+            db.execute(
+                select(ConnectionProfile).where(
+                    ConnectionProfile.channel == CHANNEL_WHATSAPP,
+                    ConnectionProfile.is_active.is_(True),
+                )
+            ).scalars()
+        )
+        for row in rows:
+            for candidate in (row.meta_whatsapp_from, row.telnyx_number):
+                if not candidate:
+                    continue
+                try:
+                    if normalize_e164(str(candidate)) == target:
+                        return row
+                except ValueError:
+                    if str(candidate).strip() == target:
+                        return row
+        return None
+
+    @staticmethod
     def _query_profiles(
         db: Session,
         *,

@@ -781,7 +781,7 @@ export default function WaEditSheet({
     <Sheet open={open} onOpenChange={(o) => !o && onClose?.()}>
       <SheetContent
         side="right"
-        className="waTemplatesHub ds-scope w-full overflow-hidden border-l p-0 sm:max-w-[960px]"
+        className="waTemplatesHub ds-scope z-[1300] w-[min(960px,100dvw)] max-w-[100dvw] overflow-hidden border-l p-0 sm:max-w-[min(960px,100dvw)]"
       >
         <div className="relative flex h-full min-h-0 w-full flex-col">
         {loading ? (

@@ -465,13 +465,36 @@ class TelnyxInboundMessagingService:
             else:
                 return {"ok": True, "ignored": True, "event_type": event_type, "direction": direction}
 
+        if direction == "inbound" and channel == "whatsapp":
+            from app.services.messaging_log_service import LogService
+
+            cross = LogService.find_cross_provider_inbound_duplicate(
+                db,
+                from_number=from_norm,
+                body=body,
+                current_provider="telnyx",
+            )
+            if cross is not None:
+                return {
+                    "ok": True,
+                    "log_id": cross.id,
+                    "duplicate": True,
+                    "cross_provider": True,
+                }
+
         media = record.get("media")
         media_json = json.dumps(media, ensure_ascii=False)[:8000] if media else None
         raw_payload = json.dumps(payload, ensure_ascii=False)[:8000]
 
+        from app.services.connection.resolver import ConnectionProfileResolver
+
+        inbound_profile = ConnectionProfileResolver.resolve_whatsapp_by_business_number(db, to_number=to_norm)
+        connection_profile_id = str(inbound_profile.id) if inbound_profile else None
+
         row = WhatsAppLog(
             org_id=org_id,
             provider="telnyx",
+            connection_profile_id=connection_profile_id,
             external_message_id=message_id,
             status=status or ("received" if direction == "inbound" else "sent"),
             direction="inbound" if direction == "inbound" else "outbound",

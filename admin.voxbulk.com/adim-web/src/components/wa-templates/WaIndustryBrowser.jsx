@@ -631,7 +631,7 @@ export default function WaIndustryBrowser({
       await onRequestSyncConfirm?.({
         title: `Sync ${industry.name}`,
         action: 'Sync',
-        detail: `Push changed templates for ${industry.name} to primary and Telnyx backup, then refresh approval status from Meta.`,
+        detail: `Push all templates for ${industry.name} to the primary profile (Meta), mirror to Telnyx backup, then refresh approval status from Meta.`,
       })
     } catch (e) {
       if (e?.message !== 'cancelled') onError?.(e?.message || 'Sync cancelled')
@@ -667,12 +667,17 @@ export default function WaIndustryBrowser({
       const primaryId = dual.primary?.id || syncProfileId
       const backupId = dual.backup?.id || backupSyncProfileId
 
+      if (product === 'feedback' && !backupId) {
+        throw new Error('Telnyx backup profile not found — add Telnyx 55 in Integrations before syncing Customer Feedback.')
+      }
+
       let acc =
         product === 'feedback'
           ? await runWaFeedbackIndustryPushAll(apiFetch, industry.id, {
               signal: controller.signal,
               batchSize,
               connectionProfileId: primaryId,
+              forcePush: true,
               onProgress: ({ batchNum, flat, acc: partial, step, done, running }) => {
                 if (partial) syncAccRef.current = partial
                 if (step === 'pull') {

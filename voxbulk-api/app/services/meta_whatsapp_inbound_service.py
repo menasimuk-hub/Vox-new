@@ -338,6 +338,11 @@ class MetaWhatsappInboundService:
 
             to_number = normalize_e164(str(metadata.get("display_phone_number") or config.get("whatsapp_from") or ""))
 
+            normalized = parse_meta_wa_inbound_message(msg, sender_phone=from_phone)
+            inbound_text = (normalized.normalized_answer or "").strip()
+            if not inbound_text and str(msg.get("type") or "").lower() not in {"audio", "voice"}:
+                inbound_text = f"[{msg.get('type') or 'message'}]"
+
             if message_id:
                 existing = db.execute(
                     select(WhatsAppLog).where(
@@ -360,10 +365,29 @@ class MetaWhatsappInboundService:
                     )
                     continue
 
-            normalized = parse_meta_wa_inbound_message(msg, sender_phone=from_phone)
-            inbound_text = (normalized.normalized_answer or "").strip()
-            if not inbound_text and str(msg.get("type") or "").lower() not in {"audio", "voice"}:
-                inbound_text = f"[{msg.get('type') or 'message'}]"
+            cross = LogService.find_cross_provider_inbound_duplicate(
+                db,
+                from_number=from_phone,
+                body=inbound_text,
+                current_provider="meta_whatsapp",
+            )
+            if cross is not None:
+                route_result = _route_inbound_handlers(
+                    db,
+                    org_id=org_id,
+                    from_phone=from_phone,
+                    inbound_text=inbound_text,
+                    normalized=normalized,
+                    message_id=message_id,
+                    log_id=int(cross.id),
+                    record=msg,
+                )
+                if any(
+                    route_result.get(key)
+                    for key in ("handled_survey", "handled_feedback", "handled_interview", "handled_appointment")
+                ):
+                    routed += 1
+                continue
 
             log_raw_wa_inbound(
                 record=msg,
@@ -371,6 +395,11 @@ class MetaWhatsappInboundService:
                 message_id=message_id,
                 sender_phone=from_phone,
             )
+
+            from app.services.connection.resolver import ConnectionProfileResolver
+
+            inbound_profile = ConnectionProfileResolver.resolve_whatsapp_by_business_number(db, to_number=to_number)
+            connection_profile_id = str(inbound_profile.id) if inbound_profile else None
 
             try:
                 row = LogService.create_whatsapp_log(
@@ -383,6 +412,7 @@ class MetaWhatsappInboundService:
                     status="received",
                     external_message_id=message_id,
                     provider="meta_whatsapp",
+                    connection_profile_id=connection_profile_id,
                     raw_payload=json.dumps(msg, ensure_ascii=False),
                 )
                 logged += 1

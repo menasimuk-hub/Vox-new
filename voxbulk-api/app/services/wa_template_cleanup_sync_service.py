@@ -72,6 +72,8 @@ def is_survey_product_row(row: TelnyxWhatsappTemplate) -> bool:
     if is_protected_template(row):
         return False
     name = _name_lower(row)
+    if name.startswith("was_"):
+        return True
     if name.startswith("voxbulk_survey_"):
         return True
     if row.survey_type_id:

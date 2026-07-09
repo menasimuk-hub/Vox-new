@@ -321,7 +321,132 @@ class WaTemplateProfilePushService:
         entry = WaTemplateProfilePushService.get_ledger_entry(db, int(row.id), profile_id)
         if WaTemplateProfilePushService._ledger_has_remote(entry):
             return str(entry.remote_record_id).strip()
+
+        profile = db.get(ConnectionProfile, profile_id)
+        provider = str(profile.provider or "").strip().lower() if profile else ""
+
+        if provider == PROVIDER_TELNYX:
+            remote_template_id = str(entry.remote_template_id or "").strip() if entry else ""
+            if remote_template_id:
+                return remote_template_id
+            logger.warning(
+                "wa_send_template_id_telnyx_missing_ledger template_id=%s profile_id=%s",
+                row.id,
+                profile_id,
+            )
+            return ""
+
         if WaTemplateProfilePushService.is_primary_profile(db, profile_id, service_code=service_code):
             return send_template_id_for_row(row)
         remote_template_id = str(entry.remote_template_id or "").strip() if entry else ""
-        return remote_template_id or send_template_id_for_row(row)
+        if remote_template_id:
+            return remote_template_id
+        logger.warning(
+            "wa_send_template_id_backup_missing_ledger template_id=%s profile_id=%s",
+            row.id,
+            profile_id,
+        )
+        return ""
+
+    @staticmethod
+    def push_template_to_both_profiles(
+        db: Session,
+        *,
+        survey_row: TelnyxWhatsappTemplate | None = None,
+        feedback_row: Any | None = None,
+        service_code: str | None = None,
+        force_push: bool = False,
+        primary_profile_id: str | None = None,
+        backup_profile_id: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Push one local DB template row to primary (Meta default) then Telnyx backup."""
+        code = normalize_service_code(service_code) or (
+            "customer_feedback" if feedback_row is not None else "survey"
+        )
+        primary_id = str(primary_profile_id or "").strip() or WaTemplateProfilePushService.resolve_primary_connection_profile_id(
+            db, service_code=code
+        )
+        backup_id = str(backup_profile_id or "").strip() or WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+            db, service_code=code
+        )
+        if not primary_id:
+            return {"ok": False, "error": "No primary WhatsApp connection profile is configured."}
+        if not backup_id:
+            return {"ok": False, "error": "No backup Telnyx WhatsApp connection profile is configured."}
+
+        results: dict[str, Any] = {
+            "ok": True,
+            "service_code": code,
+            "primary_profile_id": primary_id,
+            "backup_profile_id": backup_id,
+            "primary": None,
+            "backup": None,
+            "errors": [],
+        }
+
+        if survey_row is not None:
+            from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService
+
+            label = str(survey_row.name or survey_row.id)
+
+            def _push_survey(profile_id: str) -> dict[str, Any]:
+                if dry_run:
+                    return {"ok": True, "dry_run": True, "template_name": label}
+                return SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    survey_row,
+                    force_approved_update=True,
+                    connection_profile_id=profile_id,
+                    service_code=code,
+                )
+
+            try:
+                results["primary"] = _push_survey(primary_id)
+            except Exception as exc:  # noqa: BLE001
+                results["ok"] = False
+                results["errors"].append({"profile": "primary", "template": label, "error": str(exc)})
+            try:
+                results["backup"] = _push_survey(backup_id)
+            except Exception as exc:  # noqa: BLE001
+                results["ok"] = False
+                results["errors"].append({"profile": "backup", "template": label, "error": str(exc)})
+            return results
+
+        if feedback_row is not None:
+            from app.services.customer_feedback.feedback_telnyx_push_service import (
+                FeedbackTelnyxPushError,
+                push_feedback_template_to_telnyx,
+            )
+
+            label = str(getattr(feedback_row, "template_key", None) or feedback_row.id)
+
+            def _push_feedback(profile_id: str) -> dict[str, Any]:
+                return push_feedback_template_to_telnyx(
+                    db,
+                    feedback_row,
+                    dry_run=dry_run,
+                    connection_profile_id=profile_id,
+                    service_code=code,
+                    force_push=force_push,
+                )
+
+            try:
+                results["primary"] = _push_feedback(primary_id)
+            except FeedbackTelnyxPushError as exc:
+                results["ok"] = False
+                results["errors"].append({"profile": "primary", "template": label, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                results["ok"] = False
+                results["errors"].append({"profile": "primary", "template": label, "error": str(exc)})
+            try:
+                results["backup"] = _push_feedback(backup_id)
+            except FeedbackTelnyxPushError as exc:
+                results["ok"] = False
+                results["errors"].append({"profile": "backup", "template": label, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                results["ok"] = False
+                results["errors"].append({"profile": "backup", "template": label, "error": str(exc)})
+            return results
+
+        return {"ok": False, "error": "survey_row or feedback_row is required"}
