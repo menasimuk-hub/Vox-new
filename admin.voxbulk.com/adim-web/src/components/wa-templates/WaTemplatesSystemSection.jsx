@@ -122,7 +122,7 @@ export default function WaTemplatesSystemSection({
     (target) => {
       if (!target?.templateId) return
       setSheetOpen(false)
-      window.setTimeout(() => onOpenTemplate?.(target), 220)
+      window.setTimeout(() => onOpenTemplate?.(target), 280)
     },
     [onOpenTemplate],
   )
@@ -536,12 +536,13 @@ export default function WaTemplatesSystemSection({
         )}
       </div>
 
-      <Sheet modal={!embedded} open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet modal open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent
           side="right"
           overlay={!embedded}
           hideDefaultClose
-          className="relative z-[1200] w-[min(720px,100dvw)] max-w-[100dvw] overflow-hidden border-l p-0 shadow-xl duration-200 data-[state=closed]:duration-150 data-[state=open]:duration-200 sm:max-w-[min(720px,100dvw)]"
+          overlayClassName="z-[1190]"
+          className="z-[1200] !fixed inset-y-0 right-0 left-auto h-[100dvh] max-h-[100dvh] w-[min(720px,100vw)] max-w-[100vw] overflow-hidden border-l p-0 shadow-xl duration-200 data-[state=closed]:duration-150 data-[state=open]:duration-200 sm:max-w-[min(720px,100vw)]"
         >
           <div className="flex h-12 items-center gap-3 border-b bg-surface-muted/50 px-4">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
