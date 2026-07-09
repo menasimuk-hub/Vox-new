@@ -288,6 +288,23 @@ class OpenAIProviderService:
         return {**config, "provider": "openai"}
 
     @staticmethod
+    def _deepinfra_chat_base_url_from_config(config: dict[str, Any]) -> str:
+        """OpenAI-compatible chat base URL — ignore Whisper/inference endpoints from Admin."""
+        raw = str(
+            config.get("base_url")
+            or config.get("moderation_base_url")
+            or os.getenv("DEEPINFRA_BASE_URL")
+            or ""
+        ).strip().rstrip("/")
+        low = raw.lower()
+        if not raw or "whisper" in low or "/inference/" in low:
+            return "https://api.deepinfra.com/v1/openai"
+        if low.endswith("/v1/openai") or "/v1/openai" in low:
+            head = raw.lower().split("/v1/openai", 1)[0]
+            return f"{raw[: len(head)]}/v1/openai" if head else "https://api.deepinfra.com/v1/openai"
+        return "https://api.deepinfra.com/v1/openai"
+
+    @staticmethod
     def _deepinfra_config_from_db_or_env(db: Session) -> dict[str, Any]:
         from app.services.provider_settings import ProviderSettingsService
 
@@ -296,12 +313,7 @@ class OpenAIProviderService:
         api_key = str(config.get("api_key") or os.getenv("DEEPINFRA_API_KEY") or "").strip()
         if not api_key:
             raise ValueError("DeepInfra API key is not configured")
-        base_url = str(
-            config.get("base_url")
-            or config.get("moderation_base_url")
-            or os.getenv("DEEPINFRA_BASE_URL")
-            or "https://api.deepinfra.com/v1/openai"
-        ).strip().rstrip("/")
+        base_url = OpenAIProviderService._deepinfra_chat_base_url_from_config(config)
         model = str(
             config.get("model_name")
             or config.get("moderation_model")

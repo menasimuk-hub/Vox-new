@@ -43,31 +43,74 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_UTILITY_LLM_PROVIDER = "deepinfra"
 DEFAULT_UTILITY_LLM_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER = "deepseek"
+
+
+def _probe_llm_provider(
+    db: Session,
+    *,
+    provider: str,
+    model: str | None = None,
+) -> bool:
+    from app.services.agents.base import AgentMessage
+
+    try:
+        OpenAIProviderService.complete(
+            db,
+            system_prompt='Return JSON only: {"ok":true}',
+            messages=[AgentMessage(role="user", content="ping")],
+            max_tokens=32,
+            temperature=0,
+            provider=provider,
+            model=model,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def resolve_utility_llm_config(db: Session) -> dict[str, str]:
-    """DeepInfra API key + base URL from Admin → Integrations (DB). Model fixed for this job."""
+    """Utility rewrite LLM: DeepInfra+Qwen when chat API works, else DeepSeek from Admin DB."""
     from app.services.provider_settings import ProviderSettingsService
 
     cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="deepinfra")
     config = cfg if isinstance(cfg, dict) else {}
     api_key = str(config.get("api_key") or "").strip()
-    if not api_key:
+    if api_key:
+        base_url = OpenAIProviderService._deepinfra_chat_base_url_from_config(config)
+        if _probe_llm_provider(db, provider="deepinfra", model=DEFAULT_UTILITY_LLM_MODEL):
+            return {
+                "provider": DEFAULT_UTILITY_LLM_PROVIDER,
+                "model": DEFAULT_UTILITY_LLM_MODEL,
+                "api_key_set": True,
+                "base_url": base_url,
+                "integration_enabled": bool(enabled),
+                "source": "deepinfra",
+            }
+
+    ds_cfg, ds_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="deepseek")
+    ds_config = ds_cfg if isinstance(ds_cfg, dict) else {}
+    ds_key = str(ds_config.get("api_key") or "").strip()
+    ds_model = str(ds_config.get("model") or ds_config.get("default_model") or "deepseek-chat").strip()
+    if ds_key and _probe_llm_provider(db, provider="deepseek", model=ds_model):
+        ds_base = str(ds_config.get("base_url") or "https://api.deepseek.com").strip().rstrip("/")
+        return {
+            "provider": DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER,
+            "model": ds_model,
+            "api_key_set": True,
+            "base_url": ds_base,
+            "integration_enabled": bool(ds_enabled),
+            "source": "deepseek_fallback",
+        }
+
+    if api_key:
         raise ValueError(
-            "DeepInfra is not configured. Set API key in Admin → Integrations → DeepInfra (no .env needed)."
+            "DeepInfra API key is set but chat API failed (check Admin base_url is not a Whisper/inference URL). "
+            "DeepSeek fallback also unavailable."
         )
-    base_url = str(
-        config.get("base_url")
-        or config.get("moderation_base_url")
-        or "https://api.deepinfra.com/v1/openai"
-    ).strip().rstrip("/")
-    return {
-        "provider": DEFAULT_UTILITY_LLM_PROVIDER,
-        "model": DEFAULT_UTILITY_LLM_MODEL,
-        "api_key_set": bool(api_key),
-        "base_url": base_url,
-        "integration_enabled": bool(enabled),
-    }
+    raise ValueError(
+        "No utility LLM available. Configure DeepInfra or DeepSeek in Admin → Integrations."
+    )
 
 _EMOJI_RE = re.compile(
     "["
@@ -596,6 +639,28 @@ def rewrite_body_for_utility(
         return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
     except Exception as exc:
         logger.warning("utility_rewrite_llm_fallback name=%s err=%s", template_name, str(exc)[:200])
+        if str(llm_provider or "").strip().lower() == "deepinfra":
+            try:
+                return rewrite_body_for_utility(
+                    db,
+                    original_body=original_body,
+                    button_labels=button_labels,
+                    template_name=template_name,
+                    display_name=display_name,
+                    use_llm=True,
+                    llm_provider=DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER,
+                    llm_model=None,
+                    industry_slug=industry_slug,
+                    industry_name=industry_name,
+                    topic_name=topic_name,
+                    language=language,
+                )
+            except Exception as exc2:
+                logger.warning(
+                    "utility_rewrite_deepseek_fallback_failed name=%s err=%s",
+                    template_name,
+                    str(exc2)[:200],
+                )
         return _fallback_body()
 
 

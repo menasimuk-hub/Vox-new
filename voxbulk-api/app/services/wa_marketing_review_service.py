@@ -348,7 +348,7 @@ def print_rewritten_templates(manifest: dict[str, Any]) -> None:
     print("STEP 3 — REWRITE results (before → after)")
     print("=" * 72)
     print(f"Batch ID: {manifest.get('batch_id')}")
-    print(f"LLM: {manifest.get('llm_provider')} / {manifest.get('llm_model')} (DeepInfra from Admin DB)")
+    print(f"LLM: {manifest.get('llm_provider')} / {manifest.get('llm_model')} (from Admin Integrations)")
     print("")
     for group in manifest.get("groups") or []:
         for item in group.get("items") or []:
