@@ -26,6 +26,7 @@ import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
+import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -112,6 +113,11 @@ const SurveyTokenRoute = SurveyTokenRouteImport.update({
   path: '/survey/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
+  id: '/survey/preview/$themeId',
+  path: '/survey/preview/$themeId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/survey/preview/$themeId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/survey/preview/$themeId'
   id:
     | '__root__'
     | '/'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/survey/preview/$themeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -249,6 +261,7 @@ export interface RootRouteChildren {
   SurveysRoute: typeof SurveysRoute
   TermsRoute: typeof TermsRoute
   SurveyTokenRoute: typeof SurveyTokenRoute
+  SurveyPreviewThemeIdRoute: typeof SurveyPreviewThemeIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SurveyTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/survey/preview/$themeId': {
+      id: '/survey/preview/$themeId'
+      path: '/survey/preview/$themeId'
+      fullPath: '/survey/preview/$themeId'
+      preLoaderRoute: typeof SurveyPreviewThemeIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -393,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   SurveysRoute: SurveysRoute,
   TermsRoute: TermsRoute,
   SurveyTokenRoute: SurveyTokenRoute,
+  SurveyPreviewThemeIdRoute: SurveyPreviewThemeIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

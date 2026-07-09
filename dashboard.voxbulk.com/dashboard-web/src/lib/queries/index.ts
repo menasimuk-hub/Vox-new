@@ -130,6 +130,8 @@ export type CreateFeedbackLocationInput = {
   status?: string;
   open_question_enabled?: boolean;
   marketing_opt_in_enabled?: boolean;
+  web_theme?: Record<string, unknown>;
+  ai_follow_up?: Record<string, unknown>;
 };
 
 export type UpdateFeedbackLocationInput = {
@@ -138,6 +140,8 @@ export type UpdateFeedbackLocationInput = {
   marketing_opt_in_enabled?: boolean;
   name?: string;
   status?: string;
+  web_theme?: Record<string, unknown>;
+  ai_follow_up?: Record<string, unknown>;
 };
 
 export type FeedbackIndustry = {

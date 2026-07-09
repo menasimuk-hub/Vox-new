@@ -25,8 +25,12 @@ from app.services.customer_feedback.survey_config_service import (
     rebuild_survey_config_for_location,
     validate_feedback_survey_templates_ready,
 )
-from app.services.customer_feedback.feedback_marketing_policy import effective_marketing_opt_in_enabled
-from app.services.market_zone import country_to_zone
+from app.services.customer_feedback.web_theme_service import (
+    load_web_theme_from_location,
+    merge_web_theme_into_config,
+    parse_web_theme_config,
+    resolve_theme_id,
+)
 
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
@@ -236,6 +240,17 @@ class FeedbackLocationService:
             open_question_enabled=open_question,
             marketing_opt_in_enabled=marketing_opt_in,
         )
+        web_theme = payload.get("web_theme")
+        ai_follow_up = payload.get("ai_follow_up")
+        if isinstance(web_theme, dict) or isinstance(ai_follow_up, dict):
+            extras: dict[str, Any] = {}
+            if isinstance(web_theme, dict):
+                extras["web_theme"] = web_theme
+            if isinstance(ai_follow_up, dict):
+                extras["ai_follow_up"] = ai_follow_up
+            survey_config = merge_web_theme_into_config(survey_config, extras.get("web_theme"))
+            if extras.get("ai_follow_up"):
+                survey_config["ai_follow_up"] = extras["ai_follow_up"]
         location_name = str(payload.get("name") or "Location").strip()
         company_name = org.name if org else "Your business"
         qr_token = build_location_qr_token(company=company_name, branch=location_name)
@@ -295,6 +310,14 @@ class FeedbackLocationService:
 
         if survey_fields_changed:
             row.survey_config_json = json.dumps(rebuild_survey_config_for_location(db, row))
+
+        if "web_theme" in payload or "ai_follow_up" in payload:
+            cfg = parse_web_theme_config(row.survey_config_json)
+            if "web_theme" in payload and isinstance(payload.get("web_theme"), dict):
+                cfg["web_theme"] = payload["web_theme"]
+            if "ai_follow_up" in payload and isinstance(payload.get("ai_follow_up"), dict):
+                cfg["ai_follow_up"] = payload["ai_follow_up"]
+            row.survey_config_json = json.dumps(cfg)
 
         row.updated_at = datetime.utcnow()
         db.add(row)

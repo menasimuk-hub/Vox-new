@@ -40,9 +40,23 @@ from app.services.customer_feedback.feedback_wa_session_state import (
     parse_deadline,
 )
 from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+from app.services.customer_feedback.web_theme_service import (
+    load_web_theme_from_location,
+    parse_web_theme_config,
+    resolve_theme_id,
+)
 from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
 
 logger = logging.getLogger(__name__)
+
+
+def _maybe_schedule_ai_followup(db: Session, session: FeedbackSession, location: FeedbackLocation) -> None:
+    try:
+        from app.services.customer_feedback.feedback_ai_followup_service import schedule_if_eligible
+
+        schedule_if_eligible(db, session=session, location=location)
+    except Exception:
+        logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
 
 
 def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
@@ -118,17 +132,26 @@ class FeedbackWebSurveyService:
         lang = "en_GB"
         questions = [_step_to_question(db, location, step, language=lang) for step in steps]
         has_logo = bool(org and getattr(org, "logo_storage_key", None))
+        web_theme = load_web_theme_from_location(location)
+        industry_slug = industry.slug if industry else None
+        theme_id = resolve_theme_id(industry_slug=industry_slug, web_theme=web_theme)
+        config_raw = parse_web_theme_config(getattr(location, "survey_config_json", None))
+        ai_follow_up = config_raw.get("ai_follow_up") if isinstance(config_raw.get("ai_follow_up"), dict) else None
         return {
             "token": token,
             "company_name": org.name if org else "Your business",
             "branch_name": location.name or location.branch_code,
             "industry_name": industry.name if industry else None,
+            "industry_slug": industry_slug,
             "wa_url": loc.get("wa_url"),
             "logo_url": f"/public/feedback/survey/{token}/logo" if has_logo else None,
             "web_survey_url": f"{base}/survey/{token}",
             "open_question_enabled": bool(location.open_question_enabled),
             "step_count": len(questions),
             "questions": questions,
+            "theme_id": theme_id,
+            "web_theme": web_theme or None,
+            "ai_follow_up": ai_follow_up,
         }
 
     @staticmethod
@@ -356,6 +379,7 @@ class FeedbackWebSurveyService:
                 session.completed_at = datetime.utcnow()
                 db.add(session)
                 db.commit()
+                _maybe_schedule_ai_followup(db, session, location)
                 return {"completed": True, "thank_you": True}
             question = _step_to_question(
                 db, location, steps[session.current_step], language=session.detected_language
@@ -411,6 +435,7 @@ class FeedbackWebSurveyService:
                 session.completed_at = datetime.utcnow()
                 db.add(session)
                 db.commit()
+                _maybe_schedule_ai_followup(db, session, location)
                 return {"completed": True, "thank_you": True}
             db.add(session)
             db.commit()
@@ -465,6 +490,7 @@ class FeedbackWebSurveyService:
             session.completed_at = datetime.utcnow()
             db.add(session)
             db.commit()
+            _maybe_schedule_ai_followup(db, session, location)
             return {"completed": True, "thank_you": True}
 
         db.add(session)
@@ -690,3 +716,31 @@ class FeedbackWebSurveyService:
             source_language=stt_language,
         )
         return {"transcript": transcript, "saved": True, **result}
+
+    @staticmethod
+    def session_status(db: Session, session_id: str) -> dict[str, Any]:
+        """Lightweight poll for tell-us-more deadline auto-advance on web clients."""
+        session = db.get(FeedbackSession, session_id)
+        if session is None or session.status != "active":
+            return {"active": False, "completed": session is not None and session.status == "completed"}
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            raise ValueError("Location not found")
+        steps = _web_steps(db, location)
+        state = load_feedback_session_state(session)
+        step_index = int(session.current_step or 0)
+        deadline = parse_deadline(state) if is_tell_us_more_pending(state) else None
+        question = (
+            _step_to_question(db, location, steps[step_index], language=session.detected_language)
+            if step_index < len(steps)
+            else None
+        )
+        return {
+            "active": True,
+            "completed": False,
+            "step_index": step_index,
+            "step_count": len(steps),
+            "question": question,
+            "pending_tell_us_more": is_tell_us_more_pending(state),
+            "deadline_at": deadline.isoformat() if deadline else None,
+        }

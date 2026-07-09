@@ -89,6 +89,14 @@ def go_back_web(session_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/survey/sessions/{session_id}/status")
+def web_session_status(session_id: str, db: Session = Depends(get_db)):
+    try:
+        return {"ok": True, **FeedbackWebSurveyService.session_status(db, session_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/survey/sessions/{session_id}/voice")
 async def submit_web_voice(
     session_id: str,

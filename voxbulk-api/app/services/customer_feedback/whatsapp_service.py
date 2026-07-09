@@ -475,6 +475,12 @@ class FeedbackWhatsappService:
             session.completed_at = datetime.utcnow()
             db.add(session)
             db.commit()
+            from app.services.customer_feedback.feedback_ai_followup_service import schedule_if_eligible
+
+            try:
+                schedule_if_eligible(db, session=session, location=location)
+            except Exception:
+                logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
             thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
             thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
             sent = FeedbackWhatsappService._send_wa(

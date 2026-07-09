@@ -234,6 +234,26 @@ class FeedbackPromoSend(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class FeedbackAiFollowUpJob(Base):
+    __tablename__ = "feedback_ai_follow_up_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    location_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_locations.id"), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_sessions.id"), nullable=False, unique=True, index=True)
+    visitor_phone: Mapped[str] = mapped_column(String(64), nullable=False)
+    business_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promo_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    promo_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    promo_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="scheduled")
+    call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outcome_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class FeedbackPromoCampaign(Base):
     __tablename__ = "feedback_promo_campaigns"
 
