@@ -42,9 +42,8 @@ from app.services.wa_template_meta_sync import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_UTILITY_LLM_PROVIDER = "deepinfra"
-# Ranked for multilingual UTILITY rewrites (fast → proven → highest quality).
+# Ranked for multilingual UTILITY rewrites on DeepInfra (verified on VPS).
 DEEPINFRA_UTILITY_MODELS: tuple[str, ...] = (
-    "Qwen/Qwen2.5-32B-Instruct",
     "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
     "Qwen/Qwen2.5-72B-Instruct",
 )

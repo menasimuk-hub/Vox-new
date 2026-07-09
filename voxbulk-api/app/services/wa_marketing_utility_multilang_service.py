@@ -15,9 +15,11 @@ from app.services.providers.openai_service import OpenAIProviderService
 from app.services.survey_wa_utility_rewrite_service import (
     DEFAULT_UTILITY_LLM_MODEL,
     DEFAULT_UTILITY_LLM_PROVIDER,
+    UTILITY_LLM_REQUEST_TIMEOUT_SECONDS,
     _body_has_recommend_intent,
     parse_cfs_meta_name,
     rewrite_body_for_utility,
+    utility_llm_model_chain,
 )
 from app.services.wa_template_utility_lint import lint_utility_template
 
@@ -179,22 +181,33 @@ def audit_multilang_consistency(
         + "\n\n".join(lines)
     )
     try:
-        result = OpenAIProviderService.complete(
-            db,
-            system_prompt=system_prompt,
-            messages=[AgentMessage(role="user", content=user_prompt)],
-            max_tokens=300,
-            temperature=0.1,
-            provider=str(llm_provider or DEFAULT_UTILITY_LLM_PROVIDER).strip().lower(),
-            model=str(llm_model or "").strip() or None,
-        )
-        parsed = _parse_audit_json(result.assistant_text) or {}
-        aligned = [_norm_lang_token(x) for x in (parsed.get("aligned") or []) if str(x).strip()]
-        inconsistent = [_norm_lang_token(x) for x in (parsed.get("inconsistent") or []) if str(x).strip()]
-        notes = str(parsed.get("notes") or "").strip()
-        if anchor_lang not in aligned and anchor_lang not in inconsistent:
-            aligned.append(anchor_lang)
-        return aligned, inconsistent, notes
+        chain = utility_llm_model_chain(provider=llm_provider, llm_model=llm_model)
+        last_exc: Exception | None = None
+        for attempt_provider, attempt_model in chain:
+            try:
+                result = OpenAIProviderService.complete(
+                    db,
+                    system_prompt=system_prompt,
+                    messages=[AgentMessage(role="user", content=user_prompt)],
+                    max_tokens=300,
+                    temperature=0.1,
+                    provider=attempt_provider,
+                    model=attempt_model,
+                    request_timeout=UTILITY_LLM_REQUEST_TIMEOUT_SECONDS,
+                )
+                parsed = _parse_audit_json(result.assistant_text) or {}
+                aligned = [_norm_lang_token(x) for x in (parsed.get("aligned") or []) if str(x).strip()]
+                inconsistent = [_norm_lang_token(x) for x in (parsed.get("inconsistent") or []) if str(x).strip()]
+                notes = str(parsed.get("notes") or "").strip()
+                if anchor_lang not in aligned and anchor_lang not in inconsistent:
+                    aligned.append(anchor_lang)
+                return aligned, inconsistent, notes
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc:
+            raise last_exc
+        raise ValueError("multilang audit: no LLM providers available")
     except Exception as exc:
         logger.warning("multilang_audit_fallback group=%s err=%s", group.group_key, str(exc)[:200])
         all_langs = [_norm_lang_token(v.language) for v in group.variants]
