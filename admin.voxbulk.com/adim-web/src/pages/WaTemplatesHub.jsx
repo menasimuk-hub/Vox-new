@@ -862,11 +862,14 @@ export default function WaTemplatesHub() {
   }
 
   const pushSurveyType = async (row) => {
+    const isFeedbackRow = row.rowKind === 'feedback_template' || row.rowKind === 'feedback_type'
     try {
       await requestSyncConfirm({
         title: `Sync ${row.name || 'template'}`,
         action: 'Push',
-        detail: 'Push this template (or topic) to Meta.',
+        detail: isFeedbackRow
+          ? 'Push all language variants to Meta (primary), mirror to Telnyx backup, then refresh status.'
+          : 'Push this template (or topic) to Meta.',
       })
     } catch (e) {
       if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
@@ -898,24 +901,67 @@ export default function WaTemplatesHub() {
         refreshSelectedProfileSummary()
         return
       }
-      if (row.rowKind === 'feedback_template') {
-        if (row.surveyTypeId && (row.languageCount || 0) > 1) {
-          const result = await apiFetch(
-            `/admin/customer-feedback/survey-types/${encodeURIComponent(row.surveyTypeId)}/sync-telnyx`,
-            { method: 'POST', body: '{}', timeoutMs: 300000, quietNetworkHint: true },
-          )
-          setMsg(formatActionSuccess(result, 'Synced all languages for topic').message)
-          refreshTabData()
-          return
-        }
-        const result = await apiFetch(`/admin/customer-feedback/wa-templates/${row.id}/push`, {
-          method: 'POST',
-          body: '{}',
-          timeoutMs: 180000,
-          quietNetworkHint: true,
+      if (isFeedbackRow) {
+        const dual = resolveDualSyncProfileIds(syncProfileItems, {
+          primaryProfile: primarySyncProfile,
+          backupProfile: backupSyncProfile,
         })
-        setMsg(formatActionSuccess(result, 'Pushed to Meta').message)
+        if (!dual.backup?.id) {
+          throw new Error('Telnyx backup profile not found — add Telnyx 55 in Integrations before syncing Customer Feedback.')
+        }
+        const variantCount =
+          (row.languageCount || 0) > 1
+            ? row.languageCount
+            : Array.isArray(row.raw?.variants)
+              ? row.raw.variants.length
+              : 1
+        const pushAllLangs = Boolean(row.surveyTypeId && variantCount > 1)
+        const typeId = row.surveyTypeId || row.id
+        let lastResult = null
+
+        for (const profileId of dual.ids) {
+          const isBackup = dual.backup?.id && String(profileId) === String(dual.backup.id)
+          if (pushAllLangs) {
+            lastResult = await apiFetch(
+              `/admin/customer-feedback/survey-types/${encodeURIComponent(typeId)}/sync-telnyx`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  service_code: syncServiceCode,
+                  connection_profile_id: profileId,
+                  force_push: Boolean(isBackup),
+                }),
+                timeoutMs: 300000,
+                quietNetworkHint: true,
+              },
+            )
+          } else {
+            const variants =
+              Array.isArray(row.raw?.variants) && row.raw.variants.length ? row.raw.variants : [{ id: row.id }]
+            for (const variant of variants) {
+              const templateId = variant?.id || row.id
+              lastResult = await apiFetch(`/admin/customer-feedback/wa-templates/${templateId}/push`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  service_code: syncServiceCode,
+                  connection_profile_id: profileId,
+                  force_push: Boolean(isBackup),
+                }),
+                timeoutMs: 180000,
+                quietNetworkHint: true,
+              })
+            }
+          }
+        }
+
+        setMsg(
+          formatActionSuccess(
+            lastResult,
+            pushAllLangs ? 'Synced all languages to Meta + Telnyx' : 'Pushed to Meta + Telnyx',
+          ).message,
+        )
         refreshTabData()
+        refreshSelectedProfileSummary()
         return
       }
       // Sync only this survey type / topic (not the whole industry).

@@ -568,21 +568,39 @@ def get_survey_type(survey_type_id: str, db: Session = Depends(get_db), _admin=D
 
 @router.post("/survey-types/{survey_type_id}/sync-telnyx")
 def sync_survey_type_templates(
-    survey_type_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))
+    survey_type_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
         push_all_feedback_templates_for_survey_type,
         refresh_feedback_template_status_from_telnyx_for_industry,
     )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    service_code = str(body.get("service_code") or "customer_feedback")
+    force_push = bool(body.get("force_push"))
 
     row = db.get(FeedbackSurveyType, survey_type_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Survey type not found")
     try:
-        push_summary = push_all_feedback_templates_for_survey_type(db, survey_type_id=survey_type_id)
+        push_summary = push_all_feedback_templates_for_survey_type(
+            db,
+            survey_type_id=survey_type_id,
+            connection_profile_id=profile_id,
+            service_code=service_code,
+            force_push=force_push,
+        )
         refresh_summary = refresh_feedback_template_status_from_telnyx_for_industry(
-            db, industry_id=row.industry_id
+            db,
+            industry_id=row.industry_id,
+            connection_profile_id=profile_id,
+            service_code=service_code,
         )
     except FeedbackTelnyxPushError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -929,12 +947,23 @@ def delete_wa_template(template_id: str, db: Session = Depends(get_db), _admin=D
 
 
 @router.post("/wa-templates/{template_id}/push")
-def push_wa_template(template_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+def push_wa_template(
+    template_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
         push_feedback_template_to_telnyx,
     )
     from app.services.wa_template_closeout_service import WaTemplateCloseoutService
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    service_code = str(body.get("service_code") or "customer_feedback")
+    force_push = bool(body.get("force_push"))
 
     row = db.get(FeedbackWaTemplate, template_id)
     if row is None:
@@ -942,6 +971,12 @@ def push_wa_template(template_id: str, db: Session = Depends(get_db), _admin=Dep
     WaTemplateCloseoutService.repair_feedback_content(db)
     row = db.get(FeedbackWaTemplate, template_id)
     try:
-        return push_feedback_template_to_telnyx(db, row)
+        return push_feedback_template_to_telnyx(
+            db,
+            row,
+            connection_profile_id=profile_id,
+            service_code=service_code,
+            force_push=force_push,
+        )
     except FeedbackTelnyxPushError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

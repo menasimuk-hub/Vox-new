@@ -1083,6 +1083,9 @@ def push_all_feedback_templates_for_survey_type(
     *,
     survey_type_id: str,
     dry_run: bool = False,
+    connection_profile_id: str | None = None,
+    service_code: str = "customer_feedback",
+    force_push: bool = False,
 ) -> dict[str, Any]:
     """Push all language variants for one feedback survey topic."""
     rows = list(
@@ -1098,7 +1101,12 @@ def push_all_feedback_templates_for_survey_type(
     remote_items: list[dict[str, Any]] | None = None
     if not dry_run:
         try:
-            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(db)
+            remote_items = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                allow_account_waba_fallback=not bool(connection_profile_id),
+            )
         except Exception as exc:
             logger.warning("feedback_topic_push_prefetch_failed: %s", str(exc)[:200])
             remote_items = []
@@ -1109,7 +1117,15 @@ def push_all_feedback_templates_for_survey_type(
     errors: list[dict[str, Any]] = []
     for tpl in rows:
         try:
-            result = push_feedback_template_to_telnyx(db, tpl, dry_run=dry_run, remote_items=remote_items)
+            result = push_feedback_template_to_telnyx(
+                db,
+                tpl,
+                dry_run=dry_run,
+                remote_items=remote_items,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+                force_push=force_push,
+            )
             pushed += 1
             results.append({"ok": True, "template_id": tpl.id, "language": tpl.language, **result})
         except FeedbackTelnyxPushError as exc:
