@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Marketing → UTILITY cleanup — 5 clear steps (VPS).
+"""Marketing → UTILITY cleanup — prefer migrate_marketing_to_utility.py (one script, all langs).
 
-DeepInfra API key comes from Admin → Integrations → DeepInfra (DB). No .env changes.
-Rewrites use Qwen2.5 72B via DeepInfra. Push goes to Meta (+447822002099) AND Telnyx (+447822002055).
+ONE COMMAND (recommended):
+  .venv/bin/python scripts/migrate_marketing_to_utility.py
+  .venv/bin/python scripts/migrate_marketing_to_utility.py --batch-id BATCH --push --yes
 
-WORKFLOW (run from /www/voxbulk/voxbulk-api):
+Legacy step-by-step workflow still available below.
+DeepInfra multilingual models from Admin → Integrations. Push: Meta (+447822002099) + Telnyx (+447822002055).
 
   Step 1 — list MARKETING templates (read-only):
     .venv/bin/python scripts/purge_marketing_wa_templates.py list-marketing
@@ -47,6 +49,7 @@ from app.services.wa_marketing_review_service import (
     print_rewritten_templates,
     review_batch_dir,
     run_batch_rewrites,
+    run_full_marketing_migration,
 )
 
 
@@ -227,6 +230,36 @@ def cmd_push(args: argparse.Namespace) -> int:
     return 0 if fail == 0 else 1
 
 
+def cmd_run_all(args: argparse.Namespace) -> int:
+    batch_id = str(args.batch_id or _default_batch_id()).strip()
+    db = get_sessionmaker()()
+    try:
+        result = run_full_marketing_migration(
+            db,
+            batch_id=batch_id,
+            name_contains=args.name_contains,
+            limit=args.limit or 0,
+            use_llm=not args.no_llm,
+            push=bool(args.push),
+            push_yes=bool(args.yes),
+            push_delay=args.push_delay,
+            sync_remote=bool(args.sync_remote),
+            only_lint_ok_push=not args.include_lint_failures,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        db.close()
+    if args.push and result.get("push"):
+        push = result["push"]
+        if push.get("message"):
+            print(push["message"])
+        elif int(push.get("failed") or 0) > 0:
+            return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Marketing → UTILITY: list → approve rewrite → rewrite → approve push → push",
@@ -234,6 +267,18 @@ def main() -> int:
         epilog=__doc__,
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p0 = sub.add_parser("run-all", help="One shot: list + rewrite ALL marketing templates (all langs)")
+    p0.add_argument("--batch-id", default=None)
+    p0.add_argument("--name-contains", default=None)
+    p0.add_argument("--limit", type=int, default=0)
+    p0.add_argument("--no-llm", action="store_true")
+    p0.add_argument("--push", action="store_true")
+    p0.add_argument("--yes", action="store_true")
+    p0.add_argument("--include-lint-failures", action="store_true")
+    p0.add_argument("--push-delay", type=float, default=30.0)
+    p0.add_argument("--sync-remote", action="store_true")
+    p0.set_defaults(func=cmd_run_all)
 
     p1 = sub.add_parser("list-marketing", help="Step 1: pull + show MARKETING templates")
     p1.add_argument("--batch-id", default=None, help=f"Batch folder name (default: today {_default_batch_id()})")

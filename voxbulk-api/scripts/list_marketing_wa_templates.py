@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Script 1 — List all MARKETING templates on Meta (+447822002099) and Telnyx (+447822002055).
+"""Script 1 — DEPRECATED: use migrate_marketing_to_utility.py instead.
 
-Read-only. No LLM. No DB writes. Saves a batch manifest for script 2.
+  .venv/bin/python scripts/migrate_marketing_to_utility.py --batch-id BATCH
 
-Usage (VPS):
+Legacy list-only (read-only):
   cd /www/voxbulk/voxbulk-api
   .venv/bin/python scripts/list_marketing_wa_templates.py
   .venv/bin/python scripts/list_marketing_wa_templates.py --batch-id 20260709 --limit 10
@@ -62,8 +62,8 @@ def main() -> int:
     print_listed_templates(manifest)
     print(f"Manifest: {review_batch_dir(batch_id)}/manifest.json")
     print("")
-    print("Script 2 — test rewrite on approved templates:")
-    print(f"  .venv/bin/python scripts/test_marketing_wa_utility_rewrite.py --batch-id {batch_id} --limit 1")
+    print("Script 2 — DEPRECATED. Use one command for all languages:")
+    print(f"  .venv/bin/python scripts/migrate_marketing_to_utility.py --batch-id {batch_id}")
     return 0
 
 

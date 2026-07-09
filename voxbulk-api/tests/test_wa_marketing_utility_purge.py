@@ -114,6 +114,17 @@ def test_manifest_items_to_plan_filters_approved_push_only():
     assert plan[0].dry_preview.get("body_after") == "after"
 
 
+def test_utility_llm_model_chain_deepinfra_order():
+    from app.services.survey_wa_utility_rewrite_service import (
+        DEEPINFRA_UTILITY_MODELS,
+        utility_llm_model_chain,
+    )
+
+    chain = utility_llm_model_chain(provider="deepinfra")
+    assert chain[0][1] == DEEPINFRA_UTILITY_MODELS[0]
+    assert ("deepinfra", "Qwen/Qwen2.5-72B-Instruct") in chain
+
+
 def test_rewrite_body_for_utility_passes_deepinfra_model():
     class _FakeDb:
         pass

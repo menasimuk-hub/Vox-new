@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Script 2 — Test Qwen utility rewrite on approved MARKETING templates (no push).
+"""DEPRECATED — use migrate_marketing_to_utility.py (one script, all languages).
 
-Workflow:
-  1. Run list_marketing_wa_templates.py first (creates batch manifest).
-  2. This script approves templates for rewrite, runs Qwen via DeepInfra (Admin DB), shows before/after.
+  .venv/bin/python scripts/migrate_marketing_to_utility.py --batch-id BATCH
 
-Does NOT push to Meta/Telnyx. Use purge_marketing_wa_templates.py push after you approve.
-
-Usage (VPS):
+Legacy test-only rewrite (no push):
   cd /www/voxbulk/voxbulk-api
   .venv/bin/python scripts/test_marketing_wa_utility_rewrite.py --batch-id 20260709 --limit 1
   .venv/bin/python scripts/test_marketing_wa_utility_rewrite.py --batch-id 20260709 --names was_hotel_* --limit 1

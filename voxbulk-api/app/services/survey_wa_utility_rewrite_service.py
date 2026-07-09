@@ -42,8 +42,32 @@ from app.services.wa_template_meta_sync import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_UTILITY_LLM_PROVIDER = "deepinfra"
-DEFAULT_UTILITY_LLM_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+# Ranked for multilingual UTILITY rewrites (fast → proven → highest quality).
+DEEPINFRA_UTILITY_MODELS: tuple[str, ...] = (
+    "Qwen/Qwen2.5-32B-Instruct",
+    "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+    "Qwen/Qwen2.5-72B-Instruct",
+)
+DEFAULT_UTILITY_LLM_MODEL = DEEPINFRA_UTILITY_MODELS[0]
 DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER = "deepseek"
+UTILITY_LLM_REQUEST_TIMEOUT_SECONDS = 120.0
+
+
+def utility_llm_model_chain(
+    *,
+    provider: str | None = None,
+    llm_model: str | None = None,
+) -> list[tuple[str, str | None]]:
+    """Ordered (provider, model) attempts for utility BODY rewrites."""
+    selected = str(provider or DEFAULT_UTILITY_LLM_PROVIDER).strip().lower()
+    if selected == "deepinfra":
+        models = list(DEEPINFRA_UTILITY_MODELS)
+        if llm_model and str(llm_model).strip() not in models:
+            models.insert(0, str(llm_model).strip())
+        return [("deepinfra", model) for model in models]
+    if selected == "deepseek":
+        return [("deepseek", llm_model or None)]
+    return [(selected, llm_model or None)]
 
 
 def _probe_llm_provider(
@@ -51,6 +75,7 @@ def _probe_llm_provider(
     *,
     provider: str,
     model: str | None = None,
+    timeout_seconds: float = UTILITY_LLM_REQUEST_TIMEOUT_SECONDS,
 ) -> bool:
     from app.services.agents.base import AgentMessage
 
@@ -63,14 +88,15 @@ def _probe_llm_provider(
             temperature=0,
             provider=provider,
             model=model,
+            request_timeout=timeout_seconds,
         )
         return True
     except Exception:
         return False
 
 
-def resolve_utility_llm_config(db: Session) -> dict[str, str]:
-    """Utility rewrite LLM: DeepInfra+Qwen when chat API works, else DeepSeek from Admin DB."""
+def resolve_utility_llm_config(db: Session, *, probe: bool = False) -> dict[str, str]:
+    """Utility rewrite LLM: DeepInfra multilingual models (Admin DB), else DeepSeek."""
     from app.services.provider_settings import ProviderSettingsService
 
     cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="deepinfra")
@@ -78,10 +104,19 @@ def resolve_utility_llm_config(db: Session) -> dict[str, str]:
     api_key = str(config.get("api_key") or "").strip()
     if api_key:
         base_url = OpenAIProviderService._deepinfra_chat_base_url_from_config(config)
-        if _probe_llm_provider(db, provider="deepinfra", model=DEFAULT_UTILITY_LLM_MODEL):
+        chosen_model = DEFAULT_UTILITY_LLM_MODEL
+        if probe:
+            for candidate in DEEPINFRA_UTILITY_MODELS:
+                if _probe_llm_provider(db, provider="deepinfra", model=candidate):
+                    chosen_model = candidate
+                    break
+            else:
+                chosen_model = ""
+        if chosen_model:
             return {
                 "provider": DEFAULT_UTILITY_LLM_PROVIDER,
-                "model": DEFAULT_UTILITY_LLM_MODEL,
+                "model": chosen_model,
+                "models": ",".join(DEEPINFRA_UTILITY_MODELS),
                 "api_key_set": True,
                 "base_url": base_url,
                 "integration_enabled": bool(enabled),
@@ -92,11 +127,12 @@ def resolve_utility_llm_config(db: Session) -> dict[str, str]:
     ds_config = ds_cfg if isinstance(ds_cfg, dict) else {}
     ds_key = str(ds_config.get("api_key") or "").strip()
     ds_model = str(ds_config.get("model") or ds_config.get("default_model") or "deepseek-chat").strip()
-    if ds_key and _probe_llm_provider(db, provider="deepseek", model=ds_model):
+    if ds_key and (not probe or _probe_llm_provider(db, provider="deepseek", model=ds_model)):
         ds_base = str(ds_config.get("base_url") or "https://api.deepseek.com").strip().rstrip("/")
         return {
             "provider": DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER,
             "model": ds_model,
+            "models": ds_model,
             "api_key_set": True,
             "base_url": ds_base,
             "integration_enabled": bool(ds_enabled),
@@ -105,8 +141,8 @@ def resolve_utility_llm_config(db: Session) -> dict[str, str]:
 
     if api_key:
         raise ValueError(
-            "DeepInfra API key is set but chat API failed (check Admin base_url is not a Whisper/inference URL). "
-            "DeepSeek fallback also unavailable."
+            "DeepInfra API key is set but no chat model responded. "
+            "Check Admin → Integrations → DeepInfra base URL (use https://api.deepinfra.com/v1/openai, not Whisper)."
         )
     raise ValueError(
         "No utility LLM available. Configure DeepInfra or DeepSeek in Admin → Integrations."
@@ -613,54 +649,51 @@ def rewrite_body_for_utility(
         "If the current BODY lacks a recent-visit/stay anchor, add one naturally in the output language."
     )
     try:
-        selected_model = str(llm_model or "").strip() or None
-        result = OpenAIProviderService.complete(
-            db,
-            system_prompt=system_prompt,
-            messages=[AgentMessage(role="user", content=user_prompt)],
-            max_tokens=400,
-            temperature=0.2,
-            provider=str(llm_provider or DEFAULT_UTILITY_LLM_PROVIDER).strip().lower(),
-            model=selected_model,
-        )
-        parsed = _parse_rewrite_json(result.assistant_text)
-        body = str((parsed or {}).get("body") or "").strip()
-        body = _sanitize_body(body)
-        if not body:
-            raise ValueError("empty body from model")
-        if _is_non_english_language(lang_code, template_name=template_name) and _looks_english_utility_template(body):
-            return _fallback_body()
-        if frame["key"] == "employee" and "visit" in body.lower():
-            return _fallback_body(body)
-        if not _mentions_recent_interaction(body):
-            if _is_non_english_language(lang_code, template_name=template_name):
-                return _fallback_body()
-            return _fallback_body(body)
-        return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
+        chain = utility_llm_model_chain(provider=llm_provider, llm_model=llm_model)
+        if str(llm_provider or "").strip().lower() != "deepinfra":
+            chain.append(("deepseek", None))
+        last_exc: Exception | None = None
+        for attempt_provider, attempt_model in chain:
+            try:
+                result = OpenAIProviderService.complete(
+                    db,
+                    system_prompt=system_prompt,
+                    messages=[AgentMessage(role="user", content=user_prompt)],
+                    max_tokens=400,
+                    temperature=0.2,
+                    provider=attempt_provider,
+                    model=attempt_model,
+                    request_timeout=UTILITY_LLM_REQUEST_TIMEOUT_SECONDS,
+                )
+                parsed = _parse_rewrite_json(result.assistant_text)
+                body = str((parsed or {}).get("body") or "").strip()
+                body = _sanitize_body(body)
+                if not body:
+                    raise ValueError("empty body from model")
+                if _is_non_english_language(lang_code, template_name=template_name) and _looks_english_utility_template(body):
+                    return _fallback_body()
+                if frame["key"] == "employee" and "visit" in body.lower():
+                    return _fallback_body(body)
+                if not _mentions_recent_interaction(body):
+                    if _is_non_english_language(lang_code, template_name=template_name):
+                        return _fallback_body()
+                    return _fallback_body(body)
+                return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "utility_rewrite_llm_attempt_failed name=%s provider=%s model=%s err=%s",
+                    template_name,
+                    attempt_provider,
+                    attempt_model or "(default)",
+                    str(exc)[:200],
+                )
+                continue
+        if last_exc:
+            raise last_exc
+        raise ValueError("no LLM providers available for utility rewrite")
     except Exception as exc:
         logger.warning("utility_rewrite_llm_fallback name=%s err=%s", template_name, str(exc)[:200])
-        if str(llm_provider or "").strip().lower() == "deepinfra":
-            try:
-                return rewrite_body_for_utility(
-                    db,
-                    original_body=original_body,
-                    button_labels=button_labels,
-                    template_name=template_name,
-                    display_name=display_name,
-                    use_llm=True,
-                    llm_provider=DEFAULT_UTILITY_LLM_FALLBACK_PROVIDER,
-                    llm_model=None,
-                    industry_slug=industry_slug,
-                    industry_name=industry_name,
-                    topic_name=topic_name,
-                    language=language,
-                )
-            except Exception as exc2:
-                logger.warning(
-                    "utility_rewrite_deepseek_fallback_failed name=%s err=%s",
-                    template_name,
-                    str(exc2)[:200],
-                )
         return _fallback_body()
 
 

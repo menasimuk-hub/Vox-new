@@ -343,6 +343,7 @@ class OpenAIProviderService:
         max_tokens: int | None = None,
         temperature: float | None = None,
         provider: str | None = None,
+        request_timeout: float | None = None,
     ) -> OpenAIResponse:
         total_start = time.perf_counter()
         config_start = time.perf_counter()
@@ -387,10 +388,12 @@ class OpenAIProviderService:
             },
         )
         http_start = time.perf_counter()
+        timeout = float(request_timeout) if request_timeout else None
         response = OpenAIProviderService._http_client().post(
             OpenAIProviderService._endpoint_url(config, endpoint_path),
             json=payload,
             headers=OpenAIProviderService._headers(config),
+            timeout=timeout,
         )
         http_ms = int((time.perf_counter() - http_start) * 1000)
         try:

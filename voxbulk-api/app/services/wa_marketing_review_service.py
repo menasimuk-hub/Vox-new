@@ -638,6 +638,152 @@ def approve_manifest_items(
     return {"approved": approved, "to_status": to_status, "status_counts": counts}
 
 
+def approve_rewritten_for_push(
+    batch_id: str,
+    *,
+    names: list[str] | None = None,
+    ids: list[str] | None = None,
+    approve_all: bool = False,
+    only_lint_ok: bool = True,
+) -> dict[str, Any]:
+    """Approve rewritten manifest items for live push (default: lint_ok only)."""
+    manifest = load_manifest(batch_id)
+    approved = 0
+    skipped_lint = 0
+    for group in manifest.get("groups") or []:
+        for item in group.get("items") or []:
+            if str(item.get("status") or "") != "rewritten":
+                continue
+            if not approve_all and not _matches_filter(item, names=names, ids=ids):
+                continue
+            if only_lint_ok and not bool(item.get("lint_ok")):
+                skipped_lint += 1
+                continue
+            item["status"] = "approved_push"
+            approved += 1
+    manifest["approved_push_at"] = _now_iso()
+    counts = _recount_statuses(manifest)
+    save_manifest(batch_id, manifest)
+    _write_overview_md(review_batch_dir(batch_id), manifest)
+    return {
+        "approved": approved,
+        "skipped_lint_failures": skipped_lint,
+        "status_counts": counts,
+    }
+
+
+def print_migration_summary(manifest: dict[str, Any]) -> None:
+    counts = manifest.get("status_counts") or {}
+    total = sum(int(v) for v in counts.values())
+    lint_ok = 0
+    lint_fail = 0
+    unchanged = 0
+    changed = 0
+    for group in manifest.get("groups") or []:
+        for item in group.get("items") or []:
+            if bool(item.get("lint_ok")):
+                lint_ok += 1
+            elif item.get("lint_ok") is False:
+                lint_fail += 1
+            if bool(item.get("rewritten")):
+                changed += 1
+            elif str(item.get("status") or "") in {"rewritten", "approved_push", "pushed"}:
+                unchanged += 1
+    print("=" * 72)
+    print("MIGRATION SUMMARY")
+    print("=" * 72)
+    print(f"Batch: {manifest.get('batch_id')} | LLM: {manifest.get('llm_provider')} / {manifest.get('llm_model')}")
+    print(f"Templates: {total} | changed: {changed} | unchanged (already compliant): {unchanged}")
+    print(f"Lint OK: {lint_ok} | Lint failed: {lint_fail}")
+    print(f"Status counts: {counts}")
+    print(f"Review folder: {review_batch_dir(str(manifest.get('batch_id') or ''))}")
+    print("")
+
+
+def run_full_marketing_migration(
+    db: Session,
+    *,
+    batch_id: str,
+    name_contains: str | None = None,
+    limit: int = 0,
+    use_llm: bool = True,
+    push: bool = False,
+    push_yes: bool = False,
+    push_delay: float = 30.0,
+    sync_remote: bool = False,
+    only_lint_ok_push: bool = True,
+) -> dict[str, Any]:
+    """One-shot: list all MARKETING → rewrite all langs → optional push to Meta+Telnyx."""
+    from app.services.wa_marketing_purge_service import apply_purge_plan, manifest_items_to_plan
+
+    llm_cfg = resolve_utility_llm_config(db)
+    manifest = create_marketing_list_manifest(
+        db,
+        batch_id=batch_id,
+        name_contains=name_contains,
+        limit=limit,
+    )
+    listed = int((manifest.get("status_counts") or {}).get("listed", 0))
+    approve_rewrite = approve_manifest_items(
+        batch_id,
+        approve_all=True,
+        from_status="listed",
+        to_status="approved_rewrite",
+    )
+    rewrite_result = run_batch_rewrites(
+        db,
+        batch_id=batch_id,
+        use_llm=use_llm,
+        limit_groups=0,
+    )
+    manifest = load_manifest(batch_id)
+    print_migration_summary(manifest)
+    print_rewritten_templates(manifest)
+
+    push_result: dict[str, Any] | None = None
+    if push:
+        approve_push = approve_rewritten_for_push(
+            batch_id,
+            approve_all=True,
+            only_lint_ok=only_lint_ok_push,
+        )
+        plan = manifest_items_to_plan(manifest, approved_only=True)
+        if not plan:
+            push_result = {"ok": 0, "failed": 0, "message": "No approved_push items"}
+        elif not push_yes:
+            push_result = {
+                "ok": 0,
+                "failed": 0,
+                "message": f"Review complete. {len(plan)} item(s) ready — re-run with --push --yes",
+            }
+        else:
+            results = apply_purge_plan(
+                db,
+                plan,
+                dry_run=False,
+                push=True,
+                sync_remote=sync_remote,
+                use_llm=False,
+                llm_provider=llm_cfg["provider"],
+                llm_model=llm_cfg["model"],
+                push_delay_seconds=max(0.0, float(push_delay)),
+                batch_id=batch_id,
+            )
+            ok = sum(1 for r in results if r.get("ok"))
+            push_result = {"ok": ok, "failed": len(results) - ok, "total": len(results)}
+    return {
+        "batch_id": batch_id,
+        "listed": listed,
+        "approved_rewrite": approve_rewrite.get("approved", 0),
+        "rewritten": rewrite_result.get("rewritten", 0),
+        "llm_provider": llm_cfg["provider"],
+        "llm_model": llm_cfg["model"],
+        "llm_models": llm_cfg.get("models"),
+        "status_counts": manifest.get("status_counts"),
+        "push": push_result,
+    }
+
+
 def update_manifest_item_status(
     batch_id: str,
     *,
