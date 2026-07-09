@@ -84,9 +84,6 @@ def main() -> int:
     args = parser.parse_args()
 
     dry_run = not args.apply
-    if args.apply and args.push and not args.yes and not _confirm_push():
-        print("Aborted.", file=sys.stderr)
-        return 1
 
     db = get_sessionmaker()()
     try:
@@ -96,6 +93,14 @@ def main() -> int:
         )
     finally:
         db.close()
+
+    work_plan = plan[: args.limit] if args.limit and args.limit > 0 else plan
+
+    if args.apply and args.push and not args.yes:
+        if not _confirm_push():
+            print("Aborted.", file=sys.stderr)
+            return 1
+        print(f"\nApplying {len(work_plan)} item(s) — progress prints live below.\n", flush=True)
 
     print("=" * 60)
     print("SURVEY MARKETING → UTILITY" + (" (dry-run)" if dry_run else " (apply)"))
@@ -108,7 +113,6 @@ def main() -> int:
     print(f"Templates to rewrite: {overview.get('push_items', 0)}")
     print(f"Local DB rows deleted: {overview.get('local_db_rows_deleted', 0)} (always 0)")
 
-    work_plan = plan[: args.limit] if args.limit and args.limit > 0 else plan
     for index, item in enumerate(work_plan, start=1):
         if item.action == "survey_rewrite_push":
             _print_plan_item(index, item)
@@ -149,16 +153,6 @@ def main() -> int:
 
     ok = sum(1 for r in results if r.get("ok"))
     fail = len(results) - ok
-    for result in results:
-        status = "OK" if result.get("ok") else "FAIL"
-        line = f"{status} [{result.get('index')}/{result.get('total')}] {result.get('label')}"
-        if result.get("error"):
-            line += f" — {result['error']}"
-        elif result.get("new_name"):
-            line += f" → {result['new_name']} (local row kept)"
-        if result.get("deleted_remote"):
-            line += f" | removed old Meta/Telnyx: {result['deleted_remote']}"
-        print(line, flush=True)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -180,6 +174,12 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"\nDone: {ok} ok, {fail} failed. Report: {report_path}")
+    if fail and ok == 0:
+        print(
+            "\nTip: re-run dry-run first. If bodies still show 'how likely are you', "
+            "git pull (rewrite fixes) then --limit 1 to test one template.",
+            file=sys.stderr,
+        )
     return 0 if fail == 0 else 1
 
 

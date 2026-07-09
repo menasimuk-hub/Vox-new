@@ -78,7 +78,7 @@ def is_was_survey_name(name: str | None) -> bool:
     return str(name or "").strip().lower().startswith("was_")
 
 
-_WAS_SEQ_SUFFIX_RE = re.compile(r"^(.+_)(\d{3})_(en|ar)$", re.I)
+_WAS_SEQ_SUFFIX_RE = re.compile(r"^(.+_)(\d{3})_(en|ar)(?:_[a-z0-9]{4,8})?$", re.I)
 
 
 def suggest_next_was_seq_name(

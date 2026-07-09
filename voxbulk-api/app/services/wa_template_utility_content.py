@@ -88,6 +88,9 @@ TOPIC_SAFE_EN: dict[str, str] = {
     "return_intent": "future use",
     "return intent standard": "future use",
     "return_intent_standard": "future use",
+    "repeat purchase intent": "overall satisfaction",
+    "repeat_purchase_intent": "overall satisfaction",
+    "repeat purchase": "overall satisfaction",
 }
 
 TOPIC_SAFE_AR: dict[str, str] = {

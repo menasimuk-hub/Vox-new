@@ -71,7 +71,24 @@ def test_suggest_next_was_seq_name():
         suggest_next_was_seq_name("was_logistics_delivery_would_recommend_002_en", used_names=used)
         == "was_logistics_delivery_would_recommend_004_en"
     )
+    assert (
+        suggest_next_was_seq_name("was_logistics_delivery_would_recommend_002_en_rb044", used_names=used)
+        == "was_logistics_delivery_would_recommend_004_en"
+    )
     assert suggest_next_was_seq_name("voxbulk_survey_food_abc_123", used_names=set()) is None
+
+
+def test_rule_based_rewrites_repeat_purchase_intent():
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    body = _rule_based_utility_body(
+        "Based on your recent visit, how likely are you to shop with us again?",
+        topic_hint="repeat purchase intent",
+        industry_slug="retail_ecommerce",
+    )
+    lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
+    assert lint.ok
+    assert "how likely" not in body.lower()
 
 
 def test_needs_utility_clone_for_category_change():

@@ -51,13 +51,14 @@ _EMOJI_RE = re.compile(
 )
 
 _RECOMMEND_INTENT_RE = re.compile(
-    r"\bwould you recommend\b|\bhow likely are you\b.*\brecommend\b|\blikely are you to recommend\b|"
+    r"\bwould you recommend\b|\bhow likely are you\b|\blikely are you to\b|"
     r"\brecommend us\b|\brecommend us to\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b|"
-    r"\bnet promoter\b|\bnps\b",
+    r"\bnet promoter\b|\bnps\b|\bshop with us again\b|\bshop with us\b.*\bagain\b|"
+    r"\brepeat purchase\b|\bpurchase intent\b|\battend our events again\b",
     re.IGNORECASE,
 )
 
-_WAS_TOPIC_SUFFIX_RE = re.compile(r"^was_(?:system_)?(.+)_(\d{3})_(en|ar)$", re.I)
+_WAS_TOPIC_SUFFIX_RE = re.compile(r"^was_(?:system_)?(.+)_(\d{3})_(en|ar)(?:_[a-z0-9]{4,8})?$", re.I)
 
 _UTILITY_CONTEXT_PHRASES = (
     "recent visit",
@@ -149,6 +150,16 @@ def _prepend_leading_emoji(emoji: str, body: str) -> str:
     return f"{emoji} {text}".strip()
 
 
+def _normalize_leading_emoji_text(text: str) -> str:
+    """Collapse stray spaces inside/with leading emoji (Meta rejects some sequences)."""
+    raw = str(text or "").strip()
+    emoji, rest = _extract_leading_emoji(raw)
+    if not emoji:
+        return re.sub(r"\s+", " ", raw).strip()
+    rest = re.sub(r"\s+", " ", rest).strip()
+    return _prepend_leading_emoji(emoji, rest)
+
+
 def _mentions_recent_interaction(text: str) -> bool:
     lower = str(text or "").lower()
     return any(phrase in lower for phrase in _UTILITY_CONTEXT_PHRASES)
@@ -228,6 +239,8 @@ def _topic_from_template_name(name: str) -> str:
             return "would recommend"
         if "return_intent" in middle:
             return "return intent"
+        if "repeat_purchase" in middle or "repeat purchase" in middle.replace("_", " "):
+            return "repeat purchase intent"
         parts = [p for p in middle.split("_") if p]
         if parts and parts[0] == "employee" and len(parts) > 1:
             return " ".join(parts[1:])
@@ -409,6 +422,7 @@ def apply_utility_rewrite_to_row(
         industry_name=industry_name,
         topic_name=topic_name,
     )
+    new_body = _normalize_leading_emoji_text(new_body)
     lint = lint_utility_template(
         body=new_body,
         buttons=buttons,
@@ -783,18 +797,16 @@ def discover_was_utility_rewrite_candidates(
 
 
 def _needs_utility_clone_for_category_change(row: TelnyxWhatsappTemplate) -> bool:
-    """Meta never allows category changes on APPROVED templates.
+    """Meta never allows category changes on APPROVED/PENDING templates with a live remote id.
 
     Local row.category may already be UTILITY from a prior failed push attempt while
-    Telnyx/Meta still has the original MARKETING-approved template linked — always
-    clone to *_utu_* when a real remote id is still attached.
+    Telnyx/Meta still has the original MARKETING-approved template linked — bump seq
+    (was_*) or clone (*_utu_*) when a real remote id is still attached.
     """
     if is_utility_clone_template_name(row.name):
         return False
-    return (
-        str(row.status or "").upper() == "APPROVED"
-        and _has_remote_telnyx_id(row)
-    )
+    status = str(row.status or "").upper()
+    return status in {"APPROVED", "PENDING"} and _has_remote_telnyx_id(row)
 
 
 def _prepare_approved_template_for_utility_push(

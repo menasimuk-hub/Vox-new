@@ -228,7 +228,7 @@ def build_marketing_purge_plan(
             )
             from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
 
-            if str(row.status or "").upper() == "APPROVED" and _has_remote_telnyx_id(row):
+            if str(row.status or "").upper() in {"APPROVED", "PENDING"} and _has_remote_telnyx_id(row):
                 used = {
                     str(r[0]).strip().lower()
                     for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
@@ -310,6 +310,28 @@ def apply_purge_plan_item(
             if push:
                 row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
             old_body, new_body = apply_utility_rewrite_to_row(db, row, use_llm=use_llm_local)
+            from app.services.wa_template_utility_lint import lint_utility_template
+
+            components = _effective_components(row)
+            _body, buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
+            industry_slug, industry_name = _industry_for_template_row(db, row)
+            employee = (industry_slug or "") == "employee_survey"
+            lint = lint_utility_template(
+                body=new_body,
+                buttons=buttons,
+                language=row.language,
+                meta_category="utility",
+                require_transaction_anchor=not employee,
+            )
+            if not lint.ok:
+                msgs = "; ".join(i.message for i in lint.issues[:3])
+                return {
+                    "ok": False,
+                    "action": item.action,
+                    "label": item.label,
+                    "error": f"Utility lint failed before push: {msgs}",
+                    "new_body": new_body[:200],
+                }
             pushed = False
             push_msg = ""
             if push:
@@ -378,13 +400,17 @@ def apply_purge_plan(
     results: list[dict[str, Any]] = []
     push_actions = {"survey_rewrite_push"}
     last_push_at = 0.0
+    total = len(plan)
     for index, item in enumerate(plan, start=1):
         is_push_action = item.action in push_actions
-        if is_push_action and push and not dry_run and last_push_at > 0 and push_delay_seconds > 0:
-            elapsed = time.time() - last_push_at
-            wait = push_delay_seconds - elapsed
-            if wait > 0:
-                time.sleep(wait)
+        if is_push_action and push and not dry_run:
+            print(f"\n[{index}/{total}] START {item.label}", flush=True)
+            if last_push_at > 0 and push_delay_seconds > 0:
+                elapsed = time.time() - last_push_at
+                wait = push_delay_seconds - elapsed
+                if wait > 0:
+                    print(f"    waiting {int(wait)}s before next Meta push…", flush=True)
+                    time.sleep(wait)
         result = apply_purge_plan_item(
             db,
             item,
@@ -394,8 +420,16 @@ def apply_purge_plan(
             use_llm=use_llm,
         )
         result["index"] = index
-        result["total"] = len(plan)
+        result["total"] = total
         results.append(result)
+        if is_push_action and push and not dry_run:
+            if result.get("ok"):
+                msg = f"OK  [{index}/{total}] {result.get('new_name') or item.label}"
+                if result.get("deleted_remote"):
+                    msg += f" | removed old: {item.old_meta_name}"
+                print(msg, flush=True)
+            else:
+                print(f"FAIL [{index}/{total}] {item.label} — {result.get('error', 'unknown')}", flush=True)
         if is_push_action and push and not dry_run and result.get("ok"):
             last_push_at = time.time()
     return results
