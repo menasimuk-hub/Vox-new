@@ -28,6 +28,12 @@ _VAR_RE = re.compile(r"\{\{(\d+)\}\}")
 class FeedbackWaSendService:
     @staticmethod
     def is_template_sendable(tpl: FeedbackWaTemplate) -> bool:
+        from app.services.customer_feedback.feedback_wa_session_text import (
+            feedback_template_must_send_as_session_text,
+        )
+
+        if feedback_template_must_send_as_session_text(tpl):
+            return bool(str(tpl.body_text or "").strip())
         return str(tpl.telnyx_sync_status or "").lower() in _APPROVED_SYNC_STATUSES
 
     @staticmethod
@@ -81,6 +87,33 @@ class FeedbackWaSendService:
         variables: dict[str, str] | None = None,
     ) -> TelnyxMessageResult:
         _ = location  # Meta template names come from the template row, not the QR location.
+        from app.services.customer_feedback.feedback_wa_session_text import (
+            feedback_template_must_send_as_session_text,
+        )
+
+        if feedback_template_must_send_as_session_text(tpl):
+            body = format_template_message(tpl, for_hsm=True)
+            if not str(body or "").strip():
+                return TelnyxMessageResult(
+                    ok=False,
+                    status="missing_body",
+                    detail=f"WhatsApp template “{tpl.template_key}” has no body text.",
+                    channel="whatsapp",
+                )
+            logger.info(
+                "feedback_wa_session_text_sent to=%s template_key=%s",
+                to_number,
+                tpl.template_key,
+            )
+            return TelnyxMessagingService.send_whatsapp(
+                db,
+                to_number=to_number,
+                body=body,
+                org_id=org_id,
+                meter_usage=False,
+                service_code="customer_feedback",
+            )
+
         if not FeedbackWaSendService.is_template_sendable(tpl):
             logger.error(
                 "feedback_wa_template_not_approved template_id=%s template_key=%s status=%s",

@@ -590,7 +590,7 @@ def test_send_feedback_template_uses_meta_template_name():
             language="en_GB",
             body_text="Thank you for your feedback.",
             is_active=True,
-            telnyx_sync_status="approved",
+            telnyx_sync_status="draft",
         )
         db.add(tpl)
         db.commit()
@@ -612,11 +612,11 @@ def test_send_feedback_template_uses_meta_template_name():
             TelnyxMessagingService.send_whatsapp = original_send
 
         assert result.ok is True
-        send_mock.assert_called()
+        send_mock.assert_called_once()
         kwargs = send_mock.call_args.kwargs
-        assert kwargs.get("template_name", "").startswith("cfs_")
+        assert kwargs.get("template_name") is None
         assert kwargs.get("to_number") == "+447700900999"
-        assert kwargs.get("template_language")
+        assert "Thank you" in str(kwargs.get("body") or "")
 
 
 def test_fitness_meta_name_uses_template_row_not_location():
@@ -726,6 +726,69 @@ def test_build_survey_config_excludes_thank_you_step():
         kinds = [step["kind"] for step in config["steps"]]
         assert kinds == ["topic", "open_question"]
         assert "thank_you" not in kinds
+
+
+def test_validate_survey_skips_meta_for_buttonless_open_question():
+    import json
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
+    from app.services.customer_feedback.survey_config_service import validate_feedback_survey_templates_ready
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "hotel")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(
+                FeedbackSurveyType.industry_id == industry.id,
+                FeedbackSurveyType.slug == "bed-comfort",
+            )
+        ).scalar_one()
+        now = datetime.utcnow()
+        db.add(
+            FeedbackWaTemplate(
+                id=str(uuid.uuid4()),
+                industry_id=industry.id,
+                survey_type_id=survey_type.id,
+                step_order=1,
+                template_key="bed_comfort",
+                body_text="How was the bed?",
+                buttons_json=json.dumps(["Comfortable", "Uncomfortable"]),
+                step_role="abc_choice",
+                language="en_GB",
+                meta_category="utility",
+                telnyx_sync_status="approved",
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            FeedbackWaTemplate(
+                id=str(uuid.uuid4()),
+                template_key="open_question",
+                step_role="final_feedback_text",
+                body_text="Anything else to share?",
+                buttons_json=json.dumps([]),
+                language="en_GB",
+                meta_category="utility",
+                telnyx_sync_status="draft",
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        errors = validate_feedback_survey_templates_ready(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=[survey_type.id],
+            open_question_enabled=True,
+            marketing_opt_in_enabled=False,
+        )
+        assert errors == []
 
 
 def test_build_survey_config_skips_inactive_topics():

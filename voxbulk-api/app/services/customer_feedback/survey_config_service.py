@@ -97,6 +97,12 @@ def validate_feedback_survey_templates_ready(
             label = str(step.get("template_key") or kind)
             errors.append(f"No WhatsApp template found for step “{label}”.")
             continue
+        from app.services.customer_feedback.feedback_wa_session_text import (
+            feedback_template_must_send_as_session_text,
+        )
+
+        if feedback_template_must_send_as_session_text(tpl):
+            continue
         if str(tpl.telnyx_sync_status or "").lower() not in _APPROVED_TEMPLATE_STATUSES:
             errors.append(
                 f"Template “{tpl.template_key}” ({tpl.language or 'en'}) is not approved on Meta yet "
