@@ -218,23 +218,11 @@ def _lang_needs_rewrite(
         meta_category="utility",
         template_key=variant.template_key,
     )
+    if lint_before.ok:
+        return False, "already_utility_compliant"
     if lang in inconsistent_langs:
         return True, "meaning_inconsistent_with_anchor"
-    if not lint_before.ok:
-        return True, "utility_lint_failed"
-    if lang in aligned_langs and variant.body_before.strip() == anchor_body_after.strip():
-        return False, "aligned_and_unchanged"
-    if lang in aligned_langs:
-        lint_match = lint_utility_template(
-            body=variant.body_before,
-            buttons=variant.buttons,
-            language=variant.language,
-            meta_category="utility",
-            template_key=variant.template_key,
-        )
-        if lint_match.ok:
-            return False, "aligned_utility_compliant"
-    return True, "anchor_rewrite_or_drift"
+    return True, "utility_lint_failed"
 
 
 def rewrite_group_variants(
@@ -279,7 +267,19 @@ def rewrite_group_variants(
             language=anchor.language,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
-        anchor.skip_reason = None if anchor.rewritten else anchor_reason
+        if not anchor.rewritten:
+            lint_after = lint_utility_template(
+                body=anchor.body_after or anchor.body_before,
+                buttons=anchor.buttons,
+                language=anchor.language,
+                meta_category="utility",
+                template_key=anchor.template_key,
+            )
+            anchor.skip_reason = (
+                "already_utility_compliant" if lint_after.ok else anchor_reason
+            )
+        else:
+            anchor.skip_reason = None
     elif anchor_needs:
         from app.services.survey_wa_utility_rewrite_service import _rule_based_utility_body
 
@@ -292,7 +292,19 @@ def rewrite_group_variants(
             template_name=anchor.remote_name or anchor.label,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
-        anchor.skip_reason = None if anchor.rewritten else anchor_reason
+        if not anchor.rewritten:
+            lint_after = lint_utility_template(
+                body=anchor.body_after or anchor.body_before,
+                buttons=anchor.buttons,
+                language=anchor.language,
+                meta_category="utility",
+                template_key=anchor.template_key,
+            )
+            anchor.skip_reason = None if anchor.rewritten else (
+                "already_utility_compliant" if lint_after.ok else anchor_reason
+            )
+        else:
+            anchor.skip_reason = None
     else:
         anchor.body_after = anchor.body_before
         anchor.rewritten = False
@@ -339,7 +351,20 @@ def rewrite_group_variants(
                 template_name=variant.remote_name or variant.label,
             )
         variant.rewritten = variant.body_after.strip() != variant.body_before.strip()
-        variant.skip_reason = None if variant.rewritten else reason
+        if not variant.rewritten:
+            lint_after = lint_utility_template(
+                body=variant.body_after or variant.body_before,
+                buttons=variant.buttons,
+                language=variant.language,
+                meta_category="utility",
+                template_key=variant.template_key,
+            )
+            if lint_after.ok:
+                variant.skip_reason = "already_utility_compliant"
+            else:
+                variant.skip_reason = reason
+        else:
+            variant.skip_reason = None
     return group
 
 

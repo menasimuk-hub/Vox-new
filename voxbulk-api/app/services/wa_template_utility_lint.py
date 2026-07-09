@@ -70,6 +70,24 @@ _UTILITY_CONTEXT_PHRASES = (
     "في عملك",
     "في دورك",
     "تجربتك في العمل",
+    # Spanish
+    "reciente estancia",
+    "reciente visita",
+    "reciente experiencia",
+    "tras su",
+    "después de su",
+    "su estancia",
+    "su visita",
+    "nuestro hotel",
+    # Polish
+    "ostatnim pobycie",
+    "ostatniej wizycie",
+    "po pobycie",
+    "po wizycie",
+    "naszego hotelu",
+    # Urdu / general non-Latin feedback anchors
+    "حالیہ",
+    "قیام",
 )
 
 # English promotional / marketing signals (Meta auto-reclassifies as MARKETING)
@@ -145,8 +163,13 @@ class UtilityLintResult:
 
 def _normalize_lang(language: str | None) -> str:
     raw = str(language or "en").strip().lower().replace("-", "_")
-    if raw in {"ar", "arabic"}:
+    if raw in {"ar", "arabic"} or raw.startswith("ar_"):
         return "ar"
+    if raw.startswith("en") or raw == "english":
+        return "en"
+    head = raw.split("_", 1)[0]
+    if len(head) >= 2:
+        return head
     return "en"
 
 

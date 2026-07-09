@@ -29,6 +29,26 @@ def test_utility_body_fails_missing_anchor():
     assert not result.ok
 
 
+def test_utility_body_spanish_does_not_require_english_anchor():
+    result = lint_utility_template(
+        body="🌆 ¿Cómo calificarías el ambiente y la atmósfera de nuestro hotel?",
+        buttons=["Malo", "Regular", "Bueno"],
+        language="es_gb",
+        meta_category="utility",
+    )
+    assert result.ok
+
+
+def test_utility_body_polish_does_not_require_english_anchor():
+    result = lint_utility_template(
+        body="🌆 Jak oceniasz atmosferę i klimat naszego hotelu?",
+        buttons=["Źle", "Średnio", "Dobrze"],
+        language="pl_gb",
+        meta_category="utility",
+    )
+    assert result.ok
+
+
 def test_utility_body_fails_loyalty():
     result = lint_utility_body("Following your recent visit, how valuable is our loyalty programme?")
     assert not result.ok

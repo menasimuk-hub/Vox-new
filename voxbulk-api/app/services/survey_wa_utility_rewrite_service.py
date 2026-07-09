@@ -530,7 +530,16 @@ def rewrite_body_for_utility(
     if not use_llm:
         return _fallback_body()
 
-    if _original_looks_utility_safe(original_body, language=lang_code, template_name=template_name):
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    lint_before = lint_utility_template(
+        body=original_body,
+        buttons=button_labels,
+        language=language or lang_code,
+        meta_category="utility",
+        template_key=topic_name,
+    )
+    if lint_before.ok:
         return _normalize_leading_emoji_text(
             _prepend_leading_emoji(leading_emoji, _sanitize_body(str(original_body).strip()))
         )
@@ -557,7 +566,8 @@ def rewrite_body_for_utility(
         f"Current BODY:\n{original_body}\n\n"
         f"{emoji_hint}\n"
         f"Quick-reply buttons (keep meaning aligned): {', '.join(button_labels) or 'n/a'}\n\n"
-        "Rewrite BODY only. Match the industry frame exactly."
+        "Rewrite BODY only. Match the industry frame exactly. "
+        "If the current BODY lacks a recent-visit/stay anchor, add one naturally in the output language."
     )
     try:
         selected_model = str(llm_model or "").strip() or None
