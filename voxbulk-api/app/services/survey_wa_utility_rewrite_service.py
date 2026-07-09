@@ -88,6 +88,14 @@ _RECOMMEND_INTENT_RE = re.compile(
 )
 
 _WAS_TOPIC_SUFFIX_RE = re.compile(r"^was_(?:system_)?(.+)_(\d{3})_(en|ar)(?:_[a-z0-9]{4,8})?$", re.I)
+_CFS_META_NAME_RE = re.compile(r"^cfs_([^_]+)_(.+)_([a-z]{2,3})_v(\d+)$", re.I)
+
+_ENGLISH_UTILITY_MARKERS = (
+    "how would you rate",
+    "reply with one option below",
+    "following your recent",
+    "after your recent",
+)
 
 _UTILITY_CONTEXT_PHRASES = (
     "recent visit",
@@ -105,7 +113,79 @@ _UTILITY_CONTEXT_PHRASES = (
     "your team",
     "your manager",
     "your workplace",
+    "reciente",
+    "visita",
+    "estancia",
+    "experiencia",
+    "nuestro hotel",
+    "su experiencia",
+    "su estancia",
 )
+
+
+def parse_cfs_meta_name(name: str) -> dict[str, str] | None:
+    """Parse cfs_{industry}_{topic}_{lang}_v{n} Meta names."""
+    match = _CFS_META_NAME_RE.match(str(name or "").strip().lower())
+    if not match:
+        return None
+    return {
+        "industry": str(match.group(1) or "").strip(),
+        "topic_key": str(match.group(2) or "").strip(),
+        "topic": str(match.group(2) or "").replace("_", " ").strip(),
+        "lang": str(match.group(3) or "").strip(),
+        "version": str(match.group(4) or "").strip(),
+    }
+
+
+def _language_code_from_value(language: str | None, *, template_name: str = "") -> str:
+    raw = str(language or "").strip().lower().replace("-", "_")
+    if raw.startswith("en"):
+        return "en"
+    if raw.startswith("ar"):
+        return "ar"
+    if raw:
+        head = raw.split("_", 1)[0]
+        if len(head) >= 2:
+            return head
+    cfs = parse_cfs_meta_name(template_name)
+    if cfs and cfs.get("lang"):
+        return str(cfs["lang"])
+    return "en"
+
+
+def _is_non_english_language(language: str | None) -> bool:
+    code = _language_code_from_value(language)
+    return code not in {"en", "ar"}
+
+
+def _language_label(language: str | None, *, template_name: str = "") -> str:
+    code = _language_code_from_value(language, template_name=template_name)
+    labels = {
+        "en": "English",
+        "ar": "Arabic (Modern Standard)",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "zh": "Chinese",
+        "pt": "Portuguese",
+        "hi": "Hindi",
+    }
+    return labels.get(code, code)
+
+
+def _original_looks_utility_safe(original: str, *, language: str | None = None) -> bool:
+    """Non-English feedback questions that are already utility-safe — keep unchanged."""
+    from app.services.wa_template_utility_content import is_promo_wording
+
+    text = str(original or "").strip()
+    if not text or _body_has_recommend_intent(text) or is_promo_wording(text):
+        return False
+    if "?" not in text and "؟" not in text:
+        return False
+    if _is_non_english_language(language):
+        return True
+    return _mentions_recent_interaction(text)
+
 
 _META_UTILITY_GUIDANCE = """
 Meta WhatsApp UTILITY — Feedback Survey rules (2025):
@@ -118,6 +198,7 @@ Meta WhatsApp UTILITY — Feedback Survey rules (2025):
 - Keep the same rating intent and answer options meaning; only rewrite the BODY question sentence(s).
 - BODY must be plain text with NO {{1}} variables for these abc_choice templates.
 - Max {max_chars} characters.
+- CRITICAL: Output BODY in the SAME language as the input BODY (Spanish stays Spanish, French stays French, etc.). Never translate to English unless the input is English.
 """.format(max_chars=META_BODY_HARD_MAX_CHARS)
 
 
@@ -202,6 +283,7 @@ def _rule_based_utility_body(
     leading_emoji: str = "",
     industry_slug: str | None = None,
     industry_name: str | None = None,
+    language: str | None = None,
 ) -> str:
     from app.services.wa_template_utility_content import (
         employee_utility_body_for_topic,
@@ -214,7 +296,10 @@ def _rule_based_utility_body(
     if leading_emoji:
         emoji = leading_emoji
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
+    lang_code = _language_code_from_value(language)
+    if _is_non_english_language(lang_code) and _original_looks_utility_safe(cleaned, language=lang_code):
+        return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(cleaned)))
+    frame = resolve_industry_frame(industry_slug, industry_name, language=lang_code if lang_code == "ar" else "en")
     if not cleaned:
         cleaned = frame["experience"]
     topic = topic_hint.strip() or frame["fallback_topic"]
@@ -293,6 +378,15 @@ def _topic_from_template_name(name: str) -> str:
         return middle.replace("_", " ").strip() or "your recent experience"
     if base.startswith("voxbulk_survey_"):
         base = base[len("voxbulk_survey_") :]
+    cfs = parse_cfs_meta_name(base if base.startswith("cfs_") else name)
+    if cfs:
+        return cfs["topic"]
+    if base.startswith("cfs_"):
+        base = base[4:]
+        base = re.sub(r"_[a-z]{2,3}_v\d+$", "", base)
+        parts = base.split("_", 1)
+        if len(parts) == 2:
+            return parts[1].replace("_", " ").strip()
     base = re.sub(r"_abc_[a-f0-9]{6}$", "", base)
     base = re.sub(r"_standard$", "", base)
     base = base.replace("_", " ")
@@ -333,6 +427,11 @@ def _body_has_recommend_intent(text: str) -> bool:
     return bool(_RECOMMEND_INTENT_RE.search(str(text or "")))
 
 
+def _looks_english_utility_template(body: str) -> bool:
+    low = str(body or "").lower()
+    return any(marker in low for marker in _ENGLISH_UTILITY_MARKERS)
+
+
 def rewrite_body_for_utility(
     db: Session,
     *,
@@ -346,20 +445,37 @@ def rewrite_body_for_utility(
     industry_slug: str | None = None,
     industry_name: str | None = None,
     topic_name: str | None = None,
+    language: str | None = None,
 ) -> str:
     from app.services.wa_template_utility_content import resolve_industry_frame
 
+    lang_code = _language_code_from_value(language, template_name=template_name)
+    cfs = parse_cfs_meta_name(template_name)
+    if cfs:
+        industry_slug = industry_slug or cfs.get("industry")
+        topic_name = topic_name or cfs.get("topic")
     topic = (topic_name or _topic_from_template_name(template_name)).strip()
     label = display_name or template_name
-    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
+    frame_lang = "ar" if lang_code == "ar" else "en"
+    frame = resolve_industry_frame(industry_slug, industry_name, language=frame_lang)
     leading_emoji, _ = _extract_leading_emoji(original_body)
-    if not use_llm:
+
+    def _fallback_body(source: str | None = None) -> str:
         return _rule_based_utility_body(
-            original_body,
+            str(source if source is not None else original_body),
             topic_hint=topic,
             leading_emoji=leading_emoji,
             industry_slug=industry_slug,
             industry_name=industry_name,
+            language=lang_code,
+        )
+
+    if not use_llm:
+        return _fallback_body()
+
+    if _original_looks_utility_safe(original_body, language=lang_code):
+        return _normalize_leading_emoji_text(
+            _prepend_leading_emoji(leading_emoji, _sanitize_body(str(original_body).strip()))
         )
 
     system_prompt = (
@@ -376,6 +492,7 @@ def rewrite_body_for_utility(
         else "No leading emoji in the original."
     )
     user_prompt = (
+        f"Output language: {_language_label(lang_code, template_name=template_name)} (same as input BODY — do NOT translate to English)\n"
         f"Industry: {industry_name or industry_slug or 'n/a'} (frame={frame['key']})\n"
         f"Template: {label}\n"
         f"Survey topic: {topic}\n"
@@ -401,34 +518,18 @@ def rewrite_body_for_utility(
         body = _sanitize_body(body)
         if not body:
             raise ValueError("empty body from model")
+        if _is_non_english_language(lang_code) and _looks_english_utility_template(body):
+            return _fallback_body()
         if frame["key"] == "employee" and "visit" in body.lower():
-            body = _rule_based_utility_body(
-                body,
-                topic_hint=topic,
-                leading_emoji=leading_emoji,
-                industry_slug=industry_slug,
-                industry_name=industry_name,
-            )
-        elif not _mentions_recent_interaction(body):
-            body = _rule_based_utility_body(
-                body,
-                topic_hint=topic,
-                leading_emoji=leading_emoji,
-                industry_slug=industry_slug,
-                industry_name=industry_name,
-            )
-        else:
-            body = _prepend_leading_emoji(leading_emoji, body)
-        return body
+            return _fallback_body(body)
+        if not _mentions_recent_interaction(body):
+            if _is_non_english_language(lang_code):
+                return _fallback_body()
+            return _fallback_body(body)
+        return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
     except Exception as exc:
         logger.warning("utility_rewrite_llm_fallback name=%s err=%s", template_name, str(exc)[:200])
-        return _rule_based_utility_body(
-            original_body,
-            topic_hint=topic,
-            leading_emoji=leading_emoji,
-            industry_slug=industry_slug,
-            industry_name=industry_name,
-        )
+        return _fallback_body()
 
 
 def apply_utility_rewrite_to_row(
@@ -474,6 +575,7 @@ def apply_utility_rewrite_to_row(
             industry_slug=industry_slug,
             industry_name=industry_name,
             topic_name=topic_name,
+            language=row.language,
         )
     new_body = _normalize_leading_emoji_text(new_body)
     lint = lint_utility_template(

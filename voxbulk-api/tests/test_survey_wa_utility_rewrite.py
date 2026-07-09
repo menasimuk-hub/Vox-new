@@ -10,6 +10,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _remote_item_is_marketing,
     _rule_based_utility_body,
     _topic_from_template_name,
+    parse_cfs_meta_name,
     rewrite_body_for_utility,
 )
 from app.services.wa_template_meta_sync import (
@@ -29,6 +30,46 @@ def test_topic_from_template_name():
     assert _topic_from_template_name("voxbulk_survey_would_recommend_standard") == "would recommend"
     assert _topic_from_template_name("was_logistics_delivery_would_recommend_002_en") == "would recommend"
     assert _topic_from_template_name("was_employee_career_progression_001_en") == "career progression"
+    assert _topic_from_template_name("cfs_hotel_atmosphere_es_v1") == "atmosphere"
+    assert parse_cfs_meta_name("cfs_hotel_atmosphere_es_v1") == {
+        "industry": "hotel",
+        "topic_key": "atmosphere",
+        "topic": "atmosphere",
+        "lang": "es",
+        "version": "1",
+    }
+
+
+def test_rule_based_preserves_spanish_cfs_feedback_question():
+    original = "🌆 ¿Cómo calificarías el ambiente y la atmósfera de nuestro hotel?"
+    body = _rule_based_utility_body(
+        original,
+        topic_hint="atmosphere",
+        industry_slug="hotel",
+        language="es",
+    )
+    assert "¿Cómo calificarías" in body
+    assert "how would you rate" not in body.lower()
+    assert "cfs hotel atmosphere" not in body.lower()
+
+
+def test_rewrite_preserves_spanish_cfs_without_llm():
+    class _FakeDb:
+        pass
+
+    original = "🌆 ¿Cómo calificarías el ambiente y la atmósfera de nuestro hotel?"
+    out = rewrite_body_for_utility(
+        _FakeDb(),
+        original_body=original,
+        button_labels=["Malo", "Regular", "Bueno"],
+        template_name="cfs_hotel_atmosphere_es_v1",
+        industry_slug="hotel",
+        topic_name="atmosphere",
+        language="es",
+        use_llm=False,
+    )
+    assert "¿Cómo calificarías" in out
+    assert "how would you rate" not in out.lower()
 
 
 def test_rule_based_rewrites_nps_wording_without_lint_violation():

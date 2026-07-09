@@ -189,6 +189,7 @@ def _build_preview_for_survey_row(
             topic_hint=topic_name,
             industry_slug=industry_slug,
             industry_name=industry_name,
+            language=row.language,
         ),
     }
     from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
@@ -220,12 +221,20 @@ def _build_preview_for_feedback_row(
         suggest_next_cfs_version_name,
     )
 
+    from app.services.survey_wa_utility_rewrite_service import parse_cfs_meta_name
+
     old_body = str(row.body_text or body_preview or "").strip()
+    cfs = parse_cfs_meta_name(remote_name)
     preview: dict[str, Any] = {
         "body_before": old_body,
         "keeps_local_db_row": True,
         "local_row_id": str(row.id),
-        "body_after": _rule_based_utility_body(old_body, topic_hint=str(row.template_key or "")),
+        "body_after": _rule_based_utility_body(
+            old_body,
+            topic_hint=str(row.template_key or (cfs.get("topic") if cfs else "") or ""),
+            industry_slug=cfs.get("industry") if cfs else None,
+            language=str(getattr(row, "language", "") or (f"{cfs['lang']}_gb" if cfs else "")),
+        ),
     }
     current = str(getattr(row, "meta_template_name", "") or remote_name).strip().lower()
     used = collect_used_cfs_meta_names(db)

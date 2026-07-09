@@ -16,6 +16,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     DEFAULT_UTILITY_LLM_MODEL,
     DEFAULT_UTILITY_LLM_PROVIDER,
     _body_has_recommend_intent,
+    parse_cfs_meta_name,
     rewrite_body_for_utility,
 )
 from app.services.wa_template_utility_lint import lint_utility_template
@@ -275,6 +276,7 @@ def rewrite_group_variants(
             industry_slug=anchor.industry_slug,
             industry_name=anchor.industry_name,
             topic_name=anchor.topic_name or anchor.template_key,
+            language=anchor.language,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
         anchor.skip_reason = None if anchor.rewritten else anchor_reason
@@ -286,6 +288,7 @@ def rewrite_group_variants(
             topic_hint=anchor.topic_name or anchor.template_key or "",
             industry_slug=anchor.industry_slug,
             industry_name=anchor.industry_name,
+            language=anchor.language,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
         anchor.skip_reason = None if anchor.rewritten else anchor_reason
@@ -321,6 +324,7 @@ def rewrite_group_variants(
                 industry_slug=variant.industry_slug,
                 industry_name=variant.industry_name,
                 topic_name=variant.topic_name or variant.template_key,
+                language=variant.language,
             )
         else:
             from app.services.survey_wa_utility_rewrite_service import _rule_based_utility_body
@@ -330,6 +334,7 @@ def rewrite_group_variants(
                 topic_hint=variant.topic_name or variant.template_key or "",
                 industry_slug=variant.industry_slug,
                 industry_name=variant.industry_name,
+                language=variant.language,
             )
         variant.rewritten = variant.body_after.strip() != variant.body_before.strip()
         variant.skip_reason = None if variant.rewritten else reason
@@ -344,6 +349,7 @@ def build_groups_from_candidates(candidates: list[dict[str, Any]]) -> list[Templ
             continue
         product = str(item.get("product") or "survey")
         remote_name = str(item.get("remote_name") or item.get("name") or "")
+        cfs_meta = parse_cfs_meta_name(remote_name) if product == "feedback" else None
         group_key = parse_group_key(remote_name, product=product)
         group = buckets.setdefault(
             group_key,
@@ -352,18 +358,25 @@ def build_groups_from_candidates(candidates: list[dict[str, Any]]) -> list[Templ
         body = str(item.get("body_preview") or "")
         if len(body) >= 160 and item.get("full_body"):
             body = str(item.get("full_body") or body)
+        lang = str(item.get("remote_language") or item.get("language") or "en_gb")
+        if cfs_meta and cfs_meta.get("lang"):
+            lang = f"{cfs_meta['lang']}_gb" if len(str(cfs_meta["lang"])) == 2 else str(cfs_meta["lang"])
         group.variants.append(
             LangVariant(
                 local_template_id=item.get("id") or item.get("feedback_template_id"),
                 label=str(item.get("name") or item.get("process_name") or remote_name),
                 remote_name=remote_name,
-                language=str(item.get("remote_language") or item.get("language") or "en_gb"),
+                language=lang,
                 product=product,
                 body_before=body,
                 buttons=list(item.get("buttons") or []),
-                industry_slug=item.get("industry_slug"),
-                topic_name=item.get("survey_type") or item.get("template_key"),
-                template_key=item.get("template_key"),
+                industry_slug=item.get("industry_slug") or (cfs_meta.get("industry") if cfs_meta else None),
+                topic_name=(
+                    item.get("survey_type")
+                    or item.get("template_key")
+                    or (cfs_meta.get("topic") if cfs_meta else None)
+                ),
+                template_key=item.get("template_key") or (cfs_meta.get("topic_key") if cfs_meta else None),
                 meta={
                     "reasons": item.get("reasons"),
                     "remote_profiles": item.get("remote_profiles"),
