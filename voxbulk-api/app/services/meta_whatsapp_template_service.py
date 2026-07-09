@@ -222,8 +222,14 @@ class MetaWhatsappTemplateService:
         *,
         name: str | None = None,
         hsm_id: str | None = None,
+        service_code: str | None = "survey",
+        connection_profile_id: str | None = None,
     ) -> None:
-        config = require_meta_whatsapp_primary(db)
+        config = require_meta_whatsapp_primary(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
         waba_id = str(config.get("waba_id") or "").strip()
         params: dict[str, Any] = {}
         if hsm_id:
