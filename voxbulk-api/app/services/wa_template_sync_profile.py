@@ -96,6 +96,77 @@ def list_whatsapp_sync_options(db: Session, *, service_code: str = "survey") -> 
     return out
 
 
+def _remote_count_block(summary: dict[str, int]) -> dict[str, int]:
+    """Normalize summarize_live_remote output for API/UI."""
+    return {
+        "utility": int(summary.get("utility") or 0),
+        "marketing": int(summary.get("marketing") or 0),
+        "approved": int(summary.get("approved") or 0),
+        "pending": int(summary.get("pending") or 0),
+        "rejected": int(summary.get("rejected") or 0),
+        "total": int(summary.get("remote_total") or 0),
+    }
+
+
+def _enrich_telnyx_categories_from_meta_primary(
+    db: Session,
+    telnyx_items: list[dict[str, Any]],
+    *,
+    service_code: str,
+) -> list[dict[str, Any]]:
+    """Telnyx list rows often omit category — mirror Meta primary categories by name+language."""
+    if not telnyx_items:
+        return telnyx_items
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    meta_pid = WaTemplateProfilePushService.resolve_primary_connection_profile_id(db, service_code=service_code)
+    if not meta_pid:
+        return telnyx_items
+    try:
+        meta_items = TelnyxWhatsappTemplateSyncService.fetch_from_meta(
+            db,
+            connection_profile_id=meta_pid,
+            service_code=service_code,
+        )
+    except Exception:  # noqa: BLE001
+        return telnyx_items
+
+    by_name_lang: dict[tuple[str, str], str] = {}
+    for item in meta_items or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        lang = str(item.get("language") or "").strip().lower()
+        category = str(item.get("category") or "").strip()
+        if name and category:
+            by_name_lang[(name, lang)] = category
+
+    if not by_name_lang:
+        return telnyx_items
+
+    enriched: list[dict[str, Any]] = []
+    for item in telnyx_items:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        if str(row.get("category") or "").strip():
+            enriched.append(row)
+            continue
+        name = str(row.get("name") or "").strip().lower()
+        lang = str(row.get("language") or "").strip().lower()
+        category = by_name_lang.get((name, lang))
+        if not category and name:
+            for (n, l), cat in by_name_lang.items():
+                if n == name and (l.startswith(lang[:2]) or lang.startswith(l[:2])):
+                    category = cat
+                    break
+        if category:
+            row["category"] = category
+        enriched.append(row)
+    return enriched
+
+
 def summarize_for_connection_profile(
     db: Session,
     profile_id: str,
@@ -147,6 +218,12 @@ def summarize_for_connection_profile(
                 filter_waba_id=True,
                 allow_account_waba_fallback=False,
             )
+            code_norm = normalize_service_code(service_code) or "survey"
+            remote_all = _enrich_telnyx_categories_from_meta_primary(
+                db,
+                remote_all,
+                service_code=code_norm,
+            )
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -164,8 +241,8 @@ def summarize_for_connection_profile(
     remote = filter_remote_for_service_code(remote_all, code)
     all_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote_all)
     live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
-    remote_total = int(live_summary.get("remote_total") or 0)
-    profile_total = int(all_summary.get("remote_total") or 0)
+    scoped = _remote_count_block(live_summary)
+    account = _remote_count_block(all_summary)
     remote_fetched = len(remote_all or [])
     remote_scoped = len(remote or [])
     return {
@@ -178,15 +255,17 @@ def summarize_for_connection_profile(
         "whatsapp_from": whatsapp_from,
         "service_code": code,
         "summary": {
-            "utility": int(live_summary.get("utility") or 0),
-            "marketing": int(live_summary.get("marketing") or 0),
-            "approved": int(live_summary.get("approved") or 0),
-            "pending": int(live_summary.get("pending") or 0),
-            "rejected": int(live_summary.get("rejected") or 0),
+            **scoped,
             "localOnly": 0,
-            "total": remote_total,
-            "profileTotal": profile_total,
-            "scopedTotal": remote_total,
+            "profileTotal": account["total"],
+            "scopedTotal": scoped["total"],
+            "profileUtility": account["utility"],
+            "profileMarketing": account["marketing"],
+            "profileApproved": account["approved"],
+            "profilePending": account["pending"],
+            "profileRejected": account["rejected"],
+            "scoped": scoped,
+            "account": account,
             "remoteFetched": remote_fetched,
             "remoteScoped": remote_scoped,
             "serviceCode": code,

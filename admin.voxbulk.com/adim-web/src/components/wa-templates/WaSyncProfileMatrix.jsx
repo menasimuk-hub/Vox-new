@@ -2,19 +2,76 @@ import React from 'react'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+const ACCOUNT_KEY = {
+  utility: 'profileUtility',
+  marketing: 'profileMarketing',
+  approved: 'profileApproved',
+  pending: 'profilePending',
+  rejected: 'profileRejected',
+  total: 'profileTotal',
+}
+
 const BASE_COLS = [
-  { key: 'utility', label: 'utility', title: 'Utility category on this account' },
-  { key: 'marketing', label: 'marketing', title: 'Marketing category on this account' },
-  { key: 'approved', label: 'approved', title: 'Approved on this account' },
-  { key: 'pending', label: 'pending', title: 'Pending on this account' },
-  { key: 'rejected', label: 'rejected', title: 'Rejected on this account' },
-  { key: 'total', label: 'total', title: 'Live templates on profile for the active tab scope' },
+  {
+    key: 'utility',
+    label: 'utility',
+    title: 'Utility templates: scoped count / whole WABA or account (live Meta/Telnyx)',
+  },
+  {
+    key: 'marketing',
+    label: 'marketing',
+    title: 'Marketing templates: scoped count / whole WABA or account (live Meta/Telnyx)',
+  },
+  {
+    key: 'approved',
+    label: 'approved',
+    title: 'Approved: scoped / whole account',
+  },
+  {
+    key: 'pending',
+    label: 'pending',
+    title: 'Pending: scoped / whole account',
+  },
+  {
+    key: 'rejected',
+    label: 'rejected',
+    title: 'Rejected: scoped / whole account',
+  },
+  {
+    key: 'total',
+    label: 'total',
+    title: 'Live template rows: scoped to active tab / all on profile WABA',
+  },
 ]
 
 function fmtCell(value, loading) {
   if (loading) return '…'
   if (value == null || value === '') return '—'
   return Number(value).toLocaleString()
+}
+
+function scopedMetric(summary, key) {
+  if (!summary) return null
+  const scoped = summary.scoped
+  if (scoped && scoped[key] != null) return scoped[key]
+  return summary[key]
+}
+
+function accountMetric(summary, key) {
+  if (!summary) return null
+  const alias = ACCOUNT_KEY[key]
+  if (alias && summary[alias] != null) return summary[alias]
+  const account = summary.account
+  if (account && account[key] != null) return account[key]
+  if (key === 'total') return summary.profileTotal
+  return null
+}
+
+function showAccountSuffix(summary, key) {
+  const scoped = scopedMetric(summary, key)
+  const account = accountMetric(summary, key)
+  if (account == null || scoped == null) return false
+  return Number(account) !== Number(scoped)
 }
 
 function providerChip(provider) {
@@ -56,9 +113,9 @@ export default function WaSyncProfileMatrix({
 
   return (
     <div className="w-full overflow-x-auto">
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-1 flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Live template monitor · remote on profile · scoped to {scopeLabel}
+          Live template monitor · scoped to {scopeLabel} · <span className="normal-case">counts show scoped / whole WABA</span>
         </span>
         <button
           type="button"
@@ -92,11 +149,15 @@ export default function WaSyncProfileMatrix({
             const loading = Boolean(state.loading)
             const err = state.error
             const label = profile.label || profile.name || id
-            const profileTotal = summary?.profileTotal
-            const scopedTotal = summary?.total
-            const showWabaTotal =
-              profileTotal != null && Number(profileTotal) > 0 && Number(profileTotal) !== Number(scopedTotal ?? 0)
-            const scopedMismatch = showWabaTotal
+            const scopedTotal = scopedMetric(summary, 'total')
+            const accountTotal = accountMetric(summary, 'total')
+            const accountMarketing = accountMetric(summary, 'marketing')
+            const rowTitle = err
+              ? err
+              : selected
+                ? 'Sync target'
+                : `Scoped = ${scopeLabel}. After slash = all templates on this WABA/account.`
+
             return (
               <tr
                 key={id}
@@ -106,15 +167,7 @@ export default function WaSyncProfileMatrix({
                   err && !loading && 'bg-destructive/5',
                 )}
                 onClick={() => onSelectProfile?.(id)}
-                title={
-                  err
-                    ? err
-                    : scopedMismatch
-                      ? `${scopedTotal ?? 0} for ${scopeLabel} · ${profileTotal} total on WABA/account`
-                      : selected
-                        ? 'Sync target'
-                        : 'Click to select sync profile'
-                }
+                title={rowTitle}
               >
                 <td className="max-w-[200px] truncate py-1.5 pr-3 align-middle">
                   <div className="flex items-center gap-1.5">
@@ -129,9 +182,12 @@ export default function WaSyncProfileMatrix({
                   </div>
                 </td>
                 {cols.map((col) => {
-                  const raw = summary?.[col.key]
-                  const warn = col.key === 'marketing' && Number(raw) > 0
-                  const bad = col.key === 'rejected' && Number(raw) > 0
+                  const scoped = scopedMetric(summary, col.key)
+                  const account = accountMetric(summary, col.key)
+                  const dual = showAccountSuffix(summary, col.key)
+                  const warn =
+                    col.key === 'marketing' && (Number(scoped) > 0 || Number(accountMarketing) > 0)
+                  const bad = col.key === 'rejected' && Number(scoped) > 0
                   return (
                     <td
                       key={col.key}
@@ -141,10 +197,15 @@ export default function WaSyncProfileMatrix({
                         warn && 'font-medium text-warning-foreground',
                         bad && 'font-medium text-destructive',
                       )}
+                      title={
+                        dual
+                          ? `${scoped ?? '—'} scoped (${scopeLabel}) · ${account ?? '—'} on whole WABA`
+                          : col.title
+                      }
                     >
-                      {fmtCell(raw, loading && summary == null)}
-                      {col.key === 'total' && scopedMismatch && !loading ? (
-                        <span className="ml-0.5 text-[9px] text-muted-foreground">/{profileTotal}</span>
+                      {fmtCell(scoped, loading && summary == null)}
+                      {dual && !loading ? (
+                        <span className="ml-0.5 text-[9px] text-muted-foreground">/{fmtCell(account, false)}</span>
                       ) : null}
                     </td>
                   )
