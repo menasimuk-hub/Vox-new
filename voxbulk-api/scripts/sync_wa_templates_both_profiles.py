@@ -8,7 +8,7 @@ Usage:
   python scripts/sync_wa_templates_both_profiles.py --dry-run
   python scripts/sync_wa_templates_both_profiles.py --scope customer_feedback
   python scripts/sync_wa_templates_both_profiles.py --scope survey --batch-size 10
-  python scripts/sync_wa_templates_both_profiles.py --scope all --batch-size 5
+  python scripts/sync_wa_templates_both_profiles.py --scope interview
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from app.core.database import get_sessionmaker
 from app.models.customer_feedback import FeedbackWaTemplate
 from app.models.survey_type import SurveyType
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+from app.data.interview_whatsapp_template_catalog import INTERVIEW_WA_TEMPLATE_KEYS
 from app.services.customer_feedback.feedback_telnyx_push_service import push_feedback_platform_batch
 from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 from app.services.wa_template_sync_service import WaTemplateSyncService
@@ -114,6 +115,46 @@ def _push_system_buttoned_scope(db, *, dry_run: bool, primary_id: str, backup_id
     }
 
 
+def _collect_interview_template_rows(db) -> list[TelnyxWhatsappTemplate]:
+    rows = list(
+        db.execute(
+            select(TelnyxWhatsappTemplate).where(
+                TelnyxWhatsappTemplate.sales_template_key.in_(list(INTERVIEW_WA_TEMPLATE_KEYS))
+            )
+        ).scalars().all()
+    )
+    rows.sort(key=lambda r: str(r.sales_template_key or r.name or r.id))
+    return rows
+
+
+def _push_interview_scope(db, *, dry_run: bool, primary_id: str, backup_id: str) -> dict:
+    work = _collect_interview_template_rows(db)
+    pushed = 0
+    errors: list[dict] = []
+    for row in work:
+        result = WaTemplateProfilePushService.push_template_to_both_profiles(
+            db,
+            survey_row=row,
+            service_code="ai_interview",
+            primary_profile_id=primary_id,
+            backup_profile_id=backup_id,
+            dry_run=dry_run,
+        )
+        if result.get("ok"):
+            pushed += 1
+        else:
+            errors.extend(result.get("errors") or [{"template": row.name, "error": result.get("error")}])
+        if not dry_run:
+            time.sleep(0.5)
+    return {
+        "scope": "interview",
+        "total": len(work),
+        "pushed_ok": pushed,
+        "error_count": len(errors),
+        "errors": errors[:50],
+    }
+
+
 def _push_feedback_scope(db, *, batch_size: int, dry_run: bool, primary_id: str, backup_id: str) -> dict:
     if dry_run:
         total = db.execute(select(FeedbackWaTemplate)).scalars().all()
@@ -175,7 +216,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Sync WA templates to Meta primary + Telnyx backup")
     parser.add_argument(
         "--scope",
-        choices=("all", "survey", "customer_feedback", "system_buttoned"),
+        choices=("all", "survey", "customer_feedback", "system_buttoned", "interview"),
         default="all",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -226,6 +267,19 @@ def main() -> int:
                 return 1
             report["sections"].append(
                 _push_system_buttoned_scope(
+                    db,
+                    dry_run=bool(args.dry_run),
+                    primary_id=primary_id,
+                    backup_id=backup_id,
+                )
+            )
+
+        if args.scope in ("all", "interview"):
+            if not primary_id or not backup_id:
+                print("ERROR: interview primary/backup profiles not configured", file=sys.stderr)
+                return 1
+            report["sections"].append(
+                _push_interview_scope(
                     db,
                     dry_run=bool(args.dry_run),
                     primary_id=primary_id,

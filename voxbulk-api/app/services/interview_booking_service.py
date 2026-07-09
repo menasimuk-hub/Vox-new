@@ -1529,36 +1529,37 @@ class InterviewBookingService:
         fallback_body = (
             f"Hi {first}, your {role} interview is confirmed for {date_line} at {time_line}."
         )
-        try:
-            result = TelnyxMessagingService.send_whatsapp(
+        from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
+
+        result = InterviewWhatsappSendService.send_template_or_plain(
+            db,
+            to_number=str(recipient.phone),
+            body=fallback_body,
+            org_id=order.org_id,
+            template_row=confirm_row,
+            template_components=components,
+            template_language=confirm_row.language or "en_US",
+        )
+        if result.ok:
+            wa_sent = True
+            TelnyxMessagingService.log_outbound(
                 db,
-                to_number=str(recipient.phone),
-                body=fallback_body,
-                template_name=confirm_row.name,
-                template_id=send_template_id_for_row(confirm_row),
-                template_language=confirm_row.language or "en_US",
-                template_components=components,
                 org_id=order.org_id,
-                meter_usage=False,
-                service_code="ai_interview",
+                to_number=str(recipient.phone),
+                from_number=None,
+                body=f"[template:{confirm_row.name}] {fallback_body}",
+                result=result,
             )
-            if result.ok:
-                wa_sent = True
-                TelnyxMessagingService.log_outbound(
-                    db,
-                    org_id=order.org_id,
-                    to_number=str(recipient.phone),
-                    from_number=None,
-                    body=f"[template:{confirm_row.name}] {fallback_body}",
-                    result=result,
-                )
-                merged = _recipient_result(recipient)
-                merged["confirmation_wa_sent_at"] = _now().isoformat()
-                recipient.result_json = json.dumps(merged, ensure_ascii=False)
-                db.add(recipient)
-                db.commit()
-        except Exception:
-            pass
+            merged = _recipient_result(recipient)
+            merged["confirmation_wa_sent_at"] = _now().isoformat()
+            recipient.result_json = json.dumps(merged, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+        else:
+            logger.warning(
+                "booking_confirm_wa_failed",
+                extra={"recipient_id": recipient.id, "detail": result.detail or result.status},
+            )
 
         return {
             "confirmation_email_sent": email_sent,
@@ -1634,6 +1635,8 @@ class InterviewBookingService:
             f"Hi {first}, your {role} interview at {company_name} on {date_line} at {time_line} "
             f"has been cancelled. You will not receive any further messages about this job."
         )
+        from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
+
         try:
             if cancel_row is not None:
                 components = InterviewBookingService.build_cancel_components(
@@ -1643,26 +1646,21 @@ class InterviewBookingService:
                     company_name=company_name,
                     slot_start=slot_start,
                 )
-                result = TelnyxMessagingService.send_whatsapp(
+                result = InterviewWhatsappSendService.send_template_or_plain(
                     db,
                     to_number=str(recipient.phone),
                     body=fallback_body,
-                    template_name=cancel_row.name,
-                    template_id=send_template_id_for_row(cancel_row),
-                    template_language=cancel_row.language or "en_US",
-                    template_components=components,
                     org_id=order.org_id,
-                    meter_usage=False,
-                    service_code="ai_interview",
+                    template_row=cancel_row,
+                    template_components=components,
+                    template_language=cancel_row.language or "en_US",
                 )
             else:
-                result = TelnyxMessagingService.send_whatsapp(
+                result = InterviewWhatsappSendService.send_template_or_plain(
                     db,
                     to_number=str(recipient.phone),
                     body=fallback_body,
                     org_id=order.org_id,
-                    meter_usage=False,
-                    service_code="ai_interview",
                 )
             if result.ok:
                 TelnyxMessagingService.log_outbound(
@@ -1823,6 +1821,8 @@ class InterviewBookingService:
                     f"You will not receive any further messages about this job."
                 )
                 try:
+                    from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
+
                     if job_closed_row is not None:
                         components = InterviewBookingService.build_job_closed_components(
                             job_closed_row,
@@ -1830,26 +1830,21 @@ class InterviewBookingService:
                             role=role,
                             company_name=company_name,
                         )
-                        result = TelnyxMessagingService.send_whatsapp(
+                        result = InterviewWhatsappSendService.send_template_or_plain(
                             db,
                             to_number=str(recipient.phone),
                             body=fallback_body,
-                            template_name=job_closed_row.name,
-                            template_id=send_template_id_for_row(job_closed_row),
-                            template_language=job_closed_row.language or "en_US",
-                            template_components=components,
                             org_id=order.org_id,
-                            meter_usage=False,
-                            service_code="ai_interview",
+                            template_row=job_closed_row,
+                            template_components=components,
+                            template_language=job_closed_row.language or "en_US",
                         )
                     else:
-                        result = TelnyxMessagingService.send_whatsapp(
+                        result = InterviewWhatsappSendService.send_template_or_plain(
                             db,
                             to_number=str(recipient.phone),
                             body=fallback_body,
                             org_id=order.org_id,
-                            meter_usage=False,
-                            service_code="ai_interview",
                         )
                     if result.ok:
                         recipient_wa_sent = True
@@ -2348,18 +2343,17 @@ class InterviewBookingService:
                             f"Dear {first}, we sent you an email from careers@voxbulk.com "
                             f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
                         )
+                        from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
+
                         log_body = f"[template:{template_row.name}] {fallback_body}"
-                        result = TelnyxMessagingService.send_whatsapp(
+                        result = InterviewWhatsappSendService.send_template_or_plain(
                             db,
                             to_number=str(recipient.phone),
                             body=fallback_body,
-                            template_name=template_row.name,
-                            template_id=send_template_id_for_row(template_row),
-                            template_language=template_row.language or "en_US",
-                            template_components=components,
                             org_id=order.org_id,
-                            meter_usage=False,
-                            service_code="ai_interview",
+                            template_row=template_row,
+                            template_components=components,
+                            template_language=template_row.language or "en_US",
                         )
                         if result.ok:
                             token_row.wa_sent_at = _now()

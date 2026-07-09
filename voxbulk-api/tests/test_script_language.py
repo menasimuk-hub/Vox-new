@@ -23,6 +23,13 @@ def test_detect_script_language_override():
     assert normalize_script_language_code("unknown") == "en"
 
 
+def test_interview_meta_arabic_fusha_questions():
+    meta = _interview_meta(language_code="ar")
+    assert "Fusha" in meta or "Modern Standard Arabic" in meta
+    assert "Write the entire script in Gulf Arabic" not in meta
+    assert "colloquial Gulf tone" not in meta
+
+
 def test_interview_meta_arabic_not_british_english():
     meta = _interview_meta(language_code="ar")
     assert "Arabic" in meta

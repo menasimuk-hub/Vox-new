@@ -67,11 +67,11 @@ def _interview_meta(*, language_code: str) -> str:
     code = normalize_script_language_code(language_code)
     if code == "ar":
         lang_line = (
-            "Write the entire script in Gulf Arabic (Saudi/UAE natural phone style — NOT formal MSA, NOT newsreader tone). "
-            "Use short spoken sentences like a real recruiter on a phone call. "
-            "Prefer: «تقدر»، «الحين»، «وش»، «زين»، «تمام» — avoid: «هل يمكنك»، «أود أن»، «سوف»، «يرجى». "
-            "Intro, questions, closing, system_prompt, and script_text body must all match this colloquial Gulf tone. "
-            "Expect informal dialect answers from candidates; questions should sound human, not robotic."
+            "Write all QUESTIONS in Modern Standard Arabic (Fusha) — formal, clear, grammatically correct "
+            "(e.g. «هل لديك»، «ما مدى»، «يرجى» — not Gulf «وش»/«الحين» or Egyptian «إزيك»/«دلوقتي»). "
+            "INTRO and CLOSING may be brief Fusha for customer review. "
+            "The live AI agent speaks colloquially on the phone; the approved script stays in Fusha for readability. "
+            "Expect informal dialect answers from candidates."
         )
     elif code == "fr":
         lang_line = (
@@ -939,6 +939,7 @@ def generate_interview_script(
             f"Screening criteria:\n{criteria_text}",
             f"Delivery: {channel}",
             "Write screening questions the customer can read and approve before launch.",
+            "For Arabic: questions must be in Fusha (Modern Standard Arabic) for review; the selected agent will speak in their own dialect on the live call.",
             "The first TWO questions must be CV templates (e.g. ask about a specific role, achievement, or gap from THEIR cv — do not name employers or invent CV facts). Remaining questions are standard job screening from the criteria above.",
         ]
     )

@@ -63,15 +63,31 @@ ARABIC_BASE_ROLE = (
     "افهم المرشّح بكل اللهجات: خليجي، مصري، شامي/لبناني — ورد بخليجي واضح. "
     "توقف بعد كل سؤال. إذا ما فهمت، أعد السؤال بصياغة أبسط. احترم المقاطعات."
 )
-ARABIC_HUMAN_SPEECH_RULES = (
+ARABIC_EGYPTIAN_BASE_ROLE = (
+    "تكلم كأنك موظف توظيف مصري على التليفون — مو روبوت ولا فصحى. "
+    "مصري طبيعي وواضح. جمل قصيرة. ردود سريعة بين الأسئلة: «تمام»، «ماشي»، «أكيد»، «فهمت عليك». "
+    "افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري محترم. "
+    "توقف بعد كل سؤال. إذا ما فهمت، أعد السؤال بصياغة أبسط. احترم المقاطعات."
+)
+ARABIC_GULF_HUMAN_SPEECH_RULES = (
     "أسلوب الكلام (إلزامي — أولوية بعد اللغة):\n"
-    "- لا تستخدم فصحى رسمية. لا تتكلم كأنك تقرأ بيانًا.\n"
+    "- لا تستخدم فصحى رسمية في كلامك. لا تتكلم كأنك تقرأ بيانًا.\n"
     "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «إذن»، «حضرة»، «لقد»، «بالتأكيد سيدي»، «سوف أقوم»، «يرجى التكرم».\n"
     "- استخدم بدلها: «تقدر»، «تبي»، «ودك»، «الحين»، «وش»، «كيف»، «ليش»، «تمام»، «زين»، «طيب»، «أكيد»، «فهمت عليك»، «عطني مثال».\n"
     "- إذا السؤال في النص المعتمد مكتوب فصحى، قل المعنى نفسه بخليجي طبيعي قبل ما تنتظر الإجابة.\n"
     "- ردودك ١–٢ جملة غالبًا. لا فقرات طويلة. لا تكرر نفس الجملة.\n"
     "- نبرة ودودة ومحترمة — زي مكالمة توظيف حقيقية مو امتحان لغة عربية."
 )
+ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES = (
+    "أسلوب الكلام (إلزامي — أولوية بعد اللغة):\n"
+    "- لا تستخدم فصحى رسمية في كلامك. تكلم مصري طبيعي زي موظف توظيف على التليفون.\n"
+    "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «حضرة»، «سوف أقوم»، «يرجى التكرم».\n"
+    "- استخدم بدلها: «تقدر»، «عندك»، «دلوقتي»، «إزاي»، «ليه»، «تمام»، «ماشي»، «أكيد»، «فهمت عليك»، «ادّيني مثال».\n"
+    "- إذا السؤال في النص المعتمد مكتوب فصحى، قل المعنى نفسه بمصري طبيعي قبل ما تنتظر الإجابة.\n"
+    "- ردودك ١–٢ جملة غالبًا. افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري واضح.\n"
+    "- نبرة ودودة ومحترمة — زي مكالمة توظيف حقيقية."
+)
+ARABIC_HUMAN_SPEECH_RULES = ARABIC_GULF_HUMAN_SPEECH_RULES
 ARABIC_INTERVIEW_SERVICE_ROLE = (
     "أجرِ مقابلات فرز هاتفية منظمة للوظائف.\n"
     "السؤال 1–2: ارجع لسيرة المرشّح (خبرة، إنجاز، أو فجوة).\n"
@@ -90,6 +106,37 @@ _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\
 
 def _contains_arabic(text: str | None) -> bool:
     return bool(_ARABIC_RE.search(str(text or "")))
+
+
+def arabic_dialect_runtime_for_agent(agent: AgentDefinition | None) -> dict[str, str]:
+    """Runtime dialect blocks for Arabic interview calls — agent-specific (Gulf vs Egyptian)."""
+    from app.services.interview_agent_display_service import interview_agent_dialect_meta
+
+    dialect_code = "SA"
+    if agent is not None:
+        dialect_code = str(interview_agent_dialect_meta(agent).get("dialect_code") or "SA").upper()
+
+    if dialect_code == "EG":
+        return {
+            "language_priority": (
+                "تعليمات اللغة (أولوية قصوى): أجرِ المكالمة بالكامل بالعربية المصرية الطبيعية — "
+                "التحية وجميع الأسئلة والمتابعات وكل ردودك. لا تستخدم فصحى رسمية في كلامك. "
+                "الأسئلة في النص المعتمد قد تكون فصحى — قلّها بمصري طبيعي بنفس المعنى. "
+                "لا تتحدث الإنجليزية إلا إذا طلب المرشّح ذلك صراحةً."
+            ),
+            "speech_rules": ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES,
+            "base_role": ARABIC_EGYPTIAN_BASE_ROLE,
+        }
+    return {
+        "language_priority": (
+            "تعليمات اللغة (أولوية قصوى): أجرِ المكالمة بالكامل بالعربية الخليجية (أسلوب سعودي/إماراتي طبيعي) — "
+            "التحية وجميع الأسئلة والمتابعات وكل ردودك. لا تستخدم فصحى رسمية في كلامك. "
+            "الأسئلة في النص المعتمد قد تكون فصحى — قلّها بخليجي طبيعي بنفس المعنى. "
+            "لا تتحدث الإنجليزية إلا إذا طلب المرشّح ذلك صراحةً."
+        ),
+        "speech_rules": ARABIC_GULF_HUMAN_SPEECH_RULES,
+        "base_role": ARABIC_BASE_ROLE,
+    }
 
 
 def _config_script_text(config: dict[str, Any]) -> str:
@@ -534,8 +581,13 @@ def build_script_generation_agent_block(
 
     if layers.compliance:
         parts.append(f"Platform compliance:\n{layers.compliance}")
-    if layers.base_role:
+    if layers.base_role and service_key != SERVICE_INTERVIEW:
         parts.append(f"Agent base role:\n{layers.base_role}")
+    elif layers.base_role and service_key == SERVICE_INTERVIEW:
+        parts.append(
+            "Agent persona (live calls only): the agent speaks in their natural colloquial dialect on the phone. "
+            "Do NOT write QUESTIONS in dialect — QUESTIONS must stay in Fusha for customer review."
+        )
     if layers.service_role:
         parts.append(f"Service role:\n{layers.service_role}")
     if layers.call_workflow:
@@ -593,7 +645,9 @@ def build_script_generation_agent_block(
             "OPENING DISCLOSURE\n...\nINTRO\n...\nQUESTIONS\n1. ...\nCLOSING\n...\n"
             "The first TWO questions must reference the candidate CV (experience, achievement, or gap). "
             "Remaining questions must come from the role and screening criteria. "
-            "This is a job interview — never call it a survey."
+            "This is a job interview — never call it a survey.\n"
+            "For Arabic scripts: all QUESTIONS must be Modern Standard Arabic (Fusha) for customer review. "
+            "The live agent will speak colloquially on the call — do not write questions in Gulf or Egyptian dialect."
         )
     return "\n\n".join(parts)
 
@@ -647,7 +701,12 @@ def build_service_runtime_instructions(
 
     parts: list[str] = []
     use_arabic = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
-    base_role = _layer_text_for_call_language(layers.base_role, arabic_default=ARABIC_BASE_ROLE, use_arabic=use_arabic)
+    dialect_runtime = arabic_dialect_runtime_for_agent(agent) if use_arabic else None
+    base_role = _layer_text_for_call_language(
+        layers.base_role,
+        arabic_default=(dialect_runtime or {}).get("base_role") or ARABIC_BASE_ROLE,
+        use_arabic=use_arabic,
+    )
     service_role = layers.service_role
     if use_arabic and service_key == SERVICE_INTERVIEW:
         service_role = _layer_text_for_call_language(
@@ -659,13 +718,9 @@ def build_service_runtime_instructions(
             layers.call_workflow, arabic_default=ARABIC_INTERVIEW_CALL_WORKFLOW, use_arabic=True
         )
 
-    if use_arabic:
-        parts.append(
-            "تعليمات اللغة (أولوية قصوى): أجرِ المكالمة بالكامل بالعربية الخليجية (أسلوب سعودي/إماراتي طبيعي) — "
-            "التحية وجميع الأسئلة والمتابعات وكل ردودك. لا تستخدم فصحى رسمية. "
-            "لا تتحدث الإنجليزية إلا إذا طلب المرشّح ذلك صراحةً."
-        )
-        parts.append(ARABIC_HUMAN_SPEECH_RULES)
+    if use_arabic and dialect_runtime:
+        parts.append(dialect_runtime["language_priority"])
+        parts.append(dialect_runtime["speech_rules"])
         if agent and str(getattr(agent, "conversation_style", "") or "").strip():
             parts.append(
                 "أسلوب المحادثة:\n"
