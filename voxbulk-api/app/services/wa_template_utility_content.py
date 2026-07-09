@@ -88,9 +88,9 @@ TOPIC_SAFE_EN: dict[str, str] = {
     "return_intent": "future use",
     "return intent standard": "future use",
     "return_intent_standard": "future use",
-    "repeat purchase intent": "overall satisfaction",
-    "repeat_purchase_intent": "overall satisfaction",
-    "repeat purchase": "overall satisfaction",
+    "repeat purchase intent": "shopping experience",
+    "repeat_purchase_intent": "shopping experience",
+    "repeat purchase": "shopping experience",
 }
 
 TOPIC_SAFE_AR: dict[str, str] = {
@@ -137,6 +137,45 @@ TOPIC_SAFE_AR: dict[str, str] = {
 
 def _norm_topic_key(topic: str | None) -> str:
     return re.sub(r"\s+", " ", str(topic or "").strip().lower().replace("_", " "))
+
+
+def _is_would_recommend_topic(topic_name: str | None) -> bool:
+    key = _norm_topic_key(topic_name)
+    return key in {"would recommend", "would recommend standard"} or key.startswith("would recommend")
+
+
+def _is_repeat_purchase_topic(topic_name: str | None) -> bool:
+    key = _norm_topic_key(topic_name)
+    return key in {"repeat purchase intent", "repeat purchase"} or "repeat purchase" in key
+
+
+_EMPLOYEE_TOPIC_BODIES: dict[str, str] = {
+    "feeling valued": "How valued do you feel at work? Reply with one option below.",
+    "recognition": "How would you rate the recognition you receive at work? Reply with one option below.",
+    "remote hybrid flexibility": (
+        "How satisfied are you with your remote/hybrid work flexibility? Reply with one option below."
+    ),
+    "inclusion belonging": (
+        "At work, do you feel safe, welcome, and able to be your authentic self? Reply with one option below."
+    ),
+    "manager communication": (
+        "At work, does your manager share information, feedback, and expectations clearly? "
+        "Reply with one option below."
+    ),
+    "morale": "How would you rate morale at work at the moment? Reply with one option below.",
+    "motivation": (
+        "How energized and driven do you feel to perform well in your role? Reply with one option below."
+    ),
+    "psychological safety": (
+        "At work, do you feel able to speak up about concerns or suggestions without fear of "
+        "negative consequences? Reply with one option below."
+    ),
+}
+
+
+def employee_utility_body_for_topic(topic_name: str | None) -> str | None:
+    key = _norm_topic_key(topic_name)
+    return _EMPLOYEE_TOPIC_BODIES.get(key)
 
 
 def _has_latin(text: str) -> bool:
@@ -340,12 +379,37 @@ def utility_body_for_topic(
     industry_name: str | None = None,
 ) -> str:
     frame = resolve_industry_frame(industry_slug, industry_name, language="en")
+    prefix = f"{emoji} " if emoji else ""
+
+    if _is_would_recommend_topic(topic_name):
+        if frame["key"] == "visit":
+            return (
+                f"{prefix}How would you rate your overall satisfaction on your recent visit? "
+                "Reply with one option below."
+            ).strip()
+        return (
+            f"{prefix}How would you rate your overall satisfaction from your recent experience with us? "
+            "Reply with one option below."
+        ).strip()
+
+    if _is_repeat_purchase_topic(topic_name):
+        return (
+            f"{prefix}After your recent visit with us, how satisfied are you with your shopping experience? "
+            "Reply with one option below."
+        ).strip()
+
     topic = safe_topic_en(topic_name, industry_slug=industry_slug, industry_name=industry_name)
+    employee_body = employee_utility_body_for_topic(topic_name) or employee_utility_body_for_topic(topic)
     if frame["key"] == "employee":
-        return f"{emoji} How would you rate {topic} at work? Reply with one option below."
+        if employee_body:
+            return f"{prefix}{employee_body}".strip()
+        return f"{prefix}How would you rate {topic} at work? Reply with one option below.".strip()
     if frame["key"] == "visit":
-        return f"{emoji} How was {topic} on your recent visit with us? Reply with one option below."
-    return f"{emoji} How was {topic} in your recent experience with us? Reply with one option below."
+        return f"{prefix}How would you rate your {topic} on your recent visit? Reply with one option below.".strip()
+    return (
+        f"{prefix}How would you rate your {topic} from your recent experience with us? "
+        "Reply with one option below."
+    ).strip()
 
 
 def utility_body_ar_for_topic(

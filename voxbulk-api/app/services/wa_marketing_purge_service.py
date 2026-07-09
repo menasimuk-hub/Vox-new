@@ -19,13 +19,15 @@ from app.services.survey_wa_utility_rewrite_service import (
     _industry_for_template_row,
     _normalize_leading_emoji_text,
     _prepare_approved_template_for_utility_push,
+    _rule_based_utility_body,
     _template_body_text,
     _topic_for_template_row,
+    _topic_from_template_name,
     apply_utility_rewrite_to_row,
     discover_remote_marketing_survey_templates,
     refresh_row_from_telnyx,
-    rewrite_body_for_utility,
 )
+from app.services.wa_template_meta_sync import suggest_utility_clone_template_name
 from app.services.survey_whatsapp_template_service import (
     SurveyWhatsappTemplateError,
     SurveyWhatsappTemplateService,
@@ -219,17 +221,13 @@ def build_marketing_purge_plan(
         if row is not None:
             components = _effective_components(row)
             old_body, buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
-            use_llm = not _body_has_recommend_intent(old_body)
-            preview["body_after"] = rewrite_body_for_utility(
-                db,
-                original_body=old_body,
-                button_labels=buttons,
-                template_name=row.name,
-                display_name=row.display_name,
-                use_llm=use_llm,
-                industry_slug=_industry_for_template_row(db, row)[0],
-                industry_name=_industry_for_template_row(db, row)[1],
-                topic_name=_topic_for_template_row(db, row),
+            industry_slug, industry_name = _industry_for_template_row(db, row)
+            topic_name = _topic_for_template_row(db, row) or _topic_from_template_name(row.name)
+            preview["body_after"] = _rule_based_utility_body(
+                old_body,
+                topic_hint=topic_name,
+                industry_slug=industry_slug,
+                industry_name=industry_name,
             )
             from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
 
@@ -242,7 +240,10 @@ def build_marketing_purge_plan(
                 next_name = None
                 if is_was_survey_name(row.name):
                     next_name = suggest_next_was_seq_name(row.name, used_names=used)
-                preview["new_local_name"] = next_name or f"{row.name}_utu"
+                    preview["new_local_name"] = next_name or row.name
+                else:
+                    next_name = suggest_utility_clone_template_name(row.name)
+                    preview["new_local_name"] = next_name or f"{row.name}_utu"
             else:
                 preview["new_local_name"] = row.name
 
@@ -255,7 +256,8 @@ def build_marketing_purge_plan(
             f"Meta/Telnyx only: {remote_name}" if will_delete_old_remote else "nothing (same name update)"
         )
         if preview.get("body_after") and preview.get("body_before") == preview.get("body_after"):
-            preview["llm_on_apply"] = "DeepSeek will rephrase on apply (rule-based preview unchanged)"
+            if not _body_has_recommend_intent(str(preview.get("body_before") or "")):
+                preview["llm_on_apply"] = "DeepSeek may lightly rephrase on apply (preview is rule-based)"
 
         plan.append(
             PurgePlanItem(

@@ -81,13 +81,21 @@ def is_was_survey_name(name: str | None) -> bool:
 _WAS_SEQ_SUFFIX_RE = re.compile(r"^(.+_)(\d{3})_(en|ar)(?:_[a-z0-9]{4,8})?$", re.I)
 
 
+def _strip_was_clone_suffix(name: str) -> str:
+    """Remove trailing _utu markers left from failed utility-clone attempts."""
+    base = str(name or "").strip().lower()
+    while base.endswith("_utu"):
+        base = base[:-4]
+    return base
+
+
 def suggest_next_was_seq_name(
     current_name: str,
     *,
     used_names: set[str] | None = None,
 ) -> str | None:
     """Bump was_* _00N_en|ar to the next free sequence (e.g. _002_ -> _003_)."""
-    base = str(current_name or "").strip().lower()
+    base = _strip_was_clone_suffix(str(current_name or "").strip().lower())
     if not base.startswith("was_"):
         return None
     match = _WAS_SEQ_SUFFIX_RE.match(base)

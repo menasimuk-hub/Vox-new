@@ -41,7 +41,8 @@ def test_rule_based_rewrites_nps_wording_without_lint_violation():
     )
     lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
     assert lint.ok
-    assert "recommend" not in body.lower() or "recent" in body.lower()
+    assert "your overall satisfaction" in body.lower()
+    assert "how likely" not in body.lower()
 
 
 def test_rule_based_rewrites_would_recommend_without_lint_violation():
@@ -54,6 +55,7 @@ def test_rule_based_rewrites_would_recommend_without_lint_violation():
     )
     lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
     assert lint.ok
+    assert "your overall satisfaction" in body.lower()
     assert "would you recommend" not in body.lower()
 
 
@@ -75,6 +77,13 @@ def test_suggest_next_was_seq_name():
         suggest_next_was_seq_name("was_logistics_delivery_would_recommend_002_en_rb044", used_names=used)
         == "was_logistics_delivery_would_recommend_004_en"
     )
+    assert (
+        suggest_next_was_seq_name(
+            "was_financial_services_would_recommend_002_en_r27a6_utu",
+            used_names={"was_financial_services_would_recommend_003_en"},
+        )
+        == "was_financial_services_would_recommend_004_en"
+    )
     assert suggest_next_was_seq_name("voxbulk_survey_food_abc_123", used_names=set()) is None
 
 
@@ -89,6 +98,27 @@ def test_rule_based_rewrites_repeat_purchase_intent():
     lint = lint_utility_template(body=body, buttons=["Yes", "No"], language="en_GB", meta_category="utility")
     assert lint.ok
     assert "how likely" not in body.lower()
+    assert "shopping experience" in body.lower()
+    assert "overall satisfaction" not in body.lower()
+
+
+def test_rule_based_rewrites_employee_feeling_valued():
+    body = _rule_based_utility_body(
+        "Do you feel that your contributions are genuinely appreciated here?",
+        topic_hint="feeling valued",
+        industry_slug="employee_survey",
+    )
+    assert "how valued do you feel at work" in body.lower()
+
+
+def test_normalize_leading_emoji_variation_selector():
+    body = _rule_based_utility_body(
+        "🗣️ At work, does your manager share information clearly?",
+        topic_hint="manager communication",
+        industry_slug="employee_survey",
+    )
+    assert not "🗣 ️" in body
+    assert body.startswith("🗣")
 
 
 def test_needs_utility_clone_for_category_change():

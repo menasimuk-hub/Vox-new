@@ -46,7 +46,8 @@ _EMOJI_RE = re.compile(
     "\U0001F300-\U0001FAFF"
     "\U00002600-\U000027BF"
     "\U0001F1E0-\U0001F1FF"
-    "]+",
+    "]+"
+    "\uFE0F?",
     flags=re.UNICODE,
 )
 
@@ -138,6 +139,7 @@ def _extract_leading_emoji(text: str) -> tuple[str, str]:
         return "", raw
     emoji = match.group(0)
     rest = raw[match.end() :].lstrip()
+    rest = re.sub(r"^\uFE0F\s*", "", rest)
     return emoji, rest
 
 
@@ -173,7 +175,12 @@ def _rule_based_utility_body(
     industry_slug: str | None = None,
     industry_name: str | None = None,
 ) -> str:
-    from app.services.wa_template_utility_content import resolve_industry_frame, utility_body_for_topic
+    from app.services.wa_template_utility_content import (
+        employee_utility_body_for_topic,
+        is_promo_wording,
+        resolve_industry_frame,
+        utility_body_for_topic,
+    )
 
     emoji, cleaned = _extract_leading_emoji(original)
     if leading_emoji:
@@ -182,31 +189,40 @@ def _rule_based_utility_body(
     frame = resolve_industry_frame(industry_slug, industry_name, language="en")
     if not cleaned:
         cleaned = frame["experience"]
-    # Never force visit language onto employee surveys.
-    if frame["key"] == "employee" and "visit" in cleaned.lower():
-        topic = topic_hint.strip() or frame["fallback_topic"]
-        return _prepend_leading_emoji(
-            emoji,
-            _sanitize_body(f"How would you rate {topic} at work? Reply with one option below."),
-        )
-    if (
-        _mentions_recent_interaction(cleaned)
-        and not (frame["key"] == "employee" and "visit" in cleaned.lower())
-        and not _body_has_recommend_intent(cleaned)
-    ):
-        return _prepend_leading_emoji(emoji, _sanitize_body(cleaned))
     topic = topic_hint.strip() or frame["fallback_topic"]
-    return _prepend_leading_emoji(
-        emoji,
-        _sanitize_body(
-            utility_body_for_topic(
+    # Never force visit language onto employee surveys.
+    if frame["key"] == "employee":
+        if "visit" in cleaned.lower():
+            body = employee_utility_body_for_topic(topic) or utility_body_for_topic(
                 topic,
                 emoji="",
                 industry_slug=industry_slug,
                 industry_name=industry_name,
             ).lstrip()
-        ),
-    )
+            return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(body)))
+        mapped = employee_utility_body_for_topic(topic)
+        if mapped:
+            return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(mapped)))
+        if (
+            cleaned
+            and "?" in cleaned
+            and not _body_has_recommend_intent(cleaned)
+            and not is_promo_wording(cleaned)
+        ):
+            return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(cleaned)))
+    if (
+        _mentions_recent_interaction(cleaned)
+        and not (frame["key"] == "employee" and "visit" in cleaned.lower())
+        and not _body_has_recommend_intent(cleaned)
+    ):
+        return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(cleaned)))
+    body = utility_body_for_topic(
+        topic,
+        emoji="",
+        industry_slug=industry_slug,
+        industry_name=industry_name,
+    ).lstrip()
+    return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(body)))
 
 
 def _parse_rewrite_json(raw: str) -> dict[str, Any] | None:
