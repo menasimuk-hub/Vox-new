@@ -268,7 +268,7 @@ def rewrite_group_variants(
             db,
             original_body=anchor.body_before,
             button_labels=anchor.buttons,
-            template_name=anchor.label,
+            template_name=anchor.remote_name or anchor.label,
             display_name=anchor.topic_name or anchor.template_key,
             use_llm=True,
             llm_provider=llm_provider,
@@ -289,6 +289,7 @@ def rewrite_group_variants(
             industry_slug=anchor.industry_slug,
             industry_name=anchor.industry_name,
             language=anchor.language,
+            template_name=anchor.remote_name or anchor.label,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
         anchor.skip_reason = None if anchor.rewritten else anchor_reason
@@ -316,7 +317,7 @@ def rewrite_group_variants(
                 db,
                 original_body=variant.body_before,
                 button_labels=variant.buttons,
-                template_name=variant.label,
+                template_name=variant.remote_name or variant.label,
                 display_name=variant.topic_name or variant.template_key,
                 use_llm=True,
                 llm_provider=llm_provider,
@@ -335,6 +336,7 @@ def rewrite_group_variants(
                 industry_slug=variant.industry_slug,
                 industry_name=variant.industry_name,
                 language=variant.language,
+                template_name=variant.remote_name or variant.label,
             )
         variant.rewritten = variant.body_after.strip() != variant.body_before.strip()
         variant.skip_reason = None if variant.rewritten else reason

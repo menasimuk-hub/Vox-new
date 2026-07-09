@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.survey_wa_utility_rewrite_service import (
     _extract_leading_emoji,
+    _language_code_from_value,
     _mentions_recent_interaction,
     _needs_utility_clone_for_category_change,
     _prepend_leading_emoji,
@@ -38,6 +39,30 @@ def test_topic_from_template_name():
         "lang": "es",
         "version": "1",
     }
+
+
+def test_language_inferred_from_cfs_name_over_en_gb_default():
+    assert _language_code_from_value("en_gb", template_name="cfs_hotel_atmosphere_es_v1") == "es"
+    assert _language_code_from_value("en_gb", template_name="cfs_hotel_atmosphere_pl_v1") == "pl"
+    assert _language_code_from_value("en_gb", template_name="cfs_hotel_atmosphere_en_v1") == "en"
+
+
+def test_lang_variant_from_manifest_item_enriches_cfs_metadata():
+    from app.services.survey_wa_utility_rewrite_service import lang_variant_from_manifest_item
+
+    variant = lang_variant_from_manifest_item(
+        {
+            "remote_name": "cfs_hotel_atmosphere_es_v1",
+            "language": "en_gb",
+            "body_before": "🌆 ¿Cómo calificarías el ambiente y la atmósfera de nuestro hotel?",
+            "buttons": ["Malo", "Regular", "Bueno"],
+            "product": "feedback",
+        }
+    )
+    assert variant.language == "es_gb"
+    assert variant.industry_slug == "hotel"
+    assert variant.topic_name == "atmosphere"
+    assert variant.template_key == "atmosphere"
 
 
 def test_rule_based_preserves_spanish_cfs_feedback_question():

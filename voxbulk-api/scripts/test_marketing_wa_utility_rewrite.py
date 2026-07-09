@@ -29,6 +29,7 @@ from app.services.wa_marketing_review_service import (
     approve_manifest_items,
     load_manifest,
     print_rewritten_templates,
+    reset_rewritten_items,
     run_batch_rewrites,
 )
 
@@ -54,9 +55,17 @@ def main() -> int:
     parser.add_argument("--all", action="store_true", help="Approve all listed templates for rewrite")
     parser.add_argument("--no-llm", action="store_true", help="Rule-based only (not recommended)")
     parser.add_argument("--skip-approve", action="store_true", help="Skip approve step (items already approved_rewrite)")
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="Reset rewritten items back to approved_rewrite before running (use after git pull / code fix)",
+    )
     args = parser.parse_args()
 
     batch_id = str(args.batch_id).strip()
+    if args.rerun:
+        result = reset_rewritten_items(batch_id, reset_all=bool(args.all))
+        print(f"Reset {result.get('reset', 0)} rewritten item(s) to approved_rewrite.")
     if not args.skip_approve:
         if not args.all and not args.names and not args.ids:
             print("Approving --limit templates by name filter (use --all for everything, --names for filter)", file=sys.stderr)
@@ -92,6 +101,17 @@ def main() -> int:
     try:
         llm_cfg = resolve_utility_llm_config(db)
         print(f"DeepInfra: {llm_cfg['base_url']} | model: {llm_cfg['model']}")
+        try:
+            import subprocess
+
+            commit = (
+                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=str(ROOT.parent), stderr=subprocess.DEVNULL)
+                .decode()
+                .strip()
+            )
+            print(f"Git: {commit}")
+        except Exception:
+            pass
         result = run_batch_rewrites(
             db,
             batch_id=batch_id,

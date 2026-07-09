@@ -23,6 +23,8 @@ from app.services.survey_wa_utility_rewrite_service import (
     _extract_body_and_buttons,
     _find_template_row,
     discover_remote_marketing_templates,
+    lang_variant_from_manifest_item,
+    parse_cfs_meta_name,
     resolve_utility_llm_config,
 )
 from app.services.survey_whatsapp_template_service import _effective_components
@@ -165,6 +167,10 @@ def create_marketing_list_manifest(
         )
         body = str(item.get("full_body") or item.get("body_preview") or "")
         action = "feedback_rewrite_push" if product == "feedback" else "survey_rewrite_push"
+        cfs = parse_cfs_meta_name(remote_name) if product == "feedback" else None
+        lang = item.get("remote_language") or item.get("language")
+        if cfs and cfs.get("lang") and (not lang or str(lang).lower().startswith("en")):
+            lang = f"{cfs['lang']}_gb"
         group["items"].append(
             {
                 "status": "listed",
@@ -174,13 +180,16 @@ def create_marketing_list_manifest(
                 "label": str(item.get("name") or remote_name),
                 "remote_name": remote_name,
                 "new_meta_name": None,
-                "language": item.get("remote_language") or item.get("language"),
+                "language": lang,
                 "body_before": body,
                 "body_after": None,
                 "rewritten": False,
                 "remote_status": item.get("status"),
                 "remote_profiles": item.get("remote_profiles"),
                 "buttons": item.get("buttons") or [],
+                "industry_slug": item.get("industry_slug") or (cfs.get("industry") if cfs else None),
+                "template_key": item.get("template_key") or (cfs.get("topic_key") if cfs else None),
+                "topic_name": item.get("survey_type") or item.get("template_key") or (cfs.get("topic") if cfs else None),
                 "meta": {"reasons": item.get("reasons")},
             }
         )
@@ -217,7 +226,6 @@ def run_batch_rewrites(
     """Step 3: Qwen rewrite for items with status=approved_rewrite."""
     from app.services.survey_wa_utility_rewrite_service import resolve_utility_llm_config
     from app.services.wa_marketing_utility_multilang_service import (
-        LangVariant,
         TemplateGroup,
         rewrite_group_variants,
     )
@@ -235,19 +243,7 @@ def run_batch_rewrites(
         for item in group.get("items") or []:
             if str(item.get("status") or "") != "approved_rewrite":
                 continue
-            variants.append(
-                LangVariant(
-                    local_template_id=item.get("local_template_id"),
-                    label=str(item.get("label") or ""),
-                    remote_name=str(item.get("remote_name") or ""),
-                    language=str(item.get("language") or "en_gb"),
-                    product=str(item.get("product") or "survey"),
-                    body_before=str(item.get("body_before") or ""),
-                    buttons=list(item.get("buttons") or []),
-                    template_key=item.get("template_key"),
-                    meta=item.get("meta") or {},
-                )
-            )
+            variants.append(lang_variant_from_manifest_item(item))
         if variants:
             groups_to_run.append(TemplateGroup(group_key=str(group.get("group_key")), product=str(group.get("product")), variants=variants))
             group_index[str(group.get("group_key"))] = group
@@ -579,6 +575,39 @@ def _matches_filter(item: dict[str, Any], *, names: list[str] | None, ids: list[
             if pat.endswith("*") and (label.startswith(pat[:-1]) or remote.startswith(pat[:-1])):
                 return True
     return False
+
+
+def reset_rewritten_items(
+    batch_id: str,
+    *,
+    names: list[str] | None = None,
+    reset_all: bool = False,
+) -> dict[str, Any]:
+    """Move rewritten items back to approved_rewrite so Step 3 can be re-run after a code fix."""
+    manifest = load_manifest(batch_id)
+    needles = [str(n or "").strip().lower() for n in (names or []) if str(n or "").strip()]
+    reset = 0
+    for group in manifest.get("groups") or []:
+        for item in group.get("items") or []:
+            if str(item.get("status") or "") != "rewritten":
+                continue
+            remote = str(item.get("remote_name") or item.get("label") or "").lower()
+            if not reset_all and needles and not any(
+                remote == needle or remote.startswith(needle.rstrip("*")) or needle.rstrip("*") in remote
+                for needle in needles
+            ):
+                continue
+            item["status"] = "approved_rewrite"
+            item["body_after"] = None
+            item["rewritten"] = False
+            item["skip_reason"] = None
+            item["lint_ok"] = None
+            item["lint_messages"] = []
+            reset += 1
+    manifest["workflow_step"] = "approved_rewrite"
+    counts = _recount_statuses(manifest)
+    save_manifest(batch_id, manifest)
+    return {"reset": reset, "status_counts": counts}
 
 
 def approve_manifest_items(

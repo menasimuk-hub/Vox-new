@@ -138,7 +138,11 @@ def parse_cfs_meta_name(name: str) -> dict[str, str] | None:
 
 
 def _language_code_from_value(language: str | None, *, template_name: str = "") -> str:
+    cfs = parse_cfs_meta_name(template_name)
+    cfs_lang = str(cfs.get("lang") or "").strip().lower() if cfs else ""
     raw = str(language or "").strip().lower().replace("-", "_")
+    if cfs_lang and cfs_lang not in {"en"} and (not raw or raw.startswith("en")):
+        return cfs_lang
     if raw.startswith("en"):
         return "en"
     if raw.startswith("ar"):
@@ -147,14 +151,56 @@ def _language_code_from_value(language: str | None, *, template_name: str = "") 
         head = raw.split("_", 1)[0]
         if len(head) >= 2:
             return head
-    cfs = parse_cfs_meta_name(template_name)
-    if cfs and cfs.get("lang"):
-        return str(cfs["lang"])
+    if cfs_lang:
+        return cfs_lang
     return "en"
 
 
-def _is_non_english_language(language: str | None) -> bool:
-    code = _language_code_from_value(language)
+def _language_token_from_manifest(
+    language: str | None,
+    *,
+    remote_name: str = "",
+) -> str:
+    cfs = parse_cfs_meta_name(remote_name)
+    raw = str(language or "").strip()
+    if cfs and cfs.get("lang"):
+        inferred = str(cfs["lang"]).strip().lower()
+        if not raw or raw.lower().replace("-", "_").startswith("en"):
+            return f"{inferred}_gb" if len(inferred) == 2 else inferred
+    return raw or "en_gb"
+
+
+def lang_variant_from_manifest_item(item: dict[str, Any]) -> "LangVariant":
+    """Rebuild a LangVariant from saved manifest JSON with cfs_* metadata filled in."""
+    from app.services.wa_marketing_utility_multilang_service import LangVariant
+
+    remote_name = str(item.get("remote_name") or item.get("label") or "").strip()
+    cfs = parse_cfs_meta_name(remote_name) if remote_name else None
+    return LangVariant(
+        local_template_id=item.get("local_template_id"),
+        label=remote_name or str(item.get("label") or ""),
+        remote_name=remote_name,
+        language=_language_token_from_manifest(
+            str(item.get("language") or item.get("remote_language") or ""),
+            remote_name=remote_name,
+        ),
+        product=str(item.get("product") or "survey"),
+        body_before=str(item.get("body_before") or ""),
+        buttons=list(item.get("buttons") or []),
+        industry_slug=item.get("industry_slug") or (cfs.get("industry") if cfs else None),
+        topic_name=(
+            item.get("topic_name")
+            or item.get("survey_type")
+            or item.get("template_key")
+            or (cfs.get("topic") if cfs else None)
+        ),
+        template_key=item.get("template_key") or (cfs.get("topic_key") if cfs else None),
+        meta=item.get("meta") or {},
+    )
+
+
+def _is_non_english_language(language: str | None, *, template_name: str = "") -> bool:
+    code = _language_code_from_value(language, template_name=template_name)
     return code not in {"en", "ar"}
 
 
@@ -173,7 +219,12 @@ def _language_label(language: str | None, *, template_name: str = "") -> str:
     return labels.get(code, code)
 
 
-def _original_looks_utility_safe(original: str, *, language: str | None = None) -> bool:
+def _original_looks_utility_safe(
+    original: str,
+    *,
+    language: str | None = None,
+    template_name: str = "",
+) -> bool:
     """Non-English feedback questions that are already utility-safe — keep unchanged."""
     from app.services.wa_template_utility_content import is_promo_wording
 
@@ -182,7 +233,7 @@ def _original_looks_utility_safe(original: str, *, language: str | None = None) 
         return False
     if "?" not in text and "؟" not in text:
         return False
-    if _is_non_english_language(language):
+    if _is_non_english_language(language, template_name=template_name):
         return True
     return _mentions_recent_interaction(text)
 
@@ -284,6 +335,7 @@ def _rule_based_utility_body(
     industry_slug: str | None = None,
     industry_name: str | None = None,
     language: str | None = None,
+    template_name: str = "",
 ) -> str:
     from app.services.wa_template_utility_content import (
         employee_utility_body_for_topic,
@@ -296,8 +348,12 @@ def _rule_based_utility_body(
     if leading_emoji:
         emoji = leading_emoji
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    lang_code = _language_code_from_value(language)
-    if _is_non_english_language(lang_code) and _original_looks_utility_safe(cleaned, language=lang_code):
+    lang_code = _language_code_from_value(language, template_name=template_name)
+    if _is_non_english_language(lang_code, template_name=template_name) and _original_looks_utility_safe(
+        cleaned,
+        language=lang_code,
+        template_name=template_name,
+    ):
         return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(cleaned)))
     frame = resolve_industry_frame(industry_slug, industry_name, language=lang_code if lang_code == "ar" else "en")
     if not cleaned:
@@ -468,12 +524,13 @@ def rewrite_body_for_utility(
             industry_slug=industry_slug,
             industry_name=industry_name,
             language=lang_code,
+            template_name=template_name,
         )
 
     if not use_llm:
         return _fallback_body()
 
-    if _original_looks_utility_safe(original_body, language=lang_code):
+    if _original_looks_utility_safe(original_body, language=lang_code, template_name=template_name):
         return _normalize_leading_emoji_text(
             _prepend_leading_emoji(leading_emoji, _sanitize_body(str(original_body).strip()))
         )
@@ -518,12 +575,12 @@ def rewrite_body_for_utility(
         body = _sanitize_body(body)
         if not body:
             raise ValueError("empty body from model")
-        if _is_non_english_language(lang_code) and _looks_english_utility_template(body):
+        if _is_non_english_language(lang_code, template_name=template_name) and _looks_english_utility_template(body):
             return _fallback_body()
         if frame["key"] == "employee" and "visit" in body.lower():
             return _fallback_body(body)
         if not _mentions_recent_interaction(body):
-            if _is_non_english_language(lang_code):
+            if _is_non_english_language(lang_code, template_name=template_name):
                 return _fallback_body()
             return _fallback_body(body)
         return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
