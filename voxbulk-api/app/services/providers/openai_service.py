@@ -297,10 +297,16 @@ class OpenAIProviderService:
         if not api_key:
             raise ValueError("DeepInfra API key is not configured")
         base_url = str(
-            config.get("moderation_base_url") or os.getenv("DEEPINFRA_BASE_URL") or "https://api.deepinfra.com/v1/openai"
+            config.get("base_url")
+            or config.get("moderation_base_url")
+            or os.getenv("DEEPINFRA_BASE_URL")
+            or "https://api.deepinfra.com/v1/openai"
         ).strip().rstrip("/")
         model = str(
-            config.get("moderation_model") or os.getenv("DEEPINFRA_LLM_MODEL") or "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+            config.get("model_name")
+            or config.get("moderation_model")
+            or os.getenv("DEEPINFRA_LLM_MODEL")
+            or "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
         ).strip()
         return {
             "api_key": api_key,

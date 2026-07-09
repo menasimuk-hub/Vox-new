@@ -72,6 +72,7 @@ def rewrite_feedback_body(
     template_key: str,
     use_llm: bool = True,
     llm_provider: str = "openai",
+    llm_model: str | None = None,
 ) -> str:
     if not use_llm:
         return _rule_based_utility_body(original_body, topic_hint=template_key.replace("_", " "))
@@ -83,6 +84,7 @@ def rewrite_feedback_body(
         display_name=template_key,
         use_llm=use_llm,
         llm_provider=llm_provider,
+        llm_model=llm_model,
     )
 
 
@@ -92,6 +94,7 @@ def apply_utility_rewrite_to_feedback_row(
     *,
     use_llm: bool = True,
     llm_provider: str = "openai",
+    llm_model: str | None = None,
     skip_lint: bool = False,
 ) -> tuple[str, str]:
     if is_marketing_wa_template(row):
@@ -109,6 +112,7 @@ def apply_utility_rewrite_to_feedback_row(
         template_key=str(row.template_key or ""),
         use_llm=use_llm,
         llm_provider=llm_provider,
+        llm_model=llm_model,
     )
     leading_emoji, _ = _extract_leading_emoji(old_body)
     new_body = _prepend_leading_emoji(leading_emoji, new_body)

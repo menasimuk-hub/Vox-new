@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 from app.services.survey_wa_utility_rewrite_service import (
+    DEFAULT_UTILITY_LLM_MODEL,
+    DEFAULT_UTILITY_LLM_PROVIDER,
     _body_has_recommend_intent,
     _extract_body_and_buttons,
     _find_template_row,
@@ -25,6 +27,7 @@ from app.services.survey_wa_utility_rewrite_service import (
     _topic_from_template_name,
     apply_utility_rewrite_to_row,
     discover_remote_marketing_survey_templates,
+    discover_remote_marketing_templates,
     refresh_row_from_telnyx,
 )
 from app.services.wa_template_meta_sync import suggest_utility_clone_template_name
@@ -45,6 +48,8 @@ logger = logging.getLogger(__name__)
 ActionKind = Literal[
     "survey_rewrite_push",
     "survey_delete_remote",
+    "feedback_rewrite_push",
+    "feedback_delete_remote",
 ]
 
 
@@ -163,37 +168,151 @@ def delete_remote_template_by_name(
     return deleted_on
 
 
+def _build_preview_for_survey_row(
+    db: Session,
+    row: TelnyxWhatsappTemplate,
+    *,
+    remote_name: str,
+    body_preview: str,
+    local_row_id: Any,
+) -> dict[str, Any]:
+    components = _effective_components(row)
+    old_body, _buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
+    industry_slug, industry_name = _industry_for_template_row(db, row)
+    topic_name = _topic_for_template_row(db, row) or _topic_from_template_name(row.name)
+    preview: dict[str, Any] = {
+        "body_before": body_preview or old_body,
+        "keeps_local_db_row": True,
+        "local_row_id": local_row_id,
+        "body_after": _rule_based_utility_body(
+            old_body,
+            topic_hint=topic_name,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+        ),
+    }
+    from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+
+    if str(row.status or "").upper() in {"APPROVED", "PENDING"} and _has_remote_telnyx_id(row):
+        used = {
+            str(r[0]).strip().lower()
+            for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
+            if r[0]
+        }
+        if is_was_survey_name(row.name):
+            preview["new_local_name"] = suggest_next_was_seq_name(row.name, used_names=used) or row.name
+        else:
+            preview["new_local_name"] = suggest_utility_clone_template_name(row.name) or f"{row.name}_utu"
+    else:
+        preview["new_local_name"] = row.name
+    return preview
+
+
+def _build_preview_for_feedback_row(
+    db: Session,
+    row: Any,
+    *,
+    remote_name: str,
+    body_preview: str,
+) -> dict[str, Any]:
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        collect_used_cfs_meta_names,
+        suggest_next_cfs_version_name,
+    )
+
+    old_body = str(row.body_text or body_preview or "").strip()
+    preview: dict[str, Any] = {
+        "body_before": old_body,
+        "keeps_local_db_row": True,
+        "local_row_id": str(row.id),
+        "body_after": _rule_based_utility_body(old_body, topic_hint=str(row.template_key or "")),
+    }
+    current = str(getattr(row, "meta_template_name", "") or remote_name).strip().lower()
+    used = collect_used_cfs_meta_names(db)
+    preview["new_local_name"] = suggest_next_cfs_version_name(current, used_names=used) or current
+    return preview
+
+
+def _append_rewrite_plan_item(
+    plan: list[PurgePlanItem],
+    *,
+    item: dict[str, Any],
+    row: TelnyxWhatsappTemplate | None,
+    feedback_row: Any | None,
+    preview: dict[str, Any],
+) -> None:
+    process_name = str(item.get("process_name") or item.get("name") or "")
+    remote_name = str(item.get("remote_name") or process_name)
+    product = str(item.get("product") or "survey")
+    new_name = str(preview.get("new_local_name") or process_name)
+    will_delete_old_remote = bool(remote_name and remote_name.lower() != new_name.lower())
+    preview["delete_old_remote_name"] = remote_name if will_delete_old_remote else None
+    preview["deletes"] = (
+        f"Meta/Telnyx only: {remote_name}" if will_delete_old_remote else "nothing (same name update)"
+    )
+    if preview.get("body_after") and preview.get("body_before") == preview.get("body_after"):
+        if not _body_has_recommend_intent(str(preview.get("body_before") or "")):
+            preview["llm_on_apply"] = "Qwen may lightly rephrase on apply (preview is rule-based)"
+    action: ActionKind = "feedback_rewrite_push" if product == "feedback" else "survey_rewrite_push"
+    label = str(row.name if row is not None else (feedback_row.template_key if feedback_row else process_name))
+    local_id = item.get("id") if row is not None else str(feedback_row.id) if feedback_row else item.get("id")
+    plan.append(
+        PurgePlanItem(
+            action=action,
+            product=product,
+            label=label,
+            old_meta_name=remote_name if will_delete_old_remote else None,
+            new_meta_name=new_name,
+            local_template_id=local_id,
+            language=item.get("remote_language"),
+            dry_preview=preview,
+            meta={
+                "reasons": item.get("reasons"),
+                "remote_name": remote_name,
+                "keeps_local_db_row": True,
+            },
+        )
+    )
+
+
 def build_marketing_purge_plan(
     db: Session,
     *,
     survey_only: bool = True,
+    scope: str = "survey",
     include_customer_feedback: bool = False,
     delete_remote_orphans: bool = False,
 ) -> tuple[dict[str, Any], list[PurgePlanItem]]:
     """Build purge plan.
 
-  Default (survey_only): only ``survey_rewrite_push`` for live Marketing survey templates.
-  - **Keeps** each local ``telnyx_whatsapp_templates`` row (rewrite body + rename in place).
-  - **Deletes** only the *old* Marketing template **name on Meta/Telnyx** after a successful
-    push when the local row was bumped (e.g. ``_002_`` → ``_003_``).
-
-  No local DB rows are removed unless ``include_customer_feedback`` is enabled (not recommended
-  unless you explicitly want CF marketing cleanup).
+  ``scope=survey`` (default legacy): survey MARKETING templates only.
+  ``scope=all_marketing``: all managed product MARKETING (was_*, voxbulk_survey_*, cfs_*).
     """
     plan: list[PurgePlanItem] = []
-    overview: dict[str, Any] = {"survey_only": survey_only}
+    all_marketing = str(scope or "").strip().lower() == "all_marketing" or (
+        not survey_only and include_customer_feedback
+    )
+    overview: dict[str, Any] = {"survey_only": not all_marketing, "scope": scope}
 
-    survey_overview, survey_remote = discover_remote_marketing_survey_templates(db)
-    overview["survey_remote"] = survey_overview
+    if all_marketing:
+        marketing_overview, marketing_remote = discover_remote_marketing_templates(db)
+        overview["marketing_remote"] = marketing_overview
+    else:
+        marketing_overview, marketing_remote = discover_remote_marketing_survey_templates(db)
+        overview["survey_remote"] = marketing_overview
 
-    for item in survey_remote:
+    for item in marketing_remote:
         if not item.get("actionable"):
             remote_name = str(item.get("remote_name") or item.get("name") or "")
             if delete_remote_orphans and remote_name:
+                product = str(item.get("product") or "survey")
+                delete_action: ActionKind = (
+                    "feedback_delete_remote" if product == "feedback" else "survey_delete_remote"
+                )
                 plan.append(
                     PurgePlanItem(
-                        action="survey_delete_remote",
-                        product="survey",
+                        action=delete_action,
+                        product=product,
                         label=remote_name,
                         old_meta_name=remote_name,
                         language=item.get("remote_language"),
@@ -206,88 +325,55 @@ def build_marketing_purge_plan(
                 )
             continue
 
+        product = str(item.get("product") or "survey")
         process_name = str(item.get("process_name") or item.get("name") or "")
         remote_name = str(item.get("remote_name") or process_name)
         row = None
-        if item.get("id"):
-            row = db.get(TelnyxWhatsappTemplate, int(item["id"]))
-        if row is None:
-            row = _find_template_row(db, process_name)
-        preview: dict[str, Any] = {
-            "body_before": item.get("body_preview"),
-            "keeps_local_db_row": True,
-            "local_row_id": item.get("id"),
-        }
-        if row is not None:
-            components = _effective_components(row)
-            old_body, buttons = _extract_body_and_buttons(components if isinstance(components, list) else [])
-            industry_slug, industry_name = _industry_for_template_row(db, row)
-            topic_name = _topic_for_template_row(db, row) or _topic_from_template_name(row.name)
-            preview["body_after"] = _rule_based_utility_body(
-                old_body,
-                topic_hint=topic_name,
-                industry_slug=industry_slug,
-                industry_name=industry_name,
+        feedback_row = None
+        if product == "survey":
+            if item.get("id"):
+                row = db.get(TelnyxWhatsappTemplate, int(item["id"]))
+            if row is None:
+                row = _find_template_row(db, process_name)
+            if row is None:
+                continue
+            preview = _build_preview_for_survey_row(
+                db,
+                row,
+                remote_name=remote_name,
+                body_preview=str(item.get("body_preview") or ""),
+                local_row_id=item.get("id"),
             )
-            from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+            _append_rewrite_plan_item(plan, item=item, row=row, feedback_row=None, preview=preview)
+        elif product == "feedback":
+            from app.models.customer_feedback import FeedbackWaTemplate
+            from app.services.survey_wa_utility_rewrite_service import _find_feedback_row_for_remote_name
 
-            if str(row.status or "").upper() in {"APPROVED", "PENDING"} and _has_remote_telnyx_id(row):
-                used = {
-                    str(r[0]).strip().lower()
-                    for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
-                    if r[0]
-                }
-                next_name = None
-                if is_was_survey_name(row.name):
-                    next_name = suggest_next_was_seq_name(row.name, used_names=used)
-                    preview["new_local_name"] = next_name or row.name
-                else:
-                    next_name = suggest_utility_clone_template_name(row.name)
-                    preview["new_local_name"] = next_name or f"{row.name}_utu"
-            else:
-                preview["new_local_name"] = row.name
-
-        new_name = str(preview.get("new_local_name") or process_name)
-        will_delete_old_remote = bool(
-            remote_name and remote_name.lower() != new_name.lower()
-        )
-        preview["delete_old_remote_name"] = remote_name if will_delete_old_remote else None
-        preview["deletes"] = (
-            f"Meta/Telnyx only: {remote_name}" if will_delete_old_remote else "nothing (same name update)"
-        )
-        if preview.get("body_after") and preview.get("body_before") == preview.get("body_after"):
-            if not _body_has_recommend_intent(str(preview.get("body_before") or "")):
-                preview["llm_on_apply"] = "DeepSeek may lightly rephrase on apply (preview is rule-based)"
-
-        plan.append(
-            PurgePlanItem(
-                action="survey_rewrite_push",
-                product="survey",
-                label=str(row.name if row is not None else process_name),
-                old_meta_name=remote_name if will_delete_old_remote else None,
-                new_meta_name=new_name,
-                local_template_id=item.get("id"),
-                language=item.get("remote_language"),
-                dry_preview=preview,
-                meta={
-                    "reasons": item.get("reasons"),
-                    "remote_name": remote_name,
-                    "keeps_local_db_row": True,
-                },
+            fid = item.get("feedback_template_id") or item.get("id")
+            if fid:
+                feedback_row = db.get(FeedbackWaTemplate, str(fid))
+            if feedback_row is None:
+                feedback_row = _find_feedback_row_for_remote_name(db, remote_name)
+            if feedback_row is None:
+                continue
+            preview = _build_preview_for_feedback_row(
+                db,
+                feedback_row,
+                remote_name=remote_name,
+                body_preview=str(item.get("body_preview") or ""),
             )
-        )
-
-    if include_customer_feedback and not survey_only:
-        overview["customer_feedback_skipped"] = (
-            "Pass --include-cf only when you explicitly want CF marketing DB cleanup."
-        )
+            _append_rewrite_plan_item(plan, item=item, row=None, feedback_row=feedback_row, preview=preview)
 
     overview["plan_counts"] = {
         "survey_rewrite_push": sum(1 for p in plan if p.action == "survey_rewrite_push"),
+        "feedback_rewrite_push": sum(1 for p in plan if p.action == "feedback_rewrite_push"),
         "survey_delete_remote": sum(1 for p in plan if p.action == "survey_delete_remote"),
+        "feedback_delete_remote": sum(1 for p in plan if p.action == "feedback_delete_remote"),
     }
     overview["total_items"] = len(plan)
-    overview["push_items"] = sum(1 for p in plan if p.action == "survey_rewrite_push")
+    overview["push_items"] = sum(
+        1 for p in plan if p.action in {"survey_rewrite_push", "feedback_rewrite_push"}
+    )
     overview["local_db_rows_deleted"] = 0
     return overview, plan
 
@@ -325,20 +411,131 @@ def _ensure_meta_was_name_available(db: Session, row: TelnyxWhatsappTemplate) ->
     return row
 
 
+def manifest_items_to_plan(manifest: dict[str, Any], *, approved_only: bool = True) -> list[PurgePlanItem]:
+    plan: list[PurgePlanItem] = []
+    for group in manifest.get("groups") or []:
+        for item in group.get("items") or []:
+            status = str(item.get("status") or "pending")
+            if approved_only and status != "approved_push":
+                continue
+            action = str(item.get("action") or "survey_rewrite_push")
+            plan.append(
+                PurgePlanItem(
+                    action=action,  # type: ignore[arg-type]
+                    product=str(item.get("product") or "survey"),
+                    label=str(item.get("label") or ""),
+                    old_meta_name=item.get("delete_old_remote_name"),
+                    new_meta_name=str(item.get("new_meta_name") or ""),
+                    local_template_id=item.get("local_template_id"),
+                    language=item.get("language"),
+                    dry_preview={
+                        "body_before": item.get("body_before"),
+                        "body_after": item.get("body_after"),
+                        "new_local_name": item.get("new_meta_name"),
+                        "delete_old_remote_name": item.get("delete_old_remote_name"),
+                        "rewritten": item.get("rewritten"),
+                        "skip_reason": item.get("skip_reason"),
+                        "keeps_local_db_row": True,
+                        "local_row_id": item.get("local_template_id"),
+                    },
+                    meta={
+                        "remote_name": item.get("remote_name"),
+                        "batch_id": manifest.get("batch_id"),
+                        "manifest_item": True,
+                        "keeps_local_db_row": True,
+                    },
+                )
+            )
+    return plan
+
+
+def _feedback_row_for_plan_item(db: Session, item: PurgePlanItem) -> Any | None:
+    from app.models.customer_feedback import FeedbackWaTemplate
+
+    if item.local_template_id is not None:
+        row = db.get(FeedbackWaTemplate, str(item.local_template_id))
+        if row is not None:
+            return row
+    from app.services.survey_wa_utility_rewrite_service import _find_feedback_row_for_remote_name
+
+    remote = str(item.meta.get("remote_name") or item.old_meta_name or item.label)
+    return _find_feedback_row_for_remote_name(db, remote)
+
+
+def _rename_feedback_for_utility_push(db: Session, row: Any, new_meta_name: str) -> Any:
+    from app.services.customer_feedback.feedback_telnyx_push_service import collect_used_cfs_meta_names
+
+    target = str(new_meta_name or "").strip().lower()
+    if not target or str(getattr(row, "meta_template_name", "") or "").strip().lower() == target:
+        row.meta_category = "utility"
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+    used = collect_used_cfs_meta_names(db)
+    if target in used:
+        raise SurveyWhatsappTemplateError(f"Feedback meta name already used: {target}")
+    row.meta_template_name = target
+    row.meta_category = "utility"
+    row.telnyx_sync_status = "draft"
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _push_feedback_both_profiles(db: Session, row: Any) -> dict[str, Any]:
+    from app.services.customer_feedback.feedback_telnyx_push_service import push_feedback_template_to_telnyx
+
+    messages: list[str] = []
+    for service_code in ("survey", "customer_feedback"):
+        primary_id = WaTemplateProfilePushService.resolve_primary_connection_profile_id(
+            db, service_code=service_code
+        )
+        backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+            db, service_code=service_code
+        )
+        for pid in (primary_id, backup_id):
+            if not pid:
+                continue
+            result = push_feedback_template_to_telnyx(
+                db,
+                row,
+                connection_profile_id=pid,
+                service_code=service_code,
+                force_push=True,
+            )
+            messages.append(str(result.get("message") or "pushed"))
+    return {"message": " | ".join(messages)}
+
+
 def _rewrite_row_for_purge(
     db: Session,
     row: TelnyxWhatsappTemplate,
     *,
     use_llm: bool,
     llm_provider: str,
+    llm_model: str | None = None,
+    new_body_override: str | None = None,
 ) -> tuple[str, str]:
     body_text = _template_body_text(row)
     rule_only = not use_llm or _body_has_recommend_intent(body_text)
+    if new_body_override is not None and str(new_body_override).strip():
+        old_body, new_body = apply_utility_rewrite_to_row(
+            db,
+            row,
+            use_llm=False,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            new_body_override=new_body_override,
+        )
+        return old_body, new_body
     old_body, new_body = apply_utility_rewrite_to_row(
         db,
         row,
         use_llm=not rule_only,
         llm_provider=llm_provider,
+        llm_model=llm_model,
     )
     if use_llm and not rule_only and _normalize_leading_emoji_text(new_body) == _normalize_leading_emoji_text(old_body):
         old_body, new_body = apply_utility_rewrite_to_row(
@@ -346,8 +543,30 @@ def _rewrite_row_for_purge(
             row,
             use_llm=True,
             llm_provider=llm_provider,
+            llm_model=llm_model,
         )
     return old_body, new_body
+
+
+def _format_push_error(exc: Exception) -> tuple[str, dict[str, Any]]:
+    msg = str(exc)
+    payload = getattr(exc, "payload", None) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    extras: list[str] = []
+    for key in ("meta_request_mode", "sync_branch", "meta_error_kind"):
+        val = str(payload.get(key) or "").strip()
+        if val:
+            extras.append(f"{key}={val}")
+    subcode = payload.get("meta_error_subcode")
+    if subcode:
+        extras.append(f"subcode={subcode}")
+    provider_error = str(payload.get("provider_error") or "").strip()
+    if provider_error:
+        extras.append(provider_error[:400])
+    if extras:
+        msg = f"{msg} | {' | '.join(extras)}"
+    return msg, payload
 
 
 def apply_purge_plan_item(
@@ -358,12 +577,16 @@ def apply_purge_plan_item(
     push: bool,
     sync_remote: bool,
     use_llm: bool,
-    llm_provider: str = "deepseek",
+    llm_provider: str = DEFAULT_UTILITY_LLM_PROVIDER,
+    llm_model: str | None = DEFAULT_UTILITY_LLM_MODEL,
 ) -> dict[str, Any]:
     if dry_run:
         return {"ok": True, "dry_run": True, "action": item.action, "label": item.label}
 
     try:
+        preview = item.dry_preview or {}
+        body_override = str(preview.get("body_after") or "").strip() if item.meta.get("manifest_item") else None
+
         if item.action == "survey_rewrite_push":
             row = _row_for_plan_item(db, item)
             if row is None:
@@ -375,8 +598,16 @@ def apply_purge_plan_item(
             renamed_to: str | None = None
             if push:
                 row, renamed_to = _prepare_approved_template_for_utility_push(db, row)
+                if item.new_meta_name and str(row.name or "").lower() != str(item.new_meta_name).lower():
+                    row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, str(item.new_meta_name))
+                    renamed_to = str(item.new_meta_name)
             old_body, new_body = _rewrite_row_for_purge(
-                db, row, use_llm=use_llm, llm_provider=llm_provider
+                db,
+                row,
+                use_llm=use_llm,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                new_body_override=body_override,
             )
             from app.services.wa_template_utility_lint import lint_utility_template
 
@@ -404,7 +635,12 @@ def apply_purge_plan_item(
             push_msg = ""
             if push:
                 row = _ensure_meta_was_name_available(db, row)
-                result = SurveyWhatsappTemplateService.push_to_telnyx(db, row)
+                result = SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    row,
+                    force_approved_update=False,
+                    skip_remote_link=True,
+                )
                 pushed = True
                 push_msg = str(result.get("sync_message") or result.get("message") or "pushed")
             delete_targets: list[str] = []
@@ -431,17 +667,110 @@ def apply_purge_plan_item(
                 "push_message": push_msg,
                 "deleted_remote": deleted_on,
                 "local_db_deleted": False,
-                "old_body": old_body[:200],
-                "new_body": new_body[:200],
+                "old_body": old_body,
+                "new_body": new_body,
             }
 
-        if item.action == "survey_delete_remote":
+        if item.action == "feedback_rewrite_push":
+            from app.services.customer_feedback.feedback_wa_utility_rewrite_service import (
+                apply_utility_rewrite_to_feedback_row,
+            )
+
+            row = _feedback_row_for_plan_item(db, item)
+            if row is None:
+                return {"ok": False, "error": f"Feedback row not found: {item.label} (id={item.local_template_id})"}
+            old_remote = str(item.meta.get("remote_name") or item.old_meta_name or "")
+            new_meta = str(item.new_meta_name or preview.get("new_local_name") or "")
+            if push and new_meta:
+                row = _rename_feedback_for_utility_push(db, row, new_meta)
+            if body_override:
+                row.body_text = body_override
+                row.meta_category = "utility"
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+                old_body = str(preview.get("body_before") or "")
+                new_body = body_override
+            else:
+                old_body, new_body = apply_utility_rewrite_to_feedback_row(
+                    db,
+                    row,
+                    use_llm=use_llm,
+                    llm_provider=llm_provider,
+                    llm_model=llm_model,
+                )
+            from app.services.wa_template_utility_lint import lint_utility_template
+            from app.services.customer_feedback.feedback_telnyx_push_service import parse_feedback_buttons
+
+            buttons = parse_feedback_buttons(row.buttons_json)
+            lint = lint_utility_template(
+                body=new_body,
+                buttons=buttons,
+                language=row.language,
+                meta_category="utility",
+                template_key=row.template_key,
+            )
+            if not lint.ok:
+                msgs = "; ".join(i.message for i in lint.issues[:3])
+                return {
+                    "ok": False,
+                    "action": item.action,
+                    "label": item.label,
+                    "error": f"Utility lint failed before push: {msgs}",
+                    "new_body": new_body[:200],
+                }
+            pushed = False
+            push_msg = ""
+            if push:
+                result = _push_feedback_both_profiles(db, row)
+                pushed = True
+                push_msg = str(result.get("message") or "pushed")
+            delete_targets: list[str] = []
+            current_name = str(getattr(row, "meta_template_name", "") or new_meta)
+            if old_remote and old_remote.lower() != current_name.lower():
+                delete_targets.append(old_remote)
+            deleted_on: list[str] = []
+            for target in delete_targets:
+                for service_code in ("survey", "customer_feedback"):
+                    deleted_on.extend(
+                        delete_remote_template_by_name(
+                            db,
+                            name=target,
+                            language=item.language,
+                            service_code=service_code,
+                        )
+                    )
+            return {
+                "ok": True,
+                "action": item.action,
+                "label": item.label,
+                "renamed_to": new_meta,
+                "new_name": current_name,
+                "pushed": pushed,
+                "push_message": push_msg,
+                "deleted_remote": deleted_on,
+                "local_db_deleted": False,
+                "old_body": old_body,
+                "new_body": new_body,
+            }
+
+        if item.action in {"survey_delete_remote", "feedback_delete_remote"}:
+            service_code = "customer_feedback" if item.action == "feedback_delete_remote" else "survey"
             deleted_on = delete_remote_template_by_name(
                 db,
                 name=str(item.old_meta_name or item.label),
                 language=item.language,
-                service_code="survey",
+                service_code=service_code,
             )
+            if item.action == "feedback_delete_remote":
+                deleted_on.extend(
+                    delete_remote_template_by_name(
+                        db,
+                        name=str(item.old_meta_name or item.label),
+                        language=item.language,
+                        service_code="survey",
+                    )
+                )
             return {
                 "ok": True,
                 "action": item.action,
@@ -469,11 +798,15 @@ def apply_purge_plan(
     push: bool,
     sync_remote: bool,
     use_llm: bool,
-    llm_provider: str = "deepseek",
+    llm_provider: str = DEFAULT_UTILITY_LLM_PROVIDER,
+    llm_model: str | None = DEFAULT_UTILITY_LLM_MODEL,
     push_delay_seconds: float = 30.0,
+    batch_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.wa_marketing_review_service import update_manifest_item_status
+
     results: list[dict[str, Any]] = []
-    push_actions = {"survey_rewrite_push"}
+    push_actions = {"survey_rewrite_push", "feedback_rewrite_push"}
     last_push_at = 0.0
     total = len(plan)
     for index, item in enumerate(plan, start=1):
@@ -494,10 +827,20 @@ def apply_purge_plan(
             sync_remote=sync_remote,
             use_llm=use_llm,
             llm_provider=llm_provider,
+            llm_model=llm_model,
         )
         result["index"] = index
         result["total"] = total
         results.append(result)
+        if batch_id and is_push_action and push and not dry_run:
+            status = "pushed" if result.get("ok") else "failed"
+            update_manifest_item_status(
+                batch_id,
+                local_template_id=item.local_template_id,
+                label=item.label,
+                status=status,
+                error=str(result.get("error") or "") or None,
+            )
         if is_push_action and push and not dry_run:
             if result.get("ok"):
                 msg = f"OK  [{index}/{total}] {result.get('new_name') or item.label}"

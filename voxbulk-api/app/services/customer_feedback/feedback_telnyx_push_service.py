@@ -34,6 +34,37 @@ META_QUICK_REPLY_MAX = 3
 META_BUTTON_MAX_LEN = 20
 META_SUBCODE_CATEGORY_MISMATCH = 2388026
 CF_META_NAME_VERSION = "v1"
+_CFS_VERSION_RE = re.compile(r"^(cfs_.+)_v(\d+)$", re.I)
+
+
+def suggest_next_cfs_version_name(name: str, *, used_names: set[str] | None = None) -> str | None:
+    """Bump cfs_* Meta name version suffix (v1 → v2) for category-change pushes."""
+    clean = str(name or "").strip().lower()
+    match = _CFS_VERSION_RE.match(clean)
+    if not match:
+        return None
+    base, version = match.group(1), int(match.group(2))
+    used = {str(n or "").strip().lower() for n in (used_names or set()) if str(n or "").strip()}
+    for bump in range(version + 1, version + 50):
+        candidate = f"{base}_v{bump}"
+        if candidate not in used:
+            return candidate
+    return None
+
+
+def collect_used_cfs_meta_names(db: Session) -> set[str]:
+    from app.models.customer_feedback import FeedbackWaTemplate
+
+    used: set[str] = set()
+    for row in db.execute(select(FeedbackWaTemplate)).scalars().all():
+        stored = str(getattr(row, "meta_template_name", "") or "").strip().lower()
+        if stored:
+            used.add(stored)
+        try:
+            used.add(str(_feedback_meta_name_for_template(db, row) or "").strip().lower())
+        except Exception:
+            continue
+    return {n for n in used if n}
 
 
 class FeedbackTelnyxPushError(Exception):
