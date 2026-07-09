@@ -249,10 +249,10 @@ export default function WaTemplatesHub() {
     if (profileLoadInFlightRef.current.has(id)) return
     if (!force) {
       const cur = profileSummariesRef.current[id]
-      if (cur?.summary && cur?.fetchedAt) return
+      if (cur?.summary && cur?.fetchedAt && cur?.serviceCode === syncServiceCode) return
     }
     profileLoadInFlightRef.current.add(id)
-    patchProfileSummary(id, { loading: true, error: null })
+    patchProfileSummary(id, { loading: true, error: null, serviceCode: syncServiceCode })
     try {
       const data = await fetchProfileTemplateSummary(apiFetch, id, { serviceCode: syncServiceCode })
       patchProfileSummary(id, {
@@ -260,6 +260,7 @@ export default function WaTemplatesHub() {
         error: null,
         summary: data?.summary || null,
         fetchedAt: Date.now(),
+        serviceCode: syncServiceCode,
       })
     } catch (e) {
       patchProfileSummary(id, {
@@ -421,8 +422,12 @@ export default function WaTemplatesHub() {
   }, [tab, loadInterview, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
-    let cancelled = false
+    profileSummariesRef.current = {}
+    profileLoadInFlightRef.current.clear()
+    staggerTimersRef.current.forEach(clearTimeout)
+    staggerTimersRef.current = []
     setProfileSummaries({})
+    let cancelled = false
     ;(async () => {
       setSyncProfilesLoading(true)
       try {
@@ -447,7 +452,7 @@ export default function WaTemplatesHub() {
   useEffect(() => {
     if (!syncProfileItems.length) return
     const selected = syncProfile?.id
-    if (selected) void loadProfileSummary(selected)
+    if (selected) void loadProfileSummary(selected, { force: true })
     queueBackgroundProfileLoads(syncProfileItems, selected)
     return () => {
       staggerTimersRef.current.forEach(clearTimeout)

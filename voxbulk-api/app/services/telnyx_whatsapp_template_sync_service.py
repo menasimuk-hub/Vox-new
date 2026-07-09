@@ -292,6 +292,87 @@ def _normalize_meta_template_item(item: dict[str, Any], *, waba_id: str | None =
     }
 
 
+def _normalize_telnyx_remote_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Flatten Telnyx list rows (JSON:API or plain) for counting and sync."""
+    if not isinstance(item, dict):
+        return {}
+    row = dict(item)
+    attrs = row.get("attributes")
+    if isinstance(attrs, dict):
+        row = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
+    status = str(row.get("status") or row.get("whatsapp_status") or "UNKNOWN").strip().upper()
+    category = str(row.get("category") or row.get("whatsapp_category") or "").strip() or None
+    return {
+        **row,
+        "id": str(row.get("id") or "").strip(),
+        "name": str(row.get("name") or "").strip(),
+        "status": status,
+        "category": category,
+        "language": _remote_language_code(str(row.get("language") or "en_US")),
+    }
+
+
+def _telnyx_item_matches_waba(item: dict[str, Any], waba_id: str) -> bool:
+    target = str(waba_id or "").strip()
+    if not target:
+        return True
+    waba = item.get("whatsapp_business_account")
+    if isinstance(waba, dict):
+        for key in ("waba_id", "id"):
+            if str(waba.get(key) or "").strip() == target:
+                return True
+    for key in ("waba_id", "whatsapp_business_account_id"):
+        if str(item.get(key) or "").strip() == target:
+            return True
+    return False
+
+
+def _telnyx_waba_filter_candidates(db: Session, config: dict[str, Any]) -> list[str]:
+    configured = (
+        str(config.get("whatsapp_waba_id") or "").strip()
+        or str(config.get("waba_id") or "").strip()
+    )
+    out: list[str] = []
+    if configured:
+        out.append(configured)
+        resolved = resolve_telnyx_whatsapp_waba_filter_id(db, config)
+        if resolved and resolved not in out:
+            out.append(resolved)
+        return out
+    resolved = resolve_telnyx_whatsapp_waba_id(db, config)
+    return [resolved] if resolved else []
+
+
+def _paginate_telnyx_templates(api_key: str, *, waba_id: str | None = None) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
+    if waba_id:
+        params["filter[waba_id]"] = waba_id
+    rows: list[dict[str, Any]] = []
+    with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
+        while True:
+            response = client.get(
+                TELNYX_WHATSAPP_TEMPLATES_URL,
+                params=params,
+                headers=_telnyx_headers(api_key),
+            )
+            response.raise_for_status()
+            body = response.json()
+            chunk = body.get("data") if isinstance(body, dict) else []
+            if isinstance(chunk, list):
+                for item in chunk:
+                    if isinstance(item, dict):
+                        rows.append(_normalize_telnyx_remote_item(item))
+            meta = body.get("meta") if isinstance(body, dict) else {}
+            if not isinstance(meta, dict):
+                break
+            page_number = int(meta.get("page_number") or params["page[number]"])
+            total_pages = int(meta.get("total_pages") or 1)
+            if page_number >= total_pages:
+                break
+            params["page[number]"] = page_number + 1
+    return rows
+
+
 class TelnyxWhatsappTemplateSyncService:
     @staticmethod
     def _config(
@@ -344,46 +425,30 @@ class TelnyxWhatsappTemplateSyncService:
             or str(config.get("waba_id") or "").strip()
         )
         if filter_waba_id and not configured_waba and not allow_account_waba_fallback:
-            # Empty / unlinked Telnyx profile → report 0 live templates.
-            return []
-        if filter_waba_id:
-            waba_id = (
-                resolve_telnyx_whatsapp_waba_filter_id(db, config)
-                if configured_waba
-                else resolve_telnyx_whatsapp_waba_id(db, config)
-            )
-        else:
-            waba_id = ""
-        params: dict[str, Any] = {"page[size]": 250, "page[number]": 1}
-        if waba_id:
-            params["filter[waba_id]"] = waba_id
-        elif filter_waba_id and connection_profile_id:
-            # Profile selected but no WABA — do not dump the whole account catalog.
             return []
 
         rows: list[dict[str, Any]] = []
         try:
-            with httpx.Client(timeout=30.0, verify=httpx_ssl_verify()) as client:
-                while True:
-                    response = client.get(
-                        TELNYX_WHATSAPP_TEMPLATES_URL,
-                        params=params,
-                        headers=_telnyx_headers(api_key),
-                    )
-                    response.raise_for_status()
-                    body = response.json()
-                    chunk = body.get("data") if isinstance(body, dict) else []
-                    if isinstance(chunk, list):
-                        rows.extend(item for item in chunk if isinstance(item, dict))
-
-                    meta = body.get("meta") if isinstance(body, dict) else {}
-                    if not isinstance(meta, dict):
+            if filter_waba_id:
+                if not configured_waba and connection_profile_id:
+                    return []
+                candidates = _telnyx_waba_filter_candidates(db, config) if configured_waba else []
+                if not candidates and not allow_account_waba_fallback:
+                    fallback_waba = resolve_telnyx_whatsapp_waba_id(db, config)
+                    candidates = [fallback_waba] if fallback_waba else []
+                for waba_filter in candidates:
+                    rows = _paginate_telnyx_templates(api_key, waba_id=waba_filter or None)
+                    if rows:
                         break
-                    page_number = int(meta.get("page_number") or params["page[number]"])
-                    total_pages = int(meta.get("total_pages") or 1)
-                    if page_number >= total_pages:
-                        break
-                    params["page[number]"] = page_number + 1
+                if not rows and configured_waba and connection_profile_id:
+                    account_rows = _paginate_telnyx_templates(api_key, waba_id=None)
+                    for waba_filter in candidates or [configured_waba]:
+                        matched = [r for r in account_rows if _telnyx_item_matches_waba(r, waba_filter)]
+                        if matched:
+                            rows = matched
+                            break
+            else:
+                rows = _paginate_telnyx_templates(api_key, waba_id=None)
         except httpx.HTTPStatusError as e:
             raise TelnyxWhatsappTemplateSyncError(_telnyx_http_error_detail(e)) from e
         except Exception as e:

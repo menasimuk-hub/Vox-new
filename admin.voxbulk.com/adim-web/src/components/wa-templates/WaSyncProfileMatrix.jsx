@@ -93,10 +93,10 @@ export default function WaSyncProfileMatrix({
             const err = state.error
             const label = profile.label || profile.name || id
             const profileTotal = summary?.profileTotal
-            const scopedMismatch =
-              profileTotal != null &&
-              Number(profileTotal) > Number(summary?.total ?? 0) &&
-              Number(summary?.total ?? 0) >= 0
+            const scopedTotal = summary?.total
+            const showWabaTotal =
+              profileTotal != null && Number(profileTotal) > 0 && Number(profileTotal) !== Number(scopedTotal ?? 0)
+            const scopedMismatch = showWabaTotal
             return (
               <tr
                 key={id}
@@ -110,7 +110,7 @@ export default function WaSyncProfileMatrix({
                   err
                     ? err
                     : scopedMismatch
-                      ? `${profileTotal} total on WABA · ${summary?.total ?? 0} match ${scopeLabel}`
+                      ? `${scopedTotal ?? 0} for ${scopeLabel} · ${profileTotal} total on WABA/account`
                       : selected
                         ? 'Sync target'
                         : 'Click to select sync profile'

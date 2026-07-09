@@ -166,7 +166,8 @@ def summarize_for_connection_profile(
     live_summary = TelnyxWhatsappTemplateSyncService.summarize_live_remote(remote)
     remote_total = int(live_summary.get("remote_total") or 0)
     profile_total = int(all_summary.get("remote_total") or 0)
-    # Live monitor: scoped total matches active hub tab; profileTotal = all templates on this WABA/account.
+    remote_fetched = len(remote_all or [])
+    remote_scoped = len(remote or [])
     return {
         "ok": True,
         "live": True,
@@ -186,6 +187,9 @@ def summarize_for_connection_profile(
             "total": remote_total,
             "profileTotal": profile_total,
             "scopedTotal": remote_total,
+            "remoteFetched": remote_fetched,
+            "remoteScoped": remote_scoped,
+            "serviceCode": code,
         },
     }
 

@@ -108,4 +108,5 @@ export const EMPTY_PROFILE_SUMMARY_ROW = {
   error: null,
   summary: null,
   fetchedAt: null,
+  serviceCode: null,
 }
