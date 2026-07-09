@@ -204,12 +204,34 @@ function PublicFeedbackSurvey() {
     goToStep(stepIndex + 1);
   };
 
-  // Submit a recorded voice note as the current step's answer and advance instantly.
+  // Submit a recorded voice note as the current step's answer; advance only after server confirms.
   const voiceAnswerStep = (blob: Blob) => {
     if (!sessionId) return;
     setError("");
-    enqueue(() => postVoice(blob, "answer"));
-    goToStep(stepIndex + 1);
+    enqueue(async () => {
+      const data = (await postVoice(blob, "answer")) as AdvanceResponse & {
+        saved?: boolean;
+        transcript?: string;
+        stt_error?: string;
+      };
+      if (data.saved === false || (!data.transcript && !data.completed)) {
+        setError(
+          data.stt_error
+            ? "Could not transcribe your voice note. Please try again or type your answer."
+            : "Could not save your voice note. Please try again.",
+        );
+        return;
+      }
+      if (data.completed) {
+        setPhase("thanks");
+        return;
+      }
+      if (typeof data.step_index === "number") {
+        goToStep(data.step_index, { question: data.question ?? null });
+      } else {
+        goToStep(stepIndex + 1);
+      }
+    });
   };
 
   // Low-rating follow-up — server advances after tell-us-more is saved.

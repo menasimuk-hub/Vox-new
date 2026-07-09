@@ -237,6 +237,127 @@ def test_map_arabic_button_to_english_for_branching():
         )
 
 
+def test_uncomfortable_triggers_negative_for_two_button_topic():
+    import json
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType, FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_answer_service import is_negative_topic_answer
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "hotel")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(
+                FeedbackSurveyType.industry_id == industry.id,
+                FeedbackSurveyType.slug == "bed-comfort",
+            )
+        ).scalar_one()
+        now = datetime.utcnow()
+        tpl = FeedbackWaTemplate(
+            id=str(uuid.uuid4()),
+            industry_id=industry.id,
+            survey_type_id=survey_type.id,
+            step_order=1,
+            template_key="bed_comfort",
+            body_text="How was the bed?",
+            buttons_json=json.dumps(["Comfortable", "Uncomfortable"]),
+            step_role="abc_choice",
+            language="en_GB",
+            meta_category="utility",
+            telnyx_sync_status="approved",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(tpl)
+        db.commit()
+        assert is_negative_topic_answer(db, answer="Uncomfortable", tpl=tpl, detected_language="en_GB")
+        assert not is_negative_topic_answer(db, answer="Comfortable", tpl=tpl, detected_language="en_GB")
+
+
+def test_delete_location_cascades_sessions_and_responses():
+    import json
+    import uuid
+    from datetime import datetime
+
+    from app.models.customer_feedback import (
+        FeedbackIndustry,
+        FeedbackLocation,
+        FeedbackResponse,
+        FeedbackSession,
+        FeedbackSurveyType,
+    )
+    from app.services.customer_feedback.location_service import FeedbackLocationService
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        org_id, _ = _seed_org()
+        industry = db.execute(select(FeedbackIndustry).where(FeedbackIndustry.slug == "hotel")).scalar_one()
+        survey_type = db.execute(
+            select(FeedbackSurveyType).where(FeedbackSurveyType.industry_id == industry.id).limit(1)
+        ).scalar_one()
+        loc_id = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())
+        now = datetime.utcnow()
+        db.add(
+            FeedbackLocation(
+                id=loc_id,
+                org_id=org_id,
+                industry_id=industry.id,
+                survey_type_id=survey_type.id,
+                name="Delete me",
+                qr_token=f"del-test-{uuid.uuid4().hex[:8]}",
+                wa_sender_country="gb",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            FeedbackSession(
+                id=session_id,
+                org_id=org_id,
+                location_id=loc_id,
+                visitor_phone="+447700900001",
+                status="completed",
+                current_step=1,
+                started_at=now,
+                created_at=now,
+            )
+        )
+        db.add(
+            FeedbackResponse(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                org_id=org_id,
+                location_id=loc_id,
+                survey_type_id=survey_type.id,
+                question_key="bed_comfort",
+                answer_text="Poor",
+                step_order=1,
+                created_at=now,
+            )
+        )
+        db.commit()
+        FeedbackLocationService.delete_location(db, org_id, loc_id)
+        assert db.get(FeedbackLocation, loc_id) is None
+        assert db.get(FeedbackSession, session_id) is None
+        assert (
+            db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalar_one_or_none()
+            is None
+        )
+
+
+def test_template_meta_labels_tell_us_more_follow_up():
+    from app.services.customer_feedback.feedback_results_aggregate import template_meta
+
+    label, role = template_meta({}, survey_type_id="st-1", question_key="bed_comfort__tell_us_more")
+    assert label == "Tell us more"
+    assert role == "tell_us_more"
+
+
 def test_feedback_meta_name_shared_for_arabic_and_english():
     import uuid
     from datetime import datetime

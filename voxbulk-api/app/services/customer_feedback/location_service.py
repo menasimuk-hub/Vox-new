@@ -304,9 +304,33 @@ class FeedbackLocationService:
 
     @staticmethod
     def delete_location(db: Session, org_id: str, location_id: str) -> None:
+        from sqlalchemy import delete, update
+
+        from app.models.customer_feedback import (
+            FeedbackMarketingSubscriber,
+            FeedbackResponse,
+            FeedbackSession,
+        )
+
         row = db.get(FeedbackLocation, location_id)
         if row is None or row.org_id != org_id:
             raise ValueError("Location not found")
+        loc_id = str(row.id)
+        session_ids = [
+            str(sid)
+            for sid in db.execute(
+                select(FeedbackSession.id).where(FeedbackSession.location_id == loc_id)
+            ).scalars().all()
+        ]
+        if session_ids:
+            db.execute(delete(FeedbackResponse).where(FeedbackResponse.session_id.in_(session_ids)))
+        db.execute(delete(FeedbackResponse).where(FeedbackResponse.location_id == loc_id))
+        db.execute(delete(FeedbackSession).where(FeedbackSession.location_id == loc_id))
+        db.execute(
+            update(FeedbackMarketingSubscriber)
+            .where(FeedbackMarketingSubscriber.location_id == loc_id)
+            .values(location_id=None, session_id=None)
+        )
         db.delete(row)
         db.commit()
 

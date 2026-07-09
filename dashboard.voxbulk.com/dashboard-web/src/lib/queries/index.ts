@@ -2495,6 +2495,20 @@ export function useUpdateFeedbackLocation() {
   });
 }
 
+export function useDeleteFeedbackLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (locationId: string) =>
+      apiFetch<{ ok?: boolean }>(`/customer-feedback/locations/${locationId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations });
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackResults({}) });
+    },
+  });
+}
+
 export function useAssistantChat() {
   return useMutation({
     mutationFn: (body: {

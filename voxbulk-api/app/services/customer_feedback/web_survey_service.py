@@ -679,12 +679,10 @@ class FeedbackWebSurveyService:
             return {"transcript": transcript, "saved": bool(transcript)}
 
         # mode == "answer": treat transcript as the step's text answer (advances the flow).
-        return {
-            "transcript": transcript,
-            **FeedbackWebSurveyService.submit_answer(
-                db,
-                session_id=session_id,
-                answer=transcript,
-                answer_source="voice",
-            ),
-        }
+        result = FeedbackWebSurveyService.submit_answer(
+            db,
+            session_id=session_id,
+            answer=transcript,
+            answer_source="voice",
+        )
+        return {"transcript": transcript, "saved": True, **result}

@@ -424,10 +424,10 @@ class FeedbackWhatsappService:
         survey_type_id: str,
         answer: str,
         answer_source: str,
-    ) -> None:
+    ) -> bool:
         original = str(answer or "").strip()
         if not original or original.lower() == "skip":
-            return
+            return False
         translated = translate_answer_to_english(
             db,
             answer=original,
@@ -451,6 +451,7 @@ class FeedbackWhatsappService:
                 created_at=datetime.utcnow(),
             )
         )
+        return True
 
     @staticmethod
     def _continue_after_step(db: Session, *, session: FeedbackSession) -> dict[str, Any]:
@@ -469,7 +470,7 @@ class FeedbackWhatsappService:
             db.commit()
             thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
             thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
-            FeedbackWhatsappService._send_wa(
+            sent = FeedbackWhatsappService._send_wa(
                 db,
                 to_number=session.visitor_phone,
                 body=thank_body,
@@ -478,6 +479,21 @@ class FeedbackWhatsappService:
                 location=location,
                 require_template=thank_tpl is not None,
             )
+            if not sent and thank_body:
+                logger.error(
+                    "feedback_wa_thank_you_failed session_id=%s location_id=%s",
+                    session.id,
+                    location.id,
+                )
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=session.visitor_phone,
+                    body=thank_body,
+                    org_id=session.org_id,
+                    tpl=None,
+                    location=location,
+                    require_template=False,
+                )
             return {"handled": True, "completed": True}
 
         next_step = steps[int(session.current_step or 0)]
@@ -521,16 +537,44 @@ class FeedbackWhatsappService:
         state = load_feedback_session_state(session)
         if is_tell_us_more_pending(state):
             step_index = int(state.get("tell_us_more_step_index") or session.current_step or 0)
-            FeedbackWhatsappService._save_tell_us_more_answer(
+            clean = str(answer or "").strip()
+            if clean.lower() == "skip":
+                clear_tell_us_more_pending(state)
+                save_feedback_session_state(session, state)
+                session.current_step = step_index + 1
+                db.add(session)
+                db.commit()
+                return FeedbackWhatsappService._continue_after_step(db, session=session)
+            if not clean:
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=session.visitor_phone,
+                    body="Please type or send a voice note with a bit more detail, or reply Skip to continue.",
+                    org_id=session.org_id,
+                    tpl=None,
+                    location=location,
+                )
+                return {"handled": True, "awaiting_tell_us_more": True, "session_id": session.id}
+            saved = FeedbackWhatsappService._save_tell_us_more_answer(
                 db,
                 session=session,
                 location=location,
                 step_index=step_index,
                 topic_key=str(state.get("tell_us_more_topic_key") or "topic"),
                 survey_type_id=str(state.get("tell_us_more_survey_type_id") or location.survey_type_id),
-                answer=answer,
+                answer=clean,
                 answer_source=answer_source,
             )
+            if not saved:
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=session.visitor_phone,
+                    body="Please type or send a voice note with a bit more detail, or reply Skip to continue.",
+                    org_id=session.org_id,
+                    tpl=None,
+                    location=location,
+                )
+                return {"handled": True, "awaiting_tell_us_more": True, "session_id": session.id}
             clear_tell_us_more_pending(state)
             save_feedback_session_state(session, state)
             session.current_step = step_index + 1
@@ -541,14 +585,29 @@ class FeedbackWhatsappService:
         steps = FeedbackWhatsappService._steps_for_location(db, location)
         step_index = int(session.current_step or 0)
         if step_index >= len(steps):
-            session.status = "completed"
-            session.completed_at = datetime.utcnow()
-            db.add(session)
-            db.commit()
-            return {"handled": True, "completed": True}
+            return FeedbackWhatsappService._continue_after_step(db, session=session)
 
         current_step = steps[step_index]
         tpl = template_for_step(db, location, current_step, language=session.detected_language)
+        step_kind = str(current_step.get("kind") or "topic")
+        clean_answer = str(answer or "").strip()
+
+        if step_kind == "open_question" and not clean_answer:
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body="Please share your feedback as a message or voice note, or reply Skip to continue.",
+                org_id=session.org_id,
+                tpl=None,
+                location=location,
+            )
+            return {"handled": True, "session_id": session.id}
+
+        if step_kind == "open_question" and clean_answer.lower() == "skip":
+            session.current_step = step_index + 1
+            db.add(session)
+            db.commit()
+            return FeedbackWhatsappService._continue_after_step(db, session=session)
 
         if current_step.get("kind") == "marketing_opt_in":
             if is_opt_in_yes(

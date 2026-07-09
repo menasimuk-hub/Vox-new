@@ -1,15 +1,32 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Copy, Download, Eye, Pencil, Plus, QrCode } from "lucide-react";
+import { Copy, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { AnimatedAllowanceKpi } from "@/components/billing/animated-allowance-kpi";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canDuplicateFeedbackSurvey } from "@/lib/feedback-plan";
 import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
-import { useFeedbackLocations, useFeedbackSubscription } from "@/lib/queries";
+import {
+  useDeleteFeedbackLocation,
+  useFeedbackLocations,
+  useFeedbackSubscription,
+  type FeedbackLocation,
+} from "@/lib/queries";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
 
@@ -21,12 +38,25 @@ export const Route = createFileRoute("/_app/feedback/")({
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
   const subscriptionQ = useFeedbackSubscription();
+  const deleteLocationM = useDeleteFeedbackLocation();
   const allowancesState = useUsageAllowances();
   const waAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_wa");
   const webAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_web");
   const highlight = useAssistantHighlight().highlight;
   const items = locationsQ.data || [];
   const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
+  const [deleteTarget, setDeleteTarget] = useState<FeedbackLocation | null>(null);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteLocationM.mutateAsync(deleteTarget.id);
+      toast.success(`Deleted “${deleteTarget.name}”`);
+      setDeleteTarget(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete location");
+    }
+  };
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -122,6 +152,14 @@ function SavedFeedback() {
                         </Link>
                       </Button>
                     ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(it)}
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -141,6 +179,30 @@ function SavedFeedback() {
           </Link>
         </div>
       )}
+
+      <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{deleteTarget?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the QR code and all feedback results for this branch. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLocationM.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteLocationM.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              {deleteLocationM.isPending ? "Deleting…" : "Delete location"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

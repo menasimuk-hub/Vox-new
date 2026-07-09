@@ -30,6 +30,8 @@ POOR_ANSWERS = frozenset(
         "too crowded",
         "difficult",
         "needs improvement",
+        "uncomfortable",
+        "not comfortable",
     }
 )
 OPT_IN_YES = frozenset({"yes", "yes please", "yes, please", "yes definitely", "yes, definitely"})
@@ -130,6 +132,22 @@ def map_answer_to_english_label(
     return str(translated.get("translated_text") or raw).strip().lower()
 
 
+def negative_button_labels(
+    db: Session,
+    tpl: FeedbackWaTemplate | None,
+) -> frozenset[str]:
+    """English labels for the low/negative quick-reply on this topic template."""
+    en_tpl = _english_template_for(db, tpl) or tpl
+    buttons = parse_template_buttons(en_tpl)
+    if not buttons:
+        return frozenset()
+    labels: set[str] = set()
+    labels.add(buttons[-1].lower())
+    if len(buttons) >= 3:
+        labels.add(buttons[2].lower())
+    return frozenset(labels)
+
+
 def is_negative_topic_answer(
     db: Session,
     *,
@@ -143,7 +161,9 @@ def is_negative_topic_answer(
         tpl=tpl,
         detected_language=detected_language,
     )
-    return normalized in POOR_ANSWERS
+    if normalized in POOR_ANSWERS:
+        return True
+    return normalized in negative_button_labels(db, tpl)
 
 
 def is_opt_in_yes(
