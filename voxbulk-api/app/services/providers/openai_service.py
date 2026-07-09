@@ -106,6 +106,9 @@ class OpenAIProviderService:
 
     @staticmethod
     def _endpoint_url(config: dict[str, Any], endpoint_path: str) -> str:
+        provider = str(config.get("provider") or "").strip().lower()
+        if provider == "deepinfra" and endpoint_path == "/v1/chat/completions":
+            endpoint_path = "/chat/completions"
         return f"{config['base_url']}{endpoint_path}"
 
     @staticmethod
