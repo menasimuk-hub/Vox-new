@@ -33,7 +33,7 @@ Rules:
 
 1. **Local edit + sync** → push same DB draft to **both** profiles (primary then backup mirror).
 2. **Pull** → status only; never overwrite local names/bodies from Meta.
-3. **No renames** in routine sync — Customer Feedback keeps `voxbulk_cf_*`; survey keeps `was_*`.
+3. **No renames** in routine sync — Customer Feedback keeps `cfs_*`; survey keeps `was_*`.
 4. **Buttonless** system templates (thank-you, tell-us-more) → session text from server; **not** pushed to Meta.
 5. **Failover** → set Telnyx 55 as default in Admin; sends switch to backup ledger template IDs.
 
@@ -71,7 +71,7 @@ Production Meta 99 reference (verify in Admin → Connection Profiles):
 | Product | Canonical prefix | Legacy (still on Meta until pushed) |
 |---------|------------------|-------------------------------------|
 | WA Survey | `was_{industry}_{topic}_{nnn}_{lang}` | `voxbulk_survey_{type}_{standard\|anonymous}` |
-| Customer Feedback | `voxbulk_cf_*` | — |
+| Customer Feedback | `cfs_{industry}_{topic}_{lang}_v1` | — |
 
 Rename in DB first (scripts under `voxbulk-api/scripts/`), then **push** to both profiles. Never run catalog import between rename and push.
 

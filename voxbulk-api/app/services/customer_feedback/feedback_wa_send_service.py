@@ -33,12 +33,10 @@ class FeedbackWaSendService:
     @staticmethod
     def resolve_meta_template_name(db: Session, tpl: FeedbackWaTemplate) -> str:
         industry_slug, survey_slug = _feedback_template_meta_context(db, tpl)
-        anchor = english_anchor_template(db, tpl)
         return feedback_meta_template_name(
             tpl,
             industry_slug=industry_slug,
             survey_type_slug=survey_slug,
-            name_anchor_id=anchor.id,
         )
 
     @staticmethod

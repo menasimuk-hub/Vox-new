@@ -171,7 +171,7 @@ def test_disabled_template_hides_survey_type_from_user_picker():
 
 
 def test_real_cf_template_name_hides_topic():
-    """Regression: voxbulk_cf names use underscores but catalog slugs use hyphens."""
+    """Regression: cfs_* names use underscores but catalog slugs use hyphens."""
     from app.services.customer_feedback.catalog_service import FeedbackCatalogService
 
     db = _session()
@@ -187,7 +187,7 @@ def test_real_cf_template_name_hides_topic():
         ).scalar_one_or_none()
         assert survey_type is not None
 
-        template_name = "voxbulk_cf_fitness_would_recommend_would_recommend_aa247a14"
+        template_name = "cfs_fitness_would_recommend_en_v1"
         result = DisabledWaTemplateService.add_names(db, [template_name])
         row = next(item for item in result["items"] if item["raw_name"] == template_name)
         row_id = row["id"]
@@ -226,7 +226,7 @@ def test_booking_app_experience_slug_variant_hides_topic():
         ).scalar_one_or_none()
         assert survey_type is not None
 
-        template_name = "voxbulk_cf_fitness_booking_app_experience_booking_app_experience_62190a1e"
+        template_name = "cfs_fitness_booking_app_experience_en_v1"
         result = DisabledWaTemplateService.add_names(db, [template_name])
         row = next(item for item in result["items"] if item["raw_name"] == template_name)
         row_id = row["id"]

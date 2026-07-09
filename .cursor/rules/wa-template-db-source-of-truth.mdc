@@ -18,7 +18,7 @@ Full contract: `docs/wa-template-sync-contract.md`
 
 ## Non-negotiable rules
 
-1. **Local DB owns identity and content** for survey (`was_*`, `voxbulk_survey_*`) and feedback (`voxbulk_cf_*`) templates: `name`, `draft_components_json`, body text, buttons, display names.
+1. **Local DB owns identity and content** for survey (`was_*`, `voxbulk_survey_*`) and feedback (`cfs_*`) templates: `name`, `draft_components_json`, body text, buttons, display names.
 2. **Pull from Meta = status only** — update `status`, `rejection_reason`, remote IDs, and optionally remote `category` when Meta sends it. **Never** import Meta template names, bodies, or buttons into DB on pull/sync.
 3. **Push = DB → Meta only** — create/update remote from local draft; always pass explicit `connection_profile_id` when using Connection Profiles (Meta 99, Telnyx 55).
 4. **One row per template** — do not create duplicate DB rows from Meta catalog import; do not add `_2` suffix rows unless an explicit admin repair path documents why.

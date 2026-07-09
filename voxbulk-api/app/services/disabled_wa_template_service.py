@@ -38,7 +38,8 @@ def _normalize(name: str) -> str:
 def _decode_name(raw_name: str) -> dict[str, Any]:
     """Decode the structured Meta template name into id / variant parts for display.
 
-    voxbulk_cf_{industry}_{type}_{key}_{anchor}      → customer feedback
+    voxbulk_cf_{industry}_{type}_{key}_{anchor}      → legacy customer feedback (deprecated)
+    cfs_{industry}_{topic}_{lang}_v1                  → customer feedback
     voxbulk_survey_{type}_{abc|utu}_{anchor}         → platform survey (paired)
     """
     lower = _normalize(raw_name)
@@ -47,7 +48,7 @@ def _decode_name(raw_name: str) -> dict[str, Any]:
     variant_match = _PAIR_VARIANT_RE.search(lower)
     variant_key = variant_match.group(1).lower() if variant_match else ""
     pair_variant = _PAIR_LABELS.get(variant_key, "")
-    if lower.startswith("voxbulk_cf_"):
+    if lower.startswith("cfs_") or lower.startswith("voxbulk_cf_"):
         prefix = "cf"
     elif lower.startswith("voxbulk_survey_"):
         prefix = "wa"

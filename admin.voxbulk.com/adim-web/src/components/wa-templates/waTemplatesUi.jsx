@@ -400,18 +400,19 @@ export function MetaNamePreview({ name, className, max = 36 }) {
 
 export function MetaSyncNamingNote({ industrySlug, exampleMetaName }) {
   const slug = String(industrySlug || 'industry').trim()
-  const example = String(exampleMetaName || `voxbulk_cf_${slug}_topic_slug_topic_slug_xxxxxxxx`).trim()
+  const example = String(exampleMetaName || `cfs_${slug}_topic_slug_en_v1`).trim()
   return (
     <div className="rounded-md border border-border/70 bg-surface-muted/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
       <p className="font-medium text-foreground">How names appear in Meta</p>
       <p className="mt-1">
         Meta only supports template categories <span className="font-medium text-foreground">Utility</span>, Marketing,
         and Authentication — not industry folders. Your industry is encoded in the template name prefix{' '}
-        <code className="rounded bg-background px-1 font-mono text-[10px]">voxbulk_cf_{slug}_</code>.
+        <code className="rounded bg-background px-1 font-mono text-[10px]">cfs_{slug}_</code>.
       </p>
       <p className="mt-1">
-        In WhatsApp Manager, search that prefix to filter this industry. Each topic shares one Meta name across all{' '}
-        language versions.
+        In WhatsApp Manager, search that prefix to filter this industry. Each language has its own Meta name{' '}
+        (<code className="rounded bg-background px-1 font-mono text-[10px]">…_en_v1</code>,{' '}
+        <code className="rounded bg-background px-1 font-mono text-[10px]">…_ar_v1</code>, etc.).
       </p>
       <p className="mt-1">
         Industry sync runs in small batches (default 5 templates, pause between batches) to avoid Meta rate limits.

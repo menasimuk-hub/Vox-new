@@ -62,7 +62,7 @@ def test_parse_cf_fitness_name():
     with get_sessionmaker()() as db:
         _ensure_feedback_fitness(db)
         ctx = build_export_resolver_context(db)
-        parsed = parse_feedback_template_name("voxbulk_cf_fitness_would_recommend_would_recommend_aa247a14", ctx)
+        parsed = parse_feedback_template_name("cfs_fitness_would_recommend_en_v1", ctx)
     assert parsed is not None
     assert parsed["industry_slug"] == "fitness"
     assert parsed["survey_type_slug"] == "would_recommend"
@@ -107,7 +107,7 @@ def test_resolve_export_rows_mixed_list():
         rows = resolve_template_export_rows(
             db,
             [
-                "voxbulk_cf_fitness_would_recommend_would_recommend_aa247a14",
+                "cfs_fitness_would_recommend_en_v1",
                 "voxbulk_survey_team_collaboration_abc_6795e3",
                 "voxbulk_survey_would_recommend_abc_9c83ff",
             ],

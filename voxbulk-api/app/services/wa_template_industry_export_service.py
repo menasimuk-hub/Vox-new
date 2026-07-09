@@ -203,12 +203,98 @@ def _survey_name_variant(name: str) -> str:
     return ""
 
 
+def _parse_cfs_feedback_name(lower: str, ctx: ExportResolverContext) -> dict[str, Any] | None:
+    """Parse cfs_{industry}_{topic}_{lang}_v1 names."""
+    match = re.match(r"^cfs_(.+)_v(\d+)$", lower)
+    if not match:
+        return None
+    body = match.group(1)
+    for ind_slug in sorted(ctx.feedback_survey_slugs_by_industry.keys(), key=len, reverse=True):
+        ind_matched = False
+        tail = body
+        for ind_prefix in _slug_prefixes(ind_slug):
+            if body.startswith(ind_prefix):
+                tail = body[len(ind_prefix) :]
+                ind_matched = True
+                break
+        if not ind_matched:
+            continue
+        slugs = ctx.feedback_survey_slugs_by_industry.get(ind_slug, [])
+        for st_slug in sorted(slugs, key=len, reverse=True):
+            st_matched = False
+            remainder = tail
+            for st_prefix in _slug_prefixes(st_slug):
+                sp = st_prefix.rstrip("_")
+                if tail.startswith(f"{sp}_"):
+                    remainder = tail[len(sp) + 1 :]
+                    st_matched = True
+                    break
+                if tail == sp:
+                    remainder = "en"
+                    st_matched = True
+                    break
+            if not st_matched:
+                continue
+            template_key = _canonical_slug_token(st_slug)
+            fb_ind = ctx.feedback_industry_by_slug.get(ind_slug)
+            fb_st = ctx.feedback_survey_by_slug.get((ind_slug, st_slug))
+            return {
+                "product_line": "Customer Feedback",
+                "industry_slug": ind_slug,
+                "industry_name": fb_ind.name if fb_ind else ind_slug.replace("_", " ").title(),
+                "survey_type_slug": st_slug,
+                "survey_type_name": fb_st.name if fb_st else st_slug.replace("_", " ").title(),
+                "template_key": template_key,
+                "telnyx_sync_status": "",
+                "source": "parsed_cf_name",
+                "feedback_survey_type_id": fb_st.id if fb_st else None,
+                "platform_survey_type_id": None,
+            }
+        parts = tail.rsplit("_", 1)
+        if len(parts) == 2:
+            topic_part, _lang = parts
+            fallback_st = _cf_tail_survey_slug(f"{topic_part}_00000000", slugs)
+            if fallback_st:
+                fb_ind = ctx.feedback_industry_by_slug.get(ind_slug)
+                fb_st = ctx.feedback_survey_by_slug.get((ind_slug, fallback_st))
+                return {
+                    "product_line": "Customer Feedback",
+                    "industry_slug": ind_slug,
+                    "industry_name": fb_ind.name if fb_ind else ind_slug.replace("_", " ").title(),
+                    "survey_type_slug": fallback_st,
+                    "survey_type_name": fb_st.name if fb_st else fallback_st.replace("-", " ").replace("_", " ").title(),
+                    "template_key": _canonical_slug_token(fallback_st),
+                    "telnyx_sync_status": "",
+                    "source": "parsed_cf_name",
+                    "feedback_survey_type_id": fb_st.id if fb_st else None,
+                    "platform_survey_type_id": None,
+                }
+    return None
+
+
 def parse_feedback_template_name(name: str, ctx: ExportResolverContext) -> dict[str, Any] | None:
     lower = str(name or "").strip().lower()
-    if not lower.startswith("voxbulk_cf_"):
+    if not lower.startswith("cfs_") and not lower.startswith("voxbulk_cf_"):
         return None
     if lower in ctx.cf_meta_index:
         return dict(ctx.cf_meta_index[lower])
+
+    if lower.startswith("cfs_"):
+        parsed = _parse_cfs_feedback_name(lower, ctx)
+        if parsed:
+            return parsed
+        return {
+            "product_line": "Customer Feedback",
+            "industry_slug": "",
+            "industry_name": "",
+            "survey_type_slug": "",
+            "survey_type_name": "",
+            "template_key": "",
+            "telnyx_sync_status": "",
+            "source": "unparsed_cf",
+            "feedback_survey_type_id": None,
+            "platform_survey_type_id": None,
+        }
 
     rest = lower[len("voxbulk_cf_") :]
     for ind_slug in sorted(ctx.feedback_survey_slugs_by_industry.keys(), key=len, reverse=True):
@@ -320,7 +406,7 @@ def resolve_template_export_row(
         "platform_survey_type_id": None,
     }
 
-    if lower.startswith("voxbulk_cf_"):
+    if lower.startswith("cfs_") or lower.startswith("voxbulk_cf_"):
         cf = parse_feedback_template_name(raw, ctx)
         if cf:
             base.update(cf)

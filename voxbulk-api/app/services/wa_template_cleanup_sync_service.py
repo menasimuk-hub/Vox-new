@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 REPORT_DIR = Path(__file__).resolve().parents[2] / "seed-data" / "wa-survey" / "migration-reports"
 
 SURVEY_META_PREFIXES = ("voxbulk_survey_",)
-CF_META_PREFIXES = ("voxbulk_cf_",)
+CF_META_PREFIXES = ("cfs_",)
 PROTECTED_PREFIXES = (
     "voxbulk_interview_",
     "interview_",
@@ -84,7 +84,7 @@ def is_survey_product_row(row: TelnyxWhatsappTemplate) -> bool:
 def is_cf_catalog_row(row: TelnyxWhatsappTemplate) -> bool:
     if is_protected_template(row):
         return False
-    return _name_lower(row).startswith("voxbulk_cf_")
+    return _name_lower(row).startswith("cfs_")
 
 
 def is_survey_or_cf_scope(row: TelnyxWhatsappTemplate) -> bool:

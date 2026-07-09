@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Push local DB WhatsApp templates to primary (Meta default) and Telnyx backup.
 
-No renames — uses existing DB names (was_*, voxbulk_cf_*, system names).
+No renames — uses existing DB names (was_*, cfs_*, system names).
 
 Usage:
   cd voxbulk-api && source .venv/bin/activate

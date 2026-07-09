@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 META_QUICK_REPLY_MAX = 3
 META_BUTTON_MAX_LEN = 20
 META_SUBCODE_CATEGORY_MISMATCH = 2388026
+CF_META_NAME_VERSION = "v1"
 
 
 class FeedbackTelnyxPushError(Exception):
@@ -84,6 +85,22 @@ def build_feedback_components(tpl: FeedbackWaTemplate) -> list[dict[str, Any]]:
     return components
 
 
+def _cfs_lang_slug(raw: str | None) -> str:
+    """Short lang token for cfs_* Meta names (matches db-rebuild: en, zh, ar, …)."""
+    lang = str(raw or "en_GB").strip().replace("-", "_")
+    lowered = lang.lower()
+    if lowered.startswith("en"):
+        return "en"
+    if lowered.startswith("zh"):
+        return "zh"
+    if lowered.startswith("pt"):
+        return "pt"
+    if lowered in {"nb", "no"}:
+        return "no"
+    head = lowered.split("_", 1)[0]
+    return head or "en"
+
+
 def feedback_meta_template_name(
     tpl: FeedbackWaTemplate,
     *,
@@ -91,17 +108,18 @@ def feedback_meta_template_name(
     survey_type_slug: str | None = None,
     name_anchor_id: str | None = None,
 ) -> str:
+    """Canonical Meta name: cfs_{industry}_{topic}_{lang}_v1 (one name per language row)."""
+    del name_anchor_id  # legacy param — cfs names include language, no shared anchor
     stored = str(getattr(tpl, "meta_template_name", "") or "").strip()
     if stored:
         return stored[:512]
-    parts = ["voxbulk", "cf"]
-    if industry_slug:
-        parts.append(_slug_underscore(industry_slug))
-    if survey_type_slug:
-        parts.append(_slug_underscore(survey_type_slug))
-    parts.append(_slug_underscore(tpl.template_key or "template"))
-    anchor = str(name_anchor_id or tpl.id or "").lower()
-    parts.append(re.sub(r"[^a-z0-9]", "", anchor)[:8])
+    ind = _slug_underscore(industry_slug) if str(industry_slug or "").strip() else ""
+    key = _slug_underscore(tpl.template_key or survey_type_slug or "template")
+    lang = _cfs_lang_slug(tpl.language)
+    parts = ["cfs"]
+    if ind:
+        parts.append(ind)
+    parts.extend([key, lang, CF_META_NAME_VERSION])
     return "_".join(p for p in parts if p)[:512]
 
 
@@ -110,10 +128,10 @@ def preview_feedback_meta_template_name(
     industry_slug: str,
     survey_type_slug: str,
 ) -> str:
-    """Human-readable Meta name before DB rows exist (anchor id shown as xxxxxxxx)."""
+    """Human-readable Meta name before DB rows exist."""
     key = _slug_underscore(survey_type_slug)
-    parts = ["voxbulk", "cf", _slug_underscore(industry_slug), key, key, "xxxxxxxx"]
-    return "_".join(p for p in parts if p)[:512]
+    ind = _slug_underscore(industry_slug)
+    return f"cfs_{ind}_{key}_en_{CF_META_NAME_VERSION}"[:512]
 
 
 def english_anchor_template(db: Session, tpl: FeedbackWaTemplate) -> FeedbackWaTemplate:
@@ -265,12 +283,10 @@ def _feedback_meta_name_for_template(db: Session, tpl: FeedbackWaTemplate) -> st
     if tpl.survey_type_id:
         st = db.get(FeedbackSurveyType, tpl.survey_type_id)
         survey_slug = st.slug if st else None
-    anchor = english_anchor_template(db, tpl)
     return feedback_meta_template_name(
         tpl,
         industry_slug=industry_slug,
         survey_type_slug=survey_slug,
-        name_anchor_id=anchor.id,
     )
 
 
@@ -317,12 +333,10 @@ def push_feedback_template_to_telnyx(
         st = db.get(FeedbackSurveyType, tpl.survey_type_id)
         survey_slug = st.slug if st else None
 
-    anchor = english_anchor_template(db, tpl)
     name = feedback_meta_template_name(
         tpl,
         industry_slug=industry_slug,
         survey_type_slug=survey_slug,
-        name_anchor_id=anchor.id,
     )
 
     if not is_marketing_wa_template(tpl):
@@ -1204,12 +1218,10 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
 
     for tpl in templates:
         industry_slug_ctx, survey_slug_ctx = _feedback_template_meta_context(db, tpl)
-        anchor = english_anchor_template(db, tpl)
         meta_name = feedback_meta_template_name(
             tpl,
             industry_slug=industry_slug_ctx,
             survey_type_slug=survey_slug_ctx,
-            name_anchor_id=anchor.id,
         )
         language = normalize_feedback_language(tpl.language)
         remote = find_remote_feedback_template(remote_items, name=meta_name, language=language)

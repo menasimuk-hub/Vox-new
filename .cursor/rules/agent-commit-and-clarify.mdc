@@ -61,7 +61,7 @@ For WA templates, Customer Feedback, surveys, or dual-profile sync — **ask the
 ### Data contract
 
 - Local **DB is source of truth** — push DB → Meta/Telnyx; pull **status only** from Meta?
-- No template renames (`voxbulk_cf_*`, `was_*` stay)?
+- No template renames (`cfs_*`, `was_*` stay)?
 
 ### Product area
 

@@ -78,7 +78,7 @@ def _is_survey_product_row(row: TelnyxWhatsappTemplate) -> bool:
     # Explicit product prefixes win (some rows have stale active_for_interview flags).
     if name.startswith("voxbulk_survey_"):
         return True
-    if name.startswith("voxbulk_cf_") or name.startswith("voxbulk_sales_") or name.startswith("voxbulk_interview_"):
+    if name.startswith("cfs_") or name.startswith("voxbulk_cf_") or name.startswith("voxbulk_sales_") or name.startswith("voxbulk_interview_"):
         return False
     if key.startswith("sales_") or key.startswith("interview_"):
         return False

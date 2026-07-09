@@ -268,8 +268,9 @@ def test_feedback_meta_name_shared_for_arabic_and_english():
     ar_name = feedback_meta_template_name(
         ar, industry_slug="fitness", survey_type_slug="overall-experience", name_anchor_id=en_id
     )
-    assert en_name == ar_name
-    assert en_id.replace("-", "")[:8] in en_name.replace("_", "")
+    assert en_name == "cfs_fitness_overall_experience_en_v1"
+    assert ar_name == "cfs_fitness_overall_experience_ar_v1"
+    assert en_name != ar_name
 
 
 def test_finalize_translated_body_keeps_leading_emoji():
@@ -613,7 +614,7 @@ def test_send_feedback_template_uses_meta_template_name():
         assert result.ok is True
         send_mock.assert_called()
         kwargs = send_mock.call_args.kwargs
-        assert kwargs.get("template_name", "").startswith("voxbulk_cf_")
+        assert kwargs.get("template_name", "").startswith("cfs_")
         assert kwargs.get("to_number") == "+447700900999"
         assert kwargs.get("template_language")
 
@@ -654,9 +655,7 @@ def test_fitness_meta_name_uses_template_row_not_location():
         db.refresh(thank_tpl)
 
         meta_name = FeedbackWaSendService.resolve_meta_template_name(db, thank_tpl)
-        assert meta_name.startswith("voxbulk_cf_thank_you_")
-        assert "fitness" not in meta_name
-        assert "overall" not in meta_name
+        assert meta_name == "cfs_thank_you_en_v1"
 
 
 def test_load_survey_config_rebuilds_from_flags_when_json_missing():

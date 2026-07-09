@@ -150,7 +150,7 @@ def _promo_rate_minor(db: Session, org_id: str) -> int:
 
 def _promo_meta_template_name(template_id: str) -> str:
     slug = re.sub(r"[^a-z0-9_]+", "_", str(template_id or "").lower()).strip("_")
-    return f"voxbulk_cf_promo_{slug or 'generic'}"[:512]
+    return f"cfs_promo_{slug or 'generic'}_v1"[:512]
 
 
 def _promo_template_components(

@@ -492,7 +492,7 @@ def build_dry_run_plan(
                     survey_type_slug=slug,
                 )
             except Exception:  # noqa: BLE001
-                meta_name_preview = f"voxbulk_cf_{industry_slug}_{slug}_{slug}_xxxxxxxx"
+                meta_name_preview = f"cfs_{industry_slug}_{slug}_en_v1"
 
         topics_preview.append(
             {
@@ -548,7 +548,7 @@ def build_dry_run_plan(
     )
     if industry_slug:
         plan_steps.append(
-            f"Meta template names use prefix voxbulk_cf_{industry_slug}_… (UTILITY category — Meta has no industry folders)"
+            f"Meta template names use prefix cfs_{industry_slug}_… (UTILITY category — Meta has no industry folders)"
         )
     plan_steps.append("System templates (thank you, tell us more, etc.) are NOT changed")
 

@@ -429,7 +429,7 @@ export default function MetaWhatsappIntegration({
               <input className='input' value={metaTestNumber} onChange={(e) => setMetaTestNumber(e.target.value)} placeholder='+447…' />
             </Field>
             <Field label='Template name' hint='Leave blank to use first approved template from WABA'>
-              <input className='input' value={metaTemplateName} onChange={(e) => setMetaTemplateName(e.target.value)} placeholder='voxbulk_cf_…' />
+              <input className='input' value={metaTemplateName} onChange={(e) => setMetaTemplateName(e.target.value)} placeholder='cfs_…' />
             </Field>
             <Field label='Template language' hint='e.g. en, en_GB, ar'>
               <input className='input' value={metaTemplateLang} onChange={(e) => setMetaTemplateLang(e.target.value)} placeholder='en' />

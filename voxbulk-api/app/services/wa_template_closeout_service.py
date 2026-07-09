@@ -64,6 +64,7 @@ def _is_our_product_template(row: TelnyxWhatsappTemplate) -> bool:
         return False
     return (
         name.startswith("voxbulk_survey_")
+        or name.startswith("cfs_")
         or name.startswith("voxbulk_cf_")
         or bool(row.survey_type_id)
         or key.startswith("interview_")
@@ -649,6 +650,7 @@ class WaTemplateCloseoutService:
         failed: list[str] = []
         prefixes = (
             "voxbulk_survey_",
+            "cfs_",
             "voxbulk_cf_",
             "voxbulk_interview_",
             "interview_",
