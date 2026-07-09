@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 INTERVIEW_BOOKING_TEMPLATE_NAME = "voxbulk_interview_book"
-# Renamed from interview_email_sent — Meta blocks re-creating that name for ~4 weeks after delete.
-INTERVIEW_EMAIL_SENT_TEMPLATE_NAME = "voxbulk_interview_email_sent"
-INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "interview_confirm_book"
-INTERVIEW_CANCEL_TEMPLATE_NAME = "voxbulk_interview_cancel"
-INTERVIEW_JOB_CLOSED_TEMPLATE_NAME = "voxbulk_interview_job_closed"
+# Meta deletion lock — bump _vN suffix when re-pushing after delete.
+INTERVIEW_EMAIL_SENT_TEMPLATE_NAME = "voxbulk_interview_email_sent_v2"
+INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "interview_confirm_book_v4"
+INTERVIEW_CANCEL_TEMPLATE_NAME = "voxbulk_interview_cancel_v2"
+INTERVIEW_JOB_CLOSED_TEMPLATE_NAME = "voxbulk_interview_job_closed_v2"
 
 # Candidate self-cancel: {{1}} name, {{2}} role, {{3}} company, {{4}} date, {{5}} time
 INTERVIEW_BOOKING_CANCEL_BODY = (

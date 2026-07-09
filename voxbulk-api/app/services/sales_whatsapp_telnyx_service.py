@@ -14,10 +14,10 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_offer_followup": "voxbulk_sales_followup",
     "sales_offer_keyword_confirm": "voxbulk_sales_keyword_confirm",
     "interview_booking_invite": "voxbulk_interview_book",
-    "interview_email_sent": "voxbulk_interview_email_sent",
-    "interview_booking_confirm": "interview_confirm_book",
-    "interview_booking_cancel": "voxbulk_interview_cancel",
-    "interview_job_closed": "voxbulk_interview_job_closed",
+    "interview_email_sent": "voxbulk_interview_email_sent_v2",
+    "interview_booking_confirm": "interview_confirm_book_v4",
+    "interview_booking_cancel": "voxbulk_interview_cancel_v2",
+    "interview_job_closed": "voxbulk_interview_job_closed_v2",
 }
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
@@ -26,6 +26,9 @@ TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
 TELNYX_SALES_TEMPLATE_LEGACY_NAMES: dict[str, str] = {
     "interview_email_sent": "interview_email_sent",
     "voxbulk_interview_confirm": "interview_booking_confirm",
+    "interview_booking_confirm": "interview_confirm_book_v3",
+    "interview_booking_cancel": "voxbulk_interview_cancel",
+    "interview_job_closed": "voxbulk_interview_job_closed",
 }
 
 # Sample values for Integrations → test WhatsApp (and Telnyx portal parity checks).

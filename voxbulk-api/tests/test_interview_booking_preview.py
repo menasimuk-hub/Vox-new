@@ -123,11 +123,11 @@ def test_fallback_preview_email_first_notice():
         sync_error="sync failed",
     )
     assert preview["is_fallback"] is True
-    assert preview["name"] == "voxbulk_interview_email_sent"
+    assert preview["name"] == "voxbulk_interview_email_sent_v2"
     assert preview["invite_mode"] == "email_first"
     assert "careers@voxbulk.com" in preview["rendered_body"]
     assert preview["buttons"] == []
-    assert preview["confirmation_template_name"] == "interview_confirm_book"
+    assert preview["confirmation_template_name"] == "interview_confirm_book_v4"
     assert preview["confirmation_body"]
     assert len(preview["confirmation_buttons"]) == 2
     assert preview["sync_error"] == "sync failed"
