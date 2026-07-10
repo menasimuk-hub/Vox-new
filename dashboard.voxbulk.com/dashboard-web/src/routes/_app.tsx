@@ -9,6 +9,7 @@ import { AssistantHighlightProvider } from "@/lib/assistant-highlight";
 import { SessionProvider } from "@/lib/session";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { PwaInstallBanner, PwaInstallHelpDialog, PwaInstallProvider } from "@/components/pwa-install";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
@@ -20,6 +21,7 @@ function AppLayout() {
           <ConnectionsProvider>
             <AssistantHighlightProvider>
               <TooltipProvider delayDuration={150}>
+              <PwaInstallProvider>
               <SidebarProvider>
                 <AppSidebar />
                 <SidebarInset className="relative min-w-0 max-w-full flex-1 overflow-x-hidden bg-background">
@@ -31,7 +33,10 @@ function AppLayout() {
                 </SidebarInset>
                 <LiveChatFab />
               </SidebarProvider>
+              <PwaInstallBanner />
+              <PwaInstallHelpDialog />
               <Toaster />
+              </PwaInstallProvider>
             </TooltipProvider>
             </AssistantHighlightProvider>
           </ConnectionsProvider>

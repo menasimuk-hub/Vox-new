@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu, MonitorDown } from "lucide-react";
+import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -18,7 +18,7 @@ import { executeUiCommands } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 import { brandAssets } from "@/lib/brand";
-import { usePwaInstall } from "@/hooks/use-pwa-install";
+import { PwaInstallButton } from "@/components/pwa-install";
 
 function AiBrandIcon({ className }: { className?: string }) {
   return <img src={brandAssets.iconDark} alt="" className={className} aria-hidden />;
@@ -37,70 +37,6 @@ function SidebarToggle() {
       <Menu className="size-4" />
       <span className="sr-only">Toggle sidebar</span>
     </button>
-  );
-}
-
-function PwaInstallButton() {
-  const { canInstall, install, isIos, isSafari, showIosHelp, setShowIosHelp } = usePwaInstall();
-  if (!canInstall && !showIosHelp) return null;
-  return (
-    <>
-      {canInstall ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="inline-flex h-8 gap-1.5 px-2 sm:h-9 sm:px-3"
-          onClick={() => void install()}
-          aria-label="Install VoxBulk app"
-          title={isIos ? "Add to Home Screen" : "Install app"}
-        >
-          <MonitorDown className="size-4" />
-          <span className="text-xs font-medium">{isIos ? "Add to Home" : "Install app"}</span>
-        </Button>
-      ) : null}
-
-      {showIosHelp ? (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-4 sm:items-center">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="ios-install-title"
-            className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-xl"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 id="ios-install-title" className="text-base font-semibold">
-                  Install on iPhone / iPad
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {isSafari
-                    ? "Add VoxBulk to your Home Screen for a full-screen app with a dark splash."
-                    : "Open this page in Safari first, then add it to your Home Screen."}
-                </p>
-              </div>
-              <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" onClick={() => setShowIosHelp(false)}>
-                <X className="size-4" />
-              </Button>
-            </div>
-            <ol className="mt-4 list-decimal space-y-2 ps-5 text-sm text-foreground">
-              <li>
-                Tap the <span className="font-medium">Share</span> button in Safari
-              </li>
-              <li>
-                Choose <span className="font-medium">Add to Home Screen</span>
-              </li>
-              <li>
-                Tap <span className="font-medium">Add</span>
-              </li>
-            </ol>
-            <Button type="button" className="mt-5 w-full" onClick={() => setShowIosHelp(false)}>
-              Got it
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </>
   );
 }
 
