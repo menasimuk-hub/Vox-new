@@ -278,7 +278,15 @@ export type FeedbackRespondent = {
   is_unhappy?: boolean;
   flagged?: boolean;
   sentiment_label?: string | null;
-  answers?: Array<{ question?: string; answer?: string; step_role?: string | null; answer_source?: string }>;
+  answers?: Array<{
+    question?: string;
+    answer?: string;
+    original_text?: string | null;
+    question_key?: string;
+    step_order?: number;
+    step_role?: string | null;
+    answer_source?: string;
+  }>;
   quote?: string | null;
 };
 

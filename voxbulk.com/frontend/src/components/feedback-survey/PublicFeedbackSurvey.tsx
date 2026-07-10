@@ -427,6 +427,11 @@ export function PublicFeedbackSurvey({
 
   const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const navEpochRef = useRef(0);
+  const pendingAdvanceRef = useRef<{
+    epoch: number;
+    data: AdvanceResponse;
+    fallbackNext: number;
+  } | null>(null);
   const stepIndexRef = useRef(0);
   const answersByStepRef = useRef<Record<number, string>>({});
   const detailRef = useRef<VoiceDetailHandle>(null);
@@ -621,6 +626,27 @@ export function PublicFeedbackSurvey({
     return apiUpload(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`, form);
   };
 
+  const postReason = (reason: string, reasonSource: string) =>
+    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/reason`, {
+      method: "POST",
+      body: JSON.stringify({ reason, reason_source: reasonSource }),
+    });
+
+  const finishReasonAndAdvance = useCallback(() => {
+    const pending = pendingAdvanceRef.current;
+    setReasonOverlay(null);
+    setReasonChips([]);
+    setReasonText("");
+    setReasonHasVoice(false);
+    setReasonVoicePending(false);
+    setTellUsMorePending(false);
+    setDeadlineAt(null);
+    pendingAdvanceRef.current = null;
+    if (pending) {
+      applyAdvance(pending.epoch, pending.data, pending.fallbackNext);
+    }
+  }, [applyAdvance]);
+
   const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
     if (!sessionId && !isPreview) return;
     setError("");
@@ -645,6 +671,7 @@ export function PublicFeedbackSurvey({
           setReasonOverlay(opts.showReasonAfter ?? null);
           return;
         }
+        pendingAdvanceRef.current = { epoch, data, fallbackNext: stepIndexRef.current + 1 };
         setReasonOverlay(opts.showReasonAfter);
       });
       return;
@@ -679,36 +706,70 @@ export function PublicFeedbackSurvey({
     const chips = mode === "reason" ? reasonChips : [];
     const combinedText = [chips.join(", "), text].filter(Boolean).join(" — ");
 
-    if (mode === "reason") {
-      setReasonOverlay(null);
-      setReasonChips([]);
-      setReasonText("");
-      setTellUsMorePending(false);
-      setDeadlineAt(null);
-    }
-
     if (isPreview) {
-      goToStep(stepIndexRef.current + 1);
+      if (mode === "reason") {
+        finishReasonAndAdvance();
+      } else {
+        goToStep(stepIndexRef.current + 1);
+      }
       return;
     }
 
-    const epoch = navEpochRef.current;
+    if (mode === "reason") {
+      if (tellUsMorePending) {
+        const epoch = navEpochRef.current;
+        if (voiceBlob) {
+          setBusy(true);
+          try {
+            const voiceRes = (await postVoice(voiceBlob, "transcribe")) as { transcript?: string };
+            const transcript = String(voiceRes.transcript || "").trim();
+            if (!transcript) {
+              setError("Could not transcribe your voice note. Please try again or type your answer.");
+              return;
+            }
+            const data = (await postAnswer("skip", {
+              reason: transcript,
+              reasonSource: "voice",
+            })) as AdvanceResponse;
+            setReasonOverlay(null);
+            setReasonChips([]);
+            setReasonText("");
+            setTellUsMorePending(false);
+            setDeadlineAt(null);
+            applyAdvance(epoch, data, stepIndexRef.current + 1);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not save voice answer");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+        const reason = combinedText || "skip";
+        const epoch = navEpochRef.current;
+        enqueue(async () => {
+          const data = (await postAnswer("skip", {
+            reason: reason.toLowerCase() === "skip" ? "skip" : reason,
+            reasonSource: "text",
+          })) as AdvanceResponse;
+          setReasonOverlay(null);
+          setReasonChips([]);
+          setReasonText("");
+          setTellUsMorePending(false);
+          setDeadlineAt(null);
+          applyAdvance(epoch, data, stepIndex + 1);
+        });
+        return;
+      }
 
-    if (voiceBlob) {
-      if (mode === "reason") {
+      if (voiceBlob) {
         setBusy(true);
         try {
-          const voiceRes = (await postVoice(voiceBlob, "transcribe")) as { transcript?: string };
-          const transcript = String(voiceRes.transcript || "").trim();
-          if (!transcript) {
-            setError("Could not transcribe your voice note. Please try again or type your answer.");
+          const voiceRes = (await postVoice(voiceBlob, "reason_prev")) as { saved?: boolean; transcript?: string };
+          if (!voiceRes.saved) {
+            setError("Could not save your voice note. Please try again or type your answer.");
             return;
           }
-          const data = (await postAnswer("skip", {
-            reason: transcript,
-            reasonSource: "voice",
-          })) as AdvanceResponse;
-          applyAdvance(epoch, data, stepIndexRef.current + 1);
+          finishReasonAndAdvance();
         } catch (e) {
           setError(e instanceof Error ? e.message : "Could not save voice answer");
         } finally {
@@ -716,6 +777,24 @@ export function PublicFeedbackSurvey({
         }
         return;
       }
+
+      if (combinedText) {
+        setBusy(true);
+        try {
+          await postReason(combinedText, "text");
+          finishReasonAndAdvance();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not save your answer");
+        } finally {
+          setBusy(false);
+        }
+      }
+      return;
+    }
+
+    const epoch = navEpochRef.current;
+
+    if (voiceBlob) {
       setBusy(true);
       try {
         const data = (await postVoice(voiceBlob, "answer")) as AdvanceResponse & { saved?: boolean };
@@ -732,18 +811,6 @@ export function PublicFeedbackSurvey({
       return;
     }
 
-    if (mode === "reason") {
-      const reason = combinedText || "skip";
-      enqueue(async () => {
-        const data = (await postAnswer("skip", {
-          reason: reason.toLowerCase() === "skip" ? "skip" : reason,
-          reasonSource: "text",
-        })) as AdvanceResponse;
-        applyAdvance(epoch, data, stepIndex + 1);
-      });
-      return;
-    }
-
     if (combinedText) {
       enqueue(async () => {
         const data = (await postAnswer(combinedText)) as AdvanceResponse;
@@ -754,18 +821,28 @@ export function PublicFeedbackSurvey({
 
   const skipDetailStep = (mode: "answer" | "reason") => {
     if (isPreview) {
-      goToStep(stepIndex + 1);
+      if (mode === "reason") {
+        finishReasonAndAdvance();
+      } else {
+        goToStep(stepIndex + 1);
+      }
       return;
     }
     if (mode === "reason") {
-      setReasonOverlay(null);
-      setReasonChips([]);
-      setReasonText("");
-      const epoch = navEpochRef.current;
-      enqueue(async () => {
-        const data = (await postAnswer("skip", { reason: "skip", reasonSource: "text" })) as AdvanceResponse;
-        applyAdvance(epoch, data, stepIndex + 1);
-      });
+      if (tellUsMorePending) {
+        const epoch = navEpochRef.current;
+        enqueue(async () => {
+          const data = (await postAnswer("skip", { reason: "skip", reasonSource: "text" })) as AdvanceResponse;
+          setReasonOverlay(null);
+          setReasonChips([]);
+          setReasonText("");
+          setTellUsMorePending(false);
+          setDeadlineAt(null);
+          applyAdvance(epoch, data, stepIndex + 1);
+        });
+        return;
+      }
+      finishReasonAndAdvance();
       return;
     }
     answerStep("skip");
@@ -801,11 +878,32 @@ export function PublicFeedbackSurvey({
 
   const goBack = async () => {
     if (reasonOverlay) {
+      const hadPendingAdvance = Boolean(pendingAdvanceRef.current);
+      pendingAdvanceRef.current = null;
       setReasonOverlay(null);
       setReasonChips([]);
       setReasonText("");
       setReasonHasVoice(false);
       setReasonVoicePending(false);
+      if (!isPreview && sessionId && hadPendingAdvance) {
+        setBusy(true);
+        setError("");
+        try {
+          await sendQueueRef.current.catch(() => undefined);
+          const data = (await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`, {
+            method: "POST",
+          })) as AdvanceResponse;
+          if (typeof data.step_index === "number") {
+            goToStep(data.step_index, { question: data.question ?? null });
+          } else {
+            goToStep(Math.max(0, stepIndex - 1));
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not go back");
+        } finally {
+          setBusy(false);
+        }
+      }
       return;
     }
     if (stepIndex <= 0 || !sessionId) return;
@@ -953,7 +1051,20 @@ export function PublicFeedbackSurvey({
               />
             </div>
 
-            <div className="flex flex-1 flex-col justify-center py-4">
+            <div className="relative flex flex-1 flex-col justify-center py-4">
+              {busy && inReasonOverlay ? (
+                <div
+                  className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl"
+                  style={{ background: "rgba(255,255,255,0.35)", backdropFilter: "blur(2px)" }}
+                >
+                  <div
+                    className="rounded-xl px-4 py-3 text-sm font-semibold shadow-lift"
+                    style={{ background: theme.card, color: theme.ink }}
+                  >
+                    Sending…
+                  </div>
+                </div>
+              ) : null}
               {inReasonOverlay ? (
                 <VoiceDetail
                   ref={reasonRef}

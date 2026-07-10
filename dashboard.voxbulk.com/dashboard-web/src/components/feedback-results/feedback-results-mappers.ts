@@ -37,6 +37,22 @@ export type OpenQ = {
 
 export type Question = RatingQ | YesNoQ | OpenQ;
 
+export type RespondentAnswerRow = {
+  question: string;
+  type: "rating" | "yes_no" | "open";
+  rating?: "poor" | "good" | "excellent";
+  yesNo?: "yes" | "no";
+  followUp?: BilingualAnswer;
+  openText?: BilingualAnswer;
+};
+
+export type BilingualAnswer = {
+  english: string;
+  original?: string;
+  translationPending?: boolean;
+  source?: string;
+};
+
 export type Respondent = {
   id: string;
   name: string;
@@ -46,10 +62,10 @@ export type Respondent = {
   completedAtTs: number;
   sentiment: "happy" | "neutral" | "unhappy";
   flagged: boolean;
-  answers: Array<
-    | { qid: string; type: "Rating"; value: "poor" | "good" | "excellent" }
-    | { qid: string; type: "Yes/No"; value: "yes" | "no" }
-    | { qid: string; type: "Voice"; value: string; original?: string; translationPending?: true }
+  answers: RespondentAnswerRow[];
+  answerDots: Array<
+    | { type: "Rating"; value: "poor" | "good" | "excellent" }
+    | { type: "Yes/No"; value: "yes" | "no" }
   >;
 };
 
@@ -194,53 +210,93 @@ function aggregateToQuestion(block: FeedbackAggregateBlock, id: string, voiceSam
   };
 }
 
-function mapRespondentAnswers(
-  r: FeedbackRespondent,
-  questionByTitle: Map<string, string>,
-  questions: Question[],
-): Respondent["answers"] {
-  const answers: Respondent["answers"] = [];
-  for (const a of r.answers || []) {
-    const title = String(a.question || "").trim();
-    let qid = questionByTitle.get(title);
-    if (!qid) {
-      const q = questions.find((x) => x.title === title);
-      qid = q?.id;
-    }
-    if (!qid) continue;
-    const q = questions.find((x) => x.id === qid);
-    const raw = String(a.answer || "").trim();
-    const role = String(a.step_role || "").toLowerCase();
-    const original = String((a as { original_text?: string }).original_text || "").trim();
-    const isVoiceLike =
-      a.answer_source === "voice" ||
-      role.includes("voice") ||
-      role.includes("open") ||
-      role === "tell_us_more" ||
-      q?.scale === "OPEN";
-    if (isVoiceLike) {
-      if (raw || original) {
-        const translationPending = raw === TRANSLATION_UNAVAILABLE && Boolean(original);
-        const english = translationPending ? TRANSLATION_UNAVAILABLE : raw || original;
-        answers.push({
-          qid,
-          type: "Voice",
-          value: english,
-          ...(original && original !== english ? { original } : {}),
-          ...(translationPending ? { translationPending: true as const } : {}),
-        });
-      }
-      continue;
-    }
-    const yn = classifyYn(raw);
-    if (yn || q?.scale === "YN") {
-      answers.push({ qid, type: "Yes/No", value: yn || "no" });
-      continue;
-    }
-    const pge = classifyPge(raw);
-    if (pge) answers.push({ qid, type: "Rating", value: pge });
+function hasArabicScript(text: string): boolean {
+  return /[\u0600-\u06FF]/.test(text);
+}
+
+function normalizeBilingual(english: string, original?: string): BilingualAnswer {
+  const en = english.trim();
+  const orig = (original || "").trim();
+  if (en === TRANSLATION_UNAVAILABLE && orig) {
+    return { english: TRANSLATION_UNAVAILABLE, original: orig, translationPending: true };
   }
-  return answers;
+  if (hasArabicScript(en) && orig && !hasArabicScript(orig)) {
+    return { english: orig, original: en };
+  }
+  if (hasArabicScript(en) && !orig) {
+    return { english: TRANSLATION_UNAVAILABLE, original: en, translationPending: true };
+  }
+  if (orig && orig !== en) {
+    return { english: en || orig, original: orig };
+  }
+  return { english: en || orig };
+}
+
+function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
+  const items = r.answers || [];
+  const lowReasons = new Map<string, (typeof items)[number]>();
+  for (const a of items) {
+    const qk = String(a.question_key || "");
+    if (qk.endsWith("__low_reason")) {
+      lowReasons.set(qk.slice(0, -"__low_reason".length), a);
+    }
+  }
+
+  const rows: RespondentAnswerRow[] = [];
+  for (const a of items) {
+    const qk = String(a.question_key || "");
+    if (qk.endsWith("__low_reason") || qk.endsWith("__tell_us_more")) continue;
+
+    const question = String(a.question || "").trim();
+    const raw = String(a.answer || "").trim();
+    const original = String(a.original_text || "").trim();
+    const role = String(a.step_role || "").toLowerCase();
+
+    if (role === "final_feedback_text" || qk === "open_question") {
+      rows.push({
+        question,
+        type: "open",
+        openText: { ...normalizeBilingual(raw, original), source: a.answer_source },
+      });
+      continue;
+    }
+
+    const yn = classifyYn(raw);
+    if (yn || role.includes("recommend") || role === "yes_no" || role.includes("marketing")) {
+      rows.push({ question, type: "yes_no", yesNo: yn || "no" });
+      continue;
+    }
+
+    const pge = classifyPge(raw);
+    if (pge || role === "rating") {
+      const followRaw = lowReasons.get(qk);
+      let followUp: BilingualAnswer | undefined;
+      if (followRaw) {
+        const fEn = String(followRaw.answer || "").trim();
+        const fOrig = String(followRaw.original_text || "").trim();
+        followUp = { ...normalizeBilingual(fEn, fOrig), source: followRaw.answer_source };
+      }
+      rows.push({ question, type: "rating", rating: pge || "poor", followUp });
+      continue;
+    }
+
+    if (raw || original) {
+      rows.push({
+        question,
+        type: "open",
+        openText: { ...normalizeBilingual(raw, original), source: a.answer_source },
+      });
+    }
+  }
+  return rows;
+}
+
+function mapAnswerDots(rows: RespondentAnswerRow[]): Respondent["answerDots"] {
+  return rows.flatMap((row) => {
+    if (row.type === "rating" && row.rating) return [{ type: "Rating" as const, value: row.rating }];
+    if (row.type === "yes_no" && row.yesNo) return [{ type: "Yes/No" as const, value: row.yesNo }];
+    return [];
+  });
 }
 
 function ratingFromSentiment(sentiment: string | null | undefined): "excellent" | "good" | "poor" {
@@ -269,11 +325,10 @@ export function mapFeedbackResults(
     return aggregateToQuestion(block, id, samples);
   });
 
-  const questionByTitle = new Map(questions.map((q) => [q.title, q.id]));
-
   const respondents: Respondent[] = (data.respondents || []).map((r) => {
     const sentiment = (r.sentiment_label as Respondent["sentiment"]) || "neutral";
     const completedTs = r.completed_at ? new Date(r.completed_at).getTime() : 0;
+    const answerRows = mapRespondentAnswers(r);
     return {
       id: String(r.id || ""),
       name: displayName(r.phone),
@@ -283,7 +338,8 @@ export function mapFeedbackResults(
       completedAtTs: Number.isNaN(completedTs) ? 0 : completedTs,
       sentiment,
       flagged: Boolean(r.flagged || r.is_unhappy),
-      answers: mapRespondentAnswers(r, questionByTitle, questions),
+      answers: answerRows,
+      answerDots: mapAnswerDots(answerRows),
     };
   });
 

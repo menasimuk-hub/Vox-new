@@ -48,6 +48,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { cn } from "@/lib/utils";
 import type {
+  BilingualAnswer,
   FeedbackSurveyResultsData,
   Question,
   Respondent,
@@ -458,9 +459,7 @@ export function FeedbackSurveyResults({
                           <td className="px-4 py-3 text-xs text-muted-foreground">{r.completedAt}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
-                              {r.answers
-                                .filter((a) => a.type !== "Voice")
-                                .map((a, i) => <AnswerDot key={i} a={a as any} />)}
+                              {r.answerDots.map((a, i) => <AnswerDot key={i} a={a} />)}
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right">
@@ -483,7 +482,6 @@ export function FeedbackSurveyResults({
         open={!!openRespondent}
         onOpenChange={(v) => !v && setOpenId(null)}
         respondent={openRespondent}
-        questions={questions}
       />
     </div>
   );
@@ -753,11 +751,31 @@ function FilterPill({ children, active, onClick, tone }: { children: React.React
   );
 }
 
+function BilingualAnswerBlock({ label, text }: { label: string; text: BilingualAnswer }) {
+  return (
+    <div className="mt-2 space-y-2">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      {text.translationPending ? (
+        <p className="text-xs font-medium text-warning">Translation unavailable</p>
+      ) : (
+        <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{text.english}"</p>
+      )}
+      {text.original ? (
+        <>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original</p>
+          <p className="rounded-md bg-muted/30 p-2 text-sm leading-relaxed" dir="auto">
+            {text.original}
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function RespondentSheet({
-  open, onOpenChange, respondent, questions,
-}: { open: boolean; onOpenChange: (v: boolean) => void; respondent: Respondent | null; questions: Question[] }) {
+  open, onOpenChange, respondent,
+}: { open: boolean; onOpenChange: (v: boolean) => void; respondent: Respondent | null }) {
   if (!respondent) return null;
-  const qmap = Object.fromEntries(questions.map((q) => [q.id, q]));
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -788,34 +806,21 @@ function RespondentSheet({
 
         <div className="mt-6 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full survey answers</p>
-          {respondent.answers.map((a, i) => {
-            const q = qmap[a.qid];
-            if (!q) return null;
-            return (
-              <div key={i} className="rounded-lg border border-border bg-background p-3">
-                <p className="text-sm font-medium">{q.title}</p>
-                <div className="mt-2">
-                  {a.type === "Rating" && <RatingChip value={a.value} />}
-                  {a.type === "Yes/No" && <YNChip value={a.value} />}
-                  {a.type === "Voice" && (
-                    <>
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">English</p>
-                      <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{a.value}"</p>
-                      {"translationPending" in a && a.translationPending ? (
-                        <p className="mt-1 text-xs font-medium text-warning">Translation unavailable</p>
-                      ) : null}
-                      {"original" in a && a.original ? (
-                        <>
-                          <p className="mt-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original</p>
-                          <p className="rounded-md bg-muted/30 p-2 text-sm leading-relaxed">{a.original}</p>
-                        </>
-                      ) : null}
-                    </>
-                  )}
-                </div>
+          {respondent.answers.map((a, i) => (
+            <div key={i} className="rounded-lg border border-border bg-background p-3">
+              <p className="text-sm font-medium leading-snug">{a.question}</p>
+              <div className="mt-2">
+                {a.type === "rating" && a.rating ? <RatingChip value={a.rating} /> : null}
+                {a.type === "yes_no" && a.yesNo ? <YNChip value={a.yesNo} /> : null}
+                {a.followUp ? (
+                  <BilingualAnswerBlock label="Tell us more" text={a.followUp} />
+                ) : null}
+                {a.openText ? (
+                  <BilingualAnswerBlock label="English" text={a.openText} />
+                ) : null}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </SheetContent>
     </Sheet>

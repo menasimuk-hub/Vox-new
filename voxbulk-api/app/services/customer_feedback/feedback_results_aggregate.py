@@ -314,6 +314,8 @@ def build_respondents(
                     "question": question,
                     "answer": answer,
                     "original_text": str(resp.original_text or "").strip() or None,
+                    "question_key": str(resp.question_key or ""),
+                    "step_order": int(resp.step_order or 0),
                     "step_role": step_role,
                     "answer_source": getattr(resp, "answer_source", None) or "text",
                 }
