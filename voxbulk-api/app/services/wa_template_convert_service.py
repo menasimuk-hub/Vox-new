@@ -87,6 +87,17 @@ def _suggest_survey_next_name(db: Session, row: TelnyxWhatsappTemplate) -> str |
     return suggest_utility_clone_template_name(row.name) or f"{row.name}_utu"
 
 
+def _previous_was_seq_name(name: str | None) -> str | None:
+    """was_…_002_en → was_…_001_en (for Convert retry after rename already applied)."""
+    m = _WAS_SEQ_RE.match(str(name or "").strip())
+    if not m:
+        return None
+    seq = int(m.group(2))
+    if seq <= 1:
+        return None
+    return f"{m.group(1)}{seq - 1:03d}_{m.group(3).lower()}"
+
+
 def _profile_ids_for_targets(
     db: Session,
     *,
@@ -515,11 +526,27 @@ def push_convert_template(
     if row is None:
         raise SurveyWhatsappTemplateError("Survey template not found")
 
-    old_name = str(row.name or "").strip()
+    from app.services.survey_whatsapp_template_service import _has_remote_telnyx_id
+
+    current_name = str(row.name or "").strip()
     language = row.language
     next_name = _suggest_survey_next_name(db, row)
     if not next_name:
-        raise SurveyWhatsappTemplateError(f"Could not compute next name for {old_name}")
+        raise SurveyWhatsappTemplateError(f"Could not compute next name for {current_name}")
+
+    # Retry after a prior Convert rename: local is already 002, remote still has 001 MARKETING.
+    # Do not bump again to 003 — push current name and delete previous seq.
+    prev_name = _previous_was_seq_name(current_name)
+    already_renamed = bool(
+        prev_name
+        and not _has_remote_telnyx_id(row)
+        and current_name.lower() != next_name.lower()
+    )
+    if already_renamed:
+        old_name = prev_name
+        next_name = current_name
+    else:
+        old_name = current_name
 
     comps = _effective_components(row)
     body, buttons = _extract_body_and_buttons(comps if isinstance(comps, list) else [])
@@ -530,16 +557,27 @@ def push_convert_template(
 
     steps.append({"id": "lint", "title": "Utility lint", "status": "done", "detail": "ok"})
 
-    row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, next_name)
-    cleared = _clear_profile_status_for_template(db, int(row.id))
-    steps.append(
-        {
-            "id": "rename",
-            "title": "Rename local (same DB id)",
-            "status": "done",
-            "detail": f"{old_name} → {row.name} (id={row.id}, cleared_profile_status={cleared})",
-        }
-    )
+    if already_renamed or old_name.lower() == next_name.lower():
+        cleared = _clear_profile_status_for_template(db, int(row.id))
+        steps.append(
+            {
+                "id": "rename",
+                "title": "Rename local (same DB id)",
+                "status": "done",
+                "detail": f"already {row.name} (retry — skip bump, cleared_profile_status={cleared})",
+            }
+        )
+    else:
+        row = SurveyWhatsappTemplateService.rename_for_meta_sync(db, row, next_name)
+        cleared = _clear_profile_status_for_template(db, int(row.id))
+        steps.append(
+            {
+                "id": "rename",
+                "title": "Rename local (same DB id)",
+                "status": "done",
+                "detail": f"{old_name} → {row.name} (id={row.id}, cleared_profile_status={cleared})",
+            }
+        )
 
     profile_pairs = _profile_ids_for_targets(db, targets=tgt, service_code="survey")
     if not profile_pairs:
@@ -579,24 +617,36 @@ def push_convert_template(
     any_push_ok = any(r.get("ok") for r in push_results)
     deleted_on: list[str] = []
     if any_push_ok and old_name and old_name.lower() != str(row.name or "").lower():
-        # Delete only on profiles we successfully pushed (or all selected if all ok)
-        deleted_on = delete_remote_template_by_name(
-            db,
-            name=old_name,
-            language=language,
-            service_code="survey",
-            profile_ids=[pid for pid, label in profile_pairs if any(
-                r.get("target") == label and r.get("ok") for r in push_results
-            )] or None,
-        )
-        steps.append(
-            {
-                "id": "delete_old",
-                "title": "Delete old MARKETING name",
-                "status": "done" if deleted_on else "done",
-                "detail": f"{old_name} → deleted on {deleted_on or ['none']}",
-            }
-        )
+        try:
+            deleted_on = delete_remote_template_by_name(
+                db,
+                name=old_name,
+                language=language,
+                service_code="survey",
+                profile_ids=[pid for pid, label in profile_pairs if any(
+                    r.get("target") == label and r.get("ok") for r in push_results
+                )] or None,
+            )
+            failed_deletes = [d for d in deleted_on if str(d).endswith("_failed")]
+            steps.append(
+                {
+                    "id": "delete_old",
+                    "title": "Delete old MARKETING name",
+                    "status": "error" if failed_deletes and not any(
+                        not str(d).endswith("_failed") for d in deleted_on
+                    ) else "done",
+                    "detail": f"{old_name} → deleted on {deleted_on or ['none']}",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            steps.append(
+                {
+                    "id": "delete_old",
+                    "title": "Delete old MARKETING name",
+                    "status": "error",
+                    "detail": f"Push OK; old-name cleanup failed: {str(exc)[:300]}",
+                }
+            )
     elif not any_push_ok:
         steps.append(
             {
@@ -733,20 +783,30 @@ def _push_convert_feedback(
     any_push_ok = any(r.get("ok") for r in push_results)
     deleted_on: list[str] = []
     if any_push_ok and old_name and old_name.lower() != str(frow.meta_template_name or "").lower():
-        for sc in ("customer_feedback", "survey"):
-            deleted_on.extend(
-                delete_remote_template_by_name(
-                    db, name=old_name, language=language, service_code=sc
+        try:
+            for sc in ("customer_feedback", "survey"):
+                deleted_on.extend(
+                    delete_remote_template_by_name(
+                        db, name=old_name, language=language, service_code=sc
+                    )
                 )
+            steps.append(
+                {
+                    "id": "delete_old",
+                    "title": "Delete old MARKETING name",
+                    "status": "done",
+                    "detail": f"{old_name} → deleted on {deleted_on or ['none']}",
+                }
             )
-        steps.append(
-            {
-                "id": "delete_old",
-                "title": "Delete old MARKETING name",
-                "status": "done",
-                "detail": f"{old_name} → deleted on {deleted_on or ['none']}",
-            }
-        )
+        except Exception as exc:  # noqa: BLE001
+            steps.append(
+                {
+                    "id": "delete_old",
+                    "title": "Delete old MARKETING name",
+                    "status": "error",
+                    "detail": f"Push OK; old-name cleanup failed: {str(exc)[:300]}",
+                }
+            )
     elif not any_push_ok:
         steps.append(
             {

@@ -724,15 +724,35 @@ class TelnyxWhatsappTemplateSyncService:
         return None
 
     @staticmethod
-    def delete_remote_template(db: Session, record_id: str, *, template_name: str | None = None) -> None:
+    def delete_remote_template(
+        db: Session,
+        record_id: str,
+        *,
+        template_name: str | None = None,
+        connection_profile_id: str | None = None,
+        service_code: str = "survey",
+    ) -> None:
         """Delete a WhatsApp template from Meta or Telnyx. Not-found is treated as success."""
         rid = str(record_id or "").strip()
         if not rid or rid.startswith("local-"):
             return
 
+        from app.services.meta_whatsapp_service import _META_RECORD_PREFIX
+        from app.services.telnyx_messaging_service import _TEMPLATE_UUID_RE
         from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
-        if is_meta_whatsapp_primary(db, service_code="survey"):
+        # Never send a Telnyx UUID to Meta as hsm_id (Graph error 100: invalid HSM ID).
+        looks_meta = rid.startswith(_META_RECORD_PREFIX) or rid.startswith("meta-") or rid.isdigit()
+        looks_telnyx = bool(_TEMPLATE_UUID_RE.match(rid)) and not looks_meta
+        use_meta = looks_meta and not looks_telnyx
+        if not looks_meta and not looks_telnyx:
+            use_meta = is_meta_whatsapp_primary(
+                db,
+                service_code=service_code,
+                connection_profile_id=connection_profile_id,
+            )
+
+        if use_meta:
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
             try:
@@ -740,14 +760,35 @@ class TelnyxWhatsappTemplateSyncService:
                     db,
                     name=str(template_name or "").strip() or None,
                     hsm_id=rid,
+                    service_code=service_code,
+                    connection_profile_id=connection_profile_id,
                 )
             except MetaWhatsappTemplateError as exc:
-                if "404" in str(exc).lower() or "not found" in str(exc).lower():
+                detail = str(exc).lower()
+                if "404" in detail or "not found" in detail:
                     return
+                # Invalid hsm_id → retry name-only delete (still removes the MARKETING name).
+                if "hsm_id" in detail and str(template_name or "").strip():
+                    try:
+                        MetaWhatsappTemplateService.delete_message_template(
+                            db,
+                            name=str(template_name).strip(),
+                            service_code=service_code,
+                            connection_profile_id=connection_profile_id,
+                        )
+                        return
+                    except MetaWhatsappTemplateError as retry_exc:
+                        if "404" in str(retry_exc).lower() or "not found" in str(retry_exc).lower():
+                            return
+                        raise TelnyxWhatsappTemplateSyncError(str(retry_exc)) from retry_exc
                 raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
             return
 
-        config = TelnyxWhatsappTemplateSyncService._config(db)
+        config = TelnyxWhatsappTemplateSyncService._config(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=service_code,
+        )
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         if not api_key:
             api_key, _ = require_telnyx_api_key(db)

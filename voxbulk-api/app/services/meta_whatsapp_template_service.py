@@ -241,6 +241,9 @@ class MetaWhatsappTemplateService:
             clean_hsm = raw or None
         # Meta requires name together with hsm_id when deleting a specific language/id.
         # Name-only deletes all languages for that template name.
+        # Never send non-numeric ids (e.g. Telnyx UUIDs) as hsm_id — Graph returns error 100.
+        if clean_hsm and not clean_hsm.isdigit():
+            clean_hsm = None
         if clean_hsm and clean_name:
             params["hsm_id"] = clean_hsm
             params["name"] = clean_name
@@ -259,8 +262,24 @@ class MetaWhatsappTemplateService:
                 timeout=30.0,
             )
         except MetaWhatsappServiceError as exc:
-            if "404" in str(exc) or "not found" in str(exc).lower():
+            detail = str(exc).lower()
+            if "404" in detail or "not found" in detail:
                 return
+            # Invalid hsm_id with name present → retry name-only.
+            if clean_hsm and clean_name and "hsm_id" in detail:
+                try:
+                    MetaWhatsappService._graph_request(
+                        config=config,
+                        method="DELETE",
+                        path=f"{waba_id}/message_templates",
+                        params={"name": clean_name},
+                        timeout=30.0,
+                    )
+                    return
+                except MetaWhatsappServiceError as retry_exc:
+                    if "404" in str(retry_exc).lower() or "not found" in str(retry_exc).lower():
+                        return
+                    raise MetaWhatsappTemplateError(str(retry_exc)) from retry_exc
             raise MetaWhatsappTemplateError(str(exc)) from exc
 
     @staticmethod

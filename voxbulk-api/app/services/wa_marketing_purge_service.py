@@ -142,19 +142,29 @@ def delete_remote_template_by_name(
         use_meta = is_meta_whatsapp_primary(db, service_code=service_code, connection_profile_id=pid)
         for item in matches:
             record_id = str(item.get("id") or "").strip()
+            # Normalized Meta rows use id=meta-{n} and template_id={n}; prefer numeric HSM id.
+            meta_hsm = str(item.get("template_id") or "").strip()
+            if not meta_hsm.isdigit():
+                raw = record_id
+                if raw.startswith("meta-"):
+                    raw = raw[len("meta-") :]
+                meta_hsm = raw if raw.isdigit() else ""
             try:
                 if use_meta:
-                    # Meta: name + hsm_id required together for single-language delete
                     MetaWhatsappTemplateService.delete_message_template(
                         db,
                         name=clean_name,
-                        hsm_id=record_id or None,
+                        hsm_id=meta_hsm or None,
                         service_code=service_code,
                         connection_profile_id=pid,
                     )
                 elif record_id:
                     TelnyxWhatsappTemplateSyncService.delete_remote_template(
-                        db, record_id, template_name=clean_name
+                        db,
+                        record_id,
+                        template_name=clean_name,
+                        connection_profile_id=pid,
+                        service_code=service_code,
                     )
                 else:
                     continue
@@ -164,7 +174,14 @@ def delete_remote_template_by_name(
                 if "404" in detail or "not found" in detail:
                     deleted_on.append(f"{label}_already_gone")
                 else:
-                    raise
+                    logger.warning(
+                        "purge_delete_failed profile=%s name=%s err=%s",
+                        pid,
+                        clean_name,
+                        str(exc)[:300],
+                    )
+                    deleted_on.append(f"{label}_failed")
+                    # Do not raise — Convert push already succeeded; orphan cleanup can retry.
 
     if (
         not profile_ids
