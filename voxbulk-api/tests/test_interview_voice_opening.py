@@ -144,11 +144,12 @@ def test_runtime_instructions_replace_kb_placeholders(db):
     assert "{company_name}" not in instructions
     assert "Never say the generic word 'company'" in instructions
     assert "Do NOT repeat the disclosure or INTRO" in instructions
-    assert "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions
+    assert "Sound like a skilled recruiter" in instructions or "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions
     assert "Never say you are an AI assistant" in instructions
     assert "briefly explain the purpose" in instructions.lower()
     assert "anything else they would like to add" in instructions.lower()
-    assert "easy-going" in instructions.lower()
+    assert "ACTIVE LISTENING" in instructions or "off-topic" in instructions.lower()
+    assert "FORBIDDEN" in instructions or "got it" in instructions.lower()
 
 def test_strip_opening_and_intro_from_script():
     from app.services.voice_agent_runtime import strip_opening_and_intro_from_script
@@ -262,3 +263,6 @@ def test_arabic_interview_runtime_egyptian_agent_uses_masri(db):
     assert "المصرية" in instructions or "مصري" in instructions
     assert "دلوقتي" in instructions or "ماشي" in instructions
     assert "فصحى" in instructions
+    assert "فرز قصيرة" not in instructions
+    assert "مقابلة قصيرة بخصوص" in instructions or "بخصوص وظيفة" in instructions
+    assert "ممكن توضح" in instructions or "الاستماع الذكي" in instructions or "برا الموضوع" in instructions

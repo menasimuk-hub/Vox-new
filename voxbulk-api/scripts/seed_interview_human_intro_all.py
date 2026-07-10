@@ -57,10 +57,10 @@ def _english_pack(agent: AgentDefinition) -> dict[str, str]:
         ),
         "call_workflow": INTERVIEW_CALL_WORKFLOW_EN,
         "conversation_style": (
-            "Warm, easy-going phone interviewer — calm, clear, measured pace. "
+            "Warm, professional phone interviewer — calm, clear, measured pace. "
             "Brief the candidate on what the call is for before questions. "
-            "Never interrupt. Wait for full answers. One short follow-up when answers are thin. "
-            "Ask if they want to add anything before the full closing."
+            "Active listening: clarify off-topic, probe thin answers, reflect clear answers — "
+            "never empty got-it then next. Ask if they want to add anything before the full closing."
         ),
         "interruption_behavior_notes": (
             "Never interrupt the candidate while they are answering — wait until they clearly finish. "
@@ -80,9 +80,9 @@ def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
         ),
         "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. سرعة كلام معتدلة. مصري طبيعي فقط مش فصحى. "
-            "وضّح هدف المكالمة قبل الأسئلة وقول نبدأ مش نكمل. متقاطعش المرشّح. استنى الإجابة كاملة. "
-            "متابعة قصيرة لما الإجابة تبقى ضعيفة. اسأل لو عايز يضيف حاجة قبل الإغلاق."
+            "نبرة ودودة ومحترفة وإنسانية — مكالمة توظيف حقيقية. سرعة كلام معتدلة. مصري طبيعي فقط مش فصحى. "
+            "وضّح هدف المكالمة قبل الأسئلة وقول نبدأ مش نكمل. اسمع بذكاء: وضّح لو مش فاهم، "
+            "اسأل بعمق لو ضعيفة، واذكر تفصيلة مما قال قبل السؤال التالي. متقاطعش المرشّح."
         ),
         "interruption_behavior_notes": (
             "متقاطعش المرشّح وهو بيرد — استنى لما يخلّص. "
@@ -102,9 +102,9 @@ def _gulf_pack(agent: AgentDefinition) -> dict[str, str]:
         ),
         "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة ومحترمة وإنسانية وسهلة — مقابلة فرز حقيقية. سرعة كلام معتدلة. "
-            "وضّح هدف المكالمة قبل الأسئلة. لا تقاطع المرشّح. انتظر الإجابة كاملة. "
-            "متابعة قصيرة لما الإجابة تكون ضعيفة. اسأل لو يبي يضيف شيء قبل الإغلاق."
+            "نبرة ودودة ومحترمة وإنسانية ومحترفة — مقابلة حقيقية. سرعة كلام معتدلة. "
+            "وضّح هدف المكالمة قبل الأسئلة. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة مما قال. "
+            "لا تقاطع المرشّح. اسأل لو يبي يضيف شيء قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
             "لا تقاطع المرشّح وهو يجيب — انتظر حتى ينهي. "
@@ -124,8 +124,8 @@ def _arabic_generic_pack(agent: AgentDefinition) -> dict[str, str]:
         ),
         "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. جمل قصيرة. "
-            "وضّح هدف المكالمة قبل الأسئلة. متابعة قصيرة عند الحاجة. "
+            "نبرة ودودة وإنسانية ومحترفة — مكالمة توظيف حقيقية. جمل قصيرة. "
+            "وضّح هدف المكالمة قبل الأسئلة. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. "
             "اسأل إن كان يريد إضافة شيء قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
