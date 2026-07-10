@@ -96,6 +96,38 @@ XX,Invalid,,,,
     assert data["is_placeholder"] is False
 
 
+def test_import_telnyx_deck_aggregates_by_country(db):
+    csv_text = """Country Code,Country,Prefix,Description,Initial Increment,Subsequent Increment,Rate
+CN,China,86,Trunking Outbound Minute - China,60,60,0.035
+CN,China,86139,Trunking Outbound Minute - China - Mobile,60,60,0.055
+CN,China,8621,Trunking Outbound Minute - China - Shanghai,60,60,0.040
+GB,United Kingdom,44,Trunking Outbound Minute - United Kingdom,60,60,0.005
+GB,United Kingdom,4477,Trunking Outbound Minute - United Kingdom - Mobile,60,60,0.012
+XX,Bad,,,,
+"""
+    result = TelnyxDestinationRateService.import_csv(db, csv_text)
+    assert result["ok"] is True
+    assert result["mode"] == "telnyx_deck_aggregated"
+    assert result["countries"] == 2
+
+    cn = TelnyxDestinationRateService.get(db, "CN")
+    assert cn is not None
+    assert cn.voice_outbound_per_min_minor == 350  # min $0.035
+    assert cn.source == "csv_import"
+    assert "prefixes" in (cn.notes or "")
+
+    gb = TelnyxDestinationRateService.get(db, "GB")
+    assert gb is not None
+    assert gb.voice_outbound_per_min_minor == 50
+    assert gb.dial_code == "44"
+
+
+def test_reject_unrecognised_headers(db):
+    result = TelnyxDestinationRateService.import_csv(db, "foo,bar\n1,2\n")
+    assert result["ok"] is False
+    assert "Unrecognised" in (result.get("error") or "")
+
+
 def test_map_for_isos(db):
     from app.models.telnyx_destination_rate import TelnyxDestinationRate
 

@@ -6,7 +6,7 @@ import csv
 import io
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -15,8 +15,33 @@ from app.models.telnyx_destination_rate import TelnyxDestinationRate
 
 # 1 minor unit = 1/10000 of major currency (USD: 50 → $0.0050)
 RATE_SCALE = 10_000
+MAX_IMPORT_BYTES = 45 * 1024 * 1024
 
 _ISO_RE = re.compile(r"^[A-Za-z]{2}$")
+
+# Common calling codes when Telnyx prefix is too long to infer cleanly.
+_DIAL_FALLBACK = {
+    "GB": "44",
+    "US": "1",
+    "CA": "1",
+    "AU": "61",
+    "CN": "86",
+    "EG": "20",
+    "SA": "966",
+    "AE": "971",
+    "IN": "91",
+    "PS": "970",
+    "DE": "49",
+    "FR": "33",
+    "IE": "353",
+    "NZ": "64",
+    "PK": "92",
+    "BD": "880",
+    "PH": "63",
+    "NG": "234",
+    "ZA": "27",
+    "TR": "90",
+}
 
 
 def _money(minor: int | None, currency: str = "USD") -> dict[str, Any] | None:
@@ -44,6 +69,49 @@ def _parse_money_to_minor(raw: Any) -> int | None:
         return None
 
 
+def _norm_header(k: str) -> str:
+    k = str(k or "").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {
+        "iso": "country_iso",
+        "country_code": "country_iso",
+        "country_iso_code": "country_iso",
+        "iso_code": "country_iso",
+        "alpha_2": "country_iso",
+        "country": "country_name",
+        "country_name": "country_name",
+        "destination_country": "country_name",
+        "name": "country_name",
+        "dial": "dial_code",
+        "dial_code": "dial_code",
+        "code": "dial_code",
+        "prefix": "prefix",
+        "destination_prefix": "prefix",
+        "npanxx": "prefix",
+        "description": "description",
+        "destination": "description",
+        "destination_name": "description",
+        "rate": "rate",
+        "rate_per_minute": "rate",
+        "price": "rate",
+        "amount": "rate",
+        "voice_out": "voice_outbound",
+        "voice_in": "voice_inbound",
+        "sms_out": "sms_outbound",
+        "sms_in": "sms_inbound",
+        "voice_outbound": "voice_outbound",
+        "voice_inbound": "voice_inbound",
+        "sms_outbound": "sms_outbound",
+        "sms_inbound": "sms_inbound",
+        "voice_outbound_per_min": "voice_outbound",
+        "voice_inbound_per_min": "voice_inbound",
+        "sms_outbound_per_msg": "sms_outbound",
+        "sms_inbound_per_msg": "sms_inbound",
+        "currency": "currency",
+        "notes": "notes",
+    }
+    return aliases.get(k, k)
+
+
 def serialize_rate(row: TelnyxDestinationRate) -> dict[str, Any]:
     cur = (row.currency or "USD").upper()
     return {
@@ -60,6 +128,36 @@ def serialize_rate(row: TelnyxDestinationRate) -> dict[str, Any]:
         "is_placeholder": (row.source or "").lower() == "seed",
         "updated_at": row.updated_at.isoformat() + "Z" if row.updated_at else None,
     }
+
+
+def _infer_dial(iso: str, prefixes: Iterable[str]) -> str:
+    if iso in _DIAL_FALLBACK:
+        return _DIAL_FALLBACK[iso]
+    # Prefer shortest numeric prefix (often the country calling code).
+    cands = sorted({p for p in prefixes if p.isdigit()}, key=lambda p: (len(p), p))
+    if not cands:
+        return ""
+    shortest = cands[0]
+    if len(shortest) <= 3:
+        return shortest
+    # US/CA style 1XXXXXXXXX → 1
+    if shortest.startswith("1") and iso in {"US", "CA"}:
+        return "1"
+    return shortest[:3]
+
+
+def _is_sms_row(description: str, headers: set[str]) -> bool:
+    d = (description or "").lower()
+    if "sms" in d or "messaging" in d or "message" in d:
+        return True
+    if "voice_outbound" not in headers and "sms_outbound" in headers:
+        return True
+    return False
+
+
+def _is_inbound_row(description: str) -> bool:
+    d = (description or "").lower()
+    return "inbound" in d and "outbound" not in d
 
 
 class TelnyxDestinationRateService:
@@ -114,7 +212,8 @@ class TelnyxDestinationRateService:
             iso = str(raw.get("country_iso") or raw.get("iso") or "").strip().upper()
             if not _ISO_RE.match(iso):
                 skipped += 1
-                errors.append(f"row {i + 1}: invalid ISO")
+                if len(errors) < 20:
+                    errors.append(f"row {i + 1}: invalid ISO")
                 continue
             name = str(raw.get("country_name") or raw.get("name") or iso).strip() or iso
             dial = str(raw.get("dial_code") or raw.get("code") or "").strip().lstrip("+").replace(" ", "")
@@ -127,7 +226,6 @@ class TelnyxDestinationRateService:
             so = _parse_money_to_minor(raw.get("sms_outbound") if "sms_outbound" in raw else raw.get("sms_outbound_per_msg"))
             si = _parse_money_to_minor(raw.get("sms_inbound") if "sms_inbound" in raw else raw.get("sms_inbound_per_msg"))
 
-            # Also accept already-minor integer columns from API
             if vo is None and raw.get("voice_outbound_per_min_minor") is not None:
                 try:
                     vo = int(raw["voice_outbound_per_min_minor"])
@@ -189,38 +287,184 @@ class TelnyxDestinationRateService:
 
     @staticmethod
     def import_csv(db: Session, text: str, *, source: str = "csv_import") -> dict[str, Any]:
-        raw = (text or "").lstrip("\ufeff").strip()
-        if not raw:
+        """Import either our compact country CSV or a Telnyx global rate deck.
+
+        Telnyx decks are prefix-level (often 10M+ rows / tens of MB). We aggregate
+        to one row per country ISO using the **minimum** outbound rate (Telnyx
+        “starting at”) and note the max prefix rate.
+        """
+        if text is None:
+            return {"ok": False, "error": "Empty CSV", "created": 0, "updated": 0, "skipped": 0}
+        raw_bytes = len(text.encode("utf-8", errors="ignore")) if isinstance(text, str) else 0
+        if raw_bytes > MAX_IMPORT_BYTES:
+            return {
+                "ok": False,
+                "error": f"File too large ({raw_bytes // (1024 * 1024)}MB). Max is {MAX_IMPORT_BYTES // (1024 * 1024)}MB.",
+                "created": 0,
+                "updated": 0,
+                "skipped": 0,
+            }
+
+        raw = (text or "").lstrip("\ufeff")
+        if not raw.strip():
             return {"ok": False, "error": "Empty CSV", "created": 0, "updated": 0, "skipped": 0}
 
-        reader = csv.DictReader(io.StringIO(raw))
+        # Sniff delimiter (Telnyx is usually comma).
+        sample = raw[:4096]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+
+        reader = csv.DictReader(io.StringIO(raw), dialect=dialect)
         if not reader.fieldnames:
             return {"ok": False, "error": "CSV missing header row", "created": 0, "updated": 0, "skipped": 0}
 
-        # Normalize headers
-        def _norm_key(k: str) -> str:
-            k = str(k or "").strip().lower().replace(" ", "_").replace("-", "_")
-            aliases = {
-                "iso": "country_iso",
-                "country": "country_name",
-                "name": "country_name",
-                "dial": "dial_code",
-                "code": "dial_code",
-                "voice_out": "voice_outbound",
-                "voice_in": "voice_inbound",
-                "sms_out": "sms_outbound",
-                "sms_in": "sms_inbound",
-                "voice_outbound_per_min": "voice_outbound",
-                "voice_inbound_per_min": "voice_inbound",
-                "sms_outbound_per_msg": "sms_outbound",
-                "sms_inbound_per_msg": "sms_inbound",
+        header_map = {h: _norm_header(h) for h in reader.fieldnames}
+        norms = set(header_map.values())
+        detected_headers = [header_map[h] for h in reader.fieldnames]
+
+        has_iso = "country_iso" in norms
+        has_rate = "rate" in norms
+        has_prefix = "prefix" in norms
+        has_simple_voice = "voice_outbound" in norms
+        is_telnyx_deck = has_iso and has_rate and (has_prefix or "description" in norms) and not has_simple_voice
+
+        if not has_iso and not has_simple_voice:
+            return {
+                "ok": False,
+                "error": (
+                    "Unrecognised CSV headers. Need either country_iso + voice_outbound, "
+                    "or a Telnyx rate deck with Country Code + Rate (+ Prefix). "
+                    f"Got: {', '.join(detected_headers[:12])}"
+                ),
+                "created": 0,
+                "updated": 0,
+                "skipped": 0,
+                "headers": detected_headers[:20],
             }
-            return aliases.get(k, k)
 
-        rows: list[dict[str, Any]] = []
+        # --- Compact country CSV path ---
+        if has_simple_voice or (has_iso and not is_telnyx_deck and not has_rate):
+            rows: list[dict[str, Any]] = []
+            for rec in reader:
+                rows.append({header_map[k]: v for k, v in rec.items() if k in header_map})
+            result = TelnyxDestinationRateService.upsert_many(db, rows, source=source)
+            result["ok"] = True
+            result["mode"] = "country_csv"
+            result["rows_read"] = len(rows)
+            return result
+
+        # --- Telnyx global rate deck: aggregate by country ---
+        # Per ISO: track min/max outbound voice (or SMS), name, prefixes
+        agg: dict[str, dict[str, Any]] = {}
+        rows_read = 0
+        skipped = 0
+
         for rec in reader:
-            rows.append({_norm_key(k): v for k, v in rec.items()})
+            rows_read += 1
+            mapped = {header_map[k]: v for k, v in rec.items() if k in header_map}
+            iso = str(mapped.get("country_iso") or "").strip().upper()
+            if not _ISO_RE.match(iso):
+                skipped += 1
+                continue
 
-        result = TelnyxDestinationRateService.upsert_many(db, rows, source=source)
+            rate_minor = _parse_money_to_minor(mapped.get("rate"))
+            if rate_minor is None:
+                # Some decks put rate in voice_outbound already
+                rate_minor = _parse_money_to_minor(mapped.get("voice_outbound"))
+            if rate_minor is None:
+                skipped += 1
+                continue
+
+            name = str(mapped.get("country_name") or iso).strip() or iso
+            prefix = str(mapped.get("prefix") or "").strip().lstrip("+").replace(" ", "")
+            desc = str(mapped.get("description") or "")
+            bucket = agg.setdefault(
+                iso,
+                {
+                    "name": name,
+                    "prefixes": set(),
+                    "voice_out_min": None,
+                    "voice_out_max": None,
+                    "voice_in_min": None,
+                    "sms_out_min": None,
+                    "sms_out_max": None,
+                    "count": 0,
+                },
+            )
+            if name and name != iso:
+                bucket["name"] = name
+            if prefix.isdigit():
+                bucket["prefixes"].add(prefix)
+            bucket["count"] += 1
+
+            sms = _is_sms_row(desc, norms)
+            inbound = _is_inbound_row(desc)
+
+            if sms:
+                cur_min = bucket["sms_out_min"]
+                cur_max = bucket["sms_out_max"]
+                bucket["sms_out_min"] = rate_minor if cur_min is None else min(cur_min, rate_minor)
+                bucket["sms_out_max"] = rate_minor if cur_max is None else max(cur_max, rate_minor)
+            elif inbound:
+                cur = bucket["voice_in_min"]
+                bucket["voice_in_min"] = rate_minor if cur is None else min(cur, rate_minor)
+            else:
+                cur_min = bucket["voice_out_min"]
+                cur_max = bucket["voice_out_max"]
+                bucket["voice_out_min"] = rate_minor if cur_min is None else min(cur_min, rate_minor)
+                bucket["voice_out_max"] = rate_minor if cur_max is None else max(cur_max, rate_minor)
+
+        if not agg:
+            return {
+                "ok": False,
+                "error": (
+                    "No country rates found in Telnyx sheet. "
+                    f"Read {rows_read} rows, skipped {skipped}. "
+                    f"Headers: {', '.join(detected_headers[:12])}"
+                ),
+                "created": 0,
+                "updated": 0,
+                "skipped": skipped,
+                "rows_read": rows_read,
+                "headers": detected_headers[:20],
+            }
+
+        upsert_rows: list[dict[str, Any]] = []
+        for iso, b in agg.items():
+            vo_min = b["voice_out_min"]
+            vo_max = b["voice_out_max"]
+            note_parts = [f"Telnyx deck: {b['count']} prefixes"]
+            if vo_min is not None and vo_max is not None and vo_max != vo_min:
+                note_parts.append(
+                    f"voice out ${vo_min / RATE_SCALE:.4f}–${vo_max / RATE_SCALE:.4f}/min (showing min)"
+                )
+            if b["sms_out_min"] is not None and b["sms_out_max"] is not None and b["sms_out_max"] != b["sms_out_min"]:
+                note_parts.append(
+                    f"SMS ${b['sms_out_min'] / RATE_SCALE:.4f}–${b['sms_out_max'] / RATE_SCALE:.4f}"
+                )
+            upsert_rows.append(
+                {
+                    "country_iso": iso,
+                    "country_name": b["name"],
+                    "dial_code": _infer_dial(iso, b["prefixes"]),
+                    "voice_outbound_per_min_minor": vo_min,
+                    "voice_inbound_per_min_minor": b["voice_in_min"],
+                    "sms_outbound_per_msg_minor": b["sms_out_min"],
+                    "currency": "USD",
+                    "notes": "; ".join(note_parts),
+                }
+            )
+
+        result = TelnyxDestinationRateService.upsert_many(db, upsert_rows, source=source)
         result["ok"] = True
+        result["mode"] = "telnyx_deck_aggregated"
+        result["rows_read"] = rows_read
+        result["countries"] = len(upsert_rows)
+        result["skipped"] = skipped
+        result["message"] = (
+            f"Aggregated {rows_read} Telnyx prefix rows → {len(upsert_rows)} countries "
+            f"({result.get('created', 0)} new, {result.get('updated', 0)} updated)."
+        )
         return result

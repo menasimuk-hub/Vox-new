@@ -382,6 +382,7 @@ export default function TelnyxIntegration({
   const [rateLoading, setRateLoading] = React.useState(false)
   const [rateNotice, setRateNotice] = React.useState('')
   const [selectedRate, setSelectedRate] = React.useState(null)
+  const [rateImporting, setRateImporting] = React.useState(false)
   const rateFileRef = React.useRef(null)
 
   const healthChecks = telnyxNumberHealth?.configured_checks || []
@@ -591,12 +592,31 @@ export default function TelnyxIntegration({
 
   const importRatesFile = async (file) => {
     if (!file) return
+    const name = String(file.name || '').toLowerCase()
+    const sizeMb = file.size / (1024 * 1024)
     setRateNotice('')
+    if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm')) {
+      setRateNotice('Excel not supported — export CSV from Telnyx, then upload.')
+      if (rateFileRef.current) rateFileRef.current.value = ''
+      return
+    }
+    if (sizeMb > 45) {
+      setRateNotice(`File is ${sizeMb.toFixed(0)}MB (max 45MB).`)
+      if (rateFileRef.current) rateFileRef.current.value = ''
+      return
+    }
+    setRateImporting(true)
+    setRateNotice(`Uploading ${file.name || 'CSV'} (${sizeMb.toFixed(1)}MB)… large Telnyx decks can take 1–2 min.`)
     try {
       const form = new FormData()
       form.append('file', file)
       const data = await apiUpload('/admin/integrations/telnyx/destination-rates/import-file', form)
-      setRateNotice(`Imported: ${data?.created || 0} new, ${data?.updated || 0} updated.`)
+      const msg =
+        data?.message ||
+        `Imported: ${data?.created || 0} new, ${data?.updated || 0} updated` +
+          (data?.countries != null ? ` · ${data.countries} countries` : '') +
+          (data?.rows_read != null ? ` · ${data.rows_read} rows read` : '')
+      setRateNotice(msg)
       if (tableRateIsos.length) {
         const refreshed = await apiFetch(
           `/admin/integrations/telnyx/destination-rates?isos=${encodeURIComponent(tableRateIsos.join(','))}`,
@@ -610,8 +630,9 @@ export default function TelnyxIntegration({
         setRateResults(Array.isArray(data2?.rates) ? data2.rates : [])
       }
     } catch (err) {
-      setRateNotice(err?.message || 'Import failed')
+      setRateNotice(err?.message || 'Import failed — check file is CSV (not Excel) and try again.')
     } finally {
+      setRateImporting(false)
       if (rateFileRef.current) rateFileRef.current.value = ''
     }
   }
@@ -1055,7 +1076,7 @@ export default function TelnyxIntegration({
             <div className='cardHead'>
               <div className='cardHeadText'>
                 <h3>Destination rates</h3>
-                <p className='cardSub'>Check voice/SMS cost before adding a country · local rate card</p>
+                <p className='cardSub'>Telnyx CSV rate deck OK (aggregates by country) · not Excel</p>
               </div>
               <div className='actions'>
                 <input
@@ -1068,10 +1089,11 @@ export default function TelnyxIntegration({
                 <button
                   type='button'
                   className='tsh-btn tsh-btn-outline'
-                  title='Import Telnyx CSV'
+                  title='Import Telnyx CSV (not Excel)'
+                  disabled={rateImporting}
                   onClick={() => rateFileRef.current?.click()}
                 >
-                  <Upload size={14} aria-hidden /> CSV
+                  <Upload size={14} aria-hidden /> {rateImporting ? 'Importing…' : 'CSV'}
                 </button>
               </div>
             </div>

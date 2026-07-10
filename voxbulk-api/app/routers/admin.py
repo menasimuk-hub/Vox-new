@@ -2012,10 +2012,39 @@ async def import_telnyx_destination_rates_file(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    """Import rates from a CSV file upload."""
-    from app.services.telnyx_destination_rate_service import TelnyxDestinationRateService
+    """Import rates from a CSV file (compact country CSV or Telnyx global rate deck)."""
+    from app.services.telnyx_destination_rate_service import (
+        MAX_IMPORT_BYTES,
+        TelnyxDestinationRateService,
+    )
 
-    raw = (await file.read()).decode("utf-8-sig", errors="replace")
+    filename = str(file.filename or "").lower()
+    if filename.endswith((".xlsx", ".xls", ".xlsm")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Excel files are not supported. Download/export as CSV from Telnyx, then upload.",
+        )
+    if filename and not (filename.endswith(".csv") or filename.endswith(".txt") or "." not in filename):
+        # Allow unnamed / odd extensions but warn via content parse
+        pass
+
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    if len(raw_bytes) > MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large ({len(raw_bytes) // (1024 * 1024)}MB). Max {MAX_IMPORT_BYTES // (1024 * 1024)}MB.",
+        )
+
+    # Reject obvious Excel/ZIP magic even if renamed .csv
+    if raw_bytes[:2] == b"PK":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This looks like an Excel/ZIP file. Export as CSV from Telnyx and upload that.",
+        )
+
+    raw = raw_bytes.decode("utf-8-sig", errors="replace")
     result = TelnyxDestinationRateService.import_csv(db, raw)
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or "Import failed")
