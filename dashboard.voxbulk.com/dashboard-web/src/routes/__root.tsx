@@ -180,13 +180,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: React.ReactNode }) {
+  // Match dashboard beige theme — do not leave navy on html/body (shows in sidebar scroll).
+  const themeBg = "#f5f1ea";
   return (
-    <html lang="en" style={{ backgroundColor: "#0f1b3d" }}>
+    <html lang="en" style={{ backgroundColor: themeBg }}>
       <head>
         <HeadContent />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{document.documentElement.style.backgroundColor="#0f1b3d";document.documentElement.style.colorScheme="dark";var b=document.body;if(b){b.style.backgroundColor="#0f1b3d";}}catch(e){}})();`,
+            __html: `(function(){try{var bg="#f5f1ea";document.documentElement.style.backgroundColor=bg;document.documentElement.style.colorScheme="light";var b=document.body;if(b){b.style.backgroundColor=bg;}}catch(e){}})();`,
           }}
         />
         <script
@@ -200,7 +202,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
           }}
         />
       </head>
-      <body style={{ backgroundColor: "#0f1b3d", margin: 0 }}>
+      <body style={{ backgroundColor: themeBg, margin: 0 }}>
         {children}
         <Scripts />
       </body>
