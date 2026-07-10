@@ -679,11 +679,15 @@ class InterviewBookingService:
         )
         if row is not None:
             return row
-        return TelnyxWhatsappTemplateSyncService.resolve_for_send(
-            db,
-            template_name=INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
-            sales_template_key="interview_booking_confirm",
-        )
+        for name in (INTERVIEW_CONFIRMATION_TEMPLATE_NAME, "interview_confirm_book_v4", "interview_confirm_book_v3"):
+            row = TelnyxWhatsappTemplateSyncService.resolve_for_send(
+                db,
+                template_name=name,
+                sales_template_key="interview_booking_confirm",
+            )
+            if row is not None:
+                return row
+        return None
 
     @staticmethod
     def resolve_cancel_template(db: Session, order: ServiceOrder) -> TelnyxWhatsappTemplate | None:
@@ -794,17 +798,21 @@ class InterviewBookingService:
         interview_date: str | None = None,
         interview_time: str | None = None,
         careers_email: str | None = None,
+        channel_line: str | None = None,
     ) -> str:
         text = str(body or "").strip() or INTERVIEW_BOOKING_BODY
         variables: dict[int, str] = {
             1: _first_name(candidate_name),
             2: str(role or "interview").strip(),
         }
-        # Confirmation templates: {{3}} date, {{4}} time. Email-sent: {{3}} company, {{4}} careers inbox.
+        # Confirmation templates: {{3}} date, {{4}} time, {{5}} channel line.
+        # Email-sent: {{3}} company, {{4}} careers inbox.
         if interview_date is not None:
             variables[3] = str(interview_date).strip()
             if interview_time is not None:
                 variables[4] = str(interview_time).strip()
+            if channel_line is not None:
+                variables[5] = str(channel_line).strip()
         elif careers_email is not None:
             variables[3] = str(company_name or "VOXBULK").strip() or "VOXBULK"
             variables[4] = str(careers_email or "careers@voxbulk.com").strip() or "careers@voxbulk.com"
@@ -924,12 +932,26 @@ class InterviewBookingService:
         candidate_name: str,
         role: str,
         slot_start: datetime,
+        meeting_url: str | None = None,
+        channel: str | None = None,
     ) -> list[dict[str, Any]] | None:
         first = _first_name(candidate_name)
         role_line = str(role or "your interview").strip() or "your interview"
         date_line = _format_slot_date(slot_start)
         time_line = _format_slot_time(slot_start)
-        body_values = [first, role_line, date_line, time_line]
+        channel_key = str(channel or "").strip().lower()
+        meet = str(meeting_url or "").strip()
+        if channel_key == MEETING_CHANNEL and meet:
+            channel_line = f"Join your online meeting: {meet}"
+        else:
+            channel_line = "We will call you on the number you provided."
+
+        body_values = [first, role_line, date_line, time_line, channel_line]
+        # Older approved templates (v4) only accept 4 body variables.
+        var_count = InterviewBookingService._template_body_var_count(row)
+        if var_count and var_count < 5:
+            body_values = body_values[: max(1, var_count)]
+
         body_params = {
             "type": "body",
             "parameters": [{"type": "text", "text": str(v)[:1024]} for v in body_values],
@@ -943,11 +965,45 @@ class InterviewBookingService:
                     "interview_date": date_line,
                     "interview_time": time_line,
                     "offer_line": role_line,
+                    "meeting_url": meet,
+                    "channel_line": channel_line,
                 },
             )
             if built:
+                # Trim to match older 4-var templates still live on Meta.
+                if var_count and var_count < 5:
+                    for part in built:
+                        if str(part.get("type") or "").lower() == "body":
+                            params = part.get("parameters")
+                            if isinstance(params, list) and len(params) > var_count:
+                                part["parameters"] = params[:var_count]
                 return built
         return [body_params]
+
+    @staticmethod
+    def _template_body_var_count(row: TelnyxWhatsappTemplate) -> int | None:
+        """Return max {{n}} in template body, or None if unknown."""
+        import re
+
+        texts: list[str] = []
+        for raw in (row.draft_components_json, row.components_json, row.body_preview):
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw) if str(raw).strip().startswith(("[", "{")) else None
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed = None
+            if isinstance(parsed, list):
+                for comp in parsed:
+                    if isinstance(comp, dict) and str(comp.get("type") or "").upper() == "BODY":
+                        texts.append(str(comp.get("text") or ""))
+            else:
+                texts.append(str(raw))
+        found = 0
+        for text in texts:
+            for match in re.findall(r"\{\{(\d+)\}\}", text):
+                found = max(found, int(match))
+        return found or None
 
     @staticmethod
     def _fallback_preview(
@@ -971,6 +1027,7 @@ class InterviewBookingService:
                 candidate_name="Alex",
                 role=role,
                 company_name=company_name,
+                careers_email="careers@voxbulk.com",
             ),
             "buttons": [],
             "confirmation_template_name": INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
@@ -980,6 +1037,7 @@ class InterviewBookingService:
                 role=role,
                 interview_date="Sat 14 Jun 2026",
                 interview_time="10:00 AM",
+                channel_line="Join your online meeting: https://dashboard.voxbulk.com/meet/sample-token",
             ),
             "confirmation_buttons": [dict(b) for b in INTERVIEW_BOOKING_CONFIRMATION_BUTTONS],
         }
@@ -1043,6 +1101,7 @@ class InterviewBookingService:
             role=role,
             interview_date="Sat 14 Jun 2026",
             interview_time="10:00 AM",
+            channel_line="Join your online meeting: https://dashboard.voxbulk.com/meet/sample-token",
         )
         enriched["confirmation_buttons"] = _confirmation_buttons(confirm_components)
         return enriched
@@ -1542,10 +1601,19 @@ class InterviewBookingService:
             candidate_name=recipient.name or "Candidate",
             role=role,
             slot_start=slot_start,
+            meeting_url=meeting_url or None,
+            channel=channel or None,
         )
-        fallback_body = (
-            f"Hi {first}, your {role} interview is confirmed for {date_line} at {time_line}."
-        )
+        if meeting_url:
+            fallback_body = (
+                f"Hi {first}, your {role} interview is confirmed for {date_line} at {time_line}. "
+                f"Join your online meeting: {meeting_url}"
+            )
+        else:
+            fallback_body = (
+                f"Hi {first}, your {role} interview is confirmed for {date_line} at {time_line}. "
+                "We will call you on this number."
+            )
         from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
 
         result = InterviewWhatsappSendService.send_template_or_plain(
@@ -1567,8 +1635,43 @@ class InterviewBookingService:
                 body=f"[template:{confirm_row.name}] {fallback_body}",
                 result=result,
             )
+            # Older 4-var confirmation templates cannot carry the meeting URL — send a follow-up.
+            var_count = InterviewBookingService._template_body_var_count(confirm_row)
+            if meeting_url and (not var_count or var_count < 5):
+                link_body = (
+                    f"Hi {first}, here is your online interview room link for {date_line} at {time_line}:\n"
+                    f"{meeting_url}\n\n"
+                    "The room opens 1 minute before your booked time."
+                )
+                link_result = TelnyxMessagingService.send_whatsapp(
+                    db,
+                    to_number=str(recipient.phone),
+                    body=link_body,
+                    org_id=order.org_id,
+                    meter_usage=False,
+                    service_code="ai_interview",
+                )
+                if link_result.ok:
+                    TelnyxMessagingService.log_outbound(
+                        db,
+                        org_id=order.org_id,
+                        to_number=str(recipient.phone),
+                        from_number=None,
+                        body=link_body,
+                        result=link_result,
+                    )
+                else:
+                    logger.warning(
+                        "booking_confirm_wa_meeting_link_failed",
+                        extra={
+                            "recipient_id": recipient.id,
+                            "detail": link_result.detail or link_result.status,
+                        },
+                    )
             merged = _recipient_result(recipient)
             merged["confirmation_wa_sent_at"] = _now().isoformat()
+            if meeting_url:
+                merged["confirmation_wa_meeting_url"] = meeting_url
             recipient.result_json = json.dumps(merged, ensure_ascii=False)
             db.add(recipient)
             db.commit()

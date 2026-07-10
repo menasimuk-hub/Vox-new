@@ -110,9 +110,11 @@ def test_build_telnyx_components_interview_confirm():
             "role": "Hygienist",
             "interview_date": "Sat 14 Jun 2026",
             "interview_time": "10:00 AM",
+            "channel_line": "Join your online meeting: https://dashboard.voxbulk.com/meet/sample",
         },
     )
-    assert len(parts[0]["parameters"]) == 4
+    assert len(parts[0]["parameters"]) == 5
+    assert "Join your online meeting" in parts[0]["parameters"][4]["text"]
 
 
 def test_fallback_preview_email_first_notice():
@@ -127,8 +129,8 @@ def test_fallback_preview_email_first_notice():
     assert preview["invite_mode"] == "email_first"
     assert "careers@voxbulk.com" in preview["rendered_body"]
     assert preview["buttons"] == []
-    assert preview["confirmation_template_name"] == "interview_confirm_book_v4"
-    assert preview["confirmation_body"]
+    assert preview["confirmation_template_name"] == "interview_confirm_book_v5"
+    assert "Join your online meeting" in preview["confirmation_body"]
     assert len(preview["confirmation_buttons"]) == 2
     assert preview["sync_error"] == "sync failed"
 

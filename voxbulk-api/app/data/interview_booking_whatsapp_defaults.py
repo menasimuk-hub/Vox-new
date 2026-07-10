@@ -5,7 +5,7 @@ from __future__ import annotations
 INTERVIEW_BOOKING_TEMPLATE_NAME = "voxbulk_interview_book"
 # Meta deletion lock — bump _vN suffix when re-pushing after delete.
 INTERVIEW_EMAIL_SENT_TEMPLATE_NAME = "voxbulk_interview_email_sent_v2"
-INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "interview_confirm_book_v4"
+INTERVIEW_CONFIRMATION_TEMPLATE_NAME = "interview_confirm_book_v5"
 INTERVIEW_CANCEL_TEMPLATE_NAME = "voxbulk_interview_cancel_v2"
 INTERVIEW_JOB_CLOSED_TEMPLATE_NAME = "voxbulk_interview_job_closed_v2"
 
@@ -46,9 +46,10 @@ Tap *Book My Interview* below to choose a time that works for you 🗓️
 
 — VOXBULK"""
 
-# Confirmation: {{1}} name, {{2}} job title, {{3}} date, {{4}} time
+# Confirmation: {{1}} name, {{2}} job title, {{3}} date, {{4}} time, {{5}} channel line (call note or meeting URL)
 INTERVIEW_BOOKING_CONFIRMATION_BODY = (
     "👋 Hi {{1}}, your *{{2}}* interview is 📆 booked for {{3}} at {{4}} ✅\n\n"
+    "{{5}}\n\n"
     "Use the buttons below if you need to change or cancel."
 )
 INTERVIEW_BOOKING_INVITE_BUTTONS: list[dict[str, str]] = [

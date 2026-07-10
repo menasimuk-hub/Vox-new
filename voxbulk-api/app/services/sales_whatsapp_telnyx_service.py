@@ -15,7 +15,7 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "sales_offer_keyword_confirm": "voxbulk_sales_keyword_confirm",
     "interview_booking_invite": "voxbulk_interview_book",
     "interview_email_sent": "voxbulk_interview_email_sent_v2",
-    "interview_booking_confirm": "interview_confirm_book_v4",
+    "interview_booking_confirm": "interview_confirm_book_v5",
     "interview_booking_cancel": "voxbulk_interview_cancel_v2",
     "interview_job_closed": "voxbulk_interview_job_closed_v2",
 }
@@ -26,7 +26,8 @@ TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
 TELNYX_SALES_TEMPLATE_LEGACY_NAMES: dict[str, str] = {
     "interview_email_sent": "interview_email_sent",
     "voxbulk_interview_confirm": "interview_booking_confirm",
-    "interview_booking_confirm": "interview_confirm_book_v3",
+    "interview_confirm_book_v4": "interview_booking_confirm",
+    "interview_confirm_book_v3": "interview_booking_confirm",
     "interview_booking_cancel": "voxbulk_interview_cancel",
     "interview_job_closed": "voxbulk_interview_job_closed",
 }
@@ -41,6 +42,8 @@ TEST_TEMPLATE_VARIABLES: dict[str, str] = {
     "company_name": "VoxBulk",
     "interview_date": "Sat 14 Jun 2026",
     "interview_time": "10:00 AM",
+    "meeting_url": "https://dashboard.voxbulk.com/meet/sample-token",
+    "channel_line": "Join your online meeting: https://dashboard.voxbulk.com/meet/sample-token",
 }
 
 _LANGUAGE_FALLBACKS = ("en_US", "en_GB", "en")
@@ -201,7 +204,12 @@ def build_telnyx_components(
         role = str(variables.get("role") or variables.get("offer_line") or "Interview").strip()
         date_line = str(variables.get("interview_date") or "Sat 14 Jun 2026").strip()
         time_line = str(variables.get("interview_time") or "10:00 AM").strip()
-        return [_body_params([first, role, date_line, time_line])]
+        channel_line = str(
+            variables.get("channel_line")
+            or variables.get("meeting_url")
+            or "We will call you on the number you provided."
+        ).strip()
+        return [_body_params([first, role, date_line, time_line, channel_line])]
 
     if template_key == "interview_booking_cancel":
         role = str(variables.get("role") or "Interview").strip()

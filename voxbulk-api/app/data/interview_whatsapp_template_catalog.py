@@ -72,10 +72,16 @@ INTERVIEW_WA_TEMPLATE_SPECS: list[dict[str, Any]] = [
         "sales_template_key": "interview_booking_confirm",
         "telnyx_name": INTERVIEW_CONFIRMATION_TEMPLATE_NAME,
         "display_name": "Interview booking confirmation",
-        "description": "Sent after the candidate books a slot — includes change/cancel quick replies.",
+        "description": "Sent after the candidate books a slot — includes call/meeting line plus change/cancel quick replies.",
         "category": "UTILITY",
         "body": INTERVIEW_BOOKING_CONFIRMATION_BODY,
-        "example_values": ["James", "accountant", "Sat 6 Jun 2026", "12:16 PM"],
+        "example_values": [
+            "James",
+            "accountant",
+            "Sat 6 Jun 2026",
+            "12:16 PM",
+            "Join your online meeting: https://dashboard.voxbulk.com/meet/sample-token",
+        ],
         "buttons": list(INTERVIEW_BOOKING_CONFIRMATION_BUTTONS),
     },
     {
