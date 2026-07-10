@@ -1123,6 +1123,8 @@ class InterviewBookingService:
                 "cancelled_at": None,
                 "can_reschedule": has_booking,
                 "can_cancel": has_booking,
+                "booking_url": booking_url_for_token(row.token),
+                "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
                 **_booking_display_meta(),
             }
 
@@ -1142,7 +1144,7 @@ class InterviewBookingService:
 
         channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""), order=order)
 
-        return {
+        payload: dict[str, Any] = {
             "token": row.token,
             "candidate_name": recipient.name or "Candidate",
             "role": role,
@@ -1161,9 +1163,24 @@ class InterviewBookingService:
             "can_cancel": row.booked_start_at is not None,
             "channel": row.channel,
             "channel_options": channel_options,
+            "booking_url": booking_url_for_token(row.token),
             "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
             **_booking_display_meta(),
         }
+        if row.booked_start_at is not None:
+            from app.services.interview_calendar_service import build_interview_calendar_variables
+
+            cal = build_interview_calendar_variables(
+                token=row.token,
+                slot_start=row.booked_start_at,
+                slot_end=row.booked_end_at,
+                role=role,
+                company_name=org_name,
+            )
+            payload["calendar_google_url"] = cal.get("calendar_google_url")
+            payload["calendar_outlook_url"] = cal.get("calendar_outlook_url")
+            payload["calendar_ics_url"] = cal.get("calendar_ics_url")
+        return payload
 
     @staticmethod
     def confirm_booking(db: Session, token: str, slot_start_iso: str, channel: str | None = None) -> dict[str, Any]:

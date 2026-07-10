@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Loader2, Mic, MicOff, PhoneOff, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Loader2, Mic, MicOff, PhoneOff, ShieldCheck, Volume2 } from "lucide-react";
 import { VoiceCallAvatars } from "@/components/VoiceCallAvatars";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { publicApiFetch } from "@/lib/api";
@@ -84,6 +84,27 @@ function initialsFromName(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function playSpeakerTestTone() {
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) throw new Error("Audio is not supported in this browser");
+  const ctx = new AudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.value = 880;
+  gain.gain.value = 0.0001;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const now = ctx.currentTime;
+  gain.gain.exponentialRampToValueAtTime(0.18, now + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+  osc.start(now);
+  osc.stop(now + 0.6);
+  window.setTimeout(() => {
+    void ctx.close().catch(() => {});
+  }, 800);
+}
+
 function InterviewMeetingRoomPage() {
   const { token } = Route.useParams();
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -91,6 +112,7 @@ function InterviewMeetingRoomPage() {
   const telnyxCallRef = React.useRef<TelnyxCall | null>(null);
   const telnyxNotificationRef = React.useRef<((notification: TelnyxNotification) => void) | null>(null);
   const localStreamRef = React.useRef<MediaStream | null>(null);
+  const testStreamRef = React.useRef<MediaStream | null>(null);
   const activeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = React.useRef<number | null>(null);
 
@@ -110,6 +132,11 @@ function InterviewMeetingRoomPage() {
     channel?: string | null;
   } | null>(null);
   const [nowMs, setNowMs] = React.useState(() => Date.now());
+  const [deviceReady, setDeviceReady] = React.useState(false);
+  const [micTesting, setMicTesting] = React.useState(false);
+  const [speakerPlayed, setSpeakerPlayed] = React.useState(false);
+  const [deviceError, setDeviceError] = React.useState<string | null>(null);
+  const [testStream, setTestStream] = React.useState<MediaStream | null>(null);
 
   const EARLY_JOIN_MS = 60_000;
   const slotMs = booking?.booked_start_at ? new Date(booking.booked_start_at).getTime() : null;
@@ -118,6 +145,7 @@ function InterviewMeetingRoomPage() {
 
   const aiLevel = useAudioLevel(remoteStream, phase === "live" || phase === "aiJoining");
   const userLevel = useAudioLevel(localMeterStream, (phase === "live" || phase === "aiJoining") && !muted);
+  const testMicLevel = useAudioLevel(testStream, phase === "idle" && micTesting);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -164,6 +192,41 @@ function InterviewMeetingRoomPage() {
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     setLocalMeterStream(null);
+  }, []);
+
+  const stopTestStream = React.useCallback(() => {
+    testStreamRef.current?.getTracks().forEach((t) => t.stop());
+    testStreamRef.current = null;
+    setTestStream(null);
+    setMicTesting(false);
+  }, []);
+
+  const startMicTest = React.useCallback(async () => {
+    setDeviceError(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Your browser does not support microphone access — try Chrome or Edge.");
+      }
+      stopTestStream();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStreamRef.current = stream;
+      setTestStream(stream);
+      setMicTesting(true);
+      setDeviceReady(true);
+    } catch {
+      setDeviceReady(false);
+      setDeviceError("Microphone access is required — click Allow when your browser asks, then try again.");
+    }
+  }, [stopTestStream]);
+
+  const testSpeaker = React.useCallback(() => {
+    setDeviceError(null);
+    try {
+      playSpeakerTestTone();
+      setSpeakerPlayed(true);
+    } catch {
+      setDeviceError("Could not play a test sound — check your speaker or headphone volume.");
+    }
   }, []);
 
   const cleanupRtc = React.useCallback(() => {
@@ -217,7 +280,10 @@ function InterviewMeetingRoomPage() {
     await completeMeeting(callId);
   }, [cleanupRtc, completeMeeting]);
 
-  React.useEffect(() => () => cleanupRtc(), [cleanupRtc]);
+  React.useEffect(() => () => {
+    cleanupRtc();
+    stopTestStream();
+  }, [cleanupRtc, stopTestStream]);
 
   React.useEffect(() => {
     if (phase !== "live" || startedAtRef.current == null) return;
@@ -231,6 +297,7 @@ function InterviewMeetingRoomPage() {
     setError(null);
     setPhase("connecting");
     setStatusLine("Requesting microphone…");
+    stopTestStream();
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Your browser does not support microphone access — try Chrome or Edge on desktop.");
@@ -416,13 +483,71 @@ function InterviewMeetingRoomPage() {
                     </p>
                   </div>
                 ) : null}
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 text-left">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Test your devices</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Check mic and speakers before you join so the AI can hear you clearly.
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm text-slate-200">
+                          <Mic className="size-4 text-violet-300" />
+                          Microphone
+                          {deviceReady ? <CheckCircle2 className="size-3.5 text-emerald-400" /> : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void startMicTest()}
+                          className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                        >
+                          {micTesting ? "Retest mic" : "Test mic"}
+                        </button>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 transition-[width] duration-75"
+                          style={{ width: `${Math.min(100, Math.round(testMicLevel * 220))}%` }}
+                        />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        {micTesting ? "Speak now — the bar should move when you talk." : "Allow the mic, then speak to see the level."}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm text-slate-200">
+                          <Volume2 className="size-4 text-violet-300" />
+                          Speakers / headphones
+                          {speakerPlayed ? <CheckCircle2 className="size-3.5 text-emerald-400" /> : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={testSpeaker}
+                          className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                        >
+                          Play test sound
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        You should hear a short beep. Turn up volume if you miss it.
+                      </p>
+                    </div>
+                  </div>
+
+                  {deviceError ? <p className="mt-3 text-xs text-red-300">{deviceError}</p> : null}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => void joinMeeting()}
-                  disabled={!canJoin}
+                  disabled={!canJoin || !deviceReady}
                   className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400"
                 >
-                  {canJoin ? "Join interview room" : "Room opens soon…"}
+                  {!canJoin ? "Room opens soon…" : !deviceReady ? "Test your mic to join" : "Join interview room"}
                 </button>
                 <p className="text-xs text-slate-500">Use headphones if possible for the clearest conversation.</p>
               </div>
@@ -497,6 +622,9 @@ function InterviewMeetingRoomPage() {
                     setPhase("idle");
                     setError(null);
                     setStatusLine("");
+                    setDeviceReady(false);
+                    setSpeakerPlayed(false);
+                    setDeviceError(null);
                   }}
                 >
                   Try again
