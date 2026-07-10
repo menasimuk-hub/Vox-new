@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Literal
 
 from sqlalchemy import delete, select
@@ -28,6 +29,9 @@ from app.services.wa_template_meta_sync import suggest_utility_clone_template_na
 from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 from app.services.wa_template_utility_lint import lint_utility_template
 from seed_data.wa_survey_template_naming import is_was_survey_name, suggest_next_was_seq_name
+
+_WAS_SEQ_RE = re.compile(r"^(.+_)(\d{3})_(en|ar)(?:_[a-z0-9]{4,8})?$", re.I)
+_CFS_VER_RE = re.compile(r"^(cfs_.+)_v(\d+)$", re.I)
 
 logger = logging.getLogger(__name__)
 
@@ -196,11 +200,29 @@ def list_marketing_for_convert(
                 }
             )
 
+    orphan_rows = _orphan_cleanup_from_candidates(db, candidates=candidates, product=prod, q=q)
+    # Mark list rows that are safe to purge (old Meta version, newer local exists)
+    orphan_names = {str(o.get("remote_name") or "").strip().lower() for o in orphan_rows}
+    for row in rows:
+        rn = str(row.get("remote_name") or row.get("name") or "").strip().lower()
+        if rn in orphan_names:
+            row["cleanup_eligible"] = True
+            match = next((o for o in orphan_rows if str(o.get("remote_name") or "").lower() == rn), None)
+            if match:
+                row["superseded_by_local"] = match.get("superseded_by_local")
+                row["superseded_by_db_id"] = match.get("superseded_by_db_id")
+        else:
+            row["cleanup_eligible"] = False
+
     return {
         "ok": True,
-        "overview": overview,
+        "overview": {
+            **(overview or {}),
+            "orphan_cleanup_count": len(orphan_rows),
+        },
         "count": len(rows),
         "templates": rows,
+        "orphan_cleanup_count": len(orphan_rows),
         "llm": _safe_llm_hint(db),
     }
 
@@ -690,4 +712,258 @@ def _push_convert_feedback(
         "deleted_remote": deleted_on,
         "steps": steps,
         "status": frow.telnyx_sync_status,
+    }
+
+
+def _parse_was_stem_seq(name: str) -> tuple[str, int, str] | None:
+    base = str(name or "").strip().lower()
+    while base.endswith("_utu"):
+        base = base[:-4]
+    match = _WAS_SEQ_RE.match(base)
+    if not match:
+        return None
+    return match.group(1), int(match.group(2)), match.group(3).lower()
+
+
+def _parse_cfs_stem_ver(name: str) -> tuple[str, int] | None:
+    match = _CFS_VER_RE.match(str(name or "").strip().lower())
+    if not match:
+        return None
+    return match.group(1).lower(), int(match.group(2))
+
+
+def _local_was_max_by_stem(db: Session) -> dict[tuple[str, str], dict[str, Any]]:
+    """Map (stem_prefix, lang) -> {seq, name, id} for highest local was_* seq."""
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
+        parsed = _parse_was_stem_seq(str(row.name or ""))
+        if not parsed:
+            continue
+        stem, seq, lang = parsed
+        key = (stem, lang)
+        cur = out.get(key)
+        if cur is None or seq > int(cur["seq"]):
+            out[key] = {"seq": seq, "name": row.name, "id": row.id}
+    return out
+
+
+def _local_cfs_max_by_stem(db: Session) -> dict[str, dict[str, Any]]:
+    from app.models.customer_feedback import FeedbackWaTemplate
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        _feedback_meta_name_for_template,
+    )
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in db.execute(select(FeedbackWaTemplate)).scalars().all():
+        names: list[str] = []
+        stored = str(getattr(row, "meta_template_name", "") or "").strip()
+        if stored:
+            names.append(stored)
+        try:
+            computed = str(_feedback_meta_name_for_template(db, row) or "").strip()
+            if computed:
+                names.append(computed)
+        except Exception:  # noqa: BLE001
+            pass
+        for name in names:
+            parsed = _parse_cfs_stem_ver(name)
+            if not parsed:
+                continue
+            stem, ver = parsed
+            cur = out.get(stem)
+            if cur is None or ver > int(cur["ver"]):
+                out[stem] = {"ver": ver, "name": name, "id": str(row.id)}
+    return out
+
+
+def _orphan_cleanup_from_candidates(
+    db: Session,
+    *,
+    candidates: list[dict[str, Any]],
+    product: str = "all",
+    q: str | None = None,
+) -> list[dict[str, Any]]:
+    """Remote MARKETING names with no local row, superseded by a newer local version."""
+    prod = str(product or "all").strip().lower()
+    needle = str(q or "").strip().lower()
+    was_max = _local_was_max_by_stem(db)
+    cfs_max = _local_cfs_max_by_stem(db)
+    orphans: list[dict[str, Any]] = []
+
+    for c in candidates:
+        if c.get("actionable") or c.get("id"):
+            continue
+        p = str(c.get("product") or "").lower()
+        if prod in ("survey", "feedback") and p != prod:
+            continue
+        remote_name = str(c.get("remote_name") or c.get("name") or "").strip().lower()
+        if not remote_name:
+            continue
+        if needle and needle not in remote_name:
+            continue
+        lang = str(c.get("language") or c.get("remote_language") or "en_GB").strip().lower()
+
+        if p == "survey" or remote_name.startswith("was_"):
+            parsed = _parse_was_stem_seq(remote_name)
+            if not parsed:
+                continue
+            stem, seq, name_lang = parsed
+            local = was_max.get((stem, name_lang))
+            if local is None or int(local["seq"]) <= seq:
+                continue
+            orphans.append(
+                {
+                    "remote_name": remote_name,
+                    "language": lang or name_lang,
+                    "product": "survey",
+                    "remote_seq": seq,
+                    "superseded_by_local": local["name"],
+                    "superseded_by_db_id": local["id"],
+                    "superseded_seq": local["seq"],
+                    "remote_profiles": c.get("remote_profiles") or [],
+                    "reason": "old_meta_version_newer_local_exists",
+                }
+            )
+        elif p == "feedback" or remote_name.startswith("cfs_"):
+            parsed = _parse_cfs_stem_ver(remote_name)
+            if not parsed:
+                continue
+            stem, ver = parsed
+            local = cfs_max.get(stem)
+            if local is None or int(local["ver"]) <= ver:
+                continue
+            orphans.append(
+                {
+                    "remote_name": remote_name,
+                    "language": lang,
+                    "product": "feedback",
+                    "remote_seq": ver,
+                    "superseded_by_local": local["name"],
+                    "superseded_by_db_id": local["id"],
+                    "superseded_seq": local["ver"],
+                    "remote_profiles": c.get("remote_profiles") or [],
+                    "reason": "old_meta_version_newer_local_exists",
+                }
+            )
+
+    orphans.sort(key=lambda item: str(item.get("remote_name") or ""))
+    return orphans
+
+
+def list_convert_orphan_cleanup_candidates(
+    db: Session,
+    *,
+    product: str = "all",
+    q: str | None = None,
+    connection_profile_id: str | None = None,
+) -> dict[str, Any]:
+    profile_ids = [str(connection_profile_id).strip()] if connection_profile_id else None
+    overview, candidates = discover_remote_marketing_templates(
+        db,
+        name_contains=q,
+        profile_ids=profile_ids,
+        service_code="survey",
+    )
+    orphans = _orphan_cleanup_from_candidates(db, candidates=candidates, product=product, q=q)
+    return {
+        "ok": True,
+        "overview": overview,
+        "count": len(orphans),
+        "orphans": orphans,
+    }
+
+
+def purge_convert_orphan_templates(
+    db: Session,
+    *,
+    product: str = "all",
+    q: str | None = None,
+    connection_profile_id: str | None = None,
+    targets: ConvertTarget = "all",
+    dry_run: bool = True,
+    names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Delete Meta/Telnyx MARKETING names that are old versions superseded by local DB."""
+    listed = list_convert_orphan_cleanup_candidates(
+        db,
+        product=product,
+        q=q,
+        connection_profile_id=connection_profile_id,
+    )
+    orphans = list(listed.get("orphans") or [])
+    if names:
+        allow = {str(n).strip().lower() for n in names if str(n or "").strip()}
+        orphans = [o for o in orphans if str(o.get("remote_name") or "").lower() in allow]
+
+    profile_pairs = _profile_ids_for_targets(db, targets=targets, service_code="survey")
+    # Also try customer_feedback service code profiles when deleting cfs_*
+    fb_pairs = _profile_ids_for_targets(db, targets=targets, service_code="customer_feedback")
+    profile_ids = list(dict.fromkeys([pid for pid, _ in profile_pairs + fb_pairs if pid]))
+    if connection_profile_id:
+        profile_ids = [str(connection_profile_id).strip()]
+
+    results: list[dict[str, Any]] = []
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "targets": targets,
+            "count": len(orphans),
+            "orphans": orphans,
+            "results": [],
+            "message": f"Would delete {len(orphans)} old Meta/Telnyx version(s) not in local DB.",
+        }
+
+    for orphan in orphans:
+        name = str(orphan.get("remote_name") or "").strip()
+        language = str(orphan.get("language") or "en_GB")
+        product_code = str(orphan.get("product") or "survey")
+        service_code = "customer_feedback" if product_code == "feedback" else "survey"
+        try:
+            deleted_on = delete_remote_template_by_name(
+                db,
+                name=name,
+                language=language,
+                service_code=service_code,
+                profile_ids=profile_ids or None,
+            )
+            # Feedback templates sometimes live under survey WABA too
+            if product_code == "feedback" and service_code == "customer_feedback":
+                extra = delete_remote_template_by_name(
+                    db,
+                    name=name,
+                    language=language,
+                    service_code="survey",
+                    profile_ids=profile_ids or None,
+                )
+                deleted_on = list(dict.fromkeys([*deleted_on, *extra]))
+            results.append(
+                {
+                    "remote_name": name,
+                    "ok": True,
+                    "deleted_on": deleted_on,
+                    "superseded_by_local": orphan.get("superseded_by_local"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("convert_orphan_purge_failed name=%s", name)
+            results.append(
+                {
+                    "remote_name": name,
+                    "ok": False,
+                    "error": str(exc)[:400],
+                    "superseded_by_local": orphan.get("superseded_by_local"),
+                }
+            )
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    return {
+        "ok": ok_count == len(results),
+        "dry_run": False,
+        "targets": targets,
+        "count": len(results),
+        "deleted": ok_count,
+        "failed": len(results) - ok_count,
+        "results": results,
+        "message": f"Deleted {ok_count}/{len(results)} old Meta/Telnyx version(s).",
     }

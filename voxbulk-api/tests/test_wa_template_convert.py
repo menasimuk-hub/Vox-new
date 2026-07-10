@@ -22,6 +22,54 @@ def test_suggest_next_was_seq_for_convert():
     assert suggest_next_was_seq_name("was_hotel_overall_001_en", used_names=used) == "was_hotel_overall_002_en"
 
 
+def test_orphan_cleanup_only_when_newer_local_exists(db):
+    from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
+    from app.services.wa_template_convert_service import _orphan_cleanup_from_candidates
+    import json
+
+    row = TelnyxWhatsappTemplate(
+        name="was_employee_feeling_valued_003_en",
+        language="en_GB",
+        category="UTILITY",
+        status="APPROVED",
+        telnyx_record_id="remote-orphan-test",
+        template_id="remote-orphan-test",
+        draft_components_json=json.dumps([{"type": "BODY", "text": "Please confirm how valued you feel at work."}]),
+    )
+    db.add(row)
+    db.commit()
+
+    candidates = [
+        {
+            "id": None,
+            "actionable": False,
+            "product": "survey",
+            "remote_name": "was_employee_feeling_valued_001_en",
+            "name": "was_employee_feeling_valued_001_en",
+        },
+        {
+            "id": None,
+            "actionable": False,
+            "product": "survey",
+            "remote_name": "was_employee_feeling_valued_002_en",
+            "name": "was_employee_feeling_valued_002_en",
+        },
+        {
+            "id": None,
+            "actionable": False,
+            "product": "survey",
+            "remote_name": "was_orphan_topic_001_en",
+            "name": "was_orphan_topic_001_en",
+        },
+    ]
+    orphans = _orphan_cleanup_from_candidates(db, candidates=candidates, product="survey")
+    names = {o["remote_name"] for o in orphans}
+    assert "was_employee_feeling_valued_001_en" in names
+    assert "was_employee_feeling_valued_002_en" in names
+    assert "was_orphan_topic_001_en" not in names
+    assert orphans[0]["superseded_by_local"] == "was_employee_feeling_valued_003_en"
+
+
 def test_convert_save_and_rename_keeps_db_id(db):
     from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
     from app.services.survey_whatsapp_template_service import SurveyWhatsappTemplateService

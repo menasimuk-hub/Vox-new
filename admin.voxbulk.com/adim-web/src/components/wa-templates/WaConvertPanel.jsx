@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Loader2, RefreshCw, Save, Search } from 'lucide-react'
+import { ArrowRight, Loader2, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
@@ -15,6 +15,7 @@ export default function WaConvertPanel({ syncProfileId }) {
   const [product, setProduct] = useState('all')
   const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
+  const [orphanCount, setOrphanCount] = useState(0)
   const [llm, setLlm] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -35,6 +36,7 @@ export default function WaConvertPanel({ syncProfileId }) {
       const data = await apiFetch(`/admin/wa-templates/convert/marketing?${params}`)
       const list = Array.isArray(data?.templates) ? data.templates : []
       setRows(list)
+      setOrphanCount(Number(data?.orphan_cleanup_count || data?.overview?.orphan_cleanup_count || 0))
       setLlm(data?.llm || null)
       if (list.length && !activeId) {
         const first = list.find((r) => r.actionable && r.db_id) || list[0]
@@ -43,6 +45,7 @@ export default function WaConvertPanel({ syncProfileId }) {
     } catch (e) {
       setError(fmtErr(e))
       setRows([])
+      setOrphanCount(0)
     } finally {
       setLoading(false)
     }
@@ -100,6 +103,75 @@ export default function WaConvertPanel({ syncProfileId }) {
       return hay.includes(needle)
     })
   }, [rows, q])
+
+  const runCleanupOrphans = async () => {
+    const count = orphanCount
+    if (!count) {
+      setMsg('No old Meta versions to clean up (only names superseded by a newer local row).')
+      return
+    }
+    const ok = window.confirm(
+      `Delete ${count} old Meta/Telnyx template name(s) that are not in local DB and were replaced by a newer local version?\n\nCurrent local rows are kept. This only removes leftover remote names (e.g. _001 / _002 when local is _003).`,
+    )
+    if (!ok) return
+    setBusy('cleanup')
+    setError('')
+    setMsg('')
+    setOverlay({
+      open: true,
+      title: 'Cleaning up old Meta versions…',
+      sub: `${count} orphan name(s) · targets 99 + 55`,
+      steps: [
+        { id: 'scan', title: 'Confirm superseded orphans', status: 'done' },
+        { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'active' },
+      ],
+    })
+    try {
+      const data = await apiFetch('/admin/wa-templates/convert/orphans/cleanup', {
+        method: 'POST',
+        body: JSON.stringify({
+          dry_run: false,
+          targets: 'all',
+          product,
+          q: q.trim() || undefined,
+          connection_profile_id: syncProfileId || undefined,
+        }),
+      })
+      const deleted = Number(data?.deleted || 0)
+      const failed = Number(data?.failed || 0)
+      setMsg(data?.message || `Deleted ${deleted} old version(s).`)
+      setOverlay({
+        open: true,
+        title: failed ? 'Cleanup finished with errors' : 'Cleanup complete',
+        sub: data?.message || '',
+        steps: [
+          { id: 'scan', title: 'Confirm superseded orphans', status: 'done' },
+          {
+            id: 'delete',
+            title: 'Delete from Meta / Telnyx',
+            status: failed ? 'error' : 'done',
+            detail: `${deleted} deleted · ${failed} failed`,
+          },
+        ],
+      })
+      await load()
+    } catch (e) {
+      setError(fmtErr(e))
+      setOverlay((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: 'Cleanup failed',
+              steps: (prev.steps || []).map((s) =>
+                s.status === 'active' ? { ...s, status: 'error', detail: fmtErr(e) } : s,
+              ),
+            }
+          : null,
+      )
+    } finally {
+      setBusy('')
+    }
+  }
 
   const runRegen = async () => {
     if (!editor) return
@@ -254,6 +326,21 @@ export default function WaConvertPanel({ syncProfileId }) {
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Refresh
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void runCleanupOrphans()}
+            disabled={loading || busy === 'cleanup' || !orphanCount}
+            title="Delete old Meta/Telnyx names not in local DB when a newer local version exists"
+          >
+            {busy === 'cleanup' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Clean old versions{orphanCount ? ` (${orphanCount})` : ''}
+          </Button>
         </div>
       </div>
 
@@ -314,7 +401,11 @@ export default function WaConvertPanel({ syncProfileId }) {
                       <span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">{r.language}</span>
                     ) : null}
                     {!r.actionable ? (
-                      <span className="text-amber-700">no local row</span>
+                      <span className="text-amber-700">
+                        {r.cleanup_eligible
+                          ? `old version → local ${r.superseded_by_local || 'newer'}`
+                          : 'no local row'}
+                      </span>
                     ) : (
                       <span className="text-muted-foreground">DB {r.db_id}</span>
                     )}
