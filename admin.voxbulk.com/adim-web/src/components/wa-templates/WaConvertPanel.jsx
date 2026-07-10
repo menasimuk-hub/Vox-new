@@ -33,7 +33,10 @@ export default function WaConvertPanel({ syncProfileId }) {
       params.set('product', product)
       if (q.trim()) params.set('q', q.trim())
       if (syncProfileId) params.set('connection_profile_id', syncProfileId)
-      const data = await apiFetch(`/admin/wa-templates/convert/marketing?${params}`)
+      const data = await apiFetch(`/admin/wa-templates/convert/marketing?${params}`, {
+        timeoutMs: 280000,
+        quietNetworkHint: true,
+      })
       const list = Array.isArray(data?.templates) ? data.templates : []
       setRows(list)
       setOrphanCount(Number(data?.orphan_cleanup_count || data?.overview?.orphan_cleanup_count || 0))
@@ -71,6 +74,7 @@ export default function WaConvertPanel({ syncProfileId }) {
       try {
         const data = await apiFetch(
           `/admin/wa-templates/convert/${encodeURIComponent(active.product)}/${encodeURIComponent(active.db_id)}`,
+          { timeoutMs: 120000 },
         )
         if (!cancelled) {
           setEditor({
@@ -136,6 +140,8 @@ export default function WaConvertPanel({ syncProfileId }) {
           q: q.trim() || undefined,
           connection_profile_id: syncProfileId || undefined,
         }),
+        timeoutMs: 300000,
+        quietNetworkHint: true,
       })
       const deleted = Number(data?.deleted || 0)
       const failed = Number(data?.failed || 0)
@@ -181,7 +187,7 @@ export default function WaConvertPanel({ syncProfileId }) {
     try {
       const data = await apiFetch(
         `/admin/wa-templates/convert/${encodeURIComponent(editor.product)}/${encodeURIComponent(editor.db_id)}/regenerate`,
-        { method: 'POST', body: JSON.stringify({}) },
+        { method: 'POST', body: JSON.stringify({}), timeoutMs: 180000 },
       )
       setEditor((prev) => ({
         ...prev,
@@ -215,6 +221,7 @@ export default function WaConvertPanel({ syncProfileId }) {
             footer: editor.footer,
             buttons: editor.buttons,
           }),
+          timeoutMs: 120000,
         },
       )
       setEditor((prev) => ({
@@ -250,7 +257,7 @@ export default function WaConvertPanel({ syncProfileId }) {
     try {
       const data = await apiFetch(
         `/admin/wa-templates/convert/${encodeURIComponent(editor.product)}/${encodeURIComponent(editor.db_id)}/push`,
-        { method: 'POST', body: JSON.stringify({ targets, force_push: true }) },
+        { method: 'POST', body: JSON.stringify({ targets, force_push: true }), timeoutMs: 300000 },
       )
       const steps = Array.isArray(data.steps)
         ? data.steps.map((s) => ({

@@ -125,6 +125,8 @@ def list_marketing_for_convert(
     )
     prod = str(product or "all").strip().lower()
     rows: list[dict[str, Any]] = []
+    used_was_names: set[str] | None = None
+    used_cfs_names: set[str] | None = None
     for c in candidates:
         p = str(c.get("product") or "").lower()
         if prod in ("survey", "feedback") and p != prod:
@@ -146,35 +148,36 @@ def list_marketing_for_convert(
             row = db.get(TelnyxWhatsappTemplate, int(c["id"]))
             if row is None:
                 continue
-            comps = _effective_components(row)
-            body, buttons = _extract_body_and_buttons(comps if isinstance(comps, list) else [])
-            header = footer = None
-            for comp in comps or []:
-                if not isinstance(comp, dict):
-                    continue
-                t = str(comp.get("type") or "").upper()
-                if t == "HEADER":
-                    header = str(comp.get("text") or "") or None
-                elif t == "FOOTER":
-                    footer = str(comp.get("text") or "") or None
+            if used_was_names is None:
+                used_was_names = {
+                    str(r[0]).strip().lower()
+                    for r in db.execute(select(TelnyxWhatsappTemplate.name)).all()
+                    if r[0]
+                }
+            nxt = None
+            if is_was_survey_name(row.name):
+                nxt = suggest_next_was_seq_name(row.name, used_names=used_was_names)
+            else:
+                nxt = suggest_utility_clone_template_name(row.name) or f"{row.name}_utu"
+            # List stays light — full body/buttons load on select via get_convert_template
             rows.append(
                 {
                     **c,
-                    "suggested_next_name": _suggest_survey_next_name(db, row),
-                    "header": header,
-                    "body": body,
-                    "footer": footer,
-                    "buttons": buttons,
+                    "suggested_next_name": nxt,
+                    "header": None,
+                    "body": None,
+                    "footer": None,
+                    "buttons": [],
                     "language": row.language,
                     "db_id": row.id,
                     "local_name": row.name,
+                    "body_preview": (c.get("body_preview") or "")[:160],
                 }
             )
         elif p == "feedback" and c.get("id"):
             from app.models.customer_feedback import FeedbackWaTemplate
             from app.services.customer_feedback.feedback_telnyx_push_service import (
                 collect_used_cfs_meta_names,
-                parse_feedback_buttons,
                 suggest_next_cfs_version_name,
             )
             from app.services.customer_feedback.feedback_telnyx_push_service import feedback_meta_template_name
@@ -183,20 +186,21 @@ def list_marketing_for_convert(
             if frow is None:
                 continue
             meta_name = str(c.get("remote_name") or feedback_meta_template_name(frow) or "")
-            used = collect_used_cfs_meta_names(db)
-            nxt = suggest_next_cfs_version_name(meta_name, used_names=used) if meta_name else None
-            buttons = parse_feedback_buttons(frow.buttons_json)
+            if used_cfs_names is None:
+                used_cfs_names = collect_used_cfs_meta_names(db)
+            nxt = suggest_next_cfs_version_name(meta_name, used_names=used_cfs_names) if meta_name else None
             rows.append(
                 {
                     **c,
                     "suggested_next_name": nxt,
                     "header": None,
-                    "body": frow.body_text,
+                    "body": None,
                     "footer": None,
-                    "buttons": buttons,
+                    "buttons": [],
                     "language": frow.language,
                     "db_id": frow.id,
                     "local_name": meta_name,
+                    "body_preview": str(frow.body_text or "")[:160],
                 }
             )
 
@@ -735,44 +739,38 @@ def _parse_cfs_stem_ver(name: str) -> tuple[str, int] | None:
 def _local_was_max_by_stem(db: Session) -> dict[tuple[str, str], dict[str, Any]]:
     """Map (stem_prefix, lang) -> {seq, name, id} for highest local was_* seq."""
     out: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars().all():
-        parsed = _parse_was_stem_seq(str(row.name or ""))
+    rows = db.execute(select(TelnyxWhatsappTemplate.id, TelnyxWhatsappTemplate.name)).all()
+    for row_id, name in rows:
+        parsed = _parse_was_stem_seq(str(name or ""))
         if not parsed:
             continue
         stem, seq, lang = parsed
         key = (stem, lang)
         cur = out.get(key)
         if cur is None or seq > int(cur["seq"]):
-            out[key] = {"seq": seq, "name": row.name, "id": row.id}
+            out[key] = {"seq": seq, "name": name, "id": row_id}
     return out
 
 
 def _local_cfs_max_by_stem(db: Session) -> dict[str, dict[str, Any]]:
+    """Map cfs stem -> highest local version (meta_template_name only — fast path)."""
     from app.models.customer_feedback import FeedbackWaTemplate
-    from app.services.customer_feedback.feedback_telnyx_push_service import (
-        _feedback_meta_name_for_template,
-    )
 
     out: dict[str, dict[str, Any]] = {}
-    for row in db.execute(select(FeedbackWaTemplate)).scalars().all():
-        names: list[str] = []
-        stored = str(getattr(row, "meta_template_name", "") or "").strip()
-        if stored:
-            names.append(stored)
-        try:
-            computed = str(_feedback_meta_name_for_template(db, row) or "").strip()
-            if computed:
-                names.append(computed)
-        except Exception:  # noqa: BLE001
-            pass
-        for name in names:
-            parsed = _parse_cfs_stem_ver(name)
-            if not parsed:
-                continue
-            stem, ver = parsed
-            cur = out.get(stem)
-            if cur is None or ver > int(cur["ver"]):
-                out[stem] = {"ver": ver, "name": name, "id": str(row.id)}
+    rows = db.execute(
+        select(FeedbackWaTemplate.id, FeedbackWaTemplate.meta_template_name)
+    ).all()
+    for row_id, stored in rows:
+        name = str(stored or "").strip()
+        if not name:
+            continue
+        parsed = _parse_cfs_stem_ver(name)
+        if not parsed:
+            continue
+        stem, ver = parsed
+        cur = out.get(stem)
+        if cur is None or ver > int(cur["ver"]):
+            out[stem] = {"ver": ver, "name": name, "id": str(row_id)}
     return out
 
 
@@ -786,8 +784,10 @@ def _orphan_cleanup_from_candidates(
     """Remote MARKETING names with no local row, superseded by a newer local version."""
     prod = str(product or "all").strip().lower()
     needle = str(q or "").strip().lower()
-    was_max = _local_was_max_by_stem(db)
-    cfs_max = _local_cfs_max_by_stem(db)
+    need_survey = prod in ("all", "survey")
+    need_feedback = prod in ("all", "feedback")
+    was_max = _local_was_max_by_stem(db) if need_survey else {}
+    cfs_max = _local_cfs_max_by_stem(db) if need_feedback else {}
     orphans: list[dict[str, Any]] = []
 
     for c in candidates:
@@ -803,7 +803,7 @@ def _orphan_cleanup_from_candidates(
             continue
         lang = str(c.get("language") or c.get("remote_language") or "en_GB").strip().lower()
 
-        if p == "survey" or remote_name.startswith("was_"):
+        if need_survey and (p == "survey" or remote_name.startswith("was_")):
             parsed = _parse_was_stem_seq(remote_name)
             if not parsed:
                 continue
@@ -824,7 +824,7 @@ def _orphan_cleanup_from_candidates(
                     "reason": "old_meta_version_newer_local_exists",
                 }
             )
-        elif p == "feedback" or remote_name.startswith("cfs_"):
+        elif need_feedback and (p == "feedback" or remote_name.startswith("cfs_")):
             parsed = _parse_cfs_stem_ver(remote_name)
             if not parsed:
                 continue
