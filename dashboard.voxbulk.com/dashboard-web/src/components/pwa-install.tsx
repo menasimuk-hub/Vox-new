@@ -255,7 +255,7 @@ export function PwaInstallBanner() {
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:hidden">
       <div className="pointer-events-auto mx-auto flex max-w-lg items-center gap-3 rounded-2xl border border-border bg-background/95 p-3 shadow-xl backdrop-blur">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#0f1b3d]">
-          <img src="/pwa/apple-touch-icon-180.png" alt="" className="size-8 rounded-lg" />
+          <img src="/pwa/icon-192.png?v=black6" alt="" className="size-8 rounded-lg" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold leading-tight">Install VoxBulk</p>

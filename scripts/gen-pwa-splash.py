@@ -1,16 +1,14 @@
-"""Generate PWA install icons (black logo) + dark iOS splash screens."""
+"""Generate PWA icons from official icon-black.png (full-bleed) + dark splash screens."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dashboard.voxbulk.com" / "dashboard-web" / "public" / "pwa"
 ICON_BLACK = ROOT / "voxbulk-api" / "logos" / "icon-black.png"
-ICON_WHITE = ROOT / "voxbulk-api" / "logos" / "icon-white.png"
 NAVY = (15, 27, 61, 255)  # #0f1b3d
-WHITE = (255, 255, 255, 255)
 
 SIZES = [
     (1290, 2796, "splash-1290x2796"),
@@ -28,51 +26,45 @@ SIZES = [
 ]
 
 
+def resize_cover(src: Image.Image, side: int) -> Image.Image:
+    """Exact square resize — full-bleed official black icon, no padding."""
+    return src.resize((side, side), Image.Resampling.LANCZOS)
+
+
 def paste_centered(canvas: Image.Image, mark: Image.Image, size: int) -> None:
     icon = mark.copy()
     icon.thumbnail((size, size), Image.Resampling.LANCZOS)
     x = (canvas.width - icon.width) // 2
     y = (canvas.height - icon.height) // 2
-    canvas.paste(icon, (x, y), icon)
-
-
-def rounded_white_plate(size: int, radius: int) -> Image.Image:
-    plate = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(plate)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=WHITE)
-    return plate
+    canvas.paste(icon, (x, y), icon if icon.mode == "RGBA" else None)
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     black = Image.open(ICON_BLACK).convert("RGBA")
-    white = Image.open(ICON_WHITE).convert("RGBA")
 
-    # Home-screen / install icons: official black mark on white (visible on Android/iOS).
-    for side, mark_size, name in (
-        (180, 120, "apple-touch-icon-180.png"),
-        (192, 128, "icon-192.png"),
-        (512, 340, "icon-512.png"),
+    # Install / home-screen icons = exact official black logo tile.
+    for side, name in (
+        (180, "apple-touch-icon-180.png"),
+        (192, "icon-192.png"),
+        (512, "icon-512.png"),
     ):
-        img = Image.new("RGBA", (side, side), WHITE)
-        paste_centered(img, black, mark_size)
-        img.convert("RGB").save(OUT / name, "PNG", optimize=True)
-        print(f"wrote {name}")
+        resize_cover(black, side).convert("RGB").save(OUT / name, "PNG", optimize=True)
+        print(f"wrote {name} (full-bleed icon-black)")
 
-    # Splash: dark navy with black logo on a white rounded plate.
+    # Also publish under brand-friendly aliases used by some caches.
+    resize_cover(black, 192).convert("RGB").save(OUT / "icon-black-192.png", "PNG", optimize=True)
+    resize_cover(black, 512).convert("RGB").save(OUT / "icon-black-512.png", "PNG", optimize=True)
+
+    # Splash: dark navy with full black logo tile centered.
     for w, h, name in SIZES:
         img = Image.new("RGBA", (w, h), NAVY)
-        plate_size = max(160, min(w, h) // 5)
-        plate = rounded_white_plate(plate_size, radius=max(24, plate_size // 6))
-        mark = black.copy()
-        mark.thumbnail((int(plate_size * 0.62), int(plate_size * 0.62)), Image.Resampling.LANCZOS)
-        plate.paste(mark, ((plate_size - mark.width) // 2, (plate_size - mark.height) // 2), mark)
-        img.paste(plate, ((w - plate_size) // 2, (h - plate_size) // 2), plate)
+        tile = max(180, min(w, h) // 4)
+        mark = resize_cover(black, tile).convert("RGBA")
+        img.paste(mark, ((w - tile) // 2, (h - tile) // 2))
         img.convert("RGB").save(OUT / f"{name}.png", "PNG", optimize=True)
         print(f"wrote {name}.png ({w}x{h})")
 
-    # Keep white mark available for in-app dark UI references if needed.
-    _ = white
     print(f"done -> {OUT}")
 
 

@@ -1,5 +1,5 @@
 /* Minimal service worker — enables Chrome install prompt for dashboard PWA */
-const SW_VERSION = "voxbulk-dashboard-splash-v5";
+const SW_VERSION = "voxbulk-dashboard-splash-v6-black";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

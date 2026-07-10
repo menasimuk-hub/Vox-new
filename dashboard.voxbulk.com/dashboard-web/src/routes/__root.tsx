@@ -94,10 +94,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", type: "image/png", href: "/brand/icon-black.png" },
-      { rel: "apple-touch-icon", href: "/pwa/apple-touch-icon-180.png" },
-      { rel: "apple-touch-icon", sizes: "180x180", href: "/pwa/apple-touch-icon-180.png" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", type: "image/png", href: "/pwa/icon-192.png?v=black6" },
+      { rel: "apple-touch-icon", href: "/pwa/apple-touch-icon-180.png?v=black6" },
+      { rel: "apple-touch-icon", sizes: "180x180", href: "/pwa/apple-touch-icon-180.png?v=black6" },
+      { rel: "manifest", href: "/manifest.webmanifest?v=black6" },
       // iOS home-screen splash (dark navy) — cached at Add to Home Screen time
       {
         rel: "apple-touch-startup-image",
