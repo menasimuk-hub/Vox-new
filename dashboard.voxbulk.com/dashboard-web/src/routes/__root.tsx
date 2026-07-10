@@ -79,9 +79,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "VoxBulk Dashboard" },
       { name: "description", content: "VoxBulk customer dashboard" },
+      { name: "theme-color", content: "#0f1b3d" },
+      { name: "color-scheme", content: "dark light" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "VoxBulk" },
     ],
     links: [
       {
@@ -89,7 +95,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       { rel: "icon", type: "image/svg+xml", href: "/brand/icon-black.svg" },
-      { rel: "apple-touch-icon", href: "/brand/icon-black.png" },
+      { rel: "apple-touch-icon", href: "/brand/icon-white.png" },
       { rel: "manifest", href: "/manifest.webmanifest" },
     ],
   }),
@@ -101,9 +107,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ backgroundColor: "#0f1b3d" }}>
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{document.documentElement.style.backgroundColor="#0f1b3d";document.documentElement.style.colorScheme="dark";var b=document.body;if(b){b.style.backgroundColor="#0f1b3d";}}catch(e){}})();`,
+          }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){var h=location.hash;if(!h||h.indexOf("access_token=")===-1)return;try{var p=new URLSearchParams(h.charAt(0)==="#"?h.slice(1):h),t=p.get("access_token");if(!t)return;localStorage.setItem("voxbulk_access_token",t);localStorage.setItem("access_token",t);var o=p.get("org_id");if(o){localStorage.setItem("voxbulk_org_id",o);localStorage.removeItem("retover_org_id");}var u=p.get("user_id");if(u){localStorage.setItem("voxbulk_user_id",u);localStorage.removeItem("retover_user_id");}history.replaceState(history.state,"",location.pathname+location.search||"/");}catch(e){}})();`,
@@ -115,7 +126,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
           }}
         />
       </head>
-      <body>
+      <body style={{ backgroundColor: "#0f1b3d", margin: 0 }}>
         {children}
         <Scripts />
       </body>

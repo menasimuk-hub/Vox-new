@@ -586,10 +586,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen items-center justify-center bg-[#0f1b3d] px-4 text-white">
         <div className="max-w-sm text-center">
-          <h2 className="text-lg font-semibold tracking-tight">Signing you in…</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Finishing login handoff.</p>
+          <img src="/brand/icon-white.svg" alt="VoxBulk" className="mx-auto h-10 w-auto opacity-90" />
+          <h2 className="mt-4 text-lg font-semibold tracking-tight">Signing you in…</h2>
+          <p className="mt-2 text-sm text-white/60">Finishing login handoff.</p>
         </div>
       </div>
     );
@@ -601,13 +602,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     return (
 
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen items-center justify-center bg-[#0f1b3d] px-4 text-white">
 
         <div className="max-w-sm text-center">
 
-          <h2 className="text-lg font-semibold tracking-tight">Loading your dashboard…</h2>
+          <img src="/brand/icon-white.svg" alt="VoxBulk" className="mx-auto h-10 w-auto opacity-90" />
 
-          <p className="mt-2 text-sm text-muted-foreground">Checking your VoxBulk session.</p>
+          <h2 className="mt-4 text-lg font-semibold tracking-tight">Loading your dashboard…</h2>
+
+          <p className="mt-2 text-sm text-white/60">Checking your VoxBulk session.</p>
 
         </div>
 

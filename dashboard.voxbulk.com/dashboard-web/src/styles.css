@@ -154,6 +154,10 @@
     border-color: var(--color-border);
   }
 
+  html {
+    background-color: #0f1b3d;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
