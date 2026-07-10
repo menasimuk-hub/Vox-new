@@ -1,14 +1,16 @@
-"""Generate dark navy PWA icons + iOS apple-touch-startup-image assets."""
+"""Generate PWA install icons (black logo) + dark iOS splash screens."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dashboard.voxbulk.com" / "dashboard-web" / "public" / "pwa"
-ICON = ROOT / "voxbulk-api" / "logos" / "icon-white.png"
-BG = (15, 27, 61, 255)  # #0f1b3d
+ICON_BLACK = ROOT / "voxbulk-api" / "logos" / "icon-black.png"
+ICON_WHITE = ROOT / "voxbulk-api" / "logos" / "icon-white.png"
+NAVY = (15, 27, 61, 255)  # #0f1b3d
+WHITE = (255, 255, 255, 255)
 
 SIZES = [
     (1290, 2796, "splash-1290x2796"),
@@ -34,25 +36,43 @@ def paste_centered(canvas: Image.Image, mark: Image.Image, size: int) -> None:
     canvas.paste(icon, (x, y), icon)
 
 
+def rounded_white_plate(size: int, radius: int) -> Image.Image:
+    plate = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(plate)
+    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=WHITE)
+    return plate
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    icon = Image.open(ICON).convert("RGBA")
+    black = Image.open(ICON_BLACK).convert("RGBA")
+    white = Image.open(ICON_WHITE).convert("RGBA")
 
-    ati = Image.new("RGBA", (180, 180), BG)
-    paste_centered(ati, icon, 112)
-    ati.convert("RGB").save(OUT / "apple-touch-icon-180.png", "PNG", optimize=True)
-
-    for side, mark_size, name in ((192, 120, "icon-192.png"), (512, 320, "icon-512.png")):
-        img = Image.new("RGBA", (side, side), BG)
-        paste_centered(img, icon, mark_size)
+    # Home-screen / install icons: official black mark on white (visible on Android/iOS).
+    for side, mark_size, name in (
+        (180, 120, "apple-touch-icon-180.png"),
+        (192, 128, "icon-192.png"),
+        (512, 340, "icon-512.png"),
+    ):
+        img = Image.new("RGBA", (side, side), WHITE)
+        paste_centered(img, black, mark_size)
         img.convert("RGB").save(OUT / name, "PNG", optimize=True)
+        print(f"wrote {name}")
 
+    # Splash: dark navy with black logo on a white rounded plate.
     for w, h, name in SIZES:
-        img = Image.new("RGBA", (w, h), BG)
-        paste_centered(img, icon, max(96, min(w, h) // 6))
+        img = Image.new("RGBA", (w, h), NAVY)
+        plate_size = max(160, min(w, h) // 5)
+        plate = rounded_white_plate(plate_size, radius=max(24, plate_size // 6))
+        mark = black.copy()
+        mark.thumbnail((int(plate_size * 0.62), int(plate_size * 0.62)), Image.Resampling.LANCZOS)
+        plate.paste(mark, ((plate_size - mark.width) // 2, (plate_size - mark.height) // 2), mark)
+        img.paste(plate, ((w - plate_size) // 2, (h - plate_size) // 2), plate)
         img.convert("RGB").save(OUT / f"{name}.png", "PNG", optimize=True)
         print(f"wrote {name}.png ({w}x{h})")
 
+    # Keep white mark available for in-app dark UI references if needed.
+    _ = white
     print(f"done -> {OUT}")
 
 
