@@ -36,6 +36,7 @@ from sqlalchemy import select
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
 from app.services.interview_agent_display_service import interview_agent_dialect_meta
+from app.services.voice_agent_runtime import ARABIC_INTERVIEW_CALL_WORKFLOW, INTERVIEW_CALL_WORKFLOW_EN
 
 
 def _agent_display_name(agent: AgentDefinition) -> str:
@@ -50,19 +51,12 @@ def _english_pack(agent: AgentDefinition) -> dict[str, str]:
             f"about the {{role}} role. This call is recorded for quality and assessment. "
             f"Do you have about 10 to 15 minutes now for a short screening interview?"
         ),
-        "call_workflow": (
-            "Opening greeting and time ask were already spoken — do not re-introduce or re-ask for time.\n"
-            "Wait for a clear yes that now is a good time before any interview questions.\n"
-            "If the candidate agrees: proceed with CV questions then role questions in order — "
-            "one at a time, waiting for full answers.\n"
-            "If busy or declines: offer a callback during working hours and end politely.\n"
-            "Mandatory closing (always speak this before ending): thank them for their time, say "
-            "{company_name} will review the interview and be in touch with next steps, then wish them a good day."
-        ),
+        "call_workflow": INTERVIEW_CALL_WORKFLOW_EN,
         "conversation_style": (
-            "Professional phone interviewer — calm, clear, measured pace. "
-            "Never interrupt the candidate. Wait for full answers. "
-            "Brief acknowledgements between questions. Always deliver the full closing before ending."
+            "Warm, easy-going phone interviewer — calm, clear, measured pace. "
+            "Brief the candidate on what the call is for before questions. "
+            "Never interrupt. Wait for full answers. One short follow-up when answers are thin. "
+            "Ask if they want to add anything before the full closing."
         ),
         "interruption_behavior_notes": (
             "Never interrupt the candidate while they are answering — wait until they clearly finish. "
@@ -80,17 +74,11 @@ def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
             f"المكالمة مسجّلة للجودة. "
             f"عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي؟"
         ),
-        "call_workflow": (
-            "التحية والوقت اتسألوا بالفعل — متعدّش التعريف ولا سؤال الوقت.\n"
-            "استنى تأكيد واضح إن الوقت مناسب قبل أي سؤال.\n"
-            "لو وافق: سيرة الأول، بعدين أسئلة الوظيفة — سؤال واحد واستنى الإجابة كاملة.\n"
-            "لو مشغول: رتّب معاد وانهِ بلباقة.\n"
-            "إغلاق إلزامي: اشكر المرشّح وقل إن {company_name} هيراجع المقابلة ويتواصل معاه، بعدين ودّعه."
-        ),
+        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة احترافية وهادية — مقابلة فرز حقيقية. سرعة كلام معتدلة. "
-            "متقاطعش المرشّح. استنى الإجابة كاملة. متطولش ومتعدّش المقدمة. "
-            "قول الإغلاق كامل قبل ما تقفل."
+            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. سرعة كلام معتدلة. "
+            "وضّح هدف المكالمة قبل الأسئلة. متقاطعش المرشّح. استنى الإجابة كاملة. "
+            "متابعة قصيرة لما الإجابة تبقى ضعيفة. اسأل لو عايز يضيف حاجة قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
             "متقاطعش المرشّح وهو بيرد — استنى لما يخلّص. "
@@ -108,17 +96,11 @@ def _gulf_pack(agent: AgentDefinition) -> dict[str, str]:
             f"المكالمة مسجّلة للجودة. "
             f"عندك حوالي ١٠ إلى ١٥ دقيقة الحين؟"
         ),
-        "call_workflow": (
-            "التحية والوقت سُئلا بالفعل — لا تعِد التعريف ولا سؤال الوقت.\n"
-            "انتظر تأكيدًا واضحًا أن الوقت مناسب قبل أي سؤال.\n"
-            "إذا وافق المرشّح: سيرة أولاً، بعدين أسئلة الوظيفة — سؤال واحد وانتظر الإجابة كاملة.\n"
-            "إذا مشغول: رتّب معاد وانهِ بلباقة.\n"
-            "إغلاق إلزامي: اشكر المرشّح وقل إن {company_name} سيراجع المقابلة ويتواصل معه، ثم ودّعه."
-        ),
+        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة احترافية وهادية ومحترمة — مقابلة فرز حقيقية. سرعة كلام معتدلة. "
-            "لا تقاطع المرشّح. انتظر الإجابة كاملة. "
-            "تكملات طبيعية بين الأسئلة: تمام، زين، طيب، فهمت عليك. قل الإغلاق كامل قبل الإنهاء."
+            "نبرة ودودة ومحترمة وإنسانية وسهلة — مقابلة فرز حقيقية. سرعة كلام معتدلة. "
+            "وضّح هدف المكالمة قبل الأسئلة. لا تقاطع المرشّح. انتظر الإجابة كاملة. "
+            "متابعة قصيرة لما الإجابة تكون ضعيفة. اسأل لو يبي يضيف شيء قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
             "لا تقاطع المرشّح وهو يجيب — انتظر حتى ينهي. "
@@ -136,15 +118,11 @@ def _arabic_generic_pack(agent: AgentDefinition) -> dict[str, str]:
             f"المكالمة مسجّلة للجودة والتقييم. "
             f"هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
         ),
-        "call_workflow": (
-            "التحية والوقت سُئلا بالفعل في بداية المكالمة — لا تعِد التعريف بنفسك ولا تعِد سؤال الوقت.\n"
-            "انتظر تأكيد المرشّح: إذا وافق → ابدأ أسئلة السيرة ثم أسئلة الوظيفة بالترتيب.\n"
-            "إذا مشغول أو رفض: اقترح معادًا خلال ساعات العمل وانهِ بلباقة.\n"
-            "اختتم بالشكر وأخبره أن فريق التوظيف سيتواصل معه."
-        ),
+        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة وإنسانية — مكالمة توظيف حقيقية. جمل قصيرة. "
-            "ردود قصيرة بعد الإجابات. لا تعِد المقدمة."
+            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. جمل قصيرة. "
+            "وضّح هدف المكالمة قبل الأسئلة. متابعة قصيرة عند الحاجة. "
+            "اسأل إن كان يريد إضافة شيء قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
             "إذا قاطعك المرشّح وسط جملة، أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة."

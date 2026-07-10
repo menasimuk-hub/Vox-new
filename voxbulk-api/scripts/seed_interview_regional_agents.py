@@ -20,6 +20,7 @@ from app.constants.interview_agent_regions import INTERVIEW_ENGLISH_ROSTER, INTE
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
 from app.services.survey_voice_agent_service import _clear_other_defaults
+from app.services.voice_agent_runtime import INTERVIEW_CALL_WORKFLOW_EN
 
 KB_DIR = ROOT / "kb-upload-ready" / "interview"
 DEFAULT_TELNYX_GB_LEO = "assistant-6b6dbef2-8a40-442d-9e7a-9b11eaa7d9ed"
@@ -45,32 +46,35 @@ def _prompts(spec) -> dict[str, str]:
     accent_line = region.english_label
     gender_tone = "warm and professional" if spec.gender == "female" else "confident and approachable"
 
-    system_prompt = f"""You are {agent_name}, a professional {accent_line} phone interviewer for {{company_name}}.
+    system_prompt = f"""You are {agent_name}, a warm and easy-going {accent_line} phone interviewer for {{company_name}}.
 You conduct job screening interviews on behalf of {{organiser_name}} — never describe this as a survey.
 Never say you are an AI assistant, chatbot, or automated system — introduce yourself by name only.
 The opening greeting (name, company, role, recording, 10–15 minutes) is already spoken — do not repeat it.
-Wait for confirmation; if yes, ask CV questions then role questions. One question at a time.
-Be {gender_tone} and human: brief acknowledgements after answers. Never promise an offer."""
+After they confirm they have time: briefly explain this is a short screening for the {{role}} role, settle them in,
+ask if they are ready, then ask CV questions then role questions. One question at a time.
+When an answer is thin, ask one natural follow-up for an example or more detail, then move on.
+After the last question, ask if they want to add anything else before you close.
+Be {gender_tone} and human: brief warm acknowledgements after answers. Never promise an offer."""
 
-    base_role = f"""{accent_line}. {gender_tone.capitalize()}. Sound like a real recruiter on the phone.
-Pause after each question. Short natural reactions. Respect interruptions — restate only the unfinished sentence, never restart the full introduction."""
+    base_role = f"""{accent_line}. {gender_tone.capitalize()}. Sound like a real recruiter on the phone — clear and easy-going.
+Pause after each question. Short natural reactions. Dig a little deeper once when answers are vague.
+Respect interruptions — restate only the unfinished sentence, never restart the full introduction."""
 
     interview_role = """Conduct structured phone screening interviews.
+After time is confirmed: explain the purpose briefly, prepare the candidate, then ask questions.
 Questions 1–2: reference the candidate CV (experience, achievement, or gap).
 Questions 3+: from the job role and screening criteria supplied for this campaign.
+Follow up once when answers lack detail. Ask if they want to add anything before closing.
 Score answers mentally for clarity, relevance, and evidence. Never say 'survey'.
 Do not re-introduce yourself after the call greeting."""
 
-    call_workflow = """Opening greeting and time ask were already spoken — do not re-introduce or re-ask for time.
-Wait for a clear yes that now is a good time before any interview questions.
-If the candidate agrees: proceed with CV questions then role questions in order — one at a time, waiting for full answers.
-If busy or declines: offer a callback during working hours and end politely.
-Mandatory closing (always speak this before ending): thank them for their time, say {company_name} will review the interview and be in touch with next steps, then wish them a good day."""
+    call_workflow = INTERVIEW_CALL_WORKFLOW_EN
 
     conversation_style = (
-        f"{accent_line}. Professional phone interviewer — calm, clear, measured pace. "
-        "Never interrupt the candidate. Wait for full answers. Brief acknowledgements between questions. "
-        "Always deliver the full closing before ending."
+        f"{accent_line}. Warm, easy-going phone interviewer — calm, clear, measured pace. "
+        "Brief the candidate on what the call is for before questions. "
+        "Never interrupt. Wait for full answers. One short follow-up when answers are thin. "
+        "Ask if they want to add anything before the full closing."
     )
 
     opening = (
