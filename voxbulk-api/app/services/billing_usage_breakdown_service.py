@@ -53,6 +53,9 @@ def _survey_channel(config: dict[str, Any], launch: dict[str, Any]) -> str:
 
 def _type_labels(service_code: str, channel: str) -> tuple[str, str]:
     sc = str(service_code or "").strip().lower()
+    ch = str(channel or "").strip().lower()
+    if sc == "customer_feedback" and ch in {"ai_call_follow_back", "ai_call"}:
+        return "AI Follow-back", "ai_call"
     if sc == "interview":
         return "Interview", "ai_call"
     if sc == "survey":
@@ -152,6 +155,100 @@ def _cost_from_order(db: Session, order: ServiceOrder, org: Organisation, launch
     return max(0, catalog), max(0, due), kind
 
 
+def _followback_usage_rows(
+    db: Session,
+    org: Organisation,
+    *,
+    p_start: datetime | None,
+    p_end: datetime | None,
+    currency: str,
+) -> list[dict[str, Any]]:
+    from app.models.customer_feedback import FeedbackAiFollowUpJob, FeedbackLocation
+
+    terminal = (
+        "completed",
+        "no_answer",
+        "busy",
+        "voicemail",
+        "opted_out",
+        "failed",
+        "blocked_low_balance",
+    )
+    filters = [
+        FeedbackAiFollowUpJob.org_id == org.id,
+        FeedbackAiFollowUpJob.status.in_(terminal),
+    ]
+    if p_start:
+        filters.append(FeedbackAiFollowUpJob.updated_at >= p_start)
+    if p_end:
+        filters.append(FeedbackAiFollowUpJob.updated_at <= p_end)
+
+    jobs = list(
+        db.execute(
+            select(FeedbackAiFollowUpJob)
+            .where(*filters)
+            .order_by(FeedbackAiFollowUpJob.updated_at.desc())
+            .limit(200)
+        )
+        .scalars()
+        .all()
+    )
+    rows: list[dict[str, Any]] = []
+    for job in jobs:
+        outcome = _parse_json(job.outcome_json)
+        billing = outcome.get("billing") if isinstance(outcome.get("billing"), dict) else {}
+        if billing.get("billing_skipped"):
+            catalog_minor = 0
+            amount_due_minor = 0
+            source_key = "no_charge"
+        else:
+            catalog_minor = int(billing.get("catalog_cost_minor") or billing.get("amount_due_minor") or 0)
+            amount_due_minor = int(billing.get("amount_due_minor") or 0)
+            method = str(billing.get("payment_method") or "")
+            if amount_due_minor <= 0:
+                source_key = "included_in_package"
+            elif method == "wallet":
+                source_key = "wallet"
+            elif method == "direct_debit":
+                source_key = "overage"
+            else:
+                source_key = "no_charge"
+        mins = billing.get("billable_minutes")
+        try:
+            quantity = int(mins) if mins is not None else None
+        except (TypeError, ValueError):
+            quantity = None
+        usage_display = f"{quantity} minutes" if quantity is not None else "—"
+        location = db.get(FeedbackLocation, job.location_id)
+        loc_name = str(getattr(location, "name", None) or "Customer Feedback").strip()
+        source_label = BILLING_SOURCE_LABELS.get(source_key, source_key)
+        rows.append(
+            {
+                "order_id": None,
+                "job_id": job.id,
+                "campaign_id": job.session_id,
+                "name": f"AI follow-back · {loc_name}",
+                "service_code": "customer_feedback",
+                "type_label": "AI Follow-back",
+                "channel": "ai_call",
+                "status": job.status,
+                "usage_quantity": quantity,
+                "usage_unit": "minutes",
+                "usage_display": usage_display,
+                "cost_minor": catalog_minor,
+                "cost_display": money_display(catalog_minor, currency),
+                "amount_due_minor": amount_due_minor,
+                "amount_due_display": money_display(amount_due_minor, currency),
+                "cost_kind": "actual",
+                "billing_source": source_key,
+                "billing_source_label": source_label,
+                "created_at": job.updated_at.isoformat() if job.updated_at else None,
+                "payment_status": "paid" if amount_due_minor > 0 else "approved",
+            }
+        )
+    return rows
+
+
 class BillingUsageBreakdownService:
     @staticmethod
     def _period_bounds(db: Session, org_id: str, period_start: datetime | None, period_end: datetime | None) -> tuple[datetime | None, datetime | None]:
@@ -200,9 +297,10 @@ class BillingUsageBreakdownService:
             )
 
         total_count = int(db.scalar(select(func.count()).select_from(ServiceOrder).where(*filters)) or 0)
+        fetch_cap = min(max(limit + offset, limit, 1), 200)
         orders = list(
             db.execute(
-                select(ServiceOrder).where(*filters).order_by(ServiceOrder.created_at.desc()).offset(max(offset, 0)).limit(min(max(limit, 1), 200))
+                select(ServiceOrder).where(*filters).order_by(ServiceOrder.created_at.desc()).limit(fetch_cap)
             )
             .scalars()
             .all()
@@ -268,6 +366,18 @@ class BillingUsageBreakdownService:
                     "payment_status": order.payment_status,
                 }
             )
+
+        followback_rows = _followback_usage_rows(db, org, p_start=p_start, p_end=p_end, currency=currency)
+        if service_code and service_code.strip().lower() not in {"", "customer_feedback"}:
+            followback_rows = []
+        elif service_code and service_code.strip().lower() == "customer_feedback":
+            rows = []
+        if billing_source:
+            followback_rows = [r for r in followback_rows if r["billing_source"] == billing_source.strip().lower()]
+        rows.extend(followback_rows)
+        rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        total_count += len(followback_rows)
+        rows = rows[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 200)]
 
         usage_row = UsageWalletService.get_current(db, org.id)
         calls_inc = int(getattr(usage_row, "calls_included", 0) or 0) if usage_row else 0

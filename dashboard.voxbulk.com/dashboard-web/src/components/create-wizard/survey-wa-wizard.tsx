@@ -5,6 +5,7 @@ import {
   Download,
   Eye,
   FileText,
+  Info,
   PhoneCall,
   Rocket,
   Sparkles,
@@ -691,7 +692,16 @@ export function SurveyWaWizard(props: SurveyWaWizardProps) {
         )}
 
         {step === 6 && (
-          <AiFollowUpStep stepLabel="Step 6" config={props.aiFollowUp} onChange={props.setAiFollowUp} />
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+              <Info className="size-3.5 shrink-0 text-amber-600" />
+              <p>
+                <b>Customer Feedback only.</b> This step configures AI follow-back for unhappy CF respondents — it
+                does not apply to WhatsApp Survey campaigns launched from this wizard.
+              </p>
+            </div>
+            <AiFollowUpStep stepLabel="Step 6" config={props.aiFollowUp} onChange={props.setAiFollowUp} />
+          </div>
         )}
 
         {step === 7 && (

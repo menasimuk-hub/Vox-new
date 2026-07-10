@@ -113,10 +113,15 @@ export function AiFollowUpStep({
               <Textarea
                 id="ai-context"
                 rows={4}
-                placeholder="Example: We're Northwell Dental, a family dentist in Marina. This survey is about visits from the last 7 days."
+                placeholder="Example: We're Northwell Dental, a family dentist in Marina. This survey is about visits from the last 7 days — waiting times, reception, and treatment."
                 value={config.businessContext}
                 onChange={(e) => set("businessContext", e.target.value)}
               />
+              {config.enabled && !config.businessContext.trim() && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Add a short business description so the AI sounds natural on follow-back calls.
+                </p>
+              )}
             </div>
 
             <div className="rounded-xl border border-border bg-background/60 p-4">
@@ -198,7 +203,9 @@ export function AiFollowUpStep({
             <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-background/60 p-3 text-xs text-muted-foreground">
               <Info className="size-3.5 shrink-0 text-primary" />
               <p>
-                AI follow-up calls only work when a phone number is on file. Anonymous web-only responses are skipped.
+                WhatsApp numbers only — anonymous web-only responses are skipped. Calls use your Core AI minutes or
+                wallet (not your Customer Feedback WhatsApp subscription). Charged as connection fee plus minutes;
+                appears under Account → Usage as <b>AI Follow-back</b>.
               </p>
             </div>
           </div>

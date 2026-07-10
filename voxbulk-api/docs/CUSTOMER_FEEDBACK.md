@@ -96,6 +96,44 @@ QR scan → visitor sends trigger → charge 1 unit (per inbound) → selected t
 - **Results** — stored with `answer_text_en` for dashboard display.
 - **Billing** — 1 WA unit per inbound QR trigger (not per completed survey).
 
+## AI call follow-back (Step 6)
+
+Optional recovery calls for **unhappy WhatsApp respondents** who left a low rating but no written reason.
+
+### Eligibility
+
+- Enabled per location in Dashboard → Customer Feedback wizard **Step 6** (or location edit).
+- **WhatsApp phone only** — sessions with `web:` pseudo-phones are skipped.
+- Low rating detected from survey answers; skipped if the customer left a written/voice reason (≥8 chars, tell-us-more, or voice note).
+- **Arabic sessions** are skipped in v1 (English-only agent).
+- **STOP / org opt-out** list blocks scheduling and dial.
+- Telnyx **phone allowlist** must pass before dial.
+- One job per session (`feedback_ai_follow_up_jobs`).
+
+### Timing and compliance
+
+- Scheduled **24 or 48 hours** after survey completion (UTC storage; dial deferred to next **UK calling window** if outside org hours).
+- Platform outbound caller ID (shared Telnyx number).
+- Recording disclosure spoken in the agent greeting.
+
+### Billing (Core — not CF subscription)
+
+| Customer type | Pre-dial | Charge |
+|---------------|----------|--------|
+| **Core subscription** | Allow if active sub (or included minutes / overage allowed) | Included minutes first → overage on **month-end DD invoice** |
+| **Pay-as-you-go / wallet** | Block if spendable wallet **< £5** | Connection fee + billable minutes debited from wallet (`ai_call_follow_back`) |
+
+Customer Feedback Direct Debit plans cover **WhatsApp trigger units only** — follow-back AI calls always use **Core** allowance, wallet, or overage.
+
+Visibility: **Account → Usage** rows labelled **AI Follow-back** (`service_code: customer_feedback`).
+
+### Ops (VPS)
+
+1. Migration **`0160`** must be applied (`feedback_ai_follow_up_jobs` table).
+2. Seed follow-back agent: `python scripts/seed_feedback_followback_agent.py`
+3. Assign agent under Admin → Agents → service **AI follow-back (Customer Feedback)** if per-org override needed.
+4. Ensure survey call scheduler runs (`survey_call_scheduler_loop` processes due follow-back jobs).
+
 ## Package tiers (seed)
 
 | Plan | Locations | Triggers/mo |

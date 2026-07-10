@@ -664,6 +664,18 @@ class TelnyxExecutionService:
             logging.getLogger(__name__).exception("interview_call_telnyx_event_failed")
 
         try:
+            from app.services.customer_feedback.feedback_ai_followup_service import (
+                handle_feedback_ai_followup_telnyx_event,
+            )
+
+            if handle_feedback_ai_followup_telnyx_event(db, payload):
+                return None
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("feedback_ai_followup_telnyx_event_failed")
+
+        try:
             from app.services.survey_call_dispatch_service import handle_survey_telnyx_event
 
             handle_survey_telnyx_event(db, payload)
