@@ -334,20 +334,65 @@ def regenerate_convert_template(
         detail = get_convert_template(db, product="feedback", template_id=str(frow.id))
         detail["old_body"] = old_body
         detail["new_body"] = new_body
-        detail["llm"] = {"provider": provider, "model": model}
+        detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
+        detail["rewrite_mode"] = "llm_or_rule"
+        detail["lint"] = _lint_to_dict(
+            lint_utility_template(
+                body=new_body,
+                buttons=detail.get("buttons") or [],
+                language=detail.get("language"),
+                meta_category="utility",
+            )
+        )
+        detail["llm"] = {"provider": provider, "model": model, "source": llm.get("source")}
         return detail
 
     row = db.get(TelnyxWhatsappTemplate, int(template_id))
     if row is None:
         raise SurveyWhatsappTemplateError("Survey template not found")
+    # Convert always force-rewrites: Meta may still mark the live name MARKETING even when
+    # local BODY already passes our Utility lint.
     old_body, new_body = apply_utility_rewrite_to_row(
-        db, row, use_llm=True, llm_provider=provider, llm_model=model
+        db,
+        row,
+        use_llm=True,
+        llm_provider=provider,
+        llm_model=model,
+        force_rewrite=True,
     )
     detail = get_convert_template(db, product="survey", template_id=str(row.id))
     detail["old_body"] = old_body
     detail["new_body"] = new_body
-    detail["llm"] = {"provider": provider, "model": model}
+    detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
+    detail["rewrite_mode"] = "force_utility"
+    detail["lint"] = _lint_to_dict(
+        lint_utility_template(
+            body=new_body,
+            buttons=detail.get("buttons") or [],
+            language=detail.get("language"),
+            meta_category="utility",
+        )
+    )
+    detail["llm"] = {"provider": provider, "model": model, "source": llm.get("source")}
     return detail
+
+
+def _lint_to_dict(lint: Any) -> dict[str, Any]:
+    issues = []
+    for item in getattr(lint, "issues", None) or []:
+        if hasattr(item, "code"):
+            issues.append(
+                {
+                    "code": getattr(item, "code", None),
+                    "message": getattr(item, "message", str(item)),
+                    "field": getattr(item, "field", None),
+                }
+            )
+        elif isinstance(item, dict):
+            issues.append(item)
+        else:
+            issues.append({"message": str(item)})
+    return {"ok": bool(getattr(lint, "ok", False)), "issues": issues}
 
 
 def save_convert_template(

@@ -22,6 +22,8 @@ export default function WaConvertPanel({ syncProfileId }) {
   const [msg, setMsg] = useState('')
   const [activeId, setActiveId] = useState(null)
   const [editor, setEditor] = useState(null)
+  const [regenDiff, setRegenDiff] = useState(null)
+  const [lintInfo, setLintInfo] = useState(null)
   const [busy, setBusy] = useState('')
   const [overlay, setOverlay] = useState(null)
 
@@ -67,6 +69,8 @@ export default function WaConvertPanel({ syncProfileId }) {
   useEffect(() => {
     if (!active?.db_id || !active?.product) {
       setEditor(null)
+      setRegenDiff(null)
+      setLintInfo(null)
       return
     }
     let cancelled = false
@@ -273,20 +277,40 @@ export default function WaConvertPanel({ syncProfileId }) {
     setBusy('regen')
     setError('')
     setMsg('')
+    setRegenDiff(null)
     try {
       const data = await apiFetch(
         `/admin/wa-templates/convert/${encodeURIComponent(editor.product)}/${encodeURIComponent(editor.db_id)}/regenerate`,
         { method: 'POST', body: JSON.stringify({}), timeoutMs: 180000 },
       )
+      const nextBody = data.new_body || data.body || editor.body
       setEditor((prev) => ({
         ...prev,
-        body: data.body || data.new_body || prev.body,
+        body: nextBody,
         buttons: Array.isArray(data.buttons) ? data.buttons : prev.buttons,
         header: data.header ?? prev.header,
         footer: data.footer ?? prev.footer,
         suggested_next_name: data.suggested_next_name || prev.suggested_next_name,
       }))
-      setMsg(`Regenerated with ${data.llm?.provider || 'LLM'} (${data.llm?.model || 'default'})`)
+      setRegenDiff({
+        old_body: data.old_body || '',
+        new_body: nextBody || '',
+        changed: Boolean(data.changed),
+      })
+      setLintInfo(data.lint || null)
+      if (data.changed) {
+        setMsg(
+          `Body rewritten (${data.llm?.source || data.llm?.provider || 'utility'}). Local Utility lint: ${
+            data.lint?.ok ? 'PASS' : 'FAIL — fix before Save'
+          }. Save, then Push.`,
+        )
+      } else {
+        setMsg(
+          `Regenerate returned the same body (already mapped to Utility topic wording). Local lint: ${
+            data.lint?.ok ? 'PASS' : 'FAIL'
+          }. You can still edit manually, then Save → Push.`,
+        )
+      }
     } catch (e) {
       setError(fmtErr(e))
     } finally {
@@ -554,9 +578,49 @@ export default function WaConvertPanel({ syncProfileId }) {
                     onChange={(e) => setEditor((p) => ({ ...p, body: e.target.value }))}
                   />
                   <span className="mt-1 block text-[11px] text-muted-foreground">
-                    Utility copy must confirm a transaction/account action — not promote an offer.
+                    Utility copy must confirm a recent visit/stay/service — not promote an offer. Local lint is a guide;
+                    Meta still decides APPROVED vs MARKETING after Push.
                   </span>
                 </label>
+                {regenDiff ? (
+                  <div className="rounded-md border bg-muted/30 p-2 text-[11px]">
+                    <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                      Regenerate result {regenDiff.changed ? '(changed)' : '(unchanged)'}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div>
+                        <div className="mb-0.5 text-muted-foreground">Before</div>
+                        <div className="whitespace-pre-wrap rounded border bg-background p-1.5 text-xs">{regenDiff.old_body || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="mb-0.5 text-muted-foreground">After</div>
+                        <div className="whitespace-pre-wrap rounded border bg-background p-1.5 text-xs">{regenDiff.new_body || '—'}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {lintInfo ? (
+                  <div
+                    className={cn(
+                      'rounded-md border px-2 py-1.5 text-[11px]',
+                      lintInfo.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-red-200 bg-red-50 text-red-900',
+                    )}
+                  >
+                    <div className="font-semibold">Local Utility lint: {lintInfo.ok ? 'PASS' : 'FAIL'}</div>
+                    {!lintInfo.ok && Array.isArray(lintInfo.issues) ? (
+                      <ul className="mt-1 list-disc pl-4">
+                        {lintInfo.issues.slice(0, 6).map((issue, idx) => (
+                          <li key={idx}>{issue.message || issue.code || String(issue)}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-0.5 text-muted-foreground">
+                        Passes our Meta Utility checks (no promo/recommend-to-others wording; ties to a recent interaction).
+                        Meta can still reclassify after review.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
                 {editor.product === 'survey' ? (
                   <label className="block text-xs">
                     <span className="mb-1 block font-semibold uppercase tracking-wide text-muted-foreground">Footer</span>

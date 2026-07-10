@@ -414,6 +414,7 @@ def _rule_based_utility_body(
     industry_name: str | None = None,
     language: str | None = None,
     template_name: str = "",
+    force_rewrite: bool = False,
 ) -> str:
     from app.services.wa_template_utility_content import (
         employee_utility_body_for_topic,
@@ -427,16 +428,34 @@ def _rule_based_utility_body(
         emoji = leading_emoji
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     lang_code = _language_code_from_value(language, template_name=template_name)
+    frame = resolve_industry_frame(industry_slug, industry_name, language=lang_code if lang_code == "ar" else "en")
+    topic = topic_hint.strip() or frame["fallback_topic"]
+
+    if force_rewrite:
+        if frame["key"] == "employee":
+            body = employee_utility_body_for_topic(topic) or utility_body_for_topic(
+                topic,
+                emoji="",
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+            ).lstrip()
+        else:
+            body = utility_body_for_topic(
+                topic,
+                emoji="",
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+            ).lstrip()
+        return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(body)))
+
     if _is_non_english_language(lang_code, template_name=template_name) and _original_looks_utility_safe(
         cleaned,
         language=lang_code,
         template_name=template_name,
     ):
         return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(cleaned)))
-    frame = resolve_industry_frame(industry_slug, industry_name, language=lang_code if lang_code == "ar" else "en")
     if not cleaned:
         cleaned = frame["experience"]
-    topic = topic_hint.strip() or frame["fallback_topic"]
     # Never force visit language onto employee surveys.
     if frame["key"] == "employee":
         if "visit" in cleaned.lower():
@@ -580,6 +599,7 @@ def rewrite_body_for_utility(
     industry_name: str | None = None,
     topic_name: str | None = None,
     language: str | None = None,
+    force_rewrite: bool = False,
 ) -> str:
     from app.services.wa_template_utility_content import resolve_industry_frame
 
@@ -603,6 +623,7 @@ def rewrite_body_for_utility(
             industry_name=industry_name,
             language=lang_code,
             template_name=template_name,
+            force_rewrite=force_rewrite,
         )
 
     if not use_llm:
@@ -617,7 +638,9 @@ def rewrite_body_for_utility(
         meta_category="utility",
         template_key=topic_name,
     )
-    if lint_before.ok:
+    # Convert / force path must still produce a Utility rewrite even when local lint already passes
+    # (Meta may still have MARKETING classification on the live name).
+    if lint_before.ok and not force_rewrite:
         return _normalize_leading_emoji_text(
             _prepend_leading_emoji(leading_emoji, _sanitize_body(str(original_body).strip()))
         )
@@ -669,6 +692,8 @@ def rewrite_body_for_utility(
                 body = _sanitize_body(body)
                 if not body:
                     raise ValueError("empty body from model")
+                if force_rewrite and body.strip().lower() == _sanitize_body(str(original_body)).strip().lower():
+                    return _fallback_body()
                 if _is_non_english_language(lang_code, template_name=template_name) and _looks_english_utility_template(body):
                     return _fallback_body()
                 if frame["key"] == "employee" and "visit" in body.lower():
@@ -704,6 +729,7 @@ def apply_utility_rewrite_to_row(
     llm_provider: str = DEFAULT_UTILITY_LLM_PROVIDER,
     llm_model: str | None = None,
     new_body_override: str | None = None,
+    force_rewrite: bool = False,
 ) -> tuple[str, str]:
     components = _effective_components(row)
     if not components:
@@ -721,7 +747,7 @@ def apply_utility_rewrite_to_row(
 
     industry_slug, industry_name = _industry_for_template_row(db, row)
     topic_name = _topic_for_template_row(db, row)
-    if _body_has_recommend_intent(old_body):
+    if _body_has_recommend_intent(old_body) and not force_rewrite:
         use_llm = False
 
     if new_body_override is not None and str(new_body_override).strip():
@@ -740,6 +766,7 @@ def apply_utility_rewrite_to_row(
             industry_name=industry_name,
             topic_name=topic_name,
             language=row.language,
+            force_rewrite=force_rewrite,
         )
     new_body = _normalize_leading_emoji_text(new_body)
     lint = lint_utility_template(
