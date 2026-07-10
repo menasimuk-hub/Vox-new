@@ -271,14 +271,16 @@ function QuestionView({
   theme,
   index,
   question,
+  selectedValue,
   disabled,
   onSelect,
 }: {
   theme: Theme;
   index: number;
   question: SurveyQuestion;
+  selectedValue: string;
   disabled: boolean;
-  onSelect: (value: string, low?: boolean) => void;
+  onSelect: (value: string) => void;
 }) {
   return (
     <div className="animate-rise">
@@ -291,21 +293,40 @@ function QuestionView({
       ) : null}
       <div className="mt-6 grid gap-2.5">
         {(question.options || []).map((opt) => {
-          const isLow = (question.low_values || []).includes(opt.value);
+          const selected = selectedValue === opt.value;
           return (
             <button
               key={opt.value}
               type="button"
               disabled={disabled}
-              onClick={() => onSelect(opt.value, isLow)}
+              onClick={() => onSelect(opt.value)}
               className="group flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-[15px] font-medium transition-all active:scale-[0.98] disabled:opacity-50"
-              style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
+              style={
+                selected
+                  ? {
+                      background: theme.gradientButton,
+                      color: "#fff",
+                      borderColor: "transparent",
+                      boxShadow: theme.selectedShadow,
+                    }
+                  : { background: theme.card, borderColor: theme.border, color: theme.ink }
+              }
             >
               <span>{opt.label}</span>
               <span
                 className="grid h-5 w-5 place-items-center rounded-full"
-                style={{ border: `1px solid ${theme.border}` }}
-              />
+                style={
+                  selected
+                    ? { background: "#fff", color: theme.accent }
+                    : { border: `1px solid ${theme.border}` }
+                }
+              >
+                {selected ? (
+                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                ) : null}
+              </span>
             </button>
           );
         })}
@@ -400,10 +421,14 @@ export function PublicFeedbackSurvey({
   const [deadlineAt, setDeadlineAt] = useState<string | null>(null);
   const [detailVoicePending, setDetailVoicePending] = useState(false);
   const [reasonVoicePending, setReasonVoicePending] = useState(false);
+  const [detailHasVoice, setDetailHasVoice] = useState(false);
+  const [reasonHasVoice, setReasonHasVoice] = useState(false);
+  const [choiceSelection, setChoiceSelection] = useState("");
 
   const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const navEpochRef = useRef(0);
   const stepIndexRef = useRef(0);
+  const answersByStepRef = useRef<Record<number, string>>({});
   const detailRef = useRef<VoiceDetailHandle>(null);
   const reasonRef = useRef<VoiceDetailHandle>(null);
   const isPreview = Boolean(previewThemeId);
@@ -534,6 +559,11 @@ export function PublicFeedbackSurvey({
       setTextAnswer("");
       setReasonChips([]);
       setReasonText("");
+      setDetailHasVoice(false);
+      setReasonHasVoice(false);
+      setDetailVoicePending(false);
+      setReasonVoicePending(false);
+      setChoiceSelection(answersByStepRef.current[idx] ?? "");
       if (idx >= stepCount) {
         setReasonOverlay(null);
         setPhase("thanks");
@@ -594,6 +624,7 @@ export function PublicFeedbackSurvey({
   const answerStep = (answer: string, opts?: { showReasonAfter?: ReasonOverlay }) => {
     if (!sessionId && !isPreview) return;
     setError("");
+    answersByStepRef.current[stepIndexRef.current] = answer;
     const epoch = navEpochRef.current;
     if (isPreview) {
       if (opts?.showReasonAfter) {
@@ -622,6 +653,22 @@ export function PublicFeedbackSurvey({
       const data = (await postAnswer(answer)) as AdvanceResponse;
       applyAdvance(epoch, data, stepIndex + 1);
     });
+  };
+
+  const submitChoiceStep = () => {
+    const value = choiceSelection.trim();
+    if (!value || !q) return;
+    const isLow = (q.low_values || []).includes(value);
+    if (isLow) {
+      answerStep(value, {
+        showReasonAfter: {
+          reason_options: q.reason_options,
+          reason_prompt: q.reason_prompt,
+        },
+      });
+      return;
+    }
+    answerStep(value);
   };
 
   const submitDetailStep = async (mode: "answer" | "reason") => {
@@ -757,9 +804,15 @@ export function PublicFeedbackSurvey({
       setReasonOverlay(null);
       setReasonChips([]);
       setReasonText("");
+      setReasonHasVoice(false);
+      setReasonVoicePending(false);
       return;
     }
     if (stepIndex <= 0 || !sessionId) return;
+    if (isPreview) {
+      goToStep(stepIndex - 1);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -824,16 +877,13 @@ export function PublicFeedbackSurvey({
   const isText = q?.input === "text";
   const isLast = stepIndex >= stepCount - 1;
   const inReasonOverlay = reasonOverlay !== null;
-  const activeDetailRef = inReasonOverlay ? reasonRef : detailRef;
-  const voicePending = inReasonOverlay ? reasonVoicePending : detailVoicePending;
+  const voiceRecording = inReasonOverlay ? reasonVoicePending : detailVoicePending;
+  const voiceReady = inReasonOverlay ? reasonHasVoice : detailHasVoice;
   const detailText = inReasonOverlay ? reasonText : textAnswer;
-  const recordedBlob = activeDetailRef.current?.getBlob() ?? null;
-  const isRecording = voicePending && !recordedBlob;
+  const isRecording = voiceRecording && !voiceReady;
   const canSubmitDetail =
     !isRecording &&
-    (Boolean(recordedBlob) ||
-      Boolean(detailText.trim()) ||
-      (inReasonOverlay && reasonChips.length > 0));
+    (voiceReady || Boolean(detailText.trim()) || (inReasonOverlay && reasonChips.length > 0));
 
   return (
     <div className="feedback-survey-root" style={themeStyleVars(theme)}>
@@ -922,6 +972,7 @@ export function PublicFeedbackSurvey({
                   }
                   disabled={busy}
                   onVoicePendingChange={setReasonVoicePending}
+                  onVoiceReadyChange={setReasonHasVoice}
                 />
               ) : isText ? (
                 <VoiceDetail
@@ -937,25 +988,16 @@ export function PublicFeedbackSurvey({
                   allowVoice={Boolean(q.allow_voice)}
                   disabled={busy}
                   onVoicePendingChange={setDetailVoicePending}
+                  onVoiceReadyChange={setDetailHasVoice}
                 />
               ) : (
                 <QuestionView
                   theme={theme}
                   index={stepIndex}
                   question={q}
+                  selectedValue={choiceSelection}
                   disabled={busy}
-                  onSelect={(value, low) => {
-                    if (low) {
-                      answerStep(value, {
-                        showReasonAfter: {
-                          reason_options: q.reason_options,
-                          reason_prompt: q.reason_prompt,
-                        },
-                      });
-                    } else {
-                      answerStep(value);
-                    }
-                  }}
+                  onSelect={(value) => setChoiceSelection(value)}
                 />
               )}
             </div>
@@ -974,17 +1016,17 @@ export function PublicFeedbackSurvey({
               />
             )}
 
-            {!inReasonOverlay && !isText && stepIndex > 0 && (
+            {!inReasonOverlay && !isText && (
               <SurveyFooter
                 theme={theme}
                 showSkip={false}
-                nextLabel="Next"
-                nextDisabled
-                backDisabled={false}
+                nextLabel={isLast ? "Submit" : "Next"}
+                nextDisabled={!choiceSelection}
+                backDisabled={stepIndex <= 0}
                 busy={busy}
                 onBack={goBack}
                 onSkip={() => undefined}
-                onNext={() => undefined}
+                onNext={submitChoiceStep}
               />
             )}
 

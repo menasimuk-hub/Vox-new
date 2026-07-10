@@ -144,6 +144,7 @@ export type VoiceDetailProps = {
   onToggleChip?: (chip: string) => void;
   disabled?: boolean;
   onVoicePendingChange?: (pending: boolean) => void;
+  onVoiceReadyChange?: (ready: boolean) => void;
 };
 
 export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(function VoiceDetail(
@@ -161,6 +162,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
     onToggleChip,
     disabled = false,
     onVoicePendingChange,
+    onVoiceReadyChange,
   },
   ref,
 ) {
@@ -225,6 +227,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
     stopStream();
     revokeAudioUrl();
     blobRef.current = null;
+    onVoiceReadyChange?.(false);
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
@@ -273,6 +276,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
           audio.onended = () => setPlaying(false);
           audioRef.current = audio;
           setRecState("recorded");
+          onVoiceReadyChange?.(true);
         } else {
           setRecError("Recording was empty. Try again and speak clearly.");
           setRecState("idle");
