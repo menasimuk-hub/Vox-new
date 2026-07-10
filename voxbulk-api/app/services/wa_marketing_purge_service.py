@@ -89,6 +89,7 @@ def delete_remote_template_by_name(
     name: str,
     language: str | None,
     service_code: str,
+    profile_ids: list[str] | None = None,
 ) -> list[str]:
     """Delete a template name from Meta primary + Telnyx backup (best effort)."""
     clean_name = str(name or "").strip()
@@ -98,8 +99,12 @@ def delete_remote_template_by_name(
     lang = _norm_lang(language)
     primary_id = WaTemplateProfilePushService.resolve_primary_connection_profile_id(db, service_code=service_code)
     backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(db, service_code=service_code)
+    if profile_ids:
+        pairs = [(str(pid).strip(), f"profile:{str(pid).strip()[:8]}") for pid in profile_ids if str(pid or "").strip()]
+    else:
+        pairs = [(pid, label) for pid, label in ((primary_id, "meta_primary"), (backup_id, "telnyx_backup")) if pid]
 
-    for pid, label in ((primary_id, "meta_primary"), (backup_id, "telnyx_backup")):
+    for pid, label in pairs:
         if not pid:
             continue
         try:
@@ -151,7 +156,12 @@ def delete_remote_template_by_name(
                 else:
                     raise
 
-    if primary_id and "meta_primary" not in deleted_on and "meta_primary_already_gone" not in deleted_on:
+    if (
+        not profile_ids
+        and primary_id
+        and "meta_primary" not in deleted_on
+        and "meta_primary_already_gone" not in deleted_on
+    ):
         try:
             MetaWhatsappTemplateService.delete_message_template(
                 db,
