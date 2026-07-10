@@ -761,6 +761,8 @@ def apply_utility_rewrite_to_row(
         AR_RATING_BUTTONS,
         RATING_BUTTONS,
         _is_would_recommend_topic,
+        buttons_labels_equal,
+        utility_buttons_matching_body,
     )
 
     recommend_topic = _is_would_recommend_topic(topic_name) or "would_recommend" in str(
@@ -792,6 +794,17 @@ def apply_utility_rewrite_to_row(
             force_rewrite=force_rewrite or recommend_topic or recommend_buttons,
         )
     new_body = _normalize_leading_emoji_text(new_body)
+
+    # After BODY rewrite, realign quick-replies so labels match the question (not leftover MARKETING text).
+    matched = utility_buttons_matching_body(
+        body=new_body,
+        topic_name=topic_name,
+        template_name=row.name,
+        language=row.language,
+    )
+    if force_rewrite or recommend_topic or recommend_buttons or not buttons_labels_equal(buttons, matched):
+        buttons = clamp_utility_button_labels(matched)
+
     lint = lint_utility_template(
         body=new_body,
         buttons=buttons,
@@ -815,6 +828,31 @@ def apply_utility_rewrite_to_row(
                 force_rewrite=True,
             )
             new_body = _normalize_leading_emoji_text(new_body)
+            buttons = clamp_utility_button_labels(
+                utility_buttons_matching_body(
+                    body=new_body,
+                    topic_name=topic_name or "would recommend",
+                    template_name=row.name,
+                    language=row.language,
+                )
+            )
+            lint = lint_utility_template(
+                body=new_body,
+                buttons=buttons,
+                language=row.language,
+                meta_category="utility",
+            )
+        if not lint.ok:
+            # Button labels alone may still fail lint — force matched set once more.
+            buttons = clamp_utility_button_labels(
+                utility_buttons_matching_body(
+                    body=new_body,
+                    topic_name=topic_name,
+                    template_name=row.name,
+                    language=row.language,
+                )
+                or list(RATING_BUTTONS)
+            )
             lint = lint_utility_template(
                 body=new_body,
                 buttons=buttons,

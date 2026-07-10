@@ -147,6 +147,27 @@ def test_force_rewrite_nps_copy_to_satisfaction_with_rating_buttons():
     assert "overall satisfaction" in body.lower()
 
 
+def test_utility_buttons_matching_body_realigns_recommend_labels():
+    from app.services.wa_template_utility_content import (
+        RATING_BUTTONS,
+        buttons_labels_equal,
+        utility_buttons_matching_body,
+    )
+
+    matched = utility_buttons_matching_body(
+        body="📋 How would you rate your overall satisfaction from your recent experience with us? "
+        "Reply with one option below.",
+        topic_name="would recommend",
+        template_name="was_logistics_delivery_would_recommend_003_en",
+        language="en_GB",
+    )
+    assert matched == list(RATING_BUTTONS)
+    assert not buttons_labels_equal(
+        ["Would Recommend", "Neutral", "Would Not Recommend"],
+        matched,
+    )
+
+
 def test_suggest_utility_clone_template_name():
     assert (
         suggest_utility_clone_template_name("voxbulk_survey_staff_friendliness_abc_875f3a")

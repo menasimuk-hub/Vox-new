@@ -350,6 +350,9 @@ def regenerate_convert_template(
     row = db.get(TelnyxWhatsappTemplate, int(template_id))
     if row is None:
         raise SurveyWhatsappTemplateError("Survey template not found")
+    from app.services.survey_wa_utility_rewrite_service import _extract_body_and_buttons, _effective_components
+
+    _pre_body, old_buttons = _extract_body_and_buttons(_effective_components(row) or [])
     # Convert always force-rewrites with rule-based Utility copy (no LLM).
     # LLM previously rewrote satisfaction → NPS "recommend" and local lint wrongly PASSed.
     old_body, new_body = apply_utility_rewrite_to_row(
@@ -361,9 +364,13 @@ def regenerate_convert_template(
         force_rewrite=True,
     )
     detail = get_convert_template(db, product="survey", template_id=str(row.id))
+    new_buttons = list(detail.get("buttons") or [])
     detail["old_body"] = old_body
     detail["new_body"] = new_body
-    detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
+    detail["old_buttons"] = old_buttons
+    detail["new_buttons"] = new_buttons
+    detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip() or old_buttons != new_buttons
+    detail["buttons_changed"] = old_buttons != new_buttons
     detail["rewrite_mode"] = "force_utility_rule"
     detail["lint"] = _lint_to_dict(
         lint_utility_template(

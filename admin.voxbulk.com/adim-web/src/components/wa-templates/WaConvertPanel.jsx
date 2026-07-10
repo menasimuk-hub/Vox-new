@@ -284,10 +284,11 @@ export default function WaConvertPanel({ syncProfileId }) {
         { method: 'POST', body: JSON.stringify({}), timeoutMs: 180000 },
       )
       const nextBody = data.new_body || data.body || editor.body
+      const nextButtons = Array.isArray(data.buttons) ? data.buttons : Array.isArray(data.new_buttons) ? data.new_buttons : editor.buttons
       setEditor((prev) => ({
         ...prev,
         body: nextBody,
-        buttons: Array.isArray(data.buttons) ? data.buttons : prev.buttons,
+        buttons: nextButtons,
         header: data.header ?? prev.header,
         footer: data.footer ?? prev.footer,
         suggested_next_name: data.suggested_next_name || prev.suggested_next_name,
@@ -295,12 +296,15 @@ export default function WaConvertPanel({ syncProfileId }) {
       setRegenDiff({
         old_body: data.old_body || '',
         new_body: nextBody || '',
+        old_buttons: Array.isArray(data.old_buttons) ? data.old_buttons : [],
+        new_buttons: Array.isArray(data.new_buttons) ? data.new_buttons : nextButtons,
         changed: Boolean(data.changed),
+        buttons_changed: Boolean(data.buttons_changed),
       })
       setLintInfo(data.lint || null)
       if (data.changed) {
         setMsg(
-          `Body rewritten (${data.llm?.source || data.llm?.provider || 'utility'}). Local Utility lint: ${
+          `Body${data.buttons_changed ? ' + buttons' : ''} rewritten (${data.llm?.source || data.llm?.provider || 'utility'}). Local Utility lint: ${
             data.lint?.ok ? 'PASS' : 'FAIL — fix before Save'
           }. Save, then Push.`,
         )
@@ -591,10 +595,21 @@ export default function WaConvertPanel({ syncProfileId }) {
                       <div>
                         <div className="mb-0.5 text-muted-foreground">Before</div>
                         <div className="whitespace-pre-wrap rounded border bg-background p-1.5 text-xs">{regenDiff.old_body || '—'}</div>
+                        {(regenDiff.old_buttons || []).length ? (
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            Buttons: {(regenDiff.old_buttons || []).join(' · ')}
+                          </div>
+                        ) : null}
                       </div>
                       <div>
                         <div className="mb-0.5 text-muted-foreground">After</div>
                         <div className="whitespace-pre-wrap rounded border bg-background p-1.5 text-xs">{regenDiff.new_body || '—'}</div>
+                        {(regenDiff.new_buttons || []).length ? (
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            Buttons: {(regenDiff.new_buttons || []).join(' · ')}
+                            {regenDiff.buttons_changed ? ' (updated)' : ''}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>

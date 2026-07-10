@@ -10,10 +10,12 @@ DEFAULT_EMOJI = "📋"
 STOP_FOOTER = "Reply STOP to opt out"
 RATING_BUTTONS = ["Excellent", "Good", "Poor"]
 YES_NO_BUTTONS = ["Yes", "No"]
+HELPFULNESS_BUTTONS = ["Very helpful", "Partly helpful", "Not helpful"]
 THANKS_BUTTONS = ["Done"]
 WELCOME_BUTTONS = ["Start survey"]
 AR_RATING_BUTTONS = ["ممتاز", "جيد", "ضعيف"]
 AR_YES_NO_BUTTONS = ["نعم", "لا"]
+AR_HELPFULNESS_BUTTONS = ["مفيد جدا", "مفيد جزئيا", "غير مفيد"]
 AR_THANKS_BUTTONS = ["تم"]
 AR_WELCOME_BUTTONS = ["ابدأ الاستبيان"]
 
@@ -369,6 +371,52 @@ def buttons_for_language(
             return list(AR_YES_NO_BUTTONS)
         return list(AR_RATING_BUTTONS)
     return default_buttons_for_key(template_key, name=name, system_kind=system_kind)
+
+
+def utility_buttons_matching_body(
+    *,
+    body: str,
+    topic_name: str | None = None,
+    template_name: str | None = None,
+    language: str | None = None,
+) -> list[str]:
+    """Pick Utility quick-reply labels that match rewritten BODY / topic (not leftover MARKETING labels)."""
+    ar = str(language or "").lower().startswith("ar")
+    blob = f"{topic_name or ''} {template_name or ''}".lower().replace("-", "_")
+    low = str(body or "").lower()
+
+    if any(token in blob for token in ("thank_you", "tell_us_more", "final_feedback", "open_question")):
+        return []
+    if "welcome" in blob:
+        return list(AR_WELCOME_BUTTONS if ar else WELCOME_BUTTONS)
+
+    if (
+        _is_would_recommend_topic(topic_name)
+        or "would_recommend" in blob
+        or re.search(r"\brecommend\b", low)
+        or "overall satisfaction" in low
+        or "how would you rate" in low
+        or "how satisfied" in low
+        or "reply with one option" in low
+    ):
+        return list(AR_RATING_BUTTONS if ar else RATING_BUTTONS)
+
+    if "helpfulness" in blob or re.search(r"\bhelpful\b", low):
+        return list(AR_HELPFULNESS_BUTTONS if ar else HELPFULNESS_BUTTONS)
+
+    if any(token in blob for token in ("yes_no", "opt_in", "return_intent")):
+        return list(AR_YES_NO_BUTTONS if ar else YES_NO_BUTTONS)
+
+    if re.search(r"\b(did you|were you|was (the|your)|do you feel|have you)\b", low) and "rate" not in low:
+        return list(AR_YES_NO_BUTTONS if ar else YES_NO_BUTTONS)
+
+    return buttons_for_language(topic_name, name=template_name, language=language)
+
+
+def buttons_labels_equal(a: list[str] | None, b: list[str] | None) -> bool:
+    left = [re.sub(r"\s+", " ", str(x or "").strip().lower()) for x in (a or []) if str(x or "").strip()]
+    right = [re.sub(r"\s+", " ", str(x or "").strip().lower()) for x in (b or []) if str(x or "").strip()]
+    return left == right
 
 
 def utility_body_for_topic(

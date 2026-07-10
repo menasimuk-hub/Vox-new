@@ -117,6 +117,21 @@ def apply_utility_rewrite_to_feedback_row(
     leading_emoji, _ = _extract_leading_emoji(old_body)
     new_body = _prepend_leading_emoji(leading_emoji, new_body)
 
+    from app.services.wa_template_utility_content import (
+        buttons_labels_equal,
+        utility_buttons_matching_body,
+    )
+
+    matched = utility_buttons_matching_body(
+        body=new_body,
+        topic_name=str(row.template_key or "").replace("_", " "),
+        template_name=str(row.meta_name or row.template_key or ""),
+        language=row.language,
+    )
+    if matched and not buttons_labels_equal(buttons, matched):
+        buttons = clamp_utility_button_labels(matched)
+        row.buttons_json = json.dumps(buttons)
+
     if not skip_lint:
         lint = lint_utility_template(
             body=new_body,
