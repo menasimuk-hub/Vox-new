@@ -53,8 +53,9 @@ def _seed_interview_call(db):
         system_prompt="You are Leo for {company_name}.",
         kb_context="Call on behalf of {company_name} about {role}.",
         opening_disclosure_template=(
-            "Hello {first_name}, this is {agent_name} calling on behalf of {company_name} "
-            "about the {role} role. This call is recorded. Is now a good time?"
+            "Hello {first_name}, this is {agent_name} calling from {company_name} "
+            "about the {role} role. This call is recorded for quality and assessment. "
+            "Do you have about 10 to 15 minutes now?"
         ),
         supports_interview=True,
         disclosure_for_interview=True,
@@ -123,7 +124,8 @@ def test_interview_opening_greeting_uses_real_company_name(db):
     assert "Acme Health" in greeting
     assert "Leo" in greeting
     assert "record" in greeting.lower()
-    assert "good time" in greeting.lower() or "hear me" in greeting.lower()
+    assert "10" in greeting and "15" in greeting
+    assert "ai assistant" not in greeting.lower()
     assert " company" not in f" {greeting.lower()} "
     assert "{company_name}" not in greeting
 
@@ -141,6 +143,43 @@ def test_runtime_instructions_replace_kb_placeholders(db):
     assert "Acme Health" in instructions
     assert "{company_name}" not in instructions
     assert "Never say the generic word 'company'" in instructions
+    assert "Do NOT repeat the disclosure or INTRO" in instructions
+    assert "Sound like a real recruiter" in instructions
+    assert "Never say you are an AI assistant" in instructions
+    assert "go straight to the first interview question" in instructions.lower() or "first interview question" in instructions
+
+
+def test_strip_opening_and_intro_from_script():
+    from app.services.voice_agent_runtime import strip_opening_and_intro_from_script
+
+    script = (
+        "OPENING DISCLOSURE\nHello there.\n\nINTRO\nDo you have time?\n\n"
+        "QUESTIONS\n1. Example?\n\nCLOSING\nBye."
+    )
+    stripped = strip_opening_and_intro_from_script(script)
+    assert stripped.startswith("QUESTIONS")
+    assert "OPENING DISCLOSURE" not in stripped
+    assert "INTRO" not in stripped
+    assert "Example?" in stripped
+
+
+def test_arabic_interview_generate_prompt_uses_fusha_meta():
+    from app.services.agent_prompt_generator import is_arabic_interview_prompt_target, _meta_for
+
+    assert is_arabic_interview_prompt_target(
+        agent_name="interview_AR-Sultan",
+        description="Gulf Arabic interview agent",
+        supports_interview=True,
+    )
+    assert not is_arabic_interview_prompt_target(
+        agent_name="interview_GB-Leo",
+        description="British English interview",
+        supports_interview=True,
+    )
+    meta = _meta_for(kind="prompt", arabic_fusha=True)
+    assert "فصحى" in meta
+    assert "وش" in meta  # forbidden list
+    assert "British English" not in meta
 
 
 def test_substitute_voice_placeholders_regression_leo_from_company(db):

@@ -437,6 +437,12 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
               {genPhase === 'prompt' ? 'Generating prompt…' : isPlaceholderPrompt(agent.system_prompt) ? '2. Generate prompt' : 'Regenerate prompt'}
             </button>
           </div>
+          {agent.supports_interview ? (
+            <p className="agentsEditNote" style={{ marginTop: 8 }}>
+              Arabic interview agents: Generate prompt writes <strong>فصحى (MSA)</strong>. The live call still speaks the
+              agent&apos;s dialect (Egyptian / Saudi Gulf) via runtime rules.
+            </p>
+          ) : null}
         </section>
 
         <section className="agentsPanel">

@@ -36,23 +36,38 @@ _INVALID_SPOKEN_ORG_NAMES = frozenset(
 )
 
 DEFAULT_INTERVIEW_OPENING_FALLBACK = (
-    "Hello {first_name}, this is {agent_name} calling on behalf of {company_name} about the {role} role. "
-    "This call is recorded for quality and assessment purposes. "
-    "Can you hear me clearly, and is now still a good time to continue?"
+    "Hello {first_name}, this is {agent_name} calling from {company_name} about the {role} role. "
+    "This call is recorded for quality and assessment. "
+    "Do you have about 10 to 15 minutes now?"
 )
 
 # Arabic opening fallback (used when the approved script is written in Arabic and no
-# custom disclosure template is configured).
+# custom disclosure template is configured). MSA wording — dialect agents override via template.
 DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = (
     "السلام عليكم {first_name}، معك {agent_name} أتصل من {company_name} بخصوص وظيفة {role}. "
     "المكالمة مسجّلة للجودة والتقييم. "
-    "تسمعني زين؟ وهل الوقت مناسب الحين نكمل؟"
+    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
 )
 
-# Arabic equivalents of the interview recording/availability tail that is appended to
-# the opening disclosure. Keeps the whole greeting in one language.
+# Arabic recording + time-ask tail appended only when those markers are missing.
 ARABIC_RECORD_AVAILABILITY = (
-    "المكالمة مسجّلة للجودة والتقييم. تسمعني زين؟ وهل الوقت مناسب الحين نكمل؟"
+    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
+)
+
+INTERVIEW_HUMAN_BEHAVIOR_EN = (
+    "Sound like a real recruiter on the phone — warm, organised, and human — not a script reader or robot.\n"
+    "After each answer, give a brief natural acknowledgement (interest or empathy) before the next question.\n"
+    "Ask one question at a time. Keep reactions short. Use natural turn-taking.\n"
+    "Never say you are an AI assistant, chatbot, or automated system — introduce yourself by name only.\n"
+    "If interrupted mid-sentence, finish or gently restate only the unfinished sentence — never restart the full introduction."
+)
+
+INTERVIEW_HUMAN_BEHAVIOR_AR = (
+    "تكلم كأنك موظف توظيف حقيقي على الهاتف — دافئ ومنظّم وإنساني، مو قارئ سكربت ولا روبوت.\n"
+    "بعد كل إجابة، أعطِ رد فعل قصير طبيعي (اهتمام أو تعاطف) قبل السؤال التالي.\n"
+    "سؤال واحد في كل مرة. ردود قصيرة. تبادل حديث طبيعي.\n"
+    "لا تقل أبدًا إنك مساعد ذكي أو روبوت أو نظام آلي — قدّم نفسك باسمك فقط.\n"
+    "إذا قاطعك المرشّح وسط جملة، أكمل أو أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة من البداية."
 )
 
 # Arabic runtime layers used when an Arabic agent (e.g. Jammal) is selected but the
@@ -95,10 +110,10 @@ ARABIC_INTERVIEW_SERVICE_ROLE = (
     "قيّم الإجابات من حيث الوضوح والملاءمة. لا تقل أبدًا «استبيان»."
 )
 ARABIC_INTERVIEW_CALL_WORKFLOW = (
-    "بعد التحية: أكّد اسم المرشّح والوظيفة → اسأله إذا عنده 10–15 دقيقة الحين.\n"
-    "إذا زين: كمّل أسئلة السيرة ثم أسئلة الوظيفة بالترتيب.\n"
-    "إذا لا: اقترح معاد خلال ساعات العمل وانهِ المكالمة بلباقة.\n"
-    "اختتم بالشكر وخبره إن فريق التوظيف يتواصل معه."
+    "التحية والوقت سُئلا بالفعل في بداية المكالمة — لا تعِد التعريف بنفسك ولا تعِد سؤال الوقت.\n"
+    "انتظر تأكيد المرشّح: إذا وافق → ابدأ أسئلة السيرة ثم أسئلة الوظيفة بالترتيب.\n"
+    "إذا مشغول أو رفض: اقترح معادًا خلال ساعات العمل وانهِ بلباقة.\n"
+    "اختتم بالشكر وأخبره أن فريق التوظيف سيتواصل معه."
 )
 
 _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
@@ -403,7 +418,7 @@ def substitute_voice_placeholders(
 ) -> str:
     """Replace all runtime voice placeholders used in agent templates, KB, and scripts."""
     organiser = str(organiser_name or agent_name or company_name).strip()
-    agent = str(agent_name or organiser or "your AI assistant").strip()
+    agent = str(agent_name or organiser or "the recruiter").strip()
     role_line = str(role or "this role").strip()
     first = str(first_name or "there").strip() or "there"
     out = _personalize(
@@ -449,7 +464,7 @@ def resolve_opening_disclosure_template(
         or config.get("client_name")
         or company_name
     ).strip()
-    agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "your AI assistant").strip()
+    agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "the recruiter").strip()
     role = str(config.get("role") or config.get("goal") or config.get("position") or "this role").strip()
 
     org_template = ""
@@ -504,20 +519,40 @@ def resolve_opening_disclosure_template(
             first_name="",
         )
     if service_key == SERVICE_INTERVIEW:
-        # Match the disclosure tail to the language of the call. For Arabic scripts the
-        # old code appended an English recording/availability sentence, which made the
-        # agent drift into English after an Arabic greeting.
+        # Match the disclosure tail to the language of the call. Only append missing pieces
+        # so seeded templates that already include recording + 10–15 minutes are not doubled.
         arabic = _contains_arabic(rendered) or _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
         if arabic:
-            if "مناسب" not in rendered:
+            low = rendered
+            has_record = "مسجّل" in low or "مسجل" in low
+            has_time = "دقيقة" in low or "دقائق" in low or "مناسب" in low
+            if not has_record and not has_time:
                 rendered = f"{rendered} {ARABIC_RECORD_AVAILABILITY}".strip()
-        elif "record" not in rendered.lower():
-            rendered = (
-                f"{rendered} This call is recorded for quality and assessment purposes. "
-                "Can you hear me clearly, and is now still a good time to continue?"
-            ).strip()
-        elif "good time" not in rendered.lower() and "hear me" not in rendered.lower():
-            rendered = f"{rendered} Can you hear me clearly, and is now still a good time to continue?".strip()
+            elif not has_record:
+                rendered = f"{rendered} المكالمة مسجّلة للجودة والتقييم.".strip()
+            elif not has_time:
+                rendered = f"{rendered} هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟".strip()
+        else:
+            low = rendered.lower()
+            has_record = "record" in low
+            has_time = (
+                "10" in low
+                or "15" in low
+                or "ten" in low
+                or "fifteen" in low
+                or "good time" in low
+                or "have about" in low
+                or "do you have" in low
+            )
+            if not has_record and not has_time:
+                rendered = (
+                    f"{rendered} This call is recorded for quality and assessment. "
+                    "Do you have about 10 to 15 minutes now?"
+                ).strip()
+            elif not has_record:
+                rendered = f"{rendered} This call is recorded for quality and assessment.".strip()
+            elif not has_time:
+                rendered = f"{rendered} Do you have about 10 to 15 minutes now?".strip()
     elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     elif service_key == SERVICE_APPOINTMENTS and mandatory and "record" not in rendered.lower():
@@ -787,8 +822,9 @@ def build_service_runtime_instructions(
                 parts.append(f"ملخص السيرة الذاتية (استخدمه في السؤالين الأولين):\n{cv_snippet}")
             parts.append(
                 "هذه مكالمة فرز لمقابلة وظيفية — وليست استبيانًا. اطرح أسئلة المقابلة المعتمدة بالترتيب. "
-                f"عند تقديم نفسك، قل إنك تتصل بالنيابة عن {company_name}. "
-                "لا تقل كلمة «شركة» بشكل عام دون ذكر اسم المنظمة الفعلي."
+                f"أنت تتصل بالنيابة عن {company_name}. "
+                "لا تقل كلمة «شركة» بشكل عام دون ذكر اسم المنظمة الفعلي. "
+                "لا تعِد تقديم نفسك — التحية سُئلت بالفعل في بداية المكالمة."
             )
         else:
             parts.append(f"Calling on behalf of: {organiser}")
@@ -801,8 +837,9 @@ def build_service_runtime_instructions(
                 parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
             parts.append(
                 "This is a job interview screening call — NOT a survey. Ask the approved interview questions in order. "
-                f"When introducing yourself, say you are calling on behalf of {company_name}. "
-                "Never say the generic word 'company' without the actual organisation name."
+                f"You are calling on behalf of {company_name}. "
+                "Never say the generic word 'company' without the actual organisation name. "
+                "Do not re-introduce yourself — the opening greeting was already spoken."
             )
 
     if layers.campaign_system_prompt and not (use_arabic and not _contains_arabic(layers.campaign_system_prompt)):
@@ -812,19 +849,47 @@ def build_service_runtime_instructions(
         )
 
     if survey_prompt:
+        live_script = survey_prompt
+        if service_key == SERVICE_INTERVIEW:
+            live_script = strip_opening_and_intro_from_script(survey_prompt) or survey_prompt
         if use_arabic:
-            label = "نص الاستبيان المعتمد" if service_key == SERVICE_SURVEY else "نص المقابلة المعتمد"
-            script_heading = f"{label} (اتبع هذا الهيكل):"
+            if service_key == SERVICE_SURVEY:
+                script_heading = "نص الاستبيان المعتمد (اتبع هذا الهيكل):"
+            else:
+                script_heading = (
+                    "نص المقابلة المعتمد (أسئلة وإغلاق فقط — التحية والمقدمة سُئلتا بالفعل، لا تقرأهما):"
+                )
         else:
-            label = "Approved survey script" if service_key == SERVICE_SURVEY else "Approved interview script"
-            script_heading = f"{label} (follow this structure):"
-        parts.append(script_heading + "\n" + substitute_voice_placeholders(survey_prompt, **placeholder_kwargs))
+            if service_key == SERVICE_SURVEY:
+                script_heading = "Approved survey script (follow this structure):"
+            else:
+                script_heading = (
+                    "Approved interview script (QUESTIONS and CLOSING only — "
+                    "OPENING DISCLOSURE and INTRO were already spoken; do not read them):"
+                )
+        parts.append(script_heading + "\n" + substitute_voice_placeholders(live_script, **placeholder_kwargs))
 
     platform = _platform_settings(db)
     mandatory = disclosure_mandatory(platform, agent)
     question_label = "survey questions" if service_key == SERVICE_SURVEY else "confirmation steps" if service_key == SERVICE_APPOINTMENTS else "interview questions"
     if layers.opening_disclosure:
-        if use_arabic:
+        if service_key == SERVICE_INTERVIEW:
+            if use_arabic:
+                parts.append(
+                    "تمت التحية الافتتاحية بالفعل (الاسم، الشركة، سبب الاتصال، التسجيل، وطلب ١٠–١٥ دقيقة). "
+                    "لا تكرر التحية ولا قسم المقدمة ولا الإفصاح. "
+                    "انتظر رد المرشّح: إذا وافق → ابدأ مباشرة بأول سؤال مقابلة. "
+                    "إذا مشغول أو رفض → رتّب معادًا وانهِ بلباقة."
+                )
+            else:
+                parts.append(
+                    "The opening greeting was already spoken (your name, company, why you are calling, "
+                    "that the call is recorded, and asking for 10–15 minutes). "
+                    "Do NOT repeat the disclosure or INTRO. "
+                    "Wait for the candidate: if they agree → go straight to the first interview question. "
+                    "If busy or decline → offer to reschedule and close politely."
+                )
+        elif use_arabic:
             parts.append(
                 "تمت التحية الافتتاحية مع المرشّح بالفعل. لا تكرر التحية. تابع بقسم المقدمة من النص المعتمد "
                 "(التحقق من التوفر / سير المكالمة)، ثم أسئلة المقابلة."
@@ -853,18 +918,24 @@ def build_service_runtime_instructions(
         followup = build_survey_call_negative_followup_rule(config)
         if followup:
             behavior.append(followup)
+    elif service_key == SERVICE_INTERVIEW:
+        behavior.append(INTERVIEW_HUMAN_BEHAVIOR_AR if use_arabic else INTERVIEW_HUMAN_BEHAVIOR_EN)
+        behavior.append(
+            "إذا قاطعك المرشّح وسط جملة، أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة."
+            if use_arabic
+            else "If interrupted mid-sentence, restate only the unfinished sentence — never restart the full introduction."
+        )
+        behavior.append(
+            "لا تنتقل إلى أسئلة المقابلة حتى يؤكد المرشّح أن الوقت مناسب الآن (التحية سُئلت بالفعل)."
+            if use_arabic
+            else "Do not continue to interview questions until the callee confirms now is a good time "
+            "(the introduction was already spoken in the greeting)."
+        )
     else:
         behavior.append(
             "إذا قاطعك المرشّح قبل إنهاء المقدمة، توقف وكرر الخطوة الحالية بوضوح من البداية."
             if use_arabic
             else "If the recipient interrupts before you finish the opening, pause and repeat the current step clearly from the start."
-        )
-    if service_key == SERVICE_INTERVIEW:
-        behavior.append(
-            "لا تنتقل إلى أسئلة المقابلة حتى يؤكد المرشّح أنه سمع المقدمة وأن الوقت مناسب الآن."
-            if use_arabic
-            else "Do not continue to interview questions until the callee confirms they heard the introduction "
-            "and that now is still a good time."
         )
     if layers.opt_out_notes and not (use_arabic and not _contains_arabic(layers.opt_out_notes)):
         behavior.append(layers.opt_out_notes)
@@ -931,7 +1002,7 @@ def build_service_opening_greeting(
             else ""
         )
         return (
-            f"Hi {first}, this is {agent_name}, an AI assistant calling from {company_name} "
+            f"Hi {first}, this is {agent_name} calling from {company_name} "
             f"for a short survey.{anon_clause} This call is recorded for quality."
         )
     if service_key == SERVICE_APPOINTMENTS:
@@ -983,5 +1054,23 @@ def _org_name(config: dict[str, Any]) -> str:
 
 def _agent_name(agent: AgentDefinition | None) -> str:
     if agent is None:
-        return "your AI assistant"
-    return str(agent.voice_label or agent.name or "your AI assistant").strip()
+        return "the recruiter"
+    return str(agent.voice_label or agent.name or "the recruiter").strip()
+
+
+def strip_opening_and_intro_from_script(script: str) -> str:
+    """Keep QUESTIONS/CLOSING for live interview calls — opening was already spoken as greeting."""
+    text = str(script or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"(?im)^\s*QUESTIONS\b", text)
+    if match:
+        return text[match.start() :].strip()
+    # No QUESTIONS header — drop OPENING DISCLOSURE / INTRO blocks if present
+    text = re.sub(
+        r"(?is)^\s*OPENING\s+DISCLOSURE\s*\r?\n.*?(?=^\s*(?:INTRO|QUESTIONS|CLOSING)\b)",
+        "",
+        text,
+    )
+    text = re.sub(r"(?is)^\s*INTRO\s*\r?\n.*?(?=^\s*(?:QUESTIONS|CLOSING)\b)", "", text)
+    return text.strip()

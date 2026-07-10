@@ -49,18 +49,19 @@ Never mention Voxbulk, VOXBULK, or any platform provider — the survey is from 
 
 _INTERVIEW_META_BASE = """You are an expert interview screener for outbound AI phone or online job interviews.
 Return ONLY valid JSON with these fields:
-- "intro": short opening after disclosure (confirm role, ask if they have time; mention call is recorded)
+- "intro": brief availability confirm ONLY after the opening disclosure (do NOT re-introduce name/company, do NOT repeat that the call is recorded — disclosure already covered that). Example: confirm they have about 10–15 minutes now.
 - "questions": array of 6-10 screening questions as strings — the FIRST TWO must be CV question TEMPLATES (no employer names or facts); the AI personalises them per candidate on the call; remaining questions are the same for every candidate from the role and screening criteria
 - "closing": next steps and goodbye (no job offer promises)
 - "script_text": full readable script for the customer to review with sections OPENING DISCLOSURE (placeholder), INTRO, QUESTIONS (numbered), CLOSING
-- "system_prompt": instructions for the AI interviewer (follow-ups, professionalism, never say survey)
+- "system_prompt": instructions for the AI interviewer (follow-ups, professionalism, never say survey, never say AI assistant)
 - "expected_duration_minutes": integer estimate of total call length (intro + questions + closing; typically 10-18)
 
 {language_instruction}
 Keep JSON keys in English. Keep section headers OPENING DISCLOSURE, INTRO, QUESTIONS, CLOSING in English in script_text.
 No markdown fences.
 Never mention Voxbulk, VOXBULK, Telnyx, or any platform provider — the interview is on behalf of the hiring organisation only.
-Never describe this as a survey."""
+Never describe this as a survey.
+Never call the interviewer an AI assistant — use the agent name only."""
 
 
 def _interview_meta(*, language_code: str) -> str:
@@ -358,17 +359,15 @@ def _build_interview_phone_intro(
     code = normalize_script_language_code(language_code)
     if code == "ar":
         return (
-            f"السلام عليكم، معك {organiser} من {org}. أتواصل معك نيابة عن {client} "
-            f"لإجراء مقابلة قصيرة. هل الوقت مناسب الحين؟"
+            f"هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لإجراء مقابلة قصيرة نيابة عن {client}؟"
         )
     if code == "fr":
         return (
-            f"Bonjour, ici {organiser} de {org}. J'appelle de la part de {client} "
-            f"pour un court entretien de sélection. Avez-vous quelques minutes maintenant ?"
+            f"Avez-vous environ 10 à 15 minutes maintenant pour un court entretien de sélection "
+            f"de la part de {client} ?"
         )
     return (
-        f"Hello, this is {organiser} from {org}. I'm calling on behalf of {client} "
-        f"for a short screening interview. Do you have a few minutes now?"
+        f"Do you have about 10 to 15 minutes now for a short screening interview on behalf of {client}?"
     )
 
 
@@ -384,7 +383,7 @@ def _localize_disclosure_for_script_language(
         return str(disclosure or "").strip()
 
     text = str(disclosure or "").strip()
-    agent = agent_name.strip() or "your AI assistant"
+    agent = agent_name.strip() or "the recruiter"
     company = company_name.strip() or "the company"
     english_filled = (
         DEFAULT_OPENING_DISCLOSURE.replace("{agent_name}", agent).replace("{company_name}", company).strip()
@@ -437,7 +436,7 @@ def _apply_agent_layers_to_script(
         ).strip()
     company_name = resolve_voice_call_company_name(db, config=gen_config, org_id=org_id)
     agent_name = str(
-        (agent.voice_label if agent else None) or (agent.name if agent else None) or organiser_name or "your AI assistant"
+        (agent.voice_label if agent else None) or (agent.name if agent else None) or organiser_name or "the recruiter"
     ).strip()
     disclosure = _localize_disclosure_for_script_language(
         disclosure,

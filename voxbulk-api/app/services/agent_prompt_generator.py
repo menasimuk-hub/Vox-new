@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,35 @@ Return ONLY valid JSON with exactly two string fields:
 - "call_workflow": numbered call flow (greeting through close), when to ask questions, escalation
 
 British English. Be specific and operational. No markdown fences."""
+
+_WORKFLOW_META_AR_FUSHA = """أنت خبير في تصميم سير مكالمات وكلاء الصوت لمنصة VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "call_workflow": خطوات مرقّمة لسير المكالمة (من بعد التحية حتى الإغلاق)، متى تُطرح الأسئلة، التصعيد، تأكيد الموعد البديل.
+
+اكتب بالعربية الفصحى الحديثة فقط — ليست خليجية وليست مصرية عامية.
+ممنوع تمامًا: وش، الحين، تبي، زين، إزيك، دلوقتي، إيه، ماشي، عايز، هتعمل.
+ملاحظة: الكلام الحي على الهاتف سيُحوَّل للهجة المحلية في وقت التشغيل؛ النص المُولَّد هنا يبقى فصحى.
+كن عمليًا ومحددًا. بلا أسوار markdown."""
+
+_PROMPT_META_AR_FUSHA = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "system_prompt": الدور، النبرة، القيود، استخدام المعرفة، السلامة — متوافق مع سير المكالمة المعتمد.
+
+اكتب بالعربية الفصحى الحديثة فقط — ليست خليجية وليست مصرية عامية.
+ممنوع تمامًا: وش، الحين، تبي، زين، إزيك، دلوقتي، إيه، ماشي، عايز، هتعمل.
+ضمّن ملاحظة قصيرة أن الكلام الحي على الهاتف يُنفَّذ باللهجة المحلية عبر قواعد التشغيل، بينما هذا النص يبقى فصحى.
+لا تصف الوكيل بأنه «مساعد ذكي» أو روبوت — قدّمه باسمه فقط.
+كن عمليًا ومحددًا. بلا أسوار markdown."""
+
+_BOTH_META_AR_FUSHA = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقلين نصيين:
+- "system_prompt": الدور، النبرة، القيود، استخدام المعرفة، السلامة
+- "call_workflow": سير المكالمة المرقّم (من بعد التحية حتى الإغلاق)، متى تُطرح الأسئلة، التصعيد
+
+اكتب بالعربية الفصحى الحديثة فقط — ليست خليجية وليست مصرية عامية.
+ممنوع تمامًا: وش، الحين، تبي، زين، إزيك، دلوقتي، إيه، ماشي، عايز، هتعمل.
+الكلام الحي على الهاتف سيُحوَّل للهجة المحلية في وقت التشغيل؛ النص المُولَّد هنا يبقى فصحى.
+كن عمليًا ومحددًا. بلا أسوار markdown."""
 
 
 def _extract_json_object(raw: str) -> dict:
@@ -87,6 +117,66 @@ def _user_block(*, agent_name: str, description: str, knowledge_files: list[Know
     return "\n\n".join(parts)
 
 
+def is_arabic_interview_prompt_target(
+    *,
+    agent: Any | None = None,
+    agent_name: str = "",
+    description: str = "",
+    supports_interview: bool | None = None,
+) -> bool:
+    """True when Admin Generate Prompt should emit MSA (فصحى) for an Arabic interview agent."""
+    interview = supports_interview
+    if interview is None and agent is not None:
+        interview = bool(getattr(agent, "supports_interview", False))
+    if not interview:
+        return False
+
+    blob = " ".join(
+        [
+            str(agent_name or ""),
+            str(description or ""),
+            str(getattr(agent, "name", "") or "") if agent is not None else "",
+            str(getattr(agent, "slug", "") or "") if agent is not None else "",
+            str(getattr(agent, "voice_label", "") or "") if agent is not None else "",
+            str(getattr(agent, "voice_type_label", "") or "") if agent is not None else "",
+            str(getattr(agent, "description", "") or "") if agent is not None else "",
+            str(getattr(agent, "system_prompt", "") or "")[:400] if agent is not None else "",
+        ]
+    )
+    if re.search(r"[\u0600-\u06FF]", blob):
+        return True
+    low = blob.lower()
+    markers = (
+        "arabic",
+        "egypt",
+        "saudi",
+        "gulf",
+        "jammal",
+        "jamal",
+        "sultan",
+        "interview-ar",
+        "interview_ar",
+        "مصري",
+        "خليجي",
+        "سعود",
+    )
+    return any(m in low for m in markers)
+
+
+def _meta_for(*, kind: str, arabic_fusha: bool) -> str:
+    if arabic_fusha:
+        if kind == "workflow":
+            return _WORKFLOW_META_AR_FUSHA
+        if kind == "both":
+            return _BOTH_META_AR_FUSHA
+        return _PROMPT_META_AR_FUSHA
+    if kind == "workflow":
+        return _WORKFLOW_META
+    if kind == "both":
+        return _BOTH_META
+    return _PROMPT_META
+
+
 def _complete_json(db: Session, *, meta: str, user: str, instruction: str) -> str:
     result = OpenAIProviderService.complete(
         db,
@@ -105,16 +195,30 @@ def generate_call_workflow(
     agent_name: str,
     description: str,
     knowledge_files: list[KnowledgeBaseFile],
+    agent: Any | None = None,
+    arabic_fusha: bool | None = None,
 ) -> dict[str, str]:
     description = str(description or "").strip()
     if not description:
         raise ValueError("description is required to generate workflow")
+    use_fusha = (
+        arabic_fusha
+        if arabic_fusha is not None
+        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
+    )
     user = _user_block(agent_name=agent_name, description=description, knowledge_files=knowledge_files)
+    instruction = (
+        "أنتج call_workflow مناسبًا لمكالمات صوتية حية. التحية سُئلت بالفعل في بداية المكالمة — "
+        "ابدأ السير من انتظار تأكيد الوقت ثم الأسئلة."
+        if use_fusha
+        else "Produce call_workflow suitable for live phone or browser voice calls. "
+        "The opening greeting is already spoken — start after time confirmation, then questions."
+    )
     raw = _complete_json(
         db,
-        meta=_WORKFLOW_META,
+        meta=_meta_for(kind="workflow", arabic_fusha=use_fusha),
         user=user,
-        instruction="Produce call_workflow suitable for live phone or browser voice calls.",
+        instruction=instruction,
     )
     try:
         workflow = _parse_json_field(raw, "call_workflow")
@@ -130,6 +234,8 @@ def generate_system_prompt(
     description: str,
     knowledge_files: list[KnowledgeBaseFile],
     call_workflow: str,
+    agent: Any | None = None,
+    arabic_fusha: bool | None = None,
 ) -> dict[str, str]:
     description = str(description or "").strip()
     workflow = str(call_workflow or "").strip()
@@ -137,17 +243,28 @@ def generate_system_prompt(
         raise ValueError("description is required to generate prompt")
     if not workflow:
         raise ValueError("call_workflow is required before generating system prompt")
+    use_fusha = (
+        arabic_fusha
+        if arabic_fusha is not None
+        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
+    )
     user = _user_block(
         agent_name=agent_name,
         description=description,
         knowledge_files=knowledge_files,
         call_workflow=workflow,
     )
+    instruction = (
+        "أنتج system_prompt مناسبًا لمكالمات صوتية حية. اكتب فصحى فقط. "
+        "لا تكرر التحية؛ الكلام الحي سيكون باللهجة المحلية عبر قواعد التشغيل."
+        if use_fusha
+        else "Produce system_prompt suitable for live phone or browser voice calls."
+    )
     raw = _complete_json(
         db,
-        meta=_PROMPT_META,
+        meta=_meta_for(kind="prompt", arabic_fusha=use_fusha),
         user=user,
-        instruction="Produce system_prompt suitable for live phone or browser voice calls.",
+        instruction=instruction,
     )
     try:
         prompt = _parse_json_field(raw, "system_prompt")
@@ -162,17 +279,29 @@ def generate_agent_prompts(
     agent_name: str,
     description: str,
     knowledge_files: list[KnowledgeBaseFile],
+    agent: Any | None = None,
+    arabic_fusha: bool | None = None,
 ) -> dict[str, str]:
     """Legacy: generate workflow and prompt together."""
     description = str(description or "").strip()
     if not description:
         raise ValueError("description is required to generate prompts")
+    use_fusha = (
+        arabic_fusha
+        if arabic_fusha is not None
+        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
+    )
     user = _user_block(agent_name=agent_name, description=description, knowledge_files=knowledge_files)
+    instruction = (
+        "أنتج system_prompt و call_workflow بالعربية الفصحى لمكالمات صوتية حية."
+        if use_fusha
+        else "Produce system_prompt and call_workflow suitable for live phone or browser voice calls."
+    )
     raw = _complete_json(
         db,
-        meta=_BOTH_META,
+        meta=_meta_for(kind="both", arabic_fusha=use_fusha),
         user=user,
-        instruction="Produce system_prompt and call_workflow suitable for live phone or browser voice calls.",
+        instruction=instruction,
     )
     try:
         return _parse_both_fields(raw)

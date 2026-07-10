@@ -131,7 +131,7 @@ def test_build_opening_disclosure_uses_platform_template(db):
         service_key="survey",
     )
     assert "Sophie" in text
-    assert "AI assistant" in text
+    assert "AI assistant" not in text
     assert "Acme Clinic" in text
     assert "recorded" in text.lower()
 

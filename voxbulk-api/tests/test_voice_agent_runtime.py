@@ -164,7 +164,9 @@ def test_mandatory_disclosure_uses_default_when_templates_empty(db):
         service_key="survey",
     )
     assert text.strip()
-    assert "AI assistant" in text or "Acme" in text
+    assert "Acme" in text
+    assert "AI assistant" not in text
+    assert "recorded" in text.lower() or "record" in text.lower()
 
 
 def test_mandatory_disclosure_respects_agent_opt_out(db):

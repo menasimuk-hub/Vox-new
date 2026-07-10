@@ -8,12 +8,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 DEFAULT_OPENING_DISCLOSURE = (
-    "Hello, this is {agent_name}, the AI assistant calling from {company_name}. "
+    "Hello, this is {agent_name} calling from {company_name}. "
     "This call is recorded for quality and service purposes."
 )
 
 DEFAULT_OPENING_DISCLOSURE_AR = (
-    "السلام عليكم، معك {agent_name}، المساعد الذكي من {company_name}. "
+    "السلام عليكم، معك {agent_name} من {company_name}. "
     "المكالمة مسجّلة للجودة والخدمة."
 )
 
