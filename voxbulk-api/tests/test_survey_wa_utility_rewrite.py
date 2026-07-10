@@ -125,6 +125,28 @@ def test_rule_based_rewrites_would_recommend_without_lint_violation():
     assert "would you recommend" not in body.lower()
 
 
+def test_force_rewrite_nps_copy_to_satisfaction_with_rating_buttons():
+    from app.services.wa_template_utility_content import RATING_BUTTONS
+    from app.services.wa_template_utility_lint import lint_utility_template
+
+    body = _rule_based_utility_body(
+        "📋 Based on your recent experience with us, how likely are you to recommend our service? "
+        "Reply with one option below.",
+        topic_hint="would recommend",
+        industry_slug="logistics_delivery",
+        force_rewrite=True,
+    )
+    lint = lint_utility_template(
+        body=body,
+        buttons=list(RATING_BUTTONS),
+        language="en_GB",
+        meta_category="utility",
+    )
+    assert lint.ok
+    assert "recommend" not in body.lower()
+    assert "overall satisfaction" in body.lower()
+
+
 def test_suggest_utility_clone_template_name():
     assert (
         suggest_utility_clone_template_name("voxbulk_survey_staff_friendliness_abc_875f3a")

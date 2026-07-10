@@ -343,7 +343,7 @@ def default_buttons_for_key(
         for token in ("thank_you", "tell_us_more", "final_feedback", "open_question")
     ):
         return []
-    if any(token in str(template_key or name or "").lower() for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
+    if any(token in str(template_key or name or "").lower() for token in ("yes_no", "opt_in", "return_intent")):
         return list(YES_NO_BUTTONS)
     return list(RATING_BUTTONS)
 
@@ -365,7 +365,7 @@ def buttons_for_language(
     ):
         return []
     if ar:
-        if any(token in str(template_key or name or "").lower() for token in ("recommend", "would_", "return_intent", "yes_no", "opt_in")):
+        if any(token in str(template_key or name or "").lower() for token in ("yes_no", "opt_in", "return_intent")):
             return list(AR_YES_NO_BUTTONS)
         return list(AR_RATING_BUTTONS)
     return default_buttons_for_key(template_key, name=name, system_kind=system_kind)

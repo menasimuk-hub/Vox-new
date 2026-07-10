@@ -11,6 +11,26 @@ from app.services.wa_template_utility_lint import (
 )
 
 
+def test_utility_body_fails_nps_recommend_likelihood():
+    result = lint_utility_body(
+        "📋 Based on your recent experience with us, how likely are you to recommend our service? "
+        "Reply with one option below."
+    )
+    assert not result.ok
+    assert any("recommend" in i.message.lower() for i in result.issues)
+
+
+def test_utility_buttons_fail_would_recommend_labels():
+    result = lint_utility_template(
+        body="📋 How was overall satisfaction in your recent experience with us? Reply with one option below.",
+        buttons=["Would Recommend", "Neutral", "Would Not Recommend"],
+        language="en_GB",
+        meta_category="utility",
+    )
+    assert not result.ok
+    assert any(i.field.startswith("button_") for i in result.issues)
+
+
 def test_utility_body_passes_with_transaction_anchor():
     result = lint_utility_body(
         "😊 Following your recent visit, how satisfied are you with the service you received today?"

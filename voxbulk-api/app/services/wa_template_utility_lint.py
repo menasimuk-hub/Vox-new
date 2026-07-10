@@ -112,6 +112,13 @@ _EN_FORBIDDEN_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\bchoose us again\b", "return-intent marketing tone"),
     (r"\bdine with us again\b", "return-intent marketing tone"),
     (r"\bwould you recommend\b", "recommend-to-others survey"),
+    (r"\blikely\s+are\s+you\s+to\s+recommend\b", "NPS / recommend-likelihood survey"),
+    (r"\bhow\s+likely\b.*\brecommend\b", "NPS / recommend-likelihood survey"),
+    (r"\brecommend\s+(our|us|this|the)\b", "recommend-to-others survey"),
+    # Any "recommend" (body or button) is MARKETING risk — NPS / would-recommend topics
+    # must be rewritten to overall-satisfaction wording before Utility push.
+    (r"\brecommend\b", "recommend wording (Meta treats as MARKETING)"),
+    (r"\bnps\b", "NPS survey"),
     (r"\breferral likelihood\b", "referral survey"),
     (r"\brenewal intent\b", "renewal intent survey"),
     (r"\breturn intent\b", "return intent survey"),

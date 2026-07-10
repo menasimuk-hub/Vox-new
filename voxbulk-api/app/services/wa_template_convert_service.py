@@ -350,12 +350,12 @@ def regenerate_convert_template(
     row = db.get(TelnyxWhatsappTemplate, int(template_id))
     if row is None:
         raise SurveyWhatsappTemplateError("Survey template not found")
-    # Convert always force-rewrites: Meta may still mark the live name MARKETING even when
-    # local BODY already passes our Utility lint.
+    # Convert always force-rewrites with rule-based Utility copy (no LLM).
+    # LLM previously rewrote satisfaction → NPS "recommend" and local lint wrongly PASSed.
     old_body, new_body = apply_utility_rewrite_to_row(
         db,
         row,
-        use_llm=True,
+        use_llm=False,
         llm_provider=provider,
         llm_model=model,
         force_rewrite=True,
@@ -364,7 +364,7 @@ def regenerate_convert_template(
     detail["old_body"] = old_body
     detail["new_body"] = new_body
     detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
-    detail["rewrite_mode"] = "force_utility"
+    detail["rewrite_mode"] = "force_utility_rule"
     detail["lint"] = _lint_to_dict(
         lint_utility_template(
             body=new_body,

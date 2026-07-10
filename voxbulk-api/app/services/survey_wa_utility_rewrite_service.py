@@ -159,7 +159,7 @@ _EMOJI_RE = re.compile(
 
 _RECOMMEND_INTENT_RE = re.compile(
     r"\bwould you recommend\b|\bhow likely are you\b|\blikely are you to\b|"
-    r"\brecommend us\b|\brecommend us to\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b|"
+    r"\brecommend\b|\breturn intent\b|\breferral likelihood\b|\brenewal intent\b|"
     r"\bnet promoter\b|\bnps\b|\bshop with us again\b|\bshop with us\b.*\bagain\b|"
     r"\brepeat purchase\b|\bpurchase intent\b|\battend our events again\b",
     re.IGNORECASE,
@@ -702,6 +702,16 @@ def rewrite_body_for_utility(
                     if _is_non_english_language(lang_code, template_name=template_name):
                         return _fallback_body()
                     return _fallback_body(body)
+                # Reject NPS / recommend copy even when the model added a recent-visit anchor.
+                lint_after = lint_utility_template(
+                    body=body,
+                    buttons=button_labels,
+                    language=language or lang_code,
+                    meta_category="utility",
+                    template_key=topic_name,
+                )
+                if not lint_after.ok or _body_has_recommend_intent(body):
+                    return _fallback_body()
                 return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
             except Exception as exc:
                 last_exc = exc
@@ -747,8 +757,21 @@ def apply_utility_rewrite_to_row(
 
     industry_slug, industry_name = _industry_for_template_row(db, row)
     topic_name = _topic_for_template_row(db, row)
-    if _body_has_recommend_intent(old_body) and not force_rewrite:
+    from app.services.wa_template_utility_content import (
+        AR_RATING_BUTTONS,
+        RATING_BUTTONS,
+        _is_would_recommend_topic,
+    )
+
+    recommend_topic = _is_would_recommend_topic(topic_name) or "would_recommend" in str(
+        row.name or ""
+    ).lower()
+    recommend_buttons = any(_body_has_recommend_intent(b) for b in buttons)
+    # NPS / would-recommend must become overall-satisfaction + rating buttons (never LLM NPS copy).
+    if recommend_topic or recommend_buttons or _body_has_recommend_intent(old_body):
         use_llm = False
+        lang_ar = str(row.language or "").lower().startswith("ar")
+        buttons = list(AR_RATING_BUTTONS if lang_ar else RATING_BUTTONS)
 
     if new_body_override is not None and str(new_body_override).strip():
         new_body = str(new_body_override).strip()
@@ -766,7 +789,7 @@ def apply_utility_rewrite_to_row(
             industry_name=industry_name,
             topic_name=topic_name,
             language=row.language,
-            force_rewrite=force_rewrite,
+            force_rewrite=force_rewrite or recommend_topic or recommend_buttons,
         )
     new_body = _normalize_leading_emoji_text(new_body)
     lint = lint_utility_template(
@@ -776,8 +799,31 @@ def apply_utility_rewrite_to_row(
         meta_category="utility",
     )
     if not lint.ok:
-        msgs = "; ".join(i.message for i in lint.issues)
-        raise SurveyWhatsappTemplateError(f"Utility lint failed for {row.name}: {msgs}")
+        # Last resort: force rule-based satisfaction body + rating buttons, then re-lint.
+        if recommend_topic or recommend_buttons or _body_has_recommend_intent(new_body):
+            new_body = rewrite_body_for_utility(
+                db,
+                original_body=old_body,
+                button_labels=buttons,
+                template_name=row.name,
+                display_name=row.display_name,
+                use_llm=False,
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+                topic_name=topic_name or "would recommend",
+                language=row.language,
+                force_rewrite=True,
+            )
+            new_body = _normalize_leading_emoji_text(new_body)
+            lint = lint_utility_template(
+                body=new_body,
+                buttons=buttons,
+                language=row.language,
+                meta_category="utility",
+            )
+        if not lint.ok:
+            msgs = "; ".join(i.message for i in lint.issues)
+            raise SurveyWhatsappTemplateError(f"Utility lint failed for {row.name}: {msgs}")
     if not buttons:
         normalized = _normalize_draft_components(components)
         for comp in normalized:
