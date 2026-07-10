@@ -17,12 +17,25 @@ import {
   Search,
   ShieldCheck,
   Trash2,
+  Upload,
   Users,
   X,
 } from 'lucide-react'
+import { apiFetch, apiUpload } from '../lib/api'
 import '../styles/telnyx-settings-hub.css'
 
 const invalidInputStyle = { borderColor: 'rgba(220,38,38,0.85)' }
+
+function rateIsoKey(iso) {
+  const c = String(iso || '').trim().toUpperCase()
+  if (c === 'USA') return 'US'
+  return c
+}
+
+function fmtRate(money) {
+  if (!money || money.display == null) return '—'
+  return money.display
+}
 
 function statusPill(summary) {
   if (!summary) return { cls: 'p-amber', text: 'Loading' }
@@ -363,6 +376,13 @@ export default function TelnyxIntegration({
   const [prefixDialogCountry, setPrefixDialogCountry] = React.useState(null)
   const [showAddCallRegion, setShowAddCallRegion] = React.useState(false)
   const [topNoticeClosed, setTopNoticeClosed] = React.useState(false)
+  const [rateQuery, setRateQuery] = React.useState('')
+  const [rateResults, setRateResults] = React.useState([])
+  const [rateByIso, setRateByIso] = React.useState({})
+  const [rateLoading, setRateLoading] = React.useState(false)
+  const [rateNotice, setRateNotice] = React.useState('')
+  const [selectedRate, setSelectedRate] = React.useState(null)
+  const rateFileRef = React.useRef(null)
 
   const healthChecks = telnyxNumberHealth?.configured_checks || []
   const healthCounts = healthChecks.reduce(
@@ -472,6 +492,128 @@ export default function TelnyxIntegration({
     if (country === 'GB') return '+44'
     if (country === 'AU') return '+61'
     return '—'
+  }
+
+  const tableRateIsos = React.useMemo(() => {
+    const set = new Set()
+    coreCallCountries.forEach((c) => set.add(rateIsoKey(c)))
+    callExtraRows.forEach((c) => set.add(rateIsoKey(c)))
+    messagingRows.forEach((c) => set.add(rateIsoKey(c)))
+    return [...set]
+  }, [callExtraRows.join(','), messagingRows.join(',')])
+
+  React.useEffect(() => {
+    if (activeTab !== 'whitelist' || !tableRateIsos.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await apiFetch(
+          `/admin/integrations/telnyx/destination-rates?isos=${encodeURIComponent(tableRateIsos.join(','))}`,
+        )
+        if (cancelled) return
+        setRateByIso((prev) => ({ ...prev, ...(data?.by_iso || {}) }))
+      } catch {
+        /* rates optional */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, tableRateIsos.join(',')])
+
+  React.useEffect(() => {
+    if (activeTab !== 'whitelist') return
+    const q = rateQuery.trim()
+    if (q.length < 1) {
+      setRateResults([])
+      return
+    }
+    let cancelled = false
+    const t = window.setTimeout(async () => {
+      setRateLoading(true)
+      try {
+        const data = await apiFetch(
+          `/admin/integrations/telnyx/destination-rates?q=${encodeURIComponent(q)}&limit=12`,
+        )
+        if (cancelled) return
+        setRateResults(Array.isArray(data?.rates) ? data.rates : [])
+      } catch (err) {
+        if (!cancelled) {
+          setRateResults([])
+          setRateNotice(err?.message || 'Rate search failed')
+        }
+      } finally {
+        if (!cancelled) setRateLoading(false)
+      }
+    }, 220)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [rateQuery, activeTab])
+
+  const isListedOnCall = (iso) => {
+    const code = String(iso || '').toUpperCase()
+    if (code === 'US' || code === 'USA') return true
+    if (coreCallCountries.includes(code)) return true
+    return Boolean(allowlistExtra[code])
+  }
+
+  const isEnabledOnCall = (iso) => {
+    const code = String(iso || '').toUpperCase()
+    if (code === 'US' || code === 'USA') return allowlistEnabled.USA !== false
+    if (coreCallCountries.includes(code)) return allowlistEnabled[code] !== false
+    return allowlistExtraEnabled[code] === true
+  }
+
+  const addCountryFromRate = (rate) => {
+    if (!rate?.country_iso) return
+    const iso = String(rate.country_iso).toUpperCase()
+    const dial = String(rate.dial_code || '').replace(/\D/g, '')
+    if (!dial) {
+      setNewCallIso(iso)
+      setNewCallDial('')
+      setShowAddCallRegion(true)
+      setRateNotice(`Set dial code for ${iso}, then Add.`)
+      return
+    }
+    patchAllowlistExtra(iso, {
+      code: dial,
+      name: rate.country_name || iso,
+      allow_any_prefix: true,
+    })
+    setExtraAllowlistEnabled(iso, true)
+    setRateNotice(`${iso} added to call allowlist — click Save at the top.`)
+    setSelectedRate(null)
+    setRateQuery('')
+    setRateResults([])
+  }
+
+  const importRatesFile = async (file) => {
+    if (!file) return
+    setRateNotice('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const data = await apiUpload('/admin/integrations/telnyx/destination-rates/import-file', form)
+      setRateNotice(`Imported: ${data?.created || 0} new, ${data?.updated || 0} updated.`)
+      if (tableRateIsos.length) {
+        const refreshed = await apiFetch(
+          `/admin/integrations/telnyx/destination-rates?isos=${encodeURIComponent(tableRateIsos.join(','))}`,
+        )
+        setRateByIso((prev) => ({ ...prev, ...(refreshed?.by_iso || {}) }))
+      }
+      if (rateQuery.trim()) {
+        const data2 = await apiFetch(
+          `/admin/integrations/telnyx/destination-rates?q=${encodeURIComponent(rateQuery.trim())}&limit=12`,
+        )
+        setRateResults(Array.isArray(data2?.rates) ? data2.rates : [])
+      }
+    } catch (err) {
+      setRateNotice(err?.message || 'Import failed')
+    } finally {
+      if (rateFileRef.current) rateFileRef.current.value = ''
+    }
   }
 
   const patchAllowlistPrefixes = (country, field, raw) => {
@@ -908,12 +1050,130 @@ export default function TelnyxIntegration({
       ) : null}
 
       {activeTab === 'whitelist' ? (
-        <div className='stack' style={{ gap: 20 }}>
+        <div className='stack tsh-whitelist' style={{ gap: 12 }}>
+          <div className='card tsh-rates-card'>
+            <div className='cardHead'>
+              <div className='cardHeadText'>
+                <h3>Destination rates</h3>
+                <p className='cardSub'>Check voice/SMS cost before adding a country · local rate card</p>
+              </div>
+              <div className='actions'>
+                <input
+                  ref={rateFileRef}
+                  type='file'
+                  accept='.csv,text/csv'
+                  hidden
+                  onChange={(e) => importRatesFile(e.target.files?.[0])}
+                />
+                <button
+                  type='button'
+                  className='tsh-btn tsh-btn-outline'
+                  title='Import Telnyx CSV'
+                  onClick={() => rateFileRef.current?.click()}
+                >
+                  <Upload size={14} aria-hidden /> CSV
+                </button>
+              </div>
+            </div>
+            <div className='cardBody tsh-rates-body'>
+              <div className='tsh-rates-search-row'>
+                <div className='tsh-search tsh-rates-search'>
+                  <Search size={14} aria-hidden />
+                  <input
+                    className='input'
+                    value={rateQuery}
+                    onChange={(e) => {
+                      setRateQuery(e.target.value)
+                      setSelectedRate(null)
+                      setRateNotice('')
+                    }}
+                    placeholder='China, CN, 86…'
+                    autoComplete='off'
+                  />
+                </div>
+                {rateLoading ? <span className='muted tsh-rates-hint'>Searching…</span> : null}
+                {rateNotice ? <span className='tsh-rates-notice'>{rateNotice}</span> : null}
+              </div>
+
+              {(selectedRate || rateResults.length > 0) ? (
+                <div className='tableWrap tsh-rates-table-wrap'>
+                  <table className='table tsh-compact-table'>
+                    <thead>
+                      <tr>
+                        <th>Country</th>
+                        <th>Dial</th>
+                        <th>Voice out</th>
+                        <th>Voice in</th>
+                        <th>SMS out</th>
+                        <th>Call list</th>
+                        <th style={{ textAlign: 'right' }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedRate ? [selectedRate] : rateResults).map((rate) => {
+                        const listed = isListedOnCall(rate.country_iso)
+                        const onList = isEnabledOnCall(rate.country_iso)
+                        const msgOn = messagingDestinations[rate.country_iso] !== false
+                          && messagingDestinations[rate.country_iso] != null
+                        return (
+                          <tr
+                            key={rate.country_iso}
+                            className={selectedRate?.country_iso === rate.country_iso ? 'tsh-row-active' : undefined}
+                            onClick={() => setSelectedRate(rate)}
+                          >
+                            <td>
+                              <strong>{rate.country_iso}</strong>{' '}
+                              <span className='muted'>{rate.country_name}</span>
+                              {rate.is_placeholder ? <span className='pill p-amber tsh-rate-pill'>seed</span> : null}
+                            </td>
+                            <td className='muted'>{rate.dial_code ? `+${rate.dial_code}` : '—'}</td>
+                            <td><span className='tsh-rate-val'>{fmtRate(rate.voice_outbound)}</span><span className='muted'>/min</span></td>
+                            <td><span className='tsh-rate-val'>{fmtRate(rate.voice_inbound)}</span></td>
+                            <td><span className='tsh-rate-val'>{fmtRate(rate.sms_outbound)}</span></td>
+                            <td>
+                              {onList ? (
+                                <span className='pill p-green'>On</span>
+                              ) : (
+                                <span className='pill p-amber'>Off</span>
+                              )}
+                              {msgOn ? <span className='muted tsh-msg-tag'> · msg</span> : null}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              {listed ? (
+                                <span className='muted' style={{ fontSize: 11 }}>{onList ? 'Already listed' : 'Listed (off)'}</span>
+                              ) : (
+                                <button
+                                  type='button'
+                                  className='tsh-btn tsh-btn-primary'
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    addCountryFromRate(rate)
+                                  }}
+                                >
+                                  <Plus size={14} aria-hidden /> Add
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className='muted tsh-rates-empty'>Search a country to see $/min and add it to the call allowlist.</p>
+              )}
+              {selectedRate?.notes ? (
+                <p className='muted tsh-rates-notes'>{selectedRate.notes}</p>
+              ) : null}
+            </div>
+          </div>
+
           <div className='card'>
             <div className='cardHead'>
               <div className='cardHeadText'>
                 <h3>Call allowlist — AI voice</h3>
-                <p className='cardSub'>Per-region dial rules · click edit to manage prefixes</p>
+                <p className='cardSub'>Dial rules · Save at top to apply</p>
               </div>
               <div className='actions'>
                 <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => setShowAddCallRegion(true)}>
@@ -921,18 +1181,15 @@ export default function TelnyxIntegration({
                 </button>
               </div>
             </div>
-            <div className='cardBody stack'>
-              <div className='tsh-banner tsh-banner-info'>
-                <Info size={14} aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
-                <span><strong>Call allowlist</strong> controls which numbers AI voice can dial. Does not affect WhatsApp/SMS — see the messaging table below.</span>
-              </div>
+            <div className='cardBody' style={{ paddingTop: 8, paddingBottom: 8 }}>
               <div className='tableWrap'>
-                <table className='table'>
+                <table className='table tsh-compact-table'>
                   <thead>
                     <tr>
                       <th style={{ width: 1 }}>On</th>
                       <th>Region</th>
                       <th>Code</th>
+                      <th>Voice out</th>
                       <th>Rules</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
@@ -941,6 +1198,7 @@ export default function TelnyxIntegration({
                     {coreCallCountries.map((country) => {
                       const cfg = allowlist[country] || {}
                       const enabled = allowlistEnabled[country] !== false
+                      const rate = rateByIso[rateIsoKey(country)]
                       const rules =
                         country === 'USA'
                           ? 'NANP +1 (non-Canada)'
@@ -952,6 +1210,10 @@ export default function TelnyxIntegration({
                           <td><input type='checkbox' checked={enabled} onChange={(e) => setAllowlistEnabled(country, e.target.checked)} /></td>
                           <td><strong>{country}</strong></td>
                           <td className='muted'>{dialHint(country, cfg)}</td>
+                          <td>
+                            <span className='tsh-rate-val'>{fmtRate(rate?.voice_outbound)}</span>
+                            {rate?.is_placeholder ? <span className='muted'> *</span> : null}
+                          </td>
                           <td className='muted'>{rules}</td>
                           <td>
                             <div className='tsh-actions-cell'>
@@ -966,6 +1228,7 @@ export default function TelnyxIntegration({
                     {callExtraRows.map((iso) => {
                       const cfg = allowlistExtra[iso] || {}
                       const enabled = allowlistExtraEnabled[iso] === true
+                      const rate = rateByIso[rateIsoKey(iso)]
                       return (
                         <tr key={`extra-${iso}`}>
                           <td><input type='checkbox' checked={enabled} onChange={(e) => setExtraAllowlistEnabled(iso, e.target.checked)} /></td>
@@ -973,11 +1236,15 @@ export default function TelnyxIntegration({
                           <td>
                             <input
                               className='input'
-                              style={{ maxWidth: 90, height: 28 }}
+                              style={{ maxWidth: 72, height: 26 }}
                               value={String(cfg.code || '')}
                               onChange={(e) => patchAllowlistExtra(iso, { code: e.target.value.trim().replace(/\D/g, '') })}
                               placeholder='970'
                             />
+                          </td>
+                          <td>
+                            <span className='tsh-rate-val'>{fmtRate(rate?.voice_outbound)}</span>
+                            {rate?.is_placeholder ? <span className='muted'> *</span> : null}
                           </td>
                           <td className='muted'>Any prefix</td>
                           <td>
@@ -993,6 +1260,7 @@ export default function TelnyxIntegration({
                   </tbody>
                 </table>
               </div>
+              <p className='muted tsh-rates-footnote'>* Seed estimate until you import a Telnyx price sheet CSV.</p>
             </div>
           </div>
 
@@ -1000,7 +1268,7 @@ export default function TelnyxIntegration({
             <div className='cardHead'>
               <div className='cardHeadText'>
                 <h3>Messaging destinations — WhatsApp &amp; SMS</h3>
-                <p className='cardSub'>Synced to Telnyx messaging profile whitelisted destinations</p>
+                <p className='cardSub'>Save, then Sync to Telnyx profile</p>
               </div>
               <div className='actions'>
                 <label className='telnyxEnableRow' style={{ fontSize: 11.5 }}>
@@ -1016,60 +1284,58 @@ export default function TelnyxIntegration({
                 </button>
               </div>
             </div>
-            <div className='cardBody stack'>
-              <div className='tsh-banner tsh-banner-info'>
-                <Info size={14} aria-hidden style={{ flexShrink: 0, marginTop: 2 }} />
-                <span>
-                  Required for outbound WhatsApp/SMS (e.g. error: region <code>PS</code> not whitelisted for <code>+970…</code>).
-                  This list does <strong>not</strong> control AI voice calls. Save settings first, then Sync.
-                </span>
-              </div>
+            <div className='cardBody' style={{ paddingTop: 8, paddingBottom: 8 }}>
               <div className='tableWrap'>
-                <table className='table'>
+                <table className='table tsh-compact-table'>
                   <thead>
                     <tr>
                       <th style={{ width: 1 }}>On</th>
                       <th>ISO</th>
+                      <th>SMS out</th>
                       <th>Notes</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {messagingRows.length ? messagingRows.map((iso) => (
-                      <tr key={`msg-${iso}`}>
-                        <td>
-                          <input
-                            type='checkbox'
-                            checked={messagingDestinations[iso] !== false}
-                            disabled={messagingAllowAll}
-                            onChange={(e) => setMessagingDestinationEnabled(iso, e.target.checked)}
-                          />
-                        </td>
-                        <td><strong>{iso}</strong></td>
-                        <td className='muted'>{iso === 'PS' ? 'Palestine (+970)' : ''}</td>
-                        <td>
-                          <div className='tsh-actions-cell'>
-                            {!['GB', 'US', 'AU', 'CA', 'PS'].includes(iso) ? (
-                              <button type='button' className='tsh-icon-btn danger' title='Remove' onClick={() => removeMessagingCountry(iso)}>
-                                <Trash2 size={14} aria-hidden />
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr><td colSpan={4} className='muted'>No destinations — add PS or enable Allow all countries.</td></tr>
+                    {messagingRows.length ? messagingRows.map((iso) => {
+                      const rate = rateByIso[rateIsoKey(iso)]
+                      return (
+                        <tr key={`msg-${iso}`}>
+                          <td>
+                            <input
+                              type='checkbox'
+                              checked={messagingDestinations[iso] !== false}
+                              disabled={messagingAllowAll}
+                              onChange={(e) => setMessagingDestinationEnabled(iso, e.target.checked)}
+                            />
+                          </td>
+                          <td><strong>{iso}</strong></td>
+                          <td><span className='tsh-rate-val'>{fmtRate(rate?.sms_outbound)}</span></td>
+                          <td className='muted'>{iso === 'PS' ? 'Palestine (+970)' : (rate?.country_name || '')}</td>
+                          <td>
+                            <div className='tsh-actions-cell'>
+                              {!['GB', 'US', 'AU', 'CA', 'PS'].includes(iso) ? (
+                                <button type='button' className='tsh-icon-btn danger' title='Remove' onClick={() => removeMessagingCountry(iso)}>
+                                  <Trash2 size={14} aria-hidden />
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }) : (
+                      <tr><td colSpan={5} className='muted'>No destinations — add an ISO or enable Allow all.</td></tr>
                     )}
                     <tr>
                       <td />
-                      <td colSpan={3}>
-                        <div className='actions' style={{ alignItems: 'center' }}>
+                      <td colSpan={4}>
+                        <div className='actions' style={{ alignItems: 'center', gap: 6 }}>
                           <input
                             className='input'
-                            style={{ width: 140, height: 28, textTransform: 'uppercase' }}
+                            style={{ width: 120, height: 26, textTransform: 'uppercase' }}
                             value={newMsgIso}
                             onChange={(e) => setNewMsgIso(e.target.value)}
-                            placeholder='Add ISO (e.g. PS)'
+                            placeholder='ISO e.g. PS'
                           />
                           <button type='button' className='tsh-btn tsh-btn-outline' onClick={addMessagingCountry} disabled={messagingAllowAll}>
                             <Plus size={14} aria-hidden /> Add
@@ -1080,7 +1346,7 @@ export default function TelnyxIntegration({
                   </tbody>
                 </table>
               </div>
-              {telnyxMessagingSyncResult ? <div className='note' style={{ whiteSpace: 'pre-wrap' }}>{telnyxMessagingSyncResult}</div> : null}
+              {telnyxMessagingSyncResult ? <div className='note' style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{telnyxMessagingSyncResult}</div> : null}
             </div>
           </div>
         </div>
@@ -1568,7 +1834,7 @@ export default function TelnyxIntegration({
         open={showAddCallRegion}
         onClose={() => setShowAddCallRegion(false)}
         title='Add call region'
-        desc='Add a country for the AI voice allowlist.'
+        desc='ISO + dial code. Prefer Destination rates search above when you need cost first.'
         footer={
           <>
             <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => setShowAddCallRegion(false)}>Cancel</button>
@@ -1584,12 +1850,38 @@ export default function TelnyxIntegration({
       >
         <div className='telnyxGrid2'>
           <Field label='ISO'>
-            <input className='input' value={newCallIso} onChange={(e) => setNewCallIso(e.target.value)} placeholder='PS' />
+            <input
+              className='input'
+              value={newCallIso}
+              onChange={async (e) => {
+                const v = e.target.value
+                setNewCallIso(v)
+                const iso = String(v || '').trim().toUpperCase()
+                if (iso.length !== 2) return
+                try {
+                  const data = await apiFetch(`/admin/integrations/telnyx/destination-rates/${encodeURIComponent(iso)}`)
+                  const rate = data?.rate
+                  if (rate?.dial_code && !String(newCallDial || '').trim()) {
+                    setNewCallDial(String(rate.dial_code))
+                  }
+                  if (rate) setSelectedRate(rate)
+                } catch {
+                  /* optional */
+                }
+              }}
+              placeholder='PS'
+            />
           </Field>
           <Field label='Dial code (no +)'>
             <input className='input' value={newCallDial} onChange={(e) => setNewCallDial(e.target.value)} placeholder='970' />
           </Field>
         </div>
+        {selectedRate && rateIsoKey(selectedRate.country_iso) === rateIsoKey(newCallIso) ? (
+          <p className='muted' style={{ margin: '8px 0 0', fontSize: 12 }}>
+            Voice out {fmtRate(selectedRate.voice_outbound)}/min · SMS {fmtRate(selectedRate.sms_outbound)}
+            {selectedRate.is_placeholder ? ' (seed)' : ''}
+          </p>
+        ) : null}
       </TshDialog>
     </div>
   )

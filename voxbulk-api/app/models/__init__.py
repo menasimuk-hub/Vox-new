@@ -59,6 +59,7 @@ from app.models.smtp_settings import SmtpSettings  # noqa: F401
 from app.models.email_template import EmailTemplate  # noqa: F401
 from app.models.whatsapp_template import WhatsAppTemplate  # noqa: F401
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate  # noqa: F401
+from app.models.telnyx_destination_rate import TelnyxDestinationRate  # noqa: F401
 from app.models.industry import Industry  # noqa: F401
 from app.models.industry_deletion_tombstone import IndustryDeletionTombstone  # noqa: F401
 from app.models.industry_organisation import IndustryOrganisation  # noqa: F401

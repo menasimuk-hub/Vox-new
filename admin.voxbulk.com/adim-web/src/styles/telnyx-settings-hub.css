@@ -1015,3 +1015,117 @@
     flex-shrink: 0;
   }
 }
+
+/* Compact destination rates + allowlist tables */
+.telnyxHub .tsh-rates-card .cardBody.tsh-rates-body {
+  padding: 10px 14px 12px;
+  gap: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.telnyxHub .tsh-rates-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.telnyxHub .tsh-rates-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.telnyxHub .tsh-rates-search svg {
+  position: absolute;
+  left: 8px;
+  color: var(--tsh-muted-fg);
+  pointer-events: none;
+}
+
+.telnyxHub .tsh-rates-search .input {
+  padding-left: 28px;
+  width: min(280px, 100%);
+  height: 30px;
+}
+
+.telnyxHub .tsh-rates-hint,
+.telnyxHub .tsh-rates-notice {
+  font-size: 11.5px;
+}
+
+.telnyxHub .tsh-rates-notice {
+  color: var(--tsh-fg, #1e293b);
+}
+
+.telnyxHub .tsh-rates-empty {
+  margin: 0;
+  font-size: 12px;
+  padding: 2px 0 0;
+}
+
+.telnyxHub .tsh-rates-notes,
+.telnyxHub .tsh-rates-footnote {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.telnyxHub .tsh-rates-table-wrap {
+  margin: 0;
+}
+
+.telnyxHub .tsh-compact-table th,
+.telnyxHub .tsh-compact-table td {
+  padding: 6px 8px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.telnyxHub .tsh-compact-table thead th {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--tsh-muted-fg);
+  font-weight: 600;
+}
+
+.telnyxHub .tsh-compact-table tbody tr.tsh-row-active {
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.telnyxHub .tsh-compact-table tbody tr {
+  cursor: default;
+}
+
+.telnyxHub .tsh-rates-table-wrap tbody tr {
+  cursor: pointer;
+}
+
+.telnyxHub .tsh-rate-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.telnyxHub .tsh-rate-pill {
+  margin-left: 6px;
+  vertical-align: middle;
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.telnyxHub .tsh-msg-tag {
+  font-size: 10.5px;
+}
+
+.telnyxHub .tsh-whitelist .cardHead {
+  padding: 10px 14px;
+}
+
+.telnyxHub .tsh-whitelist .cardBody {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+

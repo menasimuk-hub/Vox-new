@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import HTMLResponse, Response
 from datetime import datetime, timedelta
 import json
@@ -1939,6 +1939,87 @@ def telnyx_phone_allowlist_defaults(_admin=Depends(require_cap(CAP_INTEGRATION))
     from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
     return {"ok": True, **TelnyxPhoneAllowlistService.admin_view({})}
+
+
+@router.get("/integrations/telnyx/destination-rates")
+def list_telnyx_destination_rates(
+    q: str | None = None,
+    limit: int = 40,
+    isos: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Search country voice/SMS rates (local rate card for allowlist decisions)."""
+    from app.services.telnyx_destination_rate_service import (
+        TelnyxDestinationRateService,
+        serialize_rate,
+    )
+
+    if isos:
+        codes = [c.strip().upper() for c in str(isos).split(",") if c.strip()]
+        by_iso = TelnyxDestinationRateService.map_for_isos(db, codes)
+        return {"ok": True, "rates": list(by_iso.values()), "by_iso": by_iso}
+
+    rows = TelnyxDestinationRateService.search(db, q, limit=limit)
+    return {"ok": True, "rates": [serialize_rate(r) for r in rows]}
+
+
+@router.get("/integrations/telnyx/destination-rates/{iso}")
+def get_telnyx_destination_rate(
+    iso: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.telnyx_destination_rate_service import (
+        TelnyxDestinationRateService,
+        serialize_rate,
+    )
+
+    row = TelnyxDestinationRateService.get(db, iso)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Country rate not found")
+    return {"ok": True, "rate": serialize_rate(row)}
+
+
+@router.post("/integrations/telnyx/destination-rates/import")
+def import_telnyx_destination_rates(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Import rates from JSON ``{csv_text}`` or ``{rows:[...]}``."""
+    from app.services.telnyx_destination_rate_service import TelnyxDestinationRateService
+
+    if body.get("csv_text"):
+        result = TelnyxDestinationRateService.import_csv(db, str(body.get("csv_text") or ""))
+    elif isinstance(body.get("rows"), list):
+        result = TelnyxDestinationRateService.upsert_many(
+            db, body["rows"], source=str(body.get("source") or "manual")
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide JSON with csv_text or rows",
+        )
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or "Import failed")
+    return result
+
+
+@router.post("/integrations/telnyx/destination-rates/import-file")
+async def import_telnyx_destination_rates_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Import rates from a CSV file upload."""
+    from app.services.telnyx_destination_rate_service import TelnyxDestinationRateService
+
+    raw = (await file.read()).decode("utf-8-sig", errors="replace")
+    result = TelnyxDestinationRateService.import_csv(db, raw)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error") or "Import failed")
+    return result
 
 
 @router.get("/integrations/telnyx/messaging-destinations/defaults")
