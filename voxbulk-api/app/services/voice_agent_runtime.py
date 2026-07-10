@@ -133,12 +133,13 @@ ARABIC_GULF_HUMAN_SPEECH_RULES = (
 )
 ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES = (
     "أسلوب الكلام (إلزامي — أولوية بعد اللغة):\n"
-    "- لا تستخدم فصحى رسمية في كلامك. تكلم مصري طبيعي زي موظف توظيف على التليفون.\n"
-    "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «حضرة»، «سوف أقوم»، «يرجى التكرم».\n"
+    "- تكلم مصري عامية طبيعية طول المكالمة. ممنوع فصحى رسمية أو خلط فصحى/عامية.\n"
+    "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «حضرة»، «سوف أقوم»، «يرجى التكرم»، «إذن»، «لقد».\n"
     "- استخدم بدلها: «تقدر»، «عندك»، «دلوقتي»، «إزاي»، «ليه»، «تمام»، «ماشي»، «أكيد»، «فهمت عليك»، «ادّيني مثال».\n"
     "- إذا السؤال في النص المعتمد مكتوب فصحى، قل المعنى نفسه بمصري طبيعي قبل ما تنتظر الإجابة.\n"
     "- ردودك ١–٢ جملة غالبًا. افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري واضح.\n"
-    "- نبرة ودودة ومحترمة — زي مكالمة توظيف حقيقية."
+    "- نبرة ودودة وإنسانية وسهلة — زي مكالمة توظيف حقيقية مش روبوت.\n"
+    "- بعد الموافقة قول «نبدأ» مش «نكمل» — دي بداية المقابلة."
 )
 ARABIC_HUMAN_SPEECH_RULES = ARABIC_GULF_HUMAN_SPEECH_RULES
 ARABIC_INTERVIEW_SERVICE_ROLE = (
@@ -166,6 +167,25 @@ ARABIC_INTERVIEW_CALL_WORKFLOW = (
     "ويتواصل معه بالخطوات التالية، ثم ودّعه بلطف."
 )
 
+ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW = (
+    "التحية والوقت اتسألوا بالفعل في أول المكالمة — متعدّش التعريف بنفسك ومتعدّش سؤال الوقت.\n"
+    "استنى تأكيد واضح إن الوقت مناسب.\n"
+    "لو مشغول أو رفض: رتّب معاد وانهِ بلباقة.\n"
+    "\n"
+    "بعد ما يوافق — قبل أي سؤال فرز — جهّزه بجمل قصيرة (٢–٤) بمصري طبيعي:\n"
+    "1) دي مقابلة فرز قصيرة لوظيفة {role} مع {company_name}.\n"
+    "2) هسأل كام سؤال عن خلفيته ومدى مناسبته للدور.\n"
+    "3) مفيش أسئلة خادعة — يجاوب بكلامه وياخد وقته لو محتاج.\n"
+    "4) اسأله: جاهز نبدأ؟ أو عنده سؤال سريع قبل ما نبدأ؟ واستنى رده.\n"
+    "ممنوع تقول «نكمل» في البداية — دي بداية المقابلة مش تكملة.\n"
+    "\n"
+    "بعدين: أسئلة السيرة ثم أسئلة الوظيفة بالترتيب — سؤال واحد واستنى الإجابة كاملة.\n"
+    "بعد كل إجابة: رد فعل قصير ودود (تمام / ماشي / فهمت عليك). لو الإجابة قصيرة أو عامة، "
+    "اسأل متابعة واحدة (مثال أو تفاصيل) قبل ما تنتقل.\n"
+    "بعد آخر سؤال: اسأله لو حابب يضيف حاجة عن خبرته أو اهتمامه بالوظيفة، واستنى.\n"
+    "إغلاق إلزامي: اشكره، وقل إن {company_name} هيراجع المقابلة ويتواصل معاه بالخطوات الجاية، بعدين ودّعه."
+)
+
 _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
 
 
@@ -185,12 +205,13 @@ def arabic_dialect_runtime_for_agent(agent: AgentDefinition | None) -> dict[str,
         return {
             "language_priority": (
                 "تعليمات اللغة (أولوية قصوى): أجرِ المكالمة بالكامل بالعربية المصرية الطبيعية — "
-                "التحية وجميع الأسئلة والمتابعات وكل ردودك. لا تستخدم فصحى رسمية في كلامك. "
+                "التحية وجميع الأسئلة والمتابعات وكل ردودك. ممنوع الفصحى الرسمية. ممنوع خلط فصحى مع عامية. "
                 "الأسئلة في النص المعتمد قد تكون فصحى — قلّها بمصري طبيعي بنفس المعنى. "
                 "لا تتحدث الإنجليزية إلا إذا طلب المرشّح ذلك صراحةً."
             ),
             "speech_rules": ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES,
             "base_role": ARABIC_EGYPTIAN_BASE_ROLE,
+            "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
         }
     return {
         "language_priority": (
@@ -201,6 +222,7 @@ def arabic_dialect_runtime_for_agent(agent: AgentDefinition | None) -> dict[str,
         ),
         "speech_rules": ARABIC_GULF_HUMAN_SPEECH_RULES,
         "base_role": ARABIC_BASE_ROLE,
+        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
     }
 
 
@@ -621,7 +643,13 @@ def build_voice_runtime_layers(
     org_id: str | None = None,
 ) -> VoiceRuntimeLayers:
     platform = _platform_settings(db)
-    base = str((agent.base_role if agent else None) or (agent.system_prompt if agent else "") or "").strip()
+    # Prefer colloquial Arabic system_prompt over a stale English base_role for Arabic agents.
+    agent_system = str((agent.system_prompt if agent else None) or "").strip()
+    agent_base = str((agent.base_role if agent else None) or "").strip()
+    if agent_system and _contains_arabic(agent_system) and (not agent_base or not _contains_arabic(agent_base)):
+        base = agent_system
+    else:
+        base = agent_base or agent_system
     service_role = _service_role(agent, service_key)
     campaign_prompt = str(config.get("system_prompt") or "").strip()
 
@@ -802,7 +830,10 @@ def build_service_runtime_instructions(
     call_workflow = layers.call_workflow
     if service_key == SERVICE_INTERVIEW:
         # Canonical interviewer workflow for every interview agent (brief → probe → closing).
-        call_workflow = ARABIC_INTERVIEW_CALL_WORKFLOW if use_arabic else INTERVIEW_CALL_WORKFLOW_EN
+        if use_arabic:
+            call_workflow = (dialect_runtime or {}).get("call_workflow") or ARABIC_INTERVIEW_CALL_WORKFLOW
+        else:
+            call_workflow = INTERVIEW_CALL_WORKFLOW_EN
 
     if use_arabic and dialect_runtime:
         parts.append(dialect_runtime["language_priority"])

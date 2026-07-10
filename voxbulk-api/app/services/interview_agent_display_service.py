@@ -119,7 +119,7 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
             "dialect_code": "EG",
             "dialect_label": "Egyptian Arabic",
             "dialect_description": "Natural Egyptian phone style — understands Gulf & Levant replies",
-            "sample_phrase": "أهلاً، معاك جمال من فريق التوظيف. سامعني كويس؟",
+            "sample_phrase": "أهلاً، معاك جمال من فريق التوظيف. عندك شوية وقت نبدأ المقابلة؟",
             "accent_region": "EG",
             "flag_emoji": "🇪🇬",
         }

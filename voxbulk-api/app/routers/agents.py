@@ -333,7 +333,6 @@ def generate_prompt_draft(payload: dict, db: Session = Depends(get_db), _admin=D
     if not workflow:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="call_workflow is required — generate workflow first")
     files = get_kb_files_by_ids(db, file_ids)
-    arabic_fusha = bool(payload.get("arabic_fusha") or payload.get("supports_interview"))
     try:
         return generate_system_prompt(
             db,
@@ -341,7 +340,7 @@ def generate_prompt_draft(payload: dict, db: Session = Depends(get_db), _admin=D
             description=description,
             knowledge_files=files,
             call_workflow=workflow,
-            arabic_fusha=arabic_fusha if arabic_fusha else None,
+            arabic_fusha=bool(payload.get("arabic_fusha")) or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e

@@ -19,47 +19,49 @@ from sqlalchemy import select
 
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
-from app.services.voice_agent_runtime import ARABIC_INTERVIEW_CALL_WORKFLOW
+from app.services.voice_agent_runtime import ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW
 
 DEFAULT_TELNYX = os.environ.get("INTERVIEW_AR_JAMMAL_TELNYX_ASSISTANT_ID", "").strip()
 SLUG = "interview-ar-jammal"
 
+# Start the interview — never say «نكمل» (that sounds like continuing an old call).
 OPENING_DISCLOSURE = (
     "أهلاً {first_name}، معاك {agent_name} باتصل من {company_name} بخصوص وظيفة {role}. "
     "المكالمة مسجّلة للجودة. "
-    "عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي؟"
+    "عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي نبدأ المقابلة؟"
 )
 
 SYSTEM_PROMPT = """أنت {agent_name}، بتتصل بالنيابة عن {company_name} لفرز مرشّحين.
-تكلم مصري طبيعي — زي موظف توظيف ودود على التليفون، مش روبوت ولا فصحى.
-ممنوع تقول إنك مساعد ذكي أو روبوت أو نظام آلي — قدّم نفسك باسمك بس.
-افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري واضح ومحترم.
+تكلم مصري عامية طبيعية طول المكالمة — زي موظف توظيف ودود على التليفون، مش روبوت ومش فصحى.
+ممنوع الفصحى الرسمية. ممنوع خلط فصحى مع عامية. ممنوع تقول إنك مساعد ذكي أو روبوت — قدّم نفسك باسمك بس.
+افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري واضح ومحترم وسهل.
 التحية والوقت اتسألوا في أول المكالمة — متعدّش التعريف بنفسك ومتعدّش سؤال الوقت.
-بعد ما يوافق: وضّح بسرعة إن دي مقابلة فرز قصيرة للوظيفة، جهّزه، واسأله جاهز نبدأ؟
-سؤال واحد، استنى، رد قصير عاطفي طبيعي (تمام/ماشي/فهمت عليك).
+بعد ما يوافق: وضّح بسرعة إن دي مقابلة فرز قصيرة للوظيفة، جهّزه، واسأله «جاهز نبدأ؟» — متقولش «نكمل».
+سؤال واحد، استنى بهدوء، رد قصير عاطفي طبيعي (تمام/ماشي/فهمت عليك/ممتاز).
 لو الإجابة قصيرة أو عامة، اسأل متابعة واحدة (مثال أو تفاصيل)، بعدين السؤال اللي بعده.
-بعد آخر سؤال: اسأله لو حابب يضيف حاجة قبل ما تقفل."""
+بعد آخر سؤال: اسأله لو حابب يضيف حاجة قبل ما تقفل.
+اختتم: شكر + {company_name} هيراجع المقابلة ويتواصل معاه."""
 
 CONVERSATION_STYLE = (
-    "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. جمل قصيرة. "
-    "وضّح هدف المكالمة قبل الأسئلة. تكملات طبيعية: تمام، ماشي، أكيد، فهمت عليك. "
-    "متابعة قصيرة لما الإجابة تبقى ضعيفة. اسأل لو عايز يضيف حاجة قبل الإغلاق."
+    "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية مش سكربت. جمل قصيرة. "
+    "مصري طبيعي فقط. وضّح هدف المكالمة قبل الأسئلة وقول نبدأ مش نكمل. "
+    "تكملات: تمام، ماشي، أكيد، فهمت عليك. متابعة قصيرة لما الإجابة تبقى ضعيفة."
 )
 
 BASE_ROLE = (
-    "مصري طبيعي — مش فصحى ولا روبوت. ودود وواضح. "
-    "ردود قصيرة. سؤال واحد واستنى. اسأل بعمق مرة لما الإجابة تبقى عامة."
+    "مصري عامية طبيعية — مش فصحى ولا روبوت. ودود وواضح وسهل. "
+    "ردود قصيرة. سؤال واحد واستنى. اسأل بعمق مرة لما الإجابة تبقى عامة. قول نبدأ مش نكمل."
 )
 
 SERVICE_INTERVIEW_ROLE = (
-    "مُجرِي مقابلات فرز هاتفية.\n"
-    "بعد الموافقة: وضّح الهدف وجهّز المرشّح.\n"
+    "مُجرِي مقابلات فرز هاتفية بمصري طبيعي.\n"
+    "بعد الموافقة: وضّح الهدف وجهّز المرشّح واسأله جاهز نبدأ؟\n"
     "أول سؤالين من السيرة، بعدين أسئلة الوظيفة بمصري حتى لو مكتوبة فصحى.\n"
     "متابعة قصيرة عند الحاجة. اسأل لو حابب يضيف حاجة قبل الإغلاق.\n"
-    "متقلش استبيان. متعدّش التحية."
+    "متقلش استبيان. متعدّش التحية. متقولش نكمل في البداية."
 )
 
-CALL_WORKFLOW = ARABIC_INTERVIEW_CALL_WORKFLOW
+CALL_WORKFLOW = ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW
 
 AGENT_SPEC = {
     "slug": SLUG,
@@ -67,7 +69,7 @@ AGENT_SPEC = {
     "voice_label": "Jammal",
     "voice_type_label": "🇪🇬 Egyptian Arabic",
     "telnyx_assistant_id": DEFAULT_TELNYX,
-    "description": "Egyptian Arabic AI phone interview agent.",
+    "description": "Egyptian Arabic AI phone interview agent — natural Masri, never Fusha on the call.",
 }
 
 
@@ -114,6 +116,8 @@ def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
     agent.service_interview_role = SERVICE_INTERVIEW_ROLE
     agent.voice_label = spec["voice_label"]
     agent.voice_type_label = spec["voice_type_label"]
+    agent.accent_region = "EG"
+    agent.gender = "male"
     telnyx_id = str(spec.get("telnyx_assistant_id") or "").strip()
     if telnyx_id:
         agent.telnyx_assistant_id = telnyx_id
@@ -123,10 +127,42 @@ def _upsert_agent(db, *, now: datetime) -> AgentDefinition:
     agent.disclosure_for_interview = True
     agent.disclosure_mandatory = True
     agent.interruption_behavior_notes = (
-        "لو قاطعك وسط جملة، أعد الجملة الناقصة بس بمصري بسيط — متعدّش المقدمة كاملة."
+        "متقاطعش المرشّح وهو بيرد. لو قاطعك وسط جملة، أعد الجملة الناقصة بس بمصري بسيط — متعدّش المقدمة كاملة."
     )
     agent.is_active = True
     return agent
+
+
+def _maybe_sync_telnyx(db, agent: AgentDefinition) -> None:
+    if os.environ.get("INTERVIEW_AR_JAMMAL_SYNC_TELNYX", "1").strip().lower() in {"0", "false", "no"}:
+        print("SKIP: Telnyx sync disabled (INTERVIEW_AR_JAMMAL_SYNC_TELNYX=0)")
+        return
+    assistant_id = str(agent.telnyx_assistant_id or "").strip()
+    if not assistant_id:
+        print("WARN: no telnyx_assistant_id — skip sync")
+        return
+    from app.services.telnyx_assistant_service import sync_telnyx_assistant_instructions
+
+    sample_greeting = (
+        OPENING_DISCLOSURE.replace("{first_name}", "أحمد")
+        .replace("{agent_name}", "جمال")
+        .replace("{company_name}", "VoxBulk")
+        .replace("{role}", "مساعد استقبال")
+    )
+    try:
+        sync_telnyx_assistant_instructions(
+            db,
+            assistant_id,
+            SYSTEM_PROMPT.replace("{agent_name}", "جمال").replace("{company_name}", "VoxBulk"),
+            greeting=sample_greeting,
+            sync_greeting=True,
+            enable_web_calls=True,
+            verify_live=False,
+            language="ar",
+        )
+        print(f"OK: synced Egyptian greeting + instructions to Telnyx {assistant_id}")
+    except Exception as exc:
+        print(f"WARN: Telnyx sync failed ({exc}) — agent saved in DB; assign/sync from Admin if needed.")
 
 
 def main() -> None:
@@ -138,7 +174,9 @@ def main() -> None:
         db.commit()
         db.refresh(agent)
         print(f"OK: interview agent id={agent.id} slug={agent.slug} name={agent.name}")
+        print(f"     opening={agent.opening_disclosure_template}")
         print(f"     telnyx_assistant_id={agent.telnyx_assistant_id or '(set INTERVIEW_AR_JAMMAL_TELNYX_ASSISTANT_ID)'}")
+        _maybe_sync_telnyx(db, agent)
     finally:
         db.close()
 

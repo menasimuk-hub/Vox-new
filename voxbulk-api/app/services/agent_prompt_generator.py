@@ -59,6 +59,47 @@ _BOTH_META_AR_FUSHA = """أنت خبير في هندسة التعليمات لو
 الكلام الحي على الهاتف سيُحوَّل للهجة المحلية في وقت التشغيل؛ النص المُولَّد هنا يبقى فصحى.
 كن عمليًا ومحددًا. بلا أسوار markdown."""
 
+# Live-call Admin generation must match the spoken dialect (not Fusha).
+_WORKFLOW_META_AR_EG = """أنت خبير في تصميم سير مكالمات وكلاء الصوت لمنصة VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "call_workflow": خطوات مرقّمة لسير المكالمة (من بعد التحية حتى الإغلاق).
+
+اكتب بمصري عامية طبيعية فقط — زي موظف توظيف على التليفون. ممنوع الفصحى الرسمية.
+استخدم: تمام، ماشي، دلوقتي، إزاي، نبدأ. ممنوع تقول «نكمل» في بداية المقابلة — قول «نبدأ».
+كن عمليًا ومحددًا. بلا أسوار markdown."""
+
+_PROMPT_META_AR_EG = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "system_prompt": الدور، النبرة، القيود، السلامة — متوافق مع سير المكالمة.
+
+اكتب بمصري عامية طبيعية فقط. ممنوع الفصحى. ممنوع خلط فصحى/عامية.
+الوكيل يتكلم زي موظف توظيف ودود على التليفون — مش روبوت.
+بعد موافقة المرشّح: وضّح إن دي مقابلة فرز قصيرة واسأله «جاهز نبدأ؟» — متقولش «نكمل».
+لا تصف الوكيل بأنه مساعد ذكي. كن عمليًا. بلا أسوار markdown."""
+
+_BOTH_META_AR_EG = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقلين نصيين: system_prompt و call_workflow.
+اكتب بمصري عامية طبيعية فقط. ممنوع الفصحى. قول نبدأ مش نكمل. بلا أسوار markdown."""
+
+_WORKFLOW_META_AR_SA = """أنت خبير في تصميم سير مكالمات وكلاء الصوت لمنصة VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "call_workflow": خطوات مرقّمة لسير المكالمة (من بعد التحية حتى الإغلاق).
+
+اكتب بعربي خليجي طبيعي فقط (سعودي/إماراتي). ممنوع الفصحى الرسمية.
+استخدم: تمام، زين، الحين، وش، نبدأ. كن عمليًا. بلا أسوار markdown."""
+
+_PROMPT_META_AR_SA = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقل نصي واحد:
+- "system_prompt": الدور، النبرة، القيود، السلامة.
+
+اكتب بعربي خليجي طبيعي فقط. ممنوع الفصحى. زي موظف توظيف على جوال — مو روبوت.
+بعد الموافقة: وضّح إن هذي مقابلة فرز قصيرة واسأله جاهز نبدأ؟
+لا تصف الوكيل بأنه مساعد ذكي. كن عمليًا. بلا أسوار markdown."""
+
+_BOTH_META_AR_SA = """أنت خبير في هندسة التعليمات لوكلاء الصوت في VOXBULK.
+أرجع JSON صالحًا فقط بحقلين نصيين: system_prompt و call_workflow.
+اكتب بعربي خليجي طبيعي فقط. ممنوع الفصحى. بلا أسوار markdown."""
+
 
 def _extract_json_object(raw: str) -> dict:
     text = str(raw or "").strip()
@@ -124,7 +165,7 @@ def is_arabic_interview_prompt_target(
     description: str = "",
     supports_interview: bool | None = None,
 ) -> bool:
-    """True when Admin Generate Prompt should emit MSA (فصحى) for an Arabic interview agent."""
+    """True when Admin Generate Prompt should emit spoken Arabic dialect for an Arabic interview agent."""
     interview = supports_interview
     if interview is None and agent is not None:
         interview = bool(getattr(agent, "supports_interview", False))
@@ -163,7 +204,53 @@ def is_arabic_interview_prompt_target(
     return any(m in low for m in markers)
 
 
-def _meta_for(*, kind: str, arabic_fusha: bool) -> str:
+def resolve_arabic_interview_dialect(
+    *,
+    agent: Any | None = None,
+    agent_name: str = "",
+    description: str = "",
+    supports_interview: bool | None = None,
+) -> str | None:
+    """Return 'EG' or 'SA' for Arabic interview agents, else None."""
+    if not is_arabic_interview_prompt_target(
+        agent=agent,
+        agent_name=agent_name,
+        description=description,
+        supports_interview=supports_interview,
+    ):
+        return None
+    if agent is not None:
+        try:
+            from app.services.interview_agent_display_service import interview_agent_dialect_meta
+
+            code = str(interview_agent_dialect_meta(agent).get("dialect_code") or "").upper()
+            if code == "EG":
+                return "EG"
+            if code in {"SA", "AR"}:
+                return "SA"
+        except Exception:
+            pass
+    blob = f"{agent_name} {description} {getattr(agent, 'slug', '')} {getattr(agent, 'name', '')}".lower()
+    if any(m in blob for m in ("jammal", "jamal", "egypt", "مصري", "eg")):
+        return "EG"
+    return "SA"
+
+
+def _meta_for(*, kind: str, arabic_fusha: bool = False, arabic_dialect: str | None = None) -> str:
+    # Prefer live dialect generation for interview agents (Fusha made calls sound robotic).
+    dialect = str(arabic_dialect or "").upper() or None
+    if dialect == "EG":
+        if kind == "workflow":
+            return _WORKFLOW_META_AR_EG
+        if kind == "both":
+            return _BOTH_META_AR_EG
+        return _PROMPT_META_AR_EG
+    if dialect == "SA":
+        if kind == "workflow":
+            return _WORKFLOW_META_AR_SA
+        if kind == "both":
+            return _BOTH_META_AR_SA
+        return _PROMPT_META_AR_SA
     if arabic_fusha:
         if kind == "workflow":
             return _WORKFLOW_META_AR_FUSHA
@@ -201,22 +288,33 @@ def generate_call_workflow(
     description = str(description or "").strip()
     if not description:
         raise ValueError("description is required to generate workflow")
-    use_fusha = (
-        arabic_fusha
-        if arabic_fusha is not None
-        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
-    )
+    dialect = resolve_arabic_interview_dialect(agent=agent, agent_name=agent_name, description=description)
+    # Ignore legacy arabic_fusha=True for live interview agents — dialect prompts only.
+    use_legacy_fusha = bool(arabic_fusha) and dialect is None
     user = _user_block(agent_name=agent_name, description=description, knowledge_files=knowledge_files)
-    instruction = (
-        "أنتج call_workflow مناسبًا لمكالمات صوتية حية. التحية سُئلت بالفعل في بداية المكالمة — "
-        "ابدأ السير من انتظار تأكيد الوقت ثم الأسئلة."
-        if use_fusha
-        else "Produce call_workflow suitable for live phone or browser voice calls. "
-        "The opening greeting is already spoken — start after time confirmation, then questions."
-    )
+    if dialect == "EG":
+        instruction = (
+            "أنتج call_workflow بمصري طبيعي لمكالمات صوتية حية. التحية اتسألت بالفعل — "
+            "ابدأ من انتظار تأكيد الوقت، بعدين جهّز المرشّح وقول نبدأ مش نكمل، بعدين الأسئلة."
+        )
+    elif dialect == "SA":
+        instruction = (
+            "أنتج call_workflow بخليجي طبيعي لمكالمات صوتية حية. التحية سُئلت بالفعل — "
+            "ابدأ من انتظار تأكيد الوقت ثم تجهيز المرشّح ثم الأسئلة."
+        )
+    elif use_legacy_fusha:
+        instruction = (
+            "أنتج call_workflow مناسبًا لمكالمات صوتية حية. التحية سُئلت بالفعل في بداية المكالمة — "
+            "ابدأ السير من انتظار تأكيد الوقت ثم الأسئلة."
+        )
+    else:
+        instruction = (
+            "Produce call_workflow suitable for live phone or browser voice calls. "
+            "The opening greeting is already spoken — start after time confirmation, then questions."
+        )
     raw = _complete_json(
         db,
-        meta=_meta_for(kind="workflow", arabic_fusha=use_fusha),
+        meta=_meta_for(kind="workflow", arabic_fusha=use_legacy_fusha, arabic_dialect=dialect),
         user=user,
         instruction=instruction,
     )
@@ -243,26 +341,34 @@ def generate_system_prompt(
         raise ValueError("description is required to generate prompt")
     if not workflow:
         raise ValueError("call_workflow is required before generating system prompt")
-    use_fusha = (
-        arabic_fusha
-        if arabic_fusha is not None
-        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
-    )
+    dialect = resolve_arabic_interview_dialect(agent=agent, agent_name=agent_name, description=description)
+    use_legacy_fusha = bool(arabic_fusha) and dialect is None
     user = _user_block(
         agent_name=agent_name,
         description=description,
         knowledge_files=knowledge_files,
         call_workflow=workflow,
     )
-    instruction = (
-        "أنتج system_prompt مناسبًا لمكالمات صوتية حية. اكتب فصحى فقط. "
-        "لا تكرر التحية؛ الكلام الحي سيكون باللهجة المحلية عبر قواعد التشغيل."
-        if use_fusha
-        else "Produce system_prompt suitable for live phone or browser voice calls."
-    )
+    if dialect == "EG":
+        instruction = (
+            "أنتج system_prompt بمصري طبيعي لمكالمات صوتية حية. "
+            "لا تكرر التحية. بعد الموافقة جهّز المرشّح وقول جاهز نبدأ؟ — متقولش نكمل."
+        )
+    elif dialect == "SA":
+        instruction = (
+            "أنتج system_prompt بخليجي طبيعي لمكالمات صوتية حية. "
+            "لا تعِد التحية. بعد الموافقة جهّز المرشّح واسأله جاهز نبدأ؟"
+        )
+    elif use_legacy_fusha:
+        instruction = (
+            "أنتج system_prompt مناسبًا لمكالمات صوتية حية. اكتب فصحى فقط. "
+            "لا تكرر التحية؛ الكلام الحي سيكون باللهجة المحلية عبر قواعد التشغيل."
+        )
+    else:
+        instruction = "Produce system_prompt suitable for live phone or browser voice calls."
     raw = _complete_json(
         db,
-        meta=_meta_for(kind="prompt", arabic_fusha=use_fusha),
+        meta=_meta_for(kind="prompt", arabic_fusha=use_legacy_fusha, arabic_dialect=dialect),
         user=user,
         instruction=instruction,
     )
@@ -286,20 +392,20 @@ def generate_agent_prompts(
     description = str(description or "").strip()
     if not description:
         raise ValueError("description is required to generate prompts")
-    use_fusha = (
-        arabic_fusha
-        if arabic_fusha is not None
-        else is_arabic_interview_prompt_target(agent=agent, agent_name=agent_name, description=description)
-    )
+    dialect = resolve_arabic_interview_dialect(agent=agent, agent_name=agent_name, description=description)
+    use_legacy_fusha = bool(arabic_fusha) and dialect is None
     user = _user_block(agent_name=agent_name, description=description, knowledge_files=knowledge_files)
-    instruction = (
-        "أنتج system_prompt و call_workflow بالعربية الفصحى لمكالمات صوتية حية."
-        if use_fusha
-        else "Produce system_prompt and call_workflow suitable for live phone or browser voice calls."
-    )
+    if dialect == "EG":
+        instruction = "أنتج system_prompt و call_workflow بمصري طبيعي لمكالمات صوتية حية. قول نبدأ مش نكمل."
+    elif dialect == "SA":
+        instruction = "أنتج system_prompt و call_workflow بخليجي طبيعي لمكالمات صوتية حية."
+    elif use_legacy_fusha:
+        instruction = "أنتج system_prompt و call_workflow بالعربية الفصحى لمكالمات صوتية حية."
+    else:
+        instruction = "Produce system_prompt and call_workflow suitable for live phone or browser voice calls."
     raw = _complete_json(
         db,
-        meta=_meta_for(kind="both", arabic_fusha=use_fusha),
+        meta=_meta_for(kind="both", arabic_fusha=use_legacy_fusha, arabic_dialect=dialect),
         user=user,
         instruction=instruction,
     )

@@ -36,7 +36,11 @@ from sqlalchemy import select
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
 from app.services.interview_agent_display_service import interview_agent_dialect_meta
-from app.services.voice_agent_runtime import ARABIC_INTERVIEW_CALL_WORKFLOW, INTERVIEW_CALL_WORKFLOW_EN
+from app.services.voice_agent_runtime import (
+    ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
+    ARABIC_INTERVIEW_CALL_WORKFLOW,
+    INTERVIEW_CALL_WORKFLOW_EN,
+)
 
 
 def _agent_display_name(agent: AgentDefinition) -> str:
@@ -72,12 +76,12 @@ def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
         "opening_disclosure_template": (
             f"أهلاً {{first_name}}، معاك {name} باتصل من {{company_name}} بخصوص وظيفة {{role}}. "
             f"المكالمة مسجّلة للجودة. "
-            f"عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي؟"
+            f"عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي نبدأ المقابلة؟"
         ),
-        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
+        "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. سرعة كلام معتدلة. "
-            "وضّح هدف المكالمة قبل الأسئلة. متقاطعش المرشّح. استنى الإجابة كاملة. "
+            "نبرة ودودة وإنسانية وسهلة — مكالمة توظيف حقيقية. سرعة كلام معتدلة. مصري طبيعي فقط مش فصحى. "
+            "وضّح هدف المكالمة قبل الأسئلة وقول نبدأ مش نكمل. متقاطعش المرشّح. استنى الإجابة كاملة. "
             "متابعة قصيرة لما الإجابة تبقى ضعيفة. اسأل لو عايز يضيف حاجة قبل الإغلاق."
         ),
         "interruption_behavior_notes": (
@@ -244,9 +248,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.skip_canonical:
-        _run_canonical_seeds(dry_run=args.dry_run)
-
     Session = get_sessionmaker()
     db = Session()
     try:
@@ -280,9 +281,14 @@ def main() -> int:
         else:
             db.commit()
             print(f"DONE: updated {updated}/{len(agents)} interview agents")
-        return 0
     finally:
         db.close()
+
+    # Canonical seeds last so Jammal/Sultan openings + dialect prompts win over generic packs.
+    if not args.skip_canonical:
+        _run_canonical_seeds(dry_run=args.dry_run)
+
+    return 0
 
 
 if __name__ == "__main__":

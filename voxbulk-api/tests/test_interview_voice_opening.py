@@ -164,8 +164,12 @@ def test_strip_opening_and_intro_from_script():
     assert "Example?" in stripped
 
 
-def test_arabic_interview_generate_prompt_uses_fusha_meta():
-    from app.services.agent_prompt_generator import is_arabic_interview_prompt_target, _meta_for
+def test_arabic_interview_generate_prompt_uses_dialect_not_fusha():
+    from app.services.agent_prompt_generator import (
+        is_arabic_interview_prompt_target,
+        resolve_arabic_interview_dialect,
+        _meta_for,
+    )
 
     assert is_arabic_interview_prompt_target(
         agent_name="interview_AR-Sultan",
@@ -177,9 +181,20 @@ def test_arabic_interview_generate_prompt_uses_fusha_meta():
         description="British English interview",
         supports_interview=True,
     )
-    meta = _meta_for(kind="prompt", arabic_fusha=True)
-    assert "فصحى" in meta
-    assert "وش" in meta  # forbidden list
+    assert resolve_arabic_interview_dialect(
+        agent_name="interview_AR-Jammal",
+        description="Egyptian Arabic interview",
+        supports_interview=True,
+    ) == "EG"
+    meta = _meta_for(kind="prompt", arabic_dialect="EG")
+    assert "مصري" in meta
+    assert "نبدأ" in meta
+    assert "فصحى" in meta  # forbidden note
+    assert "وش" not in meta or "ممنوع" in meta
+    gulf = _meta_for(kind="prompt", arabic_dialect="SA")
+    assert "خليجي" in gulf
+    legacy = _meta_for(kind="prompt", arabic_fusha=True)
+    assert "فصحى" in legacy
     assert "British English" not in meta
 
 

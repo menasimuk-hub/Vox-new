@@ -440,8 +440,8 @@ export default function AgentEditPage({ agentId, initialDraft, onClose, onSaved 
           </div>
           {agent.supports_interview ? (
             <p className="agentsEditNote" style={{ marginTop: 8 }}>
-              Arabic interview agents: Generate prompt writes <strong>فصحى (MSA)</strong>. The live call still speaks the
-              agent&apos;s dialect (Egyptian / Saudi Gulf) via runtime rules.
+              Arabic interview agents: Generate prompt writes the <strong>spoken dialect</strong> (Egyptian /
+              Saudi Gulf) — not فصحى. Keep openings as «نبدأ المقابلة» never «نكمل».
             </p>
           ) : null}
         </section>
