@@ -43,34 +43,34 @@ function ParticipantAvatar({ label, sublabel, initials, level, variant, present,
       : "ring-white/10";
 
   return (
-    <div className="flex flex-col items-center gap-1.5 sm:gap-2">
+    <div className="flex flex-col items-center gap-2">
       <div
-        className={`relative flex size-14 items-center justify-center rounded-full ring-2 transition-all sm:size-20 ${ringClass}`}
+        className={`relative flex size-24 items-center justify-center rounded-full ring-2 transition-all sm:size-20 ${ringClass}`}
       >
         <div
-          className={`flex size-11 items-center justify-center rounded-full text-base font-semibold sm:size-16 sm:text-lg ${
+          className={`flex size-20 items-center justify-center rounded-full text-xl font-semibold sm:size-16 sm:text-lg ${
             isAi ? "bg-violet-500/20 text-violet-200" : "bg-emerald-500/15 text-emerald-200"
           }`}
         >
           {isAi ? (
-            <img src="/brand/icon-white.svg" alt="VoxBulk" className="size-7 object-contain sm:size-9" />
+            <img src="/brand/icon-white.svg" alt="VoxBulk" className="size-10 object-contain sm:size-9" />
           ) : (
             <span>{initials || "?"}</span>
           )}
         </div>
         {!isAi && micOn ? (
-          <span className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-emerald-600 text-white ring-2 ring-[#0a0e17] sm:size-6">
-            <Mic className="size-3" />
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-7 items-center justify-center rounded-full bg-emerald-600 text-white ring-2 ring-[#0a0e17] sm:size-6">
+            <Mic className="size-3.5 sm:size-3" />
           </span>
         ) : null}
         {isAi && present ? (
-          <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-violet-400 ring-2 ring-[#0a0e17] sm:size-3" />
+          <span className="absolute -top-0.5 -right-0.5 size-3.5 rounded-full bg-violet-400 ring-2 ring-[#0a0e17] sm:size-3" />
         ) : null}
       </div>
       <VoiceWaves level={level} color={isAi ? "violet" : "emerald"} />
       <div className="text-center">
-        <p className="text-[11px] font-medium text-white sm:text-xs">{label}</p>
-        {sublabel ? <p className="text-[9px] text-slate-400 sm:text-[10px]">{sublabel}</p> : null}
+        <p className="text-sm font-medium text-white sm:text-xs">{label}</p>
+        {sublabel ? <p className="text-[11px] text-slate-400 sm:text-[10px]">{sublabel}</p> : null}
       </div>
     </div>
   );
@@ -94,7 +94,7 @@ export function VoiceCallAvatars({
   micOn: boolean;
 }) {
   return (
-    <div className="flex items-start justify-center gap-4 sm:gap-8">
+    <div className="flex items-start justify-center gap-10 sm:gap-8">
       <ParticipantAvatar
         label={aiLabel}
         sublabel={aiPresent ? (aiLevel > SPEAK_THRESHOLD ? "Speaking" : "Listening") : "Joining…"}

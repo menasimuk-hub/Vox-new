@@ -569,156 +569,146 @@ function InterviewMeetingRoomPage() {
       lang={lang}
     >
       <audio id={REMOTE_AUDIO_ID} ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      <div className="mx-auto flex h-full max-w-3xl flex-col px-3 py-2 sm:px-6 sm:py-6">
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2 sm:pb-4">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-5 w-auto sm:h-7" />
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-slate-400 sm:px-3 sm:py-1 sm:text-xs">
+      <div className="mx-auto flex h-full w-full max-w-lg flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:max-w-3xl sm:px-6 sm:py-6">
+        <header className="flex shrink-0 items-center justify-between gap-3 pb-3 sm:border-b sm:border-white/10 sm:pb-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-6 w-auto sm:h-7" />
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-400 sm:text-xs">
               {t.badge}
             </span>
           </div>
           {phase === "live" ? (
-            <span className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] text-emerald-400 sm:px-3 sm:py-1 sm:text-xs">
-              <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse sm:size-2" />
+            <span className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">
+              <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
               {t.live} · {mins}:{secs}
             </span>
           ) : null}
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col items-center justify-center py-2 text-center sm:py-6">
-          <div className="flex w-full max-w-md min-h-0 flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-3 shadow-2xl shadow-black/40 sm:p-8">
-            <p className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">
-              {t.title}
-            </p>
-            <h1 className="mt-1 shrink-0 truncate text-lg font-semibold tracking-tight text-white sm:mt-2 sm:text-2xl">
-              {role}
-            </h1>
-            <p className="mt-1 shrink-0 text-xs text-slate-400 sm:mt-2 sm:text-sm">
-              {t.hi(name.split(" ")[0] || name)}
-            </p>
-            <p className="mt-1 hidden shrink-0 text-[11px] text-violet-300/90 sm:mt-2 sm:block">{t.langLabel}</p>
+        <main className="flex min-h-0 flex-1 flex-col text-center">
+          <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-2xl sm:border sm:border-white/10 sm:bg-white/[0.03] sm:p-8 sm:shadow-2xl sm:shadow-black/40">
+            <div className="shrink-0 pt-1 sm:pt-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">{t.title}</p>
+              <h1 className="mt-1.5 line-clamp-2 text-2xl font-semibold tracking-tight text-white sm:mt-2 sm:text-2xl">
+                {role}
+              </h1>
+              <p className="mt-1.5 text-sm text-slate-400 sm:mt-2">{t.hi(name.split(" ")[0] || name)}</p>
+              <p className="mt-1 text-xs text-violet-300/90 sm:mt-2">{t.langLabel}</p>
+            </div>
 
             {phase === "idle" ? (
-              <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2 sm:mt-6 sm:gap-4">
-                <div className="hidden items-center justify-center gap-2 text-xs text-slate-400 sm:flex">
+              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 sm:mt-6 sm:gap-4">
+                <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                   <ShieldCheck className="size-4 text-violet-400" />
                   {t.noCamera}
                 </div>
 
                 {showCountdown ? (
-                  <div className="shrink-0 rounded-xl border border-violet-500/30 bg-violet-500/10 px-3 py-2.5 sm:px-4 sm:py-6">
-                    <p className="text-[10px] uppercase tracking-wider text-violet-200/80 sm:text-xs">
-                      {t.waitingRoom}
-                    </p>
+                  <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-6 sm:flex-none sm:py-8">
+                    <p className="text-xs uppercase tracking-wider text-violet-200/80">{t.waitingRoom}</p>
                     {!canJoin ? (
                       <>
-                        <p className="mt-1 text-xs text-slate-300 sm:mt-2 sm:text-sm">{t.roomOpensIn}</p>
-                        <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-white sm:mt-2 sm:text-5xl">
+                        <p className="mt-3 text-sm text-slate-300">{t.roomOpensIn}</p>
+                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white sm:text-5xl">
                           {openCountdown}
                         </p>
                       </>
                     ) : msUntilStart > 0 ? (
                       <>
-                        <p className="mt-1 text-xs text-emerald-300 sm:mt-2 sm:text-sm">{t.roomOpen}</p>
-                        <p className="mt-1 text-xs text-slate-300 sm:mt-3 sm:text-sm">{t.interviewStartsIn}</p>
-                        <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-white sm:mt-2 sm:text-5xl">
+                        <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-2 text-sm text-slate-300">{t.interviewStartsIn}</p>
+                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white sm:text-5xl">
                           {startCountdown}
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="mt-1 text-xs text-emerald-300 sm:mt-2 sm:text-sm">{t.roomOpen}</p>
-                        <p className="mt-1 text-3xl font-semibold tabular-nums text-white sm:mt-3 sm:text-4xl">00:00</p>
+                        <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-2 text-5xl font-semibold tabular-nums text-white">00:00</p>
                       </>
                     )}
-                    <p className="mt-1 truncate text-[10px] text-slate-400 sm:mt-3 sm:text-xs">
-                      {t.startsAt(slotTimeLabel)}
-                    </p>
+                    <p className="mt-4 max-w-sm text-xs leading-relaxed text-slate-400">{t.startsAt(slotTimeLabel)}</p>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="flex-1" />
+                )}
 
-                <div className="min-h-0 shrink rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-start sm:p-4">
+                <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-start sm:p-4">
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">
                       {t.deviceTest}
                     </p>
-                    <p className="hidden text-[10px] text-slate-500 sm:block">{t.deviceHint}</p>
+                    <p className="text-[10px] text-slate-500 sm:text-xs">{t.deviceHint}</p>
                   </div>
 
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:mt-4 sm:grid-cols-1 sm:gap-3">
-                    <div className="rounded-lg border border-white/10 bg-black/20 p-2 sm:p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-200 sm:gap-2 sm:text-sm">
-                          <Mic className="size-3.5 shrink-0 text-violet-300 sm:size-4" />
+                  <div className="mt-3 grid grid-cols-1 gap-2.5 sm:gap-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-200">
+                          <Mic className="size-4 shrink-0 text-violet-300" />
                           <span className="truncate">{t.microphone}</span>
-                          {deviceReady ? <CheckCircle2 className="size-3 shrink-0 text-emerald-400 sm:size-3.5" /> : null}
+                          {deviceReady ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" /> : null}
                         </div>
                         <button
                           type="button"
                           onClick={() => void startMicTest()}
-                          className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[10px] font-medium text-white hover:bg-white/10 sm:px-3 sm:py-1.5 sm:text-xs"
+                          className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-white hover:bg-white/10"
                         >
                           {micTesting ? t.retestMic : t.testMic}
                         </button>
                       </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10 sm:mt-3 sm:h-2">
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
                         <div
                           className="h-full rounded-full bg-emerald-400 transition-[width] duration-75"
                           style={{ width: `${Math.min(100, Math.round(testMicLevel * 220))}%` }}
                         />
                       </div>
-                      <p className="mt-1 hidden text-[11px] text-slate-500 sm:mt-2 sm:block">
-                        {micTesting ? t.micSpeak : t.micAllow}
-                      </p>
                     </div>
 
-                    <div className="rounded-lg border border-white/10 bg-black/20 p-2 sm:p-3">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-200 sm:gap-2 sm:text-sm">
-                          <Volume2 className="size-3.5 shrink-0 text-violet-300 sm:size-4" />
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-200">
+                          <Volume2 className="size-4 shrink-0 text-violet-300" />
                           <span className="truncate">{t.speakers}</span>
-                          {speakerPlayed ? (
-                            <CheckCircle2 className="size-3 shrink-0 text-emerald-400 sm:size-3.5" />
-                          ) : null}
+                          {speakerPlayed ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" /> : null}
                         </div>
                         <button
                           type="button"
                           onClick={testSpeaker}
-                          className="w-full rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-[10px] font-medium text-white hover:bg-white/10 sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
+                          className="shrink-0 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-white hover:bg-white/10"
                         >
                           {t.playSound}
                         </button>
                       </div>
-                      <p className="mt-1 hidden text-[11px] text-slate-500 sm:mt-2 sm:block">{t.hearBeep}</p>
                     </div>
                   </div>
 
-                  {deviceError ? <p className="mt-2 text-[10px] text-red-300 sm:mt-3 sm:text-xs">{deviceError}</p> : null}
+                  {deviceError ? <p className="mt-2 text-xs text-red-300">{deviceError}</p> : null}
                 </div>
 
-                <div className="mt-auto shrink-0 space-y-1.5 pt-1 sm:space-y-2">
+                <div className="shrink-0 space-y-2 pt-1">
                   <button
                     type="button"
                     onClick={() => void joinMeeting()}
                     disabled={!canJoin}
-                    className="w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400 sm:py-3"
+                    className="w-full rounded-2xl bg-violet-600 px-4 py-4 text-base font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400 sm:rounded-xl sm:py-3 sm:text-sm"
                   >
                     {!canJoin ? t.joinSoon : t.join}
                   </button>
-                  <p className="hidden text-xs text-slate-500 sm:block">{t.headphones}</p>
+                  <p className="text-xs text-slate-500">{t.headphones}</p>
                 </div>
               </div>
             ) : null}
 
             {phase === "connecting" ? (
-              <div className="mt-6 flex flex-col items-center gap-3 text-slate-300 sm:mt-10">
-                <Loader2 className="size-8 animate-spin text-violet-400" />
-                <p className="text-sm">{statusLine || t.connecting}</p>
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-slate-300">
+                <Loader2 className="size-10 animate-spin text-violet-400" />
+                <p className="text-base sm:text-sm">{statusLine || t.connecting}</p>
               </div>
             ) : null}
 
             {inCallUi ? (
-              <div className="mt-4 space-y-3 sm:mt-8 sm:space-y-5">
+              <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-6 sm:mt-8 sm:gap-5">
                 <VoiceCallAvatars
                   aiLabel={t.aiLabel}
                   aiLevel={aiLevel}
@@ -728,7 +718,7 @@ function InterviewMeetingRoomPage() {
                   userLevel={userLevel}
                   micOn={!muted}
                 />
-                <p className="text-xs text-slate-300 sm:text-sm">
+                <p className="max-w-sm text-sm text-slate-300">
                   {phase === "live"
                     ? meta?.greeting
                       ? t.greetSoon
@@ -736,43 +726,43 @@ function InterviewMeetingRoomPage() {
                     : statusLine || t.waitingAi}
                 </p>
                 {phase === "live" ? (
-                  <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
+                  <div className="flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <button
                       type="button"
                       onClick={toggleMute}
-                      className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium hover:bg-white/10 sm:px-4 sm:py-2.5"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3.5 text-base font-medium hover:bg-white/10 sm:flex-none sm:rounded-xl sm:py-2.5 sm:text-sm"
                     >
-                      {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                      {muted ? <MicOff className="size-5 sm:size-4" /> : <Mic className="size-5 sm:size-4" />}
                       {muted ? t.unmute : t.mute}
                     </button>
                     <button
                       type="button"
                       onClick={() => void endMeeting()}
-                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500 sm:px-4 sm:py-2.5"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3.5 text-base font-semibold text-white hover:bg-red-500 sm:flex-none sm:rounded-xl sm:py-2.5 sm:text-sm"
                     >
-                      <PhoneOff className="size-4" />
+                      <PhoneOff className="size-5 sm:size-4" />
                       {t.end}
                     </button>
                   </div>
                 ) : (
-                  <Loader2 className="mx-auto size-6 animate-spin text-violet-400" />
+                  <Loader2 className="size-8 animate-spin text-violet-400" />
                 )}
               </div>
             ) : null}
 
             {phase === "ended" ? (
-              <div className="mt-6 space-y-2 sm:mt-8 sm:space-y-3">
-                <p className="text-base font-medium text-white sm:text-lg">{t.thanks}</p>
-                <p className="text-xs text-slate-400 sm:text-sm">{t.closePage}</p>
+              <div className="flex flex-1 flex-col items-center justify-center space-y-3">
+                <p className="text-xl font-medium text-white sm:text-lg">{t.thanks}</p>
+                <p className="max-w-sm text-sm text-slate-400">{t.closePage}</p>
               </div>
             ) : null}
 
             {phase === "error" || error ? (
-              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs text-red-200 sm:mt-8 sm:px-4 sm:py-3 sm:text-sm">
+              <div className="mt-auto rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-4 text-sm text-red-200 sm:mt-8">
                 {error || t.somethingWrong}
                 <button
                   type="button"
-                  className="mt-2 block w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white hover:bg-white/10 sm:mt-3"
+                  className="mt-4 block w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-medium text-white hover:bg-white/10"
                   onClick={() => {
                     setPhase("idle");
                     setError(null);
