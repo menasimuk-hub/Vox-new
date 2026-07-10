@@ -564,16 +564,16 @@ function InterviewMeetingRoomPage() {
 
   return (
     <div
-      className="h-dvh max-h-dvh overflow-hidden bg-[#0a0e17] text-[#eef2f6]"
+      className="h-dvh max-h-dvh overflow-hidden bg-[#0a0e17] text-[#eef2f6] md:h-auto md:min-h-dvh md:max-h-none md:overflow-y-auto"
       dir={isRtl ? "rtl" : "ltr"}
       lang={lang}
     >
       <audio id={REMOTE_AUDIO_ID} ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      <div className="mx-auto flex h-full w-full max-w-lg flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:max-w-3xl sm:px-6 sm:py-6">
-        <header className="flex shrink-0 items-center justify-between gap-3 pb-3 sm:border-b sm:border-white/10 sm:pb-4">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-6 w-auto sm:h-7" />
-            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-400 sm:text-xs">
+      <div className="mx-auto flex h-full w-full max-w-lg flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] md:h-auto md:min-h-dvh md:max-w-lg md:justify-center md:px-6 md:py-10">
+        <header className="flex shrink-0 items-center justify-between gap-3 pb-3 md:pb-5">
+          <div className="flex items-center gap-2.5">
+            <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-6 w-auto md:h-7" />
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-400 md:text-xs">
               {t.badge}
             </span>
           </div>
@@ -585,31 +585,31 @@ function InterviewMeetingRoomPage() {
           ) : null}
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col text-center">
-          <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 sm:rounded-2xl sm:border sm:border-white/10 sm:bg-white/[0.03] sm:p-8 sm:shadow-2xl sm:shadow-black/40">
-            <div className="shrink-0 pt-1 sm:pt-0">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">{t.title}</p>
-              <h1 className="mt-1.5 line-clamp-2 text-2xl font-semibold tracking-tight text-white sm:mt-2 sm:text-2xl">
+        <main className="flex min-h-0 flex-1 flex-col text-center md:flex-none">
+          <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 md:flex-none md:rounded-2xl md:border md:border-white/10 md:bg-white/[0.03] md:p-8 md:shadow-2xl md:shadow-black/40">
+            <div className="shrink-0 pt-1 md:pt-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 md:text-xs">{t.title}</p>
+              <h1 className="mt-1.5 line-clamp-2 text-2xl font-semibold tracking-tight text-white md:mt-2">
                 {role}
               </h1>
-              <p className="mt-1.5 text-sm text-slate-400 sm:mt-2">{t.hi(name.split(" ")[0] || name)}</p>
-              <p className="mt-1 text-xs text-violet-300/90 sm:mt-2">{t.langLabel}</p>
+              <p className="mt-1.5 text-sm text-slate-400 md:mt-2">{t.hi(name.split(" ")[0] || name)}</p>
+              <p className="mt-1 text-xs text-violet-300/90 md:mt-2">{t.langLabel}</p>
             </div>
 
             {phase === "idle" ? (
-              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 sm:mt-6 sm:gap-4">
+              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 md:mt-6 md:flex-none md:gap-4">
                 <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                   <ShieldCheck className="size-4 text-violet-400" />
                   {t.noCamera}
                 </div>
 
                 {showCountdown ? (
-                  <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-6 sm:flex-none sm:py-8">
+                  <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-6 md:flex-none md:py-8">
                     <p className="text-xs uppercase tracking-wider text-violet-200/80">{t.waitingRoom}</p>
                     {!canJoin ? (
                       <>
                         <p className="mt-3 text-sm text-slate-300">{t.roomOpensIn}</p>
-                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white sm:text-5xl">
+                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white md:text-5xl">
                           {openCountdown}
                         </p>
                       </>
@@ -617,31 +617,29 @@ function InterviewMeetingRoomPage() {
                       <>
                         <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
                         <p className="mt-2 text-sm text-slate-300">{t.interviewStartsIn}</p>
-                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white sm:text-5xl">
+                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white md:text-5xl">
                           {startCountdown}
                         </p>
                       </>
                     ) : (
                       <>
                         <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
-                        <p className="mt-2 text-5xl font-semibold tabular-nums text-white">00:00</p>
+                        <p className="mt-2 text-5xl font-semibold tabular-nums text-white md:text-4xl">00:00</p>
                       </>
                     )}
                     <p className="mt-4 max-w-sm text-xs leading-relaxed text-slate-400">{t.startsAt(slotTimeLabel)}</p>
                   </div>
-                ) : (
-                  <div className="flex-1" />
-                )}
+                ) : null}
 
-                <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-start sm:p-4">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 sm:text-xs">
+                <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-start md:p-4">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 md:text-xs">
                       {t.deviceTest}
                     </p>
-                    <p className="text-[10px] text-slate-500 sm:text-xs">{t.deviceHint}</p>
+                    <p className="text-[10px] text-slate-500 md:text-xs">{t.deviceHint}</p>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2.5 sm:gap-3">
+                  <div className="mt-3 grid grid-cols-1 gap-2.5 md:gap-3">
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2 text-sm text-slate-200">
@@ -686,12 +684,12 @@ function InterviewMeetingRoomPage() {
                   {deviceError ? <p className="mt-2 text-xs text-red-300">{deviceError}</p> : null}
                 </div>
 
-                <div className="shrink-0 space-y-2 pt-1">
+                <div className="mt-auto shrink-0 space-y-2 pt-1 md:mt-0">
                   <button
                     type="button"
                     onClick={() => void joinMeeting()}
                     disabled={!canJoin}
-                    className="w-full rounded-2xl bg-violet-600 px-4 py-4 text-base font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400 sm:rounded-xl sm:py-3 sm:text-sm"
+                    className="w-full rounded-2xl bg-violet-600 px-4 py-4 text-base font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400 md:rounded-xl md:py-3 md:text-sm"
                   >
                     {!canJoin ? t.joinSoon : t.join}
                   </button>
@@ -701,14 +699,14 @@ function InterviewMeetingRoomPage() {
             ) : null}
 
             {phase === "connecting" ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-slate-300">
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 py-10 text-slate-300 md:flex-none md:py-16">
                 <Loader2 className="size-10 animate-spin text-violet-400" />
-                <p className="text-base sm:text-sm">{statusLine || t.connecting}</p>
+                <p className="text-base md:text-sm">{statusLine || t.connecting}</p>
               </div>
             ) : null}
 
             {inCallUi ? (
-              <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-6 sm:mt-8 sm:gap-5">
+              <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-6 md:mt-8 md:flex-none md:gap-5 md:py-4">
                 <VoiceCallAvatars
                   aiLabel={t.aiLabel}
                   aiLevel={aiLevel}
@@ -726,21 +724,21 @@ function InterviewMeetingRoomPage() {
                     : statusLine || t.waitingAi}
                 </p>
                 {phase === "live" ? (
-                  <div className="flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+                  <div className="flex w-full max-w-sm flex-col gap-3 md:max-w-none md:flex-row md:justify-center">
                     <button
                       type="button"
                       onClick={toggleMute}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3.5 text-base font-medium hover:bg-white/10 sm:flex-none sm:rounded-xl sm:py-2.5 sm:text-sm"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3.5 text-base font-medium hover:bg-white/10 md:flex-none md:rounded-xl md:px-5 md:py-2.5 md:text-sm"
                     >
-                      {muted ? <MicOff className="size-5 sm:size-4" /> : <Mic className="size-5 sm:size-4" />}
+                      {muted ? <MicOff className="size-5 md:size-4" /> : <Mic className="size-5 md:size-4" />}
                       {muted ? t.unmute : t.mute}
                     </button>
                     <button
                       type="button"
                       onClick={() => void endMeeting()}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3.5 text-base font-semibold text-white hover:bg-red-500 sm:flex-none sm:rounded-xl sm:py-2.5 sm:text-sm"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 py-3.5 text-base font-semibold text-white hover:bg-red-500 md:flex-none md:rounded-xl md:px-5 md:py-2.5 md:text-sm"
                     >
-                      <PhoneOff className="size-5 sm:size-4" />
+                      <PhoneOff className="size-5 md:size-4" />
                       {t.end}
                     </button>
                   </div>
@@ -751,14 +749,14 @@ function InterviewMeetingRoomPage() {
             ) : null}
 
             {phase === "ended" ? (
-              <div className="flex flex-1 flex-col items-center justify-center space-y-3">
-                <p className="text-xl font-medium text-white sm:text-lg">{t.thanks}</p>
+              <div className="flex flex-1 flex-col items-center justify-center space-y-3 py-10 md:flex-none md:py-16">
+                <p className="text-xl font-medium text-white md:text-lg">{t.thanks}</p>
                 <p className="max-w-sm text-sm text-slate-400">{t.closePage}</p>
               </div>
             ) : null}
 
             {phase === "error" || error ? (
-              <div className="mt-auto rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-4 text-sm text-red-200 sm:mt-8">
+              <div className="mt-auto rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-4 text-sm text-red-200 md:mt-8">
                 {error || t.somethingWrong}
                 <button
                   type="button"
@@ -779,7 +777,7 @@ function InterviewMeetingRoomPage() {
           </div>
         </main>
 
-        <footer className="hidden shrink-0 pb-1 text-center text-[11px] text-slate-500 sm:block sm:pb-4">
+        <footer className="hidden shrink-0 pt-6 text-center text-[11px] text-slate-500 md:block">
           {t.footer}
         </footer>
       </div>
