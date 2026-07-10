@@ -105,6 +105,116 @@ function playSpeakerTestTone() {
   }, 800);
 }
 
+type MeetLang = "en" | "ar";
+
+const MEET_COPY = {
+  en: {
+    badge: "Audio interview",
+    live: "Live",
+    title: "VoxBulk AI interview",
+    hi: (name: string) => `Hi ${name} — this is an audio-only interview in your browser.`,
+    noCamera: "No camera required · secure browser audio",
+    waitingRoom: "Waiting room",
+    roomOpensIn: "Room opens in",
+    interviewStartsIn: "Interview starts in",
+    roomOpen: "Room is open — you can join now",
+    startsAt: (when: string) => `Your interview starts at ${when}. The room opens 1 minute before — keep this page open.`,
+    deviceTest: "Optional device check",
+    deviceHint: "You can test your mic and speakers, or join straight away.",
+    microphone: "Microphone",
+    testMic: "Test mic",
+    retestMic: "Retest mic",
+    micSpeak: "Speak now — the bar should move when you talk.",
+    micAllow: "Allow the mic, then speak to see the level.",
+    speakers: "Speakers / headphones",
+    playSound: "Play test sound",
+    hearBeep: "You should hear a short beep. Turn up volume if you miss it.",
+    joinSoon: "Room opens soon…",
+    join: "Join interview room",
+    headphones: "Use headphones if possible for the clearest conversation.",
+    connecting: "Connecting…",
+    requestingMic: "Requesting microphone…",
+    aiLabel: "AI Interviewer",
+    you: "You",
+    speakNatural: "Speak naturally — the AI interviewer is listening.",
+    greetSoon: "The AI will greet you shortly — speak naturally after you hear the welcome.",
+    waitingAi: "Waiting for the AI interviewer…",
+    mute: "Mute",
+    unmute: "Unmute",
+    end: "End interview",
+    thanks: "Thank you — interview complete",
+    closePage: "You can close this page. The hiring team will review your interview shortly.",
+    tryAgain: "Try again",
+    somethingWrong: "Something went wrong",
+    footer: "Powered by VoxBulk · audio interview room",
+    langLabel: "Interview language: English",
+    micRequired: "Microphone access is required — click Allow when your browser asks, then try again.",
+    speakerFail: "Could not play a test sound — check your speaker or headphone volume.",
+    aiNoAnswer: "The AI interviewer did not answer — please try again. Check your mic and speakers.",
+    micBrowser: "Your browser does not support microphone access — try Chrome or Edge.",
+    micDesktop: "Your browser does not support microphone access — try Chrome or Edge on desktop.",
+    micAllowJoin: "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
+  },
+  ar: {
+    badge: "مقابلة صوتية",
+    live: "مباشر",
+    title: "مقابلة VoxBulk بالذكاء الاصطناعي",
+    hi: (name: string) => `مرحباً ${name} — هذه مقابلة صوتية فقط عبر المتصفح.`,
+    noCamera: "لا حاجة للكاميرا · اتصال صوتي آمن",
+    waitingRoom: "غرفة الانتظار",
+    roomOpensIn: "تفتح الغرفة خلال",
+    interviewStartsIn: "تبدأ المقابلة خلال",
+    roomOpen: "الغرفة مفتوحة — يمكنك الانضمام الآن",
+    startsAt: (when: string) => `تبدأ مقابلتك في ${when}. تفتح الغرفة قبل دقيقة واحدة — أبقِ هذه الصفحة مفتوحة.`,
+    deviceTest: "اختبار الأجهزة (اختياري)",
+    deviceHint: "يمكنك اختبار الميكروفون والسماعات، أو الانضمام مباشرة.",
+    microphone: "الميكروفون",
+    testMic: "اختبار الميكروفون",
+    retestMic: "إعادة الاختبار",
+    micSpeak: "تحدث الآن — يجب أن يتحرك الشريط عند الكلام.",
+    micAllow: "اسمح بالميكروفون ثم تحدث لرؤية المستوى.",
+    speakers: "السماعات / سماعة الرأس",
+    playSound: "تشغيل صوت تجريبي",
+    hearBeep: "يجب أن تسمع صوتاً قصيراً. ارفع الصوت إن لم تسمعه.",
+    joinSoon: "الغرفة تفتح قريباً…",
+    join: "انضم إلى غرفة المقابلة",
+    headphones: "يفضّل استخدام سماعة رأس لأوضح محادثة.",
+    connecting: "جارٍ الاتصال…",
+    requestingMic: "طلب إذن الميكروفون…",
+    aiLabel: "المحاور الذكي",
+    you: "أنت",
+    speakNatural: "تحدث بشكل طبيعي — المحاور الذكي يستمع.",
+    greetSoon: "سيرحّب بك المحاور قريباً — تحدث بعد سماع الترحيب.",
+    waitingAi: "بانتظار المحاور الذكي…",
+    mute: "كتم الصوت",
+    unmute: "إلغاء الكتم",
+    end: "إنهاء المقابلة",
+    thanks: "شكراً لك — انتهت المقابلة",
+    closePage: "يمكنك إغلاق هذه الصفحة. سيراجع فريق التوظيف مقابلتك قريباً.",
+    tryAgain: "حاول مرة أخرى",
+    somethingWrong: "حدث خطأ ما",
+    footer: "مدعوم من VoxBulk · غرفة مقابلة صوتية",
+    langLabel: "لغة المقابلة: العربية",
+    micRequired: "يلزم السماح بالميكروفون — اضغط سماح عندما يطلب المتصفح، ثم حاول مرة أخرى.",
+    speakerFail: "تعذّر تشغيل الصوت التجريبي — تحقق من مستوى السماعة.",
+    aiNoAnswer: "لم يرد المحاور الذكي — حاول مرة أخرى. تحقق من الميكروفون والسماعات.",
+    micBrowser: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge.",
+    micDesktop: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge على الكمبيوتر.",
+    micAllowJoin: "يلزم السماح بالميكروفون — اضغط سماح عندما يطلب المتصفح، ثم حاول مرة أخرى.",
+  },
+} as const;
+
+function formatCountdown(totalSeconds: number): string {
+  const safe = Math.max(0, totalSeconds);
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 function InterviewMeetingRoomPage() {
   const { token } = Route.useParams();
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -130,6 +240,7 @@ function InterviewMeetingRoomPage() {
     role?: string;
     booked_start_at?: string | null;
     channel?: string | null;
+    interview_language?: string | null;
   } | null>(null);
   const [nowMs, setNowMs] = React.useState(() => Date.now());
   const [deviceReady, setDeviceReady] = React.useState(false);
@@ -138,10 +249,16 @@ function InterviewMeetingRoomPage() {
   const [deviceError, setDeviceError] = React.useState<string | null>(null);
   const [testStream, setTestStream] = React.useState<MediaStream | null>(null);
 
+  const lang: MeetLang = booking?.interview_language === "ar" ? "ar" : "en";
+  const t = MEET_COPY[lang];
+  const isRtl = lang === "ar";
+
   const EARLY_JOIN_MS = 60_000;
   const slotMs = booking?.booked_start_at ? new Date(booking.booked_start_at).getTime() : null;
   const msUntilOpen = slotMs != null ? slotMs - EARLY_JOIN_MS - nowMs : 0;
+  const msUntilStart = slotMs != null ? slotMs - nowMs : 0;
   const canJoin = slotMs == null || msUntilOpen <= 0;
+  const showCountdown = phase === "idle" && slotMs != null;
 
   const aiLevel = useAudioLevel(remoteStream, phase === "live" || phase === "aiJoining");
   const userLevel = useAudioLevel(localMeterStream, (phase === "live" || phase === "aiJoining") && !muted);
@@ -154,6 +271,7 @@ function InterviewMeetingRoomPage() {
       role?: string;
       booked_start_at?: string | null;
       channel?: string | null;
+      interview_language?: string | null;
     }>(`/public/interview-booking/${encodeURIComponent(token)}`)
       .then((res) => {
         if (!cancelled) setBooking(res);
@@ -165,10 +283,10 @@ function InterviewMeetingRoomPage() {
   }, [token]);
 
   React.useEffect(() => {
-    if (phase !== "idle" || canJoin) return;
+    if (!showCountdown) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [phase, canJoin]);
+  }, [showCountdown]);
 
   const clearActiveTimer = React.useCallback(() => {
     if (activeTimerRef.current) {
@@ -205,7 +323,7 @@ function InterviewMeetingRoomPage() {
     setDeviceError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Your browser does not support microphone access — try Chrome or Edge.");
+        throw new Error(t.micBrowser);
       }
       stopTestStream();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -215,9 +333,9 @@ function InterviewMeetingRoomPage() {
       setDeviceReady(true);
     } catch {
       setDeviceReady(false);
-      setDeviceError("Microphone access is required — click Allow when your browser asks, then try again.");
+      setDeviceError(t.micRequired);
     }
-  }, [stopTestStream]);
+  }, [stopTestStream, t.micBrowser, t.micRequired]);
 
   const testSpeaker = React.useCallback(() => {
     setDeviceError(null);
@@ -225,9 +343,9 @@ function InterviewMeetingRoomPage() {
       playSpeakerTestTone();
       setSpeakerPlayed(true);
     } catch {
-      setDeviceError("Could not play a test sound — check your speaker or headphone volume.");
+      setDeviceError(t.speakerFail);
     }
-  }, []);
+  }, [t.speakerFail]);
 
   const cleanupRtc = React.useCallback(() => {
     clearActiveTimer();
@@ -296,11 +414,11 @@ function InterviewMeetingRoomPage() {
   const joinMeeting = async () => {
     setError(null);
     setPhase("connecting");
-    setStatusLine("Requesting microphone…");
+    setStatusLine(t.requestingMic);
     stopTestStream();
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Your browser does not support microphone access — try Chrome or Edge on desktop.");
+        throw new Error(t.micDesktop);
       }
       let micStream: MediaStream;
       try {
@@ -308,12 +426,10 @@ function InterviewMeetingRoomPage() {
         localStreamRef.current = micStream;
         setLocalMeterStream(micStream);
       } catch {
-        throw new Error(
-          "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
-        );
+        throw new Error(t.micAllowJoin);
       }
 
-      setStatusLine("Starting interview room…");
+      setStatusLine(t.connecting);
       const start = await publicApiFetch<MeetingStartResponse>(
         `/public/interview-booking/${encodeURIComponent(token)}/meeting/start`,
         { method: "POST", body: "{}" },
@@ -330,7 +446,7 @@ function InterviewMeetingRoomPage() {
       });
       telnyxRef.current = client;
 
-      setStatusLine("Connecting to VoxBulk…");
+      setStatusLine(t.connecting);
       await new Promise<void>((resolve, reject) => {
         const connectTimeout = window.setTimeout(() => {
           reject(new Error("Could not reach the interview server — check your connection and try again"));
@@ -353,10 +469,7 @@ function InterviewMeetingRoomPage() {
         webrtcLog("notification", notification);
         if (notification?.type === "userMediaError") {
           setPhase("error");
-          setError(
-            notification.errorMessage ||
-              "Microphone error — allow mic access for this site in browser settings and try again",
-          );
+          setError(notification.errorMessage || t.micAllowJoin);
           return;
         }
         if (notification?.type !== "callUpdate" || !notification.call) return;
@@ -368,14 +481,14 @@ function InterviewMeetingRoomPage() {
 
         if (state === "ringing" || state === "new" || state === "answering") {
           setPhase("aiJoining");
-          setStatusLine("AI interviewer is joining…");
+          setStatusLine(t.waitingAi);
         }
         if (callLooksLive(call) && !wentLive) {
           wentLive = true;
           clearActiveTimer();
           setAiPresent(true);
           setPhase("live");
-          setStatusLine("AI is here — you can speak now");
+          setStatusLine(t.speakNatural);
           startedAtRef.current = Date.now();
           setElapsed(0);
           attachRemoteAudio(call);
@@ -388,7 +501,7 @@ function InterviewMeetingRoomPage() {
       client.on("telnyx.notification", onNotification);
 
       setPhase("aiJoining");
-      setStatusLine("Calling AI interviewer…");
+      setStatusLine(t.waitingAi);
 
       const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs || [];
       const opus = codecs.find((c) => c.mimeType.toLowerCase().includes("opus"));
@@ -409,13 +522,13 @@ function InterviewMeetingRoomPage() {
           webrtcLog("active timeout");
           cleanupRtc();
           setPhase("error");
-          setError("The AI interviewer did not answer — please try again. Check your mic and speakers.");
+          setError(t.aiNoAnswer);
         }
       }, ACTIVE_TIMEOUT_MS);
     } catch (e) {
       cleanupRtc();
       setPhase("error");
-      setError(e instanceof Error ? e.message : "Could not start the meeting");
+      setError(e instanceof Error ? e.message : t.somethingWrong);
       setStatusLine("");
     }
   };
@@ -431,71 +544,95 @@ function InterviewMeetingRoomPage() {
   const mins = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const secs = String(elapsed % 60).padStart(2, "0");
   const role = meta?.role || booking?.role || "Interview";
-  const name = meta?.candidate_name || booking?.candidate_name || "Candidate";
+  const name = meta?.candidate_name || booking?.candidate_name || (lang === "ar" ? "المرشح" : "Candidate");
   const userInitials = initialsFromName(name);
 
-  const waitTotal = Math.max(0, Math.ceil(msUntilOpen / 1000));
-  const waitMins = String(Math.floor(waitTotal / 60)).padStart(2, "0");
-  const waitSecs = String(waitTotal % 60).padStart(2, "0");
-  const slotTimeLabel = slotMs != null ? new Date(slotMs).toLocaleString() : "";
+  const openCountdown = formatCountdown(Math.ceil(msUntilOpen / 1000));
+  const startCountdown = formatCountdown(Math.ceil(msUntilStart / 1000));
+  const slotTimeLabel =
+    slotMs != null
+      ? new Date(slotMs).toLocaleString(lang === "ar" ? "ar" : "en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
 
   const inCallUi = phase === "live" || phase === "aiJoining";
 
   return (
-    <div className="min-h-screen bg-[#0a0e17] text-[#eef2f6]">
+    <div className="min-h-screen bg-[#0a0e17] text-[#eef2f6]" dir={isRtl ? "rtl" : "ltr"} lang={lang}>
       <audio id={REMOTE_AUDIO_ID} ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-6 sm:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">
             <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-7 w-auto" />
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
-              Audio interview
+              {t.badge}
             </span>
           </div>
           {phase === "live" ? (
             <span className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">
               <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-              Live · {mins}:{secs}
+              {t.live} · {mins}:{secs}
             </span>
           ) : null}
         </header>
 
         <main className="flex flex-1 flex-col items-center justify-center py-10 text-center">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/[0.03] p-8 shadow-2xl shadow-black/40">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">VoxBulk AI interview</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">{t.title}</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">{role}</h1>
-            <p className="mt-2 text-sm text-slate-400">Hi {name} — this is an audio-only interview in your browser.</p>
+            <p className="mt-2 text-sm text-slate-400">{t.hi(name.split(" ")[0] || name)}</p>
+            <p className="mt-2 text-[11px] text-violet-300/90">{t.langLabel}</p>
 
             {phase === "idle" ? (
               <div className="mt-8 space-y-4">
                 <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                   <ShieldCheck className="size-4 text-violet-400" />
-                  No camera required · secure browser audio
+                  {t.noCamera}
                 </div>
-                {!canJoin ? (
-                  <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-5">
-                    <p className="text-xs uppercase tracking-wider text-slate-400">Waiting room</p>
-                    <p className="mt-2 text-3xl font-semibold tabular-nums text-white">
-                      {waitMins}:{waitSecs}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-400">
-                      Your interview starts at {slotTimeLabel}. The room opens 1 minute before — keep this page open.
-                    </p>
+
+                {showCountdown ? (
+                  <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-6">
+                    <p className="text-xs uppercase tracking-wider text-violet-200/80">{t.waitingRoom}</p>
+                    {!canJoin ? (
+                      <>
+                        <p className="mt-2 text-sm text-slate-300">{t.roomOpensIn}</p>
+                        <p className="mt-2 text-5xl font-semibold tabular-nums tracking-tight text-white">
+                          {openCountdown}
+                        </p>
+                      </>
+                    ) : msUntilStart > 0 ? (
+                      <>
+                        <p className="mt-2 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-3 text-sm text-slate-300">{t.interviewStartsIn}</p>
+                        <p className="mt-2 text-5xl font-semibold tabular-nums tracking-tight text-white">
+                          {startCountdown}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-2 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-3 text-4xl font-semibold tabular-nums text-white">00:00</p>
+                      </>
+                    )}
+                    <p className="mt-3 text-xs text-slate-400">{t.startsAt(slotTimeLabel)}</p>
                   </div>
                 ) : null}
 
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 text-left">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Test your devices</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Check mic and speakers before you join so the AI can hear you clearly.
-                  </p>
+                <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 text-start">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">{t.deviceTest}</p>
+                  <p className="mt-1 text-xs text-slate-500">{t.deviceHint}</p>
 
                   <div className="mt-4 space-y-3">
                     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-sm text-slate-200">
                           <Mic className="size-4 text-violet-300" />
-                          Microphone
+                          {t.microphone}
                           {deviceReady ? <CheckCircle2 className="size-3.5 text-emerald-400" /> : null}
                         </div>
                         <button
@@ -503,7 +640,7 @@ function InterviewMeetingRoomPage() {
                           onClick={() => void startMicTest()}
                           className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
                         >
-                          {micTesting ? "Retest mic" : "Test mic"}
+                          {micTesting ? t.retestMic : t.testMic}
                         </button>
                       </div>
                       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
@@ -512,16 +649,14 @@ function InterviewMeetingRoomPage() {
                           style={{ width: `${Math.min(100, Math.round(testMicLevel * 220))}%` }}
                         />
                       </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        {micTesting ? "Speak now — the bar should move when you talk." : "Allow the mic, then speak to see the level."}
-                      </p>
+                      <p className="mt-2 text-[11px] text-slate-500">{micTesting ? t.micSpeak : t.micAllow}</p>
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-sm text-slate-200">
                           <Volume2 className="size-4 text-violet-300" />
-                          Speakers / headphones
+                          {t.speakers}
                           {speakerPlayed ? <CheckCircle2 className="size-3.5 text-emerald-400" /> : null}
                         </div>
                         <button
@@ -529,12 +664,10 @@ function InterviewMeetingRoomPage() {
                           onClick={testSpeaker}
                           className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
                         >
-                          Play test sound
+                          {t.playSound}
                         </button>
                       </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        You should hear a short beep. Turn up volume if you miss it.
-                      </p>
+                      <p className="mt-2 text-[11px] text-slate-500">{t.hearBeep}</p>
                     </div>
                   </div>
 
@@ -544,29 +677,29 @@ function InterviewMeetingRoomPage() {
                 <button
                   type="button"
                   onClick={() => void joinMeeting()}
-                  disabled={!canJoin || !deviceReady}
+                  disabled={!canJoin}
                   className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400"
                 >
-                  {!canJoin ? "Room opens soon…" : !deviceReady ? "Test your mic to join" : "Join interview room"}
+                  {!canJoin ? t.joinSoon : t.join}
                 </button>
-                <p className="text-xs text-slate-500">Use headphones if possible for the clearest conversation.</p>
+                <p className="text-xs text-slate-500">{t.headphones}</p>
               </div>
             ) : null}
 
             {phase === "connecting" ? (
               <div className="mt-10 flex flex-col items-center gap-3 text-slate-300">
                 <Loader2 className="size-8 animate-spin text-violet-400" />
-                <p className="text-sm">{statusLine || "Connecting…"}</p>
+                <p className="text-sm">{statusLine || t.connecting}</p>
               </div>
             ) : null}
 
             {inCallUi ? (
               <div className="mt-8 space-y-5">
                 <VoiceCallAvatars
-                  aiLabel="AI Interviewer"
+                  aiLabel={t.aiLabel}
                   aiLevel={aiLevel}
                   aiPresent={aiPresent}
-                  userLabel={name.split(" ")[0] || "You"}
+                  userLabel={name.split(" ")[0] || t.you}
                   userInitials={userInitials}
                   userLevel={userLevel}
                   micOn={!muted}
@@ -574,9 +707,9 @@ function InterviewMeetingRoomPage() {
                 <p className="text-sm text-slate-300">
                   {phase === "live"
                     ? meta?.greeting
-                      ? "The AI will greet you shortly — speak naturally after you hear the welcome."
-                      : "Speak naturally — the AI interviewer is listening."
-                    : statusLine || "Waiting for the AI interviewer…"}
+                      ? t.greetSoon
+                      : t.speakNatural
+                    : statusLine || t.waitingAi}
                 </p>
                 {phase === "live" ? (
                   <div className="flex flex-wrap justify-center gap-3">
@@ -586,7 +719,7 @@ function InterviewMeetingRoomPage() {
                       className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium hover:bg-white/10"
                     >
                       {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-                      {muted ? "Unmute" : "Mute"}
+                      {muted ? t.unmute : t.mute}
                     </button>
                     <button
                       type="button"
@@ -594,7 +727,7 @@ function InterviewMeetingRoomPage() {
                       className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500"
                     >
                       <PhoneOff className="size-4" />
-                      End interview
+                      {t.end}
                     </button>
                   </div>
                 ) : (
@@ -605,16 +738,14 @@ function InterviewMeetingRoomPage() {
 
             {phase === "ended" ? (
               <div className="mt-8 space-y-3">
-                <p className="text-lg font-medium text-white">Thank you — interview complete</p>
-                <p className="text-sm text-slate-400">
-                  You can close this page. The hiring team will review your interview shortly.
-                </p>
+                <p className="text-lg font-medium text-white">{t.thanks}</p>
+                <p className="text-sm text-slate-400">{t.closePage}</p>
               </div>
             ) : null}
 
             {phase === "error" || error ? (
               <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {error || "Something went wrong"}
+                {error || t.somethingWrong}
                 <button
                   type="button"
                   className="mt-3 block w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white hover:bg-white/10"
@@ -627,16 +758,14 @@ function InterviewMeetingRoomPage() {
                     setDeviceError(null);
                   }}
                 >
-                  Try again
+                  {t.tryAgain}
                 </button>
               </div>
             ) : null}
           </div>
         </main>
 
-        <footer className="pb-4 text-center text-[11px] text-slate-500">
-          Powered by VoxBulk · audio interview room
-        </footer>
+        <footer className="pb-4 text-center text-[11px] text-slate-500">{t.footer}</footer>
       </div>
     </div>
   );

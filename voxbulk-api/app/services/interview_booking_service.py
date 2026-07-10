@@ -534,6 +534,20 @@ def _booking_display_meta() -> dict[str, str]:
     }
 
 
+def _interview_language_for_order(db: Session, order: ServiceOrder) -> str:
+    """Return 'ar' or 'en' for public meeting/booking UI localization."""
+    try:
+        from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
+        from app.services.voice_agent_runtime import detect_interview_language
+
+        config = _order_config(order)
+        agent = resolve_interview_agent_for_order(db, order, config)
+        lang = detect_interview_language(config, agent)
+        return "ar" if lang == "ar" else "en"
+    except Exception:
+        return "en"
+
+
 def interview_order_read_only(order: ServiceOrder) -> bool:
     """True when the employer must not change or resend invites (stopped/finished)."""
     return str(order.status or "").lower() in {"cancelled", "completed", "archived"}
@@ -1137,6 +1151,7 @@ class InterviewBookingService:
         except Exception:
             org_name = ""
 
+        interview_language = _interview_language_for_order(db, order)
         merged = _recipient_result(recipient)
         if _booking_withdrawn(recipient):
             cancelled_at = merged.get("booking_cancelled_at")
@@ -1145,6 +1160,7 @@ class InterviewBookingService:
                 "candidate_name": recipient.name or "Candidate",
                 "role": role,
                 "organisation_name": org_name,
+                "interview_language": interview_language,
                 "booking_closed": True,
                 "closed_message": (
                     "Your interview was cancelled. You will not receive an AI call or any further messages about this job."
@@ -1170,6 +1186,7 @@ class InterviewBookingService:
                 "candidate_name": recipient.name or "Candidate",
                 "role": role,
                 "organisation_name": org_name,
+                "interview_language": interview_language,
                 "booking_closed": True,
                 "closed_message": closed_message,
                 "slot_minutes": interview_slot_minutes(),
@@ -1208,6 +1225,7 @@ class InterviewBookingService:
             "candidate_name": recipient.name or "Candidate",
             "role": role,
             "organisation_name": org_name,
+            "interview_language": interview_language,
             "booking_closed": False,
             "closed_message": None,
             "slot_minutes": interview_slot_minutes(),
