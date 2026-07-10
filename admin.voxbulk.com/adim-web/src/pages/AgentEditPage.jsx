@@ -18,7 +18,7 @@ const emptyAgent = {
   service_lead_sales_role: '',
   service_appointment_role: '',
   opening_disclosure_template:
-    'Hello, this is {agent_name}, the AI assistant calling from {company_name}. This call is recorded for quality and service purposes.',
+    'Hello {first_name}, this is {agent_name} calling from {company_name}. This call is recorded for quality and assessment. Do you have about 10 to 15 minutes now?',
   supports_survey: false,
   supports_interview: false,
   supports_lead_sales: false,
@@ -32,7 +32,8 @@ const emptyAgent = {
   disclosure_for_appointment: true,
   disclosure_mandatory: true,
   retry_policy_notes: 'Retry once after 1 hour for busy/no answer.',
-  interruption_behavior_notes: 'If interrupted before disclosure, restart it clearly.',
+  interruption_behavior_notes:
+    'Never interrupt the candidate while they are answering. Wait until they finish. If interrupted mid-sentence, restate only the unfinished sentence.',
   voicemail_behavior: 'hang_up',
   missed_call_email_template_interview: '',
   missed_call_followup_notes_interview: '',

@@ -1035,14 +1035,14 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             build_interview_runtime_instructions,
         )
 
-        instructions = str(parsed.get("interview_instructions") or parsed.get("survey_instructions") or "").strip() or build_interview_runtime_instructions(
+        instructions = build_interview_runtime_instructions(
             db,
             order=order,
             config=config_order,
             recipient=recipient,
             agent=agent,
         )
-        greeting = str(parsed.get("interview_greeting") or parsed.get("survey_greeting") or "").strip() or build_interview_opening_greeting(
+        greeting = build_interview_opening_greeting(
             db,
             agent=agent,
             config=config_order,
@@ -1050,15 +1050,16 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             org_id=order.org_id,
             order=order,
         )
-        if not str(parsed.get("interview_greeting") or parsed.get("survey_greeting") or "").strip():
-            log_voice_call_prompt(
-                service_key="interview",
-                order_id=order.id,
-                recipient_id=recipient.id,
-                company_name=resolve_voice_call_company_name(db, config=config_order, org_id=order.org_id, order=order),
-                greeting=greeting,
-                instructions=instructions,
-            )
+        # Always rebuild full instructions on answer — client_state truncates to 4000 chars
+        # and was dropping mandatory closing / pacing rules.
+        log_voice_call_prompt(
+            service_key="interview",
+            order_id=order.id,
+            recipient_id=recipient.id,
+            company_name=resolve_voice_call_company_name(db, config=config_order, org_id=order.org_id, order=order),
+            greeting=greeting,
+            instructions=instructions,
+        )
         if not assistant_id:
             InterviewCallDispatchService.finalize_recipient_after_call(
                 db,

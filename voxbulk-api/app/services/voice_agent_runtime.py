@@ -38,7 +38,7 @@ _INVALID_SPOKEN_ORG_NAMES = frozenset(
 DEFAULT_INTERVIEW_OPENING_FALLBACK = (
     "Hello {first_name}, this is {agent_name} calling from {company_name} about the {role} role. "
     "This call is recorded for quality and assessment. "
-    "Do you have about 10 to 15 minutes now?"
+    "Do you have about 10 to 15 minutes now for a short screening interview?"
 )
 
 # Arabic opening fallback (used when the approved script is written in Arabic and no
@@ -46,28 +46,47 @@ DEFAULT_INTERVIEW_OPENING_FALLBACK = (
 DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = (
     "السلام عليكم {first_name}، معك {agent_name} أتصل من {company_name} بخصوص وظيفة {role}. "
     "المكالمة مسجّلة للجودة والتقييم. "
-    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
+    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة فرز قصيرة؟"
 )
 
 # Arabic recording + time-ask tail appended only when those markers are missing.
 ARABIC_RECORD_AVAILABILITY = (
-    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
+    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة فرز قصيرة؟"
 )
 
+# Professional real-interview behaviour — injected on every interview call.
 INTERVIEW_HUMAN_BEHAVIOR_EN = (
-    "Sound like a real recruiter on the phone — warm, organised, and human — not a script reader or robot.\n"
-    "After each answer, give a brief natural acknowledgement (interest or empathy) before the next question.\n"
-    "Ask one question at a time. Keep reactions short. Use natural turn-taking.\n"
+    "You are conducting a real professional phone screening interview — calm, clear, and respectful.\n"
+    "Speak at a measured pace: slightly slower than everyday chat. Short sentences. Pause after each question.\n"
+    "NEVER interrupt the candidate. Wait until they have clearly finished speaking before you reply.\n"
+    "If they pause mid-thought, wait a few seconds — do not jump in. Only continue when their answer is complete.\n"
+    "Ask one question at a time. After each answer, give a brief acknowledgement, then the next question.\n"
     "Never say you are an AI assistant, chatbot, or automated system — introduce yourself by name only.\n"
-    "If interrupted mid-sentence, finish or gently restate only the unfinished sentence — never restart the full introduction."
+    "If you were interrupted mid-sentence, finish only the unfinished sentence — never restart the full introduction.\n"
+    "Do not rush to the end. After the last question, deliver the full closing: thank them, say "
+    "{company_name} will review the interview and contact them with next steps, then say goodbye warmly. "
+    "Do not hang up until that closing is spoken."
 )
 
 INTERVIEW_HUMAN_BEHAVIOR_AR = (
-    "تكلم كأنك موظف توظيف حقيقي على الهاتف — دافئ ومنظّم وإنساني، مو قارئ سكربت ولا روبوت.\n"
-    "بعد كل إجابة، أعطِ رد فعل قصير طبيعي (اهتمام أو تعاطف) قبل السؤال التالي.\n"
-    "سؤال واحد في كل مرة. ردود قصيرة. تبادل حديث طبيعي.\n"
+    "أجرِ مقابلة فرز هاتفية احترافية حقيقية — بهدوء ووضوح واحترام.\n"
+    "تكلم بسرعة معتدلة أبطأ قليلًا من الكلام اليومي. جمل قصيرة. توقف بعد كل سؤال.\n"
+    "لا تقاطع المرشّح أبدًا. انتظر حتى ينهي كلامه بوضوح قبل ما ترد.\n"
+    "إذا توقف وسط الفكرة، انتظر ثوانٍ — لا تتدخل بسرعة. كمّل فقط لما تكون الإجابة مكتملة.\n"
+    "سؤال واحد في كل مرة. بعد كل إجابة، رد فعل قصير ثم السؤال التالي.\n"
     "لا تقل أبدًا إنك مساعد ذكي أو روبوت أو نظام آلي — قدّم نفسك باسمك فقط.\n"
-    "إذا قاطعك المرشّح وسط جملة، أكمل أو أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة من البداية."
+    "إذا قاطعك وسط جملة، أكمل الجملة الناقصة فقط — لا تعِد المقدمة كاملة.\n"
+    "لا تستعجل الإنهاء. بعد آخر سؤال، قل الإغلاق كاملًا: اشكرهم، وقل إن {company_name} "
+    "سيراجع المقابلة ويتواصل معهم بالخطوات التالية، ثم ودّعهم بلطف. لا تنهِ المكالمة قبل هذا الإغلاق."
+)
+
+INTERVIEW_CALL_WORKFLOW_EN = (
+    "Opening greeting and time ask were already spoken — do not re-introduce or re-ask for time.\n"
+    "Wait for a clear yes that now is a good time before any interview questions.\n"
+    "If the candidate agrees: proceed with CV questions then role questions in order — one at a time, waiting for full answers.\n"
+    "If busy or declines: offer a callback during working hours and end politely.\n"
+    "Mandatory closing (always speak this before ending): thank them for their time, say "
+    "{company_name} will review the interview and be in touch with next steps, then wish them a good day."
 )
 
 # Arabic runtime layers used when an Arabic agent (e.g. Jammal) is selected but the
@@ -111,9 +130,11 @@ ARABIC_INTERVIEW_SERVICE_ROLE = (
 )
 ARABIC_INTERVIEW_CALL_WORKFLOW = (
     "التحية والوقت سُئلا بالفعل في بداية المكالمة — لا تعِد التعريف بنفسك ولا تعِد سؤال الوقت.\n"
-    "انتظر تأكيد المرشّح: إذا وافق → ابدأ أسئلة السيرة ثم أسئلة الوظيفة بالترتيب.\n"
+    "انتظر تأكيدًا واضحًا أن الوقت مناسب قبل أي سؤال مقابلة.\n"
+    "إذا وافق → ابدأ أسئلة السيرة ثم أسئلة الوظيفة بالترتيب — سؤال واحد وانتظر الإجابة كاملة.\n"
     "إذا مشغول أو رفض: اقترح معادًا خلال ساعات العمل وانهِ بلباقة.\n"
-    "اختتم بالشكر وأخبره أن فريق التوظيف سيتواصل معه."
+    "إغلاق إلزامي قبل إنهاء المكالمة: اشكر المرشّح، وقل إن {company_name} سيراجع المقابلة "
+    "ويتواصل معه بالخطوات التالية، ثم ودّعه بلطف."
 )
 
 _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
@@ -547,12 +568,14 @@ def resolve_opening_disclosure_template(
             if not has_record and not has_time:
                 rendered = (
                     f"{rendered} This call is recorded for quality and assessment. "
-                    "Do you have about 10 to 15 minutes now?"
+                    "Do you have about 10 to 15 minutes now for a short screening interview?"
                 ).strip()
             elif not has_record:
                 rendered = f"{rendered} This call is recorded for quality and assessment.".strip()
             elif not has_time:
-                rendered = f"{rendered} Do you have about 10 to 15 minutes now?".strip()
+                rendered = (
+                    f"{rendered} Do you have about 10 to 15 minutes now for a short screening interview?"
+                ).strip()
     elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     elif service_key == SERVICE_APPOINTMENTS and mandatory and "record" not in rendered.lower():
@@ -752,6 +775,11 @@ def build_service_runtime_instructions(
         call_workflow = _layer_text_for_call_language(
             layers.call_workflow, arabic_default=ARABIC_INTERVIEW_CALL_WORKFLOW, use_arabic=True
         )
+    elif service_key == SERVICE_INTERVIEW and not use_arabic:
+        # Prefer professional interview workflow when agent row still has a thin/old workflow.
+        wf = str(call_workflow or "").strip()
+        if not wf or "mandatory closing" not in wf.lower():
+            call_workflow = INTERVIEW_CALL_WORKFLOW_EN
 
     if use_arabic and dialect_runtime:
         parts.append(dialect_runtime["language_priority"])
@@ -761,6 +789,14 @@ def build_service_runtime_instructions(
                 "أسلوب المحادثة:\n"
                 + substitute_voice_placeholders(str(agent.conversation_style).strip(), **placeholder_kwargs)
             )
+    # Interview pacing / no-interrupt / mandatory closing — early so truncation cannot drop it.
+    if service_key == SERVICE_INTERVIEW:
+        parts.append(
+            substitute_voice_placeholders(
+                INTERVIEW_HUMAN_BEHAVIOR_AR if use_arabic else INTERVIEW_HUMAN_BEHAVIOR_EN,
+                **placeholder_kwargs,
+            )
+        )
     if layers.compliance and not (use_arabic and not _contains_arabic(layers.compliance)):
         parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
     if base_role:
@@ -919,7 +955,7 @@ def build_service_runtime_instructions(
         if followup:
             behavior.append(followup)
     elif service_key == SERVICE_INTERVIEW:
-        behavior.append(INTERVIEW_HUMAN_BEHAVIOR_AR if use_arabic else INTERVIEW_HUMAN_BEHAVIOR_EN)
+        # Full behaviour already injected early; keep short interrupt + availability reminders here.
         behavior.append(
             "إذا قاطعك المرشّح وسط جملة، أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة."
             if use_arabic
@@ -931,6 +967,21 @@ def build_service_runtime_instructions(
             else "Do not continue to interview questions until the callee confirms now is a good time "
             "(the introduction was already spoken in the greeting)."
         )
+        behavior.append(
+            "بعد آخر سؤال: اشكر المرشّح وقل إن المنظمة ستراجع المقابلة وتتواصل معه — ثم ودّع. لا تنهِ قبل ذلك."
+            if use_arabic
+            else "After the last question: thank the candidate, say the organisation will review the interview "
+            "and contact them with next steps, then say goodbye. Do not end the call before that closing."
+        )
+        if layers.interruption_notes and not (use_arabic and not _contains_arabic(layers.interruption_notes)):
+            # Prefer wait-for-full-answer wording over thin "restate unfinished" only notes.
+            notes = str(layers.interruption_notes).strip()
+            if "never interrupt" not in notes.lower() and "لا تقاطع" not in notes:
+                behavior.append(
+                    "لا تقاطع المرشّح أثناء إجابته — انتظر حتى ينهي."
+                    if use_arabic
+                    else "Never interrupt the candidate while they are answering — wait until they finish."
+                )
     else:
         behavior.append(
             "إذا قاطعك المرشّح قبل إنهاء المقدمة، توقف وكرر الخطوة الحالية بوضوح من البداية."

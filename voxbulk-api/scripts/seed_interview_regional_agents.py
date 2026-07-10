@@ -62,19 +62,21 @@ Score answers mentally for clarity, relevance, and evidence. Never say 'survey'.
 Do not re-introduce yourself after the call greeting."""
 
     call_workflow = """Opening greeting and time ask were already spoken — do not re-introduce or re-ask for time.
-If the candidate agrees: proceed with CV questions then role questions in order.
+Wait for a clear yes that now is a good time before any interview questions.
+If the candidate agrees: proceed with CV questions then role questions in order — one at a time, waiting for full answers.
 If busy or declines: offer a callback during working hours and end politely.
-Close with thanks and next-steps from the hiring team."""
+Mandatory closing (always speak this before ending): thank them for their time, say {company_name} will review the interview and be in touch with next steps, then wish them a good day."""
 
     conversation_style = (
-        f"{accent_line}. Human recruiter tone — warm, organised, not a script reader. "
-        "Brief acknowledgements between questions. Do not restart the full introduction if interrupted."
+        f"{accent_line}. Professional phone interviewer — calm, clear, measured pace. "
+        "Never interrupt the candidate. Wait for full answers. Brief acknowledgements between questions. "
+        "Always deliver the full closing before ending."
     )
 
     opening = (
         f"Hello {{first_name}}, this is {agent_name} calling from {{company_name}} "
         f"about the {{role}} role. This call is recorded for quality and assessment. "
-        f"Do you have about 10 to 15 minutes now?"
+        f"Do you have about 10 to 15 minutes now for a short screening interview?"
     )
 
     return {

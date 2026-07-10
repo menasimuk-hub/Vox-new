@@ -374,6 +374,51 @@ def personalize_greeting(greeting: str, *, first_name: str | None = None) -> str
     )
 
 
+def apply_interview_assistant_pacing(
+    db: Session,
+    assistant_id: str,
+    *,
+    voice_speed: float = 0.85,
+) -> dict[str, Any]:
+    """Slow TTS slightly and wait longer before speaking so the agent does not interrupt answers."""
+    clean_id = normalize_telnyx_assistant_id(assistant_id)
+    existing = fetch_telnyx_assistant(db, clean_id)
+    voice_settings = _voice_settings_dict(existing)
+    if not isinstance(voice_settings, dict):
+        voice_settings = {}
+    else:
+        voice_settings = dict(voice_settings)
+    # Telnyx Natural voices use voice_speed; ElevenLabs uses speed.
+    voice_settings["voice_speed"] = max(0.5, min(1.0, float(voice_speed)))
+    if "speed" in voice_settings:
+        voice_settings["speed"] = voice_settings["voice_speed"]
+
+    interruption_settings = {
+        "start_speaking_plan": {
+            "wait_seconds": 0.9,
+            "transcription_endpointing_plan": {
+                "on_punctuation_seconds": 0.6,
+                "on_no_punctuation_seconds": 2.0,
+                "on_number_seconds": 1.4,
+            },
+        }
+    }
+    out: dict[str, Any] = {"assistant_id": clean_id}
+    try:
+        _update_telnyx_assistant(db, clean_id, {"voice_settings": voice_settings})
+        out["voice_settings"] = voice_settings
+    except Exception as exc:
+        logger.warning("interview_pacing_voice_failed assistant_id=%s err=%s", clean_id, exc)
+        out["voice_error"] = str(exc)
+    try:
+        _update_telnyx_assistant(db, clean_id, {"interruption_settings": interruption_settings})
+        out["interruption_settings"] = interruption_settings
+    except Exception as exc:
+        logger.warning("interview_pacing_interrupt_failed assistant_id=%s err=%s", clean_id, exc)
+        out["interruption_error"] = str(exc)
+    return out
+
+
 def sync_telnyx_assistant_instructions(
     db: Session,
     assistant_id: str,
