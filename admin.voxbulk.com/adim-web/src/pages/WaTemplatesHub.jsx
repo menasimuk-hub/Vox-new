@@ -184,6 +184,11 @@ export default function WaTemplatesHub() {
   const profileSummariesRef = useRef({})
   const profileLoadInFlightRef = useRef(new Set())
   const staggerTimersRef = useRef([])
+  const syncServiceCodeRef = useRef(syncServiceCode)
+
+  useEffect(() => {
+    syncServiceCodeRef.current = syncServiceCode
+  }, [syncServiceCode])
 
   const syncProfile = useMemo(
     () => resolveSelectedSyncProfile(syncProfileItems, syncProfileId, null),
@@ -246,31 +251,42 @@ export default function WaTemplatesHub() {
   const loadProfileSummary = useCallback(async (profileId, { force = false } = {}) => {
     const id = String(profileId || '').trim()
     if (!id) return
-    if (profileLoadInFlightRef.current.has(id)) return
+    const requestServiceCode = syncServiceCodeRef.current
+    const inFlightKey = `${id}:${requestServiceCode}`
+    if (profileLoadInFlightRef.current.has(inFlightKey)) return
     if (!force) {
       const cur = profileSummariesRef.current[id]
-      if (cur?.summary && cur?.fetchedAt && cur?.serviceCode === syncServiceCode) return
+      if (cur?.summary && cur?.fetchedAt && cur?.serviceCode === requestServiceCode) return
     }
-    profileLoadInFlightRef.current.add(id)
-    patchProfileSummary(id, { loading: true, error: null, serviceCode: syncServiceCode })
+    profileLoadInFlightRef.current.add(inFlightKey)
+    patchProfileSummary(id, {
+      loading: true,
+      error: null,
+      summary: null,
+      serviceCode: requestServiceCode,
+    })
     try {
-      const data = await fetchProfileTemplateSummary(apiFetch, id, { serviceCode: syncServiceCode })
+      const data = await fetchProfileTemplateSummary(apiFetch, id, { serviceCode: requestServiceCode })
+      if (syncServiceCodeRef.current !== requestServiceCode) return
       patchProfileSummary(id, {
         loading: false,
         error: null,
         summary: data?.summary || null,
         fetchedAt: Date.now(),
-        serviceCode: syncServiceCode,
+        serviceCode: requestServiceCode,
       })
     } catch (e) {
+      if (syncServiceCodeRef.current !== requestServiceCode) return
       patchProfileSummary(id, {
         loading: false,
         error: formatWaSurveyError(e, 'Could not load profile stats').message || e?.message || 'Load failed',
+        summary: null,
+        serviceCode: requestServiceCode,
       })
     } finally {
-      profileLoadInFlightRef.current.delete(id)
+      profileLoadInFlightRef.current.delete(inFlightKey)
     }
-  }, [patchProfileSummary, syncServiceCode])
+  }, [patchProfileSummary])
 
   const refreshSelectedProfileSummary = useCallback(() => {
     if (syncProfile?.id) void loadProfileSummary(syncProfile.id, { force: true })
@@ -457,7 +473,7 @@ export default function WaTemplatesHub() {
     return () => {
       staggerTimersRef.current.forEach(clearTimeout)
     }
-  }, [syncProfileItems, queueBackgroundProfileLoads, loadProfileSummary, syncProfile?.id])
+  }, [syncProfileItems, queueBackgroundProfileLoads, loadProfileSummary, syncProfile?.id, syncServiceCode])
 
   useEffect(() => {
     setError('')
@@ -1437,6 +1453,7 @@ export default function WaTemplatesHub() {
               profiles={syncProfileItems}
               selectedProfileId={syncProfile?.id}
               rowState={profileSummaries}
+              activeServiceCode={syncServiceCode}
               onSelectProfile={setSyncProfileId}
               onRefreshProfile={(id) => void loadProfileSummary(id, { force: true })}
               onRefreshAll={() => void refreshAllProfileSummaries()}

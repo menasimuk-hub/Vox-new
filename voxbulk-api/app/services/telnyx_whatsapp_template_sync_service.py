@@ -490,6 +490,47 @@ class TelnyxWhatsappTemplateSyncService:
         return [_normalize_meta_template_item(item, waba_id=waba_id or None) for item in remote if isinstance(item, dict)]
 
     @staticmethod
+    def fetch_from_meta_waba(
+        db: Session,
+        *,
+        waba_id: str,
+        service_code: str | None = "survey",
+    ) -> list[dict[str, Any]] | None:
+        """Meta Graph templates for any WABA — uses primary Meta credentials (matches Meta BM counts)."""
+        from app.services.connection.constants import normalize_service_code
+        from app.services.meta_whatsapp_config_service import MetaWhatsappConfigError
+        from app.services.meta_whatsapp_service import MetaWhatsappService
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        target = str(waba_id or "").strip()
+        if not target:
+            return None
+        code = normalize_service_code(service_code) or "survey"
+        meta_pid = WaTemplateProfilePushService.resolve_primary_connection_profile_id(db, service_code=code)
+        if not meta_pid:
+            return None
+        try:
+            _, enabled = MetaWhatsappService._config(
+                db,
+                service_code=code,
+                connection_profile_id=meta_pid,
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if not enabled:
+            return None
+        try:
+            remote = MetaWhatsappService.fetch_all_templates(
+                db,
+                connection_profile_id=meta_pid,
+                service_code=code,
+                waba_id=target,
+            )
+        except (MetaWhatsappConfigError, Exception):  # noqa: BLE001
+            return None
+        return [_normalize_meta_template_item(item, waba_id=target) for item in remote if isinstance(item, dict)]
+
+    @staticmethod
     def fetch_remote_templates(
         db: Session,
         *,

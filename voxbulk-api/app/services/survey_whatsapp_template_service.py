@@ -1180,11 +1180,14 @@ def _meta_record_id_for_push(
     *,
     language: str,
     remote_items: list[dict[str, Any]] | None = None,
+    skip_remote_link: bool = False,
 ) -> str | None:
     """Resolve Meta template record id for push — link locally when possible."""
     rid = str(row.telnyx_record_id or "").strip()
     if rid and not rid.startswith(_LOCAL_ID_PREFIX):
         return rid
+    if skip_remote_link:
+        return None
     remote_item = _find_remote_item_for_row(db, row, language=language, remote_items=remote_items)
     if remote_item is None:
         return None
@@ -1577,6 +1580,7 @@ def _push_row_to_meta(
     connection_profile_id: str | None = None,
     service_code: str | None = "survey",
     profile_ctx: Any | None = None,
+    skip_remote_link: bool = False,
 ) -> dict[str, Any]:
     from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateService, MetaWhatsappTemplateError
 
@@ -1585,7 +1589,12 @@ def _push_row_to_meta(
     if record_id.startswith(_LOCAL_ID_PREFIX):
         record_id = ""
     if not record_id:
-        record_id = _meta_record_id_for_push(db, row, language=lang_code, remote_items=prefetched) or ""
+        record_id = (
+            _meta_record_id_for_push(
+                db, row, language=lang_code, remote_items=prefetched, skip_remote_link=skip_remote_link
+            )
+            or ""
+        )
 
     meta_request_mode = "create_or_update_template"
     if branch == SYNC_BRANCH_APPROVED_UPDATE and record_id:
@@ -2072,12 +2081,13 @@ class SurveyWhatsappTemplateService:
                 continue
             if not include_inactive and not bool(row.active_for_survey):
                 continue
-            if (
-                require_approved
-                and not template_row_is_sendable_on_meta(row)
-                and not template_row_must_send_as_session_text(row)
-            ):
-                continue
+            if require_approved:
+                from app.services.wa_template_dashboard_visibility_service import platform_template_blocks_dashboard
+
+                if platform_template_blocks_dashboard(row):
+                    continue
+                if not template_row_is_sendable_on_meta(row) and not template_row_must_send_as_session_text(row):
+                    continue
             if strict_scope and survey_type is not None and not template_belongs_to_survey_type(row, survey_type):
                 continue
             if strict_scope and survey_type is not None and not template_matches_survey_industry(row, survey_type, mapping=mapping):
@@ -2578,6 +2588,7 @@ class SurveyWhatsappTemplateService:
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
         template_name_override: str | None = None,
+        skip_remote_link: bool = False,
     ) -> dict[str, Any]:
         from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
 
@@ -2599,6 +2610,7 @@ class SurveyWhatsappTemplateService:
                 service_code=service_code,
                 profile_ctx=profile_ctx,
                 template_name_override=template_name_override,
+                skip_remote_link=skip_remote_link,
             )
         except Exception:
             WaTemplateProfilePushService.abort_push(db, row, profile_ctx)
@@ -2617,6 +2629,7 @@ class SurveyWhatsappTemplateService:
         service_code: str | None = "survey",
         profile_ctx: Any | None = None,
         template_name_override: str | None = None,
+        skip_remote_link: bool = False,
     ) -> dict[str, Any]:
         push_name = str(template_name_override or row.name or "").strip()
         raw_components = _draft_components_for_push(row)
@@ -2661,7 +2674,7 @@ class SurveyWhatsappTemplateService:
             remote_items=prefetched,
             connection_profile_id=connection_profile_id,
             service_code=service_code,
-            skip_remote_link=bool(profile_ctx and not profile_ctx.is_primary),
+            skip_remote_link=bool(skip_remote_link or (profile_ctx and not profile_ctx.is_primary)),
         )
         if linked:
             logger.info(
@@ -2679,7 +2692,11 @@ class SurveyWhatsappTemplateService:
 
         if force_approved_update and branch == SYNC_BRANCH_FIRST_PUSH:
             existing_rid = _meta_record_id_for_push(
-                db, row, language=lang_code, remote_items=prefetched
+                db,
+                row,
+                language=lang_code,
+                remote_items=prefetched,
+                skip_remote_link=skip_remote_link,
             )
             if existing_rid:
                 status = str(row.status or "").upper()
@@ -2810,6 +2827,7 @@ class SurveyWhatsappTemplateService:
                 connection_profile_id=connection_profile_id,
                 service_code=service_code,
                 profile_ctx=profile_ctx,
+                skip_remote_link=skip_remote_link,
             )
 
         config = SurveyWhatsappTemplateService._telnyx_config(

@@ -204,12 +204,34 @@ def summarize_for_connection_profile(
         label_bits.append(whatsapp_from)
 
     try:
+        code_norm = normalize_service_code(service_code) or "survey"
         if route.is_meta:
             remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_meta(
                 db,
                 connection_profile_id=pid,
                 service_code=service_code,
             )
+        elif waba_id:
+            # Telnyx BSP line — Meta Business Manager quota is on the Meta WABA, not Telnyx catalog.
+            # Telnyx list API includes PENDING_DELETION / stale REJECTED rows Meta BM hides.
+            remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_meta_waba(
+                db,
+                waba_id=waba_id,
+                service_code=code_norm,
+            )
+            if remote_all is None:
+                remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
+                    db,
+                    connection_profile_id=pid,
+                    service_code=service_code,
+                    filter_waba_id=True,
+                    allow_account_waba_fallback=False,
+                )
+                remote_all = _enrich_telnyx_categories_from_meta_primary(
+                    db,
+                    remote_all,
+                    service_code=code_norm,
+                )
         else:
             remote_all = TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
                 db,
@@ -218,7 +240,6 @@ def summarize_for_connection_profile(
                 filter_waba_id=True,
                 allow_account_waba_fallback=False,
             )
-            code_norm = normalize_service_code(service_code) or "survey"
             remote_all = _enrich_telnyx_categories_from_meta_primary(
                 db,
                 remote_all,

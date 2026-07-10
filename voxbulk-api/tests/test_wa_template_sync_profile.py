@@ -64,6 +64,43 @@ def test_summarize_exposes_scoped_and_account_marketing(mock_route):
     assert s["account"]["total"] == 4
 
 
+def test_telnyx_monitor_uses_meta_waba_counts(mock_route):
+    from app.services.wa_template_sync_profile import summarize_for_connection_profile
+
+    telnyx_route = MagicMock()
+    telnyx_route.profile = MagicMock(name="Telnyx 55", telnyx_number="+447822002055")
+    telnyx_route.provider = "telnyx"
+    telnyx_route.is_meta = False
+    telnyx_route.is_telnyx = True
+    telnyx_route.config = {"waba_id": "1033532842963987", "whatsapp_from": "+447822002055"}
+
+    meta_rows = [
+        _remote("cfs_hotel_bed_comfort_en_v1", category="UTILITY"),
+        _remote("was_employee_motivation_002_en", category="UTILITY"),
+    ]
+    db = MagicMock()
+
+    with (
+        patch(
+            "app.services.wa_template_sync_profile.resolve_whatsapp_route_for_sync",
+            return_value=telnyx_route,
+        ),
+        patch(
+            "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_meta_waba",
+            return_value=meta_rows,
+        ) as meta_waba_fetch,
+        patch(
+            "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_from_telnyx",
+        ) as telnyx_fetch,
+    ):
+        result = summarize_for_connection_profile(db, "telnyx-profile", service_code="survey")
+
+    meta_waba_fetch.assert_called_once()
+    telnyx_fetch.assert_not_called()
+    assert result["ok"] is True
+    assert result["summary"]["profileTotal"] == 2
+    assert result["summary"]["profileRejected"] == 0
+
 def test_remote_count_block_totals():
     from app.services.wa_template_sync_profile import _remote_count_block
 

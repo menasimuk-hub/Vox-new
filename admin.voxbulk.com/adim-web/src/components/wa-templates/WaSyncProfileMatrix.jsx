@@ -97,6 +97,7 @@ export default function WaSyncProfileMatrix({
   profiles = [],
   selectedProfileId,
   rowState = {},
+  activeServiceCode = null,
   onSelectProfile,
   onRefreshProfile,
   onRefreshAll,
@@ -145,8 +146,11 @@ export default function WaSyncProfileMatrix({
             const id = String(profile.id)
             const state = rowState[id] || {}
             const selected = String(selectedProfileId) === id
-            const summary = state.summary
-            const loading = Boolean(state.loading)
+            const rowServiceCode = state.serviceCode
+            const serviceMatches =
+              !activeServiceCode || !rowServiceCode || String(rowServiceCode) === String(activeServiceCode)
+            const summary = serviceMatches ? state.summary : null
+            const loading = Boolean(state.loading) || !serviceMatches
             const err = state.error
             const label = profile.label || profile.name || id
             const scopedTotal = scopedMetric(summary, 'total')

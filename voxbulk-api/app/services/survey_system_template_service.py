@@ -561,7 +561,10 @@ class SurveySystemTemplateService:
             template_row_is_sendable_on_meta,
             template_row_must_send_as_session_text,
         )
+        from app.services.wa_template_dashboard_visibility_service import platform_template_blocks_dashboard
 
+        if platform_template_blocks_dashboard(tpl):
+            return None
         if template_row_is_sendable_on_meta(tpl) or template_row_must_send_as_session_text(tpl):
             return tpl
         return None

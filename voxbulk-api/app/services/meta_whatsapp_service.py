@@ -337,6 +337,7 @@ class MetaWhatsappService:
         *,
         connection_profile_id: str | None = None,
         service_code: str | None = "survey",
+        waba_id: str | None = None,
     ) -> list[dict[str, Any]]:
         config, enabled = MetaWhatsappService._config(
             db,
@@ -345,8 +346,8 @@ class MetaWhatsappService:
         )
         if not enabled:
             raise MetaWhatsappConfigError("Meta WhatsApp integration is disabled")
-        waba_id = str(config.get("waba_id") or "").strip()
-        if not waba_id:
+        target_waba = str(waba_id or config.get("waba_id") or "").strip()
+        if not target_waba:
             raise MetaWhatsappConfigError("waba_id is required")
         rows: list[dict[str, Any]] = []
         after: str | None = None
@@ -360,7 +361,7 @@ class MetaWhatsappService:
             payload = MetaWhatsappService._graph_request(
                 config=config,
                 method="GET",
-                path=f"{waba_id}/message_templates",
+                path=f"{target_waba}/message_templates",
                 params=params,
             )
             chunk = payload.get("data") if isinstance(payload.get("data"), list) else []

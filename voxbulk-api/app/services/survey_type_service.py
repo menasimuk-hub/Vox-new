@@ -141,8 +141,12 @@ class SurveyTypeService:
         rows = list(db.execute(stmt).scalars())
         if exclude_disabled:
             from app.services.disabled_wa_template_service import DisabledWaTemplateService
+            from app.services.wa_template_dashboard_visibility_service import (
+                hidden_platform_survey_type_ids_by_status,
+            )
 
             hidden = DisabledWaTemplateService.hidden_platform_survey_type_ids(db)
+            hidden |= hidden_platform_survey_type_ids_by_status(db)
             if hidden:
                 rows = [r for r in rows if r.id not in hidden]
         industry_cache: dict[str, Industry] = {}
