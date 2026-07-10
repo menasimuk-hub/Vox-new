@@ -104,6 +104,8 @@ def delete_remote_template_by_name(
     else:
         pairs = [(pid, label) for pid, label in ((primary_id, "meta_primary"), (backup_id, "telnyx_backup")) if pid]
 
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
     for pid, label in pairs:
         if not pid:
             continue
@@ -134,20 +136,28 @@ def delete_remote_template_by_name(
                 for item in remote
                 if isinstance(item, dict) and str(item.get("name") or "").strip().lower() == clean_name.lower()
             ]
+        if not matches:
+            continue
+
+        use_meta = is_meta_whatsapp_primary(db, service_code=service_code, connection_profile_id=pid)
         for item in matches:
             record_id = str(item.get("id") or "").strip()
             try:
-                if record_id:
+                if use_meta:
+                    # Meta: name + hsm_id required together for single-language delete
+                    MetaWhatsappTemplateService.delete_message_template(
+                        db,
+                        name=clean_name,
+                        hsm_id=record_id or None,
+                        service_code=service_code,
+                        connection_profile_id=pid,
+                    )
+                elif record_id:
                     TelnyxWhatsappTemplateSyncService.delete_remote_template(
                         db, record_id, template_name=clean_name
                     )
                 else:
-                    MetaWhatsappTemplateService.delete_message_template(
-                        db,
-                        name=clean_name,
-                        service_code=service_code,
-                        connection_profile_id=pid,
-                    )
+                    continue
                 deleted_on.append(label)
             except (TelnyxWhatsappTemplateSyncError, MetaWhatsappTemplateError) as exc:
                 detail = str(exc).lower()

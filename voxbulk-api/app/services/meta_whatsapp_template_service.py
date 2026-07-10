@@ -232,13 +232,22 @@ class MetaWhatsappTemplateService:
         )
         waba_id = str(config.get("waba_id") or "").strip()
         params: dict[str, Any] = {}
+        clean_name = str(name or "").strip() or None
+        clean_hsm = None
         if hsm_id:
             raw = str(hsm_id).strip()
             if raw.startswith(_META_RECORD_PREFIX):
                 raw = raw[len(_META_RECORD_PREFIX) :]
-            params["hsm_id"] = raw
-        elif name:
-            params["name"] = str(name).strip()
+            clean_hsm = raw or None
+        # Meta requires name together with hsm_id when deleting a specific language/id.
+        # Name-only deletes all languages for that template name.
+        if clean_hsm and clean_name:
+            params["hsm_id"] = clean_hsm
+            params["name"] = clean_name
+        elif clean_name:
+            params["name"] = clean_name
+        elif clean_hsm:
+            params["hsm_id"] = clean_hsm
         else:
             raise MetaWhatsappTemplateError("Template name or hsm_id is required for Meta delete")
         try:
