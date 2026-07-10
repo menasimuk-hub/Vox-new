@@ -2,7 +2,7 @@
 
 ## System Overview
 
-VOXBULK is a multi-tenant B2B SaaS platform for UK dental clinics, providing AI-powered communication services including WhatsApp surveys, voice agents, appointment scheduling, and CRM integrations.
+VOXBULK is a multi-tenant B2B SaaS platform for businesses across industries, providing AI-powered communication services including WhatsApp surveys, voice agents, appointment scheduling, and CRM integrations.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐

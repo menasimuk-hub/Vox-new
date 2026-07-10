@@ -149,7 +149,7 @@ export default function WhatsAppTemplateEdit() {
                     placeholder="Hello {{first_name}}! Special offer for you."
                   />
                   <p className="fieldHint">
-                    Plain text only — WhatsApp does not render HTML. Use {'{{first_name}}'}, {'{{clinic_name}}'}, line breaks, and emoji.
+                    Plain text only — WhatsApp does not render HTML. Use {'{{first_name}}'}, {'{{clinic_name}}'} (business name), {'{{organisation_name}}'}, line breaks, and emoji.
                   </p>
                 </div>
 

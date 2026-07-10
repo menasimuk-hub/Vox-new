@@ -375,7 +375,7 @@ function networkFailureHelp() {
   ].join('\n')
 }
 
-/** Dedicated admin JWT — never send clinic `access_token` to `/admin/*` (wrong tenant → Invalid authentication credentials). */
+/** Dedicated admin JWT — never send customer `access_token` to `/admin/*` (wrong tenant → Invalid authentication credentials). */
 export function getAdminAccessTokenRaw() {
   return readAdminAccessToken()
 }
@@ -430,7 +430,7 @@ function defaultPublicAppOrigin() {
   }
   return DEV_PUBLIC_MARKETING
 }
-/** Admin (5174) and clinic dashboard (5175) must never masquerade as marketing home. */
+/** Admin (5174) and customer dashboard (5175) must never masquerade as marketing home. */
 const DEV_NON_MARKETING_PORTS = new Set(['5174', '5175'])
 
 /**
@@ -463,7 +463,7 @@ export function getPublicAppOrigin() {
   return sanitizePublicAppOrigin(import.meta?.env?.VITE_PUBLIC_APP_URL || defaultPublicAppOrigin())
 }
 
-/** Public marketing / clinic sign-in app home (used after admin logout). */
+/** Public marketing / customer sign-in app home (used after admin logout). */
 export function getPublicAppHomeUrl() {
   return `${getPublicAppOrigin()}/`
 }
@@ -478,7 +478,7 @@ export function getPublicLogoutLandingUrl() {
 /**
  * Resolve whether we have an admin session.
  * - ready: token present (validated when API is reachable)
- * - blocked: authenticated but lacks platform admin access (clinic-only user)
+ * - blocked: authenticated but lacks platform admin access (organisation-only user)
  * - none: no token present / session invalid HTTP
  */
 function isTransientNetworkError(err) {
@@ -519,7 +519,7 @@ async function resolveSessionFromToken(token) {
     return {
       status: 'blocked',
       message:
-        'This account is signed in as a clinic user only. Platform admin users (Operations / Billing / Templates roles) use the same sign-in URL but must be explicitly provisioned.',
+        'This account is signed in as an organisation user only. Platform admin users (Operations / Billing / Templates roles) use the same sign-in URL but must be explicitly provisioned.',
     }
   } catch (e) {
     if (isTransientNetworkError(e)) {

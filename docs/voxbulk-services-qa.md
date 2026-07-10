@@ -1,6 +1,6 @@
 # VoxBulk Client Dashboard — Q&A and Troubleshooting Guide
 
-Welcome to the official, developer-verified User Guide and FAQ for the **VoxBulk Client Dashboard**. This guide is designed entirely for platform clients, clinic owners, and support agents using the client-facing portal. It details what each menu item is for, how to use it, what problems you might face, and how billing operates.
+Welcome to the official, developer-verified User Guide and FAQ for the **VoxBulk Client Dashboard**. This guide is designed entirely for platform clients, business owners, and support agents using the client-facing portal. It details what each menu item is for, how to use it, what problems you might face, and how billing operates.
 
 ---
 

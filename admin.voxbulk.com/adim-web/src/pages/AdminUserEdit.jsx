@@ -72,7 +72,7 @@ export default function AdminUserEdit() {
         <div>
           <h1>Edit platform admin</h1>
           <p>
-            Updates the <strong>platform</strong> admin account backing this login (not clinic / invite users listed on an
+            Updates the <strong>platform</strong> admin account backing this login (not organisation / invite users listed on an
             organisation).
           </p>
         </div>

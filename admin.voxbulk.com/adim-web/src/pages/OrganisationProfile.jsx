@@ -685,7 +685,7 @@ export default function OrganisationProfile() {
                   : 'Select an org from the Organisations page.'}
               </p>
               {org?.category_name ? <span className='pill p-cyan'>Category: {org.category_name}</span> : null}
-              {org?.is_suspended ? <span className='pill p-amber'>Suspended — clinic login blocked</span> : <span className='pill p-green'>Active</span>}
+              {org?.is_suspended ? <span className='pill p-amber'>Suspended — organisation login blocked</span> : <span className='pill p-green'>Active</span>}
             </div>
             <div className='grid-4'>
               <div className='card stat' style={{ '--accent': '#0f766e' }}>
@@ -910,7 +910,7 @@ export default function OrganisationProfile() {
               </p>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Email</span>
-                <input className='input' value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} disabled={!orgId} placeholder='name@clinic.com' />
+                <input className='input' value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>
@@ -940,7 +940,7 @@ export default function OrganisationProfile() {
               </p>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Email</span>
-                <input className='input' value={inviteEmailField} onChange={(e) => setInviteEmailField(e.target.value)} disabled={!orgId} placeholder='name@clinic.com' />
+                <input className='input' value={inviteEmailField} onChange={(e) => setInviteEmailField(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
               </label>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='muted' style={{ fontSize: 12 }}>Role (applied when they accept)</span>
@@ -1107,7 +1107,7 @@ export default function OrganisationProfile() {
                 </table>
               </div>
               <p className='muted' style={{ fontSize: 12, marginTop: 12 }}>
-                Generic clinic invite (no preset role):{' '}
+                Generic organisation invite (no preset role):{' '}
                 {signupUrl ? <code style={{ fontSize: 11 }}>{signupUrl}</code> : '—'}
               </p>
             </div>

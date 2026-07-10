@@ -145,7 +145,7 @@ function WaPackGenCard({
   const liveBody = substituteTemplateVars(tpl.body, exampleValues)
   const liveFooter = substituteTemplateVars(tpl.footer, exampleValues)
   const liveHeader = tpl.header ? substituteTemplateVars(tpl.header, exampleValues) : ''
-  const liveBusiness = exampleValues[1] || 'Northgate Dental'
+  const liveBusiness = exampleValues[1] || 'Riverside Wellness'
   const previewButtons = previewButtonsFromTemplate(tpl).map((b) => ({
     label: b.label,
     type: tpl.button_type === 'url' ? 'url' : tpl.button_type === 'phone' ? 'phone' : 'quick_reply',

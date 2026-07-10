@@ -54,7 +54,7 @@ npm run dev
 
 4) User signs up + picks role
    - Complete signup in `http://localhost:5173/signin?...`
-   - Go to `http://localhost:5173/onboarding` and pick role (e.g. Dental)
+   - Go to `http://localhost:5173/onboarding` and pick role (e.g. Owner)
 
 5) Validate
    - Admin org profile shows the user + role
@@ -64,7 +64,7 @@ npm run dev
 1) User submits self-serve request
    - Open `http://localhost:5173/signin` (no `org_id`)
    - Switch to **Sign up**
-   - Fill: email/password/clinic name/package
+   - Fill: email/password/organisation name/package
    - Submit → you should see **Pending approval**
 
 2) Admin approves

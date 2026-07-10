@@ -830,7 +830,7 @@ def send_template_test(
             row,
             to_number=str(body.get("to_number") or body.get("mobile") or ""),
             first_name=str(body.get("first_name") or "Alex"),
-            business_name=str(body.get("business_name") or "Northgate Dental"),
+            business_name=str(body.get("business_name") or "Riverside Wellness"),
         )
     except SurveyWhatsappTemplateError as e:
         _raise_wa_survey_error(e)
@@ -982,7 +982,7 @@ def sync_survey_templates(
 @router.get("/templates/{template_id}/preview")
 def preview_template(
     template_id: int,
-    business_name: str = "Northgate Dental",
+    business_name: str = "Riverside Wellness",
     first_name: str = "Alex",
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),

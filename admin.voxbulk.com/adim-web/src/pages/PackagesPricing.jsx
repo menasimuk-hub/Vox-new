@@ -99,7 +99,7 @@ export default function PackagesPricing() {
         <div>
           <h1>Packages &amp; Pricing</h1>
           <p>
-            Manage public package cards shown to clinics. Changes here are read by the clinic dashboard Packages page.
+            Manage public package cards shown to customers. Changes here are read by the customer dashboard Packages page.
           </p>
         </div>
         <div className="actions">
@@ -213,7 +213,7 @@ export default function PackagesPricing() {
                         rows={3}
                         value={d.description ?? ''}
                         onChange={(e) => updateDraft(p.id, 'description', e.target.value)}
-                        placeholder="Shown on the clinic dashboard package card"
+                        placeholder="Shown on the customer dashboard package card"
                       />
                     </label>
                     <label className="label">

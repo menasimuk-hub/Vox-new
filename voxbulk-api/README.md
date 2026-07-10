@@ -1,6 +1,6 @@
 # VOXBULK API (FastAPI)
 
-Production-ready FastAPI backend foundation for VOXBULK (multi-tenant B2B SaaS for UK dental clinics).
+Production-ready FastAPI backend foundation for VOXBULK (multi-tenant B2B SaaS for businesses across industries).
 
 ## Setup
 

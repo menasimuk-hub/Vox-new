@@ -49,8 +49,8 @@ export default function AdminUserCreate() {
         <div>
           <h1>Add platform admin</h1>
           <p>
-            Creates a login for internal VOXBULK operators — not clinic staff invited to an organisation (those live under{' '}
-            <strong>Organisations → Users</strong> once you pick a clinic).
+            Creates a login for internal VOXBULK operators — not organisation users invited to a customer account (those live under{' '}
+            <strong>Organisations → Users</strong> once you pick an organisation).
           </p>
         </div>
         <div className='actions'>

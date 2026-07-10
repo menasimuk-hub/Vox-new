@@ -137,7 +137,7 @@ export default function OnboardingAddCustomer() {
                 required
                 value={form.orgName}
                 onChange={(e) => set('orgName', e.target.value)}
-                placeholder='Acme Dental Ltd'
+                placeholder='Acme Services Ltd'
               />
             </div>
             <div className='space-y-1'>
@@ -197,7 +197,7 @@ export default function OnboardingAddCustomer() {
                 autoComplete='off'
                 value={form.userEmail}
                 onChange={(e) => set('userEmail', e.target.value)}
-                placeholder='owner@clinic.com'
+                placeholder='owner@company.com'
               />
             </div>
             <div className='space-y-1'>

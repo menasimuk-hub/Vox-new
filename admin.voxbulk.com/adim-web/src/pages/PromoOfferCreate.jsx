@@ -743,7 +743,7 @@ export default function PromoOfferCreate() {
 
                     onChange={(e) => setDraft({ ...draft, prospect_email: e.target.value })}
 
-                    placeholder='alex@clinic.example'
+                    placeholder='alex@company.example'
 
                   />
 

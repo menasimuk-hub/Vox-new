@@ -24,7 +24,7 @@ export function canAccessAdminPath(role, pathname) {
 
   if (isUnder('/integrations') || isUnder('/services-api') || p.includes('/social-login')) return false
 
-  // Platform admins (distinct from Organisation → clinic users listed per tenant).
+  // Platform admins (distinct from Organisation → customer users listed per tenant).
   if (p === '/platform/users' || p.startsWith('/platform/users/')) {
     return r === 'superadmin'
   }

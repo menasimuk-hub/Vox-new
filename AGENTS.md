@@ -2,7 +2,7 @@
 
 Guidance for AI agents working in this repo. Read this first, then only open the files you actually need.
 
-VoxBulk is a multi-tenant B2B SaaS platform (UK dental clinics) providing WhatsApp surveys, voice agents, appointment scheduling, billing, and CRM integrations. Deep system reference lives in `ARCHITECTURE_DIAGRAM.md` — read it when you need data flows, model lists, or integration details.
+VoxBulk is a multi-tenant B2B SaaS platform for businesses across industries, providing WhatsApp surveys, voice agents, appointment scheduling, billing, and CRM integrations. Deep system reference lives in `ARCHITECTURE_DIAGRAM.md` — read it when you need data flows, model lists, or integration details.
 
 ## Repository map
 

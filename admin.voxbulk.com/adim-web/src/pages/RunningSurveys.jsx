@@ -702,7 +702,7 @@ export default function RunningSurveys() {
                 <RefreshCw size={14} /> Re-analyze all
               </button>
               {selected.org_phone ? (
-                <a className="btn soft bsm" href={`tel:${selected.org_phone}`}><Phone size={14} /> Phone clinic</a>
+                <a className="btn soft bsm" href={`tel:${selected.org_phone}`}><Phone size={14} /> Phone contact</a>
               ) : null}
               {selected.owner_email ? (
                 <a className="btn soft bsm" href={`mailto:${selected.owner_email}`}>Email owner</a>

@@ -336,7 +336,7 @@ def validate_meta_variable_order(components: list[Any] | None) -> str | None:
     return None
 
 
-_DEFAULT_META_EXAMPLES = ["Alex", "Northgate Dental", "https://example.com/s/abc", "Monday 9am"]
+_DEFAULT_META_EXAMPLES = ["Alex", "Riverside Wellness", "https://example.com/s/abc", "Monday 9am"]
 META_STATIC_BODY_SAMPLE = "Sample"
 
 
@@ -649,7 +649,7 @@ def _default_question_components(*, step_role: str) -> list[dict[str, Any]]:
     return components
 
 
-def _default_standard_components(*, org_label: str = "Northgate Dental", first_name: str = "Alex") -> list[dict[str, Any]]:
+def _default_standard_components(*, org_label: str = "Riverside Wellness", first_name: str = "Alex") -> list[dict[str, Any]]:
     return [
         {
             "type": "BODY",
@@ -3853,7 +3853,7 @@ class SurveyWhatsappTemplateService:
         *,
         to_number: str,
         first_name: str = "Alex",
-        business_name: str = "Northgate Dental",
+        business_name: str = "Riverside Wellness",
     ) -> dict[str, Any]:
         from app.services.telnyx_messaging_service import TelnyxMessagingService
 

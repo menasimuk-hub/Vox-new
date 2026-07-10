@@ -30,7 +30,7 @@ export default function AdminUsers() {
 
   const del = async (id) => {
     if (!canManage) return
-    const ok = window.confirm('Disable and remove this platform admin login? Clinic users on organisations are unaffected.')
+    const ok = window.confirm('Disable and remove this platform admin login? Organisation users on customer accounts are unaffected.')
     if (!ok) return
     try {
       await apiFetch(`/admin/admin-users/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -46,7 +46,7 @@ export default function AdminUsers() {
         <div>
           <h1>Platform admin users</h1>
           <p>
-            Separate from <strong>clinic staff</strong> (managed under each organisation). Platform admins manage VOXBULK internally
+            Separate from <strong>organisation users</strong> (managed under each organisation). Platform admins manage VOXBULK internally
             (billing, onboarding, integrations, SMTP/templates). Only <strong>superadmin</strong> can create/delete these users.
           </p>
         </div>
