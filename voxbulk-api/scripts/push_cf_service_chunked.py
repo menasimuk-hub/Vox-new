@@ -3,6 +3,9 @@
 
 One invocation = small work unit — avoids Meta rate limits / spam flags.
 
+Use --meta-only to push Meta 99 primary only (no Telnyx mirror).
+For all industries with auto-retry (~24h), use scripts/push_cf_all_remaining_meta.py.
+
 Typical pattern: one industry topic (~20 langs) per run, languages in sub-batches of 3.
 
 VPS (production server)
@@ -162,12 +165,14 @@ def _push_lang_slice(
     start: int,
     lang_batch: int,
     primary_id: str,
-    backup_id: str,
+    backup_id: str | None,
     dry_run: bool,
     delay_sec: float,
+    linked_delay_sec: float,
     profile_delay_sec: float,
     force_meta: bool,
     force_backup: bool,
+    meta_only: bool,
 ) -> dict:
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
@@ -214,6 +219,7 @@ def _push_lang_slice(
         for tpl in slice_rows:
             lang = str(tpl.language or "")
             name_hint = str(tpl.template_key or tpl.id)
+            result: dict = {}
             try:
                 result = push_feedback_template_to_telnyx(
                     db,
@@ -236,13 +242,25 @@ def _push_lang_slice(
                 err = {"language": lang, "template_key": name_hint, "profile": label, "error": str(exc)}
                 totals["errors"].append(err)
                 _log(f"  [{label}] FAIL {lang} {name_hint}: {exc}")
-            if delay_sec > 0 and not dry_run:
-                time.sleep(delay_sec)
+                result = {}
+            if not dry_run:
+                pause = linked_delay_sec if result.get("skipped_push") or result.get("linked") else delay_sec
+                if pause > 0:
+                    time.sleep(pause)
 
     _log(f"  Primary Meta ({primary_id[:8]}…) — changed-only unless --force-meta")
     _push_profile(primary_id, force_push=force_meta, label="Meta")
     if not dry_run:
         db.commit()
+
+    if meta_only:
+        next_offset = start + len(slice_rows)
+        return {
+            **totals,
+            "ok": totals["failed"] == 0,
+            "has_more_langs": next_offset < len(templates),
+            "next_lang_offset": next_offset,
+        }
 
     if profile_delay_sec > 0 and not dry_run:
         _log(f"  Waiting {profile_delay_sec:.0f}s before Telnyx mirror…")
@@ -314,6 +332,17 @@ def main() -> int:
         default=True,
         help="Full mirror on Telnyx backup (default: on). Use --no-force-backup for changed-only.",
     )
+    parser.add_argument(
+        "--linked-delay-sec",
+        type=float,
+        default=2.0,
+        help="Short pause when row is already linked on Meta (default 2s)",
+    )
+    parser.add_argument(
+        "--meta-only",
+        action="store_true",
+        help="Push Meta primary only — skip Telnyx backup mirror",
+    )
     parser.add_argument("--pull-after-topic", action="store_true", help="Pull Meta status after each topic completes")
     parser.add_argument("--json", action="store_true", help="Print report JSON")
     args = parser.parse_args()
@@ -354,9 +383,14 @@ def main() -> int:
         backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(
             db, service_code="customer_feedback"
         )
-        if not primary_id or not backup_id:
-            _log("ERROR: customer_feedback Meta primary and Telnyx backup profiles must be configured.", err=True)
+        meta_only = bool(args.meta_only)
+        if not primary_id:
+            _log("ERROR: customer_feedback Meta primary profile must be configured.", err=True)
             return 1
+        if not meta_only and not backup_id:
+            _log("ERROR: customer_feedback Telnyx backup profile required unless --meta-only.", err=True)
+            return 1
+        profile_delay_sec = 0.0 if meta_only else float(args.profile_delay_sec)
 
         industry = resolve_feedback_industry(db, industry_slug=args.industry_slug)
         topics = _topics_for_industry(db, industry.id)
@@ -384,15 +418,19 @@ def main() -> int:
             "dry_run": bool(args.dry_run),
             "lang_batch": lang_batch,
             "delay_sec": args.delay_sec,
-            "profiles": {"primary": primary_id, "backup": backup_id},
+            "profiles": {"primary": primary_id, "backup": backup_id if not meta_only else None},
+            "meta_only": meta_only,
             "topics_done": [],
         }
 
         _log("=== Customer Feedback chunked push (service: customer_feedback) ===")
         _log(f"Industry: {industry.name} ({industry.slug})")
         _log(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
-        _log(f"Lang batch: {lang_batch}, delay: {args.delay_sec}s, profile delay: {args.profile_delay_sec}s")
-        _log(f"Meta primary: {primary_id} | Telnyx backup: {backup_id}")
+        _log(f"Lang batch: {lang_batch}, delay: {args.delay_sec}s, profile delay: {profile_delay_sec}s")
+        if meta_only:
+            _log(f"Meta primary only: {primary_id}")
+        else:
+            _log(f"Meta primary: {primary_id} | Telnyx backup: {backup_id}")
 
         topics_finished = 0
         stopped = False
@@ -429,9 +467,11 @@ def main() -> int:
                     backup_id=backup_id,
                     dry_run=bool(args.dry_run),
                     delay_sec=float(args.delay_sec),
-                    profile_delay_sec=float(args.profile_delay_sec),
+                    linked_delay_sec=float(args.linked_delay_sec),
+                    profile_delay_sec=profile_delay_sec,
                     force_meta=bool(args.force_meta),
                     force_backup=bool(args.force_backup),
+                    meta_only=meta_only,
                 )
                 topic_result["batches"].append(batch_result)
                 if batch_result.get("failed"):
