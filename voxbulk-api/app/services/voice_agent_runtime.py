@@ -46,12 +46,12 @@ DEFAULT_INTERVIEW_OPENING_FALLBACK = (
 DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = (
     "السلام عليكم {first_name}، معك {agent_name} أتصل من {company_name} بخصوص وظيفة {role}. "
     "المكالمة مسجّلة للجودة والتقييم. "
-    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة فرز قصيرة؟"
+    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة قصيرة؟"
 )
 
 # Arabic recording + time-ask tail appended only when those markers are missing.
 ARABIC_RECORD_AVAILABILITY = (
-    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة فرز قصيرة؟"
+    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة قصيرة؟"
 )
 
 # Professional real-interview behaviour — injected on every interview call.
