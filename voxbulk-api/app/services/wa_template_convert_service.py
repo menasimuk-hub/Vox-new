@@ -340,13 +340,19 @@ def regenerate_convert_template(
         if frow is None:
             raise SurveyWhatsappTemplateError("Feedback template not found")
         old_body, new_body = apply_utility_rewrite_to_feedback_row(
-            db, frow, use_llm=True, llm_provider=provider, llm_model=model
+            db,
+            frow,
+            use_llm=False,
+            llm_provider=provider,
+            llm_model=model,
+            allow_marketing=True,
+            force_rewrite=True,
         )
         detail = get_convert_template(db, product="feedback", template_id=str(frow.id))
         detail["old_body"] = old_body
         detail["new_body"] = new_body
         detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
-        detail["rewrite_mode"] = "llm_or_rule"
+        detail["rewrite_mode"] = "force_utility_rule"
         detail["lint"] = _lint_to_dict(
             lint_utility_template(
                 body=new_body,

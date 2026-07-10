@@ -64,6 +64,20 @@ def _parse_buttons(raw: str | None) -> list[str]:
     return [str(item).strip() for item in parsed if str(item).strip()]
 
 
+def _industry_slug_for_feedback_row(db: Session, row: FeedbackWaTemplate) -> str | None:
+    industry_id = str(getattr(row, "industry_id", None) or "").strip()
+    if not industry_id and getattr(row, "survey_type_id", None):
+        from app.models.customer_feedback import FeedbackSurveyType
+
+        st = db.get(FeedbackSurveyType, str(row.survey_type_id))
+        if st is not None:
+            industry_id = str(getattr(st, "industry_id", None) or "").strip()
+    if not industry_id:
+        return None
+    industry = db.get(FeedbackIndustry, industry_id)
+    return str(getattr(industry, "slug", None) or "").strip().lower() or None
+
+
 def rewrite_feedback_body(
     db: Session,
     *,
@@ -73,18 +87,42 @@ def rewrite_feedback_body(
     use_llm: bool = True,
     llm_provider: str = "openai",
     llm_model: str | None = None,
+    language: str | None = None,
+    industry_slug: str | None = None,
+    template_name: str | None = None,
+    force_rewrite: bool = False,
 ) -> str:
+    from app.services.survey_wa_utility_rewrite_service import _is_non_english_language
+
+    topic_hint = template_key.replace("_", " ")
+    meta_name = str(template_name or template_key or "").strip()
     if not use_llm:
-        return _rule_based_utility_body(original_body, topic_hint=template_key.replace("_", " "))
+        # Convert force_rewrite: only force English topic bodies for English rows.
+        # Non-English keeps the original question (sanitized) so Spanish/Arabic etc. are not replaced.
+        apply_force = bool(force_rewrite) and not _is_non_english_language(
+            language, template_name=meta_name
+        )
+        return _rule_based_utility_body(
+            original_body,
+            topic_hint=topic_hint,
+            industry_slug=industry_slug,
+            language=language,
+            template_name=meta_name,
+            force_rewrite=apply_force,
+        )
     return rewrite_body_for_utility(
         db,
         original_body=original_body,
         button_labels=buttons,
-        template_name=f"feedback_{template_key}",
+        template_name=meta_name or f"feedback_{template_key}",
         display_name=template_key,
         use_llm=use_llm,
         llm_provider=llm_provider,
         llm_model=llm_model,
+        industry_slug=industry_slug,
+        topic_name=topic_hint,
+        language=language,
+        force_rewrite=force_rewrite,
     )
 
 
@@ -96,8 +134,10 @@ def apply_utility_rewrite_to_feedback_row(
     llm_provider: str = "openai",
     llm_model: str | None = None,
     skip_lint: bool = False,
+    allow_marketing: bool = False,
+    force_rewrite: bool = False,
 ) -> tuple[str, str]:
-    if is_marketing_wa_template(row):
+    if is_marketing_wa_template(row) and not allow_marketing:
         raise ValueError(f"Marketing template excluded from utility migration: {row.template_key}")
 
     buttons = clamp_utility_button_labels(_parse_buttons(row.buttons_json))
@@ -105,6 +145,12 @@ def apply_utility_rewrite_to_feedback_row(
     if not old_body:
         raise ValueError(f"Missing body_text for {row.template_key}")
 
+    # Convert / force path: rule-based only (same as survey Convert — avoid LLM NPS/recommend drift).
+    if force_rewrite:
+        use_llm = False
+
+    meta_template_name = str(getattr(row, "meta_template_name", None) or row.template_key or "")
+    industry_slug = _industry_slug_for_feedback_row(db, row)
     new_body = rewrite_feedback_body(
         db,
         original_body=old_body,
@@ -113,6 +159,10 @@ def apply_utility_rewrite_to_feedback_row(
         use_llm=use_llm,
         llm_provider=llm_provider,
         llm_model=llm_model,
+        language=str(row.language or "") or None,
+        industry_slug=industry_slug,
+        template_name=meta_template_name,
+        force_rewrite=force_rewrite,
     )
     leading_emoji, _ = _extract_leading_emoji(old_body)
     new_body = _prepend_leading_emoji(leading_emoji, new_body)
@@ -125,10 +175,10 @@ def apply_utility_rewrite_to_feedback_row(
     matched = utility_buttons_matching_body(
         body=new_body,
         topic_name=str(row.template_key or "").replace("_", " "),
-        template_name=str(row.meta_name or row.template_key or ""),
+        template_name=meta_template_name,
         language=row.language,
     )
-    if matched and not buttons_labels_equal(buttons, matched):
+    if matched and (force_rewrite or not buttons_labels_equal(buttons, matched)):
         buttons = clamp_utility_button_labels(matched)
         row.buttons_json = json.dumps(buttons)
 
