@@ -115,43 +115,134 @@ export default function WaConvertPanel({ syncProfileId }) {
       return
     }
     const ok = window.confirm(
-      `Delete ${count} old Meta/Telnyx template name(s) that are not in local DB and were replaced by a newer local version?\n\nCurrent local rows are kept. This only removes leftover remote names (e.g. _001 / _002 when local is _003).`,
+      `Delete ${count} old Meta/Telnyx template name(s) that are not in local DB and were replaced by a newer local version?\n\nCurrent local rows are kept. This only removes leftover remote names (e.g. _001 / _002 when local is _003).\n\nYou will see live progress for each name.`,
     )
     if (!ok) return
     setBusy('cleanup')
     setError('')
     setMsg('')
-    setOverlay({
-      open: true,
+
+    const pushOverlay = (patch) => {
+      setOverlay((prev) => ({ open: true, ...(prev || {}), ...patch }))
+    }
+
+    pushOverlay({
       title: 'Cleaning up old Meta versions…',
-      sub: `${count} orphan name(s) · targets 99 + 55`,
+      sub: 'Loading orphan list…',
+      progress: { done: 0, total: count, pct: 0 },
+      log: [],
       steps: [
-        { id: 'scan', title: 'Confirm superseded orphans', status: 'done' },
-        { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'active' },
+        { id: 'scan', title: 'Load superseded orphans', status: 'active' },
+        { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'pending' },
       ],
     })
+
     try {
-      const data = await apiFetch('/admin/wa-templates/convert/orphans/cleanup', {
-        method: 'POST',
-        body: JSON.stringify({
-          dry_run: false,
-          targets: 'all',
-          product,
-          q: q.trim() || undefined,
-          connection_profile_id: syncProfileId || undefined,
-        }),
-        timeoutMs: 300000,
+      const listParams = new URLSearchParams()
+      listParams.set('product', product)
+      if (q.trim()) listParams.set('q', q.trim())
+      if (syncProfileId) listParams.set('connection_profile_id', syncProfileId)
+      const listed = await apiFetch(`/admin/wa-templates/convert/orphans?${listParams}`, {
+        timeoutMs: 280000,
         quietNetworkHint: true,
       })
-      const deleted = Number(data?.deleted || 0)
-      const failed = Number(data?.failed || 0)
-      setMsg(data?.message || `Deleted ${deleted} old version(s).`)
-      setOverlay({
-        open: true,
-        title: failed ? 'Cleanup finished with errors' : 'Cleanup complete',
-        sub: data?.message || '',
+      const orphans = Array.isArray(listed?.orphans) ? listed.orphans : []
+      const total = orphans.length
+      if (!total) {
+        pushOverlay({
+          title: 'Nothing to clean',
+          sub: 'No superseded Meta orphans found right now.',
+          progress: { done: 0, total: 0, pct: 100 },
+          steps: [
+            { id: 'scan', title: 'Load superseded orphans', status: 'done', detail: '0 found' },
+            { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'done', detail: 'Skipped' },
+          ],
+        })
+        setMsg('No old Meta versions to clean up.')
+        await load()
+        return
+      }
+
+      pushOverlay({
+        title: 'Cleaning up old Meta versions…',
+        sub: `0 / ${total} · starting…`,
+        progress: { done: 0, total, pct: 0 },
+        log: [],
         steps: [
-          { id: 'scan', title: 'Confirm superseded orphans', status: 'done' },
+          { id: 'scan', title: 'Load superseded orphans', status: 'done', detail: `${total} name(s)` },
+          { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'active', detail: `1 / ${total}` },
+        ],
+      })
+
+      let deleted = 0
+      let failed = 0
+      const log = []
+
+      for (let i = 0; i < orphans.length; i += 1) {
+        const name = String(orphans[i]?.remote_name || '').trim()
+        const n = i + 1
+        const pct = Math.round((i / total) * 100)
+        pushOverlay({
+          title: 'Cleaning up old Meta versions…',
+          sub: `${n} / ${total} · ${name}`,
+          progress: { done: i, total, pct },
+          log: log.slice(-8),
+          steps: [
+            { id: 'scan', title: 'Load superseded orphans', status: 'done', detail: `${total} name(s)` },
+            {
+              id: 'delete',
+              title: 'Delete from Meta / Telnyx',
+              status: 'active',
+              detail: `${n} / ${total} · ${name}`,
+            },
+          ],
+        })
+
+        try {
+          const data = await apiFetch('/admin/wa-templates/convert/orphans/cleanup', {
+            method: 'POST',
+            body: JSON.stringify({
+              dry_run: false,
+              targets: 'all',
+              product,
+              names: [name],
+              connection_profile_id: syncProfileId || undefined,
+            }),
+            timeoutMs: 180000,
+            quietNetworkHint: true,
+          })
+          const oneDeleted = Number(data?.deleted || 0)
+          const oneFailed = Number(data?.failed || 0)
+          if (oneDeleted > 0 && oneFailed === 0) {
+            deleted += 1
+            log.push({ name, ok: true, detail: (data?.results?.[0]?.deleted_on || []).join(', ') || 'deleted' })
+          } else {
+            failed += 1
+            const err =
+              data?.results?.[0]?.error || data?.message || `${oneDeleted} deleted / ${oneFailed} failed`
+            log.push({ name, ok: false, detail: String(err).slice(0, 160) })
+          }
+        } catch (e) {
+          failed += 1
+          log.push({ name, ok: false, detail: fmtErr(e).slice(0, 160) })
+        }
+
+        const doneNow = i + 1
+        pushOverlay({
+          progress: { done: doneNow, total, pct: Math.round((doneNow / total) * 100) },
+          log: log.slice(-8),
+          sub: `${doneNow} / ${total} · last: ${name}`,
+        })
+      }
+
+      const pctDone = 100
+      pushOverlay({
+        title: failed ? 'Cleanup finished with errors' : 'Cleanup complete',
+        sub: `Deleted ${deleted}/${total} · failed ${failed}`,
+        progress: { done: total, total, pct: pctDone },
+        log: log.slice(-12),
+        steps: [
+          { id: 'scan', title: 'Load superseded orphans', status: 'done', detail: `${total} name(s)` },
           {
             id: 'delete',
             title: 'Delete from Meta / Telnyx',
@@ -160,20 +251,18 @@ export default function WaConvertPanel({ syncProfileId }) {
           },
         ],
       })
+      setMsg(`Deleted ${deleted}/${total} old version(s)${failed ? ` · ${failed} failed` : ''}.`)
       await load()
     } catch (e) {
       setError(fmtErr(e))
-      setOverlay((prev) =>
-        prev
-          ? {
-              ...prev,
-              title: 'Cleanup failed',
-              steps: (prev.steps || []).map((s) =>
-                s.status === 'active' ? { ...s, status: 'error', detail: fmtErr(e) } : s,
-              ),
-            }
-          : null,
-      )
+      pushOverlay({
+        title: 'Cleanup failed',
+        sub: fmtErr(e),
+        steps: [
+          { id: 'scan', title: 'Load superseded orphans', status: 'error', detail: fmtErr(e) },
+          { id: 'delete', title: 'Delete from Meta / Telnyx', status: 'pending' },
+        ],
+      })
     } finally {
       setBusy('')
     }
@@ -529,9 +618,25 @@ export default function WaConvertPanel({ syncProfileId }) {
 
       {overlay?.open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-lg">
+          <div className="w-full max-w-lg rounded-xl border bg-background p-5 shadow-lg">
             <h4 className="text-sm font-semibold">{overlay.title}</h4>
-            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{overlay.sub}</p>
+            <p className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">{overlay.sub}</p>
+            {overlay.progress ? (
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                  <span>
+                    {overlay.progress.done} / {overlay.progress.total}
+                  </span>
+                  <span>{overlay.progress.pct}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, overlay.progress.pct || 0))}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 space-y-2">
               {(overlay.steps || []).map((s) => (
                 <div key={s.id} className="flex gap-2 text-xs">
@@ -540,20 +645,31 @@ export default function WaConvertPanel({ syncProfileId }) {
                       'mt-0.5 h-2 w-2 shrink-0 rounded-full',
                       s.status === 'done' && 'bg-emerald-500',
                       s.status === 'error' && 'bg-red-500',
-                      s.status === 'active' && 'bg-amber-500',
+                      s.status === 'active' && 'animate-pulse bg-amber-500',
                       s.status === 'pending' && 'bg-muted-foreground/40',
                     )}
                   />
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-medium">{s.title}</div>
-                    {s.detail ? <div className="text-muted-foreground">{s.detail}</div> : null}
+                    {s.detail ? <div className="break-all text-muted-foreground">{s.detail}</div> : null}
                   </div>
                 </div>
               ))}
             </div>
+            {Array.isArray(overlay.log) && overlay.log.length ? (
+              <div className="mt-3 max-h-40 overflow-y-auto rounded-md border bg-muted/30 p-2 text-[11px]">
+                {overlay.log.map((row, idx) => (
+                  <div key={`${row.name}-${idx}`} className="mb-1 last:mb-0">
+                    <span className={row.ok ? 'text-emerald-700' : 'text-red-700'}>{row.ok ? '✓' : '✗'}</span>{' '}
+                    <span className="font-mono">{row.name}</span>
+                    {row.detail ? <span className="text-muted-foreground"> — {row.detail}</span> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-4 flex justify-end">
-              <Button type="button" size="sm" variant="outline" onClick={() => setOverlay(null)}>
-                Close
+              <Button type="button" size="sm" variant="outline" onClick={() => setOverlay(null)} disabled={busy === 'cleanup'}>
+                {busy === 'cleanup' ? 'Working…' : 'Close'}
               </Button>
             </div>
           </div>
