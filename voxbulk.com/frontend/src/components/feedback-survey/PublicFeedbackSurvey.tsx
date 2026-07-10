@@ -745,7 +745,6 @@ export function PublicFeedbackSurvey({
           return;
         }
         const reason = combinedText || "skip";
-        const epoch = navEpochRef.current;
         enqueue(async () => {
           const data = (await postAnswer("skip", {
             reason: reason.toLowerCase() === "skip" ? "skip" : reason,
