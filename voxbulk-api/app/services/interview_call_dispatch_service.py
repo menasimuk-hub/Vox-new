@@ -713,17 +713,45 @@ class InterviewCallDispatchService:
 
         to_number = normalize_telnyx_e164(str(recipient.phone or ""))
 
-        from app.services.voice_agent_runtime import detect_interview_language
+        from app.services.voice_agent_runtime import (
+            InterviewAgentLanguageMismatch,
+            detect_interview_language,
+        )
 
-        call_language = detect_interview_language(config, agent)
+        try:
+            call_language = detect_interview_language(config, agent)
+        except InterviewAgentLanguageMismatch as exc:
+            now = datetime.utcnow()
+            recipient.status = "failed"
+            _set_recipient_result(
+                db,
+                recipient,
+                {
+                    "channel": "ai_call",
+                    "error": str(exc),
+                    "failed_at": now.isoformat(),
+                    "language_mismatch": True,
+                },
+            )
+            _refresh_order_report(db, order)
+            _log("dial_blocked_language_mismatch", order_id=order.id, recipient_id=recipient.id, detail=str(exc))
+            return None
+
         # Always align STT with call language — English must clear sticky ar-SA left by
         # prior Arabic syncs/tests (Leo was permanently stuck on azure/fast ar-SA).
-        from app.services.telnyx_assistant_service import ensure_telnyx_assistant_transcription_language
+        from app.services.telnyx_assistant_service import (
+            apply_interview_assistant_pacing,
+            ensure_telnyx_assistant_transcription_language,
+        )
 
         try:
             ensure_telnyx_assistant_transcription_language(db, assistant_id, call_language or "en")
         except Exception as exc:
             _log("transcription_lang_skip", order_id=order.id, detail=str(exc))
+        try:
+            apply_interview_assistant_pacing(db, assistant_id, voice_speed=1.0)
+        except Exception as exc:
+            _log("pacing_skip", order_id=order.id, detail=str(exc))
 
         result = TelnyxVoiceAdapter.start_outbound_call(
             to_number=to_number,

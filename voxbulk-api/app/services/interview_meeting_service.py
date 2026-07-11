@@ -22,7 +22,6 @@ from app.services.interview_voice_agent_service import (
     build_interview_runtime_instructions,
     resolve_interview_telnyx_assistant_id,
 )
-from app.services.meeting_room_settings_service import MeetingRoomSettingsService
 from app.services.platform_catalog_service import ServiceOrderService
 from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
 
@@ -143,16 +142,23 @@ class InterviewMeetingService:
         except Exception:
             config = {}
 
-        meeting_settings = MeetingRoomSettingsService.get_settings(db)
-        language_code = str(meeting_settings.get("language_code") or "en").strip().lower()
-        from app.services.voice_agent_runtime import detect_interview_language
+        from app.services.voice_agent_runtime import (
+            InterviewAgentLanguageMismatch,
+            detect_interview_language,
+            resolve_interview_language,
+        )
 
         assistant_id, agent = resolve_interview_telnyx_assistant_id(db, order, config)
         if not assistant_id:
             raise ValueError("Interview AI agent is not configured")
 
-        script_language = detect_interview_language(config, agent)
-        effective_language = script_language if script_language == "ar" else language_code
+        try:
+            effective_language = detect_interview_language(config, agent)
+        except InterviewAgentLanguageMismatch as exc:
+            raise ValueError(str(exc)) from exc
+        # Meeting chrome follows the interview language only (not platform meeting-room default).
+        if effective_language not in {"ar", "en"}:
+            effective_language = resolve_interview_language(config)
 
         instructions = build_interview_runtime_instructions(
             db,
@@ -171,6 +177,13 @@ class InterviewMeetingService:
             org_id=order.org_id,
             order=order,
         )
+
+        from app.services.telnyx_assistant_service import apply_interview_assistant_pacing
+
+        try:
+            apply_interview_assistant_pacing(db, assistant_id, voice_speed=1.0)
+        except Exception:
+            pass
 
         prep = prepare_telnyx_webrtc_call(
             db, assistant_id, instructions, greeting=greeting or None, language=effective_language

@@ -455,6 +455,7 @@ def test_agent_webrtc(
     from app.models.service_order import ServiceOrder, ServiceOrderRecipient
     from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id, prepare_telnyx_webrtc_call
     from app.services.voice_agent_runtime import (
+        InterviewAgentLanguageMismatch,
         build_service_opening_greeting,
         build_service_runtime_instructions,
         detect_interview_language,
@@ -523,7 +524,10 @@ def test_agent_webrtc(
         org_id=org_id or None,
         order=order,
     )
-    language = detect_interview_language(config, agent)
+    try:
+        language = detect_interview_language(config, agent)
+    except InterviewAgentLanguageMismatch as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
         prep = prepare_telnyx_webrtc_call(

@@ -109,6 +109,15 @@ class InterviewLaunchService:
         UkComplianceService.assert_order_launch_allowed(db, order)
 
         config = _order_config(order)
+        from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
+        from app.services.voice_agent_runtime import InterviewAgentLanguageMismatch, assert_interview_agent_language_match
+
+        agent = resolve_interview_agent_for_order(db, order, config)
+        try:
+            assert_interview_agent_language_match(config, agent, require_agent=True)
+        except InterviewAgentLanguageMismatch as exc:
+            raise ValueError(str(exc)) from exc
+
         delivery = str(config.get("delivery") or "ai_call").strip().lower()
         invite_result: dict[str, Any] | None = None
 

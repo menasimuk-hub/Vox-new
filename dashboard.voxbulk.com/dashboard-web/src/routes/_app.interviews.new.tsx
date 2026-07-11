@@ -1109,7 +1109,8 @@ function CreateInterview() {
           system_prompt: materialised.system_prompt,
           expected_duration_minutes: draftDuration,
           script_approved: false,
-          ...(materialised.script_language_code ? { script_language_code: materialised.script_language_code } : {}),
+          script_language_code: interviewLanguage === "ar" ? "ar" : "en",
+          language_code: interviewLanguage === "ar" ? "ar" : "en",
         }),
       );
       lastHydrationKeyRef.current = "";
@@ -1613,6 +1614,15 @@ function CreateInterview() {
     }
     if (launchErrors.length > 0) {
       const msg = launchErrors.length === 1 ? launchErrors[0] : launchErrors.join(" · ");
+      toast.error(msg);
+      throw new Error(msg);
+    }
+    const agentLang = (selectedAgent?.language || "en") === "ar" ? "ar" : "en";
+    if (agentLang !== interviewLanguage) {
+      const msg =
+        interviewLanguage === "en"
+          ? "Interview language is English but an Arabic agent is selected. Choose an English agent."
+          : "Interview language is Arabic but an English agent is selected. Choose an Arabic agent.";
       toast.error(msg);
       throw new Error(msg);
     }
@@ -2666,10 +2676,9 @@ function CreateInterview() {
             onClick={() => {
               void (async () => {
                 try {
-                  const result = await launchM.mutateAsync();
-                  await completeLaunchSuccess(result);
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Could not launch campaign");
+                  await onLaunchFromPackage();
+                } catch {
+                  /* toast already shown */
                 }
               })();
             }}

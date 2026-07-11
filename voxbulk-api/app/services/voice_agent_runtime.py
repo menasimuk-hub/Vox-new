@@ -165,21 +165,44 @@ def _config_script_text(config: dict[str, Any]) -> str:
     )
 
 
-def detect_config_language(config: dict[str, Any]) -> str:
-    """Resolve the call language from the approved script: 'ar' when Arabic, else 'en'.
+def agent_language(agent: AgentDefinition | None) -> str:
+    """Return 'ar' or 'en' for the selected interview agent."""
+    return "ar" if agent_is_arabic(agent) else "en"
 
-    Used to drive both the spoken language (greeting/instructions) and the Telnyx
-    speech-to-text language so the assistant understands and replies in Arabic.
+
+def resolve_interview_language(config: dict[str, Any]) -> str:
+    """Interview language from explicit config, else majority script detection.
+
+    Prefer ``script_language_code`` / ``language_code`` set by the wizard.
+    Fallback uses letter-ratio detection so a brand token like ``BBC عربي``
+    inside an English script does not flip the interview to Arabic.
     """
-    return "ar" if _contains_arabic(_config_script_text(config)) else "en"
+    for key in ("script_language_code", "language_code", "interview_language"):
+        raw = str(config.get(key) or "").strip().lower()
+        if raw.startswith("ar"):
+            return "ar"
+        if raw.startswith("en"):
+            return "en"
+    return detect_config_language(config)
+
+
+def detect_config_language(config: dict[str, Any]) -> str:
+    """Resolve language from script text using majority Arabic letters (not any-char).
+
+    Used when the order has no explicit ``script_language_code``. Voice runtime
+    only supports ``ar`` / ``en`` (French maps to English for TTS/STT).
+    """
+    from app.utils.script_language import detect_script_language
+
+    detected = detect_script_language(_config_script_text(config))
+    return "ar" if detected == "ar" else "en"
 
 
 def agent_is_arabic(agent: AgentDefinition | None) -> bool:
     """True when the selected agent is an Arabic agent (e.g. "Jammal - Ar").
 
     Detected from the agent's Arabic opening disclosure / system prompt, or an
-    ``ar``/``arabic`` marker in its name/voice label. Lets us force the whole
-    interview into Arabic even when the script or system prompt is written in English.
+    ``ar``/``arabic`` marker in its name/voice label.
     """
     if agent is None:
         return False
@@ -196,15 +219,56 @@ def agent_is_arabic(agent: AgentDefinition | None) -> bool:
     return bool(re.search(r"(?:^|[^a-z])(ar|arabic)(?:$|[^a-z])", blob))
 
 
-def detect_interview_language(config: dict[str, Any], agent: AgentDefinition | None = None) -> str:
-    """Resolve the spoken language from the script AND the selected agent.
+class InterviewAgentLanguageMismatch(ValueError):
+    """Interview language and selected agent language do not match."""
 
-    Returns 'ar' when either the approved script is Arabic or an Arabic agent is
-    selected, so picking Jammal (Ar) forces a fully Arabic interview.
+
+def interview_agent_language_mismatch_message(*, interview_lang: str, agent_lang: str) -> str:
+    interview_lang = "ar" if str(interview_lang or "").startswith("ar") else "en"
+    agent_lang = "ar" if str(agent_lang or "").startswith("ar") else "en"
+    if interview_lang == "en" and agent_lang == "ar":
+        return (
+            "Interview language is English but an Arabic agent is selected. "
+            "Choose an English agent."
+        )
+    if interview_lang == "ar" and agent_lang == "en":
+        return (
+            "Interview language is Arabic but an English agent is selected. "
+            "Choose an Arabic agent."
+        )
+    return "Interview language and selected agent language do not match. Choose a different agent."
+
+
+def assert_interview_agent_language_match(
+    config: dict[str, Any],
+    agent: AgentDefinition | None,
+    *,
+    require_agent: bool = False,
+) -> str:
+    """Ensure interview language and agent language match. Returns interview language."""
+    interview_lang = resolve_interview_language(config)
+    if agent is None:
+        if require_agent:
+            raise InterviewAgentLanguageMismatch("Select an AI voice agent for this interview.")
+        return interview_lang
+    agent_lang = agent_language(agent)
+    if agent_lang != interview_lang:
+        raise InterviewAgentLanguageMismatch(
+            interview_agent_language_mismatch_message(
+                interview_lang=interview_lang, agent_lang=agent_lang
+            )
+        )
+    return interview_lang
+
+
+def detect_interview_language(config: dict[str, Any], agent: AgentDefinition | None = None) -> str:
+    """Resolve spoken interview language from explicit config (strict match with agent).
+
+    Interview language is authoritative. When an agent is present it must match;
+    mismatches raise ``InterviewAgentLanguageMismatch``. Brand tokens in the script
+    alone do not flip English interviews to Arabic.
     """
-    if agent_is_arabic(agent):
-        return "ar"
-    return detect_config_language(config)
+    return assert_interview_agent_language_match(config, agent, require_agent=False)
 
 
 def call_should_use_arabic(
@@ -213,9 +277,21 @@ def call_should_use_arabic(
     script: str = "",
     survey_prompt: str = "",
     criteria: str = "",
+    config: dict[str, Any] | None = None,
 ) -> bool:
-    """True when the whole call (layers + speech) must run in Arabic."""
-    return agent_is_arabic(agent) or _contains_arabic(script) or _contains_arabic(survey_prompt) or _contains_arabic(criteria)
+    """True when the whole call (layers + speech) must run in Arabic.
+
+    Prefer explicit interview language on ``config``. Agent language is only used
+    when config has no language and no script text to score.
+    """
+    if isinstance(config, dict) and config:
+        return resolve_interview_language(config) == "ar"
+    if agent is not None:
+        return agent_is_arabic(agent)
+    from app.utils.script_language import detect_script_language
+
+    blob = "\n".join(str(x or "") for x in (script, survey_prompt, criteria))
+    return detect_script_language(blob) == "ar"
 
 
 def _layer_text_for_call_language(text: str, *, arabic_default: str, use_arabic: bool) -> str:
@@ -475,7 +551,7 @@ def resolve_opening_disclosure_template(
     ).strip()
     agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "the recruiter").strip()
     role = str(config.get("role") or config.get("goal") or config.get("position") or "this role").strip()
-    use_arabic = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
+    use_arabic = call_should_use_arabic(agent, config=config)
     duration = interview_duration_spoken(use_arabic=use_arabic, config=config)
     timeframe = interview_timeframe_spoken(use_arabic=use_arabic, config=config)
 
@@ -493,12 +569,14 @@ def resolve_opening_disclosure_template(
     if service_key == SERVICE_INTERVIEW:
         # Canonical interview opening = identity check only (recording comes after time consent).
         dialect = dialect_code_for_agent(agent) if agent else ("SA" if use_arabic else "GB")
-        if use_arabic or dialect in {"EG", "SA", "AR"}:
+        if use_arabic:
             template = interview_opening_template_for_dialect(
                 dialect if dialect in {"EG", "SA"} else "SA"
             )
         else:
-            template = interview_opening_template_for_dialect(dialect)
+            template = interview_opening_template_for_dialect(
+                dialect if dialect not in {"EG", "SA", "AR"} else "GB"
+            )
     elif agent and str(agent.opening_disclosure_template or "").strip():
         template = str(agent.opening_disclosure_template).strip()
     elif org_template:
@@ -718,7 +796,9 @@ def build_service_runtime_instructions(
     criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
     script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
     survey_prompt = str(config.get("survey_runtime_prompt") or script).strip()
-    use_arabic_preview = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
+    use_arabic_preview = call_should_use_arabic(
+        agent, script=script, survey_prompt=survey_prompt, criteria=criteria, config=config
+    )
     duration = interview_duration_spoken(use_arabic=use_arabic_preview, config=config)
     timeframe = interview_timeframe_spoken(use_arabic=use_arabic_preview, config=config)
     reschedule_link = str(config.get("reschedule_link") or config.get("booking_link") or "").strip()
@@ -747,7 +827,9 @@ def build_service_runtime_instructions(
                 pass
 
     parts: list[str] = []
-    use_arabic = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
+    use_arabic = call_should_use_arabic(
+        agent, script=script, survey_prompt=survey_prompt, criteria=criteria, config=config
+    )
     dialect_runtime = arabic_dialect_runtime_for_agent(agent) if use_arabic else None
     dialect_code = dialect_code_for_agent(agent) if service_key == SERVICE_INTERVIEW else "GB"
     base_role = _layer_text_for_call_language(
@@ -1029,7 +1111,7 @@ def build_service_opening_greeting(
     agent_name = _agent_name(agent)
     first = _first_name(recipient_name)
     role = str(config.get("role") or config.get("goal") or "this role").strip()
-    use_arabic = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
+    use_arabic = call_should_use_arabic(agent, config=config)
     duration = interview_duration_spoken(use_arabic=use_arabic, config=config)
     timeframe = interview_timeframe_spoken(use_arabic=use_arabic, config=config)
     placeholder_kwargs = {
@@ -1072,7 +1154,7 @@ def build_service_opening_greeting(
         )
     interview_fallback = (
         DEFAULT_INTERVIEW_OPENING_FALLBACK_AR
-        if _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
+        if use_arabic
         else DEFAULT_INTERVIEW_OPENING_FALLBACK
     )
     return substitute_voice_placeholders(interview_fallback, **placeholder_kwargs)

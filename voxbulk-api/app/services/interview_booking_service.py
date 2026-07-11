@@ -537,12 +537,10 @@ def _booking_display_meta() -> dict[str, str]:
 def _interview_language_for_order(db: Session, order: ServiceOrder) -> str:
     """Return 'ar' or 'en' for public meeting/booking UI localization."""
     try:
-        from app.services.interview_voice_agent_service import resolve_interview_agent_for_order
-        from app.services.voice_agent_runtime import detect_interview_language
+        from app.services.voice_agent_runtime import resolve_interview_language
 
         config = _order_config(order)
-        agent = resolve_interview_agent_for_order(db, order, config)
-        lang = detect_interview_language(config, agent)
+        lang = resolve_interview_language(config)
         return "ar" if lang == "ar" else "en"
     except Exception:
         return "en"
