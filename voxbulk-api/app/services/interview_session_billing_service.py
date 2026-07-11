@@ -136,7 +136,11 @@ def _merge_recipient_result(db: Session, recipient: ServiceOrderRecipient, patch
 
 
 def meter_session_if_needed(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> int:
-    """Record plan usage for one completed interview session (web or phone). Idempotent."""
+    """Record plan usage for one connected interview call/meeting (any outcome). Idempotent.
+
+    Charged by session minutes when a call/meeting connected — not gated on
+    completed vs reschedule vs early exit.
+    """
     if order.service_code != "interview":
         return 0
     db.refresh(recipient)

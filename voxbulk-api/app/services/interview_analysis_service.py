@@ -377,6 +377,14 @@ class InterviewAnalysisService:
                         "session_outcome": "completed",
                     },
                 )
+                # Per-call usage: meter as soon as we have a connected session, even if
+                # thank-you/analysis still wait for Layer 2 transcript review.
+                try:
+                    from app.services.interview_session_billing_service import meter_session_if_needed
+
+                    meter_session_if_needed(db, order, recipient)
+                except Exception:
+                    logger.exception("%s session_usage_meter_failed", LOG_PREFIX)
                 refresh_order_interview_report(db, order)
                 return
 

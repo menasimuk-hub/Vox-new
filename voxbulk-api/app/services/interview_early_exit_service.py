@@ -518,7 +518,7 @@ def apply_interview_session_outcome(
     channel: str = "meeting",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persist outcome. Non-completed paths do not thank-you, score, or bill as a finished interview."""
+    """Persist outcome. Emails are outcome-gated; usage metering is per connected call."""
     now = datetime.utcnow()
     now_iso = now.isoformat()
     token = _booking_token(db, order.id, recipient.id)
@@ -533,6 +533,28 @@ def apply_interview_session_outcome(
         patch["transcript"] = transcript
     if extra:
         patch.update(extra)
+
+    def _meter_connected_call() -> None:
+        """Charge per connected call/meeting minutes — any outcome (not only completed)."""
+        try:
+            from app.services.billing_call_minutes import billable_call_minutes
+            from app.services.interview_session_billing_service import meter_session_if_needed
+
+            if duration_seconds is not None and not patch.get("billable_minutes"):
+                patch["billable_minutes"] = billable_call_minutes(int(duration_seconds))
+            # Persist duration/billable before metering so wallet sees minutes.
+            merged = _recipient_result(recipient)
+            if duration_seconds is not None:
+                merged["duration_seconds"] = int(duration_seconds)
+            if patch.get("billable_minutes") is not None:
+                merged["billable_minutes"] = patch["billable_minutes"]
+            recipient.result_json = json.dumps(merged, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+            db.refresh(recipient)
+            meter_session_if_needed(db, order, recipient)
+        except Exception:
+            logger.exception("interview_session_meter_on_outcome_failed")
 
     if outcome == "completed":
         patch.pop("early_exit_at", None)
@@ -549,6 +571,7 @@ def apply_interview_session_outcome(
         recipient.status = "completed"
         recipient.updated_at = now
         _set_recipient_result(db, recipient, {k: v for k, v in patch.items() if v is not None})
+        _meter_connected_call()
         return {"ok": True, "status": recipient.status, "outcome": outcome}
 
     if outcome == "recording_declined":
@@ -564,6 +587,7 @@ def apply_interview_session_outcome(
             source_text=(transcript or "")[:500],
         )
         db.refresh(recipient)
+        _meter_connected_call()
         try:
             from app.services.interview_session_outcome_email_service import (
                 dispatch_interview_session_outcome_email,
@@ -608,6 +632,7 @@ def apply_interview_session_outcome(
     db.add(recipient)
     db.commit()
     db.refresh(recipient)
+    _meter_connected_call()
 
     email_sent = False
     if outcome == "reschedule":
