@@ -44,7 +44,7 @@ SYSTEM_PROMPT = """أنت {agent_name}، بتتصل بالنيابة عن {compa
 - لو واضحة: اذكر تفصيلة مما قال، بعدين السؤال التالي.
 ممنوع ترد بـ «تمام/فهمت عليك/ماشي» لوحدها وتنتقل.
 بعد آخر سؤال: اسأله لو حابب يضيف حاجة قبل ما تقفل.
-اختتم: شكر + {company_name} هيراجع المقابلة ويتواصل معاه."""
+اختتم: شكر + {company_name} هيراجع المقابلة وهيتواصل معاه + مع السلامة."""
 
 CONVERSATION_STYLE = (
     "نبرة ودودة ومحترفة وإنسانية — مكالمة توظيف حقيقية مش سكربت. جمل قصيرة. "
@@ -163,8 +163,9 @@ def _maybe_sync_telnyx(db, agent: AgentDefinition) -> None:
             enable_web_calls=True,
             verify_live=False,
             language="ar",
+            apply_human_pacing=True,
         )
-        print(f"OK: synced Egyptian greeting + instructions to Telnyx {assistant_id}")
+        print(f"OK: synced Egyptian greeting + instructions + human pacing to Telnyx {assistant_id}")
     except Exception as exc:
         print(f"WARN: Telnyx sync failed ({exc}) — agent saved in DB; assign/sync from Admin if needed.")
 

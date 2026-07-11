@@ -29,7 +29,7 @@ def main() -> int:
                 print(f"skip {agent.name}: no telnyx_assistant_id")
                 continue
             try:
-                result = apply_interview_assistant_pacing(db, aid, voice_speed=0.85)
+                result = apply_interview_assistant_pacing(db, aid, voice_speed=0.80)
                 voice = "voice_err" if result.get("voice_error") else "voice_ok"
                 intr = "int_err" if result.get("interruption_error") else "int_ok"
                 print(f"{agent.name}\t{aid}\t{voice}\t{intr}")

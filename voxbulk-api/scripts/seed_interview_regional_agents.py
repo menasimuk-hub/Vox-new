@@ -19,8 +19,8 @@ from sqlalchemy import select
 from app.constants.interview_agent_regions import INTERVIEW_ENGLISH_ROSTER, INTERVIEW_REGIONS
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
+from app.services.interview_dialect_packs import interview_call_workflow_for_dialect
 from app.services.survey_voice_agent_service import _clear_other_defaults
-from app.services.voice_agent_runtime import INTERVIEW_CALL_WORKFLOW_EN
 
 KB_DIR = ROOT / "kb-upload-ready" / "interview"
 DEFAULT_TELNYX_GB_LEO = "assistant-6b6dbef2-8a40-442d-9e7a-9b11eaa7d9ed"
@@ -73,13 +73,13 @@ Active listening: clarify off-topic, probe thin answers, reflect clear answers. 
 Score answers mentally for clarity, relevance, and evidence. Never say 'survey'.
 Do not re-introduce yourself after the call greeting."""
 
-    call_workflow = INTERVIEW_CALL_WORKFLOW_EN
+    call_workflow = interview_call_workflow_for_dialect(spec.accent_region)
 
     conversation_style = (
         f"{accent_line}. Warm, professional phone interviewer — calm, clear, measured pace. "
         "Brief the candidate on what the call is for before questions. "
         "Never interrupt. Active listening: clarify / probe / reflect — never empty got-it then next. "
-        "Ask if they want to add anything before the full closing."
+        "Ask if they want to add anything before the full closing. Use light regional markers naturally."
     )
 
     opening = (

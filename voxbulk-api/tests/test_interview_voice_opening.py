@@ -144,7 +144,7 @@ def test_runtime_instructions_replace_kb_placeholders(db):
     assert "{company_name}" not in instructions
     assert "Never say the generic word 'company'" in instructions
     assert "Do NOT repeat the disclosure or INTRO" in instructions
-    assert "Sound like a skilled recruiter" in instructions or "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions
+    assert "Sound like a skilled recruiter" in instructions or "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions or "British recruiter" in instructions or "real human phone interviewer" in instructions
     assert "Never say you are an AI assistant" in instructions
     assert "briefly explain the purpose" in instructions.lower()
     assert "anything else they would like to add" in instructions.lower()
@@ -236,6 +236,7 @@ def test_arabic_interview_runtime_gulf_agent_uses_khaleeji(db):
     assert "الخليجية" in instructions or "خليجي" in instructions
     assert "فصحى" in instructions
     assert "أسلوب الكلام" in instructions
+    assert "في أمان الله" in instructions
 
 
 def test_arabic_interview_runtime_egyptian_agent_uses_masri(db):
@@ -266,3 +267,32 @@ def test_arabic_interview_runtime_egyptian_agent_uses_masri(db):
     assert "فرز قصيرة" not in instructions
     assert "مقابلة قصيرة بخصوص" in instructions or "بخصوص وظيفة" in instructions
     assert "ممكن توضح" in instructions or "الاستماع الذكي" in instructions or "برا الموضوع" in instructions
+    assert "مع السلامة" in instructions
+    assert "شو قصدك" not in instructions
+
+
+def test_english_interview_runtime_uses_regional_dialect_pack(db):
+    org, order, recipient, _ = _seed_interview_call(db)
+    agent = AgentDefinition(
+        name="interview-au-jack",
+        slug=f"interview-au-jack-{uuid.uuid4().hex[:8]}",
+        voice_label="Jack",
+        accent_region="AU",
+        system_prompt="You are Jack.",
+        supports_interview=True,
+        is_active=True,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    instructions = build_service_runtime_instructions(
+        db,
+        order=order,
+        config={"role": "Receptionist", "approved_script": "INTRO\nHi.\n\nQUESTIONS\n1. Experience?\n\nCLOSING\nBye."},
+        recipient=recipient,
+        agent=agent,
+        service_key=SERVICE_INTERVIEW,
+    )
+    assert "Australian" in instructions or "No worries" in instructions or "crack on" in instructions
+    assert "got it" in instructions.lower() or "FORBIDDEN" in instructions or "never empty" in instructions.lower()

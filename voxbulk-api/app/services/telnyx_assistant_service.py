@@ -378,9 +378,13 @@ def apply_interview_assistant_pacing(
     db: Session,
     assistant_id: str,
     *,
-    voice_speed: float = 0.85,
+    voice_speed: float = 0.80,
 ) -> dict[str, Any]:
-    """Slow TTS slightly and wait longer before speaking so the agent does not interrupt answers."""
+    """Slow TTS and wait longer before speaking so the agent does not interrupt answers.
+
+    Tuned for human-like interview turn-taking: slightly slower speech + longer
+    endpointing so mid-thought pauses are not cut off.
+    """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
     voice_settings = _voice_settings_dict(existing)
@@ -395,11 +399,11 @@ def apply_interview_assistant_pacing(
 
     interruption_settings = {
         "start_speaking_plan": {
-            "wait_seconds": 0.9,
+            "wait_seconds": 1.25,
             "transcription_endpointing_plan": {
-                "on_punctuation_seconds": 0.6,
-                "on_no_punctuation_seconds": 2.0,
-                "on_number_seconds": 1.4,
+                "on_punctuation_seconds": 0.85,
+                "on_no_punctuation_seconds": 2.6,
+                "on_number_seconds": 1.6,
             },
         }
     }
@@ -429,12 +433,16 @@ def sync_telnyx_assistant_instructions(
     enable_web_calls: bool = True,
     verify_live: bool = True,
     language: str | None = None,
+    apply_human_pacing: bool = False,
 ) -> dict[str, Any]:
     """Push admin system prompt (and optional greeting) to the Telnyx assistant.
 
     When ``language`` indicates a non-English call (e.g. ``ar``), the assistant's
     speech-to-text language is switched to a model that supports it so the candidate
     is understood in that language.
+
+    When ``apply_human_pacing`` is True, also slow TTS and lengthen wait-before-speak
+    for interview-style turn-taking.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     clean_instructions = str(instructions or "").strip()
@@ -481,6 +489,20 @@ def sync_telnyx_assistant_instructions(
         "greeting_pushed": bool(pushed_greeting),
         "verify_live": verify_live,
     }
+    if apply_human_pacing:
+        try:
+            pacing = apply_interview_assistant_pacing(db, clean_id)
+            out["human_pacing"] = {
+                "voice_ok": not bool(pacing.get("voice_error")),
+                "interrupt_ok": not bool(pacing.get("interruption_error")),
+                "voice_speed": (pacing.get("voice_settings") or {}).get("voice_speed"),
+                "wait_seconds": ((pacing.get("interruption_settings") or {}).get("start_speaking_plan") or {}).get(
+                    "wait_seconds"
+                ),
+            }
+        except Exception as exc:
+            logger.warning("interview_human_pacing_skip assistant_id=%s err=%s", clean_id, exc)
+            out["human_pacing_error"] = str(exc)
     if not verify_live:
         return out
     try:

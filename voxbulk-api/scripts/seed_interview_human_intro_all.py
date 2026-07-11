@@ -36,10 +36,10 @@ from sqlalchemy import select
 from app.core.database import get_sessionmaker
 from app.models.agent import AgentDefinition
 from app.services.interview_agent_display_service import interview_agent_dialect_meta
+from app.services.interview_dialect_packs import interview_call_workflow_for_dialect
 from app.services.voice_agent_runtime import (
     ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
     ARABIC_INTERVIEW_CALL_WORKFLOW,
-    INTERVIEW_CALL_WORKFLOW_EN,
 )
 
 
@@ -55,7 +55,9 @@ def _english_pack(agent: AgentDefinition) -> dict[str, str]:
             f"about the {{role}} role. This call is recorded for quality and assessment. "
             f"Do you have about 10 to 15 minutes now for a short screening interview?"
         ),
-        "call_workflow": INTERVIEW_CALL_WORKFLOW_EN,
+        "call_workflow": interview_call_workflow_for_dialect(
+            str(getattr(agent, "accent_region", None) or interview_agent_dialect_meta(agent).get("dialect_code") or "GB")
+        ),
         "conversation_style": (
             "Warm, professional phone interviewer — calm, clear, measured pace. "
             "Brief the candidate on what the call is for before questions. "

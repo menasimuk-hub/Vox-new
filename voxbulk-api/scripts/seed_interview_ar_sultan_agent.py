@@ -51,7 +51,8 @@ SYSTEM_PROMPT = """أنت {agent_name}، تتصل بالنيابة عن {company
 - إذا قصيرة أو عامة: اسأل متابعة واحدة (مثال أو تفاصيل).
 - إذا واضحة: اذكر تفصيلة مما قال، ثم السؤال اللي بعده.
 ممنوع ترد بـ «تمام/فهمت عليك/زين» لوحدها وتنتقل.
-بعد آخر سؤال: اسأله لو يبي يضيف شيء قبل ما تقفل. احترم طلب إيقاف المكالمة."""
+بعد آخر سؤال: اسأله لو يبي يضيف شيء قبل ما تقفل. احترم طلب إيقاف المكالمة.
+اختتم: شكر + {company_name} بيراجع المقابلة ويتواصل معه + في أمان الله."""
 
 CONVERSATION_STYLE = (
     "نبرة ودودة ومحترمة وإنسانية ومحترفة — مكالمة توظيف حقيقية. جمل قصيرة. "
@@ -184,8 +185,9 @@ def _maybe_sync_telnyx(db, agent: AgentDefinition) -> None:
             enable_web_calls=True,
             verify_live=False,
             language="ar",
+            apply_human_pacing=True,
         )
-        print(f"OK: synced Arabic greeting + instructions to Telnyx {assistant_id}")
+        print(f"OK: synced Arabic greeting + instructions + human pacing to Telnyx {assistant_id}")
     except Exception as exc:
         print(f"WARN: Telnyx sync failed ({exc}) — agent saved in DB; assign/sync from Admin if needed.")
 

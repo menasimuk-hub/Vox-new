@@ -12,6 +12,12 @@ from app.core.agent_services import SERVICE_APPOINTMENTS, SERVICE_INTERVIEW, SER
 from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.voice_agent_platform_settings import DEFAULT_OPENING_DISCLOSURE, VoiceAgentPlatformSettings
+from app.services.interview_dialect_packs import (
+    dialect_code_for_agent,
+    interview_call_workflow_for_dialect,
+    interview_dialect_lexicon_block,
+    interview_human_behavior_for_dialect,
+)
 from app.services.survey_dispatch_service import _first_name, _personalize
 
 logger = logging.getLogger(__name__)
@@ -54,67 +60,10 @@ ARABIC_RECORD_AVAILABILITY = (
     "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة قصيرة؟"
 )
 
-# Professional real-interview behaviour — injected on every interview call.
-INTERVIEW_HUMAN_BEHAVIOR_EN = (
-    "You are a real human phone interviewer for {company_name} — warm, professional, clear, and respectful.\n"
-    "Sound like a skilled recruiter who is actually listening — not a script reader or quiz host.\n"
-    "Speak at a measured pace: slightly slower than everyday chat. Short sentences. Pause after each question.\n"
-    "NEVER interrupt the candidate. Wait until they have clearly finished speaking before you reply.\n"
-    "If they pause mid-thought, wait a few seconds — do not jump in. Only continue when their answer is complete.\n"
-    "Ask one question at a time.\n"
-    "ACTIVE LISTENING (mandatory after every answer):\n"
-    "- If the answer is unclear, off-topic, nonsense, or unrelated to the question: do NOT pretend you understood. "
-    "Ask what they mean (e.g. \"Sorry — what do you mean by that?\" or \"Could you clarify how that relates to the question?\"). "
-    "Wait for a clear answer before moving on.\n"
-    "- If the answer is thin or vague: ask one smart follow-up (example, what they did personally, or what happened next).\n"
-    "- If the answer is clear and on-topic: briefly reflect one concrete detail they said "
-    "(shows you listened), then ask the next question.\n"
-    "- FORBIDDEN: reply with only \"got it\", \"okay\", \"thanks\", or \"understood\" and jump to the next question.\n"
-    "Never say you are an AI assistant, chatbot, or automated system — introduce yourself by name only.\n"
-    "If you were interrupted mid-sentence, finish only the unfinished sentence — never restart the full introduction.\n"
-    "Do not rush to the end. After the last question and any final add-ons, deliver the full closing: thank them, say "
-    "{company_name} will review the interview and contact them with next steps, then say goodbye warmly. "
-    "Do not hang up until that closing is spoken."
-)
-
-INTERVIEW_HUMAN_BEHAVIOR_AR = (
-    "أنت مُحاور توظيف حقيقي لـ {company_name} — ودود، محترف، واضح، ومحترم.\n"
-    "تكلم زي موظف توظيف يسمع بجد ويحاور بذكاء — مو زي قارئ سكربت أو روبوت.\n"
-    "تكلم بسرعة معتدلة أبطأ قليلًا من الكلام اليومي. جمل قصيرة. توقف بعد كل سؤال.\n"
-    "لا تقاطع المرشّح أبدًا. انتظر حتى ينهي كلامه بوضوح قبل ما ترد.\n"
-    "إذا توقف وسط الفكرة، انتظر ثوانٍ — لا تتدخل بسرعة. كمّل فقط لما تكون الإجابة مكتملة.\n"
-    "سؤال واحد في كل مرة.\n"
-    "الاستماع الذكي (إلزامي بعد كل إجابة):\n"
-    "- إذا الإجابة غير واضحة أو خارج الموضوع أو مالهاش علاقة بالسؤال: ممنوع تقول إنك فهمت. "
-    "اسأل يوضح (مثل: «ممكن توضح قصدك إيه؟» أو «إزاي ده يتعلق بالسؤال؟»). استنى إجابة واضحة قبل ما تنتقل.\n"
-    "- إذا الإجابة قصيرة أو عامة: اسأل متابعة واحدة ذكية (مثال، وش كان دوره، أو وش صار بعدين).\n"
-    "- إذا الإجابة واضحة وعلى الموضوع: اذكر بسرعة تفصيلة واحدة مما قاله (عشان يبان إنك سمعت)، بعدين السؤال التالي.\n"
-    "- ممنوع ترد بـ «تمام» أو «فهمت عليك» أو «ماشي» لوحدها وتنتقل للسؤال التالي.\n"
-    "لا تقل أبدًا إنك مساعد ذكي أو روبوت أو نظام آلي — قدّم نفسك باسمك فقط.\n"
-    "إذا قاطعك وسط جملة، أكمل الجملة الناقصة فقط — لا تعِد المقدمة كاملة.\n"
-    "لا تستعجل الإنهاء. بعد آخر سؤال وأي إضافة أخيرة، قل الإغلاق كاملًا: اشكرهم، وقل إن {company_name} "
-    "سيراجع المقابلة ويتواصل معهم بالخطوات التالية، ثم ودّعهم بلطف. لا تنهِ المكالمة قبل هذا الإغلاق."
-)
-
-INTERVIEW_CALL_WORKFLOW_EN = (
-    "Opening greeting and time ask were already spoken — do not re-introduce or re-ask for time.\n"
-    "Wait for a clear yes that now is a good time.\n"
-    "If busy or declines: offer a callback during working hours and end politely.\n"
-    "\n"
-    "After they agree — before screening questions — briefly set the scene in 2–4 short sentences:\n"
-    "1) This is a short interview about the {role} role with {company_name}.\n"
-    "2) You will ask a few questions about their background and fit for the role.\n"
-    "3) There are no trick questions — they can answer in their own words and take a moment if needed.\n"
-    "4) Ask if they are ready to begin, or if they have a quick question first. Wait for their reply.\n"
-    "\n"
-    "Then ask CV questions, then role questions, in order — one at a time, waiting for full answers.\n"
-    "After each answer use active listening: clarify if off-topic/unclear; probe once if thin; "
-    "otherwise reflect one detail they said, then continue. Never empty \"got it\" then next.\n"
-    "After the last scripted question: ask if there is anything else they would like to add about their "
-    "experience or interest in the role. Wait for the answer.\n"
-    "Mandatory closing (always speak this before ending): thank them for their time, say "
-    "{company_name} will review the interview and be in touch with next steps, then wish them a good day."
-)
+# Professional real-interview behaviour — dialect packs (see interview_dialect_packs).
+INTERVIEW_HUMAN_BEHAVIOR_EN = interview_human_behavior_for_dialect("GB")
+INTERVIEW_HUMAN_BEHAVIOR_AR = interview_human_behavior_for_dialect("SA")
+INTERVIEW_CALL_WORKFLOW_EN = interview_call_workflow_for_dialect("GB")
 
 # Arabic runtime layers used when an Arabic agent (e.g. Jammal) is selected but the
 # stored system prompt / call workflow are still copied from an English template.
@@ -160,45 +109,8 @@ ARABIC_INTERVIEW_SERVICE_ROLE = (
     "السؤال 3+: من دور الوظيفة ومعايير هذه الحملة.\n"
     "قيّم الإجابات من حيث الوضوح والملاءمة. لا تقل أبدًا «استبيان»."
 )
-ARABIC_INTERVIEW_CALL_WORKFLOW = (
-    "التحية والوقت سُئلا بالفعل في بداية المكالمة — لا تعِد التعريف بنفسك ولا تعِد سؤال الوقت.\n"
-    "انتظر تأكيدًا واضحًا أن الوقت مناسب.\n"
-    "إذا مشغول أو رفض: اقترح معادًا خلال ساعات العمل وانهِ بلباقة.\n"
-    "\n"
-    "بعد الموافقة — قبل الأسئلة — جهّز المرشّح بجمل قصيرة (٢–٤):\n"
-    "1) هذي مقابلة قصيرة بخصوص وظيفة {role} مع {company_name}.\n"
-    "2) راح تسأل كم سؤال عن خلفيته ومدى مناسبته للدور.\n"
-    "3) ما في أسئلة خادعة — يجاوب بكلامه وياخذ وقته لو يحتاج.\n"
-    "4) اسأله: جاهز نبدأ، أو عنده سؤال سريع قبل ما نبدأ؟ وانتظر رده.\n"
-    "\n"
-    "بعدين: أسئلة السيرة ثم أسئلة الوظيفة بالترتيب — سؤال واحد وانتظر الإجابة كاملة.\n"
-    "بعد كل إجابة استمع بذكاء: إذا برا الموضوع أو مو واضح اسأل يوضح؛ إذا قصيرة اسأل متابعة؛ "
-    "إذا واضحة اذكر تفصيلة مما قال ثم السؤال التالي. ممنوع «فهمت عليك» لوحدها ثم التالي.\n"
-    "بعد آخر سؤال في النص: اسأله هل يبي يضيف أي شيء عن خبرته أو اهتمامه بالوظيفة، وانتظر.\n"
-    "إغلاق إلزامي قبل إنهاء المكالمة: اشكر المرشّح، وقل إن {company_name} سيراجع المقابلة "
-    "ويتواصل معه بالخطوات التالية، ثم ودّعه بلطف."
-)
-
-ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW = (
-    "التحية والوقت اتسألوا بالفعل في أول المكالمة — متعدّش التعريف بنفسك ومتعدّش سؤال الوقت.\n"
-    "استنى تأكيد واضح إن الوقت مناسب.\n"
-    "لو مشغول أو رفض: رتّب معاد وانهِ بلباقة.\n"
-    "\n"
-    "بعد ما يوافق — قبل أي سؤال — جهّزه بجمل قصيرة (٢–٤) بمصري طبيعي:\n"
-    "1) دي مقابلة قصيرة بخصوص وظيفة {role} مع {company_name}.\n"
-    "2) هسأل كام سؤال عن خلفيته ومدى مناسبته للدور.\n"
-    "3) مفيش أسئلة خادعة — يجاوب بكلامه وياخد وقته لو محتاج.\n"
-    "4) اسأله: جاهز نبدأ؟ أو عنده سؤال سريع قبل ما نبدأ؟ واستنى رده.\n"
-    "ممنوع تقول «نكمل» في البداية — دي بداية المقابلة مش تكملة.\n"
-    "وصف المقابلة: «مقابلة قصيرة بخصوص الوظيفة» فقط — متوصفهاش بألفاظ تقنية أو إدارية.\n"
-    "\n"
-    "بعدين: أسئلة السيرة ثم أسئلة الوظيفة بالترتيب — سؤال واحد واستنى الإجابة كاملة.\n"
-    "بعد كل إجابة استمع بذكاء: لو برا الموضوع أو مش واضح اسأل «ممكن توضح قصدك؟»؛ "
-    "لو قصيرة اسأل متابعة؛ لو واضحة اذكر تفصيلة مما قال بعدين السؤال التالي. "
-    "ممنوع «تمام/فهمت عليك» لوحدها وتنقل.\n"
-    "بعد آخر سؤال: اسأله لو حابب يضيف حاجة عن خبرته أو اهتمامه بالوظيفة، واستنى.\n"
-    "إغلاق إلزامي: اشكره، وقل إن {company_name} هيراجع المقابلة ويتواصل معاه بالخطوات الجاية، بعدين ودّعه."
-)
+ARABIC_INTERVIEW_CALL_WORKFLOW = interview_call_workflow_for_dialect("SA")
+ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW = interview_call_workflow_for_dialect("EG")
 
 _ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
 
@@ -225,7 +137,9 @@ def arabic_dialect_runtime_for_agent(agent: AgentDefinition | None) -> dict[str,
             ),
             "speech_rules": ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES,
             "base_role": ARABIC_EGYPTIAN_BASE_ROLE,
-            "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
+            "call_workflow": interview_call_workflow_for_dialect("EG"),
+            "dialect_code": "EG",
+            "lexicon": interview_dialect_lexicon_block("EG"),
         }
     return {
         "language_priority": (
@@ -236,7 +150,9 @@ def arabic_dialect_runtime_for_agent(agent: AgentDefinition | None) -> dict[str,
         ),
         "speech_rules": ARABIC_GULF_HUMAN_SPEECH_RULES,
         "base_role": ARABIC_BASE_ROLE,
-        "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
+        "call_workflow": interview_call_workflow_for_dialect("SA"),
+        "dialect_code": "SA",
+        "lexicon": interview_dialect_lexicon_block("SA"),
     }
 
 
@@ -831,6 +747,7 @@ def build_service_runtime_instructions(
     parts: list[str] = []
     use_arabic = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
     dialect_runtime = arabic_dialect_runtime_for_agent(agent) if use_arabic else None
+    dialect_code = dialect_code_for_agent(agent) if service_key == SERVICE_INTERVIEW else "GB"
     base_role = _layer_text_for_call_language(
         layers.base_role,
         arabic_default=(dialect_runtime or {}).get("base_role") or ARABIC_BASE_ROLE,
@@ -843,28 +760,30 @@ def build_service_runtime_instructions(
         )
     call_workflow = layers.call_workflow
     if service_key == SERVICE_INTERVIEW:
-        # Canonical interviewer workflow for every interview agent (brief → probe → closing).
+        # Canonical interviewer workflow from dialect pack (brief → listen → closing).
         if use_arabic:
-            call_workflow = (dialect_runtime or {}).get("call_workflow") or ARABIC_INTERVIEW_CALL_WORKFLOW
+            call_workflow = (dialect_runtime or {}).get("call_workflow") or interview_call_workflow_for_dialect("SA")
         else:
-            call_workflow = INTERVIEW_CALL_WORKFLOW_EN
+            call_workflow = interview_call_workflow_for_dialect(dialect_code)
 
     if use_arabic and dialect_runtime:
         parts.append(dialect_runtime["language_priority"])
         parts.append(dialect_runtime["speech_rules"])
+        if dialect_runtime.get("lexicon"):
+            parts.append(dialect_runtime["lexicon"])
         if agent and str(getattr(agent, "conversation_style", "") or "").strip():
             parts.append(
                 "أسلوب المحادثة:\n"
                 + substitute_voice_placeholders(str(agent.conversation_style).strip(), **placeholder_kwargs)
             )
+    elif service_key == SERVICE_INTERVIEW and not use_arabic:
+        parts.append(interview_dialect_lexicon_block(dialect_code))
     # Interview pacing / no-interrupt / mandatory closing — early so truncation cannot drop it.
     if service_key == SERVICE_INTERVIEW:
-        parts.append(
-            substitute_voice_placeholders(
-                INTERVIEW_HUMAN_BEHAVIOR_AR if use_arabic else INTERVIEW_HUMAN_BEHAVIOR_EN,
-                **placeholder_kwargs,
-            )
+        behavior = interview_human_behavior_for_dialect(
+            (dialect_runtime or {}).get("dialect_code") if use_arabic else dialect_code
         )
+        parts.append(substitute_voice_placeholders(behavior, **placeholder_kwargs))
     if layers.compliance and not (use_arabic and not _contains_arabic(layers.compliance)):
         parts.append(substitute_voice_placeholders(layers.compliance, **placeholder_kwargs))
     if base_role:
@@ -921,11 +840,11 @@ def build_service_runtime_instructions(
             if goal:
                 parts.append(f"الوظيفة / المنصب: {role}")
             if criteria:
-                parts.append(f"معايير الفرز:\n{criteria}")
+                parts.append(f"معايير المقابلة:\n{criteria}")
             if cv_snippet:
                 parts.append(f"ملخص السيرة الذاتية (استخدمه في السؤالين الأولين):\n{cv_snippet}")
             parts.append(
-                "هذه مكالمة فرز لمقابلة وظيفية — وليست استبيانًا. "
+                "هذه مكالمة مقابلة وظيفية قصيرة — وليست استبيانًا. "
                 f"أنت تتصل بالنيابة عن {company_name} بخصوص وظيفة {role}. "
                 "بعد موافقة المرشّح: وضّح باختصار هدف المكالمة وجهّزه، ثم اطرح أسئلة المقابلة المعتمدة بالترتيب، "
                 "مع متابعة قصيرة عند الحاجة، واسأله في النهاية إن كان يبي يضيف شيء. "
@@ -987,7 +906,7 @@ def build_service_runtime_instructions(
                 parts.append(
                     "تمت التحية الافتتاحية بالفعل (الاسم، الشركة، سبب الاتصال، التسجيل، وطلب ١٠–١٥ دقيقة). "
                     "لا تكرر التحية ولا قسم المقدمة ولا الإفصاح. "
-                    "انتظر رد المرشّح: إذا وافق → وضّح باختصار هدف المقابلة وجهّزه، ثم ابدأ أسئلة الفرز. "
+                    "انتظر رد المرشّح: إذا وافق → وضّح باختصار هدف المقابلة وجهّزه، ثم ابدأ أسئلة المقابلة. "
                     "إذا مشغول أو رفض → رتّب معادًا وانهِ بلباقة."
                 )
             else:
