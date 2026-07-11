@@ -6,13 +6,14 @@ import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { publicApiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/meet/$token")({
-  head: () => ({ meta: [{ title: "AI interview meeting — VoxBulk" }] }),
+  head: () => ({ meta: [{ title: "Interview meeting — VoxBulk" }] }),
   component: InterviewMeetingRoomPage,
 });
 
 type MeetingStartResponse = {
   ok?: boolean;
   agent_id?: string;
+  agent_name?: string;
   greeting?: string;
   custom_headers?: Record<string, string> | Array<{ name: string; value: string }>;
   web_calls_enabled?: boolean;
@@ -20,6 +21,14 @@ type MeetingStartResponse = {
   candidate_name?: string;
   role?: string;
   interview_language?: string | null;
+};
+
+type MeetingCompleteResponse = {
+  ok?: boolean;
+  status?: string;
+  outcome?: string;
+  message?: string;
+  reschedule_email_sent?: boolean;
 };
 
 type CallPhase = "idle" | "connecting" | "aiJoining" | "live" | "ended" | "error";
@@ -120,7 +129,7 @@ const MEET_COPY = {
   en: {
     badge: "Audio interview",
     live: "Live",
-    title: "VoxBulk AI interview",
+    title: "VoxBulk interview",
     hi: (name: string) => `Hi ${name} — this is an audio-only interview in your browser.`,
     noCamera: "No camera required · secure browser audio",
     waitingRoom: "Waiting room",
@@ -143,23 +152,28 @@ const MEET_COPY = {
     headphones: "Use headphones if possible for the clearest conversation.",
     connecting: "Connecting…",
     requestingMic: "Requesting microphone…",
-    aiLabel: "AI Interviewer",
+    aiLabel: "Interviewer",
+    interviewerRole: "Interviewer",
     you: "You",
-    speakNatural: "Speak naturally — the AI interviewer is listening.",
-    greetSoon: "The AI will greet you shortly — speak naturally after you hear the welcome.",
-    waitingAi: "Waiting for the AI interviewer…",
+    speakNatural: "Speak naturally — the interviewer is listening.",
+    greetSoon: "The interviewer will greet you shortly — speak naturally after you hear the welcome.",
+    waitingAi: "Waiting for the interviewer…",
     mute: "Mute",
     unmute: "Unmute",
     end: "End interview",
     thanks: "Thank you — interview complete",
     closePage: "You can close this page. The hiring team will review your interview shortly.",
+    endedReschedule: "No problem — check your email for a link to pick a new time.",
+    endedTechnical: "The connection ended early. You can rejoin from your booking link if your slot is still open.",
+    endedWrongPerson: "Sorry for the interruption — you can close this page.",
+    endedRecordingDeclined: "This interview was closed because recording consent is required.",
     tryAgain: "Try again",
     somethingWrong: "Something went wrong",
     footer: "Powered by VoxBulk · audio interview room",
     langLabel: "Interview language: English",
     micRequired: "Microphone access is required — click Allow when your browser asks, then try again.",
     speakerFail: "Could not play a test sound — check your speaker or headphone volume.",
-    aiNoAnswer: "The AI interviewer did not answer — please try again. Check your mic and speakers.",
+    aiNoAnswer: "The interviewer did not answer — please try again. Check your mic and speakers.",
     micBrowser: "Your browser does not support microphone access — try Chrome or Edge.",
     micDesktop: "Your browser does not support microphone access — try Chrome or Edge on desktop.",
     micAllowJoin: "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
@@ -173,7 +187,7 @@ const MEET_COPY = {
   ar: {
     badge: "مقابلة صوتية",
     live: "مباشر",
-    title: "مقابلة VoxBulk بالذكاء الاصطناعي",
+    title: "مقابلة VoxBulk",
     hi: (name: string) => `مرحباً ${name} — هذه مقابلة صوتية فقط عبر المتصفح.`,
     noCamera: "لا حاجة للكاميرا · اتصال صوتي آمن",
     waitingRoom: "غرفة الانتظار",
@@ -196,23 +210,28 @@ const MEET_COPY = {
     headphones: "يفضّل استخدام سماعة رأس لأوضح محادثة.",
     connecting: "جارٍ الاتصال…",
     requestingMic: "طلب إذن الميكروفون…",
-    aiLabel: "المحاور الذكي",
+    aiLabel: "المحاور",
+    interviewerRole: "المحاور",
     you: "أنت",
-    speakNatural: "تحدث بشكل طبيعي — المحاور الذكي يستمع.",
+    speakNatural: "تحدث بشكل طبيعي — المحاور يستمع.",
     greetSoon: "سيرحّب بك المحاور قريباً — تحدث بعد سماع الترحيب.",
-    waitingAi: "بانتظار المحاور الذكي…",
+    waitingAi: "بانتظار المحاور…",
     mute: "كتم الصوت",
     unmute: "إلغاء الكتم",
     end: "إنهاء المقابلة",
     thanks: "شكراً لك — انتهت المقابلة",
     closePage: "يمكنك إغلاق هذه الصفحة. سيراجع فريق التوظيف مقابلتك قريباً.",
+    endedReschedule: "لا بأس — راجع بريدك الإلكتروني لرابط اختيار موعد جديد.",
+    endedTechnical: "انقطع الاتصال مبكراً. يمكنك إعادة الانضمام من رابط الحجز إذا كان الموعد ما زال مفتوحاً.",
+    endedWrongPerson: "عذراً على الإزعاج — يمكنك إغلاق هذه الصفحة.",
+    endedRecordingDeclined: "أُغلقت المقابلة لأن الموافقة على التسجيل مطلوبة.",
     tryAgain: "حاول مرة أخرى",
     somethingWrong: "حدث خطأ ما",
     footer: "مدعوم من VoxBulk · غرفة مقابلة صوتية",
     langLabel: "لغة المقابلة: العربية",
     micRequired: "يلزم السماح بالميكروفون — اضغط سماح عندما يطلب المتصفح، ثم حاول مرة أخرى.",
     speakerFail: "تعذّر تشغيل الصوت التجريبي — تحقق من مستوى السماعة.",
-    aiNoAnswer: "لم يرد المحاور الذكي — حاول مرة أخرى. تحقق من الميكروفون والسماعات.",
+    aiNoAnswer: "لم يرد المحاور — حاول مرة أخرى. تحقق من الميكروفون والسماعات.",
     micBrowser: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge.",
     micDesktop: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge على الكمبيوتر.",
     micAllowJoin: "يلزم السماح بالميكروفون — اضغط سماح عندما يطلب المتصفح، ثم حاول مرة أخرى.",
@@ -251,6 +270,8 @@ function InterviewMeetingRoomPage() {
   const [statusLine, setStatusLine] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [meta, setMeta] = React.useState<MeetingStartResponse | null>(null);
+  const [endOutcome, setEndOutcome] = React.useState<string | null>(null);
+  const [endMessage, setEndMessage] = React.useState<string | null>(null);
   const [muted, setMuted] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
   const [aiPresent, setAiPresent] = React.useState(false);
@@ -416,15 +437,21 @@ function InterviewMeetingRoomPage() {
           ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
           : undefined;
       try {
-        await publicApiFetch(`/public/interview-booking/${encodeURIComponent(token)}/meeting/complete`, {
-          method: "POST",
-          body: JSON.stringify({
-            duration_seconds: duration,
-            provider_call_id: providerCallId || telnyxCallRef.current?.id || undefined,
-          }),
-        });
+        const res = await publicApiFetch<MeetingCompleteResponse>(
+          `/public/interview-booking/${encodeURIComponent(token)}/meeting/complete`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              duration_seconds: duration,
+              provider_call_id: providerCallId || telnyxCallRef.current?.id || undefined,
+            }),
+          },
+        );
+        setEndOutcome(String(res?.outcome || "completed"));
+        setEndMessage(String(res?.message || "").trim() || null);
       } catch {
-        /* best effort */
+        setEndOutcome("completed");
+        setEndMessage(null);
       }
       startedAtRef.current = null;
     },
@@ -607,6 +634,30 @@ function InterviewMeetingRoomPage() {
   const role = meta?.role || booking?.role || "Interview";
   const name = meta?.candidate_name || booking?.candidate_name || (lang === "ar" ? "المرشح" : "Candidate");
   const userInitials = initialsFromName(name);
+  const agentFirst = String(meta?.agent_name || "")
+    .trim()
+    .split(/\s+/)[0];
+  const interviewerLabel = agentFirst
+    ? `${agentFirst} (${t.interviewerRole})`
+    : t.aiLabel;
+
+  const endedTitle =
+    endOutcome === "reschedule"
+      ? t.endedReschedule
+      : endOutcome === "technical_abort"
+        ? t.endedTechnical
+        : endOutcome === "wrong_person"
+          ? t.endedWrongPerson
+          : endOutcome === "recording_declined"
+            ? t.endedRecordingDeclined
+            : t.thanks;
+  const endedBody =
+    endOutcome === "reschedule" ||
+    endOutcome === "technical_abort" ||
+    endOutcome === "wrong_person" ||
+    endOutcome === "recording_declined"
+      ? endMessage || ""
+      : t.closePage;
 
   const openCountdown = formatCountdown(Math.ceil(msUntilOpen / 1000));
   const startCountdown = formatCountdown(Math.ceil(msUntilStart / 1000));
@@ -769,7 +820,7 @@ function InterviewMeetingRoomPage() {
             {inCallUi ? (
               <div className="mt-4 flex flex-1 flex-col items-center justify-center gap-6 md:mt-8 md:flex-none md:gap-5 md:py-4">
                 <VoiceCallAvatars
-                  aiLabel={t.aiLabel}
+                  aiLabel={interviewerLabel}
                   aiLevel={aiLevel}
                   aiPresent={aiPresent}
                   userLabel={name.split(" ")[0] || t.you}
@@ -811,8 +862,8 @@ function InterviewMeetingRoomPage() {
 
             {phase === "ended" ? (
               <div className="flex flex-1 flex-col items-center justify-center space-y-3 py-10 md:flex-none md:py-16">
-                <p className="text-xl font-medium text-white md:text-lg">{t.thanks}</p>
-                <p className="max-w-sm text-sm text-slate-400">{t.closePage}</p>
+                <p className="text-xl font-medium text-white md:text-lg">{endedTitle}</p>
+                {endedBody ? <p className="max-w-sm text-sm text-slate-400">{endedBody}</p> : null}
               </div>
             ) : null}
 

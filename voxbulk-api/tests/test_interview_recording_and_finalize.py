@@ -142,9 +142,10 @@ def test_complete_meeting_finalizes_order(db_session, monkeypatch):
     result = InterviewMeetingService.complete_meeting(
         db_session,
         "test-token-abc",
-        duration_seconds=90,
+        duration_seconds=240,
         provider_call_id="conv-xyz",
     )
 
     assert result.get("ok") is True
+    assert result.get("outcome") == "completed"
     assert finalize_calls == [order.id]

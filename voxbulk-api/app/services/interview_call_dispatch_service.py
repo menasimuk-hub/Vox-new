@@ -131,6 +131,8 @@ def _recipient_eligible_for_dial(
         merged = {}
     if merged.get("booking_withdrawn"):
         return False, "booking_withdrawn"
+    if merged.get("awaiting_candidate_action"):
+        return False, "awaiting_candidate_action"
     if str(recipient.status or "").lower() == "cancelled" and merged.get("booking_withdrawn"):
         return False, "booking_cancelled"
     if token.booked_start_at is None:
@@ -1217,6 +1219,48 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
             except Exception:
                 logger.exception("survey_opt_out_analysis_failed")
             return True
+
+        from app.services.interview_early_exit_service import (
+            apply_interview_session_outcome,
+            classify_interview_session_outcome,
+        )
+
+        if terminal == "completed":
+            session_outcome = classify_interview_session_outcome(
+                duration_seconds=duration_seconds,
+                transcript=transcript,
+            )
+            if session_outcome != "completed":
+                apply_interview_session_outcome(
+                    db,
+                    order=order,
+                    recipient=recipient,
+                    outcome=session_outcome,
+                    duration_seconds=duration_seconds,
+                    transcript=transcript,
+                    channel="ai_call",
+                    extra={
+                        "call_control_id": call_id,
+                        "hangup_cause": hangup_cause or None,
+                    },
+                )
+                _log(
+                    "early_exit",
+                    order_id=order.id,
+                    recipient_id=recipient.id,
+                    outcome=session_outcome,
+                    call_control_id=call_id,
+                )
+                recipients = ServiceOrderService.get_recipients(db, order.id)
+                if order.status == "running" and not _any_recipient_calling(recipients):
+                    ok, reason = _order_window_ok(db, order)
+                    if not ok:
+                        _complete_order_window_expired(db, order, reason=reason or "window_ended")
+                    elif _all_recipients_terminal(recipients):
+                        _finalize_order_if_done(db, order)
+                    else:
+                        InterviewCallDispatchService.dial_next_recipient(db, order)
+                return True
 
         InterviewCallDispatchService.finalize_recipient_after_call(
             db,

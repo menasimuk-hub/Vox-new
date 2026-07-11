@@ -123,13 +123,19 @@ BOOKING_HOURS_END = (17, 30)
 VOICE_TERMINAL = frozenset(
     {"completed", "no_answer", "failed", "busy", "skipped", "cancelled", "opted_out", "done"}
 )
-BOOKING_LOCKED_MESSAGE = "Your AI interview is already complete — booking is no longer available."
+BOOKING_LOCKED_MESSAGE = "Your interview is already complete — booking is no longer available."
+BOOKING_OPTED_OUT_MESSAGE = "This interview was closed — booking is no longer available."
 
 
 def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
     """Return a user-facing reason when this candidate must not book/reschedule/cancel."""
     status = str(recipient.status or "").lower()
     parsed = _recipient_result(recipient)
+    if status in {"opted_out"} or parsed.get("opted_out"):
+        return BOOKING_OPTED_OUT_MESSAGE
+    if parsed.get("awaiting_candidate_action") and status not in {"completed", "done", "opted_out"}:
+        # Early exit (not free / short drop / wrong person) — allow rebook.
+        return None
     if status in {"completed", "done"}:
         return BOOKING_LOCKED_MESSAGE
     if parsed.get("analysis_saved_at"):
@@ -1337,6 +1343,9 @@ class InterviewBookingService:
         merged = _recipient_result(recipient)
         merged.pop("booking_cancelled_at", None)
         merged.pop("booking_withdrawn", None)
+        merged.pop("awaiting_candidate_action", None)
+        merged.pop("early_exit_at", None)
+        merged.pop("early_exit_reason", None)
         merged.update(
             {
                 "booking_token": row.token,
@@ -2183,6 +2192,9 @@ class InterviewBookingService:
         merged = _recipient_result(recipient)
         merged.pop("booking_cancelled_at", None)
         merged.pop("booking_withdrawn", None)
+        merged.pop("awaiting_candidate_action", None)
+        merged.pop("early_exit_at", None)
+        merged.pop("early_exit_reason", None)
         merged.update(
             {
                 "booking_token": row.token,

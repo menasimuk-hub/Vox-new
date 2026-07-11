@@ -212,9 +212,16 @@ class InterviewMeetingService:
             db.commit()
             db.refresh(recipient)
 
+        agent_name = ""
+        if agent is not None:
+            agent_name = str(getattr(agent, "voice_label", None) or getattr(agent, "name", None) or "").strip()
+        if not agent_name:
+            agent_name = "Interviewer"
+
         return {
             "ok": True,
             "agent_id": prep.get("assistant_id") or assistant_id,
+            "agent_name": agent_name,
             "greeting": greeting,
             "custom_headers": custom_headers,
             "web_calls_enabled": bool(prep.get("web_calls_enabled")),
@@ -246,28 +253,38 @@ class InterviewMeetingService:
                 secs = None
 
         from app.services.billing_call_minutes import billable_call_minutes
+        from app.services.interview_early_exit_service import (
+            apply_interview_session_outcome,
+            classify_interview_session_outcome,
+        )
 
-        payload: dict[str, Any] = {
-            "channel": MEETING_CHANNEL,
+        transcript = str(merged.get("transcript") or "").strip() or None
+        outcome = classify_interview_session_outcome(duration_seconds=secs, transcript=transcript)
+
+        extra: dict[str, Any] = {
             "transport": "webrtc",
-            "ended_at": now.isoformat(),
-            "meeting_ended_at": now.isoformat(),
             "call_channel": MEETING_CHANNEL,
         }
         if provider_call_id:
-            payload["telnyx_conversation_id"] = str(provider_call_id).strip()
-            payload["provider_call_id"] = str(provider_call_id).strip()
+            extra["telnyx_conversation_id"] = str(provider_call_id).strip()
+            extra["provider_call_id"] = str(provider_call_id).strip()
         if secs is not None:
-            payload["duration_seconds"] = int(secs)
-            payload["billable_minutes"] = billable_call_minutes(int(secs))
+            extra["billable_minutes"] = billable_call_minutes(int(secs))
 
-        _set_recipient_result(db, recipient, payload)
+        result = apply_interview_session_outcome(
+            db,
+            order=order,
+            recipient=recipient,
+            outcome=outcome,
+            duration_seconds=secs,
+            transcript=transcript,
+            channel=MEETING_CHANNEL,
+            extra=extra,
+        )
         db.refresh(recipient)
 
-        recipient.status = "completed"
-        recipient.updated_at = now
-        db.add(recipient)
-        db.commit()
+        if outcome != "completed":
+            return result
 
         from app.services.interview_analysis_service import InterviewAnalysisService
 
@@ -296,7 +313,7 @@ class InterviewMeetingService:
 
         schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
 
-        return {"ok": True, "status": recipient.status}
+        return {"ok": True, "status": recipient.status, "outcome": "completed"}
 
 
 def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipient_id: str) -> None:
@@ -316,11 +333,15 @@ def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipi
                     recipient = session.get(ServiceOrderRecipient, recipient_id)
                     if not order or not recipient:
                         return
+                    if str(recipient.status or "").lower() != "completed":
+                        return
                     from app.services.interview_analysis_service import InterviewAnalysisService
                     from app.services.survey_analysis_service import ensure_survey_transcript
 
                     ensure_survey_transcript(session, order=order, recipient=recipient)
                     session.refresh(recipient)
+                    if str(recipient.status or "").lower() != "completed":
+                        return
                     InterviewAnalysisService.run_interview_analysis_if_needed(
                         session, order=order, recipient=recipient
                     )
