@@ -384,18 +384,28 @@ def apply_interview_assistant_pacing(
 
     Tuned for human-like interview turn-taking: slightly slower speech + longer
     endpointing so mid-thought pauses are not cut off.
+
+    Voice speed PATCH is provider-aware: Telnyx Natural uses ``voice_speed``;
+    ElevenLabs uses ``speed`` only (sending the wrong key / full blob returns 400).
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
-    voice_settings = _voice_settings_dict(existing)
-    if not isinstance(voice_settings, dict):
-        voice_settings = {}
+    current = _voice_settings_dict(existing)
+    voice = str(current.get("voice") or "").strip()
+    tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
+    clamped = max(0.5, min(1.0, float(voice_speed)))
+
+    # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
+    if tts_provider == "elevenlabs":
+        voice_patch: dict[str, Any] = {"speed": clamped}
+        if voice:
+            voice_patch["voice"] = voice
+        if current.get("api_key_ref"):
+            voice_patch["api_key_ref"] = current["api_key_ref"]
     else:
-        voice_settings = dict(voice_settings)
-    # Telnyx Natural voices use voice_speed; ElevenLabs uses speed.
-    voice_settings["voice_speed"] = max(0.5, min(1.0, float(voice_speed)))
-    if "speed" in voice_settings:
-        voice_settings["speed"] = voice_settings["voice_speed"]
+        voice_patch = {"voice_speed": clamped}
+        if voice:
+            voice_patch["voice"] = voice
 
     interruption_settings = {
         "start_speaking_plan": {
@@ -407,10 +417,10 @@ def apply_interview_assistant_pacing(
             },
         }
     }
-    out: dict[str, Any] = {"assistant_id": clean_id}
+    out: dict[str, Any] = {"assistant_id": clean_id, "tts_provider": tts_provider}
     try:
-        _update_telnyx_assistant(db, clean_id, {"voice_settings": voice_settings})
-        out["voice_settings"] = voice_settings
+        _update_telnyx_assistant(db, clean_id, {"voice_settings": voice_patch})
+        out["voice_settings"] = voice_patch
     except Exception as exc:
         logger.warning("interview_pacing_voice_failed assistant_id=%s err=%s", clean_id, exc)
         out["voice_error"] = str(exc)
