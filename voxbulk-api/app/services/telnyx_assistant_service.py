@@ -405,18 +405,18 @@ def apply_interview_assistant_pacing(
 ) -> dict[str, Any]:
     """Tune turn-taking so the agent does not interrupt answers mid-thought.
 
-    Keep TTS at normal speed (1.0). Only lengthen wait-before-speak / endpointing —
-    ``voice_speed`` 0.8 made NaturalHD / ElevenLabs sound unnaturally slow.
+    Keep TTS at normal conversational speed (1.0). Do not slow TTS — ``voice_speed`` 0.8
+    made NaturalHD / ElevenLabs sound unnaturally slow and robotic.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
     current = _voice_settings_dict(existing)
     voice = str(current.get("voice") or "").strip()
     tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
-    clamped = max(0.5, min(1.0, float(voice_speed)))
+    clamped = max(0.85, min(1.2, float(voice_speed)))
 
     # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
-    # Always set voice_speed=1.0 as well: Telnyx Natural uses it, and some ElevenLabs
+    # Always set voice_speed explicitly: Telnyx Natural uses it, and some ElevenLabs
     # assistants keep a stale voice_speed that still slows playback if left at 0.8.
     if tts_provider == "elevenlabs":
         voice_patch: dict[str, Any] = {"speed": clamped, "voice_speed": clamped}
@@ -429,13 +429,14 @@ def apply_interview_assistant_pacing(
         if voice:
             voice_patch["voice"] = voice
 
+    # Snappy but non-interruptive turn-taking (long waits feel robotic / "bot-like").
     interruption_settings = {
         "start_speaking_plan": {
-            "wait_seconds": 0.7,
+            "wait_seconds": 0.4,
             "transcription_endpointing_plan": {
-                "on_punctuation_seconds": 0.55,
-                "on_no_punctuation_seconds": 1.6,
-                "on_number_seconds": 1.0,
+                "on_punctuation_seconds": 0.35,
+                "on_no_punctuation_seconds": 1.0,
+                "on_number_seconds": 0.7,
             },
         }
     }
@@ -473,8 +474,7 @@ def sync_telnyx_assistant_instructions(
     speech-to-text language is switched to a model that supports it so the candidate
     is understood in that language.
 
-    When ``apply_human_pacing`` is True, also slow TTS and lengthen wait-before-speak
-    for interview-style turn-taking.
+    When ``apply_human_pacing`` is True, also set normal TTS speed and interview turn-taking.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     clean_instructions = str(instructions or "").strip()

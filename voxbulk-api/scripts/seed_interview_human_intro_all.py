@@ -54,7 +54,7 @@ def _english_pack(agent: AgentDefinition) -> dict[str, str]:
             str(getattr(agent, "accent_region", None) or interview_agent_dialect_meta(agent).get("dialect_code") or "GB")
         ),
         "conversation_style": (
-            "Warm, professional company representative — calm, clear, measured pace. "
+            "Warm, professional company representative — calm, clear, natural conversational pace. "
             "Follow the canonical call flow exactly. "
             "Active listening: clarify off-topic, probe thin answers, reflect clear answers — "
             "vary brief reactions; never empty got-it then next."
@@ -72,7 +72,7 @@ def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
         "opening_disclosure_template": "مرحباً، ممكن اتكلم مع {first_name}؟",
         "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام معتدلة. مصري واضح مش فصحى جامدة. "
+            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام طبيعية مش بطيئة. مصري واضح مش فصحى جامدة. "
             "اتبع السير الكنسي. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. متقاطعش المرشّح."
         ),
         "interruption_behavior_notes": (
@@ -88,7 +88,7 @@ def _gulf_pack(agent: AgentDefinition) -> dict[str, str]:
         "opening_disclosure_template": "مرحباً، ممكن اتكلم مع {first_name}؟",
         "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام معتدلة. "
+            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام طبيعية مش بطيئة. "
             "اتبع السير الكنسي. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. لا تقاطع المرشّح."
         ),
         "interruption_behavior_notes": (

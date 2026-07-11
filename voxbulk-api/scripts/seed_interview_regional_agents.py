@@ -76,7 +76,7 @@ Do not re-ask the identity check. Busy → email link only — no verbal callbac
     call_workflow = interview_call_workflow_for_dialect(spec.accent_region)
 
     conversation_style = (
-        f"{accent_line}. Warm, professional company representative — calm, clear, measured pace. "
+        f"{accent_line}. Warm, professional company representative — calm, clear, natural conversational pace. "
         "Follow the canonical call flow. Never interrupt. "
         "Active listening: clarify / probe / reflect — vary brief reactions. "
         "Use light regional markers naturally — not overly casual slang."

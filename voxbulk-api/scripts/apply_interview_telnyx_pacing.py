@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply slower voice + longer wait-before-speak to all interview Telnyx assistants."""
+"""Apply normal voice speed + snappy turn-taking to all interview Telnyx assistants."""
 from __future__ import annotations
 
 import sys
@@ -29,7 +29,7 @@ def main() -> int:
                 print(f"skip {agent.name}: no telnyx_assistant_id")
                 continue
             try:
-                result = apply_interview_assistant_pacing(db, aid, voice_speed=0.80)
+                result = apply_interview_assistant_pacing(db, aid, voice_speed=1.0)
                 voice = "voice_err" if result.get("voice_error") else "voice_ok"
                 intr = "int_err" if result.get("interruption_error") else "int_ok"
                 print(f"{agent.name}\t{aid}\t{voice}\t{intr}")
