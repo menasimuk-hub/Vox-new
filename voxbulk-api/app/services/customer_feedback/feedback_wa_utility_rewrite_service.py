@@ -92,23 +92,18 @@ def rewrite_feedback_body(
     template_name: str | None = None,
     force_rewrite: bool = False,
 ) -> str:
-    from app.services.survey_wa_utility_rewrite_service import _is_non_english_language
-
     topic_hint = template_key.replace("_", " ")
     meta_name = str(template_name or template_key or "").strip()
     if not use_llm:
-        # Convert force_rewrite: only force English topic bodies for English rows.
-        # Non-English keeps the original question (sanitized) so Spanish/Arabic etc. are not replaced.
-        apply_force = bool(force_rewrite) and not _is_non_english_language(
-            language, template_name=meta_name
-        )
+        # Language-aware rule rewrite: EN→EN Utility frames, AR→AR Utility frames,
+        # other locales keep same-language copy (never Englishified).
         return _rule_based_utility_body(
             original_body,
             topic_hint=topic_hint,
             industry_slug=industry_slug,
             language=language,
             template_name=meta_name,
-            force_rewrite=apply_force,
+            force_rewrite=force_rewrite,
         )
     return rewrite_body_for_utility(
         db,

@@ -32,6 +32,24 @@ def test_rewrite_feedback_body_preserves_spanish_without_meta_name_attr():
     assert "how would you rate" not in body.lower()
 
 
+def test_rewrite_feedback_arabic_breakfast_force_stays_arabic():
+    body = rewrite_feedback_body(
+        MagicMock(),
+        original_body="🍳 كيف تقيّم جودة وجبة الإفطار المقدمة؟",
+        buttons=["ممتاز", "جيد", "ضعيف"],
+        template_key="breakfast_quality",
+        use_llm=False,
+        language="ar",
+        industry_slug="hotel",
+        template_name="cfs_hotel_breakfast_quality_ar_v1",
+        force_rewrite=True,
+    )
+    assert "how would you rate" not in body.lower()
+    assert "كيف" in body
+    assert "زيارتك الأخيرة" in body or "تجربتك الأخيرة" in body
+    assert "جودة الإفطار" in body or "الإفطار" in body
+
+
 def test_apply_utility_rewrite_feedback_uses_meta_template_name():
     Session = get_sessionmaker()
     with Session() as db:

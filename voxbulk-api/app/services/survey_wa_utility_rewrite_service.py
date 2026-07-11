@@ -218,9 +218,13 @@ def parse_cfs_meta_name(name: str) -> dict[str, str] | None:
 def _language_code_from_value(language: str | None, *, template_name: str = "") -> str:
     cfs = parse_cfs_meta_name(template_name)
     cfs_lang = str(cfs.get("lang") or "").strip().lower() if cfs else ""
+    was_match = _WAS_TOPIC_SUFFIX_RE.match(str(template_name or "").strip().lower())
+    was_lang = str(was_match.group(3) or "").strip().lower() if was_match else ""
     raw = str(language or "").strip().lower().replace("-", "_")
-    if cfs_lang and cfs_lang not in {"en"} and (not raw or raw.startswith("en")):
-        return cfs_lang
+    # Prefer explicit non-English tokens from the template name when row.language is missing/English.
+    name_lang = cfs_lang or was_lang
+    if name_lang and name_lang not in {"en"} and (not raw or raw.startswith("en")):
+        return name_lang
     if raw.startswith("en"):
         return "en"
     if raw.startswith("ar"):
@@ -229,8 +233,8 @@ def _language_code_from_value(language: str | None, *, template_name: str = "") 
         head = raw.split("_", 1)[0]
         if len(head) >= 2:
             return head
-    if cfs_lang:
-        return cfs_lang
+    if name_lang:
+        return name_lang
     return "en"
 
 
@@ -278,8 +282,9 @@ def lang_variant_from_manifest_item(item: dict[str, Any]) -> "LangVariant":
 
 
 def _is_non_english_language(language: str | None, *, template_name: str = "") -> bool:
+    """True for any locale that must not be force-rewritten into English Utility copy."""
     code = _language_code_from_value(language, template_name=template_name)
-    return code not in {"en", "ar"}
+    return code != "en"
 
 
 def _language_label(language: str | None, *, template_name: str = "") -> str:
@@ -405,6 +410,60 @@ def _mentions_recent_interaction(text: str) -> bool:
     return any(phrase in lower for phrase in _UTILITY_CONTEXT_PHRASES)
 
 
+def _forced_utility_body_same_language(
+    *,
+    topic: str,
+    lang_code: str,
+    industry_slug: str | None,
+    industry_name: str | None,
+    frame_key: str,
+    original_cleaned: str,
+    template_name: str = "",
+) -> str:
+    """Build Utility body in the template's language — never translate AR/ES/… into English."""
+    from app.services.wa_template_utility_content import (
+        employee_utility_body_for_topic,
+        utility_body_ar_for_topic,
+        utility_body_for_topic,
+    )
+
+    if lang_code == "ar":
+        return utility_body_ar_for_topic(
+            topic,
+            emoji="",
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+        ).lstrip()
+
+    if lang_code != "en":
+        # No curated Utility frames for ES/FR/… — keep original when already Utility-safe;
+        # otherwise keep the original question (sanitized) rather than English topic copy.
+        if _original_looks_utility_safe(
+            original_cleaned,
+            language=lang_code,
+            template_name=template_name,
+        ):
+            return _sanitize_body(original_cleaned)
+        return _sanitize_body(original_cleaned)
+
+    if frame_key == "employee":
+        return (
+            employee_utility_body_for_topic(topic)
+            or utility_body_for_topic(
+                topic,
+                emoji="",
+                industry_slug=industry_slug,
+                industry_name=industry_name,
+            ).lstrip()
+        )
+    return utility_body_for_topic(
+        topic,
+        emoji="",
+        industry_slug=industry_slug,
+        industry_name=industry_name,
+    ).lstrip()
+
+
 def _rule_based_utility_body(
     original: str,
     *,
@@ -432,20 +491,15 @@ def _rule_based_utility_body(
     topic = topic_hint.strip() or frame["fallback_topic"]
 
     if force_rewrite:
-        if frame["key"] == "employee":
-            body = employee_utility_body_for_topic(topic) or utility_body_for_topic(
-                topic,
-                emoji="",
-                industry_slug=industry_slug,
-                industry_name=industry_name,
-            ).lstrip()
-        else:
-            body = utility_body_for_topic(
-                topic,
-                emoji="",
-                industry_slug=industry_slug,
-                industry_name=industry_name,
-            ).lstrip()
+        body = _forced_utility_body_same_language(
+            topic=topic,
+            lang_code=lang_code,
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+            frame_key=frame["key"],
+            original_cleaned=cleaned,
+            template_name=template_name,
+        )
         return _normalize_leading_emoji_text(_prepend_leading_emoji(emoji, _sanitize_body(body)))
 
     if _is_non_english_language(lang_code, template_name=template_name) and _original_looks_utility_safe(

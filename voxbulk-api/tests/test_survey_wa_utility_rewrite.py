@@ -47,6 +47,71 @@ def test_language_inferred_from_cfs_name_over_en_gb_default():
     assert _language_code_from_value("en_gb", template_name="cfs_hotel_atmosphere_en_v1") == "en"
 
 
+def test_language_inferred_from_was_name_suffix():
+    assert _language_code_from_value("en_US", template_name="was_hotel_breakfast_quality_001_ar") == "ar"
+    assert _language_code_from_value("", template_name="was_hotel_breakfast_quality_002_en") == "en"
+
+
+def test_force_rewrite_arabic_hotel_breakfast_stays_arabic():
+    """Convert Regenerate must not Englishify Arabic MARKETING → Utility bodies."""
+    original = "🍳 كيف تقيّم جودة وجبة الإفطار المقدمة؟"
+    body = _rule_based_utility_body(
+        original,
+        topic_hint="breakfast quality",
+        industry_slug="hotel",
+        language="ar",
+        template_name="cfs_hotel_breakfast_quality_ar_v1",
+        force_rewrite=True,
+    )
+    assert "how would you rate" not in body.lower()
+    assert "breakfast-quality" not in body.lower()
+    assert "كيف" in body
+    assert "زيارتك الأخيرة" in body or "تجربتك الأخيرة" in body
+    assert "جودة الإفطار" in body or "الإفطار" in body
+    assert body.startswith("🍳")
+
+
+def test_force_rewrite_arabic_via_was_name_without_language_field():
+    body = _rule_based_utility_body(
+        "🍳 كيف تقيّم جودة وجبة الإفطار المقدمة؟",
+        topic_hint="breakfast quality",
+        industry_slug="hotel",
+        language="en_US",
+        template_name="was_hotel_breakfast_quality_001_ar",
+        force_rewrite=True,
+    )
+    assert "how would you rate" not in body.lower()
+    assert "كيف" in body
+
+
+def test_force_rewrite_spanish_not_englishified():
+    original = "🌆 ¿Cómo calificarías el ambiente y la atmósfera de nuestro hotel?"
+    body = _rule_based_utility_body(
+        original,
+        topic_hint="atmosphere",
+        industry_slug="hotel",
+        language="es",
+        template_name="cfs_hotel_atmosphere_es_v1",
+        force_rewrite=True,
+    )
+    assert "¿Cómo calificarías" in body
+    assert "how would you rate" not in body.lower()
+
+
+def test_force_rewrite_english_hotel_still_english_utility():
+    body = _rule_based_utility_body(
+        "🍳 How was breakfast?",
+        topic_hint="breakfast quality",
+        industry_slug="hotel",
+        language="en_GB",
+        template_name="cfs_hotel_breakfast_quality_en_v1",
+        force_rewrite=True,
+    )
+    assert "how would you rate" in body.lower()
+    assert "recent visit" in body.lower()
+
+
+
 def test_lang_variant_from_manifest_item_enriches_cfs_metadata():
     from app.services.survey_wa_utility_rewrite_service import lang_variant_from_manifest_item
 
