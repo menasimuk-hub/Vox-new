@@ -13,10 +13,16 @@ from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.voice_agent_platform_settings import DEFAULT_OPENING_DISCLOSURE, VoiceAgentPlatformSettings
 from app.services.interview_dialect_packs import (
+    ARABIC_FORBIDDEN_PHRASES,
+    CANONICAL_OPENING_AR,
+    CANONICAL_OPENING_EN,
     dialect_code_for_agent,
     interview_call_workflow_for_dialect,
     interview_dialect_lexicon_block,
+    interview_duration_spoken,
     interview_human_behavior_for_dialect,
+    interview_opening_template_for_dialect,
+    interview_timeframe_spoken,
 )
 from app.services.survey_dispatch_service import _first_name, _personalize
 
@@ -41,23 +47,13 @@ _INVALID_SPOKEN_ORG_NAMES = frozenset(
     }
 )
 
-DEFAULT_INTERVIEW_OPENING_FALLBACK = (
-    "Hello {first_name}, this is {agent_name} calling from {company_name} about the {role} role. "
-    "This call is recorded for quality and assessment. "
-    "Do you have about 10 to 15 minutes now for a short screening interview?"
-)
+# Interview opening = identity check only. Intro / duration / recording live in the canonical workflow.
+DEFAULT_INTERVIEW_OPENING_FALLBACK = CANONICAL_OPENING_EN
+DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = CANONICAL_OPENING_AR
 
-# Arabic opening fallback (used when the approved script is written in Arabic and no
-# custom disclosure template is configured). MSA wording — dialect agents override via template.
-DEFAULT_INTERVIEW_OPENING_FALLBACK_AR = (
-    "السلام عليكم {first_name}، معك {agent_name} أتصل من {company_name} بخصوص وظيفة {role}. "
-    "المكالمة مسجّلة للجودة والتقييم. "
-    "هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة قصيرة؟"
-)
-
-# Arabic recording + time-ask tail appended only when those markers are missing.
+# Legacy alias — recording is no longer appended to the opening for interviews.
 ARABIC_RECORD_AVAILABILITY = (
-    "المكالمة مسجّلة للجودة والتقييم. هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لمقابلة قصيرة؟"
+    "ممتاز. قبل أن نبدأ، أود التذكير بأن هذه المكالمة مسجّلة لأغراض الجودة، هل هذا مناسب؟"
 )
 
 # Professional real-interview behaviour — dialect packs (see interview_dialect_packs).
@@ -83,31 +79,34 @@ ARABIC_EGYPTIAN_BASE_ROLE = (
 )
 ARABIC_GULF_HUMAN_SPEECH_RULES = (
     "أسلوب الكلام (إلزامي — أولوية بعد اللغة):\n"
-    "- لا تستخدم فصحى رسمية في كلامك. لا تتكلم كأنك تقرأ بيانًا.\n"
+    "- تكلم خليجي مهني دافئ — ممثل شركة، مو كلام أصحاب.\n"
+    "- لا تستخدم فصحى رسمية جامدة. لا تتكلم كأنك تقرأ بيانًا.\n"
     "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «إذن»، «حضرة»، «لقد»، «بالتأكيد سيدي»، «سوف أقوم»، «يرجى التكرم».\n"
-    "- استخدم بدلها: «تقدر»، «تبي»، «ودك»، «الحين»، «وش»، «كيف»، «ليش»، «تمام»، «زين»، «طيب»، «أكيد»، «عطني مثال».\n"
+    f"- {ARABIC_FORBIDDEN_PHRASES}\n"
+    "- استخدم: تمام، مفهوم، شكراً، الحين، وش، طيب، زين — نوّع الردود القصيرة.\n"
     "- إذا السؤال في النص المعتمد مكتوب فصحى، قل المعنى نفسه بخليجي طبيعي قبل ما تنتظر الإجابة.\n"
-    "- ردودك ١–٢ جملة غالبًا. لا فقرات طويلة. لا تكرر نفس الجملة.\n"
-    "- نبرة ودودة ومحترمة — زي مكالمة توظيف حقيقية مو امتحان لغة عربية.\n"
-    "- ممنوع ترد بـ «تمام» أو «فهمت عليك» لوحدها وتنتقل — اسمع، وضّح، أو اسأل بعمق."
+    "- ردودك ١–٢ جملة غالبًا. اتبع سير المكالمة الكنسي خطوة بخطوة.\n"
+    "- ممنوع ترد بـ «تمام» أو «مفهوم» لوحدها وتنتقل — اسمع، وضّح، أو اسأل بعمق.\n"
+    "- الرد الآلي / البريد الصوتي: لا تقول شيء وأنهِ فورًا."
 )
 ARABIC_EGYPTIAN_HUMAN_SPEECH_RULES = (
     "أسلوب الكلام (إلزامي — أولوية بعد اللغة):\n"
-    "- تكلم مصري عامية طبيعية طول المكالمة. ممنوع فصحى رسمية أو خلط فصحى/عامية.\n"
+    "- تكلم مصري مهني دافئ طول المكالمة — ممثل شركة، مش كلام أصحاب. ممنوع فصحى رسمية جامدة.\n"
     "- ممنوع أو تجنّب: «هل يمكنك»، «أود أن»، «حضرة»، «سوف أقوم»، «يرجى التكرم»، «إذن»، «لقد».\n"
-    "- استخدم بدلها: «تقدر»، «عندك»، «دلوقتي»، «إزاي»، «ليه»، «تمام»، «ماشي»، «أكيد»، «ادّيني مثال».\n"
+    f"- {ARABIC_FORBIDDEN_PHRASES}\n"
+    "- استخدم: تمام، مفهوم، شكراً، دلوقتي، إزاي — نوّع الردود القصيرة.\n"
     "- إذا السؤال في النص المعتمد مكتوب فصحى، قل المعنى نفسه بمصري طبيعي قبل ما تنتظر الإجابة.\n"
-    "- ردودك ١–٢ جملة غالبًا. افهم لو المرشّح تكلم خليجي أو شامي أو مصري — ورد بمصري واضح.\n"
-    "- نبرة ودودة ومحترفة وإنسانية — زي مكالمة توظيف حقيقية مش روبوت.\n"
-    "- بعد الموافقة قول «نبدأ» مش «نكمل» — دي بداية المقابلة.\n"
-    "- ممنوع ترد بـ «تمام» أو «فهمت عليك» لوحدها وتنتقل — اسمع، وضّح، أو اسأل بعمق."
+    "- ردودك ١–٢ جملة غالبًا. اتبع سير المكالمة الكنسي خطوة بخطوة.\n"
+    "- ممنوع ترد بـ «تمام» أو «مفهوم» لوحدها وتنتقل — اسمع، وضّح، أو اسأل بعمق.\n"
+    "- الرد الآلي / البريد الصوتي: متقولش حاجة وانهِ فورًا."
 )
 ARABIC_HUMAN_SPEECH_RULES = ARABIC_GULF_HUMAN_SPEECH_RULES
 ARABIC_INTERVIEW_SERVICE_ROLE = (
-    "أجرِ مقابلات هاتفية منظمة للوظائف — وضّح الهدف، جهّز المرشّح، واسمع بذكاء واسأل بعمق عند الحاجة.\n"
-    "السؤال 1–2: ارجع لسيرة المرشّح (خبرة، إنجاز، أو فجوة).\n"
-    "السؤال 3+: من دور الوظيفة ومعايير هذه الحملة.\n"
-    "قيّم الإجابات من حيث الوضوح والملاءمة. لا تقل أبدًا «استبيان»."
+    "أجرِ مقابلات هاتفية منظمة حسب سير المكالمة الكنسي فقط.\n"
+    "بعد تأكيد الهوية والوقت والإفصاح عن التسجيل: اطرح أسئلة النص المعتمد بالترتيب.\n"
+    "السؤال 1–2: ارجع لسيرة المرشّح عند الحاجة. السؤال 3+: من دور الوظيفة ومعايير الحملة.\n"
+    "قيّم الإجابات من حيث الوضوح والملاءمة. لا تقل أبدًا «استبيان». "
+    "قل: أتصل بخصوص مقابلة {role} — لا تخترع أوصافًا غريبة."
 )
 ARABIC_INTERVIEW_CALL_WORKFLOW = interview_call_workflow_for_dialect("SA")
 ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW = interview_call_workflow_for_dialect("EG")
@@ -417,11 +416,15 @@ def substitute_voice_placeholders(
     agent_name: str = "",
     role: str = "",
     first_name: str = "",
+    duration: str = "",
+    timeframe: str = "",
+    job_title: str = "",
+    reschedule_link: str = "",
 ) -> str:
     """Replace all runtime voice placeholders used in agent templates, KB, and scripts."""
     organiser = str(organiser_name or agent_name or company_name).strip()
     agent = str(agent_name or organiser or "the recruiter").strip()
-    role_line = str(role or "this role").strip()
+    role_line = str(role or job_title or "this role").strip()
     first = str(first_name or "there").strip() or "there"
     out = _personalize(
         str(text or ""),
@@ -433,9 +436,13 @@ def substitute_voice_placeholders(
         "company_name": company_name,
         "agent_name": agent,
         "role": role_line,
+        "job_title": role_line,
         "organiser_name": organiser,
         "position": role_line,
         "goal": role_line,
+        "duration": str(duration or "").strip(),
+        "timeframe": str(timeframe or "").strip(),
+        "reschedule_link": str(reschedule_link or "").strip(),
     }
     for key, value in mapping.items():
         if value:
@@ -468,6 +475,9 @@ def resolve_opening_disclosure_template(
     ).strip()
     agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "the recruiter").strip()
     role = str(config.get("role") or config.get("goal") or config.get("position") or "this role").strip()
+    use_arabic = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
+    duration = interview_duration_spoken(use_arabic=use_arabic, config=config)
+    timeframe = interview_timeframe_spoken(use_arabic=use_arabic, config=config)
 
     org_template = ""
     if org_id:
@@ -480,7 +490,16 @@ def resolve_opening_disclosure_template(
             org_template = str(compliance.ai_disclosure_wording).strip()
 
     template = ""
-    if agent and str(agent.opening_disclosure_template or "").strip():
+    if service_key == SERVICE_INTERVIEW:
+        # Canonical interview opening = identity check only (recording comes after time consent).
+        dialect = dialect_code_for_agent(agent) if agent else ("SA" if use_arabic else "GB")
+        if use_arabic or dialect in {"EG", "SA", "AR"}:
+            template = interview_opening_template_for_dialect(
+                dialect if dialect in {"EG", "SA"} else "SA"
+            )
+        else:
+            template = interview_opening_template_for_dialect(dialect)
+    elif agent and str(agent.opening_disclosure_template or "").strip():
         template = str(agent.opening_disclosure_template).strip()
     elif org_template:
         template = org_template
@@ -490,10 +509,13 @@ def resolve_opening_disclosure_template(
         template = DEFAULT_OPENING_DISCLOSURE
 
     if mandatory and not template.strip():
-        template = DEFAULT_OPENING_DISCLOSURE
+        if service_key == SERVICE_INTERVIEW:
+            template = DEFAULT_INTERVIEW_OPENING_FALLBACK_AR if use_arabic else DEFAULT_INTERVIEW_OPENING_FALLBACK
+        else:
+            template = DEFAULT_OPENING_DISCLOSURE
 
-    script_ar = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
-    if script_ar:
+    script_ar = use_arabic
+    if script_ar and service_key != SERVICE_INTERVIEW:
         from app.services.service_script_generator import _localize_disclosure_for_script_language
 
         template = _localize_disclosure_for_script_language(
@@ -510,54 +532,26 @@ def resolve_opening_disclosure_template(
         agent_name=agent_name,
         role=role,
         first_name=first_name,
+        duration=duration,
+        timeframe=timeframe,
     )
     if mandatory and not rendered.strip():
         rendered = substitute_voice_placeholders(
-            DEFAULT_OPENING_DISCLOSURE,
+            DEFAULT_OPENING_DISCLOSURE if service_key != SERVICE_INTERVIEW else (
+                DEFAULT_INTERVIEW_OPENING_FALLBACK_AR if use_arabic else DEFAULT_INTERVIEW_OPENING_FALLBACK
+            ),
             company_name=company_name,
             organiser_name=organiser_name,
             agent_name=agent_name,
             role=role,
-            first_name="",
+            first_name=first_name or "",
+            duration=duration,
+            timeframe=timeframe,
         )
     if service_key == SERVICE_INTERVIEW:
-        # Match the disclosure tail to the language of the call. Only append missing pieces
-        # so seeded templates that already include recording + 10–15 minutes are not doubled.
-        arabic = _contains_arabic(rendered) or _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
-        if arabic:
-            low = rendered
-            has_record = "مسجّل" in low or "مسجل" in low
-            has_time = "دقيقة" in low or "دقائق" in low or "مناسب" in low
-            if not has_record and not has_time:
-                rendered = f"{rendered} {ARABIC_RECORD_AVAILABILITY}".strip()
-            elif not has_record:
-                rendered = f"{rendered} المكالمة مسجّلة للجودة والتقييم.".strip()
-            elif not has_time:
-                rendered = f"{rendered} هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟".strip()
-        else:
-            low = rendered.lower()
-            has_record = "record" in low
-            has_time = (
-                "10" in low
-                or "15" in low
-                or "ten" in low
-                or "fifteen" in low
-                or "good time" in low
-                or "have about" in low
-                or "do you have" in low
-            )
-            if not has_record and not has_time:
-                rendered = (
-                    f"{rendered} This call is recorded for quality and assessment. "
-                    "Do you have about 10 to 15 minutes now for a short screening interview?"
-                ).strip()
-            elif not has_record:
-                rendered = f"{rendered} This call is recorded for quality and assessment.".strip()
-            elif not has_time:
-                rendered = (
-                    f"{rendered} Do you have about 10 to 15 minutes now for a short screening interview?"
-                ).strip()
-    elif service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
+        # Do not append recording or time-ask to the opening — those are workflow steps after identity.
+        return rendered
+    if service_key == SERVICE_SURVEY and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
     elif service_key == SERVICE_APPOINTMENTS and mandatory and "record" not in rendered.lower():
         rendered = f"{rendered} This call is recorded for quality purposes.".strip()
@@ -724,12 +718,20 @@ def build_service_runtime_instructions(
     criteria = str(config.get("screening_criteria") or config.get("criteria") or "").strip()
     script = str(config.get("approved_script") or config.get("generated_script_draft") or "").strip()
     survey_prompt = str(config.get("survey_runtime_prompt") or script).strip()
+    use_arabic_preview = call_should_use_arabic(agent, script=script, survey_prompt=survey_prompt, criteria=criteria)
+    duration = interview_duration_spoken(use_arabic=use_arabic_preview, config=config)
+    timeframe = interview_timeframe_spoken(use_arabic=use_arabic_preview, config=config)
+    reschedule_link = str(config.get("reschedule_link") or config.get("booking_link") or "").strip()
     placeholder_kwargs = {
         "company_name": company_name,
         "organiser_name": organiser,
         "agent_name": agent_name,
         "role": role,
         "first_name": first,
+        "duration": duration,
+        "timeframe": timeframe,
+        "job_title": role,
+        "reschedule_link": reschedule_link,
     }
     cv_snippet = ""
     if recipient is not None:
@@ -844,12 +846,12 @@ def build_service_runtime_instructions(
             if cv_snippet:
                 parts.append(f"ملخص السيرة الذاتية (استخدمه في السؤالين الأولين):\n{cv_snippet}")
             parts.append(
-                "هذه مكالمة مقابلة وظيفية قصيرة — وليست استبيانًا. "
-                f"أنت تتصل بالنيابة عن {company_name} بخصوص وظيفة {role}. "
-                "بعد موافقة المرشّح: وضّح باختصار هدف المكالمة وجهّزه، ثم اطرح أسئلة المقابلة المعتمدة بالترتيب، "
-                "مع متابعة قصيرة عند الحاجة، واسأله في النهاية إن كان يبي يضيف شيء. "
+                "هذه مكالمة مقابلة توظيف منظمة — وليست استبيانًا. "
+                f"أنت تتصل بالنيابة عن {company_name} بخصوص مقابلة {role}. "
+                "اتبع سير المكالمة الكنسي حرفيًا: بعد تأكيد الهوية → التعريف والوقت → "
+                "إذا وافق: الإفصاح عن التسجيل ثم الأسئلة؛ إذا رفض الوقت: رابط البريد فقط وأنهِ. "
                 "لا تقل كلمة «شركة» بشكل عام دون ذكر اسم المنظمة الفعلي. "
-                "لا تعِد تقديم نفسك — التحية سُئلت بالفعل في بداية المكالمة."
+                "لا تعِد سؤال الهوية — سُئل بالفعل في بداية المكالمة."
             )
         else:
             parts.append(f"Calling on behalf of: {organiser}")
@@ -861,13 +863,12 @@ def build_service_runtime_instructions(
             if cv_snippet:
                 parts.append(f"Candidate CV summary (use for the first two questions):\n{cv_snippet}")
             parts.append(
-                "This is a job interview screening call — NOT a survey. "
-                f"You are calling on behalf of {company_name} about the {role} role. "
-                "After the candidate agrees: briefly explain the purpose of the call, settle them in, "
-                "then ask the approved interview questions in order, with one short follow-up when an answer "
-                "is thin, and ask if they want to add anything before closing. "
+                "This is a structured job interview screening call — NOT a survey. "
+                f"You are calling on behalf of {company_name} regarding the {role} interview. "
+                "Follow the canonical call workflow exactly: after identity confirm → intro + time → "
+                "if yes: recording disclosure then questions; if not a good time: email-link only and end. "
                 "Never say the generic word 'company' without the actual organisation name. "
-                "Do not re-introduce yourself — the opening greeting was already spoken."
+                "Do not re-ask the identity check — it was already spoken in the opening."
             )
 
     if layers.campaign_system_prompt and not (use_arabic and not _contains_arabic(layers.campaign_system_prompt)):
@@ -904,19 +905,21 @@ def build_service_runtime_instructions(
         if service_key == SERVICE_INTERVIEW:
             if use_arabic:
                 parts.append(
-                    "تمت التحية الافتتاحية بالفعل (الاسم، الشركة، سبب الاتصال، التسجيل، وطلب ١٠–١٥ دقيقة). "
-                    "لا تكرر التحية ولا قسم المقدمة ولا الإفصاح. "
-                    "انتظر رد المرشّح: إذا وافق → وضّح باختصار هدف المقابلة وجهّزه، ثم ابدأ أسئلة المقابلة. "
-                    "إذا مشغول أو رفض → رتّب معادًا وانهِ بلباقة."
+                    "تمت خطوة الهوية فقط في أول المكالمة (مرحباً، ممكن اتكلم مع المرشّح؟). "
+                    "لا تكرر سؤال الهوية. "
+                    "انتظر الرد: إذا نفي → اعتذر وأنهِ. إذا نعم → التعريف + المدة + هل الوقت مناسب. "
+                    "إذا الوقت غير مناسب → جملة رابط البريد الإلكتروني فقط ثم أنهِ (ممنوع طلب معاد شفهي). "
+                    "إذا الوقت مناسب → الإفصاح عن التسجيل (إلزامي) ثم جاهز للبدء ثم الأسئلة. "
+                    "ممنوع اختراع أوصاف مثل «مقابلة فرد» أو «فرز»."
                 )
             else:
                 parts.append(
-                    "The opening greeting was already spoken (your name, company, why you are calling, "
-                    "that the call is recorded, and asking for 10–15 minutes). "
-                    "Do NOT repeat the disclosure or INTRO. "
-                    "Wait for the candidate: if they agree → briefly explain the purpose of this screening "
-                    "interview, settle them in, confirm they are ready, then begin the interview questions. "
-                    "If busy or decline → offer to reschedule and close politely."
+                    "Only the identity check was already spoken (Hello, is this the candidate?). "
+                    "Do NOT repeat the identity check. "
+                    "Wait: if wrong person → apologise and end. If yes → introduce yourself, company, role interview, "
+                    "duration, and ask if now is a good time. "
+                    "If not a good time → email-link reschedule line only, then end (no verbal callback). "
+                    "If yes → mandatory recording disclosure, settle-in, ready to start, then questions."
                 )
         elif use_arabic:
             parts.append(
@@ -955,16 +958,21 @@ def build_service_runtime_instructions(
             else "If interrupted mid-sentence, restate only the unfinished sentence — never restart the full introduction."
         )
         behavior.append(
-            "لا تنتقل إلى أسئلة المقابلة حتى يؤكد المرشّح أن الوقت مناسب الآن (التحية سُئلت بالفعل)."
+            "لا تنتقل إلى أسئلة المقابلة حتى: (1) يتأكد الوقت مناسب و(2) يتم الإفصاح عن التسجيل ويوافق المرشّح."
             if use_arabic
-            else "Do not continue to interview questions until the callee confirms now is a good time "
-            "(the introduction was already spoken in the greeting)."
+            else "Do not continue to interview questions until (1) now is a good time and "
+            "(2) recording disclosure has been given and acknowledged."
         )
         behavior.append(
-            "بعد آخر سؤال: اشكر المرشّح وقل إن المنظمة ستراجع المقابلة وتتواصل معه — ثم ودّع. لا تنهِ قبل ذلك."
+            "بعد آخر سؤال: اشكر المرشّح وقل إن الفريق سيراجع الإجابات ويتواصل خلال الإطار الزمني — ثم ودّع. لا تنهِ قبل ذلك."
             if use_arabic
-            else "After the last question: thank the candidate, say the organisation will review the interview "
-            "and contact them with next steps, then say goodbye. Do not end the call before that closing."
+            else "After the last question: thank the candidate, say the team will review and be in touch "
+            "within the timeframe, then say goodbye. Do not end the call before that closing."
+        )
+        behavior.append(
+            "الرد الآلي / البريد الصوتي: لا تقل أي شيء وأنهِ المكالمة فورًا."
+            if use_arabic
+            else "Voicemail / answering machine: say nothing and end the call immediately."
         )
         if layers.interruption_notes and not (use_arabic and not _contains_arabic(layers.interruption_notes)):
             # Prefer wait-for-full-answer wording over thin "restate unfinished" only notes.
@@ -1021,12 +1029,18 @@ def build_service_opening_greeting(
     agent_name = _agent_name(agent)
     first = _first_name(recipient_name)
     role = str(config.get("role") or config.get("goal") or "this role").strip()
+    use_arabic = _contains_arabic(_config_script_text(config)) or agent_is_arabic(agent)
+    duration = interview_duration_spoken(use_arabic=use_arabic, config=config)
+    timeframe = interview_timeframe_spoken(use_arabic=use_arabic, config=config)
     placeholder_kwargs = {
         "company_name": company_name,
         "organiser_name": organiser_name,
         "agent_name": agent_name,
         "role": role,
         "first_name": first,
+        "duration": duration,
+        "timeframe": timeframe,
+        "job_title": role,
     }
 
     disclosure = resolve_opening_disclosure_template(

@@ -121,13 +121,12 @@ def test_interview_opening_greeting_uses_real_company_name(db):
         org_id=org.id,
         order=order,
     )
-    assert "Acme Health" in greeting
-    assert "Leo" in greeting
-    assert "record" in greeting.lower()
-    assert "10" in greeting and "15" in greeting
+    # Canonical opening = identity check only (recording comes after time consent).
+    assert "Jane" in greeting or "is this" in greeting.lower()
+    assert "record" not in greeting.lower()
     assert "ai assistant" not in greeting.lower()
-    assert " company" not in f" {greeting.lower()} "
     assert "{company_name}" not in greeting
+    assert "{first_name}" not in greeting
 
 
 def test_runtime_instructions_replace_kb_placeholders(db):
@@ -143,13 +142,15 @@ def test_runtime_instructions_replace_kb_placeholders(db):
     assert "Acme Health" in instructions
     assert "{company_name}" not in instructions
     assert "Never say the generic word 'company'" in instructions
-    assert "Do NOT repeat the disclosure or INTRO" in instructions
-    assert "Sound like a skilled recruiter" in instructions or "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions or "British recruiter" in instructions or "real human phone interviewer" in instructions
+    assert "identity check" in instructions.lower() or "Only the identity" in instructions
+    assert "email" in instructions.lower() and ("reschedule" in instructions.lower() or "link" in instructions.lower())
+    assert "record" in instructions.lower()
+    assert "callback during working hours" not in instructions.lower()
+    assert "Sound like a skilled recruiter" in instructions or "Sound like a helpful recruiter" in instructions or "Sound like a real recruiter" in instructions or "British recruiter" in instructions or "real human phone interviewer" in instructions or "company representative" in instructions.lower()
     assert "Never say you are an AI assistant" in instructions
-    assert "briefly explain the purpose" in instructions.lower()
-    assert "anything else they would like to add" in instructions.lower()
     assert "ACTIVE LISTENING" in instructions or "off-topic" in instructions.lower()
     assert "FORBIDDEN" in instructions or "got it" in instructions.lower()
+    assert "فرد" in instructions or "فرز" in instructions or "canonical" in instructions.lower() or "Step 1" in instructions
 
 def test_strip_opening_and_intro_from_script():
     from app.services.voice_agent_runtime import strip_opening_and_intro_from_script
@@ -189,8 +190,8 @@ def test_arabic_interview_generate_prompt_uses_dialect_not_fusha():
     ) == "EG"
     meta = _meta_for(kind="prompt", arabic_dialect="EG")
     assert "مصري" in meta
-    assert "نبدأ" in meta
     assert "فصحى" in meta  # forbidden note
+    assert "تسجيل" in meta or "جاهز" in meta or "سير" in meta
     assert "وش" not in meta or "ممنوع" in meta
     gulf = _meta_for(kind="prompt", arabic_dialect="SA")
     assert "خليجي" in gulf
@@ -236,7 +237,10 @@ def test_arabic_interview_runtime_gulf_agent_uses_khaleeji(db):
     assert "الخليجية" in instructions or "خليجي" in instructions
     assert "فصحى" in instructions
     assert "أسلوب الكلام" in instructions
-    assert "في أمان الله" in instructions
+    assert "مع السلامة" in instructions
+    assert "أتصل بخصوص مقابلة" in instructions or "بخصوص مقابلة" in instructions
+    assert "فرد" in instructions  # forbidden list
+    assert "الرابط المرسل" in instructions or "البريد" in instructions
 
 
 def test_arabic_interview_runtime_egyptian_agent_uses_masri(db):
@@ -262,13 +266,18 @@ def test_arabic_interview_runtime_egyptian_agent_uses_masri(db):
         service_key=SERVICE_INTERVIEW,
     )
     assert "المصرية" in instructions or "مصري" in instructions
-    assert "دلوقتي" in instructions or "ماشي" in instructions
+    assert "دلوقتي" in instructions or "ماشي" in instructions or "مفهوم" in instructions
     assert "فصحى" in instructions
-    assert "فرز قصيرة" not in instructions
-    assert "مقابلة قصيرة بخصوص" in instructions or "بخصوص وظيفة" in instructions
+    assert "فرز قصيرة" in instructions  # listed as forbidden
+    assert "ممنوع" in instructions
+    assert "مقابلة فرد" in instructions  # appears in forbidden list
+    assert "أتصل بخصوص مقابلة" in instructions or "بخصوص مقابلة" in instructions
     assert "ممكن توضح" in instructions or "الاستماع الذكي" in instructions or "برا الموضوع" in instructions
     assert "مع السلامة" in instructions
+    assert "مسجّلة لأغراض الجودة" in instructions or "مسجلة لأغراض الجودة" in instructions
+    assert "الرابط المرسل" in instructions or "البريد الإلكتروني" in instructions
     assert "شو قصدك" not in instructions
+    assert "callback during working hours" not in instructions.lower()
 
 
 def test_english_interview_runtime_uses_regional_dialect_pack(db):
@@ -294,5 +303,40 @@ def test_english_interview_runtime_uses_regional_dialect_pack(db):
         agent=agent,
         service_key=SERVICE_INTERVIEW,
     )
-    assert "Australian" in instructions or "No worries" in instructions or "crack on" in instructions
+    assert "Australian" in instructions or "No worries" in instructions
+    assert "regarding the" in instructions.lower() or "Step 1" in instructions
+    assert "email" in instructions.lower()
+    assert "record" in instructions.lower()
     assert "got it" in instructions.lower() or "FORBIDDEN" in instructions or "never empty" in instructions.lower()
+    assert "callback during working hours" not in instructions.lower()
+
+
+def test_arabic_interview_opening_is_identity_only(db):
+    org, order, recipient, _ = _seed_interview_call(db)
+    agent = AgentDefinition(
+        name="Jamal - Ar",
+        slug=f"jamal-open-{uuid.uuid4().hex[:8]}",
+        voice_label="Jammal",
+        accent_region="EG",
+        system_prompt="مصري",
+        supports_interview=True,
+        disclosure_for_interview=True,
+        disclosure_mandatory=True,
+        is_active=True,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    greeting = build_service_opening_greeting(
+        db,
+        agent=agent,
+        config={"role": "مساعد رعاية", "approved_script": "أسئلة\n1. خبرة؟"},
+        recipient_name=recipient.name,
+        service_key=SERVICE_INTERVIEW,
+        org_id=org.id,
+        order=order,
+    )
+    assert "ممكن اتكلم مع" in greeting or "Jane" in greeting
+    assert "مسجّل" not in greeting and "مسجل" not in greeting
+    assert "فرد" not in greeting

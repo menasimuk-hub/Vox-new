@@ -48,21 +48,16 @@ def _agent_display_name(agent: AgentDefinition) -> str:
 
 
 def _english_pack(agent: AgentDefinition) -> dict[str, str]:
-    name = _agent_display_name(agent)
     return {
-        "opening_disclosure_template": (
-            f"Hello {{first_name}}, this is {name} calling from {{company_name}} "
-            f"about the {{role}} role. This call is recorded for quality and assessment. "
-            f"Do you have about 10 to 15 minutes now for a short screening interview?"
-        ),
+        "opening_disclosure_template": "Hello, is this {first_name}?",
         "call_workflow": interview_call_workflow_for_dialect(
             str(getattr(agent, "accent_region", None) or interview_agent_dialect_meta(agent).get("dialect_code") or "GB")
         ),
         "conversation_style": (
-            "Warm, professional phone interviewer — calm, clear, measured pace. "
-            "Brief the candidate on what the call is for before questions. "
+            "Warm, professional company representative — calm, clear, measured pace. "
+            "Follow the canonical call flow exactly. "
             "Active listening: clarify off-topic, probe thin answers, reflect clear answers — "
-            "never empty got-it then next. Ask if they want to add anything before the full closing."
+            "vary brief reactions; never empty got-it then next."
         ),
         "interruption_behavior_notes": (
             "Never interrupt the candidate while they are answering — wait until they clearly finish. "
@@ -73,18 +68,12 @@ def _english_pack(agent: AgentDefinition) -> dict[str, str]:
 
 
 def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
-    name = _agent_display_name(agent)
     return {
-        "opening_disclosure_template": (
-            f"أهلاً {{first_name}}، معاك {name} باتصل من {{company_name}} بخصوص وظيفة {{role}}. "
-            f"المكالمة مسجّلة للجودة. "
-            f"عندك حوالي ١٠ إلى ١٥ دقيقة دلوقتي نبدأ المقابلة؟"
-        ),
+        "opening_disclosure_template": "مرحباً، ممكن اتكلم مع {first_name}؟",
         "call_workflow": ARABIC_EGYPTIAN_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة ومحترفة وإنسانية — مكالمة توظيف حقيقية. سرعة كلام معتدلة. مصري طبيعي فقط مش فصحى. "
-            "وضّح هدف المكالمة قبل الأسئلة وقول نبدأ مش نكمل. اسمع بذكاء: وضّح لو مش فاهم، "
-            "اسأل بعمق لو ضعيفة، واذكر تفصيلة مما قال قبل السؤال التالي. متقاطعش المرشّح."
+            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام معتدلة. مصري واضح مش فصحى جامدة. "
+            "اتبع السير الكنسي. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. متقاطعش المرشّح."
         ),
         "interruption_behavior_notes": (
             "متقاطعش المرشّح وهو بيرد — استنى لما يخلّص. "
@@ -95,18 +84,12 @@ def _egyptian_pack(agent: AgentDefinition) -> dict[str, str]:
 
 
 def _gulf_pack(agent: AgentDefinition) -> dict[str, str]:
-    name = _agent_display_name(agent)
     return {
-        "opening_disclosure_template": (
-            f"السلام عليكم {{first_name}}، معك {name} أتصل من {{company_name}} بخصوص وظيفة {{role}}. "
-            f"المكالمة مسجّلة للجودة. "
-            f"عندك حوالي ١٠ إلى ١٥ دقيقة الحين؟"
-        ),
+        "opening_disclosure_template": "مرحباً، ممكن اتكلم مع {first_name}؟",
         "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة ومحترمة وإنسانية ومحترفة — مقابلة حقيقية. سرعة كلام معتدلة. "
-            "وضّح هدف المكالمة قبل الأسئلة. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة مما قال. "
-            "لا تقاطع المرشّح. اسأل لو يبي يضيف شيء قبل الإغلاق."
+            "نبرة مهنية ودافئة — ممثل شركة. سرعة كلام معتدلة. "
+            "اتبع السير الكنسي. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. لا تقاطع المرشّح."
         ),
         "interruption_behavior_notes": (
             "لا تقاطع المرشّح وهو يجيب — انتظر حتى ينهي. "
@@ -117,18 +100,12 @@ def _gulf_pack(agent: AgentDefinition) -> dict[str, str]:
 
 
 def _arabic_generic_pack(agent: AgentDefinition) -> dict[str, str]:
-    name = _agent_display_name(agent)
     return {
-        "opening_disclosure_template": (
-            f"السلام عليكم {{first_name}}، معك {name} أتصل من {{company_name}} بخصوص وظيفة {{role}}. "
-            f"المكالمة مسجّلة للجودة والتقييم. "
-            f"هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن؟"
-        ),
+        "opening_disclosure_template": "مرحباً، ممكن اتكلم مع {first_name}؟",
         "call_workflow": ARABIC_INTERVIEW_CALL_WORKFLOW,
         "conversation_style": (
-            "نبرة ودودة وإنسانية ومحترفة — مكالمة توظيف حقيقية. جمل قصيرة. "
-            "وضّح هدف المكالمة قبل الأسئلة. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة. "
-            "اسأل إن كان يريد إضافة شيء قبل الإغلاق."
+            "نبرة مهنية ودافئة — ممثل شركة. جمل قصيرة. "
+            "اتبع السير الكنسي. اسمع بذكاء: وضّح / تابع / اذكر تفصيلة."
         ),
         "interruption_behavior_notes": (
             "إذا قاطعك المرشّح وسط جملة، أعد الجملة الناقصة فقط — لا تعِد المقدمة كاملة."
@@ -192,6 +169,10 @@ def _apply_pack(agent: AgentDefinition, pack: dict[str, str], *, now: datetime) 
     if not agent.disclosure_mandatory:
         agent.disclosure_mandatory = True
         changed.append("disclosure_mandatory")
+
+    if str(getattr(agent, "voicemail_behavior", None) or "") != "hang_up":
+        agent.voicemail_behavior = "hang_up"
+        changed.append("voicemail_behavior")
 
     # Append human-behavior reminder once if missing from system_prompt.
     prompt = str(agent.system_prompt or "")

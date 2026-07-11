@@ -359,15 +359,17 @@ def _build_interview_phone_intro(
     code = normalize_script_language_code(language_code)
     if code == "ar":
         return (
-            f"هل لديك حوالي ١٠ إلى ١٥ دقيقة الآن لإجراء مقابلة قصيرة نيابة عن {client}؟"
+            f"معك فريق التوظيف من {client}. أتصل بخصوص المقابلة. "
+            f"المقابلة تستغرق حوالي ١٠ إلى ١٥ دقائق، هل الوقت مناسب الآن؟"
         )
     if code == "fr":
         return (
-            f"Avez-vous environ 10 à 15 minutes maintenant pour un court entretien de sélection "
+            f"Avez-vous environ 10 à 15 minutes maintenant pour un entretien "
             f"de la part de {client} ?"
         )
     return (
-        f"Do you have about 10 to 15 minutes now for a short screening interview on behalf of {client}?"
+        f"This is the hiring team calling from {client} regarding the interview. "
+        f"It will take about 10 to 15 minutes — is now a good time?"
     )
 
 
