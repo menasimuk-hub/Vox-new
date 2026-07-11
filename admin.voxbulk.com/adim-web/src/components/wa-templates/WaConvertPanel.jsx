@@ -25,16 +25,22 @@ export default function WaConvertPanel({ syncProfileId }) {
   const [orphanCount, setOrphanCount] = useState(0)
   const [llm, setLlm] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [activeId, setActiveId] = useState(null)
+  const [activeProduct, setActiveProduct] = useState(null)
   const [editor, setEditor] = useState(null)
+  const [editorLoading, setEditorLoading] = useState(false)
+  const [editorError, setEditorError] = useState('')
   const [regenDiff, setRegenDiff] = useState(null)
   const [lintInfo, setLintInfo] = useState(null)
   const [busy, setBusy] = useState('')
   const [overlay, setOverlay] = useState(null)
   const [listFromCache, setListFromCache] = useState(false)
   const [listCachedAt, setListCachedAt] = useState(null)
+  /** Templates pushed successfully this browser session (hide from pending + green Done). */
+  const [doneMap, setDoneMap] = useState(() => new Map())
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
 
@@ -46,8 +52,11 @@ export default function WaConvertPanel({ syncProfileId }) {
     setListFromCache(Boolean(fromCache))
     setListCachedAt(cachedAt || (fromCache ? null : new Date().toISOString()))
     if (list.length && !activeIdRef.current) {
-      const first = list.find((r) => r.actionable && r.db_id) || list[0]
-      if (first?.db_id) setActiveId(String(first.db_id))
+      const first = list.find((r) => r.actionable && r.db_id && r.product) || null
+      if (first?.db_id) {
+        setActiveId(String(first.db_id))
+        setActiveProduct(String(first.product))
+      }
     }
   }, [])
 
@@ -61,7 +70,9 @@ export default function WaConvertPanel({ syncProfileId }) {
         return
       }
       setLoading(true)
+      if (force) setRefreshing(true)
       setError('')
+      if (force) setMsg('Refreshing list from Meta…')
       try {
         const params = new URLSearchParams()
         params.set('product', product)
@@ -73,14 +84,17 @@ export default function WaConvertPanel({ syncProfileId }) {
         const cachedAt = new Date().toISOString()
         marketingListCache.set(key, { data, cachedAt })
         applyListPayload(data, { fromCache: false, cachedAt })
+        if (force) setMsg('List refreshed from Meta.')
       } catch (e) {
         setError(fmtErr(e))
         setRows([])
         setOrphanCount(0)
         setListFromCache(false)
         setListCachedAt(null)
+        if (force) setMsg('')
       } finally {
         setLoading(false)
+        setRefreshing(false)
       }
     },
     [product, syncProfileId, applyListPayload],
@@ -90,56 +104,106 @@ export default function WaConvertPanel({ syncProfileId }) {
     void load({ force: false })
   }, [load])
 
-  const active = useMemo(
-    () => rows.find((r) => String(r.db_id || r.id) === String(activeId)),
-    [rows, activeId],
-  )
+  const active = useMemo(() => {
+    if (!activeId) return null
+    return (
+      rows.find(
+        (r) =>
+          String(r.db_id || '') === String(activeId) &&
+          (!activeProduct || String(r.product || '') === String(activeProduct)),
+      ) || null
+    )
+  }, [rows, activeId, activeProduct])
 
   useEffect(() => {
-    if (!active?.db_id || !active?.product) {
+    if (!activeId || !activeProduct) {
       setEditor(null)
+      setEditorLoading(false)
+      setEditorError('')
       setRegenDiff(null)
       setLintInfo(null)
       return
     }
     let cancelled = false
+    setEditorLoading(true)
+    setEditorError('')
+    setRegenDiff(null)
+    setLintInfo(null)
     ;(async () => {
       try {
         const data = await apiFetch(
-          `/admin/wa-templates/convert/${encodeURIComponent(active.product)}/${encodeURIComponent(active.db_id)}`,
+          `/admin/wa-templates/convert/${encodeURIComponent(activeProduct)}/${encodeURIComponent(activeId)}`,
           { timeoutMs: 120000 },
         )
-        if (!cancelled) {
-          setEditor({
-            product: data.product,
-            db_id: data.db_id,
-            local_name: data.local_name,
-            suggested_next_name: data.suggested_next_name,
-            language: data.language,
-            header: data.header || '',
-            body: data.body || '',
-            footer: data.footer || '',
-            buttons: Array.isArray(data.buttons) ? data.buttons : [],
-            status: data.status,
-          })
+        if (cancelled) return
+        if (!data?.db_id) {
+          setEditor(null)
+          setEditorError('Template opened with no content — try Refresh, then select it again.')
+          return
         }
+        setEditor({
+          product: data.product || activeProduct,
+          db_id: data.db_id,
+          local_name: data.local_name,
+          suggested_next_name: data.suggested_next_name,
+          language: data.language,
+          header: data.header || '',
+          body: data.body || '',
+          footer: data.footer || '',
+          buttons: Array.isArray(data.buttons) ? data.buttons : [],
+          status: data.status,
+        })
       } catch (e) {
-        if (!cancelled) setError(fmtErr(e))
+        if (!cancelled) {
+          setEditor(null)
+          setEditorError(fmtErr(e))
+          setError(fmtErr(e))
+        }
+      } finally {
+        if (!cancelled) setEditorLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [active?.db_id, active?.product])
+  }, [activeId, activeProduct])
+
+  const pendingRows = useMemo(() => {
+    return rows.filter((r) => {
+      const id = String(r.db_id || '')
+      if (id && doneMap.has(id)) return false
+      return true
+    })
+  }, [rows, doneMap])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    if (!needle) return rows
-    return rows.filter((r) => {
+    if (!needle) return pendingRows
+    return pendingRows.filter((r) => {
       const hay = `${r.local_name || ''} ${r.remote_name || ''} ${r.name || ''} ${r.survey_type || ''}`.toLowerCase()
       return hay.includes(needle)
     })
-  }, [rows, q])
+  }, [pendingRows, q])
+
+  const doneList = useMemo(() => Array.from(doneMap.values()), [doneMap])
+
+  const selectRow = useCallback((r) => {
+    if (!r?.db_id || !r?.product || !r?.actionable) {
+      setEditorError(
+        r?.cleanup_eligible
+          ? 'This is an old Meta version (no local draft to edit). Use Clean old versions.'
+          : 'No local template row — cannot open Convert editor.',
+      )
+      setActiveId(null)
+      setActiveProduct(null)
+      setEditor(null)
+      return
+    }
+    setError('')
+    setEditorError('')
+    setActiveId(String(r.db_id))
+    setActiveProduct(String(r.product))
+  }, [])
 
   const runCleanupOrphans = async () => {
     const count = orphanCount
@@ -421,16 +485,46 @@ export default function WaConvertPanel({ syncProfileId }) {
       })
       setMsg(
         data.ok
-          ? `Pushed ${data.new_name}. Wait for Meta APPROVED before live sends.`
+          ? `Pushed ${data.new_name}. Removed from pending list — Refresh Meta when you want a live check.`
           : 'Push failed — old MARKETING name kept if push did not succeed.',
       )
-      setEditor((prev) => ({
-        ...prev,
-        local_name: data.new_name || prev.local_name,
-        suggested_next_name: null,
-        status: data.status,
-      }))
-      await load({ force: true })
+      if (data.ok) {
+        const doneId = String(data.db_id || editor.db_id)
+        setDoneMap((prev) => {
+          const next = new Map(prev)
+          next.set(doneId, {
+            db_id: doneId,
+            product: data.product || editor.product,
+            old_name: data.old_name || editor.local_name,
+            new_name: data.new_name || editor.local_name,
+            at: new Date().toISOString(),
+          })
+          return next
+        })
+        // Drop from cached marketing list so it disappears immediately without Meta wait.
+        const key = marketingCacheKey(product, syncProfileId)
+        const hit = marketingListCache.get(key)
+        if (hit?.data?.templates) {
+          const templates = (hit.data.templates || []).filter((r) => String(r.db_id || '') !== doneId)
+          const patched = { ...hit.data, templates }
+          marketingListCache.set(key, { ...hit, data: patched })
+          setRows(templates)
+        } else {
+          setRows((prev) => prev.filter((r) => String(r.db_id || '') !== doneId))
+        }
+        setActiveId(null)
+        setActiveProduct(null)
+        setEditor(null)
+        setRegenDiff(null)
+        setLintInfo(null)
+      } else {
+        setEditor((prev) => ({
+          ...prev,
+          local_name: data.new_name || prev.local_name,
+          suggested_next_name: null,
+          status: data.status,
+        }))
+      }
     } catch (e) {
       setError(fmtErr(e))
       setOverlay((prev) =>
@@ -480,11 +574,11 @@ export default function WaConvertPanel({ syncProfileId }) {
             size="sm"
             variant="outline"
             onClick={() => void load({ force: true })}
-            disabled={loading}
+            disabled={loading || refreshing}
             title="Reload marketing list from Meta (bypasses cache)"
           >
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Refresh
+            {loading || refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
           <Button
             type="button"
@@ -506,6 +600,12 @@ export default function WaConvertPanel({ syncProfileId }) {
 
       {error ? <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div> : null}
       {msg ? <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{msg}</div> : null}
+      {refreshing ? (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+          Refreshing list from Meta — please wait (can take a minute)…
+        </div>
+      ) : null}
 
       <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
         <div className="overflow-hidden rounded-lg border">
@@ -520,10 +620,11 @@ export default function WaConvertPanel({ syncProfileId }) {
               />
             </div>
             <div className="mt-1.5 text-[11px] text-muted-foreground">
-              {filtered.length} marketing template{filtered.length === 1 ? '' : 's'}
+              {filtered.length} pending
+              {doneList.length ? ` · ${doneList.length} done this session` : ''}
               {listFromCache ? (
                 <span className="ml-1 text-amber-700/90" title={listCachedAt || ''}>
-                  · cached (Refresh for live Meta)
+                  · cached
                 </span>
               ) : listCachedAt ? (
                 <span className="ml-1">· live from Meta</span>
@@ -532,26 +633,30 @@ export default function WaConvertPanel({ syncProfileId }) {
           </div>
           <div className="max-h-[560px] overflow-y-auto">
             {loading && !filtered.length ? (
-              <div className="p-4 text-xs text-muted-foreground">Loading from Meta…</div>
+              <div className="p-4 text-xs text-muted-foreground">
+                {refreshing ? 'Refreshing list from Meta…' : 'Loading from Meta…'}
+              </div>
             ) : null}
             {!loading && !filtered.length ? (
-              <div className="p-4 text-xs text-muted-foreground">No MARKETING survey/feedback templates found.</div>
+              <div className="p-4 text-xs text-muted-foreground">
+                {doneList.length
+                  ? 'No more pending MARKETING templates in this list. Done items are below.'
+                  : 'No MARKETING survey/feedback templates found.'}
+              </div>
             ) : null}
             {filtered.map((r) => {
               const id = String(r.db_id || r.id || r.remote_name)
-              const selected = String(activeId) === id
+              const selected = String(activeId) === String(r.db_id) && String(activeProduct || '') === String(r.product || '')
               return (
                 <button
-                  key={id}
+                  key={`${r.product || 'x'}-${id}`}
                   type="button"
                   className={cn(
                     'flex w-full flex-col gap-1 border-b px-3 py-2.5 text-left hover:bg-muted/50',
                     selected && 'bg-muted',
+                    !r.actionable && 'opacity-70',
                   )}
-                  onClick={() => {
-                    if (r.db_id) setActiveId(String(r.db_id))
-                  }}
-                  disabled={!r.db_id}
+                  onClick={() => selectRow(r)}
                 >
                   <span className="font-mono text-xs font-semibold">{r.local_name || r.remote_name || r.name}</span>
                   <span className="flex flex-wrap items-center gap-1.5 text-[10px]">
@@ -577,13 +682,46 @@ export default function WaConvertPanel({ syncProfileId }) {
                 </button>
               )
             })}
+            {doneList.length ? (
+              <div className="border-t bg-emerald-50/60">
+                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Done this session ({doneList.length})
+                </div>
+                {doneList.map((d) => (
+                  <div
+                    key={`done-${d.db_id}`}
+                    className="flex w-full flex-col gap-1 border-b border-emerald-100 px-3 py-2 text-left"
+                  >
+                    <span className="font-mono text-xs font-semibold text-emerald-900">{d.new_name}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <span className="rounded-full bg-emerald-200 px-1.5 py-0.5 font-semibold uppercase text-emerald-900">
+                        Done
+                      </span>
+                      <span className="text-emerald-800/80">
+                        {d.old_name} → {d.new_name}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="rounded-lg border p-4">
-          {!editor ? (
+          {editorLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Opening template…
+            </div>
+          ) : null}
+          {!editorLoading && editorError ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{editorError}</div>
+          ) : null}
+          {!editorLoading && !editor && !editorError ? (
             <p className="text-xs text-muted-foreground">Select an actionable template to convert.</p>
-          ) : (
+          ) : null}
+          {!editorLoading && editor ? (
             <>
               <div className="mb-3 flex flex-wrap items-start justify-between gap-2 border-b pb-3">
                 <div>
@@ -731,7 +869,7 @@ export default function WaConvertPanel({ syncProfileId }) {
                 </div>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
