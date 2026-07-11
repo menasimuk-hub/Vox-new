@@ -401,15 +401,12 @@ def apply_interview_assistant_pacing(
     db: Session,
     assistant_id: str,
     *,
-    voice_speed: float = 0.80,
+    voice_speed: float = 1.0,
 ) -> dict[str, Any]:
-    """Slow TTS and wait longer before speaking so the agent does not interrupt answers.
+    """Tune turn-taking so the agent does not interrupt answers mid-thought.
 
-    Tuned for human-like interview turn-taking: slightly slower speech + longer
-    endpointing so mid-thought pauses are not cut off.
-
-    Voice speed PATCH is provider-aware: Telnyx Natural uses ``voice_speed``;
-    ElevenLabs uses ``speed`` only (sending the wrong key / full blob returns 400).
+    Keep TTS at normal speed (1.0). Only lengthen wait-before-speak / endpointing —
+    ``voice_speed`` 0.8 made NaturalHD / ElevenLabs sound unnaturally slow.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
@@ -419,8 +416,10 @@ def apply_interview_assistant_pacing(
     clamped = max(0.5, min(1.0, float(voice_speed)))
 
     # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
+    # Always set voice_speed=1.0 as well: Telnyx Natural uses it, and some ElevenLabs
+    # assistants keep a stale voice_speed that still slows playback if left at 0.8.
     if tts_provider == "elevenlabs":
-        voice_patch: dict[str, Any] = {"speed": clamped}
+        voice_patch: dict[str, Any] = {"speed": clamped, "voice_speed": clamped}
         if voice:
             voice_patch["voice"] = voice
         if current.get("api_key_ref"):
@@ -432,11 +431,11 @@ def apply_interview_assistant_pacing(
 
     interruption_settings = {
         "start_speaking_plan": {
-            "wait_seconds": 1.25,
+            "wait_seconds": 0.7,
             "transcription_endpointing_plan": {
-                "on_punctuation_seconds": 0.85,
-                "on_no_punctuation_seconds": 2.6,
-                "on_number_seconds": 1.6,
+                "on_punctuation_seconds": 0.55,
+                "on_no_punctuation_seconds": 1.6,
+                "on_number_seconds": 1.0,
             },
         }
     }
