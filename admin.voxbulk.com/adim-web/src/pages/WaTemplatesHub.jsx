@@ -37,7 +37,6 @@ import {
   resolveDualSyncProfileIds,
   setStoredSyncProfileId,
   syncProfilePayload,
-  syncProfileActionLabel,
 } from '../lib/waSyncProfile'
 import {
   buildIndustrySyncJobProgress,
@@ -1404,9 +1403,11 @@ export default function WaTemplatesHub() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={() => pushToPrimary()}
                 disabled={syncing || refreshing || cleaning || !primarySyncProfile?.id}
-                title="Push changed survey + system templates to the default Meta profile (skips already in-sync). Shows progress."
+                title="Push only changed templates from DB to Meta (primary). Skips already in sync."
               >
-                {syncProfileActionLabel(primarySyncProfile, 'Push changed')}
+                {primarySyncProfile
+                  ? `Push changed → Meta ${primarySyncProfile.whatsapp_from || '99'}`
+                  : 'Push changed → Meta'}
               </Button>
               {(tab === 'survey' || tab === 'feedback') && backupSyncProfile?.id ? (
                 <Button
@@ -1417,11 +1418,11 @@ export default function WaTemplatesHub() {
                   disabled={syncing || refreshing || cleaning}
                   title={
                     tab === 'feedback'
-                      ? 'Force-push all customer feedback templates to Telnyx backup. Shows progress.'
-                      : 'Force-push all survey industry + system templates to Telnyx backup. Shows progress.'
+                      ? 'Copy ALL customer feedback templates from DB to Telnyx (force). Use this to match Meta 99.'
+                      : 'Copy ALL survey templates from DB to Telnyx (force). Use this to match Meta 99.'
                   }
                 >
-                  {syncProfileActionLabel(backupSyncProfile, 'Mirror all')}
+                  {`Copy all → Telnyx ${backupSyncProfile.whatsapp_from || '55'}`}
                 </Button>
               ) : null}
               <Button
@@ -1430,28 +1431,38 @@ export default function WaTemplatesHub() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={() => void pullFromMeta()}
                 disabled={refreshing || syncing || cleaning || !syncProfile?.id}
-                title="Pull approval status and category from Meta (does not push local changes)"
+                title="Pull approval status and category only (does not push bodies)"
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
-                {refreshing ? 'Refreshing…' : 'Refresh status'}
+                {refreshing ? 'Refreshing…' : 'Refresh approval status'}
               </Button>
               <Button
                 size="sm"
                 className="wa-hub-primary-btn h-8 gap-1.5 text-xs"
                 onClick={() => void syncFromMeta()}
                 disabled={syncing || refreshing || cleaning || !syncProfile?.id}
+                title="Refresh approval status, then push changed templates to the selected profile"
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
                 {syncing
                   ? syncProgress
                     ? `Syncing ${syncProgress}`
                     : 'Syncing…'
-                  : syncProfileActionLabel(syncProfile, 'Sync')}
+                  : syncProfile
+                    ? `Sync selected · ${String(syncProfile.provider || '').toLowerCase() === 'meta' ? 'Meta' : 'Telnyx'} ${syncProfile.whatsapp_from || ''}`
+                    : 'Sync selected profile'}
               </Button>
             </div>
           </div>
 
           <div className="mt-2 border-t border-border/60 pt-2">
+            <p className="mb-1 text-[10px] text-muted-foreground">
+              <span className="font-semibold text-foreground">How to switch Meta ↔ Telnyx:</span> pick{' '}
+              <span className="font-medium text-foreground">Sync profile</span> above, or click a row in the table below
+              (Live template monitor). Marketing = 0 is good. Customer Feedback templates are under the{' '}
+              <span className="font-medium text-foreground">Customer Feedback</span> tab — not Convert when marketing is
+              already 0.
+            </p>
             <WaSyncProfileMatrix
               profiles={syncProfileItems}
               selectedProfileId={syncProfile?.id}

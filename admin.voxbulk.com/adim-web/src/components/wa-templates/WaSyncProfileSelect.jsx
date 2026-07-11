@@ -24,13 +24,13 @@ export default function WaSyncProfileSelect({
   }
   return (
     <label className={cn('inline-flex items-center gap-1.5', className)}>
-      <span className="hidden text-[11px] text-muted-foreground sm:inline">Sync profile</span>
+      <span className="hidden text-[11px] text-muted-foreground sm:inline">Active profile</span>
       <select
         className="h-8 max-w-[220px] truncate rounded-md border border-input bg-background px-2 text-[11px] text-foreground disabled:opacity-60"
         value={value || ''}
         disabled={disabled || loading}
         onChange={(e) => onChange?.(e.target.value || null)}
-        title="WhatsApp connection profile used for template sync/push"
+        title="Select Meta 99 or Telnyx 55 — same as clicking a row in Live template monitor"
       >
         {options.map((item) => (
           <option key={item.id} value={item.id}>

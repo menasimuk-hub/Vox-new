@@ -116,7 +116,8 @@ export default function WaSyncProfileMatrix({
     <div className="w-full overflow-x-auto">
       <div className="mb-1 flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Live template monitor · scoped to {scopeLabel} · <span className="normal-case">counts show scoped / whole WABA</span>
+          Live template monitor (click a profile row to select it) · scoped to {scopeLabel} ·{' '}
+          <span className="normal-case">counts show scoped / whole WABA</span>
         </span>
         <button
           type="button"

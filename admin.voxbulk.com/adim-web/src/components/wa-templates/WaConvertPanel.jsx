@@ -41,6 +41,8 @@ export default function WaConvertPanel({ syncProfileId }) {
   const [listCachedAt, setListCachedAt] = useState(null)
   /** Templates pushed successfully this browser session (hide from pending + green Done). */
   const [doneMap, setDoneMap] = useState(() => new Map())
+  /** Multi-select keys: `${product}:${db_id}` for bulk regenerate / push. */
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
 
@@ -185,8 +187,109 @@ export default function WaConvertPanel({ syncProfileId }) {
     })
   }, [pendingRows, q])
 
+  const rowKey = useCallback((r) => {
+    const prod = String(r?.product || '').trim()
+    const id = String(r?.db_id || '').trim()
+    if (!prod || !id) return ''
+    return `${prod}:${id}`
+  }, [])
+
+  const actionableFiltered = useMemo(
+    () => filtered.filter((r) => r?.actionable && r?.db_id && r?.product),
+    [filtered],
+  )
+
+  const selectedRows = useMemo(() => {
+    return actionableFiltered.filter((r) => selectedKeys.has(rowKey(r)))
+  }, [actionableFiltered, selectedKeys, rowKey])
+
+  const allVisibleSelected =
+    actionableFiltered.length > 0 && actionableFiltered.every((r) => selectedKeys.has(rowKey(r)))
+
+  const toggleSelect = useCallback(
+    (r, checked) => {
+      const key = rowKey(r)
+      if (!key || !r?.actionable) return
+      setSelectedKeys((prev) => {
+        const next = new Set(prev)
+        if (checked) next.add(key)
+        else next.delete(key)
+        return next
+      })
+    },
+    [rowKey],
+  )
+
+  const toggleSelectAllVisible = useCallback(
+    (checked) => {
+      setSelectedKeys((prev) => {
+        const next = new Set(prev)
+        for (const r of actionableFiltered) {
+          const key = rowKey(r)
+          if (!key) continue
+          if (checked) next.add(key)
+          else next.delete(key)
+        }
+        return next
+      })
+    },
+    [actionableFiltered, rowKey],
+  )
+
+  const clearSelection = useCallback(() => setSelectedKeys(new Set()), [])
+
+  // Drop selection for rows that left the pending list.
+  useEffect(() => {
+    const alive = new Set(actionableFiltered.map((r) => rowKey(r)).filter(Boolean))
+    setSelectedKeys((prev) => {
+      let changed = false
+      const next = new Set()
+      for (const k of prev) {
+        if (alive.has(k)) next.add(k)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [actionableFiltered, rowKey])
+
   const doneList = useMemo(() => Array.from(doneMap.values()), [doneMap])
 
+  const markDoneAndDrop = useCallback(
+    (doneId, meta) => {
+      const id = String(doneId || '')
+      if (!id) return
+      setDoneMap((prev) => {
+        const next = new Map(prev)
+        next.set(id, meta)
+        return next
+      })
+      const key = marketingCacheKey(product, syncProfileId)
+      const hit = marketingListCache.get(key)
+      if (hit?.data?.templates) {
+        const templates = (hit.data.templates || []).filter((r) => String(r.db_id || '') !== id)
+        const patched = { ...hit.data, templates }
+        marketingListCache.set(key, { ...hit, data: patched })
+        setRows(templates)
+      } else {
+        setRows((prev) => prev.filter((r) => String(r.db_id || '') !== id))
+      }
+      setSelectedKeys((prev) => {
+        const next = new Set()
+        for (const k of prev) {
+          if (!k.endsWith(`:${id}`)) next.add(k)
+        }
+        return next
+      })
+      if (String(activeIdRef.current) === id) {
+        setActiveId(null)
+        setActiveProduct(null)
+        setEditor(null)
+        setRegenDiff(null)
+        setLintInfo(null)
+      }
+    },
+    [product, syncProfileId],
+  )
   const selectRow = useCallback((r) => {
     if (!r?.db_id || !r?.product || !r?.actionable) {
       setEditorError(
@@ -509,34 +612,13 @@ export default function WaConvertPanel({ syncProfileId }) {
           : 'Push failed — old MARKETING name kept if push did not succeed.',
       )
       if (data.ok) {
-        const doneId = String(data.db_id || editor.db_id)
-        setDoneMap((prev) => {
-          const next = new Map(prev)
-          next.set(doneId, {
-            db_id: doneId,
-            product: data.product || editor.product,
-            old_name: data.old_name || editor.local_name,
-            new_name: data.new_name || editor.local_name,
-            at: new Date().toISOString(),
-          })
-          return next
+        markDoneAndDrop(String(data.db_id || editor.db_id), {
+          db_id: String(data.db_id || editor.db_id),
+          product: data.product || editor.product,
+          old_name: data.old_name || editor.local_name,
+          new_name: data.new_name || editor.local_name,
+          at: new Date().toISOString(),
         })
-        // Drop from cached marketing list so it disappears immediately without Meta wait.
-        const key = marketingCacheKey(product, syncProfileId)
-        const hit = marketingListCache.get(key)
-        if (hit?.data?.templates) {
-          const templates = (hit.data.templates || []).filter((r) => String(r.db_id || '') !== doneId)
-          const patched = { ...hit.data, templates }
-          marketingListCache.set(key, { ...hit, data: patched })
-          setRows(templates)
-        } else {
-          setRows((prev) => prev.filter((r) => String(r.db_id || '') !== doneId))
-        }
-        setActiveId(null)
-        setActiveProduct(null)
-        setEditor(null)
-        setRegenDiff(null)
-        setLintInfo(null)
       } else {
         setEditor((prev) => ({
           ...prev,
@@ -563,14 +645,201 @@ export default function WaConvertPanel({ syncProfileId }) {
     }
   }
 
+  const runBulkRegen = async () => {
+    const list = selectedRows
+    if (!list.length) {
+      setMsg('Select 1–5 (or more) actionable templates with the checkboxes first.')
+      return
+    }
+    setBusy('bulk-regen')
+    setError('')
+    setMsg('')
+    const total = list.length
+    const log = []
+    setOverlay({
+      open: true,
+      title: `Rewrite Utility text · ${total} selected`,
+      sub: 'Regenerating…',
+      progress: { done: 0, total, pct: 0 },
+      log: [],
+      steps: [{ id: 'regen', title: 'Regenerate selected', status: 'active', detail: `0 / ${total}` }],
+    })
+    let ok = 0
+    let failed = 0
+    for (let i = 0; i < list.length; i += 1) {
+      const r = list[i]
+      const name = r.local_name || r.remote_name || r.db_id
+      setOverlay((prev) => ({
+        ...(prev || {}),
+        open: true,
+        sub: `${i + 1} / ${total} · ${name}`,
+        progress: { done: i, total, pct: Math.round((i / total) * 100) },
+        steps: [{ id: 'regen', title: 'Regenerate selected', status: 'active', detail: `${i + 1} / ${total}` }],
+        log: log.slice(-10),
+      }))
+      try {
+        const data = await apiFetch(
+          `/admin/wa-templates/convert/${encodeURIComponent(r.product)}/${encodeURIComponent(r.db_id)}/regenerate`,
+          { method: 'POST', body: JSON.stringify({}), timeoutMs: 180000 },
+        )
+        ok += 1
+        log.push({
+          name,
+          ok: true,
+          detail: data.changed ? 'rewritten' : 'unchanged (already Utility topic)',
+        })
+        if (
+          String(activeIdRef.current) === String(r.db_id) &&
+          String(activeProduct || '') === String(r.product)
+        ) {
+          const nextBody = data.new_body || data.body || ''
+          const nextButtons = Array.isArray(data.buttons)
+            ? data.buttons
+            : Array.isArray(data.new_buttons)
+              ? data.new_buttons
+              : null
+          setEditor((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  body: nextBody || prev.body,
+                  buttons: nextButtons || prev.buttons,
+                  header: data.header ?? prev.header,
+                  footer: data.footer ?? prev.footer,
+                  suggested_next_name: data.suggested_next_name || prev.suggested_next_name,
+                }
+              : prev,
+          )
+          setRegenDiff({
+            old_body: data.old_body || '',
+            new_body: nextBody || '',
+            old_buttons: Array.isArray(data.old_buttons) ? data.old_buttons : [],
+            new_buttons: Array.isArray(data.new_buttons) ? data.new_buttons : nextButtons || [],
+            changed: Boolean(data.changed),
+            buttons_changed: Boolean(data.buttons_changed),
+          })
+          setLintInfo(data.lint || null)
+        }
+      } catch (e) {
+        failed += 1
+        log.push({ name, ok: false, detail: fmtErr(e).slice(0, 160) })
+      }
+    }
+    setOverlay({
+      open: true,
+      title: failed ? 'Bulk regenerate finished with errors' : 'Bulk regenerate complete',
+      sub: `OK ${ok} · failed ${failed} · ${total} selected`,
+      progress: { done: total, total, pct: 100 },
+      log: log.slice(-20),
+      steps: [
+        {
+          id: 'regen',
+          title: 'Regenerate selected',
+          status: failed ? 'error' : 'done',
+          detail: `${ok} ok · ${failed} failed`,
+        },
+      ],
+    })
+    setMsg(`Regenerated ${ok}/${total}${failed ? ` · ${failed} failed` : ''}. Review one if needed, then Push selected.`)
+    setBusy('')
+  }
+
+  const runBulkPush = async (targets) => {
+    const list = selectedRows
+    if (!list.length) {
+      setMsg('Select templates with the checkboxes first, then Push selected.')
+      return
+    }
+    const label = targets === 'all' ? 'Meta 99 + Telnyx 55' : targets === '99' ? 'Meta 99' : 'Telnyx 55'
+    setBusy(`bulk-push-${targets}`)
+    setError('')
+    setMsg('')
+    const total = list.length
+    const log = []
+    setOverlay({
+      open: true,
+      title: `Push selected → ${label}`,
+      sub: `0 / ${total}`,
+      progress: { done: 0, total, pct: 0 },
+      log: [],
+      steps: [{ id: 'push', title: `Push to ${label}`, status: 'active', detail: `0 / ${total}` }],
+    })
+    let ok = 0
+    let failed = 0
+    for (let i = 0; i < list.length; i += 1) {
+      const r = list[i]
+      const name = r.local_name || r.remote_name || r.db_id
+      setOverlay((prev) => ({
+        ...(prev || {}),
+        open: true,
+        sub: `${i + 1} / ${total} · ${name}`,
+        progress: { done: i, total, pct: Math.round((i / total) * 100) },
+        steps: [{ id: 'push', title: `Push to ${label}`, status: 'active', detail: `${i + 1} / ${total}` }],
+        log: log.slice(-10),
+      }))
+      try {
+        const data = await apiFetch(
+          `/admin/wa-templates/convert/${encodeURIComponent(r.product)}/${encodeURIComponent(r.db_id)}/push`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ targets, force_push: true }),
+            timeoutMs: 300000,
+          },
+        )
+        if (data.ok) {
+          ok += 1
+          log.push({ name, ok: true, detail: `${data.old_name} → ${data.new_name}` })
+          markDoneAndDrop(String(data.db_id || r.db_id), {
+            db_id: String(data.db_id || r.db_id),
+            product: data.product || r.product,
+            old_name: data.old_name || r.local_name,
+            new_name: data.new_name || r.local_name,
+            at: new Date().toISOString(),
+          })
+        } else {
+          failed += 1
+          log.push({ name, ok: false, detail: (data.message || 'push failed').slice(0, 160) })
+        }
+      } catch (e) {
+        failed += 1
+        log.push({ name, ok: false, detail: fmtErr(e).slice(0, 160) })
+      }
+    }
+    setOverlay({
+      open: true,
+      title: failed ? 'Bulk push finished with errors' : 'Bulk push complete',
+      sub: `OK ${ok} · failed ${failed} · → ${label}`,
+      progress: { done: total, total, pct: 100 },
+      log: log.slice(-20),
+      steps: [
+        {
+          id: 'push',
+          title: `Push to ${label}`,
+          status: failed ? 'error' : 'done',
+          detail: `${ok} ok · ${failed} failed`,
+        },
+      ],
+    })
+    setMsg(`Pushed ${ok}/${total} to ${label}${failed ? ` · ${failed} failed` : ''}.`)
+    setBusy('')
+  }
   return (
     <div className="wa-convert p-3">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="max-w-2xl">
           <h3 className="text-sm font-semibold">Convert — Marketing → Utility</h3>
-          <p className="text-xs text-muted-foreground">
-            Survey &amp; Feedback templates Meta marked as MARKETING. Same DB id; bump 001→002; delete old Meta name after push.
-          </p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
+            <li>
+              Tick 4–5 templates (or <span className="font-medium text-foreground">Select all visible</span>).
+            </li>
+            <li>
+              Click <span className="font-medium text-foreground">1. Rewrite selected</span> (Utility text, same language).
+            </li>
+            <li>
+              Click <span className="font-medium text-foreground">2. Push selected → Meta 99 + Telnyx 55</span> (or 99 / 55 only).
+            </li>
+            <li>Or open one row to edit manually, then use the right-side buttons.</li>
+          </ol>
           {llm?.provider ? (
             <p className="mt-1 text-[11px] text-muted-foreground">
               LLM: {llm.provider} / {llm.model || '—'} ({llm.source || 'config'})
@@ -598,7 +867,7 @@ export default function WaConvertPanel({ syncProfileId }) {
             title="Reload marketing list from Meta (bypasses cache)"
           >
             {loading || refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+            {refreshing ? 'Refreshing…' : 'Refresh list'}
           </Button>
           <Button
             type="button"
@@ -618,6 +887,58 @@ export default function WaConvertPanel({ syncProfileId }) {
         </div>
       </div>
 
+      {selectedRows.length ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+          <span className="text-xs font-semibold text-sky-900">{selectedRows.length} selected</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!!busy}
+            onClick={() => void runBulkRegen()}
+            title="Rewrite Utility body for every selected template (saves to DB)"
+          >
+            {busy === 'bulk-regen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            1. Rewrite selected
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!!busy}
+            onClick={() => void runBulkPush('99')}
+          >
+            {busy === 'bulk-push-99' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            2a. Push selected → Meta 99
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!!busy}
+            onClick={() => void runBulkPush('55')}
+          >
+            {busy === 'bulk-push-55' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            2b. Push selected → Telnyx 55
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!!busy}
+            onClick={() => void runBulkPush('all')}
+          >
+            {String(busy).startsWith('bulk-push') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            2. Push selected → Meta 99 + Telnyx 55
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" disabled={!!busy} onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </div>
+      ) : null}
       {error ? <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div> : null}
       {msg ? <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">{msg}</div> : null}
       {refreshing ? (
@@ -639,15 +960,28 @@ export default function WaConvertPanel({ syncProfileId }) {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <div className="mt-1.5 text-[11px] text-muted-foreground">
-              {filtered.length} pending
-              {doneList.length ? ` · ${doneList.length} done this session` : ''}
-              {listFromCache ? (
-                <span className="ml-1 text-amber-700/90" title={listCachedAt || ''}>
-                  · cached
-                </span>
-              ) : listCachedAt ? (
-                <span className="ml-1">· live from Meta</span>
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>
+                {filtered.length} pending
+                {doneList.length ? ` · ${doneList.length} done this session` : ''}
+                {listFromCache ? (
+                  <span className="ml-1 text-amber-700/90" title={listCachedAt || ''}>
+                    · cached
+                  </span>
+                ) : listCachedAt ? (
+                  <span className="ml-1">· live from Meta</span>
+                ) : null}
+              </span>
+              {actionableFiltered.length ? (
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5"
+                    checked={allVisibleSelected}
+                    onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+                  />
+                  Select all visible ({actionableFiltered.length})
+                </label>
               ) : null}
             </div>
           </div>
@@ -666,43 +1000,61 @@ export default function WaConvertPanel({ syncProfileId }) {
             ) : null}
             {filtered.map((r) => {
               const id = String(r.db_id || r.id || r.remote_name)
-              const selected = String(activeId) === String(r.db_id) && String(activeProduct || '') === String(r.product || '')
+              const key = rowKey(r)
+              const selected =
+                String(activeId) === String(r.db_id) && String(activeProduct || '') === String(r.product || '')
+              const checked = key ? selectedKeys.has(key) : false
               return (
-                <button
+                <div
                   key={`${r.product || 'x'}-${id}`}
-                  type="button"
                   className={cn(
-                    'flex w-full flex-col gap-1 border-b px-3 py-2.5 text-left hover:bg-muted/50',
+                    'flex w-full items-start gap-2 border-b px-2 py-2.5 hover:bg-muted/50',
                     selected && 'bg-muted',
                     !r.actionable && 'opacity-70',
                   )}
-                  onClick={() => selectRow(r)}
                 >
-                  <span className="font-mono text-xs font-semibold">{r.local_name || r.remote_name || r.name}</span>
-                  <span className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold uppercase text-amber-800">
-                      Marketing
-                    </span>
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 uppercase text-muted-foreground">
-                      {r.product || '—'}
-                    </span>
-                    {r.language ? (
-                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">{r.language}</span>
-                    ) : null}
-                    {!r.actionable ? (
-                      <span className="text-amber-700">
-                        {r.cleanup_eligible
-                          ? `old version → local ${r.superseded_by_local || 'newer'}`
-                          : 'no local row'}
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-3.5 w-3.5 shrink-0"
+                    disabled={!r.actionable || !key}
+                    checked={checked}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      toggleSelect(r, e.target.checked)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    title={r.actionable ? 'Select for bulk rewrite / push' : 'Not actionable'}
+                  />
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 flex-col gap-1 text-left"
+                    onClick={() => selectRow(r)}
+                  >
+                    <span className="block font-mono text-xs font-semibold">{r.local_name || r.remote_name || r.name}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold uppercase text-amber-800">
+                        Marketing
                       </span>
-                    ) : (
-                      <span className="text-muted-foreground">DB {r.db_id}</span>
-                    )}
-                  </span>
-                </button>
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 uppercase text-muted-foreground">
+                        {r.product || '—'}
+                      </span>
+                      {r.language ? (
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">{r.language}</span>
+                      ) : null}
+                      {!r.actionable ? (
+                        <span className="text-amber-700">
+                          {r.cleanup_eligible
+                            ? `old version → local ${r.superseded_by_local || 'newer'}`
+                            : 'no local row'}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">DB {r.db_id}</span>
+                      )}
+                    </span>
+                  </button>
+                </div>
               )
-            })}
-            {doneList.length ? (
+            })}            {doneList.length ? (
               <div className="border-t bg-emerald-50/60">
                 <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
                   Done this session ({doneList.length})
@@ -868,23 +1220,57 @@ export default function WaConvertPanel({ syncProfileId }) {
                   Will rename to <span className="font-mono text-foreground">{editor.suggested_next_name || '—'}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runRegen()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => void runRegen()}
+                    title="Rewrite this template to Utility wording (same language)"
+                  >
                     {busy === 'regen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    Regenerate
+                    1. Rewrite text
                   </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runSave()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => void runSave()}
+                    title="Save draft to DB only (no Meta/Telnyx push)"
+                  >
                     {busy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    Save
+                    2. Save draft
                   </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runPush('99')}>
-                    Save & Push 99
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => void runPush('99')}
+                    title="Save, rename, push Utility to Meta 99, delete old MARKETING name"
+                  >
+                    3a. Push → Meta 99
                   </Button>
-                  <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runPush('55')}>
-                    Save & Push 55
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => void runPush('55')}
+                    title="Save, rename, push Utility to Telnyx 55"
+                  >
+                    3b. Push → Telnyx 55
                   </Button>
-                  <Button type="button" size="sm" disabled={!!busy} onClick={() => void runPush('all')}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => void runPush('all')}
+                    title="Save, rename, push Utility to Meta 99 and Telnyx 55"
+                  >
                     {String(busy).startsWith('push') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    Save & Push all
+                    3. Push → Meta 99 + Telnyx 55
                   </Button>
                 </div>
               </div>
@@ -945,8 +1331,8 @@ export default function WaConvertPanel({ syncProfileId }) {
               </div>
             ) : null}
             <div className="mt-4 flex justify-end">
-              <Button type="button" size="sm" variant="outline" onClick={() => setOverlay(null)} disabled={busy === 'cleanup'}>
-                {busy === 'cleanup' ? 'Working…' : 'Close'}
+              <Button type="button" size="sm" variant="outline" onClick={() => setOverlay(null)} disabled={Boolean(busy)}>
+                {busy ? 'Working…' : 'Close'}
               </Button>
             </div>
           </div>
