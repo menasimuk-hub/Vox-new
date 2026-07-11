@@ -53,4 +53,15 @@ def test_voice_settings_sets_boost_for_azure_voice():
 def test_transcription_switches_to_arabic_azure():
     existing = {"transcription": {"model": "deepgram/flux", "language": "en"}}
     out = _transcription_for_language(existing, "ar")
-    assert out == {"model": "azure/fast", "language": "ar-SA"}
+    assert out == {"model": "azure/fast", "language": "ar-SA", "region": "westeurope"}
+
+
+def test_transcription_fills_missing_azure_region():
+    existing = {"transcription": {"model": "azure/fast", "language": "ar-SA", "region": None}}
+    out = _transcription_for_language(existing, "ar")
+    assert out == {"model": "azure/fast", "language": "ar-SA", "region": "westeurope"}
+
+
+def test_transcription_keeps_valid_existing_region():
+    existing = {"transcription": {"model": "azure/fast", "language": "ar-SA", "region": "eastus"}}
+    assert _transcription_for_language(existing, "ar") is None

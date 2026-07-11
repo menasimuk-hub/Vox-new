@@ -284,17 +284,34 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
 # candidate as English and never understands them. Azure needs a region-specific BCP-47
 # locale (e.g. `ar-EG`, `ar-SA`) — a bare `ar` is not accepted. We default to Saudi
 # Arabic (Gulf-oriented) for STT on interview/survey calls targeting UAE/KSA speakers.
+#
+# Telnyx also requires a supported Azure ``region`` for `azure/fast`. Omitting it (or
+# leaving region=null) makes `ai_assistant_start` fail with HTTP 422 and the candidate
+# hears silence — no agent voice. Keep this list aligned with Telnyx's Azure STT docs.
 _ARABIC_STT_MODEL = "azure/fast"
 _ARABIC_STT_LOCALE = "ar-SA"
+_ARABIC_STT_REGION = "westeurope"
+_AZURE_STT_REGIONS = frozenset(
+    {
+        "australiaeast",
+        "centralindia",
+        "eastus",
+        "northcentralus",
+        "westeurope",
+        "westus2",
+        "latency",
+    }
+)
 
 
 def _transcription_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
     """Build a Telnyx ``transcription`` body for the call language, or None if no change.
 
     For Arabic we switch STT to keyless `azure/fast` with an Arabic locale so the
-    assistant actually understands the candidate (flux is English-only). We send only
-    ``model`` + ``language`` — flux-specific end-of-turn ``settings`` must NOT be sent to
-    Azure (they are Deepgram-only and cause Telnyx to reject the update).
+    assistant actually understands the candidate (flux is English-only). We send
+    ``model`` + ``language`` + ``region`` — flux-specific end-of-turn ``settings`` must
+    NOT be sent to Azure (they are Deepgram-only and cause Telnyx to reject the update).
+    Region is mandatory: without it Telnyx rejects starting the assistant on the call.
     """
     lang = str(language or "").strip().lower()
     if not lang or not lang.startswith("ar"):
@@ -302,9 +319,15 @@ def _transcription_for_language(existing: dict[str, Any], language: str) -> dict
     current = existing.get("transcription") if isinstance(existing.get("transcription"), dict) else {}
     current_model = str(current.get("model") or "").strip().lower()
     current_lang = str(current.get("language") or "").strip().lower()
-    if current_model == _ARABIC_STT_MODEL and current_lang == _ARABIC_STT_LOCALE.lower():
+    current_region = str(current.get("region") or "").strip().lower()
+    region = current_region if current_region in _AZURE_STT_REGIONS else _ARABIC_STT_REGION
+    if (
+        current_model == _ARABIC_STT_MODEL
+        and current_lang == _ARABIC_STT_LOCALE.lower()
+        and current_region == region
+    ):
         return None
-    return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE}
+    return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE, "region": region}
 
 
 def _voice_settings_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
