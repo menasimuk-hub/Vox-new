@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Loader2, RefreshCw, Save, Search, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import { Button } from '@/components/ui/Button'
@@ -9,6 +9,13 @@ function fmtErr(e) {
   if (typeof e?.data?.detail === 'string') return e.data.detail
   if (e?.data?.detail?.message) return e.data.detail.message
   return e.message || String(e)
+}
+
+/** Session cache: Meta marketing list — refetch only on Refresh / after push-cleanup. */
+const marketingListCache = new Map()
+
+function marketingCacheKey(product, syncProfileId) {
+  return `${String(product || 'all')}|${String(syncProfileId || '')}`
 }
 
 export default function WaConvertPanel({ syncProfileId }) {
@@ -26,40 +33,62 @@ export default function WaConvertPanel({ syncProfileId }) {
   const [lintInfo, setLintInfo] = useState(null)
   const [busy, setBusy] = useState('')
   const [overlay, setOverlay] = useState(null)
+  const [listFromCache, setListFromCache] = useState(false)
+  const [listCachedAt, setListCachedAt] = useState(null)
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams()
-      params.set('product', product)
-      if (q.trim()) params.set('q', q.trim())
-      if (syncProfileId) params.set('connection_profile_id', syncProfileId)
-      const data = await apiFetch(`/admin/wa-templates/convert/marketing?${params}`, {
-        timeoutMs: 280000,
-        quietNetworkHint: true,
-      })
-      const list = Array.isArray(data?.templates) ? data.templates : []
-      setRows(list)
-      setOrphanCount(Number(data?.orphan_cleanup_count || data?.overview?.orphan_cleanup_count || 0))
-      setLlm(data?.llm || null)
-      if (list.length && !activeId) {
-        const first = list.find((r) => r.actionable && r.db_id) || list[0]
-        if (first?.db_id) setActiveId(String(first.db_id))
-      }
-    } catch (e) {
-      setError(fmtErr(e))
-      setRows([])
-      setOrphanCount(0)
-    } finally {
-      setLoading(false)
+  const applyListPayload = useCallback((data, { fromCache = false, cachedAt = null } = {}) => {
+    const list = Array.isArray(data?.templates) ? data.templates : []
+    setRows(list)
+    setOrphanCount(Number(data?.orphan_cleanup_count || data?.overview?.orphan_cleanup_count || 0))
+    setLlm(data?.llm || null)
+    setListFromCache(Boolean(fromCache))
+    setListCachedAt(cachedAt || (fromCache ? null : new Date().toISOString()))
+    if (list.length && !activeIdRef.current) {
+      const first = list.find((r) => r.actionable && r.db_id) || list[0]
+      if (first?.db_id) setActiveId(String(first.db_id))
     }
-  }, [product, q, syncProfileId, activeId])
+  }, [])
+
+  const load = useCallback(
+    async ({ force = false } = {}) => {
+      const key = marketingCacheKey(product, syncProfileId)
+      if (!force && marketingListCache.has(key)) {
+        const hit = marketingListCache.get(key)
+        applyListPayload(hit.data, { fromCache: true, cachedAt: hit.cachedAt })
+        setError('')
+        return
+      }
+      setLoading(true)
+      setError('')
+      try {
+        const params = new URLSearchParams()
+        params.set('product', product)
+        if (syncProfileId) params.set('connection_profile_id', syncProfileId)
+        const data = await apiFetch(`/admin/wa-templates/convert/marketing?${params}`, {
+          timeoutMs: 280000,
+          quietNetworkHint: true,
+        })
+        const cachedAt = new Date().toISOString()
+        marketingListCache.set(key, { data, cachedAt })
+        applyListPayload(data, { fromCache: false, cachedAt })
+      } catch (e) {
+        setError(fmtErr(e))
+        setRows([])
+        setOrphanCount(0)
+        setListFromCache(false)
+        setListCachedAt(null)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [product, syncProfileId, applyListPayload],
+  )
 
   useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product, syncProfileId])
+    void load({ force: false })
+  }, [load])
 
   const active = useMemo(
     () => rows.find((r) => String(r.db_id || r.id) === String(activeId)),
@@ -163,7 +192,7 @@ export default function WaConvertPanel({ syncProfileId }) {
           ],
         })
         setMsg('No old Meta versions to clean up.')
-        await load()
+        await load({ force: true })
         return
       }
 
@@ -256,7 +285,7 @@ export default function WaConvertPanel({ syncProfileId }) {
         ],
       })
       setMsg(`Deleted ${deleted}/${total} old version(s)${failed ? ` · ${failed} failed` : ''}.`)
-      await load()
+      await load({ force: true })
     } catch (e) {
       setError(fmtErr(e))
       pushOverlay({
@@ -401,7 +430,7 @@ export default function WaConvertPanel({ syncProfileId }) {
         suggested_next_name: null,
         status: data.status,
       }))
-      await load()
+      await load({ force: true })
     } catch (e) {
       setError(fmtErr(e))
       setOverlay((prev) =>
@@ -446,7 +475,14 @@ export default function WaConvertPanel({ syncProfileId }) {
             <option value="survey">Survey only</option>
             <option value="feedback">Feedback only</option>
           </select>
-          <Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void load({ force: true })}
+            disabled={loading}
+            title="Reload marketing list from Meta (bypasses cache)"
+          >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Refresh
           </Button>
@@ -481,13 +517,17 @@ export default function WaConvertPanel({ syncProfileId }) {
                 placeholder="Search…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void load()
-                }}
               />
             </div>
             <div className="mt-1.5 text-[11px] text-muted-foreground">
               {filtered.length} marketing template{filtered.length === 1 ? '' : 's'}
+              {listFromCache ? (
+                <span className="ml-1 text-amber-700/90" title={listCachedAt || ''}>
+                  · cached (Refresh for live Meta)
+                </span>
+              ) : listCachedAt ? (
+                <span className="ml-1">· live from Meta</span>
+              ) : null}
             </div>
           </div>
           <div className="max-h-[560px] overflow-y-auto">
