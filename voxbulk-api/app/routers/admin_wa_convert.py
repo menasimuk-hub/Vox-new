@@ -164,6 +164,7 @@ def convert_save(
             body=body.get("body"),
             footer=body.get("footer"),
             buttons=body.get("buttons"),
+            require_lint=bool(body.get("require_lint", False)),
         )
     except SurveyWhatsappTemplateError as exc:
         _raise(exc)
@@ -177,9 +178,9 @@ def convert_push(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    """Rename same DB id → push new Utility name → delete old MARKETING name.
+    """Save current editor draft (optional) → rename → push Utility → delete old MARKETING name.
 
-    Body: ``{ "targets": "99" | "55" | "all" }``
+    Body: ``{ "targets": "99" | "55" | "all", "header"?, "body"?, "footer"?, "buttons"? }``
     """
     body = payload or {}
     targets = str(body.get("targets") or "all").strip().lower()
@@ -192,6 +193,10 @@ def convert_push(
             template_id=template_id,
             targets=targets,  # type: ignore[arg-type]
             force_push=bool(body.get("force_push", True)),
+            header=body.get("header"),
+            body=body.get("body"),
+            footer=body.get("footer"),
+            buttons=body.get("buttons"),
         )
     except SurveyWhatsappTemplateError as exc:
         _raise(exc)

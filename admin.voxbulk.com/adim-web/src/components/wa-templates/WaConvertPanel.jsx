@@ -438,9 +438,16 @@ export default function WaConvertPanel({ syncProfileId }) {
         ...prev,
         body: data.body || prev.body,
         buttons: Array.isArray(data.buttons) ? data.buttons : prev.buttons,
+        header: data.header ?? prev.header,
+        footer: data.footer ?? prev.footer,
         suggested_next_name: data.suggested_next_name || prev.suggested_next_name,
       }))
-      setMsg('Saved local Utility draft (same DB id)')
+      setLintInfo(data.lint || null)
+      if (data.lint && data.lint.ok === false) {
+        setMsg('Saved. Local Utility lint has warnings — fix wording before Push if needed.')
+      } else {
+        setMsg('Saved local Utility draft (same DB id). Ready to Push.')
+      }
     } catch (e) {
       setError(fmtErr(e))
     } finally {
@@ -455,10 +462,11 @@ export default function WaConvertPanel({ syncProfileId }) {
     setMsg('')
     setOverlay({
       open: true,
-      title: `Push to ${targets === 'all' ? '99 + 55' : targets}`,
+      title: `Save & Push to ${targets === 'all' ? '99 + 55' : targets}`,
       sub: `${editor.local_name} → ${editor.suggested_next_name || '…'} · DB ${editor.db_id}`,
       steps: [
-        { id: 'lint', title: 'Utility lint', status: 'active' },
+        { id: 'save', title: 'Save local Utility draft', status: 'active' },
+        { id: 'lint', title: 'Utility lint', status: 'pending' },
         { id: 'rename', title: 'Rename local (same DB id)', status: 'pending' },
         { id: 'push', title: 'Push new Utility name', status: 'pending' },
         { id: 'delete_old', title: 'Delete old MARKETING name', status: 'pending' },
@@ -467,7 +475,19 @@ export default function WaConvertPanel({ syncProfileId }) {
     try {
       const data = await apiFetch(
         `/admin/wa-templates/convert/${encodeURIComponent(editor.product)}/${encodeURIComponent(editor.db_id)}/push`,
-        { method: 'POST', body: JSON.stringify({ targets, force_push: true }), timeoutMs: 300000 },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            targets,
+            force_push: true,
+            // Always send current editor text so Push auto-saves before rename/push.
+            header: editor.header,
+            body: editor.body,
+            footer: editor.footer,
+            buttons: editor.buttons,
+          }),
+          timeoutMs: 300000,
+        },
       )
       const steps = Array.isArray(data.steps)
         ? data.steps.map((s) => ({
@@ -485,7 +505,7 @@ export default function WaConvertPanel({ syncProfileId }) {
       })
       setMsg(
         data.ok
-          ? `Pushed ${data.new_name}. Removed from pending list — Refresh Meta when you want a live check.`
+          ? `Saved + pushed ${data.new_name}. Removed from pending list — Refresh Meta when you want a live check.`
           : 'Push failed — old MARKETING name kept if push did not succeed.',
       )
       if (data.ok) {
@@ -760,8 +780,8 @@ export default function WaConvertPanel({ syncProfileId }) {
                     onChange={(e) => setEditor((p) => ({ ...p, body: e.target.value }))}
                   />
                   <span className="mt-1 block text-[11px] text-muted-foreground">
-                    Utility copy must confirm a recent visit/stay/service — not promote an offer. Local lint is a guide;
-                    Meta still decides APPROVED vs MARKETING after Push.
+                    Edit freely in any language, then Save — or use Save &amp; Push all (auto-saves first). Utility copy
+                    should confirm a recent visit/service; Meta still decides APPROVED vs MARKETING after Push.
                   </span>
                 </label>
                 {regenDiff ? (
@@ -857,14 +877,14 @@ export default function WaConvertPanel({ syncProfileId }) {
                     Save
                   </Button>
                   <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runPush('99')}>
-                    Push 99
+                    Save & Push 99
                   </Button>
                   <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void runPush('55')}>
-                    Push 55
+                    Save & Push 55
                   </Button>
                   <Button type="button" size="sm" disabled={!!busy} onClick={() => void runPush('all')}>
                     {String(busy).startsWith('push') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    Push all
+                    Save & Push all
                   </Button>
                 </div>
               </div>

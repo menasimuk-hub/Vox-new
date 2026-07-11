@@ -428,7 +428,12 @@ def save_convert_template(
     body: str | None = None,
     footer: str | None = None,
     buttons: list[str] | None = None,
+    require_lint: bool = False,
 ) -> dict[str, Any]:
+    """Persist Convert editor draft. Lint blocks only when ``require_lint`` is True.
+
+    Convert UX needs free edit + Save; Push still enforces Utility lint separately.
+    """
     prod = str(product or "survey").strip().lower()
     if prod == "feedback":
         from app.models.customer_feedback import FeedbackWaTemplate
@@ -438,15 +443,32 @@ def save_convert_template(
         if frow is None:
             raise SurveyWhatsappTemplateError("Feedback template not found")
         if body is not None:
-            frow.body_text = str(body).strip()
+            body_text = str(body).strip()
+            if not body_text:
+                raise SurveyWhatsappTemplateError("Body cannot be empty — write the Utility question, then Save.")
+            frow.body_text = body_text
         if buttons is not None:
-            frow.buttons_json = json.dumps([str(b).strip() for b in buttons if str(b).strip()])
+            labels = [str(b).strip() for b in buttons if str(b).strip()]
+            if len(labels) < 2:
+                raise SurveyWhatsappTemplateError("Keep at least 2 quick-reply buttons (max 20 characters each).")
+            frow.buttons_json = json.dumps(labels)
         frow.meta_category = "utility"
         frow.telnyx_sync_status = "draft"
         db.add(frow)
         db.commit()
         db.refresh(frow)
-        return get_convert_template(db, product="feedback", template_id=str(frow.id))
+        out = get_convert_template(db, product="feedback", template_id=str(frow.id))
+        lint = lint_utility_template(
+            body=str(out.get("body") or ""),
+            buttons=list(out.get("buttons") or []),
+            language=out.get("language"),
+            meta_category="utility",
+        )
+        out["lint"] = {"ok": lint.ok, "issues": [{"code": i.code, "message": i.message} for i in lint.issues]}
+        if require_lint and not lint.ok:
+            msgs = "; ".join(i.message for i in lint.issues[:5])
+            raise SurveyWhatsappTemplateError(f"Utility lint failed: {msgs}")
+        return out
 
     row = db.get(TelnyxWhatsappTemplate, int(template_id))
     if row is None:
@@ -455,9 +477,17 @@ def save_convert_template(
     body_text = str(body if body is not None else "").strip()
     if body is None:
         body_text, _btns = _extract_body_and_buttons(comps)
+    if not body_text:
+        raise SurveyWhatsappTemplateError("Body cannot be empty — write the Utility question, then Save.")
     btn_labels = [str(b).strip() for b in (buttons or []) if str(b).strip()]
     if buttons is None:
         _b, btn_labels = _extract_body_and_buttons(comps)
+
+    from app.services.wa_template_utility_lint import clamp_utility_button_labels
+
+    btn_labels = clamp_utility_button_labels(btn_labels)
+    if len(btn_labels) < 2:
+        raise SurveyWhatsappTemplateError("Keep at least 2 quick-reply buttons (max 20 characters each).")
 
     lint = lint_utility_template(
         body=body_text,
@@ -465,14 +495,13 @@ def save_convert_template(
         language=row.language,
         meta_category="utility",
     )
-    if not lint.ok:
+    if require_lint and not lint.ok:
         msgs = "; ".join(i.message for i in lint.issues[:5])
         raise SurveyWhatsappTemplateError(f"Utility lint failed: {msgs}")
 
-    from app.services.survey_wa_md_seed_service import _build_abc_choice_components
+    from app.services.survey_wa_md_seed_service import SurveyWaMdSeedError, _build_abc_choice_components
     from app.services.survey_wa_utility_rewrite_service import (
         _dumps,
-        _normalize_draft_components,
         _persist_normalized_draft,
         _refresh_local_sync_status,
     )
@@ -480,26 +509,28 @@ def save_convert_template(
         SYNC_LOCAL_CHANGES,
         normalize_wa_template_category,
     )
-    from app.services.wa_template_utility_lint import clamp_utility_button_labels
 
-    btn_labels = clamp_utility_button_labels(btn_labels)
-    if btn_labels:
+    try:
         draft = _build_abc_choice_components(body=body_text, options=btn_labels)
-    else:
-        draft = _normalize_draft_components(comps)
+    except SurveyWaMdSeedError as exc:
+        raise SurveyWhatsappTemplateError(str(exc)) from exc
+
+    if header is not None and str(header).strip():
+        draft.insert(0, {"type": "HEADER", "format": "TEXT", "text": str(header).strip()})
+    if footer is not None and str(footer).strip():
+        replaced = False
         for comp in draft:
-            if str(comp.get("type") or "").upper() == "BODY":
-                comp["text"] = body_text
-            if header is not None and str(comp.get("type") or "").upper() == "HEADER":
-                comp["text"] = str(header or "")
-            if footer is not None and str(comp.get("type") or "").upper() == "FOOTER":
-                comp["text"] = str(footer or "")
-        if header is not None and not any(str(c.get("type") or "").upper() == "HEADER" for c in draft if isinstance(c, dict)):
-            if str(header).strip():
-                draft.insert(0, {"type": "HEADER", "format": "TEXT", "text": str(header).strip()})
-        if footer is not None and not any(str(c.get("type") or "").upper() == "FOOTER" for c in draft if isinstance(c, dict)):
-            if str(footer).strip():
-                draft.append({"type": "FOOTER", "text": str(footer).strip()})
+            if str(comp.get("type") or "").upper() == "FOOTER":
+                comp["text"] = str(footer).strip()
+                replaced = True
+                break
+        if not replaced:
+            # Insert footer before buttons when present.
+            insert_at = next(
+                (i for i, c in enumerate(draft) if str(c.get("type") or "").upper() == "BUTTONS"),
+                len(draft),
+            )
+            draft.insert(insert_at, {"type": "FOOTER", "text": str(footer).strip()})
 
     row.category = normalize_wa_template_category("UTILITY", required=True)
     row.draft_components_json = _dumps(draft)
@@ -509,7 +540,9 @@ def save_convert_template(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return get_convert_template(db, product="survey", template_id=str(row.id))
+    out = get_convert_template(db, product="survey", template_id=str(row.id))
+    out["lint"] = {"ok": lint.ok, "issues": [{"code": i.code, "message": i.message} for i in lint.issues]}
+    return out
 
 
 def push_convert_template(
@@ -519,11 +552,40 @@ def push_convert_template(
     template_id: str,
     targets: ConvertTarget = "all",
     force_push: bool = True,
+    header: str | None = None,
+    body: str | None = None,
+    footer: str | None = None,
+    buttons: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Rename same DB id → push new name → delete old MARKETING name on selected profiles."""
+    """Save draft (optional) → rename same DB id → push Utility → delete old MARKETING name."""
     prod = str(product or "survey").strip().lower()
     tgt: ConvertTarget = targets if targets in ("99", "55", "all") else "all"
     steps: list[dict[str, Any]] = []
+
+    draft_provided = any(v is not None for v in (header, body, footer, buttons))
+    if draft_provided:
+        try:
+            saved = save_convert_template(
+                db,
+                product=prod,
+                template_id=str(template_id),
+                header=header,
+                body=body,
+                footer=footer,
+                buttons=buttons,
+                require_lint=False,
+            )
+            steps.append(
+                {
+                    "id": "save",
+                    "title": "Save local Utility draft",
+                    "status": "done",
+                    "detail": f"DB {saved.get('db_id')} saved",
+                }
+            )
+        except SurveyWhatsappTemplateError as exc:
+            steps.append({"id": "save", "title": "Save local Utility draft", "status": "error", "detail": str(exc)})
+            raise
 
     if prod == "feedback":
         return _push_convert_feedback(db, template_id=str(template_id), targets=tgt, steps=steps, force_push=force_push)
@@ -555,8 +617,8 @@ def push_convert_template(
         old_name = current_name
 
     comps = _effective_components(row)
-    body, buttons = _extract_body_and_buttons(comps if isinstance(comps, list) else [])
-    lint = lint_utility_template(body=body, buttons=buttons, language=row.language, meta_category="utility")
+    body_text, buttons_labels = _extract_body_and_buttons(comps if isinstance(comps, list) else [])
+    lint = lint_utility_template(body=body_text, buttons=buttons_labels, language=row.language, meta_category="utility")
     if not lint.ok:
         msgs = "; ".join(i.message for i in lint.issues[:5])
         raise SurveyWhatsappTemplateError(f"Utility lint failed before push: {msgs}")

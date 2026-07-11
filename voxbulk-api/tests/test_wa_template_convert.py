@@ -111,6 +111,19 @@ def test_convert_save_and_rename_keeps_db_id(db):
     )
     assert saved["db_id"] == tid
     assert saved["category"] and str(saved["category"]).upper() == "UTILITY"
+    assert "lint" in saved
+
+    # Soft save: marketing-ish wording still persists (Push will enforce lint later).
+    soft = save_convert_template(
+        db,
+        product="survey",
+        template_id=str(tid),
+        body="How was breakfast?",
+        buttons=["Great", "OK", "Poor"],
+        require_lint=False,
+    )
+    assert soft["body"] == "How was breakfast?"
+    assert soft.get("lint", {}).get("ok") is False
 
     nxt = _suggest_survey_next_name(db, db.get(TelnyxWhatsappTemplate, tid))
     assert nxt == "was_hotel_overall_002_en"
