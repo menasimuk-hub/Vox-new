@@ -342,7 +342,7 @@ def regenerate_convert_template(
         old_body, new_body = apply_utility_rewrite_to_feedback_row(
             db,
             frow,
-            use_llm=False,
+            use_llm=True,
             llm_provider=provider,
             llm_model=model,
             allow_marketing=True,
@@ -352,7 +352,7 @@ def regenerate_convert_template(
         detail["old_body"] = old_body
         detail["new_body"] = new_body
         detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip()
-        detail["rewrite_mode"] = "force_utility_rule"
+        detail["rewrite_mode"] = "force_utility_llm"
         detail["lint"] = _lint_to_dict(
             lint_utility_template(
                 body=new_body,
@@ -370,12 +370,12 @@ def regenerate_convert_template(
     from app.services.survey_wa_utility_rewrite_service import _extract_body_and_buttons, _effective_components
 
     _pre_body, old_buttons = _extract_body_and_buttons(_effective_components(row) or [])
-    # Convert always force-rewrites with rule-based Utility copy (no LLM).
-    # LLM previously rewrote satisfaction → NPS "recommend" and local lint wrongly PASSed.
+    # Convert force-rewrites with LLM (same language + same topic meaning); rule fallback if LLM
+    # fails or drifts into NPS/recommend / English / vague "هذه الخدمة".
     old_body, new_body = apply_utility_rewrite_to_row(
         db,
         row,
-        use_llm=False,
+        use_llm=True,
         llm_provider=provider,
         llm_model=model,
         force_rewrite=True,
@@ -388,7 +388,7 @@ def regenerate_convert_template(
     detail["new_buttons"] = new_buttons
     detail["changed"] = str(old_body or "").strip() != str(new_body or "").strip() or old_buttons != new_buttons
     detail["buttons_changed"] = old_buttons != new_buttons
-    detail["rewrite_mode"] = "force_utility_rule"
+    detail["rewrite_mode"] = "force_utility_llm"
     detail["lint"] = _lint_to_dict(
         lint_utility_template(
             body=new_body,

@@ -140,9 +140,8 @@ def apply_utility_rewrite_to_feedback_row(
     if not old_body:
         raise ValueError(f"Missing body_text for {row.template_key}")
 
-    # Convert / force path: rule-based only (same as survey Convert — avoid LLM NPS/recommend drift).
-    if force_rewrite:
-        use_llm = False
+    # Convert / force path: prefer LLM (same meaning + language); rewrite_body_for_utility
+    # still falls back to rules when LLM fails or drifts into NPS/recommend/English.
 
     meta_template_name = str(getattr(row, "meta_template_name", None) or row.template_key or "")
     industry_slug = _industry_slug_for_feedback_row(db, row)

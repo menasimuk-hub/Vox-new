@@ -32,6 +32,23 @@ def test_rewrite_feedback_body_preserves_spanish_without_meta_name_attr():
     assert "how would you rate" not in body.lower()
 
 
+def test_rewrite_feedback_arabic_nutrition_advice_not_generic_service():
+    body = rewrite_feedback_body(
+        MagicMock(),
+        original_body="🥗 كيف تقيّم النصائح الغذائية المقدمة من فريقنا؟",
+        buttons=["ممتاز", "جيد", "ضعيف"],
+        template_key="nutrition_advice",
+        use_llm=False,
+        language="ar",
+        industry_slug="fitness",
+        template_name="cfs_fitness_nutrition_advice_ar_v1",
+        force_rewrite=True,
+    )
+    assert "هذه الخدمة" not in body
+    assert "نصائح" in body or "غذائية" in body
+    assert "how would you rate" not in body.lower()
+
+
 def test_rewrite_feedback_arabic_breakfast_force_stays_arabic():
     body = rewrite_feedback_body(
         MagicMock(),

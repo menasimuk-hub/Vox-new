@@ -52,6 +52,34 @@ def test_language_inferred_from_was_name_suffix():
     assert _language_code_from_value("", template_name="was_hotel_breakfast_quality_002_en") == "en"
 
 
+def test_force_rewrite_arabic_nutrition_advice_keeps_topic():
+    """Fitness nutrition-advice must not collapse to vague 'هذه الخدمة'."""
+    original = "🥗 كيف تقيّم النصائح الغذائية المقدمة من فريقنا؟"
+    body = _rule_based_utility_body(
+        original,
+        topic_hint="nutrition advice",
+        industry_slug="fitness",
+        language="ar",
+        template_name="cfs_fitness_nutrition_advice_ar_v1",
+        force_rewrite=True,
+    )
+    assert "how would you rate" not in body.lower()
+    assert "هذه الخدمة" not in body
+    assert "نصائح" in body or "غذائية" in body
+    assert "تجربتك الأخيرة" in body or "زيارتك الأخيرة" in body
+    assert body.startswith("🥗")
+
+
+def test_extract_arabic_topic_from_nutrition_body():
+    from app.services.wa_template_utility_content import extract_arabic_topic_from_body
+
+    topic = extract_arabic_topic_from_body("🥗 كيف تقيّم النصائح الغذائية المقدمة من فريقنا؟")
+    assert topic is not None
+    assert "نصائح" in topic
+    assert "غذائية" in topic
+    assert topic != "هذه الخدمة"
+
+
 def test_force_rewrite_arabic_hotel_breakfast_stays_arabic():
     """Convert Regenerate must not Englishify Arabic MARKETING → Utility bodies."""
     original = "🍳 كيف تقيّم جودة وجبة الإفطار المقدمة؟"

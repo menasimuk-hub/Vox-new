@@ -93,6 +93,16 @@ TOPIC_SAFE_EN: dict[str, str] = {
     "repeat purchase intent": "shopping experience",
     "repeat_purchase_intent": "shopping experience",
     "repeat purchase": "shopping experience",
+    "nutrition advice": "nutrition advice",
+    "nutrition_advice": "nutrition advice",
+    "trainers": "trainer expertise",
+    "trainer knowledge": "trainer expertise",
+    "trainer_knowledge": "trainer expertise",
+    "equipment": "equipment condition",
+    "equipment condition": "equipment condition",
+    "equipment_condition": "equipment condition",
+    "aftercare advice": "aftercare advice",
+    "aftercare_advice": "aftercare advice",
 }
 
 TOPIC_SAFE_AR: dict[str, str] = {
@@ -120,8 +130,8 @@ TOPIC_SAFE_AR: dict[str, str] = {
     "overall experience today": "التجربة العامة اليوم",
     "value for money": "القيمة مقابل السعر",
     "value_for_money": "القيمة مقابل السعر",
-    "would recommend": "احتمال التوصية",
-    "would_recommend": "احتمال التوصية",
+    "would recommend": "الرضا العام",
+    "would_recommend": "الرضا العام",
     "return intent": "نية العودة",
     "return_intent": "نية العودة",
     "wait time": "وقت الانتظار",
@@ -142,7 +152,73 @@ TOPIC_SAFE_AR: dict[str, str] = {
     "check-in experience": "تجربة تسجيل الوصول",
     "booking experience": "تجربة الحجز",
     "booking_experience": "تجربة الحجز",
+    # Fitness / gym (and similar CFS Latin topics → Arabic nouns)
+    "nutrition advice": "النصائح الغذائية",
+    "nutrition_advice": "النصائح الغذائية",
+    "trainers": "خبرة المدربين",
+    "trainer knowledge": "خبرة المدربين",
+    "trainer_knowledge": "خبرة المدربين",
+    "equipment": "حالة المعدات",
+    "equipment condition": "حالة المعدات",
+    "equipment_condition": "حالة المعدات",
+    "membership": "تجربة العضوية",
+    "aftercare advice": "نصائح العناية اللاحقة",
+    "aftercare_advice": "نصائح العناية اللاحقة",
+    "staff knowledge": "معرفة الموظفين",
+    "staff_knowledge": "معرفة الموظفين",
+    "product quality": "جودة المنتج",
+    "product_quality": "جودة المنتج",
+    "service quality": "جودة الخدمة",
+    "service_quality": "جودة الخدمة",
 }
+
+
+_AR_TOPIC_QUESTION_PREFIXES = (
+    "كيف تقيّم",
+    "كيف تقيم",
+    "كيف كانت",
+    "كيف كان",
+    "ما رأيك في",
+    "ما رأيك ب",
+    "هل تقيّم",
+    "هل تقيم",
+)
+
+_AR_TOPIC_TRAILER_RE = re.compile(
+    r"(?:\s*(?:المقدمة(?:\s+من\s+فريقنا)?|من\s+فريقنا|في\s+تجربتك(?:\s+الأخيرة)?(?:\s+معنا)?|"
+    r"في\s+زيارتك(?:\s+الأخيرة)?(?:\s+معنا)?|معنا|اليوم|المقدمة|"
+    r"اختر\s+أحد\s+الخيارات(?:\s+أدناه)?|؟)+)+\s*$"
+)
+
+_AR_GENERIC_TOPICS = frozenset(
+    {
+        "هذه الخدمة",
+        "الخدمة",
+        "تجربتك الأخيرة معنا",
+        "زيارتك الأخيرة معنا",
+        "عملك",
+    }
+)
+
+
+def extract_arabic_topic_from_body(body: str | None) -> str | None:
+    """Pull the specific Arabic subject from a rating question (never 'هذه الخدمة')."""
+    text = re.sub(r"\s+", " ", str(body or "").strip())
+    if not text:
+        return None
+    # Drop leading emoji / punctuation already partially stripped by callers.
+    text = re.sub(r"^[^\w\u0600-\u06FF]+", "", text).strip()
+    for prefix in _AR_TOPIC_QUESTION_PREFIXES:
+        if text.startswith(prefix):
+            text = text[len(prefix) :].strip()
+            break
+    text = _AR_TOPIC_TRAILER_RE.sub("", text).strip(" ؟?.،,")
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) < 3 or text in _AR_GENERIC_TOPICS or _has_latin(text):
+        return None
+    if is_promo_wording(text):
+        return None
+    return text[:80]
 
 
 def _norm_topic_key(topic: str | None) -> str:
@@ -271,6 +347,7 @@ def safe_topic_ar(
     *,
     industry_slug: str | None = None,
     industry_name: str | None = None,
+    original_body: str | None = None,
 ) -> str:
     frame = resolve_industry_frame(industry_slug, industry_name, language="ar")
     raw = str(topic_name or "").strip()
@@ -280,6 +357,10 @@ def safe_topic_ar(
     slug_key = key.replace(" ", "_")
     if slug_key in TOPIC_SAFE_AR:
         return TOPIC_SAFE_AR[slug_key]
+    # Prefer a specific noun from the existing Arabic BODY over generic "هذه الخدمة".
+    from_body = extract_arabic_topic_from_body(original_body)
+    if from_body:
+        return from_body
     # Never inject English into Arabic bodies.
     if _has_latin(raw) or is_promo_wording(raw):
         return frame["fallback_topic"]
@@ -474,14 +555,21 @@ def utility_body_ar_for_topic(
     emoji: str = DEFAULT_EMOJI,
     industry_slug: str | None = None,
     industry_name: str | None = None,
+    original_body: str | None = None,
 ) -> str:
     frame = resolve_industry_frame(industry_slug, industry_name, language="ar")
-    topic = safe_topic_ar(topic_name, industry_slug=industry_slug, industry_name=industry_name)
+    topic = safe_topic_ar(
+        topic_name,
+        industry_slug=industry_slug,
+        industry_name=industry_name,
+        original_body=original_body,
+    )
+    prefix = f"{emoji} " if emoji else ""
     if frame["key"] == "employee":
-        return f"{emoji} كيف تقيّم {topic} في عملك؟ اختر أحد الخيارات أدناه."
+        return f"{prefix}كيف تقيّم {topic} في عملك؟ اختر أحد الخيارات أدناه.".strip()
     if frame["key"] == "visit":
-        return f"{emoji} كيف كانت {topic} في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
-    return f"{emoji} كيف كانت {topic} في تجربتك الأخيرة معنا؟ اختر أحد الخيارات أدناه."
+        return f"{prefix}كيف تقيّم {topic} في زيارتك الأخيرة معنا؟ اختر أحد الخيارات أدناه.".strip()
+    return f"{prefix}كيف تقيّم {topic} في تجربتك الأخيرة معنا؟ اختر أحد الخيارات أدناه.".strip()
 
 
 def is_promo_wording(text: str | None) -> bool:

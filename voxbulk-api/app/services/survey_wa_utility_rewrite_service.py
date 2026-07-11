@@ -198,6 +198,15 @@ _UTILITY_CONTEXT_PHRASES = (
     "nuestro hotel",
     "su experiencia",
     "su estancia",
+    # Arabic recent-interaction anchors (Convert LLM + lint path)
+    "تجربتك الأخيرة",
+    "زيارتك الأخيرة",
+    "في تجربتك",
+    "في زيارتك",
+    "في عملك",
+    "بعد زيارتك",
+    "بعد تجربتك",
+    "المقدمة من فريقنا",
 )
 
 
@@ -433,6 +442,7 @@ def _forced_utility_body_same_language(
             emoji="",
             industry_slug=industry_slug,
             industry_name=industry_name,
+            original_body=original_cleaned,
         ).lstrip()
 
     if lang_code != "en":
@@ -705,7 +715,11 @@ def rewrite_body_for_utility(
         '{"body":"rewritten question text","notes":"one line why this is utility-compliant"}'
         + _META_UTILITY_GUIDANCE
         + "\nAvoid ALL marketing signals: sale, discount, offer, gift, reward, promotion, new, "
-        "loyalty, refer-a-friend, return intent, upsell, vague brand surveys."
+        "loyalty, refer-a-friend, return intent, upsell, vague brand surveys.\n"
+        "CRITICAL meaning rule: Keep the SAME specific subject as Current BODY "
+        "(e.g. nutrition advice / النصائح الغذائية stays that topic). "
+        "Never replace a specific topic with vague 'this service' / 'هذه الخدمة' / 'your experience' alone. "
+        "Never rewrite into NPS, recommend-to-others, return-intent, or referral questions."
     )
     emoji_hint = (
         f"Keep this leading emoji at the start: {leading_emoji}"
@@ -721,8 +735,10 @@ def rewrite_body_for_utility(
         f"Current BODY:\n{original_body}\n\n"
         f"{emoji_hint}\n"
         f"Quick-reply buttons (keep meaning aligned): {', '.join(button_labels) or 'n/a'}\n\n"
-        "Rewrite BODY only. Match the industry frame exactly. "
-        "If the current BODY lacks a recent-visit/stay anchor, add one naturally in the output language."
+        "Rewrite BODY only. Preserve the specific survey subject from Current BODY + Survey topic. "
+        "Match the industry frame exactly. "
+        "If the current BODY lacks a recent-visit/stay/experience/work anchor, add one naturally "
+        "in the output language WITHOUT erasing the specific topic."
     )
     try:
         chain = utility_llm_model_chain(provider=llm_provider, llm_model=llm_model)
@@ -766,6 +782,12 @@ def rewrite_body_for_utility(
                 )
                 if not lint_after.ok or _body_has_recommend_intent(body):
                     return _fallback_body()
+                # Reject vague "هذه الخدمة" when original had a specific Arabic subject.
+                if lang_code == "ar" and "هذه الخدمة" in body:
+                    from app.services.wa_template_utility_content import extract_arabic_topic_from_body
+
+                    if extract_arabic_topic_from_body(original_body):
+                        return _fallback_body()
                 return _normalize_leading_emoji_text(_prepend_leading_emoji(leading_emoji, body))
             except Exception as exc:
                 last_exc = exc
