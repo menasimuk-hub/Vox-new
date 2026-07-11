@@ -272,8 +272,36 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             title="Thank you for your interview",
             inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
   <p>Thank you for completing your <strong>{{role}}</strong> interview with <strong>{{company_name}}</strong>.</p>
-  <p>We appreciate the time you took to speak with our AI interviewer. The hiring team will now review your interview and will be in touch regarding the next steps.</p>
+  <p>We appreciate the time you took to speak with us. The hiring team will now review your interview and will be in touch regarding the next steps.</p>
   <p style="font-size:13px;color:#6b6560;">No further action is needed from you right now.</p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
+        ),
+    },
+    "interview_session_reschedule": {
+        "title": "Interview session — reschedule",
+        "subject": "Pick a new interview time — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="Let's find a better time",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Thanks for letting us know that now was not a good time for your <strong>{{role}}</strong> interview with <strong>{{company_name}}</strong>.</p>
+  <p>Your previous slot has been released. Please pick a new time using the button below:</p>
+  """
+            + cta_button(href="{{reschedule_url}}", label="Choose a new time")
+            + """
+  <p style="font-size:13px;color:#6b6560;">If the button does not work, copy this link:<br />
+  <a href="{{reschedule_url}}" style="color:#1a2d5c;word-break:break-all;">{{reschedule_url}}</a></p>
+  <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
+        ),
+    },
+    "interview_session_opted_out": {
+        "title": "Interview session — opted out / closed",
+        "subject": "Interview closed — {{role}} at {{company_name}}",
+        "body": wrap_interview_email(
+            title="Interview closed",
+            inner_html="""<p>Hi <strong>{{candidate_name}}</strong>,</p>
+  <p>Your <strong>{{role}}</strong> interview with <strong>{{company_name}}</strong> has been closed{{closure_reason_html}}.</p>
+  <p style="font-size:14px;color:#3d3832;">{{closure_message}}</p>
+  <p style="font-size:13px;color:#6b6560;">You will not receive further interview calls or booking emails for this role unless the employer contacts you separately.</p>
   <p style="font-size:13px;color:#6b6560;">This message was sent from careers@voxbulk.com — please check your Spam or Junk folder if you cannot find it.</p>""",
         ),
     },

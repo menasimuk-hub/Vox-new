@@ -43,6 +43,8 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "interview_meeting_missed",
     "interview_missed_call_followup",
     "interview_thank_you",
+    "interview_session_reschedule",
+    "interview_session_opted_out",
     "billing_cancellation_requested",
     "billing_cancellation_reversed",
     "billing_plan_change_scheduled",
@@ -235,6 +237,10 @@ class EmailTemplateService:
                 or ("data:" in body and "base64" in body)
                 or needs_calendar_refresh
                 or needs_cancel_refresh
+                or (
+                    key == "interview_thank_you"
+                    and "AI interviewer" in body
+                )
             ):
                 row.body = default_body
                 if default_subject:

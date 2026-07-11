@@ -388,11 +388,13 @@ class InterviewAnalysisService:
             except Exception:
                 logger.exception("%s session_usage_meter_failed", LOG_PREFIX)
             try:
-                from app.services.interview_missed_call_email_service import (
-                    maybe_send_interview_thank_you_email,
+                from app.services.interview_session_outcome_email_service import (
+                    dispatch_interview_session_outcome_email,
                 )
 
-                maybe_send_interview_thank_you_email(db, order=order, recipient=recipient)
+                dispatch_interview_session_outcome_email(
+                    db, order=order, recipient=recipient, outcome="completed"
+                )
             except Exception:
                 logger.exception("%s thank_you_email_failed", LOG_PREFIX)
         elif terminal_status in {"no_answer", "failed", "busy", "skipped", "cancelled", "opted_out"}:

@@ -146,6 +146,82 @@ def transcript_shows_interview_progress(transcript: str | None) -> bool:
     return len(lines) >= 8
 
 
+def classify_interview_session_outcome_with_llm(
+    db: Session,
+    *,
+    transcript: str,
+    duration_seconds: int | None = None,
+) -> InterviewSessionOutcome | None:
+    """LLM Layer 2b: decide completed vs reschedule vs recording_declined vs wrong_person.
+
+    Returns None on failure so callers can keep keyword classification.
+    """
+    text = str(transcript or "").strip()
+    if len(text) < 40:
+        return None
+    try:
+        from app.services.agents.base import AgentMessage
+        from app.services.providers.openai_service import OpenAIProviderService
+
+        prompt = (
+            "You classify the END STATE of a job screening interview call/meeting.\n"
+            "Return ONLY one lowercase label from this set:\n"
+            "completed — candidate answered interview screening questions (even partially).\n"
+            "reschedule — candidate said not free / busy / stop / reschedule BEFORE real Q&A answers.\n"
+            "recording_declined — candidate refused recording consent.\n"
+            "wrong_person — wrong person or wrong number.\n"
+            "technical_abort — dropped/connection fail with almost no conversation.\n"
+            f"Duration seconds (may be null): {duration_seconds}\n"
+            "Transcript:\n"
+            f"{text[:6000]}\n"
+        )
+        result = OpenAIProviderService.complete(
+            db,
+            system_prompt="Classify interview session outcomes. Reply with one label only.",
+            messages=[AgentMessage(role="user", content=prompt)],
+            max_tokens=20,
+            temperature=0,
+            provider="deepseek",
+        )
+        label = str(result.assistant_text or "").strip().lower().split()[0].strip(".,;:")
+        allowed = {"completed", "reschedule", "recording_declined", "wrong_person", "technical_abort"}
+        if label in allowed:
+            return label  # type: ignore[return-value]
+    except Exception:
+        logger.exception("interview_session_llm_classify_failed")
+    return None
+
+
+def resolve_interview_session_outcome(
+    db: Session | None,
+    *,
+    duration_seconds: int | None,
+    transcript: str | None = None,
+    use_llm: bool = False,
+) -> InterviewSessionOutcome:
+    """Keyword classify, optionally confirm/override with LLM when transcript is present."""
+    keyword = classify_interview_session_outcome(
+        duration_seconds=duration_seconds, transcript=transcript
+    )
+    text = str(transcript or "").strip()
+    if not use_llm or db is None or len(text) < 80:
+        return keyword
+    llm = classify_interview_session_outcome_with_llm(
+        db, transcript=text, duration_seconds=duration_seconds
+    )
+    if llm is None:
+        return keyword
+    # Prefer LLM when keywords said completed but LLM says early exit (or vice versa for recording).
+    if keyword == "completed" and llm in {"reschedule", "recording_declined", "wrong_person", "technical_abort"}:
+        return llm
+    if llm == "recording_declined":
+        return llm
+    if keyword in {"reschedule", "recording_declined", "wrong_person"} and llm == "completed":
+        # Mid-interview stop stays completed (product rule A) if LLM saw real Q&A.
+        return "completed"
+    return llm if llm != keyword else keyword
+
+
 def classify_interview_session_outcome(
     *,
     duration_seconds: int | None,
@@ -264,7 +340,12 @@ def maybe_reclassify_completed_interview_after_transcript(
     except (TypeError, ValueError):
         duration = None
 
-    outcome = classify_interview_session_outcome(duration_seconds=duration, transcript=transcript)
+    outcome = resolve_interview_session_outcome(
+        db,
+        duration_seconds=duration,
+        transcript=transcript,
+        use_llm=True,
+    )
     reviewed_at = datetime.utcnow().isoformat()
 
     if outcome == "completed":
@@ -276,6 +357,7 @@ def maybe_reclassify_completed_interview_after_transcript(
                 "session_outcome_reviewed_at": reviewed_at,
                 "session_outcome_provisional": False,
                 "awaiting_candidate_action": False,
+                "session_outcome_layer": "transcript_review_llm",
             },
         )
         return None
@@ -482,6 +564,16 @@ def apply_interview_session_outcome(
             source_text=(transcript or "")[:500],
         )
         db.refresh(recipient)
+        try:
+            from app.services.interview_session_outcome_email_service import (
+                dispatch_interview_session_outcome_email,
+            )
+
+            dispatch_interview_session_outcome_email(
+                db, order=order, recipient=recipient, outcome="recording_declined"
+            )
+        except Exception:
+            logger.exception("interview_opt_out_email_failed")
         return {
             "ok": True,
             "status": recipient.status,
@@ -511,6 +603,7 @@ def apply_interview_session_outcome(
     merged.update(patch)
     for key in ("ended_at", "call_completed_at", "meeting_ended_at", "analysis_saved_at"):
         merged.pop(key, None)
+    _strip_completed_interview_artifacts(merged)
     recipient.result_json = json.dumps(merged, ensure_ascii=False)
     db.add(recipient)
     db.commit()
@@ -518,7 +611,18 @@ def apply_interview_session_outcome(
 
     email_sent = False
     if outcome == "reschedule":
-        email_sent = _send_reschedule_email(db, order, recipient)
+        try:
+            from app.services.interview_session_outcome_email_service import (
+                dispatch_interview_session_outcome_email,
+            )
+
+            mail = dispatch_interview_session_outcome_email(
+                db, order=order, recipient=recipient, outcome="reschedule"
+            )
+            email_sent = bool(mail.get("ok") or mail.get("skipped") and mail.get("reason") == "already_sent")
+        except Exception:
+            logger.exception("interview_session_reschedule_email_failed")
+            email_sent = _send_reschedule_email(db, order, recipient)
 
     messages = {
         "reschedule": "No problem — use the link in your email to pick a new time.",
