@@ -7,13 +7,14 @@ agents:
   - slug: interview-gb-leo
     region: GB
     gender: male
-    provider: telnyx
-    voice: Telnyx.NaturalHD.albion
+    # ElevenLabs flash — NaturalHD.albion sounded slow/drawly ("drunk") at phone quality.
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9
+    api_key_ref: elevenlabs-paid
     accent_keywords: [british, uk, english, england]
     fallback:
-      provider: elevenlabs
-      voice: ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9
-      api_key_ref: elevenlabs-paid
+      provider: telnyx
+      voice: Telnyx.NaturalHD.albion
 
   - slug: interview-gb-jode
     region: GB

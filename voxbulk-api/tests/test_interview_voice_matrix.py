@@ -19,12 +19,15 @@ def test_load_voice_matrix_has_twelve_english_agents():
     assert not any(s.startswith("interview-ar-") for s in slugs)
 
 
-def test_voice_settings_telnyx_no_api_key_ref():
+def test_voice_settings_leo_elevenlabs_british_male():
     entry = matrix_entry_for_slug("interview-gb-leo")
     assert entry is not None
+    assert entry["provider"] == "elevenlabs"
     settings = voice_settings_from_entry(entry)
-    assert settings["voice"] == "Telnyx.NaturalHD.albion"
-    assert "api_key_ref" not in settings
+    assert settings["voice"] == "ElevenLabs.eleven_flash_v2_5.onwK4e9ZLuTAKqWW03F9"
+    assert settings["api_key_ref"] == "elevenlabs-paid"
+    fb = entry.get("fallback") or {}
+    assert fb.get("voice") == "Telnyx.NaturalHD.albion"
 
 
 def test_voice_settings_elevenlabs_has_api_key_ref():

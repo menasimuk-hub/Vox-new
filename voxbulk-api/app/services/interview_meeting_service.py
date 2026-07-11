@@ -181,7 +181,7 @@ class InterviewMeetingService:
         from app.services.telnyx_assistant_service import apply_interview_assistant_pacing
 
         try:
-            apply_interview_assistant_pacing(db, assistant_id, voice_speed=1.0)
+            apply_interview_assistant_pacing(db, assistant_id)
         except Exception:
             pass
 

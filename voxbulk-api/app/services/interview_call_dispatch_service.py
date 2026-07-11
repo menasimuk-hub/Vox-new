@@ -749,7 +749,7 @@ class InterviewCallDispatchService:
         except Exception as exc:
             _log("transcription_lang_skip", order_id=order.id, detail=str(exc))
         try:
-            apply_interview_assistant_pacing(db, assistant_id, voice_speed=1.0)
+            apply_interview_assistant_pacing(db, assistant_id)
         except Exception as exc:
             _log("pacing_skip", order_id=order.id, detail=str(exc))
 

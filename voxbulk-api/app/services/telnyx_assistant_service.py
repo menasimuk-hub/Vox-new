@@ -444,19 +444,23 @@ def apply_interview_assistant_pacing(
     db: Session,
     assistant_id: str,
     *,
-    voice_speed: float = 1.0,
+    voice_speed: float = 1.15,
 ) -> dict[str, Any]:
-    """Tune turn-taking so the agent does not interrupt answers mid-thought.
+    """Tune turn-taking and TTS so the agent sounds brisk and human, not drawly.
 
-    Keep TTS at normal conversational speed (1.0). Do not slow TTS — ``voice_speed`` 0.8
-    made NaturalHD / ElevenLabs sound unnaturally slow and robotic.
+    NaturalHD at 1.0 often sounded slow/"drunk" on phone audio — prefer ~1.15–1.2.
+    Do not use 0.8 (robotic slow). Clamp stays 0.85–1.2.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
     current = _voice_settings_dict(existing)
     voice = str(current.get("voice") or "").strip()
     tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
-    clamped = max(0.85, min(1.2, float(voice_speed)))
+    # Telnyx NaturalHD reads slightly slow at 1.0 — push toward the top of the safe range.
+    target = float(voice_speed)
+    if tts_provider == "telnyx" and "naturalhd" in voice.lower():
+        target = max(target, 1.2)
+    clamped = max(0.85, min(1.2, target))
 
     # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
     # Always set voice_speed explicitly: Telnyx Natural uses it, and some ElevenLabs
@@ -475,11 +479,11 @@ def apply_interview_assistant_pacing(
     # Snappy but non-interruptive turn-taking (long waits feel robotic / "bot-like").
     interruption_settings = {
         "start_speaking_plan": {
-            "wait_seconds": 0.4,
+            "wait_seconds": 0.35,
             "transcription_endpointing_plan": {
-                "on_punctuation_seconds": 0.35,
-                "on_no_punctuation_seconds": 1.0,
-                "on_number_seconds": 0.7,
+                "on_punctuation_seconds": 0.3,
+                "on_no_punctuation_seconds": 0.85,
+                "on_number_seconds": 0.6,
             },
         }
     }
