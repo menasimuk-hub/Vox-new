@@ -66,19 +66,29 @@ _RESCHEDULE_RE = re.compile(
     r"not\s+free|"
     r"i'?m\s+busy|"
     r"can(?:not|\s*n'?t)?\s+talk|"
+    r"can(?:not|\s*n'?t)?\s+continue|"
+    r"have\s+to\s+(?:go|stop|leave)|"
+    r"need\s+to\s+(?:go|stop|leave|reschedule)|"
+    r"stop\s+the\s+(?:call|interview)|"
+    r"end\s+the\s+(?:call|interview)|"
     r"call\s+(?:me\s+)?(?:back|later)|"
     r"another\s+time|"
     r"reschedul|"
     r"re-?schedule|"
     r"different\s+(?:time|day)|"
     r"later\s+(?:today|this\s+week)|"
+    r"pick\s+another\s+time|"
+    r"book\s+another|"
     r"وقت\s+(?:مش|غير)\s+مناسب|"
     r"مش\s+فاضي|"
     r"غير\s+متاح|"
     r"أعد\s+الجدولة|"
     r"إعادة\s+جدولة|"
     r"موعد\s+آخر|"
-    r"وقت\s+ثاني"
+    r"وقت\s+ثاني|"
+    r"ما\s+أقدر\s+أكمل|"
+    r"مقدرش\s+أكمل|"
+    r"لازم\s+أأجل"
     r")",
     re.I,
 )
@@ -141,9 +151,14 @@ def classify_interview_session_outcome(
     duration_seconds: int | None,
     transcript: str | None = None,
 ) -> InterviewSessionOutcome:
-    """Decide whether a connected session was a finished interview or an early exit."""
+    """Decide whether a connected session was a finished interview or an early exit.
+
+    When a usable transcript is present, interview progress (not bare duration) gates
+    whether a reschedule request mid-intro still unlocks booking.
+    """
     secs = int(duration_seconds) if duration_seconds is not None else None
     text = str(transcript or "").strip()
+    has_transcript = len(text) >= 40
 
     if text and _RECORDING_DECLINE_RE.search(text):
         # Product choice B: recording decline is a hard stop (no rebook).
@@ -153,7 +168,11 @@ def classify_interview_session_outcome(
     if text and _WRONG_PERSON_RE.search(text) and not progress:
         return "wrong_person"
 
-    substantial = (secs is not None and secs >= SUBSTANTIAL_SECONDS) or progress
+    # Layer 2 / transcript-aware: duration alone must not force "completed".
+    if has_transcript:
+        substantial = progress
+    else:
+        substantial = (secs is not None and secs >= SUBSTANTIAL_SECONDS) or progress
 
     # Early "not free / reschedule" only before real interview progress (choice A for mid-call).
     if text and _RESCHEDULE_RE.search(text) and not substantial:
@@ -169,6 +188,171 @@ def classify_interview_session_outcome(
         return "reschedule"
 
     return "completed"
+
+
+def _strip_completed_interview_artifacts(merged: dict[str, Any]) -> None:
+    for key in (
+        "ended_at",
+        "call_completed_at",
+        "meeting_ended_at",
+        "analysis",
+        "analysis_saved_at",
+        "analysis_version",
+        "analysis_error",
+        "analysis_attempted_at",
+        "score",
+        "recommendation",
+        "sentiment",
+        "short_summary",
+        "thank_you_email_sent_at",
+        "thank_you_email_ok",
+        "thank_you_email_attempted_at",
+        "session_outcome_provisional",
+    ):
+        merged.pop(key, None)
+
+
+def _maybe_reopen_order_after_early_exit(db: Session, order: ServiceOrder) -> None:
+    """If the campaign was closed only because this contact looked done, reopen it."""
+    if str(order.status or "").lower() != "completed":
+        return
+    recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)
+        ).scalars()
+    )
+    still_open = any(
+        str(r.status or "").lower() not in {"completed", "done", "opted_out", "cancelled", "skipped", "failed", "no_answer", "busy"}
+        for r in recipients
+    )
+    if not still_open:
+        return
+    order.status = "running"
+    order.completed_at = None
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+
+def maybe_reclassify_completed_interview_after_transcript(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+) -> dict[str, Any] | None:
+    """Layer 2: after STT arrives, correct a provisional/wrong 'completed' outcome.
+
+    Returns the apply result when the outcome changes away from completed; otherwise None.
+    """
+    db.refresh(recipient)
+    status = str(recipient.status or "").lower()
+    if status not in {"completed", "done"}:
+        return None
+
+    merged = _recipient_result(recipient)
+    if merged.get("session_outcome_reviewed_at"):
+        return None
+
+    transcript = str(merged.get("transcript") or "").strip()
+    if len(transcript) < 40:
+        return None
+
+    secs = merged.get("duration_seconds")
+    try:
+        duration = int(secs) if secs is not None else None
+    except (TypeError, ValueError):
+        duration = None
+
+    outcome = classify_interview_session_outcome(duration_seconds=duration, transcript=transcript)
+    reviewed_at = datetime.utcnow().isoformat()
+
+    if outcome == "completed":
+        _set_recipient_result(
+            db,
+            recipient,
+            {
+                "session_outcome": "completed",
+                "session_outcome_reviewed_at": reviewed_at,
+                "session_outcome_provisional": False,
+                "awaiting_candidate_action": False,
+            },
+        )
+        return None
+
+    channel = str(merged.get("channel") or merged.get("call_channel") or "meeting").strip() or "meeting"
+    # Clear completed artifacts before applying the corrected early-exit outcome.
+    cleaned = _recipient_result(recipient)
+    _strip_completed_interview_artifacts(cleaned)
+    cleaned["session_outcome_reviewed_at"] = reviewed_at
+    cleaned["session_outcome_layer"] = "transcript_review"
+    recipient.result_json = json.dumps(cleaned, ensure_ascii=False)
+    recipient.status = "pending"
+    recipient.updated_at = datetime.utcnow()
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+    result = apply_interview_session_outcome(
+        db,
+        order=order,
+        recipient=recipient,
+        outcome=outcome,
+        duration_seconds=duration,
+        transcript=transcript,
+        channel="meeting" if channel == "meeting" else "ai_call",
+        extra={
+            "session_outcome_reviewed_at": reviewed_at,
+            "session_outcome_layer": "transcript_review",
+            "corrected_from_status": "completed",
+        },
+    )
+    try:
+        _maybe_reopen_order_after_early_exit(db, order)
+    except Exception:
+        logger.exception(
+            "interview_reopen_order_after_early_exit_failed order=%s recipient=%s",
+            order.id,
+            recipient.id,
+        )
+    try:
+        from app.services.interview_analysis_service import refresh_order_interview_report
+
+        refresh_order_interview_report(db, order)
+    except Exception:
+        logger.exception("interview_report_refresh_after_reclassify_failed")
+    logger.info(
+        "interview_session_reclassified",
+        extra={
+            "order_id": order.id,
+            "recipient_id": recipient.id,
+            "outcome": outcome,
+        },
+    )
+    return result
+
+
+def interview_ready_for_completion_side_effects(
+    *,
+    recipient: ServiceOrderRecipient,
+    transcript: str | None = None,
+) -> bool:
+    """True when transcript review confirms a real completed interview (Layer 2)."""
+    merged = _recipient_result(recipient)
+    stored = str(merged.get("session_outcome") or "").lower()
+    if stored and stored != "completed":
+        return False
+    text = str(transcript if transcript is not None else merged.get("transcript") or "").strip()
+    if merged.get("session_outcome_reviewed_at"):
+        return stored in {"", "completed"}
+    if len(text) < 40:
+        return False
+    secs = merged.get("duration_seconds")
+    try:
+        duration = int(secs) if secs is not None else None
+    except (TypeError, ValueError):
+        duration = None
+    return classify_interview_session_outcome(duration_seconds=duration, transcript=text) == "completed"
 
 
 def _clear_booking_slot(db: Session, token: InterviewBookingToken | None) -> str | None:
@@ -273,6 +457,11 @@ def apply_interview_session_outcome(
         patch["awaiting_candidate_action"] = False
         patch["ended_at"] = now_iso
         patch["call_completed_at"] = now_iso
+        # Provisional until Layer 2 reviews the transcript (unless already reviewed).
+        if not patch.get("session_outcome_reviewed_at") and len(str(transcript or "").strip()) < 40:
+            patch["session_outcome_provisional"] = True
+        else:
+            patch["session_outcome_provisional"] = False
         if channel == "meeting":
             patch["meeting_ended_at"] = now_iso
         recipient.status = "completed"

@@ -137,6 +137,9 @@ def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
         # Early exit (not free / short drop / wrong person) — allow rebook.
         return None
     if status in {"completed", "done"}:
+        # Layer 2 still reviewing transcript — do not lock booking yet.
+        if parsed.get("session_outcome_provisional") and not parsed.get("session_outcome_reviewed_at"):
+            return None
         return BOOKING_LOCKED_MESSAGE
     if parsed.get("analysis_saved_at"):
         return BOOKING_LOCKED_MESSAGE

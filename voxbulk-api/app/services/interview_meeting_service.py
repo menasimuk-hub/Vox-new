@@ -300,16 +300,11 @@ class InterviewMeetingService:
 
         db.refresh(order)
         db.refresh(recipient)
-        _finalize_order_if_done(db, order)
+        # Only finalize campaign when Layer 2 has confirmed completed (not provisional).
+        from app.services.interview_early_exit_service import interview_ready_for_completion_side_effects
 
-        try:
-            from app.services.interview_missed_call_email_service import (
-                maybe_send_interview_thank_you_email,
-            )
-
-            maybe_send_interview_thank_you_email(db, order=order, recipient=recipient)
-        except Exception:
-            logger.exception("interview_meeting_thank_you_email_failed")
+        if interview_ready_for_completion_side_effects(recipient=recipient):
+            _finalize_order_if_done(db, order)
 
         schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
 
@@ -317,7 +312,7 @@ class InterviewMeetingService:
 
 
 def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipient_id: str) -> None:
-    """Daemon retry when Telnyx transcript is not ready immediately after WebRTC hangup."""
+    """Layer 2 + analysis: wait for Telnyx transcript, reclassify, then score if still completed."""
     import threading
     import time
 
@@ -335,18 +330,43 @@ def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipi
                         return
                     if str(recipient.status or "").lower() != "completed":
                         return
+
                     from app.services.interview_analysis_service import InterviewAnalysisService
+                    from app.services.interview_call_dispatch_service import _finalize_order_if_done
+                    from app.services.interview_early_exit_service import (
+                        interview_ready_for_completion_side_effects,
+                        maybe_reclassify_completed_interview_after_transcript,
+                    )
                     from app.services.survey_analysis_service import ensure_survey_transcript
 
                     ensure_survey_transcript(session, order=order, recipient=recipient)
                     session.refresh(recipient)
-                    if str(recipient.status or "").lower() != "completed":
-                        return
-                    InterviewAnalysisService.run_interview_analysis_if_needed(
+
+                    corrected = maybe_reclassify_completed_interview_after_transcript(
                         session, order=order, recipient=recipient
                     )
+                    if corrected is not None:
+                        return
+
+                    session.refresh(recipient)
+                    if str(recipient.status or "").lower() != "completed":
+                        return
+
+                    if not interview_ready_for_completion_side_effects(recipient=recipient):
+                        continue
+
+                    InterviewAnalysisService.process_recipient_post_call(
+                        session,
+                        order=order,
+                        recipient=recipient,
+                        terminal_status="completed",
+                    )
+                    session.refresh(order)
+                    session.refresh(recipient)
+                    if interview_ready_for_completion_side_effects(recipient=recipient):
+                        _finalize_order_if_done(session, order)
                     merged = _recipient_result(recipient)
-                    if merged.get("analysis_saved_at"):
+                    if merged.get("analysis_saved_at") or merged.get("session_outcome_reviewed_at"):
                         return
             except Exception:
                 logger.exception("meeting_analysis_retry_failed order=%s recipient=%s", order_id, recipient_id)

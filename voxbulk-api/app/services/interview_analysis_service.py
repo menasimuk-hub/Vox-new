@@ -354,6 +354,32 @@ class InterviewAnalysisService:
         if terminal_status == "completed":
             ensure_survey_transcript(db, order=order, recipient=recipient, hangup_extra=hangup_extra)
             db.refresh(recipient)
+
+            from app.services.interview_early_exit_service import (
+                interview_ready_for_completion_side_effects,
+                maybe_reclassify_completed_interview_after_transcript,
+            )
+
+            corrected = maybe_reclassify_completed_interview_after_transcript(
+                db, order=order, recipient=recipient
+            )
+            if corrected is not None:
+                refresh_order_interview_report(db, order)
+                return
+
+            db.refresh(recipient)
+            if not interview_ready_for_completion_side_effects(recipient=recipient):
+                _set_recipient_result(
+                    db,
+                    recipient,
+                    {
+                        "session_outcome_provisional": True,
+                        "session_outcome": "completed",
+                    },
+                )
+                refresh_order_interview_report(db, order)
+                return
+
             run_interview_analysis_if_needed(db, order=order, recipient=recipient)
             try:
                 from app.services.interview_session_billing_service import meter_session_if_needed
@@ -398,14 +424,32 @@ class InterviewAnalysisService:
             if order is None or order.service_code != "interview":
                 continue
             result = _recipient_result(recipient)
-            if result.get("analysis_saved_at"):
+            if result.get("analysis_saved_at") and result.get("session_outcome_reviewed_at"):
                 continue
             ensure_survey_transcript(db, order=order, recipient=recipient)
             db.refresh(recipient)
+
+            from app.services.interview_early_exit_service import (
+                maybe_reclassify_completed_interview_after_transcript,
+            )
+
+            corrected = maybe_reclassify_completed_interview_after_transcript(
+                db, order=order, recipient=recipient
+            )
+            if corrected is not None:
+                processed += 1
+                continue
+
+            if str(recipient.status or "").lower() != "completed":
+                continue
             if len(str(_recipient_result(recipient).get("transcript") or "")) < MIN_TRANSCRIPT_CHARS:
                 continue
-            run_interview_analysis_if_needed(db, order=order, recipient=recipient)
-            refresh_order_interview_report(db, order)
+            InterviewAnalysisService.process_recipient_post_call(
+                db,
+                order=order,
+                recipient=recipient,
+                terminal_status="completed",
+            )
             processed += 1
         return processed
 

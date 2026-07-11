@@ -107,7 +107,7 @@ def test_complete_meeting_finalizes_order(db_session, monkeypatch):
         order_id=order.id,
         recipient_id=recipient.id,
         org_id=org.id,
-        token="test-token-abc",
+        token=f"test-token-{uuid.uuid4().hex[:10]}",
         channel="meeting",
     )
     db_session.add(token)
@@ -135,13 +135,13 @@ def test_complete_meeting_finalizes_order(db_session, monkeypatch):
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "app.services.interview_missed_call_email_service.maybe_send_interview_thank_you_email",
-        lambda *a, **k: None,
+        "app.services.interview_early_exit_service.interview_ready_for_completion_side_effects",
+        lambda **kwargs: True,
     )
 
     result = InterviewMeetingService.complete_meeting(
         db_session,
-        "test-token-abc",
+        token.token,
         duration_seconds=240,
         provider_call_id="conv-xyz",
     )
