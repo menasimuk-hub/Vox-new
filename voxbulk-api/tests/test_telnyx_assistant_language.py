@@ -47,7 +47,10 @@ def test_voice_settings_skips_elevenlabs_assistant():
 
 def test_voice_settings_sets_boost_for_azure_voice():
     existing = {"voice_settings": {"voice": "Azure.ar-SA-HamedNeural"}}
-    assert _voice_settings_for_language(existing, "ar") == {"language_boost": "ar"}
+    out = _voice_settings_for_language(existing, "ar")
+    assert out is not None
+    assert out.get("language_boost") == "ar"
+    assert out.get("voice") == "Azure.ar-SA-HamedNeural"
 
 
 def test_transcription_switches_to_arabic_azure():
@@ -65,3 +68,22 @@ def test_transcription_fills_missing_azure_region():
 def test_transcription_keeps_valid_existing_region():
     existing = {"transcription": {"model": "azure/fast", "language": "ar-SA", "region": "eastus"}}
     assert _transcription_for_language(existing, "ar") is None
+
+
+def test_transcription_clears_sticky_arabic_for_english():
+    existing = {"transcription": {"model": "azure/fast", "language": "ar-SA", "region": "westeurope"}}
+    out = _transcription_for_language(existing, "en")
+    assert out == {"model": "deepgram/flux", "language": "en"}
+
+
+def test_transcription_english_noop_when_already_flux_en():
+    existing = {"transcription": {"model": "deepgram/flux", "language": "en"}}
+    assert _transcription_for_language(existing, "en") is None
+
+
+def test_voice_settings_clears_arabic_boost_for_english_native():
+    existing = {"voice_settings": {"voice": "Telnyx.NaturalHD.albion", "language_boost": "ar", "voice_speed": 1.0}}
+    out = _voice_settings_for_language(existing, "en")
+    assert out is not None
+    assert out.get("language_boost") == "English"
+    assert out.get("voice") == "Telnyx.NaturalHD.albion"

@@ -716,13 +716,14 @@ class InterviewCallDispatchService:
         from app.services.voice_agent_runtime import detect_interview_language
 
         call_language = detect_interview_language(config, agent)
-        if call_language == "ar":
-            from app.services.telnyx_assistant_service import ensure_telnyx_assistant_transcription_language
+        # Always align STT with call language — English must clear sticky ar-SA left by
+        # prior Arabic syncs/tests (Leo was permanently stuck on azure/fast ar-SA).
+        from app.services.telnyx_assistant_service import ensure_telnyx_assistant_transcription_language
 
-            try:
-                ensure_telnyx_assistant_transcription_language(db, assistant_id, call_language)
-            except Exception as exc:
-                _log("transcription_lang_skip", order_id=order.id, detail=str(exc))
+        try:
+            ensure_telnyx_assistant_transcription_language(db, assistant_id, call_language or "en")
+        except Exception as exc:
+            _log("transcription_lang_skip", order_id=order.id, detail=str(exc))
 
         result = TelnyxVoiceAdapter.start_outbound_call(
             to_number=to_number,

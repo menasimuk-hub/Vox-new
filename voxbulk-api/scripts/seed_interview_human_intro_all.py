@@ -115,6 +115,23 @@ def _arabic_generic_pack(agent: AgentDefinition) -> dict[str, str]:
 
 
 def _pack_for_agent(agent: AgentDefinition) -> dict[str, str]:
+    """Pick EN/AR pack from roster slug + accent_region — not contaminated opening text."""
+    from app.constants.interview_agent_regions import INTERVIEW_ENGLISH_ROSTER
+
+    slug = str(getattr(agent, "slug", None) or getattr(agent, "name", None) or "").strip().lower()
+    region = str(getattr(agent, "accent_region", None) or "").strip().upper()
+    en_slugs = {str(spec.slug).strip().lower() for spec in INTERVIEW_ENGLISH_ROSTER}
+    en_regions = {"GB", "SC", "IE", "US", "CA", "AU"}
+
+    # Canonical English roster / region always gets English packs (ignore Arabic chars
+    # left in opening/system_prompt from a bad prior seed).
+    if slug in en_slugs or region in en_regions:
+        return _english_pack(agent)
+    if "jammal" in slug or "jamal" in slug or region == "EG":
+        return _egyptian_pack(agent)
+    if "sultan" in slug or region == "SA":
+        return _gulf_pack(agent)
+
     dialect = str(interview_agent_dialect_meta(agent).get("dialect_code") or "").upper()
     if dialect == "EG":
         return _egyptian_pack(agent)

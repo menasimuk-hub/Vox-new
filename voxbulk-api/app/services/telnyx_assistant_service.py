@@ -291,6 +291,10 @@ def ensure_telnyx_webrtc_call_ready(db: Session, assistant_id: str) -> dict[str,
 _ARABIC_STT_MODEL = "azure/fast"
 _ARABIC_STT_LOCALE = "ar-SA"
 _ARABIC_STT_REGION = "westeurope"
+# English interview assistants default to Deepgram Flux (English-only). Used when clearing
+# sticky Arabic Azure STT left behind by a prior Arabic call/test.
+_ENGLISH_STT_MODEL = "deepgram/flux"
+_ENGLISH_STT_LOCALE = "en"
 _AZURE_STT_REGIONS = frozenset(
     {
         "australiaeast",
@@ -312,54 +316,93 @@ def _transcription_for_language(existing: dict[str, Any], language: str) -> dict
     ``model`` + ``language`` + ``region`` — flux-specific end-of-turn ``settings`` must
     NOT be sent to Azure (they are Deepgram-only and cause Telnyx to reject the update).
     Region is mandatory: without it Telnyx rejects starting the assistant on the call.
+
+    For English we clear sticky Arabic Azure STT (``ar-SA``) back to Deepgram Flux so EN
+    agents do not keep hearing Arabic after a prior Arabic sync/test.
     """
     lang = str(language or "").strip().lower()
-    if not lang or not lang.startswith("ar"):
+    if not lang:
         return None
     current = existing.get("transcription") if isinstance(existing.get("transcription"), dict) else {}
     current_model = str(current.get("model") or "").strip().lower()
     current_lang = str(current.get("language") or "").strip().lower()
     current_region = str(current.get("region") or "").strip().lower()
-    region = current_region if current_region in _AZURE_STT_REGIONS else _ARABIC_STT_REGION
-    if (
-        current_model == _ARABIC_STT_MODEL
-        and current_lang == _ARABIC_STT_LOCALE.lower()
-        and current_region == region
-    ):
+
+    if lang.startswith("ar"):
+        region = current_region if current_region in _AZURE_STT_REGIONS else _ARABIC_STT_REGION
+        if (
+            current_model == _ARABIC_STT_MODEL
+            and current_lang == _ARABIC_STT_LOCALE.lower()
+            and current_region == region
+        ):
+            return None
+        return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE, "region": region}
+
+    # English (or other non-Arabic): undo sticky Arabic Azure STT.
+    sticky_ar = current_lang.startswith("ar") or (
+        current_model.startswith("azure/") and current_lang.startswith("ar")
+    )
+    if not sticky_ar:
         return None
-    return {"model": _ARABIC_STT_MODEL, "language": _ARABIC_STT_LOCALE, "region": region}
+    if current_model == _ENGLISH_STT_MODEL and current_lang in {"en", "en-gb", "en-us", "en_gb", "en_us"}:
+        return None
+    return {"model": _ENGLISH_STT_MODEL, "language": _ENGLISH_STT_LOCALE}
 
 
 def _voice_settings_for_language(existing: dict[str, Any], language: str) -> dict[str, Any] | None:
-    """Set ``language_boost`` for Arabic on Telnyx-native TTS only.
+    """Set or clear ``language_boost`` for Arabic on Telnyx-native TTS only.
 
     ElevenLabs voices on Telnyx reject a merged ``voice_settings`` PATCH (400) — the
     Sultan voice is already Arabic-capable via ElevenLabs multilingual models.
     """
     lang = str(language or "").strip().lower()
-    if not lang or not lang.startswith("ar"):
+    if not lang:
         return None
     current = _voice_settings_dict(existing)
     voice = str(current.get("voice") or "").strip()
-    if current.get("api_key_ref") or (voice and "." not in voice and len(voice) >= 10):
+    tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
+    if tts_provider == "elevenlabs":
         return None
+
     boost = str(current.get("language_boost") or "").strip().lower()
-    if boost in {"ar", "arabic"}:
+    if lang.startswith("ar"):
+        if boost in {"ar", "arabic"}:
+            return None
+        patch: dict[str, Any] = {"language_boost": "ar"}
+        if voice:
+            patch["voice"] = voice
+        if current.get("voice_speed") is not None:
+            patch["voice_speed"] = current["voice_speed"]
+        return patch
+
+    # English: clear sticky Arabic boost on Telnyx-native voices.
+    if boost not in {"ar", "arabic"}:
         return None
-    return {"language_boost": "ar"}
+    patch = {"language_boost": "English"}
+    if voice:
+        patch["voice"] = voice
+    if current.get("voice_speed") is not None:
+        patch["voice_speed"] = current["voice_speed"]
+    return patch
 
 
 def ensure_telnyx_assistant_transcription_language(db: Session, assistant_id: str, language: str) -> dict[str, Any]:
-    """Make the assistant transcribe (STT) in the given call language. No-op for English/unknown.
+    """Align assistant STT (and Telnyx-native language_boost) with the call language.
 
-    Used before placing an Arabic interview call so Telnyx understands the candidate.
+    Arabic → azure/fast + ar-SA + region. English → clear sticky Arabic STT/boost.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
+    body: dict[str, Any] = {}
     transcription = _transcription_for_language(existing, language)
-    if not transcription:
+    if transcription:
+        body["transcription"] = transcription
+    voice_settings = _voice_settings_for_language(existing, language)
+    if voice_settings:
+        body["voice_settings"] = voice_settings
+    if not body:
         return existing
-    return _update_telnyx_assistant(db, clean_id, {"transcription": transcription})
+    return _update_telnyx_assistant(db, clean_id, body)
 
 
 def extract_agent_name_from_prompt(instructions: str) -> str:
