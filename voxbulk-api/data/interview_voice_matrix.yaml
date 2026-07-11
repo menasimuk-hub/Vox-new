@@ -85,13 +85,14 @@ agents:
   - slug: interview-us-elena
     region: US
     gender: female
-    provider: telnyx
-    voice: Telnyx.NaturalHD.luna
+    # ElevenLabs flash — NaturalHD.luna can sound drawly on phone audio (same class as Albion).
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
+    api_key_ref: elevenlabs-paid
     accent_keywords: [american, us, united states]
     fallback:
-      provider: elevenlabs
-      voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
-      api_key_ref: elevenlabs-paid
+      provider: telnyx
+      voice: Telnyx.NaturalHD.luna
 
   - slug: interview-ca-liam
     region: CA
@@ -107,13 +108,14 @@ agents:
   - slug: interview-ca-maya
     region: CA
     gender: female
-    provider: telnyx
-    voice: Telnyx.NaturalHD.luna
+    # ElevenLabs flash — NaturalHD.luna can sound drawly on phone audio.
+    provider: elevenlabs
+    voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
+    api_key_ref: elevenlabs-paid
     accent_keywords: [canadian, canada, north american]
     fallback:
-      provider: elevenlabs
-      voice: ElevenLabs.eleven_flash_v2_5.cgSgspJ2msm6clMCkdW9
-      api_key_ref: elevenlabs-paid
+      provider: telnyx
+      voice: Telnyx.NaturalHD.luna
 
   - slug: interview-au-jack
     region: AU

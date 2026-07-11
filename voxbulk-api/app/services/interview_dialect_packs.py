@@ -226,7 +226,7 @@ PACKS: dict[str, dict[str, str]] = {
         "human_behavior": "",
     },
     "CA": {
-        "persona": "Persona: polite Canadian company representative — warm and measured. Stay Canadian English.",
+        "persona": "Persona: polite Canadian company representative — warm and clear. Stay Canadian English. Sound like a real phone interviewer — brisk and natural, never drawling.",
         "markers": "Markers: Great, Awesome, Perfect, No problem, Thank you. Resume, cell. Light eh only if natural.",
         "fillers": "Occasional: Right, Well, Okay, Sorry — not every sentence.",
         "listening": _en_listening(
