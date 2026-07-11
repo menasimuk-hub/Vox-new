@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import DataError, IntegrityError, OperationalError, ProgrammingError, StatementError
 
 from app.core.config import get_settings
 from app.core.cors_utils import apply_cors_headers
@@ -414,9 +414,9 @@ async def ensure_cors_on_all_responses(request: Request, call_next):
             "unhandled_exception",
             extra={"path": request.url.path, "error_type": type(exc).__name__},
         )
-        detail = str(exc).strip() or type(exc).__name__
+        detail = _client_safe_exception_detail(exc)
         response = JSONResponse(
-            status_code=500,
+            status_code=400 if _is_client_data_error(exc) else 500,
             content={
                 "detail": detail,
                 "error_type": type(exc).__name__,
@@ -424,6 +424,61 @@ async def ensure_cors_on_all_responses(request: Request, call_next):
             },
         )
     return apply_cors_headers(request, response, settings)
+
+
+def _is_client_data_error(exc: BaseException) -> bool:
+    if isinstance(exc, (DataError, IntegrityError, StatementError)):
+        return True
+    msg = str(exc).lower()
+    return (
+        "data too long" in msg
+        or "1406" in msg
+        or "truncated" in msg
+        or "incorrect string value" in msg
+        or "duplicate entry" in msg
+        or "cannot be null" in msg
+    )
+
+
+def _client_safe_exception_detail(exc: BaseException) -> str:
+    """Never leak raw SQLAlchemy/pymysql traces to the dashboard."""
+    msg = str(exc).strip()
+    lower = msg.lower()
+    if "data too long" in lower or "1406" in lower:
+        col = None
+        for token in ("'phone'", '"phone"', "column 'phone'", "column \"phone\""):
+            if token in lower:
+                col = "phone"
+                break
+        for name, label in (
+            ("phone", "phone number"),
+            ("email", "email"),
+            ("name", "name"),
+            ("cv_filename", "file name"),
+        ):
+            if f"'{name}'" in lower or f'"{name}"' in lower or f"column '{name}'" in lower:
+                col = label
+                break
+        if col == "phone" or col == "phone number":
+            return (
+                "Phone number is too long or invalid. "
+                "Enter a normal mobile number with country code (max 64 characters), e.g. +447700900123."
+            )
+        if col:
+            return f"The {col} is too long. Shorten it and try again."
+        return "One of the fields is too long for the database. Shorten the text and try again."
+    if "duplicate entry" in lower or "unique constraint" in lower:
+        return "This record already exists. Check for a duplicate and try again."
+    if "cannot be null" in lower or "not null" in lower:
+        return "A required field is missing. Fill in all required fields and try again."
+    if "incorrect string value" in lower or "incorrect datetime" in lower:
+        return "One of the values is not in a valid format. Check the fields and try again."
+    if isinstance(exc, (DataError, IntegrityError, StatementError)) or "sqlalchemy" in lower or "pymysql" in lower:
+        return "Could not save that change — check the fields and try again. If it keeps failing, contact support."
+    detail = msg or type(exc).__name__
+    if len(detail) > 280 or "sql:" in lower or "[parameters:" in lower:
+        return "Something went wrong while saving. Please check your input and try again."
+    return detail
 
 
 def _migration_hint_from_db_error(exc: BaseException) -> str | None:
@@ -437,6 +492,24 @@ def _migration_hint_from_db_error(exc: BaseException) -> str | None:
             pass
         return "Database schema was updated automatically. Refresh the page and try again."
     return None
+
+
+@app.exception_handler(DataError)
+async def db_data_error_handler(request: Request, exc: DataError):
+    response = JSONResponse(
+        status_code=400,
+        content={"detail": _client_safe_exception_detail(exc)},
+    )
+    return apply_cors_headers(request, response, get_settings())
+
+
+@app.exception_handler(IntegrityError)
+async def db_integrity_error_handler(request: Request, exc: IntegrityError):
+    response = JSONResponse(
+        status_code=400,
+        content={"detail": _client_safe_exception_detail(exc)},
+    )
+    return apply_cors_headers(request, response, get_settings())
 
 
 @app.exception_handler(OperationalError)

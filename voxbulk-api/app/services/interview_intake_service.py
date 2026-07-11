@@ -954,16 +954,17 @@ def update_intake_recipient(
     if recipient.order_id != order.id:
         raise ValueError("Recipient does not belong to this order")
     if "name" in payload:
-        name = str(payload.get("name") or "").strip()
-        if not name:
-            raise ValueError("Name is required")
-        recipient.name = name
+        from app.services.recipient_contact_validation import normalize_recipient_name
+
+        recipient.name = normalize_recipient_name(payload.get("name"), required=True)
     if "phone" in payload:
-        phone = str(payload.get("phone") or "").strip()
-        recipient.phone = phone or None
+        from app.services.recipient_contact_validation import normalize_recipient_phone
+
+        recipient.phone = normalize_recipient_phone(payload.get("phone"), required=False)
     if "email" in payload:
-        email = str(payload.get("email") or "").strip()
-        recipient.email = email or None
+        from app.services.recipient_contact_validation import normalize_recipient_email
+
+        recipient.email = normalize_recipient_email(payload.get("email"))
     recipient.intake_errors_json = _dumps_json(
         [e for e in compute_intake_errors(recipient) if "Phone missing" not in e]
         + ([] if recipient.phone else ["Phone missing — click to add"])

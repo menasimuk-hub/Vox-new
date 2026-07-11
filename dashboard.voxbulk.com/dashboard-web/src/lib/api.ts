@@ -174,6 +174,29 @@ export function sanitizeUserError(message: string, path = ""): string {
     lower.includes("template approval") ||
     lower.includes("template not approved");
 
+  if (
+    lower.includes("data too long") ||
+    lower.includes("1406") ||
+    lower.includes("pymysql") ||
+    lower.includes("sqlalchemy") ||
+    lower.includes("[sql:") ||
+    lower.includes("[parameters:")
+  ) {
+    if (lower.includes("phone")) {
+      return (
+        "Phone number is too long or invalid. " +
+        "Enter a mobile number with country code (max 64 characters), e.g. +447700900123."
+      );
+    }
+    if (lower.includes("email")) {
+      return "Email is too long or invalid. Shorten it and try again.";
+    }
+    if (lower.includes("name")) {
+      return "Name is too long. Shorten it and try again.";
+    }
+    return "That value is too long or invalid. Check the field and try again.";
+  }
+
   if (lower.includes("telnyx") && isWhatsAppContext) {
     return (
       raw.replace(/\btelnyx\b/gi, "WhatsApp").trim() ||

@@ -208,6 +208,7 @@ class InterviewMeetingService:
             "meeting_url": meeting_url_for_token(row.token),
             "candidate_name": recipient.name,
             "role": str(config.get("role") or config.get("position") or order.title or "Interview"),
+            "interview_language": "ar" if effective_language == "ar" else "en",
         }
 
     @staticmethod

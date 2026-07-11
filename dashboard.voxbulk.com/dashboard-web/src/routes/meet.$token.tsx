@@ -19,6 +19,7 @@ type MeetingStartResponse = {
   meeting_url?: string;
   candidate_name?: string;
   role?: string;
+  interview_language?: string | null;
 };
 
 type CallPhase = "idle" | "connecting" | "aiJoining" | "live" | "ended" | "error";
@@ -107,6 +108,14 @@ function playSpeakerTestTone() {
 
 type MeetLang = "en" | "ar";
 
+function resolveMeetLang(raw: string | null | undefined): MeetLang {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (v === "ar" || v === "arabic" || v.startsWith("ar-") || v.includes("arab")) return "ar";
+  return "en";
+}
+
 const MEET_COPY = {
   en: {
     badge: "Audio interview",
@@ -154,6 +163,12 @@ const MEET_COPY = {
     micBrowser: "Your browser does not support microphone access — try Chrome or Edge.",
     micDesktop: "Your browser does not support microphone access — try Chrome or Edge on desktop.",
     micAllowJoin: "Microphone access is required — click Allow when your browser asks for the mic, then try again.",
+    agentUnavailable: "Interview agent is not available right now. Please try again or contact the employer.",
+    meetingDisabled: "Online meeting is not enabled for this interview agent — contact the employer.",
+    connectFail: "Could not reach the interview server — check your connection and try again.",
+    connectRoomFail: "Could not connect to the interview room",
+    audioBlocked:
+      "Connected, but browser blocked agent audio. Tap the page once, turn up volume, then try End and Join again if you still hear nothing.",
   },
   ar: {
     badge: "مقابلة صوتية",
@@ -201,6 +216,12 @@ const MEET_COPY = {
     micBrowser: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge.",
     micDesktop: "متصفحك لا يدعم الميكروفون — جرّب Chrome أو Edge على الكمبيوتر.",
     micAllowJoin: "يلزم السماح بالميكروفون — اضغط سماح عندما يطلب المتصفح، ثم حاول مرة أخرى.",
+    agentUnavailable: "المحاور غير متاح الآن. حاول مرة أخرى أو تواصل مع جهة التوظيف.",
+    meetingDisabled: "المقابلة عبر المتصفح غير مفعّلة لهذا الوكيل — تواصل مع جهة التوظيف.",
+    connectFail: "تعذّر الوصول لخادم المقابلة — تحقق من الاتصال وحاول مرة أخرى.",
+    connectRoomFail: "تعذّر الاتصال بغرفة المقابلة",
+    audioBlocked:
+      "تم الاتصال لكن المتصفح منع صوت المحاور. المس الصفحة مرة، ارفع الصوت، وإن لم تسمع شيئاً أنهِ وأعد الانضمام.",
   },
 } as const;
 
@@ -249,7 +270,9 @@ function InterviewMeetingRoomPage() {
   const [deviceError, setDeviceError] = React.useState<string | null>(null);
   const [testStream, setTestStream] = React.useState<MediaStream | null>(null);
 
-  const lang: MeetLang = booking?.interview_language === "ar" ? "ar" : "en";
+  const [uiLang, setUiLang] = React.useState<MeetLang>("en");
+
+  const lang: MeetLang = uiLang;
   const t = MEET_COPY[lang];
   const isRtl = lang === "ar";
 
@@ -274,9 +297,15 @@ function InterviewMeetingRoomPage() {
       interview_language?: string | null;
     }>(`/public/interview-booking/${encodeURIComponent(token)}`)
       .then((res) => {
-        if (!cancelled) setBooking(res);
+        if (cancelled) return;
+        setBooking(res);
+        setUiLang(resolveMeetLang(res?.interview_language));
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (!cancelled) {
+          webrtcLog("booking_fetch_failed", e);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -303,8 +332,20 @@ function InterviewMeetingRoomPage() {
     if (el.srcObject !== stream) el.srcObject = stream;
     el.muted = false;
     el.volume = 1;
-    void el.play().catch(() => {});
-  }, []);
+    const tryPlay = () => {
+      void el.play().then(
+        () => webrtcLog("remote_audio_playing"),
+        (err) => {
+          webrtcLog("remote_audio_play_blocked", err);
+          setStatusLine((prev) => prev || MEET_COPY[uiLang].audioBlocked);
+        },
+      );
+    };
+    tryPlay();
+    // Retry after async connect — mobile browsers often need a second play() attempt.
+    window.setTimeout(tryPlay, 250);
+    window.setTimeout(tryPlay, 1000);
+  }, [uiLang]);
 
   const stopLocalStream = React.useCallback(() => {
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -417,6 +458,25 @@ function InterviewMeetingRoomPage() {
     setStatusLine(t.requestingMic);
     stopTestStream();
     try {
+      // Unlock audio on the user gesture (required for hearing the agent on mobile).
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          if (ctx.state === "suspended") await ctx.resume();
+          await ctx.close().catch(() => {});
+        }
+        const kick = remoteAudioRef.current;
+        if (kick) {
+          kick.muted = false;
+          void kick.play().catch(() => {});
+        }
+      } catch {
+        /* ignore unlock failures */
+      }
+
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(t.micDesktop);
       }
@@ -434,11 +494,12 @@ function InterviewMeetingRoomPage() {
         `/public/interview-booking/${encodeURIComponent(token)}/meeting/start`,
         { method: "POST", body: "{}" },
       );
-      if (!start?.agent_id) throw new Error("Interview agent is not available right now");
+      if (!start?.agent_id) throw new Error(t.agentUnavailable);
       if (start.web_calls_enabled === false) {
-        throw new Error("Online meeting is not enabled for this interview agent — contact the employer.");
+        throw new Error(t.meetingDisabled);
       }
       setMeta(start);
+      setUiLang(resolveMeetLang(start.interview_language || booking?.interview_language));
 
       const TelnyxRTC = await loadTelnyxRtc();
       const client = new TelnyxRTC({
@@ -449,7 +510,7 @@ function InterviewMeetingRoomPage() {
       setStatusLine(t.connecting);
       await new Promise<void>((resolve, reject) => {
         const connectTimeout = window.setTimeout(() => {
-          reject(new Error("Could not reach the interview server — check your connection and try again"));
+          reject(new Error(t.connectFail));
         }, 30_000);
         client.on("telnyx.ready", () => {
           window.clearTimeout(connectTimeout);
@@ -459,7 +520,7 @@ function InterviewMeetingRoomPage() {
         client.on("telnyx.error", (err: { message?: string }) => {
           window.clearTimeout(connectTimeout);
           webrtcLog("telnyx.error", err);
-          reject(new Error(err?.message || "Could not connect to the interview room"));
+          reject(new Error(err?.message || t.connectRoomFail));
         });
         client.connect();
       });
@@ -564,13 +625,13 @@ function InterviewMeetingRoomPage() {
 
   return (
     <div
-      className="h-dvh max-h-dvh overflow-hidden bg-[#0a0e17] text-[#eef2f6] md:h-auto md:min-h-dvh md:max-h-none md:overflow-y-auto"
+      className="min-h-dvh overflow-y-auto bg-[#0a0e17] text-[#eef2f6] md:h-auto md:min-h-dvh"
       dir={isRtl ? "rtl" : "ltr"}
       lang={lang}
     >
       <audio id={REMOTE_AUDIO_ID} ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      <div className="mx-auto flex h-full w-full max-w-lg flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] md:h-auto md:min-h-dvh md:max-w-lg md:justify-center md:px-6 md:py-10">
-        <header className="flex shrink-0 items-center justify-between gap-3 pb-3 md:pb-5">
+      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] md:min-h-dvh md:max-w-lg md:justify-center md:px-6 md:py-10">
+        <header className="flex shrink-0 items-center justify-between gap-3 pb-2 md:pb-5">
           <div className="flex items-center gap-2.5">
             <img src="/brand/logo-white.svg" alt="VoxBulk" className="h-6 w-auto md:h-7" />
             <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-400 md:text-xs">
@@ -585,49 +646,49 @@ function InterviewMeetingRoomPage() {
           ) : null}
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col text-center md:flex-none">
-          <div className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent p-0 md:flex-none md:rounded-2xl md:border md:border-white/10 md:bg-white/[0.03] md:p-8 md:shadow-2xl md:shadow-black/40">
+        <main className="flex flex-1 flex-col text-center md:flex-none">
+          <div className="flex flex-1 flex-col rounded-none border-0 bg-transparent p-0 md:flex-none md:rounded-2xl md:border md:border-white/10 md:bg-white/[0.03] md:p-8 md:shadow-2xl md:shadow-black/40">
             <div className="shrink-0 pt-1 md:pt-0">
               <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 md:text-xs">{t.title}</p>
-              <h1 className="mt-1.5 line-clamp-2 text-2xl font-semibold tracking-tight text-white md:mt-2">
+              <h1 className="mt-1 line-clamp-2 text-xl font-semibold tracking-tight text-white md:mt-2 md:text-2xl">
                 {role}
               </h1>
-              <p className="mt-1.5 text-sm text-slate-400 md:mt-2">{t.hi(name.split(" ")[0] || name)}</p>
+              <p className="mt-1 text-sm text-slate-400 md:mt-2">{t.hi(name.split(" ")[0] || name)}</p>
               <p className="mt-1 text-xs text-violet-300/90 md:mt-2">{t.langLabel}</p>
             </div>
 
             {phase === "idle" ? (
-              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3 md:mt-6 md:flex-none md:gap-4">
+              <div className="mt-3 flex flex-col gap-2.5 md:mt-6 md:gap-4">
                 <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                   <ShieldCheck className="size-4 text-violet-400" />
                   {t.noCamera}
                 </div>
 
                 {showCountdown ? (
-                  <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-6 md:flex-none md:py-8">
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-4 md:py-8">
                     <p className="text-xs uppercase tracking-wider text-violet-200/80">{t.waitingRoom}</p>
                     {!canJoin ? (
                       <>
-                        <p className="mt-3 text-sm text-slate-300">{t.roomOpensIn}</p>
-                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white md:text-5xl">
+                        <p className="mt-2 text-sm text-slate-300">{t.roomOpensIn}</p>
+                        <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-white md:mt-2 md:text-5xl">
                           {openCountdown}
                         </p>
                       </>
                     ) : msUntilStart > 0 ? (
                       <>
-                        <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
-                        <p className="mt-2 text-sm text-slate-300">{t.interviewStartsIn}</p>
-                        <p className="mt-2 text-6xl font-semibold tabular-nums tracking-tight text-white md:text-5xl">
+                        <p className="mt-2 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-1 text-sm text-slate-300">{t.interviewStartsIn}</p>
+                        <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-white md:mt-2 md:text-5xl">
                           {startCountdown}
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="mt-3 text-sm text-emerald-300">{t.roomOpen}</p>
-                        <p className="mt-2 text-5xl font-semibold tabular-nums text-white md:text-4xl">00:00</p>
+                        <p className="mt-2 text-sm text-emerald-300">{t.roomOpen}</p>
+                        <p className="mt-1 text-4xl font-semibold tabular-nums text-white md:text-4xl">00:00</p>
                       </>
                     )}
-                    <p className="mt-4 max-w-sm text-xs leading-relaxed text-slate-400">{t.startsAt(slotTimeLabel)}</p>
+                    <p className="mt-3 max-w-sm text-xs leading-relaxed text-slate-400">{t.startsAt(slotTimeLabel)}</p>
                   </div>
                 ) : null}
 
@@ -684,7 +745,7 @@ function InterviewMeetingRoomPage() {
                   {deviceError ? <p className="mt-2 text-xs text-red-300">{deviceError}</p> : null}
                 </div>
 
-                <div className="mt-auto shrink-0 space-y-2 pt-1 md:mt-0">
+                <div className="mt-3 shrink-0 space-y-2 pt-1 md:mt-0">
                   <button
                     type="button"
                     onClick={() => void joinMeeting()}
