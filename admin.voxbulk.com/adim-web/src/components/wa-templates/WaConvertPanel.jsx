@@ -992,10 +992,21 @@ export default function WaConvertPanel({ syncProfileId }) {
               </div>
             ) : null}
             {!loading && !filtered.length ? (
-              <div className="p-4 text-xs text-muted-foreground">
-                {doneList.length
-                  ? 'No more pending MARKETING templates in this list. Done items are below.'
-                  : 'No MARKETING survey/feedback templates found.'}
+              <div className="space-y-2 p-4 text-xs text-muted-foreground">
+                {doneList.length ? (
+                  <p>No more pending MARKETING templates in this list. Done items are below.</p>
+                ) : (
+                  <>
+                    <p>No MARKETING survey/feedback templates found for this profile + filter.</p>
+                    <p>
+                      Tip: set product to <span className="font-medium text-foreground">All products</span>, click{' '}
+                      <span className="font-medium text-foreground">Refresh list</span>, and make sure{' '}
+                      <span className="font-medium text-foreground">Active profile</span> is the same row as Live
+                      template monitor (Telnyx 55 / Meta 99). Monitor “marketing” counts use Meta BM; Convert now
+                      loads the same source.
+                    </p>
+                  </>
+                )}
               </div>
             ) : null}
             {filtered.map((r) => {

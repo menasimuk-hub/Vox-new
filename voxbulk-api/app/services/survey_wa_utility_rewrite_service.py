@@ -1150,11 +1150,10 @@ def discover_remote_marketing_survey_templates(
         profile_summaries.append(summary)
         if not summary.get("ok"):
             continue
-        remote_all = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+        remote_all = _fetch_remote_templates_like_live_monitor(
             db,
             connection_profile_id=pid,
             service_code="survey",
-            allow_account_waba_fallback=False,
         )
         remote = filter_remote_for_service_code(remote_all, "survey")
         provider = str(summary.get("provider") or "unknown").strip().lower()
@@ -1307,6 +1306,65 @@ def _find_feedback_row_for_remote_name(db: Session, remote_name: str) -> Any | N
     return None
 
 
+def _fetch_remote_templates_like_live_monitor(
+    db: Session,
+    *,
+    connection_profile_id: str,
+    service_code: str = "survey",
+) -> list[dict[str, Any]]:
+    """Same remote source as Live template monitor (Meta BM for Telnyx BSP WABAs).
+
+    Convert previously used Telnyx's template list API, which can omit or desync
+    MARKETING rows that Meta Graph still shows — so the monitor showed marketing>0
+    while Convert's table was empty.
+    """
+    from app.services.connection.config_resolver import WhatsappSyncRouteError, resolve_whatsapp_route_for_sync
+    from app.services.connection.constants import normalize_service_code
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    pid = str(connection_profile_id or "").strip()
+    code = normalize_service_code(service_code) or "survey"
+    if not pid:
+        return []
+
+    if is_meta_whatsapp_primary(db, service_code=code, connection_profile_id=pid):
+        return TelnyxWhatsappTemplateSyncService.fetch_from_meta(
+            db,
+            connection_profile_id=pid,
+            service_code=code,
+        )
+
+    try:
+        route = resolve_whatsapp_route_for_sync(db, connection_profile_id=pid, service_code=code)
+    except WhatsappSyncRouteError:
+        return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
+            db,
+            connection_profile_id=pid,
+            service_code=code,
+            filter_waba_id=True,
+            allow_account_waba_fallback=False,
+        )
+
+    waba_id = str((route.config or {}).get("waba_id") or getattr(route.profile, "meta_waba_id", None) or "").strip()
+    if waba_id:
+        remote = TelnyxWhatsappTemplateSyncService.fetch_from_meta_waba(
+            db,
+            waba_id=waba_id,
+            service_code=code,
+        )
+        if remote is not None:
+            return remote
+
+    return TelnyxWhatsappTemplateSyncService.fetch_from_telnyx(
+        db,
+        connection_profile_id=pid,
+        service_code=code,
+        filter_waba_id=True,
+        allow_account_waba_fallback=False,
+    )
+
+
 def discover_remote_marketing_templates(
     db: Session,
     *,
@@ -1317,7 +1375,6 @@ def discover_remote_marketing_templates(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Match admin matrix: live MARKETING templates on Meta/Telnyx for all managed products."""
     from app.models.industry import Industry
-    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
     from app.services.wa_template_product_scope import is_managed_product_remote_name, is_protected_template_name
     from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
     from app.services.wa_template_sync_profile import summarize_for_connection_profile
@@ -1337,11 +1394,10 @@ def discover_remote_marketing_templates(
         profile_summaries.append(summary)
         if not summary.get("ok"):
             continue
-        remote_all = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+        remote_all = _fetch_remote_templates_like_live_monitor(
             db,
             connection_profile_id=pid,
             service_code=service_code,
-            allow_account_waba_fallback=False,
         )
         provider = str(summary.get("provider") or "unknown").strip().lower()
         for item in remote_all:

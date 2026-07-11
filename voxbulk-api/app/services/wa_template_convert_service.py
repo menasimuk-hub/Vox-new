@@ -128,13 +128,15 @@ def list_marketing_for_convert(
     profile_ids = None
     if connection_profile_id:
         profile_ids = [str(connection_profile_id).strip()]
+    prod = str(product or "all").strip().lower()
+    # Align service_code with product filter so Feedback Convert uses CF route/WABA scope.
+    service_code = "customer_feedback" if prod == "feedback" else "survey"
     overview, candidates = discover_remote_marketing_templates(
         db,
         name_contains=q,
         profile_ids=profile_ids,
-        service_code="survey",
+        service_code=service_code,
     )
-    prod = str(product or "all").strip().lower()
     rows: list[dict[str, Any]] = []
     used_was_names: set[str] | None = None
     used_cfs_names: set[str] | None = None
