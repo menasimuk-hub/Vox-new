@@ -88,6 +88,24 @@ def load_ai_follow_up_from_location(location: FeedbackLocation) -> dict[str, Any
     return {}
 
 
+def resolve_followup_delay_hours(cfg: dict[str, Any]) -> int:
+    """Hours until dial. 0 = immediate (AI_FOLLOWUP_FORCE_IMMEDIATE or test config). Production stays 24/48."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if bool(getattr(settings, "ai_followup_force_immediate", False)):
+        return 0
+    if bool(cfg.get("force_immediate") or cfg.get("forceImmediate") or cfg.get("allow_test_immediate")):
+        return 0
+    try:
+        delay_hours = int(cfg.get("delay_hours") or cfg.get("delayHours") or 24)
+    except (TypeError, ValueError):
+        delay_hours = 24
+    if delay_hours not in (0, 24, 48):
+        delay_hours = 24
+    return delay_hours
+
+
 def _job_outcome(job) -> dict[str, Any]:
     raw = getattr(job, "outcome_json", None)
     if not raw:
@@ -442,10 +460,12 @@ def _settle_followup_call_billing(
                 org,
                 amount_minor=amount_due,
                 kind="ai_call_follow_back",
-                description=f"AI follow-back · Customer · …{phone_tail} · {billable_mins}m"[:500],
+                description=f"AI follow-back · …{phone_tail} · {billable_mins}m"[:500],
                 metadata={
                     "job_id": job.id,
-                    "session_id": job.session_id,
+                    "session_id": getattr(job, "session_id", None),
+                    "recipient_id": getattr(job, "recipient_id", None),
+                    "order_id": getattr(job, "order_id", None),
                     "call_log_id": call_log_id,
                     "billable_minutes": billable_mins,
                 },
@@ -479,9 +499,7 @@ def schedule_if_eligible(db: Session, *, session: FeedbackSession, location: Fee
     if should_block_outbound_phone(db, org_id=session.org_id, phone_e164=session.visitor_phone):
         return False
 
-    delay_hours = int(cfg.get("delay_hours") or 24)
-    if delay_hours not in (24, 48):
-        delay_hours = 24
+    delay_hours = resolve_followup_delay_hours(cfg)
     scheduled_at = datetime.now(timezone.utc) + timedelta(hours=delay_hours)
 
     from app.models.customer_feedback import FeedbackAiFollowUpJob
@@ -640,6 +658,50 @@ def _dispatch_job(db: Session, job) -> str | None:
         job.org_id,
     )
     return str(result.external_id)
+
+
+def job_to_report_dict(job) -> dict[str, Any]:
+    outcome = _job_outcome(job)
+    summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
+    return {
+        "id": job.id,
+        "session_id": getattr(job, "session_id", None),
+        "visitor_phone": job.visitor_phone,
+        "status": job.status,
+        "scheduled_at": job.scheduled_at.isoformat() if job.scheduled_at else None,
+        "call_id": job.call_id,
+        "business_context": job.business_context,
+        "poor_topics": summary.get("poor_topics") or [],
+        "positive_topics": summary.get("positive_topics") or [],
+        "outcome": outcome,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+
+
+def attach_ai_followup_to_feedback_respondents(db: Session, respondents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not respondents:
+        return respondents
+    from app.models.customer_feedback import FeedbackAiFollowUpJob
+
+    ids = [str(r.get("id") or "") for r in respondents if r.get("id")]
+    if not ids:
+        return respondents
+    rows = (
+        db.execute(select(FeedbackAiFollowUpJob).where(FeedbackAiFollowUpJob.session_id.in_(ids)))
+        .scalars()
+        .all()
+    )
+    by_id = {str(j.session_id): j for j in rows}
+    for row in respondents:
+        job = by_id.get(str(row.get("id") or ""))
+        if job is not None:
+            report = job_to_report_dict(job)
+            row["ai_follow_up"] = report
+            row["ai_follow_up_status"] = report.get("status")
+        else:
+            row["ai_follow_up"] = None
+            row["ai_follow_up_status"] = None
+    return respondents
 
 
 def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:

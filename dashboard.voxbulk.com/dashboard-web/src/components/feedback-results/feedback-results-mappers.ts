@@ -67,6 +67,8 @@ export type Respondent = {
     | { type: "Rating"; value: "poor" | "good" | "excellent" }
     | { type: "Yes/No"; value: "yes" | "no" }
   >;
+  aiFollowUp?: import("@/components/ai-follow-up-report").AiFollowUpReport | null;
+  aiFollowUpStatus?: string | null;
 };
 
 export type VoiceComment = {
@@ -340,6 +342,8 @@ export function mapFeedbackResults(
       flagged: Boolean(r.flagged || r.is_unhappy),
       answers: answerRows,
       answerDots: mapAnswerDots(answerRows),
+      aiFollowUp: (r.ai_follow_up as Respondent["aiFollowUp"]) || null,
+      aiFollowUpStatus: r.ai_follow_up_status || (r.ai_follow_up as { status?: string } | undefined)?.status || null,
     };
   });
 

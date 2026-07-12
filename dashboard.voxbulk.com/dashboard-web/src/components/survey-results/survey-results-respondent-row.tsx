@@ -1,5 +1,6 @@
 import { PanelRightOpen } from "lucide-react";
 
+import { AiFollowUpStatusIcon, type AiFollowUpReport } from "@/components/ai-follow-up-report";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,8 @@ export type SurveyResultRespondent = {
   is_unhappy?: boolean;
   wa_answers?: WaAnswer[];
   extracted_answers?: ExtractedAnswer[];
+  ai_follow_up?: AiFollowUpReport | null;
+  ai_follow_up_status?: string | null;
 };
 
 function toneForAnswer(label: string): string {
@@ -85,9 +88,12 @@ export function SurveyResultsRespondentRow({
         <div className="flex items-center gap-1">{quickViewDots(respondent)}</div>
       </td>
       <td className="px-4 py-3 text-right">
-        <Button variant="ghost" size="icon" className="size-8" onClick={onOpen} aria-label="More details" title="More details">
-          <PanelRightOpen className="size-4" />
-        </Button>
+        <div className="inline-flex items-center gap-1">
+          <AiFollowUpStatusIcon status={respondent.ai_follow_up_status || respondent.ai_follow_up?.status} />
+          <Button variant="ghost" size="icon" className="size-8" onClick={onOpen} aria-label="More details" title="More details">
+            <PanelRightOpen className="size-4" />
+          </Button>
+        </div>
       </td>
     </tr>
   );

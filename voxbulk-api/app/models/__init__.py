@@ -114,6 +114,7 @@ from app.models.ai_team_settings import AiTeamSettings  # noqa: F401
 from app.models.ai_team_prospect import AiTeamProspect  # noqa: F401
 from app.models.ai_team_message import AiTeamMessage  # noqa: F401
 from app.models.customer_feedback import (  # noqa: F401
+    FeedbackAiFollowUpJob,
     FeedbackIndustry,
     FeedbackIndustryOrganisation,
     FeedbackLocation,
@@ -128,5 +129,6 @@ from app.models.customer_feedback import (  # noqa: F401
     FeedbackPromoSend,
     FeedbackPromoWallet,
 )
+from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.models.disabled_wa_template import DisabledWaTemplate  # noqa: F401

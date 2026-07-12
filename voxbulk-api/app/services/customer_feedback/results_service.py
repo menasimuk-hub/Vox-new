@@ -119,6 +119,11 @@ class FeedbackResultsService:
             templates,
             locations_by_id,
         )
+        from app.services.customer_feedback.feedback_ai_followup_service import (
+            attach_ai_followup_to_feedback_respondents,
+        )
+
+        respondents = attach_ai_followup_to_feedback_respondents(db, respondents)
         summary = compute_summary(
             sessions=sessions,
             responses=all_responses,

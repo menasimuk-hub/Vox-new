@@ -1031,6 +1031,11 @@ async def survey_call_scheduler_loop(stop_event: asyncio.Event) -> None:
                     ai_jobs = process_due_jobs(db)
                     if ai_jobs:
                         logger.info("feedback_ai_followup_jobs", extra={"count": ai_jobs})
+                    from app.services.survey_ai_followup_service import process_due_wa_jobs
+
+                    wa_ai_jobs = process_due_wa_jobs(db)
+                    if wa_ai_jobs:
+                        logger.info("survey_ai_followup_jobs", extra={"count": wa_ai_jobs})
         except Exception:
             logger.exception("survey_call_scheduler_tick_failed")
         try:

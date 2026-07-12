@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { AiFollowUpAssistancePanel, AiFollowUpStatusIcon } from "@/components/ai-follow-up-report";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -463,7 +464,10 @@ export function FeedbackSurveyResults({
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="text-xs font-medium text-primary">Open →</span>
+                            <div className="inline-flex items-center gap-2">
+                              <AiFollowUpStatusIcon status={r.aiFollowUpStatus || r.aiFollowUp?.status} />
+                              <span className="text-xs font-medium text-primary">Open →</span>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -802,6 +806,7 @@ function RespondentSheet({
               <p className="mt-0.5 text-muted-foreground">This customer answered "no" to recommending you and rated multiple questions poor.</p>
             </div>
           )}
+          <AiFollowUpAssistancePanel report={respondent.aiFollowUp} />
         </SheetHeader>
 
         <div className="mt-6 space-y-3">

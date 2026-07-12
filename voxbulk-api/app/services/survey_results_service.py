@@ -871,6 +871,42 @@ def build_hubspot_sync_respondents(
     return rows
 
 
+def _ai_followup_jobs_payload(db: Session, order_id: str) -> list[dict[str, Any]]:
+    try:
+        from app.services.survey_ai_followup_service import job_to_report_dict, jobs_for_order
+
+        return [job_to_report_dict(job) for job in jobs_for_order(db, order_id)]
+    except Exception:
+        return []
+
+
+def _attach_ai_followup_to_respondents(
+    db: Session,
+    respondents: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not respondents:
+        return respondents
+    try:
+        from app.services.survey_ai_followup_service import job_to_report_dict, jobs_by_recipient_ids
+
+        ids = [str(r.get("id") or "") for r in respondents if r.get("id")]
+        by_id = jobs_by_recipient_ids(db, ids)
+        for row in respondents:
+            job = by_id.get(str(row.get("id") or ""))
+            if job is not None:
+                report = job_to_report_dict(job)
+                row["ai_follow_up"] = report
+                row["ai_follow_up_status"] = report.get("status")
+            else:
+                row["ai_follow_up"] = None
+                row["ai_follow_up_status"] = None
+    except Exception:
+        for row in respondents:
+            row.setdefault("ai_follow_up", None)
+            row.setdefault("ai_follow_up_status", None)
+    return respondents
+
+
 def recipient_summary_row(
     recipient: ServiceOrderRecipient,
     *,
@@ -1118,11 +1154,13 @@ def build_whatsapp_survey_results_payload(
         "aggregates": aggregates,
         "weekly_trend": build_org_survey_weekly_trend(db, order),
         "voice_feedback": voice_feedback,
-        "respondents": [
-            recipient_summary_row(r, goal=goal, order_id=order.id) for r in recipients
-        ]
-        if include_respondents
-        else [],
+        "respondents": _attach_ai_followup_to_respondents(
+            db,
+            [recipient_summary_row(r, goal=goal, order_id=order.id) for r in recipients]
+            if include_respondents
+            else [],
+        ),
+        "ai_follow_up_jobs": _ai_followup_jobs_payload(db, order.id) if include_respondents else [],
         "hubspot_sync_respondents": build_hubspot_sync_respondents(recipients, goal=goal, order_id=order.id),
         "recommendations": recommendations,
     }

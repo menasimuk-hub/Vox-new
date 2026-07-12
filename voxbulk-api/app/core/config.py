@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     interview_telnyx_assistant_id: str = Field(default="", alias="INTERVIEW_TELNYX_ASSISTANT_ID")
     interview_slot_minutes: int = Field(default=4, alias="INTERVIEW_SLOT_MINUTES")
     interview_relax_hours: bool = Field(default=False, alias="INTERVIEW_RELAX_HOURS")
+    # Test-only: schedule AI follow-back dials immediately (Ofcom calling hours still apply).
+    ai_followup_force_immediate: bool = Field(default=False, alias="AI_FOLLOWUP_FORCE_IMMEDIATE")
 
     calendly_client_id: str = Field(default="", alias="CALENDLY_CLIENT_ID")
     calendly_client_secret: str = Field(default="", alias="CALENDLY_CLIENT_SECRET")

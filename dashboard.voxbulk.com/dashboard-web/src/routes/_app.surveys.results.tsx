@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { AiFollowUpAssistancePanel, type AiFollowUpReport } from "@/components/ai-follow-up-report";
 import {
   SurveyHubSpotSyncTab,
   SurveyRespondentHubSpotPanel,
@@ -112,6 +113,8 @@ type Respondent = {
   extracted_answers?: ExtractedAnswer[];
   open_feedback?: OpenFeedbackRow[];
   final_additional_feedback?: string | null;
+  ai_follow_up?: AiFollowUpReport | null;
+  ai_follow_up_status?: string | null;
 };
 type Recommendation = { title?: string; text?: string; impact?: string; source?: string };
 type TrendPoint = { week: string; csat_pct?: number | null; completed_count?: number };
@@ -1100,6 +1103,7 @@ function RespondentDetailSheet({
             </SheetHeader>
             <div className="mt-6 space-y-4 text-sm">
               <SurveyRespondentHubSpotPanel orderId={orderId} respondent={respondent as HubSpotSyncRespondent} />
+              <AiFollowUpAssistancePanel report={respondent.ai_follow_up} />
               {respondent.is_unhappy ? (
                 <Card className="border-destructive/40 bg-destructive/5">
                   <CardContent className="space-y-1 p-4">

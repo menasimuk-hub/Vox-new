@@ -288,6 +288,8 @@ export type FeedbackRespondent = {
     answer_source?: string;
   }>;
   quote?: string | null;
+  ai_follow_up?: Record<string, unknown> | null;
+  ai_follow_up_status?: string | null;
 };
 
 export type FeedbackOpenComment = {

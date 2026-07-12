@@ -2280,6 +2280,13 @@ def _complete_linear_survey_thank_you(
 
     maybe_post_survey_crm_actions(db, order, recipient)
 
+    try:
+        from app.services.survey_ai_followup_service import schedule_wa_if_eligible
+
+        schedule_wa_if_eligible(db, order=order, recipient=recipient)
+    except Exception:
+        logger.exception("%s ai_followup_schedule_failed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id)
+
     from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
     enqueue_survey_recommendations(order.id)
@@ -3869,6 +3876,14 @@ def _handle_inbound_reply_graph(
         from app.services.crm_unhappy_task_service import maybe_post_survey_crm_actions
 
         maybe_post_survey_crm_actions(db, order, recipient)
+        try:
+            from app.services.survey_ai_followup_service import schedule_wa_if_eligible
+
+            schedule_wa_if_eligible(db, order=order, recipient=recipient)
+        except Exception:
+            logger.exception(
+                "%s ai_followup_schedule_failed order=%s recipient=%s", LOG_PREFIX, order.id, recipient.id
+            )
         from app.workers.survey_wa_recommendations_tasks import enqueue_survey_recommendations
 
         enqueue_survey_recommendations(order.id)
