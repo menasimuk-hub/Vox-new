@@ -105,8 +105,10 @@ class InterviewLaunchService:
             if phone_raw:
                 e164, err = coerce_interview_phone_e164(phone_raw)
                 if err or not e164:
+                    phone_snip = phone_raw if len(phone_raw) <= 40 else phone_raw[:37] + "…"
                     phone_errors.append(
-                        f"{name}: {err or 'Phone number must be in E.164 format, for example +447700900123'}"
+                        f"{name} ({phone_snip}): "
+                        f"{err or 'Phone number must be in E.164 format, for example +447700900123'}"
                     )
                 elif e164 != phone_raw:
                     recipient.phone = e164

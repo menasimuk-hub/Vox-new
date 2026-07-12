@@ -247,3 +247,58 @@ def test_create_order_survey_and_interview_do_not_raise_unbound_local(db_session
     assert interview.service_code == "interview"
     assert interview.id
     assert interview.reference_id
+
+
+def test_parse_contacts_arabic_headers_preserve_arabic_names():
+    import openpyxl
+
+    from app.services.interview_intake_service import parse_contacts_csv_relaxed_from_bytes
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["الاسم", "الجوال", "البريد"])
+    ws.append(["محمد أحمد", "+447700900123", "mohammed@example.com"])
+    ws.append(["فاطمة علي", "07700900555", "fatima@example.com"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rows = parse_contacts_csv_relaxed_from_bytes(buf.getvalue(), "candidates.xlsx")
+    assert len(rows) == 2
+    assert rows[0]["name"] == "محمد أحمد"
+    assert rows[0]["phone"] in ("+447700900123", "+447700900123")
+    assert rows[0]["email"] == "mohammed@example.com"
+    assert rows[1]["name"] == "فاطمة علي"
+
+
+def test_parse_contacts_arabic_csv_headers():
+    from app.services.interview_intake_service import parse_contacts_csv_relaxed_from_bytes
+
+    text = "الاسم,الجوال,البريد\nسارة حسن,+447700900999,sara@example.com\n"
+    rows = parse_contacts_csv_relaxed_from_bytes(text.encode("utf-8"), "candidates.csv")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "سارة حسن"
+    assert rows[0]["phone"] == "+447700900999"
+
+
+def test_parse_contacts_rejects_legacy_xls_extension():
+    from app.services.interview_intake_service import parse_contacts_csv_relaxed_from_bytes
+
+    with pytest.raises(ValueError, match=r"\.xls"):
+        parse_contacts_csv_relaxed_from_bytes(b"not-real", "contacts.xls")
+
+
+def test_parse_contacts_positional_fallback_when_headers_unknown():
+    import openpyxl
+
+    from app.services.interview_intake_service import parse_contacts_csv_relaxed_from_bytes
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["ColA", "ColB", "ColC"])
+    ws.append(["Layla Omar", "+447700900222", "layla@example.com"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rows = parse_contacts_csv_relaxed_from_bytes(buf.getvalue(), "candidates.xlsx")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Layla Omar"
+    assert rows[0]["phone"] == "+447700900222"
+    assert rows[0]["email"] == "layla@example.com"

@@ -8,6 +8,7 @@ from app.services.recipient_contact_validation import (
     normalize_recipient_email,
     normalize_recipient_name,
     normalize_recipient_phone,
+    sanitize_phone_input,
 )
 
 
@@ -25,6 +26,18 @@ def test_phone_accepts_e164():
     assert normalize_recipient_phone("+447700900123") == "+447700900123"
 
 
+def test_sanitize_strips_tel_prefix():
+    assert sanitize_phone_input("Tel:+447700900123") == "+447700900123"
+    assert sanitize_phone_input("Mob: 07700900123") == "07700900123"
+    assert sanitize_phone_input("WhatsApp:+447700900123") == "+447700900123"
+
+
+def test_sanitize_normalizes_dashes_and_nbsp():
+    assert sanitize_phone_input("+44–7700–900123") == "+44-7700-900123"
+    assert "\u00a0" not in sanitize_phone_input("+44\u00a07700\u00a0900123")
+    assert sanitize_phone_input("+44\u200e7700900123") == "+447700900123"
+
+
 def test_coerce_interview_phone_uk_local():
     e164, err = coerce_interview_phone_e164("07700900123")
     assert err is None
@@ -33,6 +46,20 @@ def test_coerce_interview_phone_uk_local():
 
 def test_coerce_interview_phone_digits_without_plus():
     e164, err = coerce_interview_phone_e164("447700900123")
+    assert err is None
+    assert e164 == "+447700900123"
+
+
+def test_coerce_interview_phone_excel_junk():
+    e164, err = coerce_interview_phone_e164("Tel:+44 7700 900123")
+    assert err is None
+    assert e164 == "+447700900123"
+
+    e164, err = coerce_interview_phone_e164("Mobile:+44–7700–900123")
+    assert err is None
+    assert e164 == "+447700900123"
+
+    e164, err = coerce_interview_phone_e164("07700\u00a0900123")
     assert err is None
     assert e164 == "+447700900123"
 

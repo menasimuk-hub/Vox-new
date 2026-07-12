@@ -19,9 +19,81 @@ from app.services.platform_catalog_service import ServiceOrderService
 
 MATCH_THRESHOLD = 0.82
 
+# Longer Arabic header keys first so substring match prefers specific labels.
+_ARABIC_HEADER_ALIASES: list[tuple[str, str]] = [
+    ("الاسمالكامل", "name"),
+    ("اسمالمرشح", "name"),
+    ("اسمالشخص", "name"),
+    ("رقمالواتساب", "phone"),
+    ("رقمالجوال", "phone"),
+    ("رقمالهاتف", "phone"),
+    ("رقمالموبايل", "phone"),
+    ("البريدالإلكتروني", "email"),
+    ("البريدالالكتروني", "email"),
+    ("البريدالالكترونى", "email"),
+    ("الاسم", "name"),
+    ("المرشح", "name"),
+    ("اسم", "name"),
+    ("الجوال", "phone"),
+    ("الهاتف", "phone"),
+    ("الموبايل", "phone"),
+    ("موبايل", "phone"),
+    ("جوال", "phone"),
+    ("هاتف", "phone"),
+    ("واتساب", "phone"),
+    ("البريد", "email"),
+    ("ايميل", "email"),
+    ("إيميل", "email"),
+    ("بريد", "email"),
+]
+
+
+def _arabic_header_compact(value: str) -> str:
+    """Strip spaces/punctuation so Arabic Excel headers can be matched."""
+    text = str(value or "").strip().replace("\u0640", "")  # tatweel
+    return re.sub(r"[\s\W_]+", "", text, flags=re.UNICODE)
+
+
+def _canonical_contact_header(header: str) -> str:
+    """Map Excel/CSV header to name|phone|email (English + Arabic)."""
+    raw = str(header or "").strip()
+    if not raw:
+        return ""
+    compact = _arabic_header_compact(raw)
+    for key, field in _ARABIC_HEADER_ALIASES:
+        if compact == key or (key and key in compact):
+            return field
+    return ServiceOrderService._norm_header(raw)
+
+
+def _contact_fields_from_row(
+    headers: list[str],
+    cells: list[str],
+) -> tuple[str, str, str]:
+    """Resolve name/phone/email from headers, with positional fallback."""
+    data: dict[str, str] = {}
+    for i, header in enumerate(headers):
+        if not header or i >= len(cells):
+            continue
+        # Prefer first non-empty value when duplicate headers map to the same field.
+        if header not in data or not data[header]:
+            data[header] = cells[i]
+    name, phone, email, _lang = ServiceOrderService._row_field_values(data)
+    if name or phone:
+        return name, phone, email
+    # No recognized headers (e.g. all Arabic wiped previously) — template column order.
+    if len(cells) >= 2 and (cells[0].strip() or cells[1].strip()):
+        return (
+            cells[0].strip(),
+            cells[1].strip(),
+            cells[2].strip() if len(cells) > 2 else "",
+        )
+    return name, phone, email
+
 
 def _norm_phone(value: str | None) -> str:
     return re.sub(r"\D", "", str(value or ""))
+
 
 
 def _norm_email(value: str | None) -> str:
@@ -723,28 +795,44 @@ def intake_contacts_csv(db: Session, order: ServiceOrder, rows: list[dict[str, s
 def parse_contacts_csv_relaxed_from_bytes(content: bytes, filename: str) -> list[dict[str, str | None]]:
     """Like parse_recipient_file but phone is optional during intake."""
     name = str(filename or "").lower()
-    if name.endswith(".xlsx") or name.endswith(".xls"):
+    if name.endswith(".xls") and not name.endswith(".xlsx"):
+        raise ValueError(
+            "Legacy .xls workbooks are not supported. In Excel choose Save As → .xlsx, or upload a CSV file."
+        )
+    if content[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        raise ValueError(
+            "Legacy .xls workbooks are not supported. In Excel choose Save As → .xlsx, or upload a CSV file."
+        )
+    if name.endswith(".xlsx") or content[:2] == b"PK":
         import io
 
-        import openpyxl
+        try:
+            import openpyxl
+        except ImportError as e:
+            raise ValueError("Excel upload requires openpyxl on the server. Use CSV for now.") from e
 
-        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        except Exception as e:
+            raise ValueError(
+                "Could not read the Excel file. Use .xlsx format with columns name and phone, or upload CSV."
+            ) from e
         ws = wb.active
         header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
         if not header_row:
             return []
-        headers = [ServiceOrderService._norm_header(x) for x in header_row]
+        headers = [_canonical_contact_header(x) for x in header_row]
         out: list[dict[str, str | None]] = []
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            data = {
-                headers[i]: (
-                    ServiceOrderService._excel_cell_str(row[i]) if i < len(row) and row[i] is not None else ""
-                )
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            cells = [
+                ServiceOrderService._excel_cell_str(row[i]) if i < len(row) and row[i] is not None else ""
                 for i in range(len(headers))
-            }
-            name_val = data.get("name") or data.get("fullname") or data.get("contactname") or ""
-            phone_val = data.get("phone") or data.get("mobile") or data.get("telephone") or data.get("phonenumber") or ""
-            email_val = data.get("email") or data.get("emailaddress") or ""
+            ]
+            # Extend if row has more cells than headers (rare).
+            if row and len(row) > len(headers):
+                for i in range(len(headers), len(row)):
+                    cells.append(ServiceOrderService._excel_cell_str(row[i]) if row[i] is not None else "")
+            name_val, phone_val, email_val = _contact_fields_from_row(headers, cells)
             if not name_val and not phone_val:
                 continue
             out.append({"name": name_val or None, "phone": phone_val or None, "email": email_val or None})
@@ -758,12 +846,11 @@ def parse_contacts_csv_relaxed_from_bytes(content: bytes, filename: str) -> list
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
         raise ValueError("CSV must include a header row: name, phone, email")
-    out = []
+    headers = [_canonical_contact_header(k) for k in reader.fieldnames]
+    out: list[dict[str, str | None]] = []
     for raw in reader:
-        data = {ServiceOrderService._norm_header(k): str(v or "").strip() for k, v in raw.items()}
-        name_val = data.get("name") or data.get("fullname") or data.get("contactname") or ""
-        phone_val = data.get("phone") or data.get("mobile") or data.get("telephone") or data.get("phonenumber") or ""
-        email_val = data.get("email") or data.get("emailaddress") or ""
+        cells = [str(raw.get(k) or "").strip() for k in reader.fieldnames]
+        name_val, phone_val, email_val = _contact_fields_from_row(headers, cells)
         if not name_val and not phone_val:
             continue
         out.append({"name": name_val or None, "phone": phone_val or None, "email": email_val or None})
