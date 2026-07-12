@@ -21,6 +21,10 @@ export const SYSTEM_EMAIL_META = {
   billing_wallet_credit_issued: { title: 'Wallet credit issued', description: 'Refund applied as wallet credit' },
   billing_bank_refund_approved: { title: 'Bank refund approved', description: 'Bank refund approved for processing' },
   billing_refund_request_rejected: { title: 'Refund request rejected', description: 'Refund request was rejected' },
+  survey_ai_followup_promo: {
+    title: 'Survey AI follow-up promo code',
+    description: 'Sent from survey.codes@voxbulk.com after a completed AI follow-up call',
+  },
 }
 
 export const SYSTEM_WHATSAPP_META = {
@@ -283,6 +287,7 @@ export const MESSAGING_TABS = [
   { id: 'smtp', label: 'SMTP settings', icon: 'ti-server' },
   { id: 'careers', label: 'Career mailbox', icon: 'ti-inbox' },
   { id: 'billing', label: 'Billing mailbox', icon: 'ti-receipt' },
+  { id: 'survey-codes', label: 'Survey codes', icon: 'ti-ticket' },
 ]
 
 export const LAWFUL_BASES = ['consent', 'contract', 'legitimate_interests', 'legal_obligation']

@@ -40,6 +40,8 @@ class SmtpMailerService:
         from_email: str | None = None,
         from_name: str | None = None,
         reply_to: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
     ) -> None:
         row = SmtpSettingsService.get_row(db)
         configured, missing = SmtpSettingsService.compute_status(row)
@@ -55,11 +57,18 @@ class SmtpMailerService:
         host = (row.host or "").strip()
         port = int(row.port or 587)
 
-        pwd = None
-        if SmtpSettingsService._needs_password(row):
-            pwd = SmtpSettingsService.get_decrypted_password(db)
-            if not pwd:
-                raise SmtpMailerError("SMTP password is required but not configured.")
+        override_user = str(smtp_username or "").strip() or None
+        override_pwd = str(smtp_password or "").strip() or None
+        if override_user and override_pwd:
+            username = override_user
+            pwd = override_pwd
+        else:
+            pwd = None
+            if SmtpSettingsService._needs_password(row):
+                pwd = SmtpSettingsService.get_decrypted_password(db)
+                if not pwd:
+                    raise SmtpMailerError("SMTP password is required but not configured.")
+            username = (row.username or "").strip() or None
 
         from_email = str(from_email or row.from_email or "").strip()
         from_name = str(from_name if from_name is not None else row.from_name or "").strip()
@@ -87,8 +96,6 @@ class SmtpMailerService:
             maintype = str(attachment.get("maintype") or "application")
             subtype = str(attachment.get("subtype") or "octet-stream")
             msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
-
-        username = (row.username or "").strip() or None
 
         from app.core.config import get_settings
 
@@ -143,6 +150,8 @@ class SmtpMailerService:
         from_email: str | None = None,
         from_name: str | None = None,
         reply_to: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
     ) -> None:
         SmtpMailerService._send_message(
             db,
@@ -154,6 +163,8 @@ class SmtpMailerService:
             from_email=from_email,
             from_name=from_name,
             reply_to=reply_to,
+            smtp_username=smtp_username,
+            smtp_password=smtp_password,
         )
 
     @staticmethod
@@ -167,6 +178,8 @@ class SmtpMailerService:
         from_email: str | None = None,
         from_name: str | None = None,
         reply_to: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
     ) -> None:
         """Send message with text/html MIME (for DB-backed templates that store HTML)."""
         SmtpMailerService._send_message(
@@ -179,4 +192,6 @@ class SmtpMailerService:
             from_email=from_email,
             from_name=from_name,
             reply_to=reply_to,
+            smtp_username=smtp_username,
+            smtp_password=smtp_password,
         )

@@ -13,6 +13,7 @@ from app.schemas.email_admin import (
     EmailTemplateUpdate,
     SmtpSettingsUpdate,
     SmtpTestSendRequest,
+    SurveyCodesMailboxSettingsUpdate,
     TemplatedNotifySendRequest,
 )
 from app.services.email_template_service import EMAIL_TEMPLATE_KEYS, EmailTemplateService, EmailTemplateError, EmailTemplateUnknown
@@ -178,6 +179,35 @@ def post_billing_mailbox_sync_now(db: Session = Depends(get_db), _admin=Depends(
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message") or "Sync failed")
     return result
+
+
+@router.get("/survey-codes-mailbox")
+def get_survey_codes_mailbox_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.survey_codes_mailbox_settings_service import SurveyCodesMailboxSettingsService
+
+    row = SurveyCodesMailboxSettingsService.get_row(db)
+    return SurveyCodesMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.put("/survey-codes-mailbox")
+def put_survey_codes_mailbox_settings(
+    payload: SurveyCodesMailboxSettingsUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    from app.services.survey_codes_mailbox_settings_service import SurveyCodesMailboxSettingsService
+
+    password = str(payload.password).strip() if payload.password else None
+    SurveyCodesMailboxSettingsService.upsert(
+        db,
+        mailbox_email=payload.mailbox_email,
+        from_name=payload.from_name,
+        smtp_username=payload.smtp_username,
+        is_enabled=payload.is_enabled,
+        password=password,
+    )
+    row = SurveyCodesMailboxSettingsService.get_row(db)
+    return SurveyCodesMailboxSettingsService.to_public_dict(db, row)
 
 
 @router.post("/notify/send-templated")

@@ -140,6 +140,11 @@ export default function EmailSettings() {
   const [billingSyncBusy, setBillingSyncBusy] = useState(false)
   const [billingActionMsg, setBillingActionMsg] = useState('')
 
+  const [surveyCodesMailbox, setSurveyCodesMailbox] = useState(null)
+  const [surveyCodesPasswordDraft, setSurveyCodesPasswordDraft] = useState('')
+  const [surveyCodesSaving, setSurveyCodesSaving] = useState(false)
+  const [surveyCodesActionMsg, setSurveyCodesActionMsg] = useState('')
+
   const [emailTemplates, setEmailTemplates] = useState([])
   const [waTemplates, setWaTemplates] = useState([])
   const [smsTemplates, setSmsTemplates] = useState([])
@@ -162,6 +167,11 @@ export default function EmailSettings() {
     const data = await apiFetch('/admin/email/billing-mailbox')
     setBillingMailbox(data)
     setBillingSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
+  }, [])
+
+  const loadSurveyCodesMailbox = useCallback(async () => {
+    const data = await apiFetch('/admin/email/survey-codes-mailbox')
+    setSurveyCodesMailbox(data)
   }, [])
 
   const loadLists = useCallback(async () => {
@@ -206,6 +216,7 @@ export default function EmailSettings() {
         await loadSmtp()
         await loadCareerMailbox()
         await loadBillingMailbox()
+        await loadSurveyCodesMailbox()
       } catch (e) {
         if (!cancelled) setLoadError(e?.message || 'Failed to load SMTP')
       }
@@ -221,7 +232,7 @@ export default function EmailSettings() {
     return () => {
       cancelled = true
     }
-  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox])
+  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox, loadSurveyCodesMailbox])
 
   const saveSmtp = async () => {
     setSaving(true)
@@ -392,6 +403,29 @@ export default function EmailSettings() {
     }
   }
 
+  const saveSurveyCodesMailbox = async () => {
+    setSurveyCodesSaving(true)
+    setSurveyCodesActionMsg('')
+    setSaveError('')
+    try {
+      const payload = {
+        mailbox_email: String(surveyCodesMailbox?.mailbox_email || 'survey.codes@voxbulk.com'),
+        from_name: String(surveyCodesMailbox?.from_name || 'VOXBULK Survey Codes'),
+        smtp_username: String(surveyCodesMailbox?.smtp_username || ''),
+        is_enabled: Boolean(surveyCodesMailbox?.is_enabled),
+      }
+      if (surveyCodesPasswordDraft.trim()) payload.password = surveyCodesPasswordDraft.trim()
+      const data = await apiFetch('/admin/email/survey-codes-mailbox', { method: 'PUT', body: JSON.stringify(payload) })
+      setSurveyCodesMailbox(data)
+      setSurveyCodesPasswordDraft('')
+      setSurveyCodesActionMsg('Survey codes mailbox saved')
+    } catch (e) {
+      setSaveError(e?.message || 'Failed to save survey codes mailbox')
+    } finally {
+      setSurveyCodesSaving(false)
+    }
+  }
+
   const sendSmtpTest = async () => {
     setTestBusy(true)
     setTestMsg('')
@@ -478,6 +512,7 @@ export default function EmailSettings() {
 
   const careerPill = careerStatusPill(careerMailbox)
   const billingPill = careerStatusPill(billingMailbox)
+  const surveyCodesPill = careerStatusPill(surveyCodesMailbox)
 
   return (
     <>
@@ -748,6 +783,91 @@ export default function EmailSettings() {
                         {billingActionMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{billingActionMsg}</div> : null}
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'survey-codes' && (
+            <div className="emailTabPanel" role="tabpanel">
+              <div className="emailSectionTitle">
+                <i className="ti ti-ticket" />
+                Survey codes mailbox (outbound From)
+                <span className={`pill ${surveyCodesPill.cls}`} style={{ marginLeft: 8 }}>
+                  {surveyCodesPill.text}
+                </span>
+              </div>
+              {loading ? (
+                <div className="note">Loading…</div>
+              ) : (
+                <div className="grid-12" style={{ gap: 16 }}>
+                  <div className="span-8 stack" style={{ gap: 14 }}>
+                    <div className="note">
+                      After a completed AI follow-up call, promo codes email from <strong>survey.codes@voxbulk.com</strong>
+                      (or the address you set). Uses platform SMTP host; if you paste a mailbox password here we authenticate as this mailbox.
+                      Create the mailbox first, then enable and save. Template key: <code>survey_ai_followup_promo</code>.
+                    </div>
+                    <div className="miniGrid">
+                      <div className="mini">
+                        <label>Password on file</label>
+                        <strong>{surveyCodesMailbox?.password_set ? 'Set' : 'Not set'}</strong>
+                      </div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(surveyCodesMailbox?.is_enabled)}
+                        onChange={(e) => setSurveyCodesMailbox((s) => ({ ...s, is_enabled: e.target.checked }))}
+                      />
+                      <span className="label" style={{ margin: 0 }}>Survey codes outbound enabled</span>
+                    </label>
+                    <div className="emailFormGrid">
+                      <div className="span-2">
+                        <label className="label">Mailbox address</label>
+                        <input
+                          className="input"
+                          value={String(surveyCodesMailbox?.mailbox_email || '')}
+                          onChange={(e) => setSurveyCodesMailbox((s) => ({ ...s, mailbox_email: e.target.value }))}
+                          placeholder="survey.codes@voxbulk.com"
+                        />
+                      </div>
+                      <div className="span-2">
+                        <label className="label">From name</label>
+                        <input
+                          className="input"
+                          value={String(surveyCodesMailbox?.from_name || '')}
+                          onChange={(e) => setSurveyCodesMailbox((s) => ({ ...s, from_name: e.target.value }))}
+                          placeholder="VOXBULK Survey Codes"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">SMTP username (optional)</label>
+                        <input
+                          className="input"
+                          value={String(surveyCodesMailbox?.smtp_username || '')}
+                          onChange={(e) => setSurveyCodesMailbox((s) => ({ ...s, smtp_username: e.target.value }))}
+                          placeholder="Defaults to mailbox address"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Password</label>
+                        <input
+                          className="input"
+                          type="password"
+                          value={surveyCodesPasswordDraft}
+                          onChange={(e) => setSurveyCodesPasswordDraft(e.target.value)}
+                          placeholder={surveyCodesMailbox?.password_set ? 'Leave blank to keep' : 'Mailbox / app password'}
+                          autoComplete="new-password"
+                        />
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button type="button" className="btn primary" onClick={saveSurveyCodesMailbox} disabled={surveyCodesSaving}>
+                        <i className="ti ti-device-floppy" /> {surveyCodesSaving ? 'Saving…' : 'Save survey codes mailbox'}
+                      </button>
+                    </div>
+                    {surveyCodesActionMsg ? <div className="note" style={{ marginBottom: 0 }}>{surveyCodesActionMsg}</div> : null}
                   </div>
                 </div>
               )}

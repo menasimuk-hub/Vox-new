@@ -445,4 +445,18 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             footer="Sent by VOXBULK Billing · billing@voxbulk.com",
         ),
     },
+    "survey_ai_followup_promo": {
+        "title": "Survey AI follow-up promo code",
+        "subject": "Your thank-you code from {{organisation_name}}",
+        "body": wrap_brand_email(
+            title="Thank you for your feedback",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>Thank you for speaking with us about your experience with <strong>{{organisation_name}}</strong>.</p>
+  <p>As a gesture of appreciation, here is your promo code:</p>
+  <p style="font-size:22px;letter-spacing:0.06em;font-family:ui-monospace,Menlo,Consolas,monospace;"><strong>{{promo_code}}</strong></p>
+  <p>{{promo_description}}</p>
+  <p style="font-size:13px;color:#6b6560;">Questions? Contact <a href="mailto:{{support_email}}" style="color:#1a2d5c;">{{support_email}}</a>.</p>""",
+            footer="Sent by VOXBULK · survey.codes@voxbulk.com",
+        ),
+    },
 }

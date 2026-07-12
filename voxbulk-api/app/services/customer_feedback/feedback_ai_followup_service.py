@@ -174,6 +174,7 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
     templates = load_template_index(db, survey_type_ids=survey_type_ids)
 
     poor_topics: list[str] = []
+    poor_answers: list[dict[str, str]] = []
     positive_topics: list[str] = []
     no_topics: list[str] = []
 
@@ -191,6 +192,7 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
         if pge == "poor" or yn == "no":
             if label not in poor_topics:
                 poor_topics.append(label)
+            poor_answers.append({"question": label, "answer": answer})
         elif pge in {"excellent", "good"} or yn == "yes":
             if label not in positive_topics:
                 positive_topics.append(label)
@@ -198,7 +200,15 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
             if label not in no_topics:
                 no_topics.append(label)
 
-    return {"poor_topics": poor_topics, "positive_topics": positive_topics, "no_topics": no_topics}
+    why_parts = [f"{a['question']}: {a['answer']}" for a in poor_answers[:8]]
+    why_unhappy = "; ".join(why_parts) if why_parts else "Low rating with no written reason given in the survey."
+    return {
+        "poor_topics": poor_topics,
+        "poor_answers": poor_answers,
+        "positive_topics": positive_topics,
+        "no_topics": no_topics,
+        "why_unhappy": why_unhappy,
+    }
 
 
 def _build_org_context(db: Session, *, org, location: FeedbackLocation | None) -> str:
@@ -528,6 +538,15 @@ def schedule_if_eligible(db: Session, *, session: FeedbackSession, location: Fee
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
+    summary = _build_session_summary(db, session.id)
+    _set_job_outcome(
+        job,
+        {
+            "session_summary": summary,
+            "why_unhappy": summary.get("why_unhappy"),
+            "scheduled_reason": "low_rating_no_written_reason",
+        },
+    )
     db.add(job)
     db.commit()
     logger.info(
@@ -666,6 +685,9 @@ def _dispatch_job(db: Session, job) -> str | None:
 def job_to_report_dict(job) -> dict[str, Any]:
     outcome = _job_outcome(job)
     summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
+    poor_answers = summary.get("poor_answers") if isinstance(summary.get("poor_answers"), list) else []
+    why = str(summary.get("why_unhappy") or outcome.get("why_unhappy") or "").strip() or None
+    promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
     return {
         "id": job.id,
         "session_id": getattr(job, "session_id", None),
@@ -675,7 +697,12 @@ def job_to_report_dict(job) -> dict[str, Any]:
         "call_id": job.call_id,
         "business_context": job.business_context,
         "poor_topics": summary.get("poor_topics") or [],
+        "poor_answers": poor_answers,
+        "why_unhappy": why,
         "positive_topics": summary.get("positive_topics") or [],
+        "promo_enabled": bool(getattr(job, "promo_enabled", False)),
+        "promo_code": getattr(job, "promo_code", None),
+        "promo_email": promo_email,
         "outcome": outcome,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
@@ -836,12 +863,39 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
                 answered=answered,
             )
 
+        if str(job.status or "").lower() == "completed" and job.promo_enabled and job.promo_code:
+            try:
+                from app.models.customer_feedback import FeedbackSession
+                from app.services.survey_codes_email_service import send_followup_promo_email
+
+                to_email = ""
+                session = db.get(FeedbackSession, job.session_id)
+                if session and session.session_state_json:
+                    try:
+                        state = json.loads(session.session_state_json)
+                        if isinstance(state, dict):
+                            to_email = str(state.get("email") or state.get("visitor_email") or "").strip()
+                    except json.JSONDecodeError:
+                        pass
+                org_name = str(getattr(org, "name", None) or "the business") if org else "the business"
+                outcome["promo_email"] = send_followup_promo_email(
+                    db,
+                    to_email=to_email,
+                    org_name=org_name,
+                    promo_code=str(job.promo_code),
+                    promo_description=job.promo_description,
+                )
+            except Exception:
+                logger.exception("feedback_ai_followup_promo_email_failed job_id=%s", job.id)
+                outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
+
         outcome.update(
             {
                 "call_control_id": call_id,
                 "hangup_cause": hangup_cause or None,
                 "duration_seconds": duration_seconds,
                 "transcript": transcript,
+                "transcript_excerpt": (transcript[:800] if transcript else None),
                 "billing": billing,
                 "completed_at": datetime.utcnow().isoformat(),
             }

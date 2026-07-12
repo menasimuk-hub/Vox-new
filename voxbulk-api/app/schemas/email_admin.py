@@ -42,6 +42,14 @@ class BillingMailboxSettingsUpdate(BaseModel):
     is_enabled: bool = False
 
 
+class SurveyCodesMailboxSettingsUpdate(BaseModel):
+    mailbox_email: str = Field(default="survey.codes@voxbulk.com")
+    from_name: str = Field(default="VOXBULK Survey Codes")
+    smtp_username: str | None = Field(default="")
+    password: str | None = None
+    is_enabled: bool = False
+
+
 class SmtpTestSendRequest(BaseModel):
     to: EmailStr
 

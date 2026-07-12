@@ -119,6 +119,7 @@ def _build_recipient_session_summary(recipient: ServiceOrderRecipient) -> dict[s
     from app.services.survey_results_service import _is_negative_answer_value
 
     poor_topics: list[str] = []
+    poor_answers: list[dict[str, str]] = []
     positive_topics: list[str] = []
     for item in _wa_answers(recipient):
         label = str(item.get("question") or item.get("topic") or item.get("template_name") or "Topic").strip()
@@ -129,10 +130,20 @@ def _build_recipient_session_summary(recipient: ServiceOrderRecipient) -> dict[s
         if _is_negative_answer_value(val) or low in LOW_ANSWERS or low == "no":
             if label not in poor_topics:
                 poor_topics.append(label)
+            poor_answers.append({"question": label, "answer": val})
         elif "excellent" in low or "good" in low or low == "yes" or "spotless" in low or "smooth" in low:
             if label not in positive_topics:
                 positive_topics.append(label)
-    return {"poor_topics": poor_topics, "positive_topics": positive_topics, "no_topics": []}
+
+    why_parts = [f"{a['question']}: {a['answer']}" for a in poor_answers[:8]]
+    why_unhappy = "; ".join(why_parts) if why_parts else "Low rating with no written reason given in the survey."
+    return {
+        "poor_topics": poor_topics,
+        "poor_answers": poor_answers,
+        "positive_topics": positive_topics,
+        "no_topics": [],
+        "why_unhappy": why_unhappy,
+    }
 
 
 def _build_org_context_for_order(db: Session, *, org, order: ServiceOrder) -> str:
@@ -197,6 +208,15 @@ def schedule_wa_if_eligible(db: Session, *, order: ServiceOrder, recipient: Serv
         status="scheduled",
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
+    )
+    summary = _build_recipient_session_summary(recipient)
+    _set_job_outcome(
+        job,
+        {
+            "session_summary": summary,
+            "why_unhappy": summary.get("why_unhappy"),
+            "scheduled_reason": "low_rating_no_written_reason",
+        },
     )
     db.add(job)
     db.commit()
@@ -386,6 +406,30 @@ def jobs_by_recipient_ids(db: Session, recipient_ids: list[str]) -> dict[str, Su
 def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
     outcome = _job_outcome(job)
     summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
+    poor_answers = summary.get("poor_answers") if isinstance(summary.get("poor_answers"), list) else []
+    why = (
+        str(summary.get("why_unhappy") or outcome.get("why_unhappy") or "").strip()
+        or None
+    )
+    # Backfill for older jobs that predate poor_answers / why_unhappy.
+    if (not poor_answers or not why) and job.recipient_id:
+        try:
+            from sqlalchemy.orm import object_session
+
+            db = object_session(job)
+            if db is not None:
+                recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+                if recipient is not None:
+                    rebuilt = _build_recipient_session_summary(recipient)
+                    if not poor_answers:
+                        poor_answers = rebuilt.get("poor_answers") or []
+                    if not why:
+                        why = str(rebuilt.get("why_unhappy") or "").strip() or None
+                    if not summary.get("poor_topics"):
+                        summary = {**summary, **{k: rebuilt.get(k) for k in ("poor_topics", "positive_topics") if rebuilt.get(k)}}
+        except Exception:
+            logger.exception("survey_ai_followup_report_backfill_failed job_id=%s", job.id)
+    promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
     return {
         "id": job.id,
         "recipient_id": job.recipient_id,
@@ -395,7 +439,12 @@ def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
         "call_id": job.call_id,
         "business_context": job.business_context,
         "poor_topics": summary.get("poor_topics") or [],
+        "poor_answers": poor_answers,
+        "why_unhappy": why,
         "positive_topics": summary.get("positive_topics") or [],
+        "promo_enabled": bool(job.promo_enabled),
+        "promo_code": job.promo_code,
+        "promo_email": promo_email,
         "outcome": outcome,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
@@ -532,12 +581,35 @@ def handle_survey_ai_followup_telnyx_event(db: Session, payload: dict[str, Any])
             except Exception:
                 logger.exception("survey_ai_followup_billing_failed job_id=%s", job.id)
 
+        if str(job.status or "").lower() == "completed" and job.promo_enabled and job.promo_code:
+            try:
+                from app.services.survey_codes_email_service import send_followup_promo_email
+
+                recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+                to_email = str(getattr(recipient, "email", None) or "").strip() if recipient else ""
+                org_name = str(getattr(org, "name", None) or "the business") if org else "the business"
+                customer_name = ""
+                if recipient is not None:
+                    customer_name = str(getattr(recipient, "name", None) or "").strip()
+                outcome["promo_email"] = send_followup_promo_email(
+                    db,
+                    to_email=to_email,
+                    org_name=org_name,
+                    promo_code=str(job.promo_code),
+                    promo_description=job.promo_description,
+                    customer_name=customer_name or None,
+                )
+            except Exception:
+                logger.exception("survey_ai_followup_promo_email_failed job_id=%s", job.id)
+                outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
+
         outcome.update(
             {
                 "call_control_id": call_id,
                 "hangup_at": datetime.utcnow().isoformat(),
                 "duration_seconds": duration_seconds,
                 "hangup_cause": hangup_cause,
+                "transcript_excerpt": (transcript[:800] if transcript else outcome.get("transcript_excerpt")),
             }
         )
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
