@@ -336,6 +336,39 @@ class ServiceOrderService:
         return buf.getvalue()
 
     @staticmethod
+    def recipient_template_xlsx(*, for_interview: bool = True) -> bytes:
+        """Interview contacts sample as .xlsx (phones as text; Arabic-safe)."""
+        if not for_interview:
+            raise ValueError("Excel contact template is only available for interview")
+        try:
+            import openpyxl
+            from openpyxl.styles import numbers
+        except ImportError as e:
+            raise ValueError("Excel template requires openpyxl on the server") from e
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Candidates"
+        headers = list(ServiceOrderService.RECIPIENT_TEMPLATE_HEADERS)
+        ws.append(headers)
+        rows = [
+            ["Sarah Ahmed", "+447700900123", "sarah@example.com"],
+            ["قصي", "+447954823445", "qusay@example.com"],
+            ["Fatima Khan", "07700900555", "fatima@example.com"],
+        ]
+        for row in rows:
+            ws.append(row)
+        # Force phone column to text so Excel does not convert to scientific notation.
+        phone_col = 2
+        for r in range(2, 2 + len(rows)):
+            cell = ws.cell(row=r, column=phone_col)
+            cell.number_format = numbers.FORMAT_TEXT
+            cell.value = str(cell.value or "")
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    @staticmethod
     def _norm_header(h: str) -> str:
         return re.sub(r"[^a-z0-9]", "", str(h or "").strip().lower())
 

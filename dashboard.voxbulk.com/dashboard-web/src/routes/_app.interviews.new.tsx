@@ -1365,8 +1365,8 @@ function CreateInterview() {
   const onDownloadTemplate = async () => {
     try {
       await downloadAuthenticatedFile(
-        "/service-orders/template.csv?for_=interview",
-        "voxbulk-interview-contacts-template.csv",
+        "/service-orders/template.xlsx?for_=interview",
+        "voxbulk-interview-contacts-template.xlsx",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download failed");
@@ -2060,7 +2060,9 @@ function CreateInterview() {
                 </Button>
               </div>
               <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-                Columns: <strong className="font-medium text-foreground">name</strong>,{" "}
+                Download the <strong className="font-medium text-foreground">.xlsx</strong> template
+                (recommended for Arabic names). Columns:{" "}
+                <strong className="font-medium text-foreground">name</strong>,{" "}
                 <strong className="font-medium text-foreground">phone</strong>,{" "}
                 <strong className="font-medium text-foreground">email</strong>. Phone must be E.164
                 (e.g. +447700900123) or UK mobile starting 07. Email is required for booking invites.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -98,6 +98,29 @@ def download_recipient_template(
     return PlainTextResponse(
         ServiceOrderService.recipient_template_csv(for_survey=for_survey),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/template.xlsx")
+def download_recipient_template_xlsx(
+    for_: str | None = None,
+    _principal=Depends(get_current_principal),
+):
+    kind = str(for_ or "").strip().lower()
+    if kind not in {"interview", "ai_interview", "ai-interview", ""}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Excel template is only available for interview contacts. Use template.csv for surveys.",
+        )
+    try:
+        content = ServiceOrderService.recipient_template_xlsx(for_interview=True)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+    filename = "voxbulk-interview-contacts-template.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
