@@ -116,17 +116,20 @@ def _is_arabic_order(order: ServiceOrder) -> bool:
 
 
 def _build_recipient_session_summary(recipient: ServiceOrderRecipient) -> dict[str, Any]:
+    from app.services.survey_results_service import _is_negative_answer_value
+
     poor_topics: list[str] = []
     positive_topics: list[str] = []
     for item in _wa_answers(recipient):
         label = str(item.get("question") or item.get("topic") or item.get("template_name") or "Topic").strip()
-        val = str(item.get("answer") or item.get("answer_text") or item.get("normalized_value") or "").strip().lower()
-        if not val or val == "skip":
+        val = str(item.get("answer") or item.get("answer_text") or item.get("normalized_value") or "").strip()
+        low = val.lower()
+        if not val or low == "skip":
             continue
-        if val in LOW_ANSWERS or "poor" in val or val == "bad" or val == "no":
+        if _is_negative_answer_value(val) or low in LOW_ANSWERS or low == "no":
             if label not in poor_topics:
                 poor_topics.append(label)
-        elif "excellent" in val or "good" in val or val == "yes":
+        elif "excellent" in low or "good" in low or low == "yes" or "spotless" in low or "smooth" in low:
             if label not in positive_topics:
                 positive_topics.append(label)
     return {"poor_topics": poor_topics, "positive_topics": positive_topics, "no_topics": []}
