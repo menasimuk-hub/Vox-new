@@ -103,6 +103,7 @@ def download_recipient_template(
 
 
 @router.get("/template.xlsx")
+@router.get("/templates/interview.xlsx")
 def download_recipient_template_xlsx(
     for_: str | None = None,
     _principal=Depends(get_current_principal),
@@ -121,7 +122,10 @@ def download_recipient_template_xlsx(
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

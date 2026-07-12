@@ -1365,7 +1365,7 @@ function CreateInterview() {
   const onDownloadTemplate = async () => {
     try {
       await downloadAuthenticatedFile(
-        "/service-orders/template.xlsx?for_=interview",
+        "/service-orders/templates/interview.xlsx?for_=interview",
         "voxbulk-interview-contacts-template.xlsx",
       );
     } catch (e) {
