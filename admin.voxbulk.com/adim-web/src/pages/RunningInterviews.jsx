@@ -388,6 +388,27 @@ export default function RunningInterviews() {
     }
   }
 
+  const unlockBooking = async (recipient) => {
+    if (!selected?.id || !recipient?.id) return
+    if (!window.confirm('Unlock booking for this candidate so they can rebook?')) return
+    setBusyKey(`unlock-${recipient.id}`)
+    setError('')
+    try {
+      await apiFetch(
+        `/admin/platform-services/orders/${encodeURIComponent(selected.id)}/recipients/${encodeURIComponent(recipient.id)}/unlock-booking`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'admin_unlock', clear_slot: true, send_reschedule_email: true }),
+        },
+      )
+      await loadDetail(selected.id)
+    } catch (e) {
+      setError(e?.message || 'Could not unlock booking')
+    } finally {
+      setBusyKey('')
+    }
+  }
+
   const recipients = selected?.recipients || []
   const config = selected?.config || {}
   const report = selected?.report || {}
@@ -668,6 +689,17 @@ export default function RunningInterviews() {
                               >
                                 Resend
                               </button>
+                              {r.status === 'completed' || r.status === 'done' || r.status === 'opted_out' ? (
+                                <button
+                                  type="button"
+                                  className="btn soft bsm"
+                                  disabled={busyKey === `unlock-${r.id}` || r.status === 'opted_out'}
+                                  title={r.status === 'opted_out' ? 'Opted out — cannot unlock' : 'Unlock booking so candidate can rebook'}
+                                  onClick={() => unlockBooking(r)}
+                                >
+                                  Unlock
+                                </button>
+                              ) : null}
                               {r.has_cv_file ? (
                                 <button type="button" className="btn soft bsm" disabled={busyKey === `cv-${r.id}`} onClick={() => downloadCv(r)}>
                                   <Download size={14} /> CV

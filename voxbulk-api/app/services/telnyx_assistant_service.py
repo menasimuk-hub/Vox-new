@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -500,7 +501,73 @@ def apply_interview_assistant_pacing(
     except Exception as exc:
         logger.warning("interview_pacing_interrupt_failed assistant_id=%s err=%s", clean_id, exc)
         out["interruption_error"] = str(exc)
+    try:
+        tools_out = ensure_interview_assistant_hangup_tools(db, clean_id, existing=existing)
+        out["tools"] = tools_out
+    except Exception as exc:
+        logger.warning("interview_assistant_tools_sync_failed assistant_id=%s err=%s", clean_id, exc)
+        out["tools_error"] = str(exc)
     return out
+
+
+def ensure_interview_assistant_hangup_tools(
+    db: Session,
+    assistant_id: str,
+    *,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Best-effort: keep Hangup + interview webhook tools on the Telnyx assistant."""
+    from app.services.interview_telnyx_tool_service import interview_tool_webhook_urls
+
+    clean_id = normalize_telnyx_assistant_id(assistant_id)
+    live = existing if isinstance(existing, dict) else fetch_telnyx_assistant(db, clean_id)
+    current_tools = live.get("tools") if isinstance(live.get("tools"), list) else []
+    urls = interview_tool_webhook_urls()
+
+    def _has_name(tools: list[Any], name: str) -> bool:
+        needle = name.lower()
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            blob = json.dumps(tool).lower()
+            if needle in blob:
+                return True
+        return False
+
+    desired = list(current_tools)
+    changed = False
+    if not _has_name(desired, "hangup") and not _has_name(desired, '"type": "hangup"'):
+        desired.append({"type": "hangup"})
+        changed = True
+    for tool_name, url in urls.items():
+        if _has_name(desired, tool_name):
+            continue
+        desired.append(
+            {
+                "type": "webhook",
+                "webhook": {
+                    "name": tool_name,
+                    "description": (
+                        "Hang up the interview call after goodbye"
+                        if tool_name == "end_call"
+                        else f"Interview signal helper: {tool_name}"
+                    ),
+                    "url": url,
+                    "method": "POST",
+                    "body_parameters": {},
+                },
+            }
+        )
+        changed = True
+    if not changed:
+        return {"ok": True, "changed": False, "tool_count": len(current_tools)}
+    try:
+        _update_telnyx_assistant(db, clean_id, {"tools": desired})
+        return {"ok": True, "changed": True, "tool_count": len(desired)}
+    except Exception as exc:
+        # Telnyx tool schema varies by account — never block interview start.
+        logger.warning("ensure_interview_assistant_hangup_tools_failed assistant_id=%s err=%s", clean_id, exc)
+        return {"ok": False, "changed": False, "error": str(exc)[:240]}
 
 
 def sync_telnyx_assistant_instructions(

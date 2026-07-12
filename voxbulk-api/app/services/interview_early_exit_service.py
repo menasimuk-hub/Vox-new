@@ -97,12 +97,18 @@ _QA_PROGRESS_RE = re.compile(
     r"(?:"
     r"first\s+question|"
     r"next\s+question|"
+    r"question\s+(?:one|two|three|\d+)|"
     r"tell\s+me\s+about|"
     r"can\s+you\s+describe|"
+    r"describe\s+(?:a\s+)?challenge|"
     r"what\s+(?:is|was)\s+your\s+experience|"
-    r"السؤال\s+(?:الأول|التالي)|"
-    r"خبرت|خبرتك|"
-    r"صف\s+لي"
+    r"السؤال\s+(?:الأول|التالي|الثاني|الثالث|\d+)|"
+    r"سؤال\s+(?:أول|تالي|واحد|اتنين|\d+)|"
+    r"خبرت|خبرتك|خبرتك\s+إيه|"
+    r"صف\s+لي|"
+    r"احكي\s+(?:لي\s+)?عن|"
+    r"ممكن\s+تحكي|"
+    r"وريني\s+مثال"
     r")",
     re.I,
 )
@@ -135,13 +141,28 @@ def _booking_token(db: Session, order_id: str, recipient_id: str) -> InterviewBo
     ).scalar_one_or_none()
 
 
-def transcript_shows_interview_progress(transcript: str | None) -> bool:
+def transcript_shows_interview_progress(
+    transcript: str | None,
+    *,
+    session_signals: dict[str, Any] | None = None,
+) -> bool:
+    signals = session_signals if isinstance(session_signals, dict) else {}
+    try:
+        asked = int(signals.get("questions_asked") or 0)
+    except (TypeError, ValueError):
+        asked = 0
+    if asked >= 1:
+        return True
+
     text = str(transcript or "").strip()
-    if len(text) < 220:
+    if not text:
         return False
+    # Q&A markers count even on short transcripts (mid-interview stop → completed).
     if _QA_PROGRESS_RE.search(text):
         return True
-    # Rough turn count: several speaker-like lines.
+    # Rough turn count needs enough text to avoid false positives on short intros.
+    if len(text) < 220:
+        return False
     lines = [ln for ln in re.split(r"[\n.]+", text) if len(ln.strip()) > 20]
     return len(lines) >= 8
 
@@ -198,13 +219,20 @@ def resolve_interview_session_outcome(
     duration_seconds: int | None,
     transcript: str | None = None,
     use_llm: bool = False,
+    session_signals: dict[str, Any] | None = None,
 ) -> InterviewSessionOutcome:
     """Keyword classify, optionally confirm/override with LLM when transcript is present."""
     keyword = classify_interview_session_outcome(
-        duration_seconds=duration_seconds, transcript=transcript
+        duration_seconds=duration_seconds,
+        transcript=transcript,
+        session_signals=session_signals,
     )
     text = str(transcript or "").strip()
     if not use_llm or db is None or len(text) < 80:
+        return keyword
+    # Always ask LLM when keyword may conflict with mid-interview progress / reschedule wording.
+    ambiguous = keyword in {"completed", "reschedule", "technical_abort"}
+    if not ambiguous and keyword not in {"wrong_person"}:
         return keyword
     llm = classify_interview_session_outcome_with_llm(
         db, transcript=text, duration_seconds=duration_seconds
@@ -213,6 +241,9 @@ def resolve_interview_session_outcome(
         return keyword
     # Prefer LLM when keywords said completed but LLM says early exit (or vice versa for recording).
     if keyword == "completed" and llm in {"reschedule", "recording_declined", "wrong_person", "technical_abort"}:
+        # Keep product rule A: real Q&A progress stays completed even if LLM says reschedule.
+        if transcript_shows_interview_progress(text, session_signals=session_signals) and llm == "reschedule":
+            return "completed"
         return llm
     if llm == "recording_declined":
         return llm
@@ -226,6 +257,7 @@ def classify_interview_session_outcome(
     *,
     duration_seconds: int | None,
     transcript: str | None = None,
+    session_signals: dict[str, Any] | None = None,
 ) -> InterviewSessionOutcome:
     """Decide whether a connected session was a finished interview or an early exit.
 
@@ -235,17 +267,21 @@ def classify_interview_session_outcome(
     secs = int(duration_seconds) if duration_seconds is not None else None
     text = str(transcript or "").strip()
     has_transcript = len(text) >= 40
+    signals = session_signals if isinstance(session_signals, dict) else {}
+
+    if signals.get("recording_consent") is False:
+        return "recording_declined"
 
     if text and _RECORDING_DECLINE_RE.search(text):
         # Product choice B: recording decline is a hard stop (no rebook).
         return "recording_declined"
 
-    progress = transcript_shows_interview_progress(text)
+    progress = transcript_shows_interview_progress(text, session_signals=signals)
     if text and _WRONG_PERSON_RE.search(text) and not progress:
         return "wrong_person"
 
     # Layer 2 / transcript-aware: duration alone must not force "completed".
-    if has_transcript:
+    if has_transcript or signals:
         substantial = progress
     else:
         substantial = (secs is not None and secs >= SUBSTANTIAL_SECONDS) or progress
@@ -345,6 +381,7 @@ def maybe_reclassify_completed_interview_after_transcript(
         duration_seconds=duration,
         transcript=transcript,
         use_llm=True,
+        session_signals=merged.get("session_signals") if isinstance(merged.get("session_signals"), dict) else {},
     )
     reviewed_at = datetime.utcnow().isoformat()
 
@@ -572,6 +609,16 @@ def apply_interview_session_outcome(
         recipient.updated_at = now
         _set_recipient_result(db, recipient, {k: v for k, v in patch.items() if v is not None})
         _meter_connected_call()
+        # Phone has no web end-screen — SMS is the candidate notice for connected completes.
+        # Thank-you email still waits for Layer 2 confirmation in analysis.
+        try:
+            from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+
+            maybe_send_interview_outcome_sms(
+                db, order=order, recipient=recipient, outcome="completed", channel=channel
+            )
+        except Exception:
+            logger.exception("interview_completed_sms_failed")
         return {"ok": True, "status": recipient.status, "outcome": outcome}
 
     if outcome == "recording_declined":
@@ -598,6 +645,14 @@ def apply_interview_session_outcome(
             )
         except Exception:
             logger.exception("interview_opt_out_email_failed")
+        try:
+            from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+
+            maybe_send_interview_outcome_sms(
+                db, order=order, recipient=recipient, outcome="recording_declined", channel=channel
+            )
+        except Exception:
+            logger.exception("interview_opt_out_sms_failed")
         return {
             "ok": True,
             "status": recipient.status,
@@ -648,6 +703,15 @@ def apply_interview_session_outcome(
         except Exception:
             logger.exception("interview_session_reschedule_email_failed")
             email_sent = _send_reschedule_email(db, order, recipient)
+
+    try:
+        from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+
+        maybe_send_interview_outcome_sms(
+            db, order=order, recipient=recipient, outcome=outcome, channel=channel
+        )
+    except Exception:
+        logger.exception("interview_outcome_sms_failed")
 
     messages = {
         "reschedule": "No problem — use the link in your email to pick a new time.",

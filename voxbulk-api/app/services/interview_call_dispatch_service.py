@@ -1222,13 +1222,17 @@ def handle_interview_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
 
         from app.services.interview_early_exit_service import (
             apply_interview_session_outcome,
-            classify_interview_session_outcome,
+            resolve_interview_session_outcome,
         )
 
         if terminal == "completed":
-            session_outcome = classify_interview_session_outcome(
+            signals = prior.get("session_signals") if isinstance(prior.get("session_signals"), dict) else {}
+            session_outcome = resolve_interview_session_outcome(
+                db,
                 duration_seconds=duration_seconds,
                 transcript=transcript,
+                use_llm=True,
+                session_signals=signals,
             )
             if session_outcome != "completed":
                 apply_interview_session_outcome(

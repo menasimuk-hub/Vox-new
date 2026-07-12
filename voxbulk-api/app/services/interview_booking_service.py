@@ -148,6 +148,101 @@ def interview_booking_locked(recipient: ServiceOrderRecipient) -> str | None:
     return None
 
 
+def admin_unlock_interview_booking(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+    reason: str = "admin_unlock",
+    clear_slot: bool = True,
+    send_reschedule_email: bool = True,
+) -> dict[str, Any]:
+    """Ops unlock for stuck completed bookings so the candidate can rebook.
+
+    Does not reopen recording_declined / opted_out rows.
+    """
+    from app.models.interview_booking_token import InterviewBookingToken
+    from app.services.interview_early_exit_service import _strip_completed_interview_artifacts
+
+    parsed = _recipient_result(recipient)
+    if str(recipient.status or "").lower() in {"opted_out"} or parsed.get("opted_out"):
+        raise ValueError("Candidate opted out — unlock is not allowed.")
+    if parsed.get("session_outcome") == "recording_declined":
+        raise ValueError("Recording was declined — unlock is not allowed.")
+
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
+    token = db.execute(
+        select(InterviewBookingToken).where(
+            InterviewBookingToken.order_id == order.id,
+            InterviewBookingToken.recipient_id == recipient.id,
+        )
+    ).scalar_one_or_none()
+
+    cleared_slot: str | None = None
+    if clear_slot and token is not None and token.booked_start_at is not None:
+        cleared_slot = token.booked_start_at.isoformat()
+        token.booked_start_at = None
+        token.updated_at = now
+        db.add(token)
+
+    merged = dict(parsed)
+    for key in (
+        "ended_at",
+        "call_completed_at",
+        "meeting_ended_at",
+        "analysis_saved_at",
+        "analysis",
+        "score",
+        "thank_you_email_sent_at",
+    ):
+        merged.pop(key, None)
+    _strip_completed_interview_artifacts(merged)
+    merged.update(
+        {
+            "awaiting_candidate_action": True,
+            "session_outcome": "reschedule",
+            "session_outcome_provisional": False,
+            "admin_unlocked_at": now_iso,
+            "admin_unlock_reason": str(reason or "admin_unlock")[:240],
+            "early_exit_reason": "admin_unlock",
+        }
+    )
+    if cleared_slot:
+        merged["cleared_booked_start_at"] = cleared_slot
+        merged["booking_cancelled_at"] = now_iso
+        merged["booking_cancelled_via"] = "admin_unlock"
+
+    recipient.status = "pending"
+    recipient.updated_at = now
+    recipient.result_json = json.dumps(merged, ensure_ascii=False)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+    email_sent = False
+    if send_reschedule_email:
+        try:
+            from app.services.interview_session_outcome_email_service import (
+                dispatch_interview_session_outcome_email,
+            )
+
+            mail = dispatch_interview_session_outcome_email(
+                db, order=order, recipient=recipient, outcome="reschedule"
+            )
+            email_sent = bool(mail.get("ok") or (mail.get("skipped") and mail.get("reason") == "already_sent"))
+        except Exception:
+            logger.exception("admin_unlock_reschedule_email_failed")
+
+    return {
+        "ok": True,
+        "status": recipient.status,
+        "locked": interview_booking_locked(recipient),
+        "cleared_slot": cleared_slot,
+        "reschedule_email_sent": email_sent,
+    }
+
+
 def _booking_withdrawn(recipient: ServiceOrderRecipient) -> bool:
     """True when the candidate permanently opted out (not a mere slot cancel)."""
     merged = _recipient_result(recipient)

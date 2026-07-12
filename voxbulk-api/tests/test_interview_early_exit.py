@@ -77,6 +77,41 @@ def test_mid_interview_stop_stays_completed():
     )
 
 
+def test_short_mid_interview_stop_stays_completed():
+    """Q&A markers must win even when transcript is under the 220-char heuristic."""
+    short = (
+        "First question: tell me about your experience. I worked five years. "
+        "Next question: describe a challenge. We fixed stock. I need to reschedule later."
+    )
+    assert len(short) < 220
+    assert (
+        classify_interview_session_outcome(duration_seconds=240, transcript=short)
+        == "completed"
+    )
+
+
+def test_session_signals_mark_progress():
+    assert (
+        classify_interview_session_outcome(
+            duration_seconds=90,
+            transcript="I need to reschedule later please.",
+            session_signals={"questions_asked": 2},
+        )
+        == "completed"
+    )
+
+
+def test_ar_mid_interview_stop_stays_completed():
+    text = (
+        "السؤال الأول خبرتك إيه؟ اشتغلت خمس سنين. "
+        "السؤال التالي صف لي تحدي. صلحنا المخزون. محتاج إعادة جدولة."
+    )
+    assert (
+        classify_interview_session_outcome(duration_seconds=200, transcript=text)
+        == "completed"
+    )
+
+
 def test_long_call_reschedule_without_questions_is_reschedule():
     """Layer 2: duration alone must not force completed when transcript shows reschedule."""
     transcript = (
@@ -92,6 +127,77 @@ def test_long_call_reschedule_without_questions_is_reschedule():
 
 def test_substantial_duration_completed_without_transcript():
     assert classify_interview_session_outcome(duration_seconds=200, transcript=None) == "completed"
+
+
+def test_admin_unlock_completed_booking(db_session):
+    from app.models.interview_booking_token import InterviewBookingToken
+    from app.models.organisation import Organisation
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.interview_booking_service import (
+        admin_unlock_interview_booking,
+        interview_booking_locked,
+    )
+
+    org = Organisation(id=str(uuid.uuid4()), name="Org")
+    db_session.add(org)
+    db_session.flush()
+    order = ServiceOrder(
+        org_id=org.id,
+        user_id=str(uuid.uuid4()),
+        service_code="interview",
+        title="Role",
+        status="running",
+        payment_status="approved",
+        recipient_count=1,
+        config_json=json.dumps({"delivery": "ai_call", "role": "Host"}),
+    )
+    db_session.add(order)
+    db_session.flush()
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        row_number=1,
+        name="Alex",
+        email="alex@example.com",
+        phone="+441111",
+        status="completed",
+        result_json=json.dumps(
+            {
+                "session_outcome": "completed",
+                "ended_at": "2026-07-12T00:00:00",
+                "analysis_saved_at": "2026-07-12T00:01:00",
+            }
+        ),
+    )
+    db_session.add(recipient)
+    db_session.flush()
+    db_session.add(
+        InterviewBookingToken(
+            order_id=order.id,
+            recipient_id=recipient.id,
+            org_id=org.id,
+            token=f"unlock-token-{uuid.uuid4().hex[:8]}",
+            channel="ai_call",
+            booked_start_at=None,
+        )
+    )
+    db_session.commit()
+    assert interview_booking_locked(recipient) is not None
+
+    with patch(
+        "app.services.interview_session_outcome_email_service.dispatch_interview_session_outcome_email",
+        return_value={"ok": True},
+    ):
+        result = admin_unlock_interview_booking(
+            db_session,
+            order=order,
+            recipient=recipient,
+            reason="test_unlock",
+            send_reschedule_email=True,
+        )
+    assert result["ok"] is True
+    db_session.refresh(recipient)
+    assert recipient.status == "pending"
+    assert interview_booking_locked(recipient) is None
 
 
 def test_reclassify_unlocks_completed_after_transcript(db_session):

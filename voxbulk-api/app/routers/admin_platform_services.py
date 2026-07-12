@@ -305,6 +305,39 @@ def admin_send_interview_invites(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/orders/{order_id}/recipients/{recipient_id}/unlock-booking")
+def admin_unlock_interview_booking_endpoint(
+    order_id: str,
+    recipient_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    """Unlock a stuck completed interview booking so the candidate can rebook."""
+    from app.models.service_order import ServiceOrderRecipient
+    from app.services.interview_booking_service import admin_unlock_interview_booking
+
+    order = _admin_resolve_order(db, order_id)
+    if order.service_code != "interview":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interview orders only")
+    recipient = db.get(ServiceOrderRecipient, recipient_id)
+    if recipient is None or recipient.order_id != order.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
+    body = payload if isinstance(payload, dict) else {}
+    try:
+        result = admin_unlock_interview_booking(
+            db,
+            order=order,
+            recipient=recipient,
+            reason=str(body.get("reason") or "admin_unlock"),
+            clear_slot=bool(body.get("clear_slot", True)),
+            send_reschedule_email=bool(body.get("send_reschedule_email", True)),
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.get("/orders/{order_id}/recipients/{recipient_id}")
 def admin_get_recipient_detail(
     order_id: str,

@@ -255,11 +255,18 @@ class InterviewMeetingService:
         from app.services.billing_call_minutes import billable_call_minutes
         from app.services.interview_early_exit_service import (
             apply_interview_session_outcome,
-            classify_interview_session_outcome,
+            resolve_interview_session_outcome,
         )
 
         transcript = str(merged.get("transcript") or "").strip() or None
-        outcome = classify_interview_session_outcome(duration_seconds=secs, transcript=transcript)
+        signals = merged.get("session_signals") if isinstance(merged.get("session_signals"), dict) else {}
+        outcome = resolve_interview_session_outcome(
+            db,
+            duration_seconds=secs,
+            transcript=transcript,
+            use_llm=True,
+            session_signals=signals,
+        )
 
         extra: dict[str, Any] = {
             "transport": "webrtc",
