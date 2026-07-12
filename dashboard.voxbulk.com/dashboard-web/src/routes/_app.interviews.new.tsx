@@ -3,12 +3,13 @@ import * as React from "react";
 import { Check, Copy, Upload, Download, Wand2, Lock, LockOpen, RotateCcw, Trash2, Save, Eye, FileDown, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Send, Sparkles, Activity, ChevronDown, ChevronLeft, Settings2, FileText, Users, Mail, Rocket, Pencil } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { notifyInterviewLaunch, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
+import { notifyInterviewLaunch, launchResultHasOutbound, type InterviewLaunchResult } from "@/lib/interviewLaunchFeedback";
 import {
   ATS_ANALYZING_LABEL,
   ATS_CUTOFF_PENDING_COLOR,
   DEFAULT_MIN_ATS_SCORE,
   candidateNeedsAtsScore,
+  candidatePhoneBlocksLaunch,
   countScreeningEligibleCandidates,
   interviewCampaignReadOnlyLabel,
   isAtsAnalyzingStatus,
@@ -265,6 +266,12 @@ function collectInterviewLaunchErrors(opts: {
   atsGatePassed: boolean;
   minAtsScore: number;
   atsSkipped?: boolean;
+  candidates?: Array<{
+    name?: string;
+    phone?: string;
+    phoneCallAllowed?: boolean | null;
+    phoneCallBlockReason?: string | null;
+  }>;
 }): string[] {
   const errors: string[] = [];
   if (opts.cvEmailActive) {
@@ -284,6 +291,22 @@ function collectInterviewLaunchErrors(opts: {
   }
   if (opts.candidateCount > 0 && opts.atsGatePassed && opts.screeningEligibleCount <= 0 && !opts.atsSkipped) {
     errors.push(`No candidates meet the ${opts.minAtsScore}% ATS cutoff — lower the cutoff or remove weak profiles`);
+  }
+  const phoneProblems: string[] = [];
+  for (const c of opts.candidates || []) {
+    const reason = candidatePhoneBlocksLaunch({
+      phone: c.phone,
+      phoneCallAllowed: c.phoneCallAllowed,
+      phoneCallBlockReason: c.phoneCallBlockReason,
+    });
+    if (reason) {
+      phoneProblems.push(`${c.name || "Candidate"}: ${reason}`);
+    }
+  }
+  if (phoneProblems.length > 0) {
+    const preview = phoneProblems.slice(0, 3).join(" · ");
+    const more = phoneProblems.length > 3 ? ` (+${phoneProblems.length - 3} more)` : "";
+    errors.push(`Fix invalid candidate phone numbers before launch — ${preview}${more}`);
   }
   return errors;
 }
@@ -520,8 +543,26 @@ function CreateInterview() {
   const lastInviteDispatch = config.last_invite_dispatch as
     | { ok?: boolean; whatsapp_sent?: number; email_sent?: number; errors?: string[] }
     | undefined;
-  const campaignLaunched = isInterviewCampaignLaunched(orderStatus);
+  const campaignLaunched = isInterviewCampaignLaunched(orderStatus, {
+    paymentStatus: order?.payment_status,
+    config,
+  });
   const bookingInvitesSent = bookingInvitesWereSent(config);
+  const paymentApprovedEarly = String(order?.payment_status || "").toLowerCase() === "approved";
+
+  // If invites already went out, leave the create wizard — do not keep Approve/Launch as the primary state.
+  React.useEffect(() => {
+    if (!orderId || wantNew) return;
+    if (!bookingInvitesSent && !campaignLaunched) return;
+    // Still allow retry UI when payment approved but zero invites landed.
+    if (paymentApprovedEarly && !bookingInvitesSent) return;
+    void navigate({
+      to: "/interviews/results/$orderId",
+      params: { orderId },
+      search: { launched: "1" },
+      replace: true,
+    });
+  }, [orderId, wantNew, bookingInvitesSent, campaignLaunched, paymentApprovedEarly, navigate]);
 
   React.useEffect(() => {
     if (!orderId || !shouldPollRecipients) return;
@@ -655,21 +696,31 @@ function CreateInterview() {
     const rows = draftQ.data?.recipients || [];
     return rows
       .filter((r) => Boolean(r.id))
-      .map((r) => ({
-        id: String(r.id),
-        name: String(r.name || "Candidate"),
-        phone: String(r.phone || ""),
-        email: String(r.outreach_email || r.email || ""),
-        source: String(r.intake_source || r.source || "Upload"),
-        cvFilename: r.cv_filename ? String(r.cv_filename) : null,
-        ats: r.ats_score != null ? Number(r.ats_score) : null,
-        atsStatus: String(r.ats_status || ""),
-        status: String(r.status || ""),
-        activityStatus: String(r.activity_status || ""),
-        activityStatusLabel: r.activity_status_label ? String(r.activity_status_label) : undefined,
-        phoneCallAllowed: r.phone_call_allowed !== false,
-        phoneCallBlockReason: r.phone_call_block_reason ? String(r.phone_call_block_reason) : null,
-      }));
+      .map((r) => {
+        const intakeErrors = Array.isArray(r.intake_errors)
+          ? (r.intake_errors as unknown[]).map((e) => String(e || "")).filter(Boolean)
+          : [];
+        const phoneIntakeErr =
+          intakeErrors.find((e) => /phone|e\.164/i.test(e) && !/phone missing/i.test(e)) || null;
+        const missingPhone = intakeErrors.some((e) => /phone missing/i.test(e));
+        const allowlistReason = r.phone_call_block_reason ? String(r.phone_call_block_reason) : null;
+        const blockReason = phoneIntakeErr || (r.phone_call_allowed === false ? allowlistReason : null);
+        return {
+          id: String(r.id),
+          name: String(r.name || "Candidate"),
+          phone: String(r.phone || ""),
+          email: String(r.outreach_email || r.email || ""),
+          source: String(r.intake_source || r.source || "Upload"),
+          cvFilename: r.cv_filename ? String(r.cv_filename) : null,
+          ats: r.ats_score != null ? Number(r.ats_score) : null,
+          atsStatus: String(r.ats_status || ""),
+          status: String(r.status || ""),
+          activityStatus: String(r.activity_status || ""),
+          activityStatusLabel: r.activity_status_label ? String(r.activity_status_label) : undefined,
+          phoneCallAllowed: !blockReason && r.phone_call_allowed !== false && !missingPhone,
+          phoneCallBlockReason: blockReason,
+        };
+      });
   }, [draftQ.data?.recipients]);
 
   const candidatesLocked =
@@ -737,8 +788,22 @@ function CreateInterview() {
     const emailN = Number(result?.invites?.email_sent ?? 0);
     const waN = Number(result?.invites?.whatsapp_sent ?? 0);
     const errs = Array.isArray(result?.invites?.errors) ? result!.invites!.errors!.filter(Boolean) : [];
+    const alreadyLive = launchResultHasOutbound(result);
+
+    // If the server already sent invites / scheduled, leave the wizard even when ok=false.
     if (result?.ok === false || emailN < 1) {
       notifyInterviewLaunch(result);
+      if (alreadyLive && orderId) {
+        setPreview(false);
+        setPayBusy(false);
+        invalidateInterviewOrderQueries(qc, orderId);
+        await navigate({
+          to: "/interviews/results/$orderId",
+          params: { orderId },
+          search: { launched: "1" },
+        });
+        return;
+      }
       const smtpHint = errs.find((e) => /smtp/i.test(String(e)));
       const detail = smtpHint || errs[0] || result?.message;
       const suffix =
@@ -1299,7 +1364,10 @@ function CreateInterview() {
 
   const onDownloadTemplate = async () => {
     try {
-      await downloadAuthenticatedFile("/service-orders/template.csv", "voxbulk-contacts-template.csv");
+      await downloadAuthenticatedFile(
+        "/service-orders/template.csv?for_=interview",
+        "voxbulk-interview-contacts-template.csv",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download failed");
     }
@@ -1487,6 +1555,7 @@ function CreateInterview() {
     atsGatePassed,
     minAtsScore: appliedMinAtsScore,
     atsSkipped: atsSkipped || Boolean(config.ats_skipped),
+    candidates,
   });
   const missingPosition = !position.trim() && !role.trim();
   const missingCriteria = !criteria.trim();
@@ -1635,6 +1704,7 @@ function CreateInterview() {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not launch campaign";
       toast.error(message);
+      refreshDraft();
       throw e instanceof Error ? e : new Error(message);
     } finally {
       setPayBusy(false);
@@ -1989,6 +2059,12 @@ function CreateInterview() {
                   <Download className="size-3.5" /> Download template
                 </Button>
               </div>
+              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                Columns: <strong className="font-medium text-foreground">name</strong>,{" "}
+                <strong className="font-medium text-foreground">phone</strong>,{" "}
+                <strong className="font-medium text-foreground">email</strong>. Phone must be E.164
+                (e.g. +447700900123) or UK mobile starting 07. Email is required for booking invites.
+              </p>
             </div>
           </div>
 
@@ -2094,14 +2170,21 @@ function CreateInterview() {
                           <div className="font-medium">{r.name}</div>
                         </TableCell>
                         <TableCell>
-                          <Input
-                            value={recipientContactValue(r, "phone")}
-                            onChange={(e) => onRecipientContactChange(r, "phone", e.target.value)}
-                            onBlur={() => void onRecipientContactBlur(r, "phone")}
-                            disabled={candidatesLocked || patchRecipientM.isPending}
-                            placeholder="Mobile"
-                            className="h-8 min-w-[110px] text-xs"
-                          />
+                          <div className="flex min-w-[110px] flex-col gap-0.5">
+                            <Input
+                              value={recipientContactValue(r, "phone")}
+                              onChange={(e) => onRecipientContactChange(r, "phone", e.target.value)}
+                              onBlur={() => void onRecipientContactBlur(r, "phone")}
+                              disabled={candidatesLocked || patchRecipientM.isPending}
+                              placeholder="Mobile"
+                              className={`h-8 text-xs ${r.phoneCallBlockReason ? "border-destructive" : ""}`}
+                              title={r.phoneCallBlockReason || undefined}
+                              aria-invalid={Boolean(r.phoneCallBlockReason)}
+                            />
+                            {r.phoneCallBlockReason ? (
+                              <span className="text-[10px] leading-tight text-destructive">{r.phoneCallBlockReason}</span>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Input
@@ -2668,7 +2751,7 @@ function CreateInterview() {
       ) : null}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        {paymentApproved && !campaignLaunched && !campaignReadOnly ? (
+        {paymentApproved && !bookingInvitesSent && !campaignReadOnly ? (
           <Button
             variant="secondary"
             className="gap-1.5"

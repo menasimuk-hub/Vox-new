@@ -60,8 +60,23 @@ def handle_interview_wa_pecr_opt_out(
 
 
 def should_block_outbound_phone(db: Session, *, org_id: str, phone_e164: str | None) -> str | None:
-    """Return skip reason if org suppression list blocks send."""
-    phone = normalize_e164(phone_e164 or "")
+    """Return skip reason if org suppression list blocks send.
+
+    Never raises — invalid E.164 is returned as a skip reason so invite loops
+    can continue per-recipient instead of aborting mid-send.
+    """
+    raw = str(phone_e164 or "").strip()
+    if not raw:
+        return "missing_phone"
+    try:
+        from app.services.telnyx_api_key import normalize_telnyx_e164
+
+        phone = normalize_telnyx_e164(raw)
+    except ValueError:
+        try:
+            phone = normalize_e164(raw)
+        except ValueError:
+            return "invalid_phone"
     if not phone:
         return "missing_phone"
     if OrgOptOutService.is_phone_opted_out(db, org_id=org_id, phone=phone):

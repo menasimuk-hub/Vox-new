@@ -22,12 +22,28 @@ def test_campaign_invites_were_sent_from_dispatch_counts():
     assert campaign_invites_were_sent(order) is True
 
 
-def test_campaign_invites_were_sent_false_when_dispatch_failed():
+def test_campaign_invites_were_sent_true_when_partial_ok_false():
+    """WA/email may already have left the system even when dispatch ok is false."""
     order = type("O", (), {})()
     order.config_json = json.dumps(
         {
             "booking_invites_sent_at": datetime.utcnow().isoformat(),
-            "last_invite_dispatch": {"ok": False, "errors": ["smtp down"]},
+            "last_invite_dispatch": {
+                "ok": False,
+                "email_sent": 0,
+                "whatsapp_sent": 1,
+                "errors": ["smtp down"],
+            },
+        }
+    )
+    assert campaign_invites_were_sent(order) is True
+
+
+def test_campaign_invites_were_sent_false_when_nothing_sent():
+    order = type("O", (), {})()
+    order.config_json = json.dumps(
+        {
+            "last_invite_dispatch": {"ok": False, "email_sent": 0, "whatsapp_sent": 0, "errors": ["smtp down"]},
         }
     )
     assert campaign_invites_were_sent(order) is False

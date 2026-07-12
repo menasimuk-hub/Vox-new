@@ -114,6 +114,8 @@ function isLiveOrder(order: ServiceOrder | undefined, tone: CampaignTone) {
   if (order?.is_live === true) return true;
   if (order?.is_finished === true) return false;
   if (order?.status === "running" || order?.status === "scheduled" || order?.status === "paused") return true;
+  // After launch, schedule_order often leaves status as `paid` (manual run mode).
+  if (order?.status === "paid" && String(order?.payment_status || "").toLowerCase() === "approved") return true;
   return tone === "live" || tone === "scheduled" || tone === "paused";
 }
 
@@ -348,6 +350,7 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
     );
   const resendBookingInviteForOpen = candidateAllowsResendBookingInvite({
     orderStatus: rawOrder?.status,
+    paymentStatus: rawOrder?.payment_status,
     activityStatus: candidateOpen?.activity_status,
     recipientStatus: candidateOpen?.status,
     interviewCompleted: ["interview_completed", "report_ready"].includes(
@@ -688,7 +691,9 @@ export function InterviewCampaignResultsPage({ orderId }: { orderId: string }) {
           <DialogHeader>
             <DialogTitle>Stop interview campaign</DialogTitle>
             <DialogDescription>
-              Pending AI calls will stop. Booked candidates keep their slots until cancelled individually.
+              This permanently stops the campaign. It cannot be restarted. All booked appointments will be cancelled
+              and no further AI calls will be made. Completed interviews stay on the results. Candidates who have not
+              finished will be emailed that the position is closed. You are billed only for interview minutes already used.
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>

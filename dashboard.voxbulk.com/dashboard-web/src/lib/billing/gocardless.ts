@@ -225,7 +225,9 @@ export async function completeGoCardlessOrderPayment(redirectFlowId: string) {
 export async function startPaidInterviewOrder(orderId: string) {
   return apiFetch<{
     ok?: boolean;
+    already_launched?: boolean;
     message?: string;
+    status?: string;
     invites?: { whatsapp_sent?: number; email_sent?: number; errors?: string[] };
     email_delivery?: { can_send_email?: boolean; smtp_missing_fields?: string[]; interview_from_email?: string };
   }>(`/service-orders/${encodeURIComponent(orderId)}/interview/launch`, {

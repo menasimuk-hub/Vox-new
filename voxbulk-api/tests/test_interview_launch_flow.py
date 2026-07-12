@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import uuid
 
+import pytest
+
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
 from app.models.interview_booking_token import InterviewBookingToken
@@ -15,9 +17,10 @@ from app.models.user import User
 from app.services.interview_booking_service import SLOT_MINUTES
 from app.services.interview_call_dispatch_service import _recipient_eligible_for_dial
 from app.services.interview_launch_service import InterviewLaunchService
+from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
 
-def _seed_interview(db):
+def _seed_interview(db, *, phone="+447700900123", email="alex@example.com"):
     org = Organisation(name="Launch Org")
     db.add(org)
     db.flush()
@@ -43,7 +46,8 @@ def _seed_interview(db):
         order_id=order.id,
         row_number=1,
         name="Alex",
-        phone="+447700900123",
+        phone=phone,
+        email=email,
         status="pending",
     )
     db.add(recipient)
@@ -73,16 +77,18 @@ def test_launch_after_payment_schedules_without_immediate_dial(monkeypatch):
         db.refresh(order)
 
         assert result["ok"] is True
+        assert result.get("already_launched") is True
         assert order.status in {"scheduled", "paid"}
         assert result.get("invites") is not None
         cfg = __import__("json").loads(order.config_json or "{}")
         assert cfg.get("require_booking") is True
 
 
-def test_launch_after_payment_fails_when_email_not_sent(monkeypatch):
+def test_launch_after_payment_does_not_schedule_when_email_not_sent(monkeypatch):
     with get_sessionmaker()() as db:
         _, order, _, _ = _seed_interview(db)
-        sent = {"ok": True, "whatsapp_sent": 1, "email_sent": 0, "errors": ["SMTP disabled"]}
+        prior_status = order.status
+        sent = {"ok": False, "whatsapp_sent": 1, "email_sent": 0, "errors": ["SMTP disabled"]}
 
         monkeypatch.setattr(
             "app.services.interview_launch_service.InterviewBookingService.send_invites",
@@ -90,9 +96,45 @@ def test_launch_after_payment_fails_when_email_not_sent(monkeypatch):
         )
 
         result = InterviewLaunchService.launch_after_payment(db, order)
+        db.refresh(order)
         assert result["ok"] is False
-        assert int((result.get("invites") or {}).get("whatsapp_sent") or 0) == 1
+        assert result.get("already_launched") is True
         assert int((result.get("invites") or {}).get("email_sent") or 0) == 0
+        assert int((result.get("invites") or {}).get("whatsapp_sent") or 0) == 1
+        # schedule_order must not run when email contract fails
+        assert order.status == prior_status
+
+
+def test_launch_rejects_invalid_phone_before_send(monkeypatch):
+    with get_sessionmaker()() as db:
+        _, order, recipient, _ = _seed_interview(db)
+        recipient.phone = "12"
+        db.add(recipient)
+        db.commit()
+
+        called = {"n": 0}
+
+        def _boom(*a, **k):
+            called["n"] += 1
+            return {"ok": True, "whatsapp_sent": 1, "email_sent": 1, "errors": []}
+
+        monkeypatch.setattr(
+            "app.services.interview_launch_service.InterviewBookingService.send_invites",
+            _boom,
+        )
+
+        with pytest.raises(ValueError, match="invalid candidate phone|E.164"):
+            InterviewLaunchService.launch_after_payment(db, order)
+        assert called["n"] == 0
+
+
+def test_should_block_outbound_phone_invalid_does_not_raise():
+    with get_sessionmaker()() as db:
+        org = Organisation(name="OptOut Org")
+        db.add(org)
+        db.commit()
+        reason = should_block_outbound_phone(db, org_id=org.id, phone_e164="not-a-phone")
+        assert reason == "invalid_phone"
 
 
 def test_dial_eligible_only_when_booked_slot_due():

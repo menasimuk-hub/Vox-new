@@ -259,7 +259,10 @@ function SavedInterviews() {
           <DialogHeader>
             <DialogTitle>Stop interview campaign</DialogTitle>
             <DialogDescription>
-              This stops pending AI calls for <strong>{stopTarget?.name}</strong>. Candidates already booked keep their slots until you cancel them individually.
+              This permanently stops the campaign for <strong>{stopTarget?.name}</strong>. It cannot be restarted.
+              All booked appointments will be cancelled and no further AI calls will be made. Completed interviews
+              stay on the results. Candidates who have not finished will be emailed that the position is closed.
+              You are billed only for interview minutes already used.
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">Type <strong>STOP</strong> to confirm.</p>

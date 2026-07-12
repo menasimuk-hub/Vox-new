@@ -87,11 +87,17 @@ def download_recipient_template(
     for_: str | None = None,
     _principal=Depends(get_current_principal),
 ):
-    for_survey = str(for_ or "").strip().lower() in {"survey", "wa", "whatsapp"}
-    filename = "voxbulk-survey-contacts-template.csv" if for_survey else "voxbulk-contacts-template.csv"
+    kind = str(for_ or "").strip().lower()
+    for_survey = kind in {"survey", "wa", "whatsapp"}
+    if for_survey:
+        filename = "voxbulk-survey-contacts-template.csv"
+    elif kind in {"interview", "ai_interview", "ai-interview"}:
+        filename = "voxbulk-interview-contacts-template.csv"
+    else:
+        filename = "voxbulk-contacts-template.csv"
     return PlainTextResponse(
         ServiceOrderService.recipient_template_csv(for_survey=for_survey),
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -2276,6 +2282,11 @@ def launch_interview_after_payment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     body = payload if isinstance(payload, dict) else {}
     try:
+        launch_channels = body.get("channels")
+        if not launch_channels:
+            launch_channels = ["email", "whatsapp"]
+        # Validate phones/emails before payment approval so a bad Excel row never bills then fails mid-send.
+        InterviewLaunchService.assert_recipients_ready_for_launch(db, order, channels=launch_channels)
         if order.payment_status != "approved":
             from app.services.interview_launch_eligibility_service import (
                 InterviewLaunchEligibilityError,
@@ -2286,9 +2297,6 @@ def launch_interview_after_payment(
                 order = InterviewLaunchEligibilityService.approve_if_covered(db, order, org)
             except InterviewLaunchEligibilityError as e:
                 raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(e)) from e
-        launch_channels = body.get("channels")
-        if not launch_channels:
-            launch_channels = ["email", "whatsapp"]
         return InterviewLaunchService.launch_after_payment(
             db,
             order,

@@ -331,13 +331,25 @@ function GoCardlessReturnHandler({
               try {
                 const launched = await startPaidInterviewOrder(resolvedOrderId);
                 const emailN = Number(launched?.invites?.email_sent ?? 0);
-                const waN = Number(launched?.invites?.whatsapp_sent ?? 0);
+                const alreadyLive =
+                  Boolean(launched?.already_launched) ||
+                  emailN > 0 ||
+                  Number(launched?.invites?.whatsapp_sent ?? 0) > 0;
                 if (launched?.ok === false || emailN < 1) {
                   notifyInterviewLaunch(launched);
                   toast.success("Payment approved.");
+                  if (alreadyLive) {
+                    void navigate({
+                      to: "/interviews/results/$orderId",
+                      params: { orderId: resolvedOrderId },
+                      search: { launched: "1" },
+                    });
+                    return;
+                  }
                   const errs = Array.isArray(launched?.invites?.errors)
                     ? launched!.invites!.errors!.filter(Boolean)
                     : [];
+                  const waN = Number(launched?.invites?.whatsapp_sent ?? 0);
                   const detail =
                     errs[0] ||
                     launched?.message ||
@@ -353,8 +365,9 @@ function GoCardlessReturnHandler({
                 }
                 notifyInterviewLaunch(launched);
                 void navigate({
-                  to: "/interviews/new",
-                  search: { order_id: resolvedOrderId },
+                  to: "/interviews/results/$orderId",
+                  params: { orderId: resolvedOrderId },
+                  search: { launched: "1" },
                 });
               } catch (launchErr) {
                 toast.success("Payment approved.");

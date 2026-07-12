@@ -36,6 +36,29 @@ def normalize_recipient_phone(raw: str | None, *, required: bool = False) -> str
     return phone
 
 
+def coerce_interview_phone_e164(raw: str | None) -> tuple[str | None, str | None]:
+    """Normalize interview candidate phone to E.164 (UK local 07… → +44…).
+
+    Returns (e164_or_none, error_or_none). Empty input → (None, None).
+    On invalid input returns (raw_stripped, friendly_error) so the UI can show and edit it.
+    """
+    phone = str(raw or "").strip()
+    if not phone:
+        return None, None
+    try:
+        loose = normalize_recipient_phone(phone, required=False)
+    except ValueError as exc:
+        return phone, str(exc)
+    if not loose:
+        return None, None
+    try:
+        from app.services.telnyx_api_key import normalize_telnyx_e164
+
+        return normalize_telnyx_e164(loose), None
+    except ValueError:
+        return phone, "Phone number must be in E.164 format, for example +447700900123"
+
+
 def normalize_recipient_name(raw: str | None, *, required: bool = True) -> str:
     name = str(raw or "").strip()
     if not name:

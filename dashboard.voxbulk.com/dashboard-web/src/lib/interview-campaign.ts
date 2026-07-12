@@ -53,27 +53,54 @@ export function interviewCampaignReadOnlyLabel(status?: string | null): string {
   return "This campaign is read-only.";
 }
 
-/** True after Launch — booking invites may be sent or resent. */
-export function isInterviewCampaignLaunched(status?: string | null): boolean {
-  return ["running", "scheduled", "paused", "completed"].includes(String(status || "").toLowerCase());
-}
-
 type InviteDispatch = { ok?: boolean; email_sent?: number; whatsapp_sent?: number; errors?: string[] };
 
-/** True when a launch successfully dispatched booking invites (not draft-only config). */
+/** True when any booking invite left the system (email and/or WhatsApp). */
 export function bookingInvitesWereSent(config: Record<string, unknown>): boolean {
-  if (!config.booking_invites_sent_at) return false;
+  if (config.booking_invites_sent_at) return true;
   const dispatch = config.last_invite_dispatch as InviteDispatch | undefined;
-  if (dispatch?.ok === false) return false;
-  return dispatch?.ok === true;
+  if (!dispatch) return false;
+  return Number(dispatch.email_sent || 0) > 0 || Number(dispatch.whatsapp_sent || 0) > 0;
+}
+
+export type InterviewCampaignLaunchedOpts = {
+  paymentStatus?: string | null;
+  config?: Record<string, unknown> | null;
+};
+
+/**
+ * True after Launch has made the campaign live.
+ * Status `paid` with approved payment is the normal post-schedule state (manual run mode).
+ * Invite markers are preferred when present; bare paid+approved still counts so results/resend work.
+ */
+export function isInterviewCampaignLaunched(
+  status?: string | null,
+  opts?: InterviewCampaignLaunchedOpts,
+): boolean {
+  const st = String(status || "").toLowerCase();
+  if (["running", "scheduled", "paused", "completed"].includes(st)) return true;
+  if (st === "paid" && String(opts?.paymentStatus || "").toLowerCase() === "approved") {
+    const cfg = opts?.config;
+    if (!cfg) return true;
+    // When config is available, prefer invite markers so the create wizard can still
+    // show "Launch — send booking invites" after payment approved but before invites succeed.
+    if (bookingInvitesWereSent(cfg)) return true;
+    return false;
+  }
+  return false;
 }
 
 /** Resend booking invites: hidden before launch and when campaign is read-only. */
 export function campaignAllowsResendBookingInvites(opts: {
   orderStatus?: string | null;
+  paymentStatus?: string | null;
+  config?: Record<string, unknown> | null;
 }): boolean {
   if (isInterviewCampaignReadOnly(opts.orderStatus)) return false;
-  return isInterviewCampaignLaunched(opts.orderStatus);
+  return isInterviewCampaignLaunched(opts.orderStatus, {
+    paymentStatus: opts.paymentStatus,
+    config: opts.config,
+  });
 }
 
 const RESEND_BOOKING_INVITE_DENY = new Set([
@@ -97,12 +124,21 @@ const RESEND_BOOKING_INVITE_STATUSES = new Set([
 /** Resend pre-call booking invite — only before the AI interview call starts/finishes. */
 export function candidateAllowsResendBookingInvite(opts: {
   orderStatus?: string | null;
+  paymentStatus?: string | null;
+  config?: Record<string, unknown> | null;
   activityStatus?: string | null;
   recipientStatus?: string | null;
   interviewCompleted?: boolean;
 }): boolean {
   if (isInterviewCampaignReadOnly(opts.orderStatus)) return false;
-  if (!isInterviewCampaignLaunched(opts.orderStatus)) return false;
+  if (
+    !isInterviewCampaignLaunched(opts.orderStatus, {
+      paymentStatus: opts.paymentStatus,
+      config: opts.config,
+    })
+  ) {
+    return false;
+  }
   if (opts.interviewCompleted) return false;
   const recipient = String(opts.recipientStatus || "").toLowerCase();
   if (recipient === "completed" || recipient === "done") return false;
@@ -113,6 +149,8 @@ export function candidateAllowsResendBookingInvite(opts: {
 
 export function canShowResendBookingInvite(opts: {
   orderStatus?: string | null;
+  paymentStatus?: string | null;
+  config?: Record<string, unknown> | null;
   activityStatus?: string | null;
 }): boolean {
   return candidateAllowsResendBookingInvite(opts);
@@ -138,4 +176,22 @@ export function countScreeningEligibleCandidates(
   minAtsScore: number,
 ): number {
   return candidates.filter((c) => isScreeningEligibleCandidate(c, minAtsScore)).length;
+}
+
+/** Client-side phone gate for launch (mirrors backend E.164 / UK local rules loosely). */
+export function candidatePhoneBlocksLaunch(opts: {
+  phone?: string | null;
+  phoneCallAllowed?: boolean | null;
+  phoneCallBlockReason?: string | null;
+}): string | null {
+  const phone = String(opts.phone || "").trim();
+  if (!phone) return null; // email-only candidates allowed
+  if (opts.phoneCallAllowed === false && opts.phoneCallBlockReason) {
+    return String(opts.phoneCallBlockReason);
+  }
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) {
+    return "Phone number must be in E.164 format, for example +447700900123";
+  }
+  return null;
 }

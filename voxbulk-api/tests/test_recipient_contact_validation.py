@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.recipient_contact_validation import (
+    coerce_interview_phone_e164,
     normalize_recipient_email,
     normalize_recipient_name,
     normalize_recipient_phone,
@@ -22,6 +23,24 @@ def test_phone_rejects_letters():
 
 def test_phone_accepts_e164():
     assert normalize_recipient_phone("+447700900123") == "+447700900123"
+
+
+def test_coerce_interview_phone_uk_local():
+    e164, err = coerce_interview_phone_e164("07700900123")
+    assert err is None
+    assert e164 == "+447700900123"
+
+
+def test_coerce_interview_phone_digits_without_plus():
+    e164, err = coerce_interview_phone_e164("447700900123")
+    assert err is None
+    assert e164 == "+447700900123"
+
+
+def test_coerce_interview_phone_invalid():
+    e164, err = coerce_interview_phone_e164("12")
+    assert e164 == "12"
+    assert err
 
 
 def test_name_too_long():

@@ -78,6 +78,65 @@ class InterviewLaunchService:
         return order
 
     @staticmethod
+    def assert_recipients_ready_for_launch(
+        db: Session,
+        order: ServiceOrder,
+        *,
+        channels: list[str] | None = None,
+    ) -> None:
+        """Validate candidate phones (and email coverage) before any invite send.
+
+        Raises ValueError with a clear multi-row message — no side effects.
+        """
+        from app.services.interview_cv_exclusion_service import is_auto_excluded_recipient
+        from app.services.recipient_contact_validation import coerce_interview_phone_e164
+
+        launch_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
+        wants_wa = "whatsapp" in launch_channels
+        wants_email = "email" in launch_channels
+        recipients = ServiceOrderService.get_recipients(db, order.id)
+        phone_errors: list[str] = []
+        emailable = 0
+        for recipient in recipients:
+            if is_auto_excluded_recipient(recipient):
+                continue
+            name = str(recipient.name or recipient.id or "Candidate").strip() or "Candidate"
+            phone_raw = str(recipient.phone or "").strip()
+            if phone_raw:
+                e164, err = coerce_interview_phone_e164(phone_raw)
+                if err or not e164:
+                    phone_errors.append(
+                        f"{name}: {err or 'Phone number must be in E.164 format, for example +447700900123'}"
+                    )
+                elif e164 != phone_raw:
+                    recipient.phone = e164
+                    db.add(recipient)
+            elif wants_wa:
+                # WhatsApp channel is default on launch — missing phone is OK if email exists,
+                # but invalid phones above are blocking. Missing phone alone is not a hard block
+                # (email-only candidates are allowed).
+                pass
+            outreach = str(recipient.email or "").strip()
+            if not outreach:
+                from app.services.interview_booking_service import _recipient_outreach_email
+
+                outreach = str(_recipient_outreach_email(recipient) or "").strip()
+            if outreach:
+                emailable += 1
+
+        if phone_errors:
+            preview = "; ".join(phone_errors[:5])
+            more = f" (+{len(phone_errors) - 5} more)" if len(phone_errors) > 5 else ""
+            raise ValueError(
+                f"Fix invalid candidate phone numbers before launch. {preview}{more}"
+            )
+        if wants_email and emailable < 1:
+            raise ValueError(
+                "Add at least one candidate email before launch — booking invites require email delivery."
+            )
+        db.flush()
+
+    @staticmethod
     def launch_after_payment(
         db: Session,
         order: ServiceOrder,
@@ -104,7 +163,6 @@ class InterviewLaunchService:
             raise ValueError(str(e)) from e
 
         from app.services.uk_compliance_service import UkComplianceService
-        from app.services.uk_compliance_audit_service import UkComplianceAuditService
 
         UkComplianceService.assert_order_launch_allowed(db, order)
 
@@ -120,6 +178,9 @@ class InterviewLaunchService:
 
         delivery = str(config.get("delivery") or "ai_call").strip().lower()
         invite_result: dict[str, Any] | None = None
+        launch_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
+        if not launch_channels:
+            launch_channels = ["email", "whatsapp"]
 
         if delivery not in {"ai_call", "ai_meeting"}:
             delivery = "ai_call"
@@ -127,9 +188,10 @@ class InterviewLaunchService:
         if delivery in {"ai_call", "ai_meeting"}:
             if not order.scheduled_start_at or not order.scheduled_end_at:
                 raise ValueError("Set the calling window (start and end) before launch")
+            # Validate phones/emails before any invite side effects.
+            InterviewLaunchService.assert_recipients_ready_for_launch(db, order, channels=launch_channels)
             order = ensure_full_day_booking_window(db, order)
             recipient_count = len(ServiceOrderService.get_recipients(db, order.id))
-            launch_channels = list(channels or ["email", "whatsapp"])
             config["launch_requested_at"] = datetime.utcnow().isoformat()
             order.config_json = json.dumps(config, ensure_ascii=False)
             db.add(order)
@@ -168,27 +230,43 @@ class InterviewLaunchService:
             db.commit()
             db.refresh(order)
 
-        order = ServiceOrderService.schedule_order(db, order)
         dispatch = invite_result or {}
         from app.services.career_email_service import interview_email_delivery_status
 
-        delivery = interview_email_delivery_status(db)
+        email_delivery = interview_email_delivery_status(db)
         email_n = int((dispatch or {}).get("email_sent") or 0)
         wa_n = int((dispatch or {}).get("whatsapp_sent") or 0)
-        launch_channels = [str(c).strip().lower() for c in (channels or ["email", "whatsapp"]) if str(c).strip()]
         wants_email = "email" in launch_channels
         dispatch_ok = bool((dispatch or {}).get("ok"))
         if wants_email and email_n < 1:
             dispatch_ok = False
         elif not wants_email:
             dispatch_ok = wa_n > 0 or dispatch_ok
+
+        # Only mark campaign scheduled when invite success contract is met.
+        scheduled = False
+        if invite_result is None or dispatch_ok:
+            order = ServiceOrderService.schedule_order(db, order)
+            scheduled = True
+        elif email_n > 0 or wa_n > 0:
+            # Partial outbound already happened — surface as already live so UI leaves the wizard.
+            scheduled = False
+
+        already_launched = scheduled or email_n > 0 or wa_n > 0 or bool(config.get("booking_invites_sent_at"))
+        message = InterviewLaunchService._launch_message(invite_result, delivery=email_delivery)
+        if already_launched and not dispatch_ok and invite_result is not None:
+            message = (
+                f"Campaign is live but invite delivery was incomplete. {message}"
+            ).strip()
+
         return {
             "ok": dispatch_ok if invite_result is not None else True,
+            "already_launched": already_launched,
             "order_id": order.id,
             "status": order.status,
             "invites": invite_result,
-            "email_delivery": delivery,
-            "message": InterviewLaunchService._launch_message(invite_result, delivery=delivery),
+            "email_delivery": email_delivery,
+            "message": message,
         }
 
     @staticmethod

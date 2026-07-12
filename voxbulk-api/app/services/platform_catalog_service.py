@@ -329,8 +329,10 @@ class ServiceOrderService:
             writer.writerow(["Sarah Ahmed", "+447700900123", "en"])
             writer.writerow(["James Lee", "+447700900456", ""])
         else:
+            # Interview rules: phone E.164 (+country…) or UK 07…; email needed for booking invites.
             writer.writerow(["Sarah Ahmed", "+447700900123", "sarah@example.com"])
-            writer.writerow(["James Lee", "+447700900456", ""])
+            writer.writerow(["James Lee", "+447711223344", "james@example.com"])
+            writer.writerow(["Fatima Khan", "07700900555", "fatima@example.com"])
         return buf.getvalue()
 
     @staticmethod

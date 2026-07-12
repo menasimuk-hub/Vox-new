@@ -361,16 +361,14 @@ def _persist_recipient_outreach_email(db: Session, recipient: ServiceOrderRecipi
 
 
 def campaign_invites_were_sent(order: ServiceOrder) -> bool:
-    """True once booking invites were dispatched at launch (not for saved drafts)."""
+    """True once any booking invite left the system (email and/or WhatsApp)."""
     cfg = _order_config(order)
-    dispatch = cfg.get("last_invite_dispatch")
-    if isinstance(dispatch, dict):
-        if dispatch.get("ok") is False:
-            return False
-        if int(dispatch.get("email_sent") or 0) > 0 or int(dispatch.get("whatsapp_sent") or 0) > 0:
-            return True
     if cfg.get("booking_invites_sent_at"):
         return True
+    dispatch = cfg.get("last_invite_dispatch")
+    if isinstance(dispatch, dict):
+        if int(dispatch.get("email_sent") or 0) > 0 or int(dispatch.get("whatsapp_sent") or 0) > 0:
+            return True
     return False
 
 
@@ -2646,7 +2644,8 @@ class InterviewBookingService:
             "errors": errors[:50],
             "ok": dispatch_ok,
         }
-        if dispatch_ok:
+        # Persist sent marker whenever any invite left the system (even if email contract failed).
+        if email_sent > 0 or wa_sent > 0:
             config["booking_invites_sent_at"] = _now().isoformat()
         if template_row is not None:
             config["wa_email_sent_template_id"] = send_template_id_for_row(template_row)

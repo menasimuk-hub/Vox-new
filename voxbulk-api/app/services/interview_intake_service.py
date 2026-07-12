@@ -80,15 +80,50 @@ def _dumps_json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
+def _phone_intake_error(phone: str | None) -> str | None:
+    """Return a user-facing phone error, or None when missing/valid."""
+    raw = str(phone or "").strip()
+    if not raw:
+        return "Phone missing — click to add"
+    from app.services.recipient_contact_validation import coerce_interview_phone_e164
+
+    _, err = coerce_interview_phone_e164(raw)
+    return err
+
+
+def _coerce_contact_phone(raw: str | None) -> tuple[str | None, list[str]]:
+    """Normalize contact phone for storage; return (phone, intake_errors)."""
+    phone = str(raw or "").strip() or None
+    if not phone:
+        return None, ["Phone missing — click to add"]
+    from app.services.recipient_contact_validation import coerce_interview_phone_e164
+
+    e164, err = coerce_interview_phone_e164(phone)
+    if err:
+        return phone, [err]
+    return e164 or phone, []
+
+
 def compute_intake_errors(recipient: ServiceOrderRecipient) -> list[str]:
     errors: list[str] = []
     stored = _loads_json(recipient.intake_errors_json)
     if isinstance(stored, list):
-        errors.extend(str(x) for x in stored if x)
+        # Drop stale phone messages — recompute from current phone value.
+        for x in stored:
+            s = str(x)
+            if not s:
+                continue
+            low = s.lower()
+            if "phone missing" in low or "e.164" in low or "valid phone" in low or "phone number" in low:
+                continue
+            if "phone can only" in low or "phone is too long" in low:
+                continue
+            errors.append(s)
     if not str(recipient.name or "").strip():
         errors.append("Name missing")
-    if not str(recipient.phone or "").strip():
-        errors.append("Phone missing — click to add")
+    phone_err = _phone_intake_error(recipient.phone)
+    if phone_err:
+        errors.append(phone_err)
     quality = str(recipient.cv_quality or "missing")
     if quality == "low_quality":
         errors.append("CV low-quality — generic questions only")
@@ -532,16 +567,18 @@ def intake_contacts_merge(db: Session, order: ServiceOrder, rows: list[dict[str,
     recipients = list(db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars())
     for row in rows:
         name = str(row.get("name") or "").strip()
-        phone = str(row.get("phone") or "").strip() or None
+        phone_raw = str(row.get("phone") or "").strip() or None
         email = str(row.get("email") or "").strip() or None
-        if not name and not phone:
+        if not name and not phone_raw:
             continue
+        phone, phone_errors = _coerce_contact_phone(phone_raw)
         match = _find_match_for_contact(recipients, row)
         if match:
             if name and (not match.name or match.name == "Unknown"):
                 match.name = name
             if phone and not match.phone:
                 match.phone = phone
+                match.intake_errors_json = _dumps_json(compute_intake_errors(match))
             if email and not match.email:
                 match.email = email
             if match.intake_source == "cv":
@@ -557,7 +594,7 @@ def intake_contacts_merge(db: Session, order: ServiceOrder, rows: list[dict[str,
             status="pending",
             cv_quality="missing",
             intake_source="csv",
-            intake_errors_json=_dumps_json([] if phone else ["Phone missing — click to add"]),
+            intake_errors_json=_dumps_json(phone_errors),
         )
         db.add(recipient)
         recipients.append(recipient)
@@ -657,10 +694,11 @@ def intake_contacts_csv(db: Session, order: ServiceOrder, rows: list[dict[str, s
     added = 0
     for i, row in enumerate(rows, start=1):
         name = str(row.get("name") or "").strip()
-        phone = str(row.get("phone") or "").strip() or None
+        phone_raw = str(row.get("phone") or "").strip() or None
         email = str(row.get("email") or "").strip() or None
-        if not name and not phone:
+        if not name and not phone_raw:
             continue
+        phone, phone_errors = _coerce_contact_phone(phone_raw)
         recipient = ServiceOrderRecipient(
             order_id=order.id,
             row_number=i,
@@ -670,7 +708,7 @@ def intake_contacts_csv(db: Session, order: ServiceOrder, rows: list[dict[str, s
             status="pending",
             cv_quality="missing",
             intake_source="csv",
-            intake_errors_json=_dumps_json([] if phone else ["Phone missing — click to add"]),
+            intake_errors_json=_dumps_json(phone_errors),
         )
         db.add(recipient)
         added += 1
@@ -699,7 +737,9 @@ def parse_contacts_csv_relaxed_from_bytes(content: bytes, filename: str) -> list
         out: list[dict[str, str | None]] = []
         for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             data = {
-                headers[i]: (str(row[i]).strip() if i < len(row) and row[i] is not None else "")
+                headers[i]: (
+                    ServiceOrderService._excel_cell_str(row[i]) if i < len(row) and row[i] is not None else ""
+                )
                 for i in range(len(headers))
             }
             name_val = data.get("name") or data.get("fullname") or data.get("contactname") or ""
@@ -958,17 +998,21 @@ def update_intake_recipient(
 
         recipient.name = normalize_recipient_name(payload.get("name"), required=True)
     if "phone" in payload:
-        from app.services.recipient_contact_validation import normalize_recipient_phone
+        from app.services.recipient_contact_validation import coerce_interview_phone_e164
 
-        recipient.phone = normalize_recipient_phone(payload.get("phone"), required=False)
+        raw_phone = str(payload.get("phone") or "").strip() or None
+        if not raw_phone:
+            recipient.phone = None
+        else:
+            e164, err = coerce_interview_phone_e164(raw_phone)
+            if err:
+                raise ValueError(err)
+            recipient.phone = e164
     if "email" in payload:
         from app.services.recipient_contact_validation import normalize_recipient_email
 
         recipient.email = normalize_recipient_email(payload.get("email"))
-    recipient.intake_errors_json = _dumps_json(
-        [e for e in compute_intake_errors(recipient) if "Phone missing" not in e]
-        + ([] if recipient.phone else ["Phone missing — click to add"])
-    )
+    recipient.intake_errors_json = _dumps_json(compute_intake_errors(recipient))
     order.updated_at = datetime.utcnow()
     db.add(recipient)
     db.add(order)

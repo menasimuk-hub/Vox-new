@@ -13,15 +13,10 @@ import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import { orderHasPayableQuote, orderPayButton } from "@/lib/billing/order-pay-labels";
 
 import {
-
   useBillingUsage,
-
   useLaunchInterviewCampaign,
-
   usePatchServiceOrder,
-
-  useStopSurveyOrder,
-
+  useStopInterviewCampaign,
 } from "@/lib/queries";
 
 import type { ServiceOrder } from "@/lib/types/api";
@@ -58,7 +53,7 @@ export function InterviewEditActionBar({
 
 }: InterviewEditActionBarProps) {
 
-  const stopM = useStopSurveyOrder();
+  const stopM = useStopInterviewCampaign();
 
   const launchM = useLaunchInterviewCampaign(order?.id || null);
 
@@ -92,44 +87,46 @@ export function InterviewEditActionBar({
 
     !["completed", "cancelled"].includes(status);
 
-  const runningLike = ["running", "paused", "scheduled"].includes(status);
+  const runningLike = ["running", "paused", "scheduled", "paid"].includes(status);
 
   const canRun = paymentStatus === "approved" && !runningLike && !["completed", "cancelled"].includes(status);
 
 
 
   const onStop = async () => {
-
     try {
-
-      await stopM.mutateAsync(order.id);
-
+      await stopM.mutateAsync({ orderId: order.id, reason: "Stopped by user" });
       toast.success("Interview stopped");
-
     } catch (e) {
-
       toast.error(e instanceof Error ? e.message : "Stop failed");
-
     }
-
   };
 
 
 
   const onRun = async () => {
-
     try {
-
-      await launchM.mutateAsync({});
-
+      const result = await launchM.mutateAsync({});
+      const emailN = Number((result as { invites?: { email_sent?: number } })?.invites?.email_sent ?? 0);
+      const waN = Number((result as { invites?: { whatsapp_sent?: number } })?.invites?.whatsapp_sent ?? 0);
+      const already =
+        Boolean((result as { already_launched?: boolean })?.already_launched) || emailN > 0 || waN > 0;
+      if ((result as { ok?: boolean })?.ok === false && !already) {
+        toast.error(
+          String((result as { message?: string })?.message || "Launch failed — no invite email was sent."),
+        );
+        return;
+      }
+      if ((result as { ok?: boolean })?.ok === false && already) {
+        toast.warning(
+          String((result as { message?: string })?.message || "Campaign is live with incomplete invites"),
+        );
+        return;
+      }
       toast.success("Interview launched");
-
     } catch (e) {
-
       toast.error(e instanceof Error ? e.message : "Launch failed");
-
     }
-
   };
 
 
