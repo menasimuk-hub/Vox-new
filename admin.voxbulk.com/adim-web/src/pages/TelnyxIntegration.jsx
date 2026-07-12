@@ -355,11 +355,16 @@ export default function TelnyxIntegration({
   const [activeTab, setActiveTab] = React.useState('api')
   const allowlist = activeConfig.phone_allowlist || {}
   const allowlistEnabled = activeConfig.phone_allowlist_enabled || { GB: true, AU: true, CA: true, USA: true }
-  const allowlistExtra = {
-    PS: { code: '970', name: 'Palestine', allow_any_prefix: true },
-    ...(activeConfig.phone_allowlist_extra || {}),
-  }
+  const allowlistExtra = { ...(activeConfig.phone_allowlist_extra || {}) }
   const allowlistExtraEnabled = activeConfig.phone_allowlist_extra_enabled || {}
+  const allowlistRemoved = React.useMemo(() => {
+    const raw = activeConfig.phone_allowlist_removed
+    const items = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.keys(raw).filter((k) => raw[k]) : [])
+    return items.map((s) => {
+      const code = String(s || '').toUpperCase()
+      return code === 'US' ? 'USA' : code
+    }).filter(Boolean)
+  }, [activeConfig.phone_allowlist_removed])
   const messagingBlocked = activeConfig.messaging_blocked_destinations || {}
   const [newCallIso, setNewCallIso] = React.useState('')
   const [newCallDial, setNewCallDial] = React.useState('')
@@ -449,6 +454,13 @@ export default function TelnyxIntegration({
       window.alert('Enter the dial code without + (e.g. 970 for Palestine).')
       return
     }
+    const coreKey = iso === 'US' ? 'USA' : iso
+    if (['GB', 'AU', 'CA', 'USA'].includes(coreKey)) {
+      restoreCallCountry(coreKey)
+      setNewCallIso('')
+      setNewCallDial('')
+      return
+    }
     patchAllowlistExtra(iso, { code: dial, name: iso, allow_any_prefix: true })
     setExtraAllowlistEnabled(iso, true)
     setNewCallIso('')
@@ -466,12 +478,32 @@ export default function TelnyxIntegration({
   }
 
   const removeCallCountry = (iso) => {
+    const code = String(iso || '').trim().toUpperCase()
+    const coreKey = code === 'US' ? 'USA' : code
+    if (['GB', 'AU', 'CA', 'USA'].includes(coreKey)) {
+      setProviderField('telnyx', 'phone_allowlist_removed', [...new Set([...allowlistRemoved, coreKey])])
+      setAllowlistEnabled(coreKey, false)
+      return
+    }
     const nextExtra = { ...allowlistExtra }
     const nextEnabled = { ...allowlistExtraEnabled }
-    delete nextExtra[iso]
-    delete nextEnabled[iso]
+    delete nextExtra[code]
+    delete nextEnabled[code]
     setProviderField('telnyx', 'phone_allowlist_extra', nextExtra)
     setProviderField('telnyx', 'phone_allowlist_extra_enabled', nextEnabled)
+  }
+
+  const restoreCallCountry = (iso) => {
+    const code = String(iso || '').trim().toUpperCase()
+    const coreKey = code === 'US' ? 'USA' : code
+    if (['GB', 'AU', 'CA', 'USA'].includes(coreKey)) {
+      setProviderField(
+        'telnyx',
+        'phone_allowlist_removed',
+        allowlistRemoved.filter((c) => c !== coreKey),
+      )
+      setAllowlistEnabled(coreKey, true)
+    }
   }
 
   const removeMessagingBlockedCountry = (iso) => {
@@ -480,7 +512,7 @@ export default function TelnyxIntegration({
 
   const callExtraRows = Object.keys(allowlistExtra).sort()
   const messagingBlockedRows = Object.keys(messagingBlocked).filter((iso) => messagingBlocked[iso]).sort()
-  const coreCallCountries = ['GB', 'AU', 'CA', 'USA']
+  const coreCallCountries = ['GB', 'AU', 'CA', 'USA'].filter((c) => !allowlistRemoved.includes(c))
   const dialHint = (country, cfg) => {
     if (cfg?.code) return `+${cfg.code}`
     if (country === 'USA' || country === 'CA') return '+1'
@@ -495,7 +527,7 @@ export default function TelnyxIntegration({
     callExtraRows.forEach((c) => set.add(rateIsoKey(c)))
     messagingBlockedRows.forEach((c) => set.add(rateIsoKey(c)))
     return [...set]
-  }, [callExtraRows.join(','), messagingBlockedRows.join(',')])
+  }, [callExtraRows.join(','), messagingBlockedRows.join(','), allowlistRemoved.join(',')])
 
   React.useEffect(() => {
     if (activeTab !== 'whitelist' || !tableRateIsos.length) return
@@ -549,15 +581,18 @@ export default function TelnyxIntegration({
 
   const isListedOnCall = (iso) => {
     const code = String(iso || '').toUpperCase()
-    if (code === 'US' || code === 'USA') return true
-    if (coreCallCountries.includes(code)) return true
+    const coreKey = code === 'US' ? 'USA' : code
+    if (allowlistRemoved.includes(coreKey)) return false
+    if (coreKey === 'USA' || ['GB', 'AU', 'CA'].includes(coreKey)) return true
     return Boolean(allowlistExtra[code])
   }
 
   const isEnabledOnCall = (iso) => {
     const code = String(iso || '').toUpperCase()
-    if (code === 'US' || code === 'USA') return allowlistEnabled.USA !== false
-    if (coreCallCountries.includes(code)) return allowlistEnabled[code] !== false
+    const coreKey = code === 'US' ? 'USA' : code
+    if (allowlistRemoved.includes(coreKey)) return false
+    if (coreKey === 'USA') return allowlistEnabled.USA !== false
+    if (['GB', 'AU', 'CA'].includes(coreKey)) return allowlistEnabled[coreKey] !== false
     return allowlistExtraEnabled[code] === true
   }
 
@@ -565,6 +600,15 @@ export default function TelnyxIntegration({
     if (!rate?.country_iso) return
     const iso = String(rate.country_iso).toUpperCase()
     const dial = String(rate.dial_code || '').replace(/\D/g, '')
+    const coreKey = iso === 'US' ? 'USA' : iso
+    if (['GB', 'AU', 'CA', 'USA'].includes(coreKey)) {
+      restoreCallCountry(coreKey)
+      setRateNotice(`${coreKey} restored to call allowlist — click Save at the top.`)
+      setSelectedRate(null)
+      setRateQuery('')
+      setRateResults([])
+      return
+    }
     if (!dial) {
       setNewCallIso(iso)
       setNewCallDial('')
@@ -1234,6 +1278,9 @@ export default function TelnyxIntegration({
                             <div className='tsh-actions-cell'>
                               <button type='button' className='tsh-icon-btn' title='Edit prefixes' onClick={() => setPrefixDialogCountry(country)}>
                                 <Pencil size={14} aria-hidden />
+                              </button>
+                              <button type='button' className='tsh-icon-btn danger' title='Remove from list' onClick={() => removeCallCountry(country)}>
+                                <Trash2 size={14} aria-hidden />
                               </button>
                             </div>
                           </td>

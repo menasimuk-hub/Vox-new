@@ -86,7 +86,7 @@ def seed_routes_from_legacy(config: dict[str, Any]) -> dict[str, Any]:
 
 def destination_region(e164: str, *, config: dict[str, Any] | None = None) -> str | None:
     cfg = config or {}
-    allowlist, _, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+    allowlist, _, extras, extra_enabled, _removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
     country, _ = TelnyxPhoneAllowlistService._detect_country(
         e164,
         allowlist,

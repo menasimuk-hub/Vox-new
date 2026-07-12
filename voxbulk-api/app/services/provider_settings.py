@@ -790,11 +790,12 @@ class ProviderSettingsService:
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
         from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
 
-        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+        allowlist, enabled, extras, extra_enabled, removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
         cfg["phone_allowlist"] = allowlist
         cfg["phone_allowlist_enabled"] = enabled
         cfg["phone_allowlist_extra"] = extras
         cfg["phone_allowlist_extra_enabled"] = extra_enabled
+        cfg["phone_allowlist_removed"] = removed
         cfg = TelnyxMessagingDestinationsService.sanitize_config(cfg)
         from app.services.telnyx_number_routing_service import normalize_route_list, seed_routes_from_legacy
 

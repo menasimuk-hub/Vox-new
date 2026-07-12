@@ -128,7 +128,7 @@ class TelnyxMessagingDestinationsService:
     def sms_destinations_from_call_allowlist(cfg: dict[str, Any] | None) -> list[str]:
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
-        _allowlist, enabled, _extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+        _allowlist, enabled, _extras, extra_enabled, _removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
         isos: set[str] = set()
         for key, on in (enabled or {}).items():
             if not on:
@@ -170,7 +170,7 @@ class TelnyxMessagingDestinationsService:
         if not digits:
             return None
         if digits.startswith("1") and len(digits) >= 11:
-            allowlist, _, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config({})
+            allowlist, _, extras, extra_enabled, _removed = TelnyxPhoneAllowlistService.load_from_telnyx_config({})
             country, _ = TelnyxPhoneAllowlistService._detect_country(
                 f"+{digits}",
                 allowlist,
@@ -191,7 +191,7 @@ class TelnyxMessagingDestinationsService:
     def _extra_dial_from_config(cfg: dict[str, Any] | None) -> dict[str, str]:
         from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
-        _allowlist, _enabled, extras, _extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
+        _allowlist, _enabled, extras, _extra_enabled, _removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg)
         out: dict[str, str] = {}
         for iso, row in (extras or {}).items():
             if not isinstance(row, dict):

@@ -51,3 +51,30 @@ def test_disabled_country():
     result = TelnyxPhoneAllowlistService.validate_phone("+447700900123", enabled=enabled)
     assert result["allowed"] is False
     assert "disabled" in str(result["reason"]).lower()
+
+
+def test_removed_core_country_disabled_on_load():
+    allowlist, enabled, extras, extra_enabled, removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(
+        {"phone_allowlist_removed": ["AU", "CA"]}
+    )
+    assert removed == ["AU", "CA"]
+    assert enabled["AU"] is False
+    assert enabled["CA"] is False
+    assert enabled["GB"] is True
+    assert allowlist["GB"]["code"] == "44"
+    del extras, extra_enabled
+
+
+def test_empty_extra_does_not_reseed_ps():
+    _a, _e, extras, extra_enabled, _r = TelnyxPhoneAllowlistService.load_from_telnyx_config(
+        {"phone_allowlist_extra": {}, "phone_allowlist_extra_enabled": {}}
+    )
+    assert extras == {}
+    assert extra_enabled == {}
+
+
+def test_missing_extra_key_seeds_ps():
+    _a, _e, extras, extra_enabled, _r = TelnyxPhoneAllowlistService.load_from_telnyx_config({})
+    assert "PS" in extras
+    assert extras["PS"]["code"] == "970"
+    assert extra_enabled.get("PS") is False

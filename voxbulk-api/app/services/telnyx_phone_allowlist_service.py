@@ -91,20 +91,26 @@ def _merge_enabled(raw: dict[str, Any] | None) -> dict[str, bool]:
     return out
 
 
-def _merge_extra(raw: dict[str, Any] | None) -> dict[str, Any]:
-    base = deepcopy(DEFAULT_PHONE_ALLOWLIST_EXTRA)
-    if isinstance(raw, dict):
-        for key, value in raw.items():
-            iso = str(key or "").strip().upper()
-            if not iso or not isinstance(value, dict):
-                continue
-            merged = {**base.get(iso, {}), **value}
-            if "code" in value:
-                merged["code"] = str(value.get("code") or "").strip()
-            if "name" in value:
-                merged["name"] = str(value.get("name") or iso).strip()
-            base[iso] = merged
-    return base
+def _merge_extra(raw: Any, *, seed_defaults: bool) -> dict[str, Any]:
+    # When the key is absent from config, seed DEFAULT extras (e.g. PS).
+    # Once stored (even {}), the saved dict is the membership source of truth so deletes stick.
+    if seed_defaults and not isinstance(raw, dict):
+        return deepcopy(DEFAULT_PHONE_ALLOWLIST_EXTRA)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        iso = str(key or "").strip().upper()
+        if not iso or not isinstance(value, dict):
+            continue
+        template = DEFAULT_PHONE_ALLOWLIST_EXTRA.get(iso, {})
+        merged = {**template, **value} if isinstance(template, dict) else dict(value)
+        if "code" in value:
+            merged["code"] = str(value.get("code") or "").strip()
+        if "name" in value:
+            merged["name"] = str(value.get("name") or iso).strip()
+        out[iso] = merged
+    return out
 
 
 def _merge_extra_enabled(raw: dict[str, Any] | None, extras: dict[str, Any]) -> dict[str, bool]:
@@ -118,20 +124,48 @@ def _merge_extra_enabled(raw: dict[str, Any] | None, extras: dict[str, Any]) -> 
     return out
 
 
+def _merge_removed(raw: Any) -> list[str]:
+    """Core regions (GB/AU/CA/USA) removed from the Admin call list."""
+    core = set(DEFAULT_PHONE_ALLOWLIST_ENABLED)
+    out: list[str] = []
+    items: list[Any]
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, dict):
+        items = [k for k, v in raw.items() if v]
+    else:
+        items = []
+    for item in items:
+        iso = str(item or "").strip().upper()
+        if iso == "US":
+            iso = "USA"
+        if iso in core and iso not in out:
+            out.append(iso)
+    return out
+
+
 class TelnyxPhoneAllowlistService:
     @staticmethod
-    def load_from_telnyx_config(cfg: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool]]:
+    def load_from_telnyx_config(
+        cfg: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool], list[str]]:
         cfg = cfg or {}
-        extras = _merge_extra(cfg.get("phone_allowlist_extra"))
+        seed_extra = "phone_allowlist_extra" not in cfg
+        extras = _merge_extra(cfg.get("phone_allowlist_extra"), seed_defaults=seed_extra)
+        removed = _merge_removed(cfg.get("phone_allowlist_removed"))
+        enabled = _merge_enabled(cfg.get("phone_allowlist_enabled"))
+        for iso in removed:
+            enabled[iso] = False
         return (
             _merge_allowlist(cfg.get("phone_allowlist")),
-            _merge_enabled(cfg.get("phone_allowlist_enabled")),
+            enabled,
             extras,
             _merge_extra_enabled(cfg.get("phone_allowlist_extra_enabled"), extras),
+            removed,
         )
 
     @staticmethod
-    def load(db: Session) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool]]:
+    def load(db: Session) -> tuple[dict[str, Any], dict[str, bool], dict[str, Any], dict[str, bool], list[str]]:
         from app.services.provider_settings import ProviderSettingsService
 
         cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
@@ -378,7 +412,7 @@ class TelnyxPhoneAllowlistService:
 
     @staticmethod
     def validate_phone_db(db: Session, phone: str) -> dict[str, Any]:
-        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load(db)
+        allowlist, enabled, extras, extra_enabled, _removed = TelnyxPhoneAllowlistService.load(db)
         return TelnyxPhoneAllowlistService.validate_phone(
             phone,
             allowlist=allowlist,
@@ -389,12 +423,13 @@ class TelnyxPhoneAllowlistService:
 
     @staticmethod
     def admin_view(cfg: dict[str, Any] | None) -> dict[str, Any]:
-        allowlist, enabled, extras, extra_enabled = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg or {})
+        allowlist, enabled, extras, extra_enabled, removed = TelnyxPhoneAllowlistService.load_from_telnyx_config(cfg or {})
         return {
             "phone_allowlist": allowlist,
             "phone_allowlist_enabled": enabled,
             "phone_allowlist_extra": extras,
             "phone_allowlist_extra_enabled": extra_enabled,
+            "phone_allowlist_removed": removed,
             "defaults": DEFAULT_PHONE_ALLOWLIST,
             "defaults_extra": DEFAULT_PHONE_ALLOWLIST_EXTRA,
         }
