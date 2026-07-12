@@ -694,19 +694,8 @@ def _dispatch_job(db: Session, job) -> str | None:
 
 def job_to_report_dict(job) -> dict[str, Any]:
     outcome = _job_outcome(job)
-    summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
-    poor_answers = summary.get("poor_answers") if isinstance(summary.get("poor_answers"), list) else []
-    why = str(summary.get("why_unhappy") or outcome.get("why_unhappy") or "").strip() or None
     promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
-    from app.services.ai_followup_report_service import build_followup_reason_report
-
-    reason_report = build_followup_reason_report(
-        session_summary=summary,
-        outcome=outcome,
-        status=job.status,
-        business_context=getattr(job, "business_context", None),
-    )
-    return {
+    report = {
         "id": job.id,
         "session_id": getattr(job, "session_id", None),
         "visitor_phone": job.visitor_phone,
@@ -714,17 +703,23 @@ def job_to_report_dict(job) -> dict[str, Any]:
         "scheduled_at": job.scheduled_at.isoformat() if job.scheduled_at else None,
         "call_id": job.call_id,
         "business_context": job.business_context,
-        "poor_topics": summary.get("poor_topics") or [],
-        "poor_answers": poor_answers,
-        "why_unhappy": why,
-        "reason_report": reason_report,
-        "positive_topics": summary.get("positive_topics") or [],
         "promo_enabled": bool(getattr(job, "promo_enabled", False)),
         "promo_code": getattr(job, "promo_code", None),
         "promo_email": promo_email,
         "outcome": outcome,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
+    try:
+        from sqlalchemy.orm import object_session
+
+        from app.services.ai_followup_call_media_service import attach_call_media_to_report
+
+        db = object_session(job)
+        if db is not None:
+            report = attach_call_media_to_report(db, report, job)
+    except Exception:
+        logger.exception("feedback_ai_followup_report_media_failed job_id=%s", job.id)
+    return report
 
 
 def attach_ai_followup_to_feedback_respondents(db: Session, respondents: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -908,17 +903,6 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
                 logger.exception("feedback_ai_followup_promo_email_failed job_id=%s", job.id)
                 outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
 
-        from app.services.ai_followup_report_service import describe_call_findings, extract_customer_lines_from_transcript
-
-        call_findings = extract_customer_lines_from_transcript(transcript) or describe_call_findings(
-            transcript=transcript,
-            transcript_excerpt=outcome.get("transcript_excerpt") if isinstance(outcome.get("transcript_excerpt"), str) else None,
-            duration_seconds=duration_seconds,
-            status=job.status,
-        )
-        if call_findings:
-            outcome["call_findings"] = call_findings
-
         outcome.update(
             {
                 "call_control_id": call_id,
@@ -934,6 +918,13 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         job.updated_at = datetime.utcnow()
         db.add(job)
         db.commit()
+        if str(job.status or "").lower() in {"completed", "opted_out"}:
+            try:
+                from app.services.ai_followup_call_media_service import ensure_ai_followup_call_media
+
+                ensure_ai_followup_call_media(db, job)
+            except Exception:
+                logger.exception("feedback_ai_followup_media_hydrate_failed job_id=%s", job.id)
         return True
 
     return True

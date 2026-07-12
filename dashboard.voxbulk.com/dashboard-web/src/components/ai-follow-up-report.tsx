@@ -1,38 +1,25 @@
-import { PhoneCall } from "lucide-react";
+import * as React from "react";
+import { FileText, PhoneCall, X } from "lucide-react";
 
+import { InterviewRecordingPlayer } from "@/components/interview-recording-player";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAiFollowUpCallDetail } from "@/lib/queries";
 import { cn } from "@/lib/utils";
-
-export type AiFollowUpPoorAnswer = {
-  question?: string;
-  answer?: string;
-};
-
-export type AiFollowUpWrittenReason = {
-  question?: string;
-  text?: string;
-  source?: string;
-};
-
-export type AiFollowUpReasonReport = {
-  survey_low_ratings?: AiFollowUpPoorAnswer[];
-  survey_written_reason?: string | null;
-  survey_written_reasons?: AiFollowUpWrittenReason[];
-  call_findings?: string | null;
-  narrative?: string | null;
-};
 
 export type AiFollowUpReport = {
   id?: string;
   status?: string | null;
   scheduled_at?: string | null;
   call_id?: string | null;
-  poor_topics?: string[];
-  poor_answers?: AiFollowUpPoorAnswer[];
-  why_unhappy?: string | null;
-  reason_report?: AiFollowUpReasonReport | null;
-  positive_topics?: string[];
+  call_reason?: string | null;
+  transcript_preview?: string | null;
+  has_recording?: boolean;
+  recording_play_url?: string | null;
+  duration_label?: string | null;
   promo_enabled?: boolean;
   promo_code?: string | null;
   promo_email?: { ok?: boolean; reason?: string; to?: string } | null;
@@ -81,154 +68,181 @@ export function AiFollowUpStatusIcon({
   );
 }
 
-function formatDuration(seconds: unknown): string | null {
-  const n = typeof seconds === "number" ? seconds : Number(seconds);
-  if (!Number.isFinite(n) || n < 0) return null;
-  if (n < 60) return `${Math.round(n)}s`;
-  const m = Math.floor(n / 60);
-  const s = Math.round(n % 60);
-  return `${m}m ${s}s`;
+function AiFollowUpTranscriptDialog({
+  open,
+  onOpenChange,
+  jobId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  jobId: string | null;
+}) {
+  const detailQ = useAiFollowUpCallDetail(jobId, open);
+  const lines = (detailQ.data?.transcript_lines || []) as Array<{ speaker: string; text: string }>;
+  const transcript = String(detailQ.data?.transcript || "");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden p-0">
+        <DialogHeader className="border-b border-border bg-[#0f172a] px-5 py-4 text-left">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-base text-white">
+                <FileText className="size-4 text-sky-400" />
+                AI follow-up transcript
+              </DialogTitle>
+              <p className="mt-1 text-xs text-slate-400">What the customer said on the recovery call</p>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-slate-300 hover:bg-white/10 hover:text-white"
+              onClick={() => onOpenChange(false)}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto bg-[#111827] px-5 py-4">
+          {detailQ.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-full bg-slate-800" />
+              <Skeleton className="h-12 w-5/6 bg-slate-800" />
+              <Skeleton className="h-12 w-4/6 bg-slate-800" />
+            </div>
+          ) : lines.length > 0 ? (
+            <div className="space-y-3">
+              {lines.map((line, i) => {
+                const isAgent = ["agent", "assistant"].includes(String(line.speaker || "").toLowerCase());
+                return (
+                  <div
+                    key={`${line.speaker}-${i}`}
+                    className={`rounded-lg border px-3 py-2 text-sm leading-relaxed ${
+                      isAgent
+                        ? "border-sky-500/20 bg-sky-500/10 text-sky-50"
+                        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-50"
+                    }`}
+                  >
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-70">{line.speaker}</p>
+                    <p>{line.text}</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <pre className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+              {transcript || "Transcript not available yet."}
+            </pre>
+          )}
+        </div>
+        <div className="border-t border-border bg-muted/40 px-5 py-3 text-[11px] text-muted-foreground">
+          Transcript and recording sync after the AI follow-up call completes.
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpReport | null }) {
+  const [transcriptOpen, setTranscriptOpen] = React.useState(false);
   if (!report?.status) return null;
-  const outcome = report.outcome || {};
-  const reasonReport =
-    report.reason_report ||
-    (typeof outcome.reason_report === "object" && outcome.reason_report
-      ? (outcome.reason_report as AiFollowUpReasonReport)
-      : null);
-  const lowRatings = (reasonReport?.survey_low_ratings || report.poor_answers || []).filter(
-    (a) => a?.question || a?.answer,
+
+  const jobId = String(report.id || "").trim() || null;
+  const terminal = ["completed", "opted_out", "voicemail", "busy", "no_answer", "failed"].includes(
+    String(report.status || "").toLowerCase(),
   );
-  const writtenReasons = (reasonReport?.survey_written_reasons || []).filter((w) => w?.text);
-  const callFindings =
-    (typeof reasonReport?.call_findings === "string" && reasonReport.call_findings.trim()) ||
-    (typeof outcome.call_findings === "string" && outcome.call_findings.trim()) ||
+  const detailQ = useAiFollowUpCallDetail(jobId, Boolean(jobId && terminal));
+
+  const callReason =
+    (typeof detailQ.data?.call_reason === "string" && detailQ.data.call_reason.trim()) ||
+    (typeof report.call_reason === "string" && report.call_reason.trim()) ||
     null;
-  const narrative =
-    (typeof reasonReport?.narrative === "string" && reasonReport.narrative.trim()) || null;
-  const skip = typeof outcome.skip_reason === "string" ? outcome.skip_reason : null;
-  const defer = typeof outcome.defer_reason === "string" ? outcome.defer_reason : null;
-  const excerpt =
-    (typeof outcome.transcript_excerpt === "string" && outcome.transcript_excerpt) ||
-    (typeof outcome.opt_out_text === "string" && outcome.opt_out_text) ||
+  const recordingPath =
+    (typeof detailQ.data?.recording_play_url === "string" && detailQ.data.recording_play_url) ||
+    (typeof report.recording_play_url === "string" && report.recording_play_url) ||
     null;
-  const hangup = typeof outcome.hangup_cause === "string" ? outcome.hangup_cause : null;
-  const duration = formatDuration(outcome.duration_seconds);
-  const promoEmail =
-    report.promo_email ||
-    (typeof outcome.promo_email === "object" && outcome.promo_email
-      ? (outcome.promo_email as AiFollowUpReport["promo_email"])
-      : null);
+  const durationLabel =
+    (typeof detailQ.data?.duration_label === "string" && detailQ.data.duration_label) ||
+    (typeof report.duration_label === "string" && report.duration_label) ||
+    null;
+  const hangup =
+    typeof detailQ.data?.hangup_cause === "string"
+      ? detailQ.data.hangup_cause
+      : typeof report.outcome?.hangup_cause === "string"
+        ? report.outcome.hangup_cause
+        : null;
+  const promoEmail = report.promo_email;
 
   return (
-    <Card className="border-primary/30 bg-primary/5">
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-2 font-medium">
-            <PhoneCall className="size-4 text-primary" />
-            AI call assistance
-          </p>
-          <Badge variant={aiFollowUpStatusTone(report.status)}>{aiFollowUpStatusLabel(report.status)}</Badge>
-        </div>
-
-        {narrative ? (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-foreground">Summary</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">{narrative}</p>
+    <>
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-2 font-medium">
+              <PhoneCall className="size-4 text-primary" />
+              AI call assistance
+            </p>
+            <Badge variant={aiFollowUpStatusTone(report.status)}>{aiFollowUpStatusLabel(report.status)}</Badge>
           </div>
-        ) : null}
 
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-foreground">What they rated low (survey)</p>
-          <p className="text-[11px] text-muted-foreground">This is the score — not the reason they were unhappy.</p>
-          {lowRatings.length > 0 ? (
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {lowRatings.slice(0, 6).map((row, idx) => (
-                <li key={`${row.question}-${idx}`}>
-                  <span className="text-foreground/80">{row.question || "Topic"}:</span> {row.answer || "—"}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No low ratings recorded.</p>
-          )}
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-foreground">Reason in survey</p>
-          {writtenReasons.length > 0 ? (
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {writtenReasons.slice(0, 4).map((row, idx) => (
-                <li key={`${row.question}-${idx}`}>
-                  <span className="text-foreground/80">{row.question || "Feedback"}:</span> {row.text}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No reason written in WhatsApp — that is why the AI follow-up call was placed.
-            </p>
-          )}
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-foreground">What we learned from the call</p>
-          {callFindings ? (
-            <blockquote className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
-              {callFindings}
-            </blockquote>
-          ) : report.status === "completed" ? (
-            <p className="text-xs text-muted-foreground">
-              Call completed but no clear reason was captured
-              {duration ? ` (duration ${duration})` : ""}.
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">Waiting for AI follow-up call outcome.</p>
-          )}
-        </div>
-
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">Call report</p>
-          {report.scheduled_at ? (
-            <p>
-              Scheduled:{" "}
-              {new Date(report.scheduled_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
-            </p>
-          ) : null}
-          {duration ? <p>Duration: {duration}</p> : null}
-          {hangup ? <p>Hangup: {hangup.replace(/_/g, " ")}</p> : null}
-          {skip ? <p>Skipped: {skip}</p> : null}
-          {defer ? <p>Deferred: {defer}</p> : null}
-          {report.call_id ? <p className="break-all">Call ID: {report.call_id}</p> : null}
-        </div>
-
-        {excerpt && excerpt !== callFindings ? (
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Full transcript excerpt</p>
-            <blockquote className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
-              {excerpt}
-            </blockquote>
-          </div>
-        ) : null}
-
-        {report.promo_enabled ? (
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Promo code</p>
-            <p>Code: {report.promo_code || "—"}</p>
-            {promoEmail?.ok ? (
-              <p>Emailed to {promoEmail.to || "customer"}</p>
-            ) : promoEmail?.reason ? (
-              <p>Email not sent: {String(promoEmail.reason).replace(/_/g, " ")}</p>
-            ) : report.status === "completed" ? (
-              <p>Email pending — configure survey.codes@voxbulk.com in Admin</p>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-foreground">Problem reported on call</p>
+            {detailQ.isLoading && !callReason ? (
+              <Skeleton className="h-14 w-full" />
             ) : (
-              <p>Sent by email after a completed call (when mailbox is enabled)</p>
+              <blockquote className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-3 text-sm leading-relaxed text-foreground">
+                {callReason || "Loading what the customer said on the AI call…"}
+              </blockquote>
             )}
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-foreground">Recording</p>
+            <InterviewRecordingPlayer
+              playPath={recordingPath}
+              durationLabel={durationLabel ? `${durationLabel} · AI follow-up` : "AI follow-up recording"}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={!jobId}
+              onClick={() => setTranscriptOpen(true)}
+            >
+              <FileText className="mr-2 size-4" />
+              Open transcript
+            </Button>
+          </div>
+
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {report.scheduled_at ? (
+              <p>
+                Called:{" "}
+                {new Date(report.scheduled_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+              </p>
+            ) : null}
+            {durationLabel ? <p>Duration: {durationLabel}</p> : null}
+            {hangup ? <p>Hangup: {String(hangup).replace(/_/g, " ")}</p> : null}
+          </div>
+
+          {report.promo_enabled ? (
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Promo code</p>
+              <p>Code: {report.promo_code || "—"}</p>
+              {promoEmail?.ok ? (
+                <p>Emailed to {promoEmail.to || "customer"}</p>
+              ) : promoEmail?.reason ? (
+                <p>Email not sent: {String(promoEmail.reason).replace(/_/g, " ")}</p>
+              ) : report.status === "completed" ? (
+                <p>Email pending — configure survey.codes@voxbulk.com in Admin</p>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <AiFollowUpTranscriptDialog open={transcriptOpen} onOpenChange={setTranscriptOpen} jobId={jobId} />
+    </>
   );
 }

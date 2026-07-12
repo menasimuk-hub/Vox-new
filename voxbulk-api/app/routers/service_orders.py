@@ -82,6 +82,74 @@ def get_promo_credits(db: Session = Depends(get_db), principal=Depends(get_curre
     return {"ok": True, **OrgServiceCreditService.balances_dict(org)}
 
 
+@router.get("/ai-follow-up-jobs/{job_id}/detail")
+def get_ai_followup_job_detail(
+    job_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.ai_followup_call_media_service import build_ai_followup_call_detail, resolve_ai_followup_job
+
+    try:
+        job = resolve_ai_followup_job(db, job_id=job_id, org_id=principal.org_id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI follow-up job not found")
+    return build_ai_followup_call_detail(db, job)
+
+
+@router.get("/ai-follow-up-jobs/{job_id}/recording")
+def get_ai_followup_job_recording(
+    job_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import RedirectResponse, Response
+
+    from app.services.ai_followup_call_media_service import (
+        USER_RECORDING_PROCESSING,
+        USER_RECORDING_UNAVAILABLE,
+        fetch_ai_followup_recording,
+        resolve_ai_followup_job,
+    )
+
+    try:
+        job = resolve_ai_followup_job(db, job_id=job_id, org_id=principal.org_id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI follow-up job not found")
+
+    outcome = {}
+    try:
+        outcome = json.loads(job.outcome_json or "{}")
+        if not isinstance(outcome, dict):
+            outcome = {}
+    except Exception:
+        outcome = {}
+
+    remote = str(outcome.get("recording_url") or "").strip()
+    if remote.startswith("http://") or remote.startswith("https://"):
+        return RedirectResponse(url=remote, status_code=302)
+
+    try:
+        result = fetch_ai_followup_recording(db, job)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("ai_followup_recording_fetch_failed job_id=%s", job_id)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=USER_RECORDING_UNAVAILABLE)
+
+    if not result:
+        st = str(job.status or "").strip().lower()
+        detail = USER_RECORDING_PROCESSING if st == "completed" else USER_RECORDING_UNAVAILABLE
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+    audio_bytes, media_type = result
+    return Response(
+        content=audio_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": 'inline; filename="ai-follow-up-recording.mp3"'},
+    )
+
+
 @router.get("/template.csv")
 def download_recipient_template(
     for_: str | None = None,

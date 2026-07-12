@@ -411,40 +411,8 @@ def jobs_by_recipient_ids(db: Session, recipient_ids: list[str]) -> dict[str, Su
 
 def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
     outcome = _job_outcome(job)
-    summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
-    poor_answers = summary.get("poor_answers") if isinstance(summary.get("poor_answers"), list) else []
-    why = (
-        str(summary.get("why_unhappy") or outcome.get("why_unhappy") or "").strip()
-        or None
-    )
-    # Backfill for older jobs that predate poor_answers / why_unhappy.
-    if (not poor_answers or not why) and job.recipient_id:
-        try:
-            from sqlalchemy.orm import object_session
-
-            db = object_session(job)
-            if db is not None:
-                recipient = db.get(ServiceOrderRecipient, job.recipient_id)
-                if recipient is not None:
-                    rebuilt = _build_recipient_session_summary(recipient)
-                    if not poor_answers:
-                        poor_answers = rebuilt.get("poor_answers") or []
-                    if not why:
-                        why = str(rebuilt.get("why_unhappy") or "").strip() or None
-                    if not summary.get("poor_topics"):
-                        summary = {**summary, **{k: rebuilt.get(k) for k in ("poor_topics", "positive_topics") if rebuilt.get(k)}}
-        except Exception:
-            logger.exception("survey_ai_followup_report_backfill_failed job_id=%s", job.id)
     promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
-    from app.services.ai_followup_report_service import build_followup_reason_report
-
-    reason_report = build_followup_reason_report(
-        session_summary=summary,
-        outcome=outcome,
-        status=job.status,
-        business_context=job.business_context,
-    )
-    return {
+    report = {
         "id": job.id,
         "recipient_id": job.recipient_id,
         "visitor_phone": job.visitor_phone,
@@ -452,17 +420,23 @@ def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
         "scheduled_at": job.scheduled_at.isoformat() if job.scheduled_at else None,
         "call_id": job.call_id,
         "business_context": job.business_context,
-        "poor_topics": summary.get("poor_topics") or [],
-        "poor_answers": poor_answers,
-        "why_unhappy": why,
-        "reason_report": reason_report,
-        "positive_topics": summary.get("positive_topics") or [],
         "promo_enabled": bool(job.promo_enabled),
         "promo_code": job.promo_code,
         "promo_email": promo_email,
         "outcome": outcome,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
+    try:
+        from sqlalchemy.orm import object_session
+
+        from app.services.ai_followup_call_media_service import attach_call_media_to_report
+
+        db = object_session(job)
+        if db is not None:
+            report = attach_call_media_to_report(db, report, job)
+    except Exception:
+        logger.exception("survey_ai_followup_report_media_failed job_id=%s", job.id)
+    return report
 
 
 def handle_survey_ai_followup_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
@@ -618,23 +592,13 @@ def handle_survey_ai_followup_telnyx_event(db: Session, payload: dict[str, Any])
                 logger.exception("survey_ai_followup_promo_email_failed job_id=%s", job.id)
                 outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
 
-        from app.services.ai_followup_report_service import describe_call_findings, extract_customer_lines_from_transcript
-
-        call_findings = extract_customer_lines_from_transcript(transcript) or describe_call_findings(
-            transcript=transcript,
-            transcript_excerpt=outcome.get("transcript_excerpt") if isinstance(outcome.get("transcript_excerpt"), str) else None,
-            duration_seconds=duration_seconds,
-            status=job.status,
-        )
-        if call_findings:
-            outcome["call_findings"] = call_findings
-
         outcome.update(
             {
                 "call_control_id": call_id,
                 "hangup_at": datetime.utcnow().isoformat(),
                 "duration_seconds": duration_seconds,
                 "hangup_cause": hangup_cause,
+                "transcript": transcript,
                 "transcript_excerpt": (transcript[:800] if transcript else outcome.get("transcript_excerpt")),
             }
         )
@@ -642,6 +606,13 @@ def handle_survey_ai_followup_telnyx_event(db: Session, payload: dict[str, Any])
         job.updated_at = datetime.utcnow()
         db.add(job)
         db.commit()
+        if str(job.status or "").lower() in {"completed", "opted_out"}:
+            try:
+                from app.services.ai_followup_call_media_service import ensure_ai_followup_call_media
+
+                ensure_ai_followup_call_media(db, job)
+            except Exception:
+                logger.exception("survey_ai_followup_media_hydrate_failed job_id=%s", job.id)
         return True
 
     if "speak" in event_type or "conversation" in event_type:

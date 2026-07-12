@@ -700,6 +700,26 @@ export function useInterviewRecipientDetail(orderId: string | null, recipientId:
   });
 }
 
+export function useAiFollowUpCallDetail(jobId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["service-orders", "ai-follow-up-jobs", jobId, "detail"],
+    queryFn: () =>
+      apiFetch<{
+        ok?: boolean;
+        call_reason?: string | null;
+        transcript?: string | null;
+        transcript_lines?: Array<{ speaker: string; text: string }>;
+        has_recording?: boolean;
+        recording_play_url?: string | null;
+        duration_label?: string | null;
+        hangup_cause?: string | null;
+        status?: string | null;
+      }>(`/service-orders/ai-follow-up-jobs/${encodeURIComponent(jobId!)}/detail`),
+    enabled: Boolean(jobId && enabled),
+    staleTime: 30_000,
+  });
+}
+
 export function useStartGoCardlessSubscription() {
   const qc = useQueryClient();
   return useMutation({
