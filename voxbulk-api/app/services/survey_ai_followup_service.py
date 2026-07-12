@@ -61,14 +61,14 @@ def _wa_answers(recipient: ServiceOrderRecipient) -> list[dict[str, Any]]:
 
 
 def _had_low_rating(recipient: ServiceOrderRecipient) -> bool:
-    from app.services.survey_results_service import _is_unhappy_respondent
+    from app.services.survey_results_service import _is_negative_answer_value, _is_unhappy_respondent
 
     if _is_unhappy_respondent(recipient):
         return True
     for item in _wa_answers(recipient):
         for key in ("answer", "answer_text", "normalized_value"):
-            val = str(item.get(key) or "").strip().lower()
-            if val in LOW_ANSWERS or "poor" in val or val == "bad":
+            val = str(item.get(key) or "").strip()
+            if _is_negative_answer_value(val) or val.lower() in LOW_ANSWERS:
                 return True
     return False
 
@@ -208,11 +208,14 @@ def schedule_wa_if_eligible(db: Session, *, order: ServiceOrder, recipient: Serv
 
 
 def _pre_dial_guards_wa(db: Session, job: SurveyAiFollowUpJob, org) -> None:
+    from app.core.config import get_settings
     from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
-    allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
-    if not allowed:
-        raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
+    settings = get_settings()
+    if not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
+        allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
+        if not allowed:
+            raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
 
     skip = should_block_outbound_phone(db, org_id=job.org_id, phone_e164=str(job.visitor_phone or ""))
     if skip:

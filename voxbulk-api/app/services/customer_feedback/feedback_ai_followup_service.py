@@ -375,11 +375,14 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
 
 
 def _pre_dial_guards(db: Session, job, org) -> None:
+    from app.core.config import get_settings
     from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
-    allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
-    if not allowed:
-        raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
+    settings = get_settings()
+    if not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
+        allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
+        if not allowed:
+            raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
 
     skip = should_block_outbound_phone(db, org_id=job.org_id, phone_e164=str(job.visitor_phone or ""))
     if skip:

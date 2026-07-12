@@ -82,11 +82,46 @@ def _sentiment_label(sentiment: str | None) -> str:
     return mapping.get(clean, "Neutral")
 
 
-_NEGATIVE_ANSWER_VALUES = frozenset({"bad", "no", "poor", "negative"})
+_NEGATIVE_ANSWER_VALUES = frozenset(
+    {
+        "bad",
+        "no",
+        "poor",
+        "negative",
+        "below standard",
+        "not clean",
+        "stressful",
+        "unacceptable",
+        "terrible",
+        "awful",
+        "dissatisfied",
+        "very poor",
+        "slow",
+        "avg",
+        "maybe",
+    }
+)
+_NEGATIVE_ANSWER_FRAGMENTS = (
+    "poor",
+    "below standard",
+    "not clean",
+    "stressful",
+    "unacceptable",
+    "terrible",
+    "awful",
+    "dissatisf",
+    "not happy",
+    "unhappy",
+)
 
 
 def _is_negative_answer_value(raw: str) -> bool:
-    return str(raw or "").strip().lower() in _NEGATIVE_ANSWER_VALUES
+    text = str(raw or "").strip().lower()
+    if not text:
+        return False
+    if text in _NEGATIVE_ANSWER_VALUES:
+        return True
+    return any(fragment in text for fragment in _NEGATIVE_ANSWER_FRAGMENTS)
 
 
 def _derive_needs_follow_up(recipient: ServiceOrderRecipient) -> bool:
