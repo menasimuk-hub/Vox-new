@@ -516,24 +516,50 @@ def ensure_interview_assistant_hangup_tools(
     *,
     existing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Inspect Hangup tool presence only.
-
-    Do NOT PATCH tools via API — Telnyx rejects our webhook-tool schema (400).
-    Built-in Hangup (where already configured) + prompt instructions remain the hangup path.
-    Structured mark_* tools stay dormant until portal wiring is confirmed.
-    """
+    """Ensure built-in Hangup tool is present. Do not add custom webhook tools (Telnyx 400)."""
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     live = existing if isinstance(existing, dict) else fetch_telnyx_assistant(db, clean_id)
     current_tools = live.get("tools") if isinstance(live.get("tools"), list) else []
     blob = json.dumps(current_tools).lower()
-    return {
-        "ok": True,
-        "changed": False,
-        "tool_count": len(current_tools),
-        "has_hangup": "hangup" in blob,
-        "webhook_tools_synced": False,
-        "note": "tool_patch_disabled_telnyx_400",
+    if "hangup" in blob:
+        return {
+            "ok": True,
+            "changed": False,
+            "tool_count": len(current_tools),
+            "has_hangup": True,
+            "webhook_tools_synced": False,
+        }
+
+    # Shape verified against live Leo assistant tools in Telnyx.
+    hangup_tool = {
+        "type": "hangup",
+        "hangup": {
+            "description": (
+                "To be used whenever the conversation has ended and it would be "
+                "appropriate to hangup the call."
+            )
+        },
     }
+    desired = list(current_tools) + [hangup_tool]
+    try:
+        _update_telnyx_assistant(db, clean_id, {"tools": desired})
+        return {
+            "ok": True,
+            "changed": True,
+            "tool_count": len(desired),
+            "has_hangup": True,
+            "webhook_tools_synced": False,
+        }
+    except Exception as exc:
+        logger.warning("ensure_interview_hangup_tool_failed assistant_id=%s err=%s", clean_id, exc)
+        return {
+            "ok": False,
+            "changed": False,
+            "tool_count": len(current_tools),
+            "has_hangup": False,
+            "error": str(exc)[:240],
+            "webhook_tools_synced": False,
+        }
 
 
 def sync_telnyx_assistant_instructions(
