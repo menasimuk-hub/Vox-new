@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from app.models.email_template import EmailTemplate
 from app.data.system_email_defaults import SYSTEM_EMAIL_DEFAULTS
-from app.data.brand_email_layout import inject_brand_tagline
 from app.services.uk_compliance_constants import (
     DEFAULT_COMPLIANCE_CONTACT_EMAIL,
     DEFAULT_LAWFUL_BASIS,
@@ -152,8 +151,13 @@ class EmailTemplateService:
 
     @staticmethod
     def ensure_system_templates(db: Session) -> None:
-        """Insert any missing system templates; refresh interview bodies with broken data: logos."""
-        changed = False
+        """Insert missing system templates only.
+
+        Never overwrite body/subject/title/layout of an existing row — Admin edits are sacred.
+        New keys may be created from defaults; existing keys are left untouched (except empty
+        compliance fields: lawful_basis / privacy_notice_url / contact_email).
+        """
+        created = False
         for key in EMAIL_TEMPLATE_KEYS:
             defaults = SYSTEM_EMAIL_DEFAULTS.get(key, {})
             row = EmailTemplateService.get(db, key=key)
@@ -166,132 +170,16 @@ class EmailTemplateService:
                     body=defaults.get("body") or "",
                     is_enabled=True,
                 )
+                created = True
                 continue
+            # Fill blank compliance metadata only — never touch body/subject/title.
+            before = (row.lawful_basis, row.privacy_notice_url, row.contact_email)
             EmailTemplateService._apply_compliance_defaults(row, template_key=key)
-            body = str(row.body or "")
-            default_body = str(defaults.get("body") or "")
-            default_subject = str(defaults.get("subject") or "")
-            needs_calendar_refresh = (
-                key in {"interview_booking_confirm", "interview_booking_reminder"}
-                and default_body
-                and "{{calendar_links_html}}" in default_body
-                and "{{calendar_links_html}}" not in body
-            )
-            needs_cancel_refresh = (
-                key in {"interview_booking_cancel", "interview_campaign_cancelled"}
-                and default_body
-                and (not body.strip() or not bool(row.is_enabled))
-            )
-            needs_invoice_document_refresh = (
-                key == "invoice_document"
-                and default_body
-                and (
-                    bool(re.search(r"\{\{#|\{\{/", body))
-                    or "#0f766e" in body.lower()
-                    or "{{company_logo_html}}" not in body
-                )
-            )
-            needs_new_invoice_refresh = (
-                key == "new_invoice"
-                and default_body
-                and "#0f766e" in body.lower()
-            )
-            needs_general_notification_refresh = (
-                key == "general_notification"
-                and default_body
-                and (
-                    "{{practice_name}}" in body
-                    or "{{digest_" in body
-                    or "{{#if" in body
-                    or "{{/if}}" in body
-                    or "digest_greeting" in body
-                )
-            )
-            needs_unthemed_refresh = (
-                key in {"payment_failed", "usage_warning", "usage_warning_100", "payment_receipt"}
-                and default_body
-                and "<!DOCTYPE html><html><body" in body
-                and "wrap_brand_email" not in body
-            )
-            needs_weekly_digest_refresh = (
-                key == "weekly_digest"
-                and default_body
-                and (
-                    "{{practice_name}}" in body
-                    or "Recovery queue" in body
-                    or "interviews_recommended_percent" in body
-                    or "{{usage_summary_html}}" not in body
-                    or "{{action_items}}" not in body
-                )
-            )
-            needs_sales_offer_refresh = (
-                key == "sales_offer"
-                and default_body
-                and (
-                    "#00C896" in body
-                    or 'alt="VOXBULK"' not in body
-                )
-            )
-            if default_body and key.startswith("interview_") and (
-                "data:image" in body
-                or ("data:" in body and "base64" in body)
-                or needs_calendar_refresh
-                or needs_cancel_refresh
-                or (
-                    key == "interview_thank_you"
-                    and "AI interviewer" in body
-                )
-            ):
-                # Never overwrite Admin-edited session outcome templates on boot.
-                if key in {
-                    "interview_session_reschedule",
-                    "interview_session_opted_out",
-                    "interview_booking_reschedule_link",
-                }:
-                    pass
-                else:
-                    row.body = default_body
-                    if default_subject:
-                        row.subject = default_subject
-                    row.updated_at = datetime.utcnow()
-                    db.add(row)
-                    changed = True
-            elif needs_invoice_document_refresh:
-                row.body = default_body
-                if default_subject:
-                    row.subject = default_subject
-                row.updated_at = datetime.utcnow()
+            after = (row.lawful_basis, row.privacy_notice_url, row.contact_email)
+            if after != before:
                 db.add(row)
-                changed = True
-            elif needs_new_invoice_refresh:
-                row.body = default_body
-                if default_subject:
-                    row.subject = default_subject
-                row.updated_at = datetime.utcnow()
-                db.add(row)
-                changed = True
-            elif needs_general_notification_refresh or needs_unthemed_refresh:
-                row.body = default_body
-                if default_subject:
-                    row.subject = default_subject
-                row.updated_at = datetime.utcnow()
-                db.add(row)
-                changed = True
-            elif needs_weekly_digest_refresh or needs_sales_offer_refresh:
-                row.body = default_body
-                if default_subject:
-                    row.subject = default_subject
-                row.updated_at = datetime.utcnow()
-                db.add(row)
-                changed = True
-            else:
-                patched = inject_brand_tagline(body)
-                if patched:
-                    row.body = patched
-                    row.updated_at = datetime.utcnow()
-                    db.add(row)
-                    changed = True
-        if changed:
+                created = True
+        if created:
             db.commit()
 
     @staticmethod
