@@ -136,12 +136,18 @@ def _build_recipient_session_summary(recipient: ServiceOrderRecipient) -> dict[s
                 positive_topics.append(label)
 
     why_parts = [f"{a['question']}: {a['answer']}" for a in poor_answers[:8]]
+    result = _recipient_result(recipient)
+    final = str(result.get("final_additional_feedback") or "").strip() or None
+    from app.services.ai_followup_report_service import extract_wa_written_feedback
+
+    written_feedback = extract_wa_written_feedback(_wa_answers(recipient), final_additional=final)
     why_unhappy = "; ".join(why_parts) if why_parts else "Low rating with no written reason given in the survey."
     return {
         "poor_topics": poor_topics,
         "poor_answers": poor_answers,
         "positive_topics": positive_topics,
         "no_topics": [],
+        "written_feedback": written_feedback,
         "why_unhappy": why_unhappy,
     }
 
@@ -430,6 +436,14 @@ def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
         except Exception:
             logger.exception("survey_ai_followup_report_backfill_failed job_id=%s", job.id)
     promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
+    from app.services.ai_followup_report_service import build_followup_reason_report
+
+    reason_report = build_followup_reason_report(
+        session_summary=summary,
+        outcome=outcome,
+        status=job.status,
+        business_context=job.business_context,
+    )
     return {
         "id": job.id,
         "recipient_id": job.recipient_id,
@@ -441,6 +455,7 @@ def job_to_report_dict(job: SurveyAiFollowUpJob) -> dict[str, Any]:
         "poor_topics": summary.get("poor_topics") or [],
         "poor_answers": poor_answers,
         "why_unhappy": why,
+        "reason_report": reason_report,
         "positive_topics": summary.get("positive_topics") or [],
         "promo_enabled": bool(job.promo_enabled),
         "promo_code": job.promo_code,
@@ -602,6 +617,17 @@ def handle_survey_ai_followup_telnyx_event(db: Session, payload: dict[str, Any])
             except Exception:
                 logger.exception("survey_ai_followup_promo_email_failed job_id=%s", job.id)
                 outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
+
+        from app.services.ai_followup_report_service import describe_call_findings, extract_customer_lines_from_transcript
+
+        call_findings = extract_customer_lines_from_transcript(transcript) or describe_call_findings(
+            transcript=transcript,
+            transcript_excerpt=outcome.get("transcript_excerpt") if isinstance(outcome.get("transcript_excerpt"), str) else None,
+            duration_seconds=duration_seconds,
+            status=job.status,
+        )
+        if call_findings:
+            outcome["call_findings"] = call_findings
 
         outcome.update(
             {

@@ -177,6 +177,7 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
     poor_answers: list[dict[str, str]] = []
     positive_topics: list[str] = []
     no_topics: list[str] = []
+    written_feedback: list[dict[str, str]] = []
 
     for row in rows:
         answer = str(row.answer_text or row.original_text or "").strip()
@@ -189,6 +190,7 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
         )
         pge = classify_pge(answer)
         yn = classify_yn(answer)
+        qkey = str(row.question_key or "").lower()
         if pge == "poor" or yn == "no":
             if label not in poor_topics:
                 poor_topics.append(label)
@@ -200,6 +202,13 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
             if label not in no_topics:
                 no_topics.append(label)
 
+        from app.services.ai_followup_report_service import _is_rating_only_answer
+
+        is_reason_key = any(token in qkey for token in ("reason", "tell_us_more", "followup", "improvement", "comment"))
+        source = str(row.answer_source or "").strip().lower() or "text"
+        if not _is_rating_only_answer(answer) and (is_reason_key or source in {"voice", "voice_note"} or len(answer) >= 12):
+            written_feedback.append({"question": label, "text": answer, "source": source})
+
     why_parts = [f"{a['question']}: {a['answer']}" for a in poor_answers[:8]]
     why_unhappy = "; ".join(why_parts) if why_parts else "Low rating with no written reason given in the survey."
     return {
@@ -207,6 +216,7 @@ def _build_session_summary(db: Session, session_id: str) -> dict[str, Any]:
         "poor_answers": poor_answers,
         "positive_topics": positive_topics,
         "no_topics": no_topics,
+        "written_feedback": written_feedback,
         "why_unhappy": why_unhappy,
     }
 
@@ -688,6 +698,14 @@ def job_to_report_dict(job) -> dict[str, Any]:
     poor_answers = summary.get("poor_answers") if isinstance(summary.get("poor_answers"), list) else []
     why = str(summary.get("why_unhappy") or outcome.get("why_unhappy") or "").strip() or None
     promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
+    from app.services.ai_followup_report_service import build_followup_reason_report
+
+    reason_report = build_followup_reason_report(
+        session_summary=summary,
+        outcome=outcome,
+        status=job.status,
+        business_context=getattr(job, "business_context", None),
+    )
     return {
         "id": job.id,
         "session_id": getattr(job, "session_id", None),
@@ -699,6 +717,7 @@ def job_to_report_dict(job) -> dict[str, Any]:
         "poor_topics": summary.get("poor_topics") or [],
         "poor_answers": poor_answers,
         "why_unhappy": why,
+        "reason_report": reason_report,
         "positive_topics": summary.get("positive_topics") or [],
         "promo_enabled": bool(getattr(job, "promo_enabled", False)),
         "promo_code": getattr(job, "promo_code", None),
@@ -888,6 +907,17 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
             except Exception:
                 logger.exception("feedback_ai_followup_promo_email_failed job_id=%s", job.id)
                 outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
+
+        from app.services.ai_followup_report_service import describe_call_findings, extract_customer_lines_from_transcript
+
+        call_findings = extract_customer_lines_from_transcript(transcript) or describe_call_findings(
+            transcript=transcript,
+            transcript_excerpt=outcome.get("transcript_excerpt") if isinstance(outcome.get("transcript_excerpt"), str) else None,
+            duration_seconds=duration_seconds,
+            status=job.status,
+        )
+        if call_findings:
+            outcome["call_findings"] = call_findings
 
         outcome.update(
             {

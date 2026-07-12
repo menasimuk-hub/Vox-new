@@ -9,6 +9,20 @@ export type AiFollowUpPoorAnswer = {
   answer?: string;
 };
 
+export type AiFollowUpWrittenReason = {
+  question?: string;
+  text?: string;
+  source?: string;
+};
+
+export type AiFollowUpReasonReport = {
+  survey_low_ratings?: AiFollowUpPoorAnswer[];
+  survey_written_reason?: string | null;
+  survey_written_reasons?: AiFollowUpWrittenReason[];
+  call_findings?: string | null;
+  narrative?: string | null;
+};
+
 export type AiFollowUpReport = {
   id?: string;
   status?: string | null;
@@ -17,6 +31,7 @@ export type AiFollowUpReport = {
   poor_topics?: string[];
   poor_answers?: AiFollowUpPoorAnswer[];
   why_unhappy?: string | null;
+  reason_report?: AiFollowUpReasonReport | null;
   positive_topics?: string[];
   promo_enabled?: boolean;
   promo_code?: string | null;
@@ -77,9 +92,22 @@ function formatDuration(seconds: unknown): string | null {
 
 export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpReport | null }) {
   if (!report?.status) return null;
-  const poor = report.poor_topics || [];
-  const poorAnswers = (report.poor_answers || []).filter((a) => a?.question || a?.answer);
   const outcome = report.outcome || {};
+  const reasonReport =
+    report.reason_report ||
+    (typeof outcome.reason_report === "object" && outcome.reason_report
+      ? (outcome.reason_report as AiFollowUpReasonReport)
+      : null);
+  const lowRatings = (reasonReport?.survey_low_ratings || report.poor_answers || []).filter(
+    (a) => a?.question || a?.answer,
+  );
+  const writtenReasons = (reasonReport?.survey_written_reasons || []).filter((w) => w?.text);
+  const callFindings =
+    (typeof reasonReport?.call_findings === "string" && reasonReport.call_findings.trim()) ||
+    (typeof outcome.call_findings === "string" && outcome.call_findings.trim()) ||
+    null;
+  const narrative =
+    (typeof reasonReport?.narrative === "string" && reasonReport.narrative.trim()) || null;
   const skip = typeof outcome.skip_reason === "string" ? outcome.skip_reason : null;
   const defer = typeof outcome.defer_reason === "string" ? outcome.defer_reason : null;
   const excerpt =
@@ -88,11 +116,11 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
     null;
   const hangup = typeof outcome.hangup_cause === "string" ? outcome.hangup_cause : null;
   const duration = formatDuration(outcome.duration_seconds);
-  const why =
-    (typeof report.why_unhappy === "string" && report.why_unhappy.trim()) ||
-    (typeof outcome.why_unhappy === "string" && outcome.why_unhappy.trim()) ||
-    null;
-  const promoEmail = report.promo_email || (typeof outcome.promo_email === "object" && outcome.promo_email ? (outcome.promo_email as AiFollowUpReport["promo_email"]) : null);
+  const promoEmail =
+    report.promo_email ||
+    (typeof outcome.promo_email === "object" && outcome.promo_email
+      ? (outcome.promo_email as AiFollowUpReport["promo_email"])
+      : null);
 
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -105,25 +133,59 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
           <Badge variant={aiFollowUpStatusTone(report.status)}>{aiFollowUpStatusLabel(report.status)}</Badge>
         </div>
 
+        {narrative ? (
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-foreground">Summary</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{narrative}</p>
+          </div>
+        ) : null}
+
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-foreground">Why the customer was unhappy</p>
-          {poorAnswers.length > 0 ? (
+          <p className="text-xs font-medium text-foreground">What they rated low (survey)</p>
+          <p className="text-[11px] text-muted-foreground">This is the score — not the reason they were unhappy.</p>
+          {lowRatings.length > 0 ? (
             <ul className="space-y-1 text-xs text-muted-foreground">
-              {poorAnswers.slice(0, 6).map((row, idx) => (
+              {lowRatings.slice(0, 6).map((row, idx) => (
                 <li key={`${row.question}-${idx}`}>
-                  <span className="text-foreground/80">{row.question || "Topic"}:</span>{" "}
-                  {row.answer || "—"}
+                  <span className="text-foreground/80">{row.question || "Topic"}:</span> {row.answer || "—"}
                 </li>
               ))}
             </ul>
-          ) : why ? (
-            <p className="text-xs text-muted-foreground">{why}</p>
-          ) : poor.length > 0 ? (
-            <p className="text-xs text-muted-foreground">Low scores on: {poor.slice(0, 4).join(", ")}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No low ratings recorded.</p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-foreground">Reason in survey</p>
+          {writtenReasons.length > 0 ? (
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {writtenReasons.slice(0, 4).map((row, idx) => (
+                <li key={`${row.question}-${idx}`}>
+                  <span className="text-foreground/80">{row.question || "Feedback"}:</span> {row.text}
+                </li>
+              ))}
+            </ul>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Scheduled after a low rating with no written reason in the survey.
+              No reason written in WhatsApp — that is why the AI follow-up call was placed.
             </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-foreground">What we learned from the call</p>
+          {callFindings ? (
+            <blockquote className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+              {callFindings}
+            </blockquote>
+          ) : report.status === "completed" ? (
+            <p className="text-xs text-muted-foreground">
+              Call completed but no clear reason was captured
+              {duration ? ` (duration ${duration})` : ""}.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Waiting for AI follow-up call outcome.</p>
           )}
         </div>
 
@@ -142,9 +204,9 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
           {report.call_id ? <p className="break-all">Call ID: {report.call_id}</p> : null}
         </div>
 
-        {excerpt ? (
+        {excerpt && excerpt !== callFindings ? (
           <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Call notes / transcript</p>
+            <p className="text-xs font-medium text-foreground">Full transcript excerpt</p>
             <blockquote className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
               {excerpt}
             </blockquote>
@@ -160,7 +222,7 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
             ) : promoEmail?.reason ? (
               <p>Email not sent: {String(promoEmail.reason).replace(/_/g, " ")}</p>
             ) : report.status === "completed" ? (
-              <p>Email pending or not configured</p>
+              <p>Email pending — configure survey.codes@voxbulk.com in Admin</p>
             ) : (
               <p>Sent by email after a completed call (when mailbox is enabled)</p>
             )}
