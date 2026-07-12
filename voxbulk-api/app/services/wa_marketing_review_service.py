@@ -747,14 +747,22 @@ def run_full_marketing_migration(
             approve_all=True,
             only_lint_ok=only_lint_ok_push,
         )
+        # approve_rewritten_for_push writes disk; reload so plan sees approved_push
+        manifest = load_manifest(batch_id)
         plan = manifest_items_to_plan(manifest, approved_only=True)
         if not plan:
-            push_result = {"ok": 0, "failed": 0, "message": "No approved_push items"}
+            push_result = {
+                "ok": 0,
+                "failed": 0,
+                "message": "No approved_push items",
+                "approve_push": approve_push,
+            }
         elif not push_yes:
             push_result = {
                 "ok": 0,
                 "failed": 0,
                 "message": f"Review complete. {len(plan)} item(s) ready — re-run with --push --yes",
+                "approve_push": approve_push,
             }
         else:
             results = apply_purge_plan(
@@ -770,7 +778,13 @@ def run_full_marketing_migration(
                 batch_id=batch_id,
             )
             ok = sum(1 for r in results if r.get("ok"))
-            push_result = {"ok": ok, "failed": len(results) - ok, "total": len(results)}
+            push_result = {
+                "ok": ok,
+                "failed": len(results) - ok,
+                "total": len(results),
+                "approve_push": approve_push,
+            }
+        manifest = load_manifest(batch_id)
     return {
         "batch_id": batch_id,
         "listed": listed,

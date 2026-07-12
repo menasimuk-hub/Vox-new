@@ -214,6 +214,14 @@ def audit_multilang_consistency(
         return [anchor_lang], [lang for lang in all_langs if lang != anchor_lang], "audit_failed_rewrite_all"
 
 
+def _remote_is_marketing(variant: LangVariant) -> bool:
+    """True when discover flagged this remote as MARKETING on Meta/Telnyx."""
+    reasons = variant.meta.get("reasons") if isinstance(variant.meta, dict) else None
+    if not isinstance(reasons, list):
+        return False
+    return any(str(r or "").startswith("remote_marketing_") for r in reasons)
+
+
 def _lang_needs_rewrite(
     variant: LangVariant,
     *,
@@ -224,6 +232,9 @@ def _lang_needs_rewrite(
     lang = _norm_lang_token(variant.language)
     if _body_has_recommend_intent(variant.body_before):
         return True, "recommend_intent_rule_based"
+    # Remote still MARKETING: never skip as compliant — Meta won't reclass in place.
+    if _remote_is_marketing(variant):
+        return True, "remote_still_marketing_force_rewrite"
     lint_before = lint_utility_template(
         body=variant.body_before,
         buttons=variant.buttons,
@@ -280,6 +291,19 @@ def rewrite_group_variants(
             language=anchor.language,
         )
         anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
+        # Force a real body change when Meta still has MARKETING (rename-only won't reclass).
+        if not anchor.rewritten and _remote_is_marketing(anchor):
+            from app.services.survey_wa_utility_rewrite_service import _rule_based_utility_body
+
+            anchor.body_after = _rule_based_utility_body(
+                anchor.body_before,
+                topic_hint=anchor.topic_name or anchor.template_key or "",
+                industry_slug=anchor.industry_slug,
+                industry_name=anchor.industry_name,
+                language=anchor.language,
+                template_name=anchor.remote_name or anchor.label,
+            )
+            anchor.rewritten = anchor.body_after.strip() != anchor.body_before.strip()
         if not anchor.rewritten:
             lint_after = lint_utility_template(
                 body=anchor.body_after or anchor.body_before,
@@ -364,6 +388,18 @@ def rewrite_group_variants(
                 template_name=variant.remote_name or variant.label,
             )
         variant.rewritten = variant.body_after.strip() != variant.body_before.strip()
+        if not variant.rewritten and _remote_is_marketing(variant):
+            from app.services.survey_wa_utility_rewrite_service import _rule_based_utility_body
+
+            variant.body_after = _rule_based_utility_body(
+                variant.body_before,
+                topic_hint=variant.topic_name or variant.template_key or "",
+                industry_slug=variant.industry_slug,
+                industry_name=variant.industry_name,
+                language=variant.language,
+                template_name=variant.remote_name or variant.label,
+            )
+            variant.rewritten = variant.body_after.strip() != variant.body_before.strip()
         if not variant.rewritten:
             lint_after = lint_utility_template(
                 body=variant.body_after or variant.body_before,
