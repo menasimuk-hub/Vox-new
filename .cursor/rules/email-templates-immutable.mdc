@@ -1,0 +1,25 @@
+---
+description: Never modify existing email templates — only add new keys
+alwaysApply: true
+---
+
+# Email templates are immutable (Admin owns content)
+
+## Hard rule (confirmed by product owner)
+
+- **Never change** an existing email template row: body, subject, title, layout, HTML, colours, or wording.
+- **Allowed:** create a **new** template key (insert missing only) when a new product email is required.
+- **Forbidden:** overwrite, refresh, migrate, “fix layout”, inject taglines, or replace Admin-saved HTML on boot or deploy.
+- If an existing template looks wrong: **tell the user** and wait — do not “fix” it in code or DB unless they explicitly ask to edit that key.
+
+## Code contract
+
+- `EmailTemplateService.ensure_system_templates` must **insert missing keys only**.
+- Do not add `needs_*_refresh` / body rewrite paths that patch existing rows.
+- Outcome sends must use the **named Admin key** (e.g. `interview_session_reschedule`) — never silently fall back to an older template that looks like a layout change.
+- Repo defaults in `system_email_defaults.py` are for **new** inserts only; they must not overwrite production DB content.
+
+## Agent behaviour
+
+- Do not edit `email_templates` via scripts, VPS SQL, or “sync from defaults” unless the user explicitly requests that specific key change.
+- Prefer paste-ready Admin HTML in chat when they ask for copy — do not write it into the DB unless asked.

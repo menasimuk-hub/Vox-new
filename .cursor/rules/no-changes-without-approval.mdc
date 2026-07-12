@@ -14,12 +14,12 @@ alwaysApply: true
 
 - **Never change layout, theme, or visual structure** without explicit approval.
 - Layout includes: HTML structure, wrapper markup, tables, sections, colours, fonts, spacing, padding, borders, buttons, logos, badges, and email wrapper (`wrap_brand_email`, admin UI layout, dashboard pages).
-- **Email templates:** keep the existing HTML/theme exactly as-is. Allowed only when the user explicitly requests it: fix **placeholders/variables**, missing data, or **text wording** — not restructure, retheme, or rewrite.
-- **Do not** auto-refresh or overwrite production `email_templates` DB rows, `ensure_system_templates` refresh rules, or admin-saved content unless the user asked for that sync.
+- **Email templates (strict):** never change an **existing** Admin email template (body/subject/layout). You may **add a new template key** only. Do not auto-refresh or overwrite production `email_templates` DB rows. See `email-templates-immutable.mdc`.
+- **Do not** run `ensure_system_templates` refresh rules that rewrite saved content unless the user asked for that sync.
 
 ## When the user says "text only" or "keep theme"
 
-- Change **words and `{{placeholders}}` only**.
+- Change **words and `{{placeholders}}` only** — and only when they explicitly named that template key and asked to edit wording.
 - Do not swap wrappers, add/remove sections, inject taglines, or change colours unless they asked for that specific item.
 
 ## Deliverables
