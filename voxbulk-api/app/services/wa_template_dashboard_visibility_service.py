@@ -48,6 +48,12 @@ def platform_template_blocks_dashboard(row: TelnyxWhatsappTemplate | None) -> bo
         return False
     if is_marketing_wa_category(getattr(row, "category", None)):
         return True
+    # Thank-you / tell-us-more / closing / buttonless open text are sent as local session
+    # free-form once the customer has replied — Meta APPROVED is not required to list them.
+    from app.services.survey_whatsapp_template_service import template_row_must_send_as_session_text
+
+    if template_row_must_send_as_session_text(row):
+        return False
     return is_pending_wa_status(getattr(row, "status", None))
 
 
