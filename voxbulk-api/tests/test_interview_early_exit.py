@@ -289,3 +289,159 @@ def test_reclassify_unlocks_completed_after_transcript(db_session):
     db_session.refresh(recipient)
     assert recipient.status == "pending"
     assert interview_booking_locked(recipient) is None
+
+
+def test_reclassify_web_technical_abort_to_recording_declined(db_session):
+    """Web often ends as technical_abort before STT; Layer 2 must opt-out like phone."""
+    from app.models.interview_booking_token import InterviewBookingToken
+    from app.models.organisation import Organisation
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.interview_early_exit_service import (
+        maybe_reclassify_interview_outcome_after_transcript,
+    )
+
+    org = Organisation(id=str(uuid.uuid4()), name="Org")
+    db_session.add(org)
+    db_session.flush()
+    order = ServiceOrder(
+        org_id=org.id,
+        user_id=str(uuid.uuid4()),
+        service_code="interview",
+        title="Role",
+        status="running",
+        payment_status="approved",
+        recipient_count=1,
+        config_json=json.dumps({"delivery": "ai_meeting", "role": "Host"}),
+    )
+    db_session.add(order)
+    db_session.flush()
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        row_number=1,
+        name="Alex",
+        email="alex@example.com",
+        phone="+441111",
+        status="pending",
+        result_json=json.dumps(
+            {
+                "channel": "meeting",
+                "call_channel": "meeting",
+                "duration_seconds": 55,
+                "session_outcome": "technical_abort",
+                "early_exit_reason": "technical_abort",
+                "awaiting_candidate_action": True,
+                "transcript": (
+                    "Agent: This call is recorded for quality, is that okay? "
+                    "User: No I don't consent to being recorded. "
+                    "Agent: Understood, goodbye."
+                ),
+            }
+        ),
+    )
+    db_session.add(recipient)
+    db_session.flush()
+    db_session.add(
+        InterviewBookingToken(
+            order_id=order.id,
+            recipient_id=recipient.id,
+            org_id=org.id,
+            token=f"decline-token-{uuid.uuid4().hex[:8]}",
+            channel="meeting",
+            booked_start_at=None,
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.services.interview_session_outcome_email_service.dispatch_interview_session_outcome_email",
+        return_value={"ok": True},
+    ), patch(
+        "app.services.interview_outcome_whatsapp_service.maybe_send_interview_outcome_whatsapp",
+        return_value=None,
+    ):
+        result = maybe_reclassify_interview_outcome_after_transcript(
+            db_session, order=order, recipient=recipient
+        )
+    assert result is not None
+    assert result.get("outcome") == "recording_declined"
+    db_session.refresh(recipient)
+    assert recipient.status == "opted_out"
+    data = json.loads(recipient.result_json or "{}")
+    assert data.get("opt_out_reason") == "recording_declined"
+    assert data.get("awaiting_candidate_action") is False
+
+
+def test_reclassify_web_technical_abort_mid_interview_to_completed(db_session):
+    """Mid-interview hangup on web must become completed (no reschedule), like phone."""
+    from app.models.interview_booking_token import InterviewBookingToken
+    from app.models.organisation import Organisation
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.interview_booking_service import interview_booking_locked
+    from app.services.interview_early_exit_service import (
+        maybe_reclassify_interview_outcome_after_transcript,
+    )
+
+    org = Organisation(id=str(uuid.uuid4()), name="Org")
+    db_session.add(org)
+    db_session.flush()
+    order = ServiceOrder(
+        org_id=org.id,
+        user_id=str(uuid.uuid4()),
+        service_code="interview",
+        title="Role",
+        status="running",
+        payment_status="approved",
+        recipient_count=1,
+        config_json=json.dumps({"delivery": "ai_meeting", "role": "Host"}),
+    )
+    db_session.add(order)
+    db_session.flush()
+    recipient = ServiceOrderRecipient(
+        order_id=order.id,
+        row_number=1,
+        name="Alex",
+        email="alex@example.com",
+        phone="+441111",
+        status="skipped",
+        result_json=json.dumps(
+            {
+                "channel": "meeting",
+                "call_channel": "meeting",
+                "duration_seconds": 50,
+                "session_outcome": "technical_abort",
+                "early_exit_reason": "technical_abort",
+                "awaiting_candidate_action": True,
+                "session_signals": {"questions_asked": 2},
+                "transcript": (
+                    "First question: tell me about your experience. "
+                    "I worked five years in retail managing a team. "
+                    "Next question: describe a challenge. We fixed stock. "
+                    "I need to stop now please."
+                ),
+            }
+        ),
+    )
+    db_session.add(recipient)
+    db_session.flush()
+    db_session.add(
+        InterviewBookingToken(
+            order_id=order.id,
+            recipient_id=recipient.id,
+            org_id=org.id,
+            token=f"midstop-token-{uuid.uuid4().hex[:8]}",
+            channel="meeting",
+            booked_start_at=None,
+        )
+    )
+    db_session.commit()
+
+    result = maybe_reclassify_interview_outcome_after_transcript(
+        db_session, order=order, recipient=recipient
+    )
+    assert result is not None
+    assert result.get("outcome") == "completed"
+    db_session.refresh(recipient)
+    assert recipient.status == "completed"
+    data = json.loads(recipient.result_json or "{}")
+    assert data.get("awaiting_candidate_action") is False
+    assert interview_booking_locked(recipient) is not None

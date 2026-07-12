@@ -290,6 +290,11 @@ class InterviewMeetingService:
         )
         db.refresh(recipient)
 
+        # Always schedule Layer 2: web often ends before STT is ready. When transcript
+        # arrives, reclassify technical_abort/reschedule → completed or recording_declined
+        # (same rules as phone hangup).
+        schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
+
         if outcome != "completed":
             return result
 
@@ -313,13 +318,15 @@ class InterviewMeetingService:
         if interview_ready_for_completion_side_effects(recipient=recipient):
             _finalize_order_if_done(db, order)
 
-        schedule_interview_meeting_analysis_retry(db, order.id, recipient.id)
-
         return {"ok": True, "status": recipient.status, "outcome": "completed"}
 
 
 def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipient_id: str) -> None:
-    """Layer 2 + analysis: wait for Telnyx transcript, reclassify, then score if still completed."""
+    """Layer 2 + analysis: wait for Telnyx transcript, reclassify, then score if still completed.
+
+    Also reclassifies web early exits (technical_abort / reschedule) once STT arrives so
+    recording decline → opt-out and mid-interview stop → completed (no rebook), matching phone.
+    """
     import threading
     import time
 
@@ -335,28 +342,42 @@ def schedule_interview_meeting_analysis_retry(db: Session, order_id: str, recipi
                     recipient = session.get(ServiceOrderRecipient, recipient_id)
                     if not order or not recipient:
                         return
-                    if str(recipient.status or "").lower() != "completed":
+
+                    status = str(recipient.status or "").lower()
+                    merged = _recipient_result(recipient)
+                    stored_outcome = str(merged.get("session_outcome") or "").strip().lower()
+                    early_exit = stored_outcome in {"technical_abort", "reschedule", "wrong_person"}
+                    is_completed = status == "completed"
+                    is_early = status in {"pending", "skipped"} and early_exit
+                    if not is_completed and not is_early:
+                        return
+                    if merged.get("session_outcome_reviewed_at") and not is_completed:
                         return
 
                     from app.services.interview_analysis_service import InterviewAnalysisService
                     from app.services.interview_call_dispatch_service import _finalize_order_if_done
                     from app.services.interview_early_exit_service import (
                         interview_ready_for_completion_side_effects,
-                        maybe_reclassify_completed_interview_after_transcript,
+                        maybe_reclassify_interview_outcome_after_transcript,
                     )
                     from app.services.survey_analysis_service import ensure_survey_transcript
 
                     ensure_survey_transcript(session, order=order, recipient=recipient)
                     session.refresh(recipient)
 
-                    corrected = maybe_reclassify_completed_interview_after_transcript(
+                    corrected = maybe_reclassify_interview_outcome_after_transcript(
                         session, order=order, recipient=recipient
                     )
-                    if corrected is not None:
+                    session.refresh(recipient)
+                    status = str(recipient.status or "").lower()
+                    if corrected is not None and status != "completed":
+                        # recording_declined / remaining early-exit — stop retrying.
                         return
 
-                    session.refresh(recipient)
-                    if str(recipient.status or "").lower() != "completed":
+                    if status != "completed":
+                        # Still an early exit with no stronger transcript signal yet — keep waiting.
+                        if is_early:
+                            continue
                         return
 
                     if not interview_ready_for_completion_side_effects(recipient=recipient):

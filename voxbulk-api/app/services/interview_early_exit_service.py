@@ -359,17 +359,39 @@ def maybe_reclassify_completed_interview_after_transcript(
     order: ServiceOrder,
     recipient: ServiceOrderRecipient,
 ) -> dict[str, Any] | None:
-    """Layer 2: after STT arrives, correct a provisional/wrong 'completed' outcome.
+    """Layer 2: after STT arrives, correct provisional/wrong outcomes (phone + web).
 
-    Returns the apply result when the outcome changes away from completed; otherwise None.
+    Handles:
+    - completed → early exit (existing)
+    - technical_abort / reschedule / wrong_person → completed or recording_declined
+      (web meetings often end before transcript is ready; phone usually has STT at hangup)
     """
+    return maybe_reclassify_interview_outcome_after_transcript(db, order=order, recipient=recipient)
+
+
+def maybe_reclassify_interview_outcome_after_transcript(
+    db: Session,
+    *,
+    order: ServiceOrder,
+    recipient: ServiceOrderRecipient,
+) -> dict[str, Any] | None:
+    """Re-run session outcome once a usable transcript exists. Returns apply result if changed."""
     db.refresh(recipient)
     status = str(recipient.status or "").lower()
-    if status not in {"completed", "done"}:
-        return None
-
     merged = _recipient_result(recipient)
     if merged.get("session_outcome_reviewed_at"):
+        return None
+
+    stored = str(merged.get("session_outcome") or "").strip().lower()
+    early_exit_outcomes = {"technical_abort", "reschedule", "wrong_person"}
+    is_completed_row = status in {"completed", "done"}
+    is_early_exit_row = stored in early_exit_outcomes or (
+        status in {"pending", "skipped"} and stored in early_exit_outcomes
+    )
+    if not is_completed_row and not is_early_exit_row:
+        return None
+    # Never reopen hard opt-outs.
+    if status == "opted_out" or merged.get("opted_out") or stored == "recording_declined":
         return None
 
     transcript = str(merged.get("transcript") or "").strip()
@@ -382,16 +404,19 @@ def maybe_reclassify_completed_interview_after_transcript(
     except (TypeError, ValueError):
         duration = None
 
+    signals = merged.get("session_signals") if isinstance(merged.get("session_signals"), dict) else {}
     outcome = resolve_interview_session_outcome(
         db,
         duration_seconds=duration,
         transcript=transcript,
         use_llm=True,
-        session_signals=merged.get("session_signals") if isinstance(merged.get("session_signals"), dict) else {},
+        session_signals=signals,
     )
     reviewed_at = datetime.utcnow().isoformat()
+    channel_raw = str(merged.get("channel") or merged.get("call_channel") or "meeting").strip() or "meeting"
+    channel = "meeting" if channel_raw == "meeting" else "ai_call"
 
-    if outcome == "completed":
+    if is_completed_row and outcome == "completed":
         _set_recipient_result(
             db,
             recipient,
@@ -405,14 +430,30 @@ def maybe_reclassify_completed_interview_after_transcript(
         )
         return None
 
-    channel = str(merged.get("channel") or merged.get("call_channel") or "meeting").strip() or "meeting"
-    # Clear completed artifacts before applying the corrected early-exit outcome.
+    if is_early_exit_row and outcome == stored:
+        _set_recipient_result(
+            db,
+            recipient,
+            {
+                "session_outcome_reviewed_at": reviewed_at,
+                "session_outcome_provisional": False,
+                "session_outcome_layer": "transcript_review_llm",
+            },
+        )
+        return None
+
+    # Outcome changed — apply the corrected terminal/early-exit path.
     cleaned = _recipient_result(recipient)
-    _strip_completed_interview_artifacts(cleaned)
+    if is_completed_row:
+        _strip_completed_interview_artifacts(cleaned)
+        recipient.status = "pending"
     cleaned["session_outcome_reviewed_at"] = reviewed_at
     cleaned["session_outcome_layer"] = "transcript_review"
+    # Mid-interview stop must not stay open for rebook once we know it was a real session.
+    if outcome == "completed":
+        cleaned["awaiting_candidate_action"] = False
+        cleaned.pop("early_exit_reason", None)
     recipient.result_json = json.dumps(cleaned, ensure_ascii=False)
-    recipient.status = "pending"
     recipient.updated_at = datetime.utcnow()
     db.add(recipient)
     db.commit()
@@ -425,21 +466,23 @@ def maybe_reclassify_completed_interview_after_transcript(
         outcome=outcome,
         duration_seconds=duration,
         transcript=transcript,
-        channel="meeting" if channel == "meeting" else "ai_call",
+        channel=channel,
         extra={
             "session_outcome_reviewed_at": reviewed_at,
             "session_outcome_layer": "transcript_review",
-            "corrected_from_status": "completed",
+            "corrected_from_status": status,
+            "corrected_from_outcome": stored or None,
         },
     )
-    try:
-        _maybe_reopen_order_after_early_exit(db, order)
-    except Exception:
-        logger.exception(
-            "interview_reopen_order_after_early_exit_failed order=%s recipient=%s",
-            order.id,
-            recipient.id,
-        )
+    if outcome in {"reschedule", "wrong_person", "technical_abort"}:
+        try:
+            _maybe_reopen_order_after_early_exit(db, order)
+        except Exception:
+            logger.exception(
+                "interview_reopen_order_after_early_exit_failed order=%s recipient=%s",
+                order.id,
+                recipient.id,
+            )
     try:
         from app.services.interview_analysis_service import refresh_order_interview_report
 
@@ -451,7 +494,9 @@ def maybe_reclassify_completed_interview_after_transcript(
         extra={
             "order_id": order.id,
             "recipient_id": recipient.id,
+            "from_outcome": stored,
             "outcome": outcome,
+            "channel": channel,
         },
     )
     return result
