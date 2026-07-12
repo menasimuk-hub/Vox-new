@@ -812,6 +812,7 @@ def execute_sales_outbound_call(
         to_number=normalize_telnyx_e164(phone),
         from_number=from_number,
         config=config,
+        enable_media_stream=False,
         client_state={
             "lead_sales_task_id": task.id,
             "telnyx_assistant_id": normalize_telnyx_assistant_id(assistant_id),

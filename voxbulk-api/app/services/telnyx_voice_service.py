@@ -458,6 +458,7 @@ class TelnyxVoiceAdapter:
         from_number: str,
         config: dict[str, Any],
         client_state: dict[str, Any] | None = None,
+        enable_media_stream: bool = True,
     ) -> TelnyxProviderResult:
         connection_id = str(config.get("connection_id") or "").strip()
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
@@ -468,6 +469,9 @@ class TelnyxVoiceAdapter:
             from_e164, account_numbers, from_error = TelnyxVoiceAdapter.validate_from_number(api_key=api_key, from_number=from_number)
             if from_error:
                 return TelnyxProviderResult(ok=False, status="invalid_caller_id", detail=from_error)
+            # AI Assistant owns call media. Attaching stream_url (legacy AgentManager WS)
+            # can leave the callee with silence while the assistant conversation still runs.
+            media_stream_url = config.get("media_stream_url") if enable_media_stream else None
             payload = TelnyxVoiceAdapter._create_call(
                 api_key=api_key,
                 connection_id=connection_id,
@@ -475,7 +479,7 @@ class TelnyxVoiceAdapter:
                 from_number=from_e164,
                 voice_webhook_url=config.get("voice_webhook_url"),
                 status_callback_url=config.get("status_callback_url"),
-                media_stream_url=config.get("media_stream_url"),
+                media_stream_url=media_stream_url,
                 client_state=client_state,
             )
             data = payload.get("data") or payload
@@ -488,6 +492,36 @@ class TelnyxVoiceAdapter:
             if "origination" in detail.lower() or ("invalid" in detail.lower() and "caller" in detail.lower()):
                 return TelnyxProviderResult(ok=False, status="http_error", detail=f"{detail}. {telnyx_caller_hint(from_e164, account_numbers)}")
             return TelnyxProviderResult(ok=False, status="http_error", detail=detail)
+        except httpx.HTTPError as e:
+            return TelnyxProviderResult(ok=False, status="http_error", detail=str(e))
+        except Exception as e:
+            return TelnyxProviderResult(ok=False, status="error", detail=str(e))
+
+    @staticmethod
+    def stop_media_streaming(*, call_control_id: str, config: dict[str, Any]) -> TelnyxProviderResult:
+        """Best-effort stop of Call Control media streaming before AI Assistant start."""
+        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        call_id = str(call_control_id or "").strip()
+        if not api_key or not call_id:
+            return TelnyxProviderResult(
+                ok=False,
+                status="not_configured",
+                detail="Telnyx API key and call_control_id are required",
+            )
+        try:
+            with httpx.Client(timeout=10.0, verify=httpx_ssl_verify()) as client:
+                response = client.post(
+                    f"https://api.telnyx.com/v2/calls/{call_id}/actions/streaming_stop",
+                    json={},
+                    headers=_telnyx_headers(api_key),
+                )
+            # 422 when no stream is active is fine — treat as success for callers.
+            if response.status_code in {200, 422}:
+                return TelnyxProviderResult(ok=True, status="streaming_stopped", external_id=call_id)
+            response.raise_for_status()
+            return TelnyxProviderResult(ok=True, status="streaming_stopped", external_id=call_id, payload=response.json())
+        except httpx.HTTPStatusError as e:
+            return TelnyxProviderResult(ok=False, status="http_error", detail=_telnyx_http_error_detail(e))
         except httpx.HTTPError as e:
             return TelnyxProviderResult(ok=False, status="http_error", detail=str(e))
         except Exception as e:
@@ -515,6 +549,9 @@ class TelnyxVoiceAdapter:
                 status="not_configured",
                 detail="Telnyx API key and call_control_id are required",
             )
+        # Telnyx rejects / conflicts some call commands while media streaming is active;
+        # drop any fork before attaching the AI Assistant so callee hears TTS.
+        TelnyxVoiceAdapter.stop_media_streaming(call_control_id=call_id, config=config)
         clean_instructions = str(instructions or "").strip()
         clean_greeting = str(greeting or "").strip()
         assistant_block: dict[str, Any] = {"id": clean_assistant}

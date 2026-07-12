@@ -759,6 +759,7 @@ class InterviewCallDispatchService:
             to_number=to_number,
             from_number=from_number,
             config=telnyx_config,
+            enable_media_stream=False,
             client_state={
                 "interview_call": True,
                 "service_order_id": order.id,

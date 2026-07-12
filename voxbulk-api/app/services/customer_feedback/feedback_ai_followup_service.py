@@ -606,6 +606,7 @@ def _dispatch_job(db: Session, job) -> str | None:
         to_number=to_number,
         from_number=from_number,
         config=telnyx_config,
+        enable_media_stream=False,
         client_state={
             "feedback_ai_followup": True,
             "feedback_ai_followup_job_id": job.id,

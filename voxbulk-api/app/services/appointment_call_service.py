@@ -93,6 +93,7 @@ def _start_call(
         to_number=normalize_e164(appt.contact_phone),
         from_number=from_number,
         config=telnyx_config,
+        enable_media_stream=False,
         client_state={
             "appointment_call": True,
             "call_kind": call_kind,
