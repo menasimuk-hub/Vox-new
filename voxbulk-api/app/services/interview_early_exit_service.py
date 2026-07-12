@@ -146,6 +146,11 @@ def transcript_shows_interview_progress(
     *,
     session_signals: dict[str, Any] | None = None,
 ) -> bool:
+    """True only when real screening Q&A started — not intro / small talk / time-check.
+
+    Do NOT use sentence-count heuristics: long agent intros falsely look like progress
+    and flip "not free / reschedule" into completed + thank-you email.
+    """
     signals = session_signals if isinstance(session_signals, dict) else {}
     try:
         asked = int(signals.get("questions_asked") or 0)
@@ -157,14 +162,8 @@ def transcript_shows_interview_progress(
     text = str(transcript or "").strip()
     if not text:
         return False
-    # Q&A markers count even on short transcripts (mid-interview stop → completed).
-    if _QA_PROGRESS_RE.search(text):
-        return True
-    # Rough turn count needs enough text to avoid false positives on short intros.
-    if len(text) < 220:
-        return False
-    lines = [ln for ln in re.split(r"[\n.]+", text) if len(ln.strip()) > 20]
-    return len(lines) >= 8
+    # Explicit script Q&A markers only (mid-interview stop → completed).
+    return bool(_QA_PROGRESS_RE.search(text))
 
 
 def classify_interview_session_outcome_with_llm(
@@ -187,11 +186,13 @@ def classify_interview_session_outcome_with_llm(
         prompt = (
             "You classify the END STATE of a job screening interview call/meeting.\n"
             "Return ONLY one lowercase label from this set:\n"
-            "completed — candidate answered interview screening questions (even partially).\n"
-            "reschedule — candidate said not free / busy / stop / reschedule BEFORE real Q&A answers.\n"
+            "completed — candidate answered real screening interview questions (even partially).\n"
+            "reschedule — candidate said not free / not a good time / busy / stop / reschedule "
+            "BEFORE any real screening Q&A (intro, identity, or time-check alone is NOT completed).\n"
             "recording_declined — candidate refused recording consent.\n"
             "wrong_person — wrong person or wrong number.\n"
             "technical_abort — dropped/connection fail with almost no conversation.\n"
+            "Small talk (e.g. how are you) during the intro does NOT count as interview progress.\n"
             f"Duration seconds (may be null): {duration_seconds}\n"
             "Transcript:\n"
             f"{text[:6000]}\n"
@@ -248,8 +249,13 @@ def resolve_interview_session_outcome(
     if llm == "recording_declined":
         return llm
     if keyword in {"reschedule", "recording_declined", "wrong_person"} and llm == "completed":
-        # Mid-interview stop stays completed (product rule A) if LLM saw real Q&A.
-        return "completed"
+        # Only mid-interview stop (real Q&A) may upgrade reschedule → completed.
+        if keyword == "reschedule" and transcript_shows_interview_progress(
+            text, session_signals=session_signals
+        ):
+            return "completed"
+        # Never let LLM override hard exits or early "not free" into thank-you.
+        return keyword
     return llm if llm != keyword else keyword
 
 
@@ -487,12 +493,14 @@ def _clear_booking_slot(db: Session, token: InterviewBookingToken | None) -> str
 
 
 def _send_reschedule_email(db: Session, order: ServiceOrder, recipient: ServiceOrderRecipient) -> bool:
+    """Last-resort reschedule email — always Admin template interview_session_reschedule."""
     from app.services.career_email_service import CareerEmailService
     from app.services.interview_booking_service import (
         InterviewBookingService,
         booking_reschedule_url_for_token,
         resolve_booking_url,
     )
+    from app.services.interview_session_outcome_email_service import TEMPLATE_RESCHEDULE
 
     email = str(recipient.email or "").strip().lower()
     if not email or "@" not in email:
@@ -513,16 +521,19 @@ def _send_reschedule_email(db: Session, order: ServiceOrder, recipient: ServiceO
     except Exception:
         pass
 
+    first = str(recipient.name or "there").strip().split()[0] or "there"
+    name = str(recipient.name or first).strip() or first
     book_url = resolve_booking_url(recipient, token_str)
     reschedule_url = booking_reschedule_url_for_token(token_str, recipient=recipient)
-    ok, err, channel = CareerEmailService.send_booking_reschedule_link_email(
+    ok, err = CareerEmailService.send_templated_critical(
         db,
+        template_key=TEMPLATE_RESCHEDULE,
         to_email=email,
         variables={
-            "candidate_name": str(recipient.name or "there").strip() or "there",
+            "candidate_name": name,
+            "first_name": first,
             "role": role,
             "company_name": company,
-            "current_slot": "",
             "reschedule_url": reschedule_url,
             "booking_url": book_url,
         },
@@ -533,7 +544,10 @@ def _send_reschedule_email(db: Session, order: ServiceOrder, recipient: ServiceO
             recipient,
             {
                 "reschedule_email_sent_at": datetime.utcnow().isoformat(),
-                "reschedule_email_channel": channel,
+                "reschedule_email_channel": TEMPLATE_RESCHEDULE,
+                "session_reschedule_email_sent_at": datetime.utcnow().isoformat(),
+                "session_reschedule_email_ok": True,
+                "session_reschedule_email_template": TEMPLATE_RESCHEDULE,
             },
         )
         return True

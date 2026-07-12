@@ -78,7 +78,7 @@ def test_mid_interview_stop_stays_completed():
 
 
 def test_short_mid_interview_stop_stays_completed():
-    """Q&A markers must win even when transcript is under the 220-char heuristic."""
+    """Q&A markers mark progress even on short transcripts."""
     short = (
         "First question: tell me about your experience. I worked five years. "
         "Next question: describe a challenge. We fixed stock. I need to reschedule later."
@@ -87,6 +87,24 @@ def test_short_mid_interview_stop_stays_completed():
     assert (
         classify_interview_session_outcome(duration_seconds=240, transcript=short)
         == "completed"
+    )
+
+
+def test_intro_not_free_with_smalltalk_is_reschedule():
+    """Long intro + how-are-you must NOT count as interview progress."""
+    transcript = (
+        "Agent: Hello, is this Live?\n"
+        "User: Yes.\n"
+        "Agent: This is Leo calling from Sales man 1 regarding the Live Test Role interview. "
+        "It will take about 10 to 15 minutes -- is now a good time?\n"
+        "User: Sorry again. How are you?\n"
+        "Agent: I'm well, thank you for asking. Right, so is now a good time?\n"
+        "User: No. It's not a good time. Can we reschedule the appointment, please?\n"
+        "Agent: No problem at all -- you can reschedule using the link sent to your email. Goodbye.\n"
+    )
+    assert (
+        classify_interview_session_outcome(duration_seconds=90, transcript=transcript)
+        == "reschedule"
     )
 
 

@@ -445,11 +445,12 @@ def apply_interview_assistant_pacing(
     db: Session,
     assistant_id: str,
     *,
-    voice_speed: float = 1.15,
+    voice_speed: float | None = None,
 ) -> dict[str, Any]:
-    """Tune turn-taking and TTS so the agent sounds brisk and human, not drawly.
+    """Tune turn-taking and TTS so the agent sounds natural on the phone.
 
-    NaturalHD at 1.0 often sounded slow/"drunk" on phone audio — prefer ~1.15–1.2.
+    ElevenLabs Flash at 1.15 often sounds rushed/robotic — prefer 1.0.
+    NaturalHD at 1.0 often sounded slow/"drunk" — prefer ~1.15–1.2.
     Do not use 0.8 (robotic slow). Clamp stays 0.85–1.2.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
@@ -457,17 +458,28 @@ def apply_interview_assistant_pacing(
     current = _voice_settings_dict(existing)
     voice = str(current.get("voice") or "").strip()
     tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
-    # Telnyx NaturalHD reads slightly slow at 1.0 — push toward the top of the safe range.
-    target = float(voice_speed)
+    # Provider-aware defaults when caller does not pass an explicit speed.
+    if voice_speed is None:
+        target = 1.2 if (tts_provider == "telnyx" and "naturalhd" in voice.lower()) else 1.0
+    else:
+        target = float(voice_speed)
     if tts_provider == "telnyx" and "naturalhd" in voice.lower():
-        target = max(target, 1.2)
+        target = max(target, 1.15)
     clamped = max(0.85, min(1.2, target))
 
     # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
     # Always set voice_speed explicitly: Telnyx Natural uses it, and some ElevenLabs
     # assistants keep a stale voice_speed that still slows playback if left at 0.8.
     if tts_provider == "elevenlabs":
-        voice_patch: dict[str, Any] = {"speed": clamped, "voice_speed": clamped}
+        voice_patch: dict[str, Any] = {
+            "speed": clamped,
+            "voice_speed": clamped,
+            # Slightly steadier delivery on phone (less “bot chirp”).
+            "stability": 0.55,
+            "similarity_boost": 0.8,
+            "style": 0.15,
+            "use_speaker_boost": True,
+        }
         if voice:
             voice_patch["voice"] = voice
         if current.get("api_key_ref"):
@@ -477,16 +489,19 @@ def apply_interview_assistant_pacing(
         if voice:
             voice_patch["voice"] = voice
 
-    # Snappy but non-interruptive turn-taking (long waits feel robotic / "bot-like").
+    # Allow barge-in; keep endpointing snappy so side questions are heard.
     interruption_settings = {
+        "enable": True,
+        "disable_greeting_interruption": False,
+        "interrupt_prediction_threshold": 0.5,
         "start_speaking_plan": {
-            "wait_seconds": 0.35,
+            "wait_seconds": 0.4,
             "transcription_endpointing_plan": {
-                "on_punctuation_seconds": 0.3,
-                "on_no_punctuation_seconds": 0.85,
-                "on_number_seconds": 0.6,
+                "on_punctuation_seconds": 0.35,
+                "on_no_punctuation_seconds": 0.9,
+                "on_number_seconds": 0.65,
             },
-        }
+        },
     }
     out: dict[str, Any] = {"assistant_id": clean_id, "tts_provider": tts_provider}
     try:
@@ -495,6 +510,19 @@ def apply_interview_assistant_pacing(
     except Exception as exc:
         logger.warning("interview_pacing_voice_failed assistant_id=%s err=%s", clean_id, exc)
         out["voice_error"] = str(exc)
+        # Retry without ElevenLabs extras if Telnyx rejects the richer patch.
+        if tts_provider == "elevenlabs":
+            try:
+                minimal = {"speed": clamped, "voice_speed": clamped}
+                if voice:
+                    minimal["voice"] = voice
+                if current.get("api_key_ref"):
+                    minimal["api_key_ref"] = current["api_key_ref"]
+                _update_telnyx_assistant(db, clean_id, {"voice_settings": minimal})
+                out["voice_settings"] = minimal
+                out.pop("voice_error", None)
+            except Exception as exc2:
+                out["voice_error"] = str(exc2)
     try:
         _update_telnyx_assistant(db, clean_id, {"interruption_settings": interruption_settings})
         out["interruption_settings"] = interruption_settings

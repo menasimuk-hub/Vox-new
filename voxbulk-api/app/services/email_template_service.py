@@ -242,12 +242,20 @@ class EmailTemplateService:
                     and "AI interviewer" in body
                 )
             ):
-                row.body = default_body
-                if default_subject:
-                    row.subject = default_subject
-                row.updated_at = datetime.utcnow()
-                db.add(row)
-                changed = True
+                # Never overwrite Admin-edited session outcome templates on boot.
+                if key in {
+                    "interview_session_reschedule",
+                    "interview_session_opted_out",
+                    "interview_booking_reschedule_link",
+                }:
+                    pass
+                else:
+                    row.body = default_body
+                    if default_subject:
+                        row.subject = default_subject
+                    row.updated_at = datetime.utcnow()
+                    db.add(row)
+                    changed = True
             elif needs_invoice_document_refresh:
                 row.body = default_body
                 if default_subject:

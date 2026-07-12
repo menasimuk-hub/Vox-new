@@ -124,29 +124,16 @@ def dispatch_interview_session_outcome_email(
             patch["reschedule_email_sent_at"] = patch["session_reschedule_email_sent_at"]
             patch["reschedule_email_channel"] = TEMPLATE_RESCHEDULE
         else:
+            # Do NOT fall back to interview_booking_reschedule_link / plain text —
+            # Admin owns interview_session_reschedule layout; sending another template
+            # looks like an "old" email to the candidate.
             patch["session_reschedule_email_ok"] = False
             patch["session_reschedule_email_failed"] = err or "send_failed"
-            # Plain fallback via existing careers helper
-            ok2, err2, channel = CareerEmailService.send_booking_reschedule_link_email(
-                db,
-                to_email=email,
-                variables={
-                    "candidate_name": name,
-                    "role": role,
-                    "company_name": company,
-                    "current_slot": "",
-                    "reschedule_url": reschedule_url,
-                    "booking_url": booking_url,
-                },
+            logger.warning(
+                "interview_session_reschedule_send_failed to=%s err=%s",
+                email,
+                err,
             )
-            if ok2:
-                patch["session_reschedule_email_sent_at"] = datetime.utcnow().isoformat()
-                patch["session_reschedule_email_ok"] = True
-                patch["reschedule_email_sent_at"] = patch["session_reschedule_email_sent_at"]
-                patch["reschedule_email_channel"] = channel
-                ok, err = True, None
-            else:
-                patch["session_reschedule_email_failed"] = err2 or err or "send_failed"
         _save(db, recipient, patch)
         return {"ok": ok, "template_key": TEMPLATE_RESCHEDULE, "error": err}
 
