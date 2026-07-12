@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.http_ssl import httpx_ssl_verify
 from app.services.telnyx_api_key import require_telnyx_api_key
+from app.utils.transcript_sanitize import sanitize_transcript_markup
 
 TELNYX_API_BASE = "https://api.telnyx.com/v2"
 _UUID_RE = re.compile(
@@ -313,6 +314,9 @@ def transcript_entries_from_messages(messages: list[dict[str, Any]]) -> list[dic
         speaker = _speaker_label(str(msg.get("role") or ""))
         text = str(msg.get("text") or "").strip()
         if not speaker or not text:
+            continue
+        text = sanitize_transcript_markup(text)
+        if not text:
             continue
         sent_at = str(msg.get("sent_at") or msg.get("created_at") or "").strip() or None
         sent_dt = _to_utc_naive(sent_at)

@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.services.customer_feedback.feedback_ai_followup_service import LOW_ANSWERS
+from app.utils.transcript_sanitize import sanitize_transcript_document, sanitize_transcript_markup
 
 _CUSTOMER_LINE_RE = re.compile(r"^(user|customer|caller)\s*:\s*(.+)$", re.I)
 _ASSISTANT_LINE_RE = re.compile(r"^(assistant|agent|ai)\s*:\s*", re.I)
@@ -64,7 +65,7 @@ def extract_wa_written_feedback(answers: list[dict[str, Any]], *, final_addition
 
 
 def extract_customer_lines_from_transcript(transcript: str | None) -> str | None:
-    raw = str(transcript or "").strip()
+    raw = sanitize_transcript_document(str(transcript or "").strip())
     if not raw:
         return None
     customer_parts: list[str] = []
@@ -75,7 +76,7 @@ def extract_customer_lines_from_transcript(transcript: str | None) -> str | None
             continue
         m = _CUSTOMER_LINE_RE.match(stripped)
         if m:
-            customer_parts.append(m.group(2).strip())
+            customer_parts.append(sanitize_transcript_markup(m.group(2).strip()))
             continue
         if _ASSISTANT_LINE_RE.match(stripped):
             continue

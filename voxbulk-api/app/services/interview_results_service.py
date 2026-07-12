@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.interview_booking_token import InterviewBookingToken
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.services.platform_catalog_service import ServiceOrderService
+from app.utils.transcript_sanitize import sanitize_transcript_markup
 
 
 VOICE_COMPLETED = frozenset({"completed", "done", "answered", "success"})
@@ -66,7 +67,11 @@ def _format_transcript_lines(transcript: str) -> list[dict[str, str]]:
                 speaker = head.strip().title()
                 if speaker.lower() == "user":
                     speaker = "Candidate"
-                text = rest.strip()
+                text = sanitize_transcript_markup(rest.strip())
+        else:
+            text = sanitize_transcript_markup(text)
+        if not text:
+            continue
         lines.append({"speaker": speaker, "text": text})
     return lines
 

@@ -15,6 +15,7 @@ from app.models.call_log import CallLog
 from app.models.customer_feedback import FeedbackAiFollowUpJob
 from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob
 from app.services.ai_followup_report_service import extract_customer_lines_from_transcript
+from app.utils.transcript_sanitize import sanitize_transcript_document, sanitize_transcript_markup
 from app.services.customer_feedback.feedback_ai_followup_service import _job_outcome, _set_job_outcome
 from app.services.survey_analysis_service import MIN_TRANSCRIPT_CHARS, fetch_survey_transcript_from_telnyx
 
@@ -41,7 +42,11 @@ def _format_transcript_lines(transcript: str) -> list[dict[str, str]]:
                     speaker = "Customer"
                 elif speaker.lower() == "assistant":
                     speaker = "Agent"
-                text = rest.strip()
+                text = sanitize_transcript_markup(rest.strip())
+        else:
+            text = sanitize_transcript_markup(text)
+        if not text:
+            continue
         lines.append({"speaker": speaker, "text": text})
     return lines
 
@@ -148,6 +153,7 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
             logger.exception("ai_followup_telnyx_hydrate_failed job_id=%s", job.id)
 
     if transcript:
+        transcript = sanitize_transcript_document(transcript)
         patch["transcript"] = transcript
         patch["transcript_excerpt"] = transcript[:800]
         if not outcome.get("transcript_saved_at"):
@@ -172,14 +178,16 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
     if patch:
         outcome = _persist_outcome(db, job, patch)
     elif transcript:
-        outcome["transcript"] = transcript
+        outcome["transcript"] = sanitize_transcript_document(transcript)
 
     return outcome
 
 
 def build_ai_followup_call_detail(db: Session, job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob) -> dict[str, Any]:
     outcome = ensure_ai_followup_call_media(db, job)
-    transcript = str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+    transcript = sanitize_transcript_document(
+        str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+    )
     call_reason = str(outcome.get("call_reason") or "").strip() or _extract_call_reason(
         transcript=transcript,
         call_summary=str(outcome.get("call_summary") or "").strip() or None,
@@ -300,7 +308,9 @@ def attach_call_media_to_report(db: Session, report: dict[str, Any], job: Survey
         except Exception:
             logger.exception("ai_followup_report_hydrate_failed job_id=%s", job.id)
 
-    transcript = str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+    transcript = sanitize_transcript_document(
+        str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+    )
     call_reason = str(outcome.get("call_reason") or "").strip() or _extract_call_reason(
         transcript=transcript,
         call_summary=str(outcome.get("call_summary") or "").strip() or None,
