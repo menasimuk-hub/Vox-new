@@ -91,9 +91,9 @@ def _merge_enabled(raw: dict[str, Any] | None) -> dict[str, bool]:
     return out
 
 
-def _merge_extra(raw: Any, *, seed_defaults: bool) -> dict[str, Any]:
-    # When the key is absent from config, seed DEFAULT extras (e.g. PS).
-    # Once stored (even {}), the saved dict is the membership source of truth so deletes stick.
+def _merge_extra(raw: Any, *, seed_defaults: bool = True) -> dict[str, Any]:
+    # When raw is absent/None and seed_defaults, seed DEFAULT extras (e.g. PS).
+    # Once stored as a dict (even {}), membership is source of truth so deletes stick.
     if seed_defaults and not isinstance(raw, dict):
         return deepcopy(DEFAULT_PHONE_ALLOWLIST_EXTRA)
     if not isinstance(raw, dict):
@@ -271,7 +271,7 @@ class TelnyxPhoneAllowlistService:
 
         merged = _merge_allowlist(allowlist)
         flags = _merge_enabled(enabled)
-        merged_extras = _merge_extra(extras)
+        merged_extras = _merge_extra(extras, seed_defaults=extras is None)
         merged_extra_flags = _merge_extra_enabled(extra_enabled, merged_extras)
 
         if not any(flags.values()) and not any(merged_extra_flags.values()):

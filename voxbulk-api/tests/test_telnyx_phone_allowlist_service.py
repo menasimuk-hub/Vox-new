@@ -78,3 +78,21 @@ def test_missing_extra_key_seeds_ps():
     assert "PS" in extras
     assert extras["PS"]["code"] == "970"
     assert extra_enabled.get("PS") is False
+
+
+def test_merge_extra_defaults_when_none():
+    from app.services.telnyx_phone_allowlist_service import _merge_extra
+
+    seeded = _merge_extra(None)
+    assert "PS" in seeded
+    empty = _merge_extra({}, seed_defaults=True)
+    assert empty == {}
+
+
+def test_validate_phone_with_no_extras_kwarg():
+    """Resend invite path calls validate_phone without extras — must not raise."""
+    result = TelnyxPhoneAllowlistService.validate_phone(
+        "+447700900123",
+        enabled=DEFAULT_PHONE_ALLOWLIST_ENABLED,
+    )
+    assert result["allowed"] is True
