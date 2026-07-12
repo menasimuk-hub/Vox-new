@@ -89,14 +89,14 @@ got_sig = classify_interview_session_outcome(
 add("signals questions_asked -> completed", got_sig == "completed", f"got={got_sig}")
 
 try:
-    from app.services.interview_telnyx_tool_service import hangup_interview_call, interview_tool_webhook_urls
+    from app.services.interview_outcome_whatsapp_service import maybe_send_interview_outcome_whatsapp
     from app.services.interview_booking_service import admin_unlock_interview_booking
-    from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+    from app.services.interview_telnyx_tool_service import hangup_interview_call, interview_tool_webhook_urls
 
     urls = interview_tool_webhook_urls()
     add("end_call tool URL", "end_call" in urls and "api.voxbulk.com" in urls["end_call"])
     add("admin_unlock present", callable(admin_unlock_interview_booking))
-    add("outcome SMS helper present", callable(maybe_send_interview_outcome_sms))
+    add("outcome WA helper present", callable(maybe_send_interview_outcome_whatsapp))
     add("hangup tool helper present", callable(hangup_interview_call))
 except Exception as e:
     add("new helpers import", False, str(e))

@@ -609,16 +609,7 @@ def apply_interview_session_outcome(
         recipient.updated_at = now
         _set_recipient_result(db, recipient, {k: v for k, v in patch.items() if v is not None})
         _meter_connected_call()
-        # Phone has no web end-screen — SMS is the candidate notice for connected completes.
-        # Thank-you email still waits for Layer 2 confirmation in analysis.
-        try:
-            from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
-
-            maybe_send_interview_outcome_sms(
-                db, order=order, recipient=recipient, outcome="completed", channel=channel
-            )
-        except Exception:
-            logger.exception("interview_completed_sms_failed")
+        # Phone has no web end-screen — thank-you is email only (no interview thank-you WA template).
         return {"ok": True, "status": recipient.status, "outcome": outcome}
 
     if outcome == "recording_declined":
@@ -646,13 +637,13 @@ def apply_interview_session_outcome(
         except Exception:
             logger.exception("interview_opt_out_email_failed")
         try:
-            from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+            from app.services.interview_outcome_whatsapp_service import maybe_send_interview_outcome_whatsapp
 
-            maybe_send_interview_outcome_sms(
+            maybe_send_interview_outcome_whatsapp(
                 db, order=order, recipient=recipient, outcome="recording_declined", channel=channel
             )
         except Exception:
-            logger.exception("interview_opt_out_sms_failed")
+            logger.exception("interview_opt_out_wa_failed")
         return {
             "ok": True,
             "status": recipient.status,
@@ -705,13 +696,13 @@ def apply_interview_session_outcome(
             email_sent = _send_reschedule_email(db, order, recipient)
 
     try:
-        from app.services.interview_outcome_sms_service import maybe_send_interview_outcome_sms
+        from app.services.interview_outcome_whatsapp_service import maybe_send_interview_outcome_whatsapp
 
-        maybe_send_interview_outcome_sms(
+        maybe_send_interview_outcome_whatsapp(
             db, order=order, recipient=recipient, outcome=outcome, channel=channel
         )
     except Exception:
-        logger.exception("interview_outcome_sms_failed")
+        logger.exception("interview_outcome_wa_failed")
 
     messages = {
         "reschedule": "No problem — use the link in your email to pick a new time.",
