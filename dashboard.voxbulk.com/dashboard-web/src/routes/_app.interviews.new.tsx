@@ -1362,15 +1362,13 @@ function CreateInterview() {
     }
   };
 
-  const onDownloadTemplate = async () => {
-    try {
-      await downloadAuthenticatedFile(
-        "/service-orders/templates/interview.xlsx?for_=interview",
-        "voxbulk-interview-contacts-template.xlsx",
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Download failed");
-    }
+  const onDownloadTemplate = () => {
+    const anchor = document.createElement("a");
+    anchor.href = `${import.meta.env.BASE_URL || "/"}voxbulk-interview-contacts-template.xlsx`;
+    anchor.download = "voxbulk-interview-contacts-template.xlsx";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   };
 
   const flashCopied = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
