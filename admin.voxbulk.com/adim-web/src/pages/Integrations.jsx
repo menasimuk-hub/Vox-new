@@ -1600,8 +1600,15 @@ export default function Integrations() {
       await saveIntegrationProvider('telnyx')
       const result = await apiFetch('/admin/integrations/telnyx/messaging-destinations/sync-to-telnyx', { method: 'POST' })
       const updated = Array.isArray(result.profiles_updated) ? result.profiles_updated.length : 0
-      const dest = Array.isArray(result.whitelisted_destinations) ? result.whitelisted_destinations.join(', ') : '—'
-      setTelnyxMessagingSyncResult(`${result.message || 'Synced'}\nProfiles updated: ${updated}\nDestinations: ${dest}`)
+      const waDest = Array.isArray(result.whatsapp_whitelisted_destinations)
+        ? result.whatsapp_whitelisted_destinations.join(', ')
+        : (Array.isArray(result.whitelisted_destinations) ? result.whitelisted_destinations.join(', ') : '—')
+      const smsDest = Array.isArray(result.sms_whitelisted_destinations)
+        ? result.sms_whitelisted_destinations.join(', ')
+        : '—'
+      setTelnyxMessagingSyncResult(
+        `${result.message || 'Synced'}\nProfiles updated: ${updated}\nWA destinations: ${waDest}\nSMS destinations: ${smsDest}`,
+      )
       if (Array.isArray(result.errors) && result.errors.length) {
         setTelnyxMessagingSyncResult((prev) => `${prev}\n${result.errors.join('\n')}`)
       }

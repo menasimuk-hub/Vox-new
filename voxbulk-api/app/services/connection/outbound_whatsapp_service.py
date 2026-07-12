@@ -29,6 +29,20 @@ class OutboundWhatsappService:
         messaging_profile_id: str | None = None,
         service_code: str | None = None,
     ) -> tuple[TelnyxMessageResult, ConnectionProfile | None]:
+        from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
+
+        dest_check = TelnyxMessagingDestinationsService.check_whatsapp_destination_db(db, to_number)
+        if not dest_check.get("allowed"):
+            return (
+                TelnyxMessageResult(
+                    ok=False,
+                    status="destination_blocked",
+                    detail=str(dest_check.get("reason") or "WhatsApp destination country is blocked"),
+                    channel="whatsapp",
+                ),
+                None,
+            )
+
         profile = ConnectionProfileResolver.resolve_whatsapp(
             db,
             org_id=org_id,

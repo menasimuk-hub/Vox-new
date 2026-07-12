@@ -345,6 +345,7 @@ class TelnyxMessagingService:
         config = TelnyxMessagingService._config(db)
         sms_from, wa_from = TelnyxMessagingService._from_numbers(config)
         from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
+        from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
         sender = normalize_telnyx_e164(
             from_number or TelnyxNumberRoutingService.resolve_sms_from(destination_e164=to_number, config=config) or sms_from
@@ -359,6 +360,14 @@ class TelnyxMessagingService:
             )
         if not recipient:
             return TelnyxMessageResult(ok=False, status="invalid_to", detail="Recipient phone number is invalid.", channel="sms")
+        phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, recipient)
+        if not phone_check.get("allowed"):
+            return TelnyxMessageResult(
+                ok=False,
+                status="destination_blocked",
+                detail=str(phone_check.get("reason") or "SMS destination is not on the call/SMS allowlist"),
+                channel="sms",
+            )
         payload: dict[str, Any] = {"from": sender, "to": recipient, "text": str(body or ""), "type": "SMS"}
         profile = str(messaging_profile_id or "").strip()
         if not profile:

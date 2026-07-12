@@ -442,6 +442,17 @@ class MetaWhatsappService:
         if not recipient:
             return TelnyxMessageResult(ok=False, status="invalid_to", detail="Recipient phone number is invalid.", channel="whatsapp")
 
+        from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
+
+        dest_check = TelnyxMessagingDestinationsService.check_whatsapp_destination_db(db, recipient)
+        if not dest_check.get("allowed"):
+            return TelnyxMessageResult(
+                ok=False,
+                status="destination_blocked",
+                detail=str(dest_check.get("reason") or "WhatsApp destination country is blocked"),
+                channel="whatsapp",
+            )
+
         sender_raw = str(from_number or config.get("whatsapp_from") or "").strip()
         try:
             sender = normalize_e164(sender_raw) if sender_raw else ""

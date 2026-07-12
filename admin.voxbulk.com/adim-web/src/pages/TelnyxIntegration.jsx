@@ -360,15 +360,7 @@ export default function TelnyxIntegration({
     ...(activeConfig.phone_allowlist_extra || {}),
   }
   const allowlistExtraEnabled = activeConfig.phone_allowlist_extra_enabled || {}
-  const messagingDestinations = {
-    GB: true,
-    US: true,
-    AU: true,
-    CA: true,
-    PS: true,
-    ...(activeConfig.messaging_whitelisted_destinations || {}),
-  }
-  const messagingAllowAll = Boolean(activeConfig.messaging_allow_all_destinations)
+  const messagingBlocked = activeConfig.messaging_blocked_destinations || {}
   const [newCallIso, setNewCallIso] = React.useState('')
   const [newCallDial, setNewCallDial] = React.useState('')
   const [newMsgIso, setNewMsgIso] = React.useState('')
@@ -428,8 +420,12 @@ export default function TelnyxIntegration({
     setProviderField('telnyx', 'phone_allowlist_extra_enabled', { ...allowlistExtraEnabled, [country]: checked })
   }
 
-  const setMessagingDestinationEnabled = (iso, checked) => {
-    setProviderField('telnyx', 'messaging_whitelisted_destinations', { ...messagingDestinations, [iso]: checked })
+  const setMessagingBlocked = (iso, blocked) => {
+    const next = { ...messagingBlocked }
+    if (blocked) next[iso] = true
+    else delete next[iso]
+    setProviderField('telnyx', 'messaging_blocked_destinations', next)
+    setProviderField('telnyx', 'messaging_allow_all_destinations', true)
   }
 
   const patchAllowlistCountry = (country, patch) => {
@@ -459,13 +455,13 @@ export default function TelnyxIntegration({
     setNewCallDial('')
   }
 
-  const addMessagingCountry = () => {
+  const addMessagingBlockedCountry = () => {
     const iso = String(newMsgIso || '').trim().toUpperCase()
     if (!iso || iso.length !== 2) {
-      window.alert('Enter a 2-letter ISO code (e.g. PS, AE).')
+      window.alert('Enter a 2-letter ISO code (e.g. EG, AE).')
       return
     }
-    setMessagingDestinationEnabled(iso, true)
+    setMessagingBlocked(iso, true)
     setNewMsgIso('')
   }
 
@@ -478,14 +474,12 @@ export default function TelnyxIntegration({
     setProviderField('telnyx', 'phone_allowlist_extra_enabled', nextEnabled)
   }
 
-  const removeMessagingCountry = (iso) => {
-    const next = { ...messagingDestinations }
-    delete next[iso]
-    setProviderField('telnyx', 'messaging_whitelisted_destinations', next)
+  const removeMessagingBlockedCountry = (iso) => {
+    setMessagingBlocked(iso, false)
   }
 
   const callExtraRows = Object.keys(allowlistExtra).sort()
-  const messagingRows = Object.keys(messagingDestinations).sort()
+  const messagingBlockedRows = Object.keys(messagingBlocked).filter((iso) => messagingBlocked[iso]).sort()
   const coreCallCountries = ['GB', 'AU', 'CA', 'USA']
   const dialHint = (country, cfg) => {
     if (cfg?.code) return `+${cfg.code}`
@@ -499,9 +493,9 @@ export default function TelnyxIntegration({
     const set = new Set()
     coreCallCountries.forEach((c) => set.add(rateIsoKey(c)))
     callExtraRows.forEach((c) => set.add(rateIsoKey(c)))
-    messagingRows.forEach((c) => set.add(rateIsoKey(c)))
+    messagingBlockedRows.forEach((c) => set.add(rateIsoKey(c)))
     return [...set]
-  }, [callExtraRows.join(','), messagingRows.join(',')])
+  }, [callExtraRows.join(','), messagingBlockedRows.join(',')])
 
   React.useEffect(() => {
     if (activeTab !== 'whitelist' || !tableRateIsos.length) return
@@ -1127,7 +1121,7 @@ export default function TelnyxIntegration({
                         <th>Voice out</th>
                         <th>Voice in</th>
                         <th>SMS out</th>
-                        <th>Call list</th>
+                        <th>Call/SMS</th>
                         <th style={{ textAlign: 'right' }} />
                       </tr>
                     </thead>
@@ -1135,8 +1129,7 @@ export default function TelnyxIntegration({
                       {(selectedRate ? [selectedRate] : rateResults).map((rate) => {
                         const listed = isListedOnCall(rate.country_iso)
                         const onList = isEnabledOnCall(rate.country_iso)
-                        const msgOn = messagingDestinations[rate.country_iso] !== false
-                          && messagingDestinations[rate.country_iso] != null
+                        const waBlocked = Boolean(messagingBlocked[rate.country_iso])
                         return (
                           <tr
                             key={rate.country_iso}
@@ -1158,7 +1151,7 @@ export default function TelnyxIntegration({
                               ) : (
                                 <span className='pill p-amber'>Off</span>
                               )}
-                              {msgOn ? <span className='muted tsh-msg-tag'> · msg</span> : null}
+                              {waBlocked ? <span className='muted tsh-msg-tag'> · WA blocked</span> : null}
                             </td>
                             <td style={{ textAlign: 'right' }}>
                               {listed ? (
@@ -1194,8 +1187,8 @@ export default function TelnyxIntegration({
           <div className='card'>
             <div className='cardHead'>
               <div className='cardHeadText'>
-                <h3>Call allowlist — AI voice</h3>
-                <p className='cardSub'>Dial rules · Save at top to apply</p>
+                <h3>Call allowlist — AI voice + SMS</h3>
+                <p className='cardSub'>Dial rules for voice calls and SMS · Save at top to apply</p>
               </div>
               <div className='actions'>
                 <button type='button' className='tsh-btn tsh-btn-outline' onClick={() => setShowAddCallRegion(true)}>
@@ -1289,18 +1282,10 @@ export default function TelnyxIntegration({
           <div className='card'>
             <div className='cardHead'>
               <div className='cardHeadText'>
-                <h3>Messaging destinations — WhatsApp &amp; SMS</h3>
-                <p className='cardSub'>Save, then Sync to Telnyx profile</p>
+                <h3>WhatsApp block list</h3>
+                <p className='cardSub'>All countries allowed by default · block ISO codes here · Sync pushes WA=* and SMS=call list to Telnyx</p>
               </div>
               <div className='actions'>
-                <label className='telnyxEnableRow' style={{ fontSize: 11.5 }}>
-                  <input
-                    type='checkbox'
-                    checked={messagingAllowAll}
-                    onChange={(e) => setProviderField('telnyx', 'messaging_allow_all_destinations', e.target.checked)}
-                  />
-                  <span>Allow all (<code>*</code>)</span>
-                </label>
                 <button type='button' className='tsh-btn tsh-btn-primary' onClick={syncTelnyxMessagingDestinations} disabled={providerSaving}>
                   Sync
                 </button>
@@ -1311,7 +1296,6 @@ export default function TelnyxIntegration({
                 <table className='table tsh-compact-table'>
                   <thead>
                     <tr>
-                      <th style={{ width: 1 }}>On</th>
                       <th>ISO</th>
                       <th>SMS out</th>
                       <th>Notes</th>
@@ -1319,37 +1303,26 @@ export default function TelnyxIntegration({
                     </tr>
                   </thead>
                   <tbody>
-                    {messagingRows.length ? messagingRows.map((iso) => {
+                    {messagingBlockedRows.length ? messagingBlockedRows.map((iso) => {
                       const rate = rateByIso[rateIsoKey(iso)]
                       return (
-                        <tr key={`msg-${iso}`}>
-                          <td>
-                            <input
-                              type='checkbox'
-                              checked={messagingDestinations[iso] !== false}
-                              disabled={messagingAllowAll}
-                              onChange={(e) => setMessagingDestinationEnabled(iso, e.target.checked)}
-                            />
-                          </td>
+                        <tr key={`wa-block-${iso}`}>
                           <td><strong>{iso}</strong></td>
                           <td><span className='tsh-rate-val'>{fmtRate(rate?.sms_outbound)}</span></td>
-                          <td className='muted'>{iso === 'PS' ? 'Palestine (+970)' : (rate?.country_name || '')}</td>
+                          <td className='muted'>{rate?.country_name || 'Blocked for WhatsApp'}</td>
                           <td>
                             <div className='tsh-actions-cell'>
-                              {!['GB', 'US', 'AU', 'CA', 'PS'].includes(iso) ? (
-                                <button type='button' className='tsh-icon-btn danger' title='Remove' onClick={() => removeMessagingCountry(iso)}>
-                                  <Trash2 size={14} aria-hidden />
-                                </button>
-                              ) : null}
+                              <button type='button' className='tsh-icon-btn danger' title='Unblock' onClick={() => removeMessagingBlockedCountry(iso)}>
+                                <Trash2 size={14} aria-hidden />
+                              </button>
                             </div>
                           </td>
                         </tr>
                       )
                     }) : (
-                      <tr><td colSpan={5} className='muted'>No destinations — add an ISO or enable Allow all.</td></tr>
+                      <tr><td colSpan={4} className='muted'>No blocked countries — WhatsApp is allowed everywhere.</td></tr>
                     )}
                     <tr>
-                      <td />
                       <td colSpan={4}>
                         <div className='actions' style={{ alignItems: 'center', gap: 6 }}>
                           <input
@@ -1357,10 +1330,10 @@ export default function TelnyxIntegration({
                             style={{ width: 120, height: 26, textTransform: 'uppercase' }}
                             value={newMsgIso}
                             onChange={(e) => setNewMsgIso(e.target.value)}
-                            placeholder='ISO e.g. PS'
+                            placeholder='ISO e.g. EG'
                           />
-                          <button type='button' className='tsh-btn tsh-btn-outline' onClick={addMessagingCountry} disabled={messagingAllowAll}>
-                            <Plus size={14} aria-hidden /> Add
+                          <button type='button' className='tsh-btn tsh-btn-outline' onClick={addMessagingBlockedCountry}>
+                            <Plus size={14} aria-hidden /> Block
                           </button>
                         </div>
                       </td>
