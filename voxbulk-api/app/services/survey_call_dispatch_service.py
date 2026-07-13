@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -15,7 +15,7 @@ from app.services.survey_dispatch_service import _first_name, _personalize, _sur
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _decode_client_state, _telnyx_config
-from app.utils.ofcom import now_uk, org_calling_allowed
+from app.utils.ofcom import platform_calling_allowed
 
 logger = get_logger(__name__)
 
@@ -151,13 +151,26 @@ def build_survey_call_greeting(config: dict[str, Any], *, recipient_name: str) -
     return f"Hi {first}, this is a quick survey call from {org_name}."
 
 
-def _order_window_ok(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> tuple[bool, str | None]:
-    now = now or datetime.utcnow()
-    if order.scheduled_start_at and now < order.scheduled_start_at:
+def _order_window_ok(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    phone: str | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
+    if now is None:
+        now_utc = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now_utc = now.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now.astimezone(timezone.utc)
+    if order.scheduled_start_at and now_utc.replace(tzinfo=None) < order.scheduled_start_at:
         return False, "Survey calling window has not started"
-    if order.scheduled_end_at and now >= order.scheduled_end_at:
+    if order.scheduled_end_at and now_utc.replace(tzinfo=None) >= order.scheduled_end_at:
         return False, "Survey calling window has ended"
-    allowed, reason = org_calling_allowed(db, order.org_id, now=now_uk())
+    from app.utils.ofcom import platform_calling_allowed
+
+    allowed, reason = platform_calling_allowed(db, phone, now=now_utc)
     if not allowed:
         return False, reason or "Outside calling hours"
     return True, None
@@ -427,6 +440,9 @@ class SurveyCallDispatchService:
                 continue
             if should_wait_for_retry(candidate):
                 continue
+            ok_phone, _reason = _order_window_ok(db, order, phone=str(candidate.phone or ""))
+            if not ok_phone:
+                continue
             from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
 
             phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(candidate.phone or ""))
@@ -460,7 +476,7 @@ class SurveyCallDispatchService:
         if not assistant_id:
             raise ValueError("Survey voice agent is not configured")
 
-        ok, reason = _order_window_ok(db, order)
+        ok, reason = _order_window_ok(db, order, phone=str(recipient.phone or ""))
         if not ok:
             raise ValueError(reason or "Outside the survey calling window")
 

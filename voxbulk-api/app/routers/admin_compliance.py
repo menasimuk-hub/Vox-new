@@ -132,3 +132,53 @@ def run_retention_now(
 ):
     stats = UkComplianceRetentionService.run_retention_pass(db, dry_run=dry_run)
     return {"ok": True, "stats": stats}
+
+
+@router.get("/contact-time")
+def get_contact_time_settings(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.contact_time_service import full_settings_payload
+
+    return {"ok": True, **full_settings_payload(db)}
+
+
+@router.put("/contact-time/calling")
+def update_contact_time_calling(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.contact_time_service import full_settings_payload, update_calling_settings
+
+    try:
+        update_calling_settings(db, payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    UkComplianceAuditService.record(
+        db,
+        event_type="compliance.contact_time_calling_updated",
+        detail={"fields": list((payload or {}).keys())},
+    )
+    return {"ok": True, **full_settings_payload(db)}
+
+
+@router.put("/contact-time/whatsapp")
+def update_contact_time_whatsapp(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.contact_time_service import full_settings_payload, update_wa_settings
+
+    try:
+        update_wa_settings(db, payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    UkComplianceAuditService.record(
+        db,
+        event_type="compliance.contact_time_wa_updated",
+        detail={"fields": list((payload or {}).keys())},
+    )
+    return {"ok": True, **full_settings_payload(db)}

@@ -14,7 +14,7 @@ from app.workers.celery_app import celery_app
 from app.services.recovery_service import RecoveryStateMachine
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 from app.services.telnyx_voice_service import TelnyxCallerIdService, TelnyxVoiceAdapter, telnyx_outbound_caller_id
-from app.utils.ofcom import is_within_calling_window, now_uk
+from app.utils.ofcom import platform_calling_allowed
 from app.services.provider_settings import ProviderSettingsService
 
 
@@ -38,9 +38,20 @@ def process_recovery_job(*, job_id: str) -> dict:
         if appt.recovery_state in RecoveryStateMachine.TERMINAL:
             return {"status": appt.recovery_state, "job_id": job.id}
 
-        if not is_within_calling_window(now_uk()):
+        from app.models.patient import Patient
+
+        if appt.patient_id:
+            patient = db.execute(
+                select(Patient).where(Patient.id == appt.patient_id, Patient.org_id == job.org_id)
+            ).scalar_one_or_none()
+        else:
+            patient = None
+
+        phone = str(patient.phone_e164 or "") if patient is not None else ""
+        allowed, _reason = platform_calling_allowed(db, phone or None)
+        if not allowed:
             job.state = "skipped"
-            job.last_error = "Outside contact window"
+            job.last_error = _reason or "Outside contact window"
             RecoveryStateMachine.transition(db, appointment=appt, to_state="skipped", error=job.last_error)
             job.finished_at = datetime.utcnow()
             job.updated_at = datetime.utcnow()
@@ -56,15 +67,6 @@ def process_recovery_job(*, job_id: str) -> dict:
         db.add(job)
         RecoveryStateMachine.transition(db, appointment=appt, to_state="calling")
         db.commit()
-
-        from app.models.patient import Patient
-
-        if appt.patient_id:
-            patient = db.execute(
-                select(Patient).where(Patient.id == appt.patient_id, Patient.org_id == job.org_id)
-            ).scalar_one_or_none()
-        else:
-            patient = None
 
         if patient is None or not patient.phone_e164:
             job.state = "skipped"

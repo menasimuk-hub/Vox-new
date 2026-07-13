@@ -512,41 +512,26 @@ def _slot_starts(window_start: datetime, window_end: datetime, *, now: datetime 
 
 def _filter_slots_to_calling_hours(
     db: Session,
-    order: ServiceOrder,
+    phone: str | None,
     slots: list[datetime],
 ) -> list[datetime]:
-    """Only expose booking slots between 09:00 and 17:30 (org timezone, UK default)."""
+    """Expose booking slots inside platform calling hours (recipient local time)."""
     if interview_relax_restrictions():
         return list(slots)
-    from app.utils.ofcom import is_weekend_uk, resolve_org_call_window
+    from app.services.contact_time_service import slots_within_calling_window
 
-    out: list[datetime] = []
-    for slot in slots:
-        local = slot.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
-        if is_weekend_uk(local):
-            from app.models.organisation_ai_config import OrganisationComplianceConfig
-
-            row = db.execute(
-                select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == order.org_id)
-            ).scalar_one_or_none()
-            if row is not None and not row.weekend_allowed:
-                continue
-        window = resolve_org_call_window(db, order.org_id, now=local)
-        day_start = max(window.start, time(9, 0))
-        day_end = min(window.end, time(17, 30))
-        slot_end_local = local + timedelta(minutes=interview_slot_minutes())
-        if day_start <= local.time() and slot_end_local.time() <= day_end:
-            out.append(slot)
-    return out
+    return slots_within_calling_window(db, phone, slots, slot_minutes=interview_slot_minutes())
 
 
-def _assert_slot_within_booking_hours(db: Session, order: ServiceOrder, slot_start: datetime) -> None:
-    """Reject any slot outside 09:00–17:30 UK (Ofcom calling window)."""
+def _assert_slot_within_booking_hours(db: Session, phone: str | None, slot_start: datetime) -> None:
     if interview_relax_restrictions():
         return
-    allowed = _filter_slots_to_calling_hours(db, order, [slot_start])
+    allowed = _filter_slots_to_calling_hours(db, phone, [slot_start])
     if not allowed:
-        raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+        from app.services.contact_time_service import calling_hours_label
+
+        label, _, _ = calling_hours_label(db, phone)
+        raise ValueError(f"Selected time is outside calling hours ({label})")
 
 
 def _booked_starts(db: Session, order_id: str, *, exclude_token_id: str | None = None) -> set[datetime]:
@@ -620,19 +605,20 @@ def _iso_utc(dt: datetime | None) -> str | None:
     return dt.replace(tzinfo=None).isoformat() + "Z"
 
 
-def _booking_display_meta() -> dict[str, str]:
+def _booking_display_meta(db: Session, phone: str | None) -> dict[str, str]:
     if interview_relax_restrictions():
         return {
             "display_timezone": "Europe/London",
             "display_timezone_label": "UK time (GMT/BST)",
             "calling_hours_label": "Any time UK (testing mode — no hour restrictions)",
         }
-    start = f"{BOOKING_HOURS_START[0]:02d}:{BOOKING_HOURS_START[1]:02d}"
-    end = f"{BOOKING_HOURS_END[0]:02d}:{BOOKING_HOURS_END[1]:02d}"
+    from app.services.contact_time_service import calling_hours_label, resolve_recipient_timezone
+
+    hours, tz_name, tz_label = calling_hours_label(db, phone)
     return {
-        "display_timezone": "Europe/London",
-        "display_timezone_label": "UK time (GMT/BST)",
-        "calling_hours_label": f"{start}–{end} UK time (9:00 am – 5:30 pm)",
+        "display_timezone": tz_name,
+        "display_timezone_label": tz_label,
+        "calling_hours_label": hours,
     }
 
 
@@ -1275,7 +1261,7 @@ class InterviewBookingService:
                 "cancelled_at": str(cancelled_at) if cancelled_at else None,
                 "can_reschedule": False,
                 "can_cancel": False,
-                **_booking_display_meta(),
+                **_booking_display_meta(db, str(recipient.phone or "")),
             }
 
         closed_message = _order_booking_closed_message(order, db)
@@ -1301,7 +1287,7 @@ class InterviewBookingService:
                 "can_cancel": has_booking,
                 "booking_url": booking_url_for_token(row.token),
                 "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
-                **_booking_display_meta(),
+                **_booking_display_meta(db, str(recipient.phone or "")),
             }
 
         _assert_booking_allowed(recipient)
@@ -1311,7 +1297,7 @@ class InterviewBookingService:
         booked = _booked_starts(db, order.id, exclude_token_id=row.id)
         win_start, win_end = booking_window_bounds(order, now=now)
         raw_slots = _slot_starts(win_start, win_end, now=now)
-        filtered = _filter_slots_to_calling_hours(db, order, raw_slots)
+        filtered = _filter_slots_to_calling_hours(db, str(recipient.phone or ""), raw_slots)
         available = [
             start
             for start in filtered
@@ -1342,7 +1328,7 @@ class InterviewBookingService:
             "channel_options": channel_options,
             "booking_url": booking_url_for_token(row.token),
             "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
-            **_booking_display_meta(),
+            **_booking_display_meta(db, str(recipient.phone or "")),
         }
         if row.booked_start_at is not None:
             from app.services.interview_calendar_service import build_interview_calendar_variables
@@ -1398,7 +1384,7 @@ class InterviewBookingService:
         allowed_slots = set(
             _filter_slots_to_calling_hours(
                 db,
-                order,
+                str(recipient.phone or ""),
                 _slot_starts(win_start, win_end, now=now),
             )
         )
@@ -1411,9 +1397,12 @@ class InterviewBookingService:
                 raise ValueError(
                     f"Selected time is not a valid {interview_slot_minutes()}-minute slot — pick a time from the available list"
                 )
-            raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+            from app.services.contact_time_service import calling_hours_label
 
-        _assert_slot_within_booking_hours(db, order, slot_start)
+            label, _, _ = calling_hours_label(db, str(recipient.phone or ""))
+            raise ValueError(f"Selected time is outside calling hours ({label})")
+
+        _assert_slot_within_booking_hours(db, str(recipient.phone or ""), slot_start)
 
         booked = _booked_starts(db, order.id)
         if slot_start in booked:
@@ -2255,7 +2244,7 @@ class InterviewBookingService:
         allowed_slots = set(
             _filter_slots_to_calling_hours(
                 db,
-                order,
+                str(recipient.phone or ""),
                 _slot_starts(win_start, win_end, now=now),
             )
         )
@@ -2268,9 +2257,12 @@ class InterviewBookingService:
                 raise ValueError(
                     f"Selected time is not a valid {interview_slot_minutes()}-minute slot — pick a time from the available list"
                 )
-            raise ValueError("Selected time is outside calling hours (09:00–17:30 UK time)")
+            from app.services.contact_time_service import calling_hours_label
 
-        _assert_slot_within_booking_hours(db, order, slot_start)
+            label, _, _ = calling_hours_label(db, str(recipient.phone or ""))
+            raise ValueError(f"Selected time is outside calling hours ({label})")
+
+        _assert_slot_within_booking_hours(db, str(recipient.phone or ""), slot_start)
 
         if row.booked_start_at == slot_start:
             raise ValueError("You are already booked for that time")

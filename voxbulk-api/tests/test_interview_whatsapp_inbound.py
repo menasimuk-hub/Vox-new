@@ -207,7 +207,7 @@ def test_confirm_booking_after_cancel_with_aligned_slot(monkeypatch):
         assert token.booked_start_at is None
         now = datetime.utcnow()
         win_start, win_end = booking_window_bounds(order, now=now)
-        slots = _filter_slots_to_calling_hours(db, order, _slot_starts(win_start, win_end, now=now))
+        slots = _filter_slots_to_calling_hours(db, str(recipient.phone or ""), _slot_starts(win_start, win_end, now=now))
         assert slots, "expected at least one bookable slot after cancel"
         slot_iso = slots[0].isoformat() + "Z"
         result = InterviewBookingService.confirm_booking(db, token.token, slot_iso)

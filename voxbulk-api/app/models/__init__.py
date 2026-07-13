@@ -44,6 +44,7 @@ from app.models.category import Category  # noqa: F401
 from app.models.agent import AgentAssignment, AgentDefinition  # noqa: F401
 from app.models.voice_agent_platform_settings import VoiceAgentPlatformSettings  # noqa: F401
 from app.models.meeting_room_platform_settings import MeetingRoomPlatformSettings  # noqa: F401
+from app.models.platform_contact_time_settings import PlatformContactTimeSettings  # noqa: F401
 from app.models.agent_service_assignment import AgentServiceAssignment  # noqa: F401
 from app.models.knowledge_base_file import KnowledgeBaseFile  # noqa: F401
 from app.models.agent_knowledge_file import AgentKnowledgeFile  # noqa: F401

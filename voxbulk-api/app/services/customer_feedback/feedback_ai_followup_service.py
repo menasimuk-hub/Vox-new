@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackLocation, FeedbackResponse, FeedbackSession
-from app.utils.ofcom import now_uk, org_calling_allowed
+from app.utils.ofcom import platform_calling_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -338,16 +338,10 @@ def _resolve_followback_assistant(db: Session, org_id: str) -> tuple[str, Any | 
     return "", dedicated or default
 
 
-def _next_calling_window_utc(db: Session, org_id: str) -> datetime:
-    cursor = now_uk()
-    for _ in range(96):
-        allowed, _reason = org_calling_allowed(db, org_id, now=cursor)
-        if allowed:
-            return cursor.astimezone(timezone.utc).replace(tzinfo=None)
-        cursor = cursor + timedelta(minutes=30)
-    return (now_uk() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0).astimezone(
-        timezone.utc
-    ).replace(tzinfo=None)
+def _next_calling_window_utc(db: Session, org_id: str, phone: str | None = None) -> datetime:
+    from app.services.contact_time_service import next_allowed_utc
+
+    return next_allowed_utc(db, "calling", phone)
 
 
 def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
@@ -400,9 +394,12 @@ def _pre_dial_guards(db: Session, job, org) -> None:
 
     settings = get_settings()
     if not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
-        allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
+        allowed, reason = platform_calling_allowed(db, str(job.visitor_phone or ""))
         if not allowed:
-            raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
+            raise FollowUpDefer(
+                reason or "Outside calling hours",
+                until=_next_calling_window_utc(db, job.org_id, str(job.visitor_phone or "")),
+            )
 
     skip = should_block_outbound_phone(db, org_id=job.org_id, phone_e164=str(job.visitor_phone or ""))
     if skip:
@@ -591,7 +588,7 @@ def process_due_jobs(db: Session, *, limit: int = 20) -> int:
             db.commit()
             dispatched += 1
         except FollowUpDefer as exc:
-            job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id)
+            job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id, str(job.visitor_phone or ""))
             _set_job_outcome(job, {"defer_reason": exc.reason, "deferred_at": datetime.utcnow().isoformat()})
             job.updated_at = datetime.utcnow()
             db.add(job)

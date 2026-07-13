@@ -41,12 +41,24 @@ def test_resolve_org_call_window_intersects_platform_floor(db):
     assert window.end.hour == 16
 
 
-def test_org_calling_allowed_blocks_weekend(db):
+def test_org_calling_allowed_blocks_weekend_for_platform_policy(db):
+    from app.models.platform_contact_time_settings import PlatformContactTimeSettings
+
+    row = db.get(PlatformContactTimeSettings, "default")
+    if row is None:
+        row = PlatformContactTimeSettings(id="default", updated_at=datetime.utcnow())
+        db.add(row)
+    row.calling_days = "1,2,3,4,5"
+    row.calling_start = "09:00"
+    row.calling_end = "18:00"
+    row.calling_fallback_tz = "Europe/London"
+    db.commit()
+
     org_id = _org_with_compliance(db, weekend_allowed=False)
     saturday = datetime(2026, 5, 23, 12, 0, tzinfo=ZoneInfo("Europe/London"))
-    allowed, reason = org_calling_allowed(db, org_id, now=saturday)
+    allowed, reason = org_calling_allowed(db, org_id, now=saturday, phone="+447954823445")
     assert allowed is False
-    assert "weekend" in (reason or "").lower()
+    assert reason
 
 
 def test_is_within_calling_window():

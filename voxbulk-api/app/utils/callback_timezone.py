@@ -109,6 +109,26 @@ def timezone_from_phone(phone: str | None) -> str | None:
         return "Europe/London"
     if digits.startswith("61"):
         return "Australia/Sydney"
+    if digits.startswith("971"):
+        return "Asia/Dubai"
+    if digits.startswith("65"):
+        return "Asia/Singapore"
+    if digits.startswith("27"):
+        return "Africa/Johannesburg"
+    if digits.startswith("91"):
+        return "Asia/Kolkata"
+    if digits.startswith("33"):
+        return "Europe/Paris"
+    if digits.startswith("34"):
+        return "Europe/Madrid"
+    if digits.startswith("39"):
+        return "Europe/Rome"
+    if digits.startswith("41"):
+        return "Europe/Berlin"
+    if digits.startswith("43"):
+        return "Europe/Berlin"
+    if digits.startswith("48"):
+        return "Europe/Berlin"
     if digits.startswith("1") and len(digits) >= 11:
         area = digits[1:4]
         if area in _CANADA_AREA_CODES:
@@ -119,6 +139,7 @@ def timezone_from_phone(phone: str | None) -> str | None:
             if area in {"403", "587", "780", "825"}:
                 return "America/Edmonton"
             return "America/Toronto"
+        return "America/New_York"
     if digits.startswith("07") and len(digits) == 11:
         return "Europe/London"
     if digits.startswith("0") and len(digits) >= 10:

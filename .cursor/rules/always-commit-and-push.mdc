@@ -1,0 +1,36 @@
+---
+description: Always commit and push completed implementation work to origin main
+alwaysApply: true
+---
+
+# Always commit and push when done
+
+When an implementation task is **complete** (bug fix, feature, wiring, migration, admin/dashboard change):
+
+1. **Commit** relevant files only — never `.env`, secrets, or one-off `_tmp_*` / diag scripts unless the user asked.
+2. **Push immediately:** `git push origin main` (remote: `menasimuk-hub/Vox-new`).
+3. Tell the user the **commit hash** and the **VPS deploy steps** (`git pull origin main` + `./deploy-vps.sh`).
+
+Do **not** wait for the user to say "commit" or "push".
+
+### Do not commit when
+
+- The task was **read-only** (explain, review, plan only).
+- User said **no commit**, **paste in chat**, or **local only**.
+- Changes are incomplete or the user asked to stop mid-task.
+- Only unrelated local junk would be included — stage the fix files only.
+
+### Commit message
+
+- 1–2 sentences, focus on **why**.
+- Match recent repo style (`git log -3 --oneline`).
+
+### After push
+
+Remind VPS deploy (Linux only, never from Windows):
+
+```bash
+cd /www/voxbulk   # or the repo root on the server
+git pull origin main
+./deploy-vps.sh
+```

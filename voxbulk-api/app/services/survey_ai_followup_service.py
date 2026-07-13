@@ -27,7 +27,7 @@ from app.services.customer_feedback.feedback_ai_followup_service import (
     _settle_followup_call_billing,
     resolve_followup_delay_hours,
 )
-from app.utils.ofcom import now_uk, org_calling_allowed
+from app.utils.ofcom import platform_calling_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -242,9 +242,12 @@ def _pre_dial_guards_wa(db: Session, job: SurveyAiFollowUpJob, org) -> None:
 
     settings = get_settings()
     if not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
-        allowed, reason = org_calling_allowed(db, job.org_id, now=now_uk())
+        allowed, reason = platform_calling_allowed(db, str(job.visitor_phone or ""))
         if not allowed:
-            raise FollowUpDefer(reason or "Outside calling hours", until=_next_calling_window_utc(db, job.org_id))
+            raise FollowUpDefer(
+                reason or "Outside calling hours",
+                until=_next_calling_window_utc(db, job.org_id, str(job.visitor_phone or "")),
+            )
 
     skip = should_block_outbound_phone(db, org_id=job.org_id, phone_e164=str(job.visitor_phone or ""))
     if skip:
@@ -363,7 +366,7 @@ def process_due_wa_jobs(db: Session, *, limit: int = 20) -> int:
             db.commit()
             dispatched += 1
         except FollowUpDefer as exc:
-            job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id)
+            job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id, str(job.visitor_phone or ""))
             _set_job_outcome(job, {"defer_reason": exc.reason, "deferred_at": datetime.utcnow().isoformat()})
             job.updated_at = datetime.utcnow()
             db.add(job)

@@ -6,14 +6,20 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from app.services.interview_booking_service import (
-    BOOKING_HOURS_END,
     _filter_slots_to_calling_hours,
     _slot_starts,
     interview_slot_minutes,
 )
-from app.utils.ofcom import OfcomWindow
 
 UK_TZ = ZoneInfo("Europe/London")
+
+
+@pytest.fixture()
+def db():
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as session:
+        yield session
 
 
 @pytest.fixture(autouse=True)
@@ -45,32 +51,31 @@ def test_slot_starts_aligns_from_odd_window_start():
     assert slots[0] == datetime(2026, 6, 15, 8, 10, 0)
 
 
-def test_filter_slots_caps_at_1730_uk_winter(monkeypatch):
-    """Naive datetimes are stored as UTC; last bookable slot ends at 17:30 UK."""
+def test_filter_slots_caps_at_calling_window(db):
+    """Slots outside platform calling hours are removed for UK numbers."""
     sm = interview_slot_minutes()
-    order = MagicMock()
-    order.org_id = "org-1"
-    db = MagicMock()
+    from app.models.platform_contact_time_settings import PlatformContactTimeSettings
 
-    monkeypatch.setattr(
-        "app.utils.ofcom.resolve_org_call_window",
-        lambda _db, _org_id, now=None: OfcomWindow(start=time(9, 0), end=time(18, 0)),
-    )
-    monkeypatch.setattr(
-        "app.utils.ofcom.is_weekend_uk",
-        lambda _dt: False,
-    )
+    row = db.get(PlatformContactTimeSettings, "default")
+    if row is None:
+        row = PlatformContactTimeSettings(id="default", updated_at=datetime.utcnow())
+        db.add(row)
+    row.calling_days = "1,2,3,4,5"
+    row.calling_start = "09:00"
+    row.calling_end = "17:30"
+    row.calling_fallback_tz = "Europe/London"
+    db.commit()
 
     window_start = datetime(2026, 1, 15, 8, 0, 0)
     window_end = datetime(2026, 1, 15, 20, 0, 0)
     raw = _slot_starts(window_start, window_end)
-    filtered = _filter_slots_to_calling_hours(db, order, raw)
+    filtered = _filter_slots_to_calling_hours(db, "+447954823445", raw)
 
     assert filtered
     last = filtered[-1]
     uk = last.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
     slot_end = uk + timedelta(minutes=sm)
-    assert slot_end.time() <= time(*BOOKING_HOURS_END)
+    assert slot_end.time() <= time(17, 30)
 
 
 def test_booking_window_extends_to_24h_when_relaxed(monkeypatch):
@@ -95,10 +100,8 @@ def test_filter_slots_skips_hour_cap_when_relaxed(monkeypatch):
     from app.core.config import get_settings
 
     get_settings.cache_clear()
-    order = MagicMock()
-    order.org_id = "org-1"
     db = MagicMock()
     evening = datetime(2026, 6, 15, 20, 0, 0)
-    filtered = _filter_slots_to_calling_hours(db, order, [evening])
+    filtered = _filter_slots_to_calling_hours(db, "+447954823445", [evening])
     assert filtered == [evening]
     get_settings.cache_clear()

@@ -94,7 +94,7 @@ Source of truth: `voxbulk-api/app/services/org_rbac.py` and `dashboard-web/src/l
 - Single GitHub remote: `origin` → `https://github.com/menasimuk-hub/Vox-new.git`, branch `main`. Push/pull only there. Never reference the legacy `menasimuk-hub/Vox` repo.
 - After commits: `git push origin main`.
 - Production deploys from a Linux VPS via `./deploy-vps.sh` (or `./vox.sh update`) — never from Windows. See the `vps-deploy` rule for the full checklist and known git-pull conflict fixes.
-- **Only commit when explicitly asked.** Never commit `.env` or anything containing secrets.
+- **After completing implementation work, commit and push to `origin main`** (see `.cursor/rules/always-commit-and-push.mdc`). Never commit `.env` or anything containing secrets. Skip commit only for read-only tasks or when the user said not to.
 
 ## Working norms for agents
 

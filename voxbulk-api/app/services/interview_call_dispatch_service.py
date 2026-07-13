@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -17,8 +17,6 @@ from app.services.survey_dispatch_service import _first_name, _personalize
 from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
 from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
 from app.services.telnyx_voice_service import TelnyxVoiceAdapter, _decode_client_state, _telnyx_config
-from app.utils.ofcom import now_uk, org_calling_allowed
-
 logger = get_logger(__name__)
 
 LOG_PREFIX = "[interview-call]"
@@ -333,17 +331,30 @@ def build_interview_call_greeting(config: dict[str, Any], *, recipient_name: str
     return f"Hi {first}, this is a brief screening call from {org_name} about the {role} position."
 
 
-def _order_window_ok(db: Session, order: ServiceOrder, *, now: datetime | None = None) -> tuple[bool, str | None]:
+def _order_window_ok(
+    db: Session,
+    order: ServiceOrder,
+    *,
+    phone: str | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
     from app.services.interview_booking_service import interview_relax_restrictions
 
     if interview_relax_restrictions():
         return True, None
-    now = now or datetime.utcnow()
-    if order.scheduled_start_at and now < order.scheduled_start_at:
+    if now is None:
+        now_utc = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now_utc = now.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now.astimezone(timezone.utc)
+    if order.scheduled_start_at and now_utc.replace(tzinfo=None) < order.scheduled_start_at:
         return False, "Interview calling window has not started"
-    if order.scheduled_end_at and now >= order.scheduled_end_at:
+    if order.scheduled_end_at and now_utc.replace(tzinfo=None) >= order.scheduled_end_at:
         return False, "Interview calling window has ended"
-    allowed, reason = org_calling_allowed(db, order.org_id, now=now_uk())
+    from app.utils.ofcom import platform_calling_allowed
+
+    allowed, reason = platform_calling_allowed(db, phone, now=now_utc)
     if not allowed:
         return False, reason or "Outside calling hours"
     return True, None
@@ -585,6 +596,9 @@ class InterviewCallDispatchService:
                 continue
             if should_wait_for_retry(candidate):
                 continue
+            ok_phone, _reason = _order_window_ok(db, order, phone=str(candidate.phone or ""))
+            if not ok_phone:
+                continue
             eligible, _reason = _recipient_eligible_for_dial(
                 db, order, candidate, now=now, booking_required=booking_required
             )
@@ -620,7 +634,7 @@ class InterviewCallDispatchService:
                 "Interview voice agent is not configured — assign an interview agent with a Telnyx assistant ID in Admin → Main agents"
             )
 
-        ok, reason = _order_window_ok(db, order)
+        ok, reason = _order_window_ok(db, order, phone=str(recipient.phone or ""))
         if not ok:
             raise ValueError(reason or "Outside the Interview calling window")
 

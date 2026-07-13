@@ -44,6 +44,7 @@ type BookingPage = {
   can_reschedule?: boolean;
   can_cancel?: boolean;
   display_timezone?: string;
+  display_timezone_label?: string;
   calling_hours_label?: string;
   channel?: string | null;
   channel_options?: {
@@ -58,8 +59,16 @@ type BookingPage = {
   calendar_ics_url?: string | null;
 };
 
-/** Interview slots are always scheduled and displayed in UK time (GMT/BST). */
-const BOOKING_TZ = "Europe/London";
+/** Default when API does not send candidate timezone. */
+const DEFAULT_BOOKING_TZ = "Europe/London";
+
+function resolveBookingTz(data?: { display_timezone?: string }) {
+  return data?.display_timezone || DEFAULT_BOOKING_TZ;
+}
+
+function resolveBookingTzLabel(data?: { display_timezone_label?: string }) {
+  return data?.display_timezone_label || "UK time (GMT/BST)";
+}
 
 type DayPart = "all" | "morning" | "afternoon" | "evening";
 
@@ -70,9 +79,9 @@ function parseUtc(iso: string) {
   return new Date(raw);
 }
 
-function ukDateParts(iso: string) {
+function localDateParts(iso: string, tz: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: BOOKING_TZ,
+    timeZone: tz,
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -81,48 +90,48 @@ function ukDateParts(iso: string) {
   return { year: get("year"), month: get("month"), day: get("day") };
 }
 
-function ukHour(iso: string) {
+function localHour(iso: string, tz: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: BOOKING_TZ,
+    timeZone: tz,
     hour: "numeric",
     hour12: false,
   }).formatToParts(parseUtc(iso));
   return Number(parts.find((p) => p.type === "hour")?.value ?? 0);
 }
 
-function ukCalendarDate(iso: string): Date {
-  const { year, month, day } = ukDateParts(iso);
+function localCalendarDate(iso: string, tz: string): Date {
+  const { year, month, day } = localDateParts(iso, tz);
   return new Date(year, month - 1, day);
 }
 
-function fmtDate(iso: string) {
+function fmtDate(iso: string, tz: string) {
   try {
     return parseUtc(iso).toLocaleDateString("en-GB", {
       weekday: "long",
       day: "numeric",
       month: "long",
       year: "numeric",
-      timeZone: BOOKING_TZ,
+      timeZone: tz,
     });
   } catch {
     return iso;
   }
 }
 
-function fmtTime(iso: string) {
+function fmtTime(iso: string, tz: string) {
   try {
     return parseUtc(iso).toLocaleTimeString("en-GB", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-      timeZone: BOOKING_TZ,
+      timeZone: tz,
     });
   } catch {
     return iso;
   }
 }
 
-function fmtWindow(iso: string) {
+function fmtWindow(iso: string, tz: string) {
   try {
     return parseUtc(iso).toLocaleString("en-GB", {
       weekday: "short",
@@ -130,16 +139,23 @@ function fmtWindow(iso: string) {
       month: "short",
       hour: "2-digit",
       minute: "2-digit",
-      timeZone: BOOKING_TZ,
+      timeZone: tz,
     });
   } catch {
     return iso;
   }
 }
 
-function dayKey(iso: string) {
-  const { year, month, day } = ukDateParts(iso);
+function dayKey(iso: string, tz: string) {
+  const { year, month, day } = localDateParts(iso, tz);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function dayPartForSlot(iso: string, tz: string): Exclude<DayPart, "all"> {
+  const hour = localHour(iso, tz);
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
 }
 
 function startOfDay(date: Date) {
@@ -148,25 +164,18 @@ function startOfDay(date: Date) {
   return d;
 }
 
-function dayPartForSlot(iso: string): Exclude<DayPart, "all"> {
-  const hour = ukHour(iso);
-  if (hour < 12) return "morning";
-  if (hour < 17) return "afternoon";
-  return "evening";
-}
-
-function groupSlotsByDay(slots: string[]) {
+function groupSlotsByDay(slots: string[], tz: string) {
   const groups = new Map<string, string[]>();
   for (const slot of slots) {
-    const key = dayKey(slot);
+    const key = dayKey(slot, tz);
     const list = groups.get(key) || [];
     list.push(slot);
     groups.set(key, list);
   }
   return Array.from(groups.entries()).map(([key, daySlots]) => ({
     dayKey: key,
-    date: ukCalendarDate(daySlots[0]),
-    label: fmtDate(daySlots[0]),
+    date: localCalendarDate(daySlots[0], tz),
+    label: fmtDate(daySlots[0], tz),
     slots: daySlots.sort((a, b) => parseUtc(a).getTime() - parseUtc(b).getTime()),
   }));
 }
@@ -225,9 +234,11 @@ function CalendarSlotPicker({
   error?: string | null;
   onSubmit: () => void;
 }) {
+  const bookingTz = resolveBookingTz(data);
+  const bookingTzLabel = resolveBookingTzLabel(data);
   const slotGroups = React.useMemo(
-    () => (data.available_slots ? groupSlotsByDay(data.available_slots) : []),
-    [data.available_slots],
+    () => (data.available_slots ? groupSlotsByDay(data.available_slots, bookingTz) : []),
+    [data.available_slots, bookingTz],
   );
 
   const daysWithSlots = React.useMemo(() => slotGroups.map((g) => g.date), [slotGroups]);
@@ -240,7 +251,7 @@ function CalendarSlotPicker({
       return;
     }
     if (picked) {
-      setSelectedDay(ukCalendarDate(picked));
+      setSelectedDay(localCalendarDate(picked, bookingTz));
       return;
     }
     setSelectedDay((current) => {
@@ -249,7 +260,7 @@ function CalendarSlotPicker({
       }
       return slotGroups[0]?.date;
     });
-  }, [slotGroups, picked]);
+  }, [slotGroups, picked, bookingTz]);
 
   const activeGroup = React.useMemo(
     () => slotGroups.find((g) => selectedDay && g.date.toDateString() === selectedDay.toDateString()),
@@ -259,21 +270,21 @@ function CalendarSlotPicker({
   const filteredSlots = React.useMemo(() => {
     const slots = activeGroup?.slots || [];
     if (dayPart === "all") return slots;
-    return slots.filter((slot) => dayPartForSlot(slot) === dayPart);
-  }, [activeGroup, dayPart]);
+    return slots.filter((slot) => dayPartForSlot(slot, bookingTz) === dayPart);
+  }, [activeGroup, dayPart, bookingTz]);
 
   const partCounts = React.useMemo(() => {
     const slots = activeGroup?.slots || [];
     return {
       all: slots.length,
-      morning: slots.filter((s) => dayPartForSlot(s) === "morning").length,
-      afternoon: slots.filter((s) => dayPartForSlot(s) === "afternoon").length,
-      evening: slots.filter((s) => dayPartForSlot(s) === "evening").length,
+      morning: slots.filter((s) => dayPartForSlot(s, bookingTz) === "morning").length,
+      afternoon: slots.filter((s) => dayPartForSlot(s, bookingTz) === "afternoon").length,
+      evening: slots.filter((s) => dayPartForSlot(s, bookingTz) === "evening").length,
     };
-  }, [activeGroup]);
+  }, [activeGroup, bookingTz]);
 
-  const windowStart = ukCalendarDate(data.window_start);
-  const windowEnd = ukCalendarDate(data.window_end);
+  const windowStart = localCalendarDate(data.window_start, bookingTz);
+  const windowEnd = localCalendarDate(data.window_end, bookingTz);
   const isDayAvailable = (date: Date) => daysWithSlots.some((d) => d.toDateString() === date.toDateString());
 
   if (data.available_slots.length === 0) {
@@ -314,7 +325,7 @@ function CalendarSlotPicker({
             className="mx-auto"
           />
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
-            Highlighted days have open times · UK time
+            Highlighted days have open times · {bookingTzLabel}
           </p>
         </div>
 
@@ -370,10 +381,10 @@ function CalendarSlotPicker({
                         }`}
                       >
                         <span className="block text-sm font-semibold tabular-nums tracking-tight">
-                          {fmtTime(slot)}
+                          {fmtTime(slot, bookingTz)}
                         </span>
                         <span className={`mt-0.5 block text-[10px] ${selected ? "opacity-80" : "text-muted-foreground"}`}>
-                          UK
+                          {bookingTzLabel}
                         </span>
                       </button>
                     );
@@ -398,7 +409,7 @@ function CalendarSlotPicker({
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected</p>
             <p className="mt-0.5 text-sm font-medium">
-              {fmtDate(picked)} · <span className="tabular-nums">{fmtTime(picked)} UK</span>
+              {fmtDate(picked, bookingTz)} · <span className="tabular-nums">{fmtTime(picked, bookingTz)}</span>
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -481,6 +492,8 @@ function PublicBookingPage() {
   });
 
   const data = pageQ.data;
+  const bookingTz = resolveBookingTz(data);
+  const bookingTzLabel = resolveBookingTzLabel(data);
 
   React.useEffect(() => {
     if (!data?.channel_options) return;
@@ -616,11 +629,11 @@ function PublicBookingPage() {
             <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Date</p>
-                <p className="mt-1 text-base font-medium">{fmtDate(data.booked_start_at)}</p>
+                <p className="mt-1 text-base font-medium">{fmtDate(data.booked_start_at, bookingTz)}</p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground">Time</p>
-                <p className="mt-1 text-base font-medium">{fmtTime(data.booked_start_at)} UK</p>
+                <p className="mt-1 text-base font-medium">{fmtTime(data.booked_start_at, bookingTz)}</p>
               </div>
               {data.organisation_name ? <p className="text-muted-foreground">{data.organisation_name}</p> : null}
               {data.channel === "meeting" && data.meeting_url ? (
@@ -736,16 +749,16 @@ function PublicBookingPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
               <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Window opens</p>
-              <p className="mt-1.5 text-sm font-medium">{fmtWindow(data.window_start)}</p>
+              <p className="mt-1.5 text-sm font-medium">{fmtWindow(data.window_start, bookingTz)}</p>
             </div>
             <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
               <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Window closes</p>
-              <p className="mt-1.5 text-sm font-medium">{fmtWindow(data.window_end)}</p>
+              <p className="mt-1.5 text-sm font-medium">{fmtWindow(data.window_end, bookingTz)}</p>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            All times are shown in UK time (GMT/BST). AI calls are made between{" "}
-            {data.calling_hours_label || "09:00 and 17:30 UK time"}.
+            All times are shown in {bookingTzLabel}. AI calls are made between{" "}
+            {data.calling_hours_label || "the calling hours shown above"}.
           </p>
           <p className="text-xs text-muted-foreground">No login required — this link is unique to you.</p>
         </CardHeader>
@@ -755,7 +768,7 @@ function PublicBookingPage() {
             <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm">
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Current booking</p>
               <p className="mt-1 font-medium">
-                {fmtDate(data.booked_start_at)} · {fmtTime(data.booked_start_at)}
+                {fmtDate(data.booked_start_at, bookingTz)} · {fmtTime(data.booked_start_at, bookingTz)}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm" className="px-0" onClick={() => setMode("book")}>

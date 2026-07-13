@@ -238,6 +238,42 @@ class SurveyDispatchService:
             or config.get("wa_template_id")
             or config.get("welcome_template_id")
         ):
+            from app.services.survey_session_service import SurveySessionService
+            from app.utils.ofcom import platform_whatsapp_allowed
+
+            active_session = SurveySessionService.get_active_by_recipient(db, recipient.id)
+            if active_session is None:
+                wa_ok, wa_reason = platform_whatsapp_allowed(db, str(recipient.phone or ""))
+                if not wa_ok:
+                    recipient.status = "pending"
+                    recipient.result_json = json.dumps(
+                        {
+                            "error": "outside_wa_survey_hours",
+                            "detail": wa_reason,
+                            "deferred_at": datetime.utcnow().isoformat(),
+                        },
+                        ensure_ascii=False,
+                    )
+                    db.add(recipient)
+                    db.commit()
+                    UkComplianceAuditService.record(
+                        db,
+                        event_type="send.blocked",
+                        org_id=order.org_id,
+                        order_id=order.id,
+                        detail={
+                            "reason": wa_reason,
+                            "recipient_id": recipient.id,
+                            "workflow": "survey_wa_start",
+                        },
+                    )
+                    return {
+                        "recipient_id": recipient.id,
+                        "name": recipient.name,
+                        "status": "pending",
+                        "error": "outside_wa_survey_hours",
+                    }
+
             from app.services.survey_whatsapp_conversation_service import send_survey_opening
 
             sent = send_survey_opening(

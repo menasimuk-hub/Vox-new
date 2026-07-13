@@ -92,20 +92,33 @@ def org_calling_allowed(
     org_id: str | None,
     *,
     now: datetime | None = None,
+    phone: str | None = None,
 ) -> tuple[bool, str | None]:
-    """Return whether outbound survey calls are allowed now for this organisation."""
-    now = now or now_uk()
+    """Return whether outbound calls are allowed now (platform policy, recipient-local when phone given)."""
+    from app.services.contact_time_service import contact_allowed
 
-    if org_id:
-        from app.models.organisation_ai_config import OrganisationComplianceConfig
+    if phone:
+        return contact_allowed(db, "calling", phone, now_utc=now)
+    return contact_allowed(db, "calling", None, now_utc=now)
 
-        row = db.execute(
-            select(OrganisationComplianceConfig).where(OrganisationComplianceConfig.org_id == org_id)
-        ).scalar_one_or_none()
-        if row is not None and not row.weekend_allowed and is_weekend_uk(now):
-            return False, "Organisation does not allow weekend calling"
 
-    window = resolve_org_call_window(db, org_id, now=now)
-    if not is_within_calling_window(now, window):
-        return False, "Outside organisation calling hours"
-    return True, None
+def platform_calling_allowed(
+    db: Session,
+    phone: str | None,
+    *,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
+    from app.services.contact_time_service import contact_allowed
+
+    return contact_allowed(db, "calling", phone, now_utc=now)
+
+
+def platform_whatsapp_allowed(
+    db: Session,
+    phone: str | None,
+    *,
+    now: datetime | None = None,
+) -> tuple[bool, str | None]:
+    from app.services.contact_time_service import contact_allowed
+
+    return contact_allowed(db, "wa_survey_start", phone, now_utc=now)

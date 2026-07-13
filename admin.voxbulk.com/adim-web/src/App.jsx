@@ -183,7 +183,7 @@ export default function App() {
         <Route path='/compliance/consent' element={<P.ComplianceSettings />} />
         <Route path='/compliance/opt-outs' element={<P.ComplianceOptOuts />} />
         <Route path='/compliance/recording' element={G('Recording disclosure')} />
-        <Route path='/compliance/ofcom' element={G('OFCOM rules')} />
+        <Route path='/compliance/ofcom' element={<P.ComplianceContactTimeSettings />} />
         <Route path='/compliance/gdpr' element={G('GDPR logs')} />
 
         <Route path='/analytics/kpis' element={<P.PlatformKpis />} />
