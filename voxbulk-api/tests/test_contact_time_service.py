@@ -10,7 +10,7 @@ from app.models.platform_contact_time_settings import PlatformContactTimeSetting
 from app.services.contact_time_service import (
     contact_allowed,
     next_allowed_utc,
-    preview_interview_booking_slots,
+    resolve_recipient_timezone,
     slots_within_calling_window,
     update_calling_settings,
 )
@@ -79,6 +79,21 @@ def test_unknown_prefix_uses_fallback(db):
     assert allowed is True
 
 
+def test_phone_prefix_beats_fallback_timezone(db):
+    update_calling_settings(
+        db,
+        {
+            "days": ["Mon", "Tue", "Wed", "Thu", "Fri"],
+            "start": "08:00",
+            "end": "21:00",
+            "fallback_tz": "Australia/Sydney",
+        },
+    )
+    assert resolve_recipient_timezone("+447954823445", channel="calling", db=db) == "Europe/London"
+    assert resolve_recipient_timezone("+61412345678", channel="calling", db=db) == "Australia/Sydney"
+    assert resolve_recipient_timezone("+999000", channel="calling", db=db) == "Australia/Sydney"
+
+
 def test_slots_within_calling_window(db):
     slot = datetime(2026, 5, 20, 10, 0, 0)
     out = slots_within_calling_window(db, "+447954823445", [slot], slot_minutes=4)
@@ -94,7 +109,3 @@ def test_next_allowed_utc_defers(db):
     assert isinstance(nxt, datetime)
     assert nxt > late.replace(tzinfo=None)
 
-
-def test_preview_interview_booking_slots(db):
-    rows = preview_interview_booking_slots(db, "+447954823445", days=1, limit=5)
-    assert isinstance(rows, list)

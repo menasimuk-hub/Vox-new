@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import '../styles/contact-time-settings.css'
 
@@ -91,39 +91,12 @@ function DialPreview({ callStart, callEnd, waStart, waEnd }) {
   )
 }
 
-function BookingPreviewTable({ rows }) {
-  if (!rows?.length) {
-    return <p className="note">No bookable slots in the next few days for this prefix with the current calling hours.</p>
-  }
-  return (
-    <table className="preview-table">
-      <thead>
-        <tr>
-          <th>Day</th>
-          <th>Local time</th>
-          <th>Timezone</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, idx) => (
-          <tr key={`${row.day}-${row.time}-${idx}`}>
-            <td>{row.day}</td>
-            <td>{row.time}</td>
-            <td>{row.timezone}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
 export default function ComplianceContactTimeSettings() {
   const [loading, setLoading] = useState(true)
   const [busyCall, setBusyCall] = useState(false)
   const [busyWa, setBusyWa] = useState(false)
   const [savedCall, setSavedCall] = useState(false)
   const [savedWa, setSavedWa] = useState(false)
-  const [previewTab, setPreviewTab] = useState('44')
   const [timezones, setTimezones] = useState(DEFAULT_TIMEZONES)
 
   const [callDays, setCallDays] = useState(['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
@@ -136,9 +109,6 @@ export default function ComplianceContactTimeSettings() {
   const [waEnd, setWaEnd] = useState('20:00')
   const [waTz, setWaTz] = useState('Europe/London')
 
-  const [booking44, setBooking44] = useState([])
-  const [booking61, setBooking61] = useState([])
-
   const applyPayload = useCallback((data) => {
     const calling = data?.calling || {}
     const wa = data?.wa_survey || {}
@@ -150,8 +120,6 @@ export default function ComplianceContactTimeSettings() {
     setWaStart(wa.start || '09:00')
     setWaEnd(wa.end || '20:00')
     setWaTz(wa.fallback_tz || 'Europe/London')
-    setBooking44(data?.booking_preview_44 || [])
-    setBooking61(data?.booking_preview_61 || [])
     if (Array.isArray(data?.timezones) && data.timezones.length) {
       setTimezones(data.timezones)
     }
@@ -228,11 +196,6 @@ export default function ComplianceContactTimeSettings() {
     setWaDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
   }
 
-  const previewRows = useMemo(
-    () => (previewTab === '61' ? booking61 : booking44),
-    [previewTab, booking44, booking61],
-  )
-
   if (loading) {
     return (
       <div className="contact-time-page">
@@ -260,32 +223,6 @@ export default function ComplianceContactTimeSettings() {
         </div>
 
         <DialPreview callStart={callStart} callEnd={callEnd} waStart={waStart} waEnd={waEnd} />
-
-        <div className="booking-preview">
-          <h2>AI interview booking preview</h2>
-          <p className="preview-sub">Sample bookable slots · candidate local time (from calling hours)</p>
-          <div className="preview-tabs">
-            <button
-              type="button"
-              className={`preview-tab ${previewTab === '44' ? 'on' : ''}`}
-              onClick={() => setPreviewTab('44')}
-            >
-              +44 UK
-            </button>
-            <button
-              type="button"
-              className={`preview-tab ${previewTab === '61' ? 'on' : ''}`}
-              onClick={() => setPreviewTab('61')}
-            >
-              +61 Australia
-            </button>
-          </div>
-          <BookingPreviewTable rows={previewRows} />
-          <p className="note" style={{ marginTop: 12, marginBottom: 0 }}>
-            Candidates see this same window on their booking link, in their own local time from their mobile number.
-            Save calling hours to refresh this table from the server.
-          </p>
-        </div>
 
         <div className="cards">
           <div className="card call">

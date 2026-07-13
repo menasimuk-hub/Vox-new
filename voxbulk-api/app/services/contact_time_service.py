@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models.platform_contact_time_settings import PlatformContactTimeSettings
-from app.utils.callback_timezone import resolve_callback_timezone, timezone_from_phone
+from app.utils.callback_timezone import timezone_from_phone
 from app.utils.ofcom import DEFAULT_CALL_WINDOW, OfcomWindow
 
 ContactChannel = Literal["calling", "wa_survey_start"]
@@ -223,6 +223,7 @@ def update_wa_settings(db: Session, payload: dict[str, Any]) -> PlatformContactT
 
 
 def resolve_recipient_timezone(phone: str | None, *, channel: ContactChannel, db: Session | None = None) -> str:
+    """Phone country prefix first; fallback timezone only when prefix is unknown."""
     row = get_settings_row(db) if db is not None else None
     window = _window_for_channel(row, channel) if row is not None else ContactWindow(
         days=frozenset({1, 2, 3, 4, 5}),
@@ -230,7 +231,10 @@ def resolve_recipient_timezone(phone: str | None, *, channel: ContactChannel, db
         end=time(21, 0),
         fallback_tz="Europe/London",
     )
-    return resolve_callback_timezone(phone=phone, explicit=window.fallback_tz)
+    from_phone = timezone_from_phone(phone)
+    if from_phone:
+        return from_phone
+    return str(window.fallback_tz or "Europe/London").strip() or "Europe/London"
 
 
 def _moment_allowed(local: datetime, window: ContactWindow, eff: OfcomWindow) -> bool:
@@ -354,43 +358,9 @@ def calling_hours_label(db: Session, phone: str | None) -> tuple[str, str, str]:
     return hours, tz_name, tz_label
 
 
-def preview_interview_booking_slots(
-    db: Session,
-    phone: str,
-    *,
-    days: int = 3,
-    slot_minutes: int = 4,
-    limit: int = 20,
-) -> list[dict[str, str]]:
-    row = get_settings_row(db)
-    window = _window_for_channel(row, "calling")
-    tz_name = resolve_recipient_timezone(phone, channel="calling", db=db)
-    eff = _effective_window(window, phone)
-    tz_label = _TZ_LABELS.get(tz_name, tz_name)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    end = now + timedelta(days=max(1, days))
-    slots: list[dict[str, str]] = []
-    cursor = now.replace(second=0, microsecond=0)
-    sm = max(1, slot_minutes)
-    while cursor < end and len(slots) < limit:
-        if _slot_allowed(cursor, slot_minutes=sm, window=window, eff=eff, tz_name=tz_name):
-            local = _local_dt(cursor.replace(tzinfo=timezone.utc), tz_name)
-            slots.append(
-                {
-                    "day": local.strftime("%a %d %b"),
-                    "time": local.strftime("%H:%M"),
-                    "timezone": tz_label,
-                }
-            )
-        cursor += timedelta(minutes=sm)
-    return slots
-
-
 def full_settings_payload(db: Session) -> dict[str, Any]:
     row = get_settings_row(db)
     out = settings_out(row)
     out["dial_preview"] = effective_window_for_preview(db)
-    out["booking_preview_44"] = preview_interview_booking_slots(db, "+447954823445")
-    out["booking_preview_61"] = preview_interview_booking_slots(db, "+61412345678")
     out["timezones"] = sorted(VALID_TIMEZONES)
     return out
