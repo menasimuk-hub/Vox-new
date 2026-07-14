@@ -236,11 +236,20 @@ function normalizeBilingual(english: string, original?: string): BilingualAnswer
 
 function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
   const items = r.answers || [];
+  // Web CF pending flow saves `__tell_us_more`; older / reason_prev path saves `__low_reason`.
+  // Prefer tell_us_more when both exist so Apple/web voice reasons show under the rating.
   const lowReasons = new Map<string, (typeof items)[number]>();
   for (const a of items) {
     const qk = String(a.question_key || "");
     if (qk.endsWith("__low_reason")) {
-      lowReasons.set(qk.slice(0, -"__low_reason".length), a);
+      const base = qk.slice(0, -"__low_reason".length);
+      if (!lowReasons.has(base)) lowReasons.set(base, a);
+    }
+  }
+  for (const a of items) {
+    const qk = String(a.question_key || "");
+    if (qk.endsWith("__tell_us_more")) {
+      lowReasons.set(qk.slice(0, -"__tell_us_more".length), a);
     }
   }
 
