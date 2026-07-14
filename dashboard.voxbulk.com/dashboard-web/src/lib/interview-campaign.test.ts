@@ -67,14 +67,14 @@ describe("candidatePhoneBlocksLaunch", () => {
     expect(candidatePhoneBlocksLaunch({ phone: "123" })).toMatch(/E\.164/);
   });
 
-  it("blocks allowlist reasons when present", () => {
+  it("does not block launch when only call-allowlist fails (web meeting)", () => {
     expect(
       candidatePhoneBlocksLaunch({
         phone: "+447700900123",
         phoneCallAllowed: false,
         phoneCallBlockReason: "Region not allowed",
       }),
-    ).toBe("Region not allowed");
+    ).toBeNull();
   });
 });
 

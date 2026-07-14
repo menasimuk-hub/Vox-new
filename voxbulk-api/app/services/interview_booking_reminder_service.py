@@ -221,32 +221,27 @@ class InterviewBookingReminderService:
                     f"({date_line} at {time_line}). We will call you on this number."
                 )
             try:
-                from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
-
-                phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(recipient.phone))
-                if not phone_check.get("allowed"):
-                    err_notes.append(f"wa:{phone_check.get('reason') or 'phone_not_allowed'}")
-                else:
-                    result = TelnyxMessagingService.send_whatsapp(
+                # WA uses Admin WhatsApp blocklist (OutboundWhatsappService), not call allowlist.
+                result = TelnyxMessagingService.send_whatsapp(
+                    db,
+                    to_number=str(recipient.phone),
+                    body=body,
+                    org_id=order.org_id,
+                    meter_usage=False,
+                    service_code="ai_interview",
+                )
+                if result.ok:
+                    wa_ok = True
+                    TelnyxMessagingService.log_outbound(
                         db,
-                        to_number=str(recipient.phone),
-                        body=body,
                         org_id=order.org_id,
-                        meter_usage=False,
-                        service_code="ai_interview",
+                        to_number=str(recipient.phone),
+                        from_number=None,
+                        body=body,
+                        result=result,
                     )
-                    if result.ok:
-                        wa_ok = True
-                        TelnyxMessagingService.log_outbound(
-                            db,
-                            org_id=order.org_id,
-                            to_number=str(recipient.phone),
-                            from_number=None,
-                            body=body,
-                            result=result,
-                        )
-                    else:
-                        err_notes.append(f"wa:{result.detail or result.status}")
+                else:
+                    err_notes.append(f"wa:{result.detail or result.status}")
             except Exception as exc:
                 err_notes.append(f"wa:{exc}")
 

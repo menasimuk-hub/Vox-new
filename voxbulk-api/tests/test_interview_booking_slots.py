@@ -6,9 +6,12 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from app.services.interview_booking_service import (
+    MEETING_CHANNEL,
+    PHONE_CHANNEL,
     _filter_slots_to_calling_hours,
     _slot_starts,
     interview_slot_minutes,
+    resolve_booking_channel_options,
 )
 
 UK_TZ = ZoneInfo("Europe/London")
@@ -105,3 +108,27 @@ def test_filter_slots_skips_hour_cap_when_relaxed(monkeypatch):
     filtered = _filter_slots_to_calling_hours(db, "+447954823445", [evening])
     assert filtered == [evening]
     get_settings.cache_clear()
+
+
+def test_resolve_booking_channel_meeting_only_when_call_allowlist_blocks(monkeypatch):
+    db = MagicMock()
+    monkeypatch.setattr(
+        "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
+        lambda *a, **k: {"allowed": False, "reason": "EG calling is disabled"},
+    )
+    opts = resolve_booking_channel_options(db, "+201012345678")
+    assert opts["phone_available"] is False
+    assert opts["meeting_available"] is True
+    assert opts["default_channel"] == MEETING_CHANNEL
+
+
+def test_resolve_booking_channel_phone_when_call_allowlist_allows(monkeypatch):
+    db = MagicMock()
+    monkeypatch.setattr(
+        "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
+        lambda *a, **k: {"allowed": True},
+    )
+    opts = resolve_booking_channel_options(db, "+447700900123")
+    assert opts["phone_available"] is True
+    assert opts["meeting_available"] is True
+    assert opts["default_channel"] == PHONE_CHANNEL

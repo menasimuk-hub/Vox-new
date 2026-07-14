@@ -178,20 +178,26 @@ export function countScreeningEligibleCandidates(
   return candidates.filter((c) => isScreeningEligibleCandidate(c, minAtsScore)).length;
 }
 
-/** Client-side phone gate for launch (mirrors backend E.164 / UK local rules loosely). */
+/**
+ * Client-side phone gate for launch (E.164 / length only).
+ * Call-allowlist failure must not block launch — those candidates interview via web meeting.
+ */
 export function candidatePhoneBlocksLaunch(opts: {
   phone?: string | null;
+  /** @deprecated Ignored — allowlist no longer blocks interview launch. */
   phoneCallAllowed?: boolean | null;
+  /** @deprecated Ignored — allowlist no longer blocks interview launch. */
   phoneCallBlockReason?: string | null;
 }): string | null {
   const phone = String(opts.phone || "").trim();
   if (!phone) return null; // email-only candidates allowed
-  if (opts.phoneCallAllowed === false && opts.phoneCallBlockReason) {
-    return String(opts.phoneCallBlockReason);
-  }
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 8 || digits.length > 15) {
     return "Phone number must be in E.164 format, for example +447700900123";
   }
   return null;
 }
+
+/** Soft copy when AI phone dial is unavailable but web meeting + WA still work. */
+export const INTERVIEW_WEB_MEETING_ONLY_HINT =
+  "AI phone call not available for this country — interview will use web meeting";

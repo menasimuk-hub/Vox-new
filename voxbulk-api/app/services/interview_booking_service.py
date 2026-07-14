@@ -2560,54 +2560,47 @@ class InterviewBookingService:
                 elif template_row is None:
                     errors.append(f"{recipient.name}: no WhatsApp interview_email_sent template")
                 else:
-                    from app.services.telnyx_phone_allowlist_service import TelnyxPhoneAllowlistService
+                    # WA uses Admin WhatsApp blocklist (OutboundWhatsappService), not call allowlist.
+                    components = InterviewBookingService.build_email_sent_components(
+                        template_row,
+                        candidate_name=recipient.name or "Candidate",
+                        role=role,
+                        company_name=company_name,
+                        careers_email=careers_from,
+                    )
+                    fallback_body = (
+                        f"Dear {first}, we sent you an email from careers@voxbulk.com "
+                        f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
+                    )
+                    from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
 
-                    phone_check = TelnyxPhoneAllowlistService.validate_phone_db(db, str(recipient.phone))
-                    if not phone_check.get("allowed"):
-                        errors.append(
-                            f"{recipient.name} WA: {phone_check.get('reason') or 'phone not on allow list'}"
+                    log_body = f"[template:{template_row.name}] {fallback_body}"
+                    result = InterviewWhatsappSendService.send_template_or_plain(
+                        db,
+                        to_number=str(recipient.phone),
+                        body=fallback_body,
+                        org_id=order.org_id,
+                        template_row=template_row,
+                        template_components=components,
+                        template_language=template_row.language or "en_US",
+                    )
+                    if result.ok:
+                        token_row.wa_sent_at = _now()
+                        token_row.wa_message_id = result.external_id
+                        token_row.updated_at = _now()
+                        db.add(token_row)
+                        wa_sent += 1
+                        recipient_wa_sent = True
+                        TelnyxMessagingService.log_outbound(
+                            db,
+                            org_id=order.org_id,
+                            to_number=str(recipient.phone),
+                            from_number=None,
+                            body=log_body,
+                            result=result,
                         )
                     else:
-                        components = InterviewBookingService.build_email_sent_components(
-                            template_row,
-                            candidate_name=recipient.name or "Candidate",
-                            role=role,
-                            company_name=company_name,
-                            careers_email=careers_from,
-                        )
-                        fallback_body = (
-                            f"Dear {first}, we sent you an email from careers@voxbulk.com "
-                            f"about your {role} interview at {company_name}. Please check your inbox and spam folder."
-                        )
-                        from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
-
-                        log_body = f"[template:{template_row.name}] {fallback_body}"
-                        result = InterviewWhatsappSendService.send_template_or_plain(
-                            db,
-                            to_number=str(recipient.phone),
-                            body=fallback_body,
-                            org_id=order.org_id,
-                            template_row=template_row,
-                            template_components=components,
-                            template_language=template_row.language or "en_US",
-                        )
-                        if result.ok:
-                            token_row.wa_sent_at = _now()
-                            token_row.wa_message_id = result.external_id
-                            token_row.updated_at = _now()
-                            db.add(token_row)
-                            wa_sent += 1
-                            recipient_wa_sent = True
-                            TelnyxMessagingService.log_outbound(
-                                db,
-                                org_id=order.org_id,
-                                to_number=str(recipient.phone),
-                                from_number=None,
-                                body=log_body,
-                                result=result,
-                            )
-                        else:
-                            errors.append(f"{recipient.name} WA: {result.detail or result.status}")
+                        errors.append(f"{recipient.name} WA: {result.detail or result.status}")
 
             if recipient_email_sent or recipient_wa_sent:
                 if str(recipient.status or "").lower() in {"", "pending"}:

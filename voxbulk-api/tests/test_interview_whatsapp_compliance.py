@@ -105,18 +105,14 @@ def test_interview_send_invites_whatsapp_compliance_helper_called_with_valid_arg
         "app.services.uk_compliance_opt_out.should_block_outbound_phone",
         _capture_block,
     )
-    send_wa = MagicMock(return_value=SimpleNamespace(ok=True, external_id="msg-1", status="sent", detail=None))
+    send_tpl = MagicMock(return_value=SimpleNamespace(ok=True, external_id="msg-1", status="sent", detail=None))
     monkeypatch.setattr(
-        "app.services.interview_booking_service.TelnyxMessagingService.send_whatsapp",
-        send_wa,
+        "app.services.interview_whatsapp_send_service.InterviewWhatsappSendService.send_template_or_plain",
+        send_tpl,
     )
     monkeypatch.setattr(
         "app.services.interview_booking_service.TelnyxMessagingService.log_outbound",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
-        lambda *a, **k: {"allowed": True},
     )
     monkeypatch.setattr(
         "app.services.interview_booking_service.InterviewBookingService.resolve_invite_wa_template",
@@ -170,16 +166,12 @@ def test_interview_send_invites_whatsapp_send_preserves_meter_usage_false(monkey
     )
     send_wa = MagicMock(return_value=SimpleNamespace(ok=True, external_id="msg-2", status="sent", detail=None))
     monkeypatch.setattr(
-        "app.services.interview_booking_service.TelnyxMessagingService.send_whatsapp",
+        "app.services.interview_whatsapp_send_service.TelnyxMessagingService.send_whatsapp",
         send_wa,
     )
     monkeypatch.setattr(
         "app.services.interview_booking_service.TelnyxMessagingService.log_outbound",
         MagicMock(),
-    )
-    monkeypatch.setattr(
-        "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
-        lambda *a, **k: {"allowed": True},
     )
     monkeypatch.setattr(
         "app.services.interview_booking_service.InterviewBookingService.resolve_invite_wa_template",
@@ -194,6 +186,45 @@ def test_interview_send_invites_whatsapp_send_preserves_meter_usage_false(monkey
         order, _ = _seed_order_with_recipient(db)
         InterviewBookingService.send_invites(db, order, channels=["whatsapp"])
         assert send_wa.call_args.kwargs.get("meter_usage") is False
+
+
+def test_interview_send_invites_whatsapp_ignores_call_allowlist(monkeypatch):
+    """Call allowlist must not skip WA — destination policy is WhatsApp blocklist only."""
+    monkeypatch.setattr(
+        "app.services.uk_compliance_opt_out.should_block_outbound_phone",
+        lambda *a, **k: None,
+    )
+    send_tpl = MagicMock(return_value=SimpleNamespace(ok=True, external_id="msg-wa", status="sent", detail=None))
+    monkeypatch.setattr(
+        "app.services.interview_whatsapp_send_service.InterviewWhatsappSendService.send_template_or_plain",
+        send_tpl,
+    )
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.TelnyxMessagingService.log_outbound",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "app.services.telnyx_phone_allowlist_service.TelnyxPhoneAllowlistService.validate_phone_db",
+        lambda *a, **k: {"allowed": False, "reason": "EG calling is disabled"},
+    )
+    monkeypatch.setattr(
+        "app.services.interview_booking_service.InterviewBookingService.resolve_invite_wa_template",
+        lambda *a, **k: _wa_template(),
+    )
+    monkeypatch.setattr(
+        "app.services.uk_compliance_service.UkComplianceService.assert_order_launch_allowed",
+        lambda *a, **k: None,
+    )
+
+    with get_sessionmaker()() as db:
+        order, recipient = _seed_order_with_recipient(db)
+        recipient.phone = "+201012345678"
+        db.add(recipient)
+        db.commit()
+        result = InterviewBookingService.send_invites(db, order, channels=["whatsapp"])
+        assert result.get("whatsapp_sent") == 1
+        send_tpl.assert_called_once()
+        assert not any("allow" in str(e).lower() for e in (result.get("errors") or []))
 
 
 def test_survey_dispatch_compliance_helper_has_no_meter_usage():

@@ -10,6 +10,7 @@ import {
   DEFAULT_MIN_ATS_SCORE,
   candidateNeedsAtsScore,
   candidatePhoneBlocksLaunch,
+  INTERVIEW_WEB_MEETING_ONLY_HINT,
   countScreeningEligibleCandidates,
   interviewCampaignReadOnlyLabel,
   isAtsAnalyzingStatus,
@@ -112,7 +113,10 @@ type CandidateRow = {
   activityStatus?: string;
   activityStatusLabel?: string;
   phoneCallAllowed?: boolean;
+  /** Format / intake error — blocks launch and shows as destructive. */
   phoneCallBlockReason?: string | null;
+  /** Soft note when call allowlist blocks phone AI but web meeting is fine. */
+  phoneWebMeetingHint?: string | null;
 };
 
 function toLocalInput(iso?: string | null) {
@@ -703,8 +707,11 @@ function CreateInterview() {
         const phoneIntakeErr =
           intakeErrors.find((e) => /phone|e\.164/i.test(e) && !/phone missing/i.test(e)) || null;
         const missingPhone = intakeErrors.some((e) => /phone missing/i.test(e));
-        const allowlistReason = r.phone_call_block_reason ? String(r.phone_call_block_reason) : null;
-        const blockReason = phoneIntakeErr || (r.phone_call_allowed === false ? allowlistReason : null);
+        const phoneCallAllowed = r.phone_call_allowed !== false && !missingPhone && !phoneIntakeErr;
+        const phoneWebMeetingHint =
+          !phoneIntakeErr && !missingPhone && r.phone_call_allowed === false
+            ? INTERVIEW_WEB_MEETING_ONLY_HINT
+            : null;
         return {
           id: String(r.id),
           name: String(r.name || "Candidate"),
@@ -717,8 +724,9 @@ function CreateInterview() {
           status: String(r.status || ""),
           activityStatus: String(r.activity_status || ""),
           activityStatusLabel: r.activity_status_label ? String(r.activity_status_label) : undefined,
-          phoneCallAllowed: !blockReason && r.phone_call_allowed !== false && !missingPhone,
-          phoneCallBlockReason: blockReason,
+          phoneCallAllowed,
+          phoneCallBlockReason: phoneIntakeErr,
+          phoneWebMeetingHint,
         };
       });
   }, [draftQ.data?.recipients]);
@@ -2178,11 +2186,13 @@ function CreateInterview() {
                               disabled={candidatesLocked || patchRecipientM.isPending}
                               placeholder="Mobile"
                               className={`h-8 text-xs ${r.phoneCallBlockReason ? "border-destructive" : ""}`}
-                              title={r.phoneCallBlockReason || undefined}
+                              title={r.phoneCallBlockReason || r.phoneWebMeetingHint || undefined}
                               aria-invalid={Boolean(r.phoneCallBlockReason)}
                             />
                             {r.phoneCallBlockReason ? (
                               <span className="text-[10px] leading-tight text-destructive">{r.phoneCallBlockReason}</span>
+                            ) : r.phoneWebMeetingHint ? (
+                              <span className="text-[10px] leading-tight text-muted-foreground">{r.phoneWebMeetingHint}</span>
                             ) : null}
                           </div>
                         </TableCell>
