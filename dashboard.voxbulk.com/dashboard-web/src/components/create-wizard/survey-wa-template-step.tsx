@@ -209,7 +209,7 @@ export function WaDraggableTypeGroup({
                 onMoveUp?.();
               }}
               disabled={!onMoveUp}
-              className="size-8 rounded-lg text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-30"
+              className="size-11 rounded-lg text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-30 md:size-8"
               title="Move Up"
             >
               <ChevronUp className="size-4" />
@@ -223,7 +223,7 @@ export function WaDraggableTypeGroup({
                 onMoveDown?.();
               }}
               disabled={!onMoveDown}
-              className="size-8 rounded-lg text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-30"
+              className="size-11 rounded-lg text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-30 md:size-8"
               title="Move Down"
             >
               <ChevronDown className="size-4" />

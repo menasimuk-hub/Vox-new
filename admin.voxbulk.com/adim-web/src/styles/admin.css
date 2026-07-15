@@ -233,6 +233,8 @@
 .tableWrap {
   overflow-x: auto;
   width: 100%;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -722,6 +724,7 @@ body.dark .admin-search input::placeholder {
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  min-height: 44px;
 }
 
 .dashKpiCardLink:hover {

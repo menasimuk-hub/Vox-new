@@ -222,11 +222,13 @@
   font-weight: 600;
 }
 
-.occ-table-wrap {
+.occ-table-wrap,
+.occ-data-table-wrap {
   background: var(--occ-surface);
   border: 1px solid var(--occ-border);
   border-radius: var(--occ-radius-lg);
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .occ-data-table {

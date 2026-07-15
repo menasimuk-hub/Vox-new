@@ -109,8 +109,8 @@ function FeedbackPage() {
                 <li className="flex items-center gap-2"><Check size={15} className="text-primary" /> Weekly KPI report by email</li>
               </ul>
             </div>
-            <div className="relative mx-auto">
-              <div className="relative w-[280px] h-[280px] md:w-[320px] md:h-[320px] rounded-3xl bg-white border border-border shadow-elevated p-6 flex items-center justify-center">
+            <div className="relative mx-auto max-w-full flex justify-center">
+              <div className="relative w-[min(280px,calc(100vw-2.5rem))] h-[min(280px,calc(100vw-2.5rem))] md:w-[320px] md:h-[320px] rounded-3xl bg-white border border-border shadow-elevated p-6 flex items-center justify-center">
                 <div className="absolute -top-3 left-6 inline-flex items-center gap-1.5 px-3 h-7 rounded-full bg-navy text-white text-[11px] font-bold uppercase tracking-[0.14em]">
                   <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> Live
                 </div>

@@ -32,7 +32,7 @@ function SidebarToggle() {
       type="button"
       onClick={toggleSidebar}
       aria-label="Toggle sidebar"
-      className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-8 md:w-8"
     >
       <Menu className="size-4" />
       <span className="sr-only">Toggle sidebar</span>
@@ -70,7 +70,7 @@ export function TopBar() {
         )}
         <Button
           onClick={toggleChat}
-          className="h-8 gap-1.5 bg-[#0f1b3d] text-white border border-[#0f1b3d] hover:bg-[#16244a] hover:scale-[1.03] active:scale-[0.97] transition-all px-2.5 shadow-[0_0_12px_rgba(15,27,61,0.25)] sm:h-9 sm:px-3 cursor-pointer"
+          className="h-11 gap-1.5 bg-[#0f1b3d] text-white border border-[#0f1b3d] hover:bg-[#16244a] hover:scale-[1.03] active:scale-[0.97] transition-all px-2.5 shadow-[0_0_12px_rgba(15,27,61,0.25)] md:h-9 md:px-3 cursor-pointer"
           aria-label="Ask AI"
           title="Ask AI"
         >
@@ -78,7 +78,7 @@ export function TopBar() {
           <span className="hidden text-xs font-semibold sm:inline">Ask AI</span>
         </Button>
         <PwaInstallButton />
-        <Button size="icon" variant="ghost" className="size-8 sm:size-9" onClick={toggle} aria-label="Toggle theme">
+        <Button size="icon" variant="ghost" className="size-11 md:size-9" onClick={toggle} aria-label="Toggle theme">
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
         <NotificationsBell />
@@ -140,7 +140,7 @@ function NotificationsBell() {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" className="relative" aria-label="Notifications">
+        <Button size="icon" variant="ghost" className="relative size-11 md:size-9" aria-label="Notifications">
           <Bell className="size-4" />
           {unread > 0 ? (
             <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
@@ -149,7 +149,7 @@ function NotificationsBell() {
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent align="end" className="w-[min(20rem,calc(100vw-2rem))]">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
           <span>Notifications</span>
           <div className="flex items-center gap-2">
@@ -373,7 +373,7 @@ export function LiveChatFab() {
               <p className="text-sm font-semibold">VoxBulk AI</p>
             </div>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={closeChat} className="rounded p-1 opacity-80 hover:bg-primary-foreground/10" aria-label="Close"><X className="size-4" /></button>
+              <button type="button" onClick={closeChat} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded opacity-80 hover:bg-primary-foreground/10 md:min-h-0 md:min-w-0 md:p-1" aria-label="Close"><X className="size-4" /></button>
             </div>
           </div>
 

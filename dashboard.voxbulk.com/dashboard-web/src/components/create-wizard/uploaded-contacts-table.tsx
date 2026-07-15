@@ -100,7 +100,7 @@ export function UploadedContactsTable({
       {canEdit ? (
         <p className="text-xs text-muted-foreground">Click a field to edit name, phone, or email — changes save when you leave the field.</p>
       ) : null}
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <Table>
           <TableHeader>
             <TableRow>

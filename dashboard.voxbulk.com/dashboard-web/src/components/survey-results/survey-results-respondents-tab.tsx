@@ -146,7 +146,7 @@ export function SurveyResultsRespondentsTab({
             key={item.key}
             size="sm"
             variant={filter === item.key ? "default" : "outline"}
-            className={cn("rounded-full")}
+            className={cn("min-h-11 rounded-full md:min-h-0")}
             onClick={() => setFilter(item.key)}
           >
             {item.label}

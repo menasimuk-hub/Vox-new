@@ -336,7 +336,7 @@ export function FeedbackSurveyResults({
                 <div className="flex gap-2">
                   <div className="relative">
                     <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
-                    <Input placeholder="Search themes" className="h-9 w-48 pl-8" />
+                    <Input placeholder="Search themes" className="h-11 w-full min-w-0 pl-8 sm:h-9 sm:w-48 md:w-56" />
                   </div>
                   <Button variant="outline" size="sm" className="gap-1.5"><Filter className="size-4" /> Filter</Button>
                 </div>
@@ -375,12 +375,12 @@ export function FeedbackSurveyResults({
                     <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
                     <Input
                       placeholder="Search name or mobile"
-                      className="h-9 w-56 pl-8"
+                      className="h-11 w-full min-w-0 pl-8 sm:h-9 sm:w-56"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
                   </div>
-                  <div className="flex rounded-md border border-border p-0.5">
+                  <div className="flex flex-wrap rounded-md border border-border p-0.5">
                     <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>All</FilterPill>
                     <FilterPill active={filter === "flagged"} onClick={() => setFilter("flagged")} tone="destructive">
                       <AlertTriangle className="size-3" /> Flagged
@@ -741,7 +741,7 @@ function FilterPill({ children, active, onClick, tone }: { children: React.React
     <button
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+        "inline-flex min-h-11 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors md:min-h-0",
         active
           ? tone === "destructive" ? "bg-destructive text-destructive-foreground"
           : tone === "warning" ? "bg-warning text-warning-foreground"

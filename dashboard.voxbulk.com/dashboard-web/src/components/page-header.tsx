@@ -21,7 +21,7 @@ export function PageHeader({
         {description && <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && (
-        <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto sm:justify-end">
+        <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto sm:justify-end [&_button]:min-h-11 md:[&_button]:min-h-0 [&_a]:min-h-11 md:[&_a]:min-h-0">
           {actions}
         </div>
       )}

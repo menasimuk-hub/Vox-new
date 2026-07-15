@@ -181,7 +181,7 @@ function PhonePreview({ messages, compact }: { messages: PreviewMessage[]; compa
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[2.5rem] border-[12px] border-foreground/90 bg-[#e5ddd5] shadow-2xl",
+        "overflow-hidden rounded-[2.5rem] border-[12px] border-foreground/90 bg-[#e5ddd5] shadow-2xl max-w-[min(280px,calc(100vw-4rem))]",
         compact ? "w-[260px]" : "w-[280px]",
       )}
     >
@@ -338,20 +338,20 @@ export function SurveyWaPreviewCarousel({
                 <button
                   type="button"
                   onClick={prev}
-                  className="absolute -left-12 top-1/2 z-10 grid size-10 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-lg backdrop-blur-sm transition-all hover:scale-110 hover:border-primary/30 hover:bg-accent hover:text-accent-foreground active:scale-95 max-md:-left-4 max-md:size-8"
+                  className="absolute -left-12 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-lg backdrop-blur-sm transition-all hover:scale-110 hover:border-primary/30 hover:bg-accent hover:text-accent-foreground active:scale-95 max-md:left-0 max-md:size-11"
                   aria-label="Previous template"
                 >
-                  <ChevronLeft className="size-5 max-md:size-4" />
+                  <ChevronLeft className="size-5" />
                 </button>
               )}
               {slide < total - 1 && (
                 <button
                   type="button"
                   onClick={next}
-                  className="absolute -right-12 top-1/2 z-10 grid size-10 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-lg backdrop-blur-sm transition-all hover:scale-110 hover:border-primary/30 hover:bg-accent hover:text-accent-foreground active:scale-95 max-md:-right-4 max-md:size-8"
+                  className="absolute -right-12 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-lg backdrop-blur-sm transition-all hover:scale-110 hover:border-primary/30 hover:bg-accent hover:text-accent-foreground active:scale-95 max-md:right-0 max-md:size-11"
                   aria-label="Next template"
                 >
-                  <ChevronRight className="size-5 max-md:size-4" />
+                  <ChevronRight className="size-5" />
                 </button>
               )}
               <PhonePreview messages={current.messages} />
@@ -363,8 +363,10 @@ export function SurveyWaPreviewCarousel({
                   type="button"
                   onClick={() => setSlide(i)}
                   className={cn(
-                    "size-2 rounded-full transition-all",
-                    i === slide ? "w-4 bg-primary" : "bg-border hover:bg-primary/40",
+                    "relative grid place-items-center rounded-full p-3 md:p-0",
+                    i === slide ? "before:w-4" : "before:w-2",
+                    "before:block before:h-2 before:rounded-full before:transition-all",
+                    i === slide ? "before:bg-primary" : "before:bg-border hover:before:bg-primary/40",
                   )}
                   aria-label={`Go to slide ${i + 1}`}
                 />

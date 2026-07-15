@@ -210,7 +210,7 @@ function HeroRow({
           Across phone, WhatsApp and QR — every customer touchpoint in one place.
         </p>
         {tiles.length > 0 && (
-          <div className={cn("mt-5 grid gap-2", tiles.length <= 2 ? "grid-cols-2" : "grid-cols-3")}>
+          <div className={cn("mt-5 grid gap-2", tiles.length <= 2 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3")}>
             {tiles.map((t) => <HeroStat key={t.label} label={t.label} value={t.value} tone={t.tone} />)}
           </div>
         )}
@@ -464,7 +464,7 @@ function RecoverySection({ summary, loading }: { summary?: HomeSummary; loading:
             <Button asChild className="gap-1.5"><Link to="/recovery"><Phone className="size-4" /> Recovery queue</Link></Button>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <RecoveryStat label="Queue" value={loading ? "…" : String(queuePending)} />
           <RecoveryStat label="Calls" value={loading ? "…" : String(totalCalls)} />
           <RecoveryStat label="WhatsApp" value={loading ? "…" : String(waSent)} />

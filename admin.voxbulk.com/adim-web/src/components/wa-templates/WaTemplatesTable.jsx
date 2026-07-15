@@ -94,7 +94,7 @@ export default function WaTemplatesTable({
 
   const chipClass = (active, tone) =>
     cn(
-      'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition',
+      'inline-flex h-11 min-h-11 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition md:h-7 md:min-h-0',
       active
         ? tone === 'rejected'
           ? 'bg-destructive text-destructive-foreground shadow-sm'
@@ -155,20 +155,20 @@ export default function WaTemplatesTable({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b bg-surface-muted/40 px-3 py-2">
-        <div className="relative min-w-[220px] flex-1">
+        <div className="relative min-w-0 w-full flex-1 sm:min-w-[220px]">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search templates…"
-            className="h-8 bg-background pl-8 text-xs"
+            className="h-11 bg-background pl-8 text-xs md:h-8"
           />
         </div>
         <div className="text-xs tabular-nums text-muted-foreground">
           {filtered.length} / {templates.length}
         </div>
         {showNew && onNew ? (
-          <Button size="sm" variant="outline" className="ml-auto h-8 gap-1.5 text-xs" onClick={onNew}>
+          <Button size="sm" variant="outline" className="ml-auto h-11 min-h-11 gap-1.5 text-xs md:h-8 md:min-h-0" onClick={onNew}>
             <Plus className="h-3.5 w-3.5" /> {newLabel}
           </Button>
         ) : (

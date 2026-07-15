@@ -744,7 +744,7 @@ function KpiCard({
   return (
     <div
       className={cn(
-        "flex min-w-[140px] flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2",
+        "flex min-h-11 min-w-[140px] flex-1 items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 md:min-h-0",
         urgent && "border-amber-500/40 bg-amber-500/5",
       )}
     >
@@ -1281,11 +1281,11 @@ function AddAppointmentDialog({
               onChange={(e) => setContactName(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-[110px_1fr] gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr]">
             <div className="space-y-1.5">
               <Label>Country</Label>
               <Select value={countryCode} onValueChange={setCountryCode}>
-                <SelectTrigger>
+                <SelectTrigger className="min-h-11 md:min-h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
