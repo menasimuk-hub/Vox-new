@@ -35,6 +35,17 @@ def _principal_from_token(request: Request, db: Session, token: str) -> CurrentP
     if not user_id or not org_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
 
+    user = db.execute(select(User).where(User.id == str(user_id))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    token_tv = int(payload.get("tv") or 0)
+    user_tv = int(getattr(user, "token_version", 0) or 0)
+    if token_tv != user_tv:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired — please sign in again",
+        )
+
     stmt = select(OrganisationMembership.id).where(
         OrganisationMembership.user_id == str(user_id),
         OrganisationMembership.org_id == str(org_id),

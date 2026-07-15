@@ -7,7 +7,8 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     organisation_name: str = Field(min_length=1, max_length=255)
-    # If provided, join an existing organisation instead of creating one.
+    # Deprecated: ignored. Joining an existing org requires an invite token
+    # (POST /auth/accept-invite). Kept optional so old clients do not 422.
     org_id: str | None = None
     promo_code: str | None = None
 

@@ -82,7 +82,7 @@ def get_recovery_job(job_id: str, db: Session = Depends(get_db), principal=Depen
 
 
 @router.get("/recovery/tasks/{task_id}")
-def get_task_status(task_id: str):
+def get_task_status(task_id: str, principal=Depends(get_current_principal)):
     res = celery_app.AsyncResult(task_id)
     return {"task_id": task_id, "state": res.state, "result": res.result if res.successful() else None}
 

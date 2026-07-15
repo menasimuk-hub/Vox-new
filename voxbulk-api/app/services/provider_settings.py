@@ -69,7 +69,7 @@ class ProviderSettingsService:
         "gocardless": {"access_token", "webhook_secret"},
         "stripe": {"secret_key", "publishable_key"},
         "airwallex": {"client_id", "api_key"},
-        "telnyx": {"api_key", "connection_id", "default_outbound_number", "fallback_caller_id", "media_stream_url"},
+        "telnyx": {"api_key", "connection_id", "default_outbound_number", "fallback_caller_id", "media_stream_url", "webhook_public_key"},
         "meta_whatsapp": {
             "access_token",
             "app_secret",

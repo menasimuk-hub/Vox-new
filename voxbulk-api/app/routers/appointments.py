@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -289,7 +291,25 @@ def trigger_call(appointment_id: str, db: Session = Depends(get_db), principal=D
 
 @router.post("/wa-webhook")
 async def wa_webhook(request: Request, db: Session = Depends(get_db)):
-    payload = await request.json()
+    """Legacy alias — require Telnyx signature; prefer /telnyx/webhooks/messages."""
+    from app.services.telnyx_webhook_security import TelnyxWebhookVerificationError, verify_telnyx_webhook
+
+    raw_body = await request.body()
+    try:
+        verify_telnyx_webhook(
+            raw_body,
+            signature_header=request.headers.get("telnyx-signature-ed25519"),
+            timestamp_header=request.headers.get("telnyx-timestamp"),
+            db=db,
+        )
+    except TelnyxWebhookVerificationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON") from exc
+    if not isinstance(payload, dict):
+        return {"handled": False, "reason": "invalid_payload"}
     record = payload.get("data") or payload
     if isinstance(record, dict) and isinstance(record.get("payload"), dict):
         record = record["payload"]
@@ -304,6 +324,22 @@ async def wa_webhook(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/call-webhook")
 async def call_webhook(request: Request, db: Session = Depends(get_db)):
-    payload = await request.json()
+    """Legacy alias — require Telnyx signature; prefer /telnyx/webhooks/voice."""
+    from app.services.telnyx_webhook_security import TelnyxWebhookVerificationError, verify_telnyx_webhook
+
+    raw_body = await request.body()
+    try:
+        verify_telnyx_webhook(
+            raw_body,
+            signature_header=request.headers.get("telnyx-signature-ed25519"),
+            timestamp_header=request.headers.get("telnyx-timestamp"),
+            db=db,
+        )
+    except TelnyxWebhookVerificationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON") from exc
     handled = handle_appointment_telnyx_event(db, payload if isinstance(payload, dict) else {})
     return {"handled": handled}

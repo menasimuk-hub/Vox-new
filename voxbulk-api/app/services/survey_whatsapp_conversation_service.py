@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -1170,7 +1171,12 @@ def handle_survey_wa_opt_out(
             "log_id": log_id,
         }
 
-    logger.info("%s opt_out_no_active_recipient org=%s phone=%r", LOG_PREFIX, scoped_org, from_phone)
+    logger.info(
+        "%s opt_out_no_active_recipient org=%s phone_hash=%s",
+        LOG_PREFIX,
+        scoped_org,
+        hashlib.sha256((from_phone or "").encode()).hexdigest()[:12] if from_phone else "",
+    )
     return {"handled": True, "opted_out": True, "org_id": scoped_org, "log_id": log_id}
 
 

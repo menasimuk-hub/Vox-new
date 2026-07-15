@@ -4,7 +4,7 @@ import json
 import base64
 import logging
 
-from fastapi import APIRouter, Depends, Header, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,10 +14,29 @@ from app.services.agents.base import AgentRunRequest, AgentRuntimeContext
 from app.services.agents.manager import AgentManager
 from app.services.telnyx_inbound_messaging_service import TelnyxInboundMessagingService
 from app.services.telnyx_voice_service import TelnyxCallerIdService, TelnyxExecutionService
+from app.services.telnyx_webhook_security import TelnyxWebhookVerificationError, verify_telnyx_webhook
 from app.services.voice_agent_service import AzureSpeechService
 
 router = APIRouter(prefix="/telnyx", tags=["telnyx"])
 logger = logging.getLogger(__name__)
+
+
+async def _verified_telnyx_payload(request: Request, db: Session) -> dict:
+    raw_body = await request.body()
+    try:
+        verify_telnyx_webhook(
+            raw_body,
+            signature_header=request.headers.get("telnyx-signature-ed25519"),
+            timestamp_header=request.headers.get("telnyx-timestamp"),
+            db=db,
+        )
+    except TelnyxWebhookVerificationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
+    return payload if isinstance(payload, dict) else {}
 
 
 @router.get("/webhooks/voice")
@@ -33,7 +52,7 @@ async def telnyx_voice_webhook(
     db: Session = Depends(get_db),
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
-    payload = await request.json()
+    payload = await _verified_telnyx_payload(request, db)
     log = TelnyxExecutionService.log_call_event(db, payload=payload, org_id=x_retover_org_id)
     return {"ok": True, "log_id": log.id if log else None}
 
@@ -44,7 +63,7 @@ async def telnyx_voice_events_webhook(
     db: Session = Depends(get_db),
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
-    payload = await request.json()
+    payload = await _verified_telnyx_payload(request, db)
     log = TelnyxExecutionService.log_call_event(db, payload=payload, org_id=x_retover_org_id)
     return {"ok": True, "log_id": log.id if log else None}
 
@@ -61,7 +80,7 @@ async def telnyx_status_webhook(
     db: Session = Depends(get_db),
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
-    payload = await request.json()
+    payload = await _verified_telnyx_payload(request, db)
     log = TelnyxExecutionService.log_call_event(db, payload=payload, org_id=x_retover_org_id)
     return {"ok": True, "log_id": log.id if log else None}
 
@@ -74,7 +93,7 @@ async def telnyx_verified_numbers_webhook_probe():
 
 @router.post("/webhooks/verified-numbers")
 async def telnyx_verified_numbers_webhook(request: Request, db: Session = Depends(get_db)):
-    payload = await request.json()
+    payload = await _verified_telnyx_payload(request, db)
     user = TelnyxCallerIdService.mark_webhook(db, payload=payload)
     return {"ok": True, "user_id": user.id if user else None}
 
@@ -93,20 +112,8 @@ async def telnyx_messages_webhook(
 ):
     # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — router inbound instrumentation
     from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
-    from app.services.telnyx_webhook_security import TelnyxWebhookVerificationError, verify_telnyx_webhook
-    from fastapi import HTTPException
 
-    raw_body = await request.body()
-    try:
-        verify_telnyx_webhook(
-            raw_body,
-            signature_header=request.headers.get("telnyx-signature-ed25519"),
-            timestamp_header=request.headers.get("telnyx-timestamp"),
-        )
-    except TelnyxWebhookVerificationError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    payload = json.loads(raw_body.decode("utf-8"))
+    payload = await _verified_telnyx_payload(request, db)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     record = data.get("payload") if isinstance(data.get("payload"), dict) else data
     event_type = str(data.get("event_type") or payload.get("event_type") or "").strip()
@@ -158,6 +165,19 @@ async def telnyx_media_stream(websocket: WebSocket):
             if not call_control_id:
                 await websocket.send_json({"type": "ack", "status": "ignored", "detail": "Missing call_control_id"})
                 continue
+
+            with sessionmaker() as db:
+                log = db.execute(select(CallLog).where(CallLog.external_call_id == call_control_id)).scalar_one_or_none()
+                if log is None:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "status": "rejected",
+                            "detail": "Unknown call_control_id",
+                        }
+                    )
+                    continue
+
             if not transcript and media_payload:
                 try:
                     audio = base64.b64decode(media_payload)
@@ -170,26 +190,29 @@ async def telnyx_media_stream(websocket: WebSocket):
                 continue
 
             with sessionmaker() as db:
-                request = AgentRunRequest(
-                    context=AgentRuntimeContext(org_id="", call_control_id=call_control_id),
-                    latest_user_utterance=transcript,
-                )
                 log = db.execute(select(CallLog).where(CallLog.external_call_id == call_control_id)).scalar_one_or_none()
-                org_id = log.org_id if log else ""
+                if log is None:
+                    await websocket.send_json(
+                        {"type": "error", "status": "rejected", "detail": "Unknown call_control_id"}
+                    )
+                    continue
+                org_id = log.org_id or ""
                 request = AgentRunRequest(
                     context=AgentRuntimeContext(
                         org_id=org_id,
-                        call_log_id=log.id if log else None,
+                        call_log_id=log.id,
                         call_control_id=call_control_id,
-                        appointment_id=log.appointment_id if log else None,
-                        patient_id=log.patient_id if log else None,
-                        user_id=log.user_id if log else None,
-                        agent_id=log.media_stream_id if log else None,
+                        appointment_id=log.appointment_id,
+                        patient_id=log.patient_id,
+                        user_id=log.user_id,
+                        agent_id=log.media_stream_id,
                     ),
                     latest_user_utterance=transcript,
                 )
                 result = AgentManager.handle_turn(db, request)
-                AgentManager.append_turn_to_call_log(db, call_control_id=call_control_id, caller_text=transcript, result=result)
+                AgentManager.append_turn_to_call_log(
+                    db, call_control_id=call_control_id, caller_text=transcript, result=result
+                )
             await websocket.send_json(
                 {
                     "type": "agent_response",

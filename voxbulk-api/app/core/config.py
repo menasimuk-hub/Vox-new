@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # Security / JWT
     jwt_secret_key: str = Field(default="change-me", alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
-    access_token_expire_minutes: int = Field(default=10080, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    # Default 24h (was 7d). Override via ACCESS_TOKEN_EXPIRE_MINUTES if needed.
+    access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    auth_rate_limit_per_min: int = Field(default=20, alias="AUTH_RATE_LIMIT_PER_MIN")
 
     # Encryption
     encryption_key: str = Field(default="change-me", alias="ENCRYPTION_KEY")

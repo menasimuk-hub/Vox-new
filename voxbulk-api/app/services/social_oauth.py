@@ -456,13 +456,9 @@ class SocialOAuthService:
         db.add(user)
         db.flush()
 
-        if org_id_hint:
-            org = db.execute(select(Organisation).where(Organisation.id == org_id_hint)).scalar_one_or_none()
-            if org is None:
-                raise OAuthFlowError("Organisation not found")
-            db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="member"))
-        else:
-            ensure_personal_org(db, user=user, email=email_norm)
+        # Never auto-join an existing org from an unauthenticated org_id hint —
+        # that is invite-only. Always provision a personal org for new OAuth users.
+        ensure_personal_org(db, user=user, email=email_norm)
 
         db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=user.id, email=email_norm))
         db.commit()
@@ -549,7 +545,11 @@ class SocialOAuthService:
             except Exception:
                 logger.exception("oauth promo redeem failed user=%s promo=%s", user.id, promo_code)
 
-        token = create_access_token(subject=user.id, org_id=resolved_org_id)
+        token = create_access_token(
+            subject=user.id,
+            org_id=resolved_org_id,
+            token_version=int(getattr(user, "token_version", 0) or 0),
+        )
         return OAuthCallbackResult(
             access_token=token,
             org_id=resolved_org_id,

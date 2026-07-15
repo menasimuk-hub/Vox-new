@@ -94,10 +94,6 @@ def test_reset_password_success_and_single_use(app_client):
 
 def test_register_calls_new_user_email_hook(app_client):
     _seed_templates()
-    oid, _ = _make_user("ignored@example.com")  # create org anchor
-    # Re-use organisation for second registration via org_id invite-style join — register creates NEW user only.
-    with get_sessionmaker()() as db:
-        oid = db.execute(select(Organisation.id).limit(1)).scalar_one()
 
     with patch.object(TransactionalEmailService, "send_templated_optional", return_value=(True, None)) as m:
         r = app_client.post(
@@ -105,11 +101,25 @@ def test_register_calls_new_user_email_hook(app_client):
             json={
                 "email": "welcome_new@example.com",
                 "password": "pw12345678",
-                "organisation_name": "Co",
-                "org_id": str(oid),
+                "organisation_name": "Welcome Co",
             },
         )
     assert r.status_code == 200
     kw = m.call_args.kwargs
     assert kw.get("template_key") == "new_user"
     assert kw.get("to_email") == "welcome_new@example.com"
+
+
+def test_register_rejects_org_id_join(app_client):
+    oid, _ = _make_user("anchor@example.com")
+    r = app_client.post(
+        "/auth/register",
+        json={
+            "email": "joiner@example.com",
+            "password": "pw12345678",
+            "organisation_name": "Ignored",
+            "org_id": str(oid),
+        },
+    )
+    assert r.status_code == 400
+    assert "invite" in str(r.json().get("detail") or "").lower()

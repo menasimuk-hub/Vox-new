@@ -91,6 +91,7 @@ class PasswordResetService:
             return False, "Account is inactive. Contact support."
 
         user.password_hash = hash_password(pwd)
+        user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
         tok.used_at = now
         db.add(user)
         db.add(tok)

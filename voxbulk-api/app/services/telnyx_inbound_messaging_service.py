@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any
@@ -7,6 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+
+def _phone_hash(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 from app.models.organisation import Organisation
 from app.models.whatsapp_log import WhatsAppLog
@@ -583,14 +591,14 @@ class TelnyxInboundMessagingService:
                         inbound_reply=normalized,
                     )
                     logger.info(
-                        "survey_wa_inbound_route event_type=%s message_id=%s inbound_text=%r "
-                        "button_title=%r normalized_answer=%r normalized_action=%s "
+                        "survey_wa_inbound_route event_type=%s message_id=%s inbound_text_len=%s "
+                        "button_title_len=%s normalized_answer_len=%s normalized_action=%s "
                         "survey_handled=%s survey_reason=%s vague_followup=%s duplicate=%s log_id=%s",
                         event_type,
                         message_id,
-                        inbound_text[:120],
-                        (normalized.button_title or "")[:80],
-                        (normalized.normalized_answer or "")[:120],
+                        len(inbound_text or ""),
+                        len(normalized.button_title or ""),
+                        len(normalized.normalized_answer or ""),
                         normalized.normalized_action,
                         survey_result.get("handled") if isinstance(survey_result, dict) else None,
                         survey_result.get("reason") if isinstance(survey_result, dict) else "none",
@@ -603,11 +611,11 @@ class TelnyxInboundMessagingService:
                         if survey_result.get("reason") == "welcome_sent_but_no_active_session":
                             survey_session_bug = True
                             logger.error(
-                                "welcome_sent_but_no_active_session org=%s from=%r body=%r — "
+                                "welcome_sent_but_no_active_session org=%s from_hash=%s body_len=%s — "
                                 "blocking sales/generic fallback",
                                 org_id,
-                                from_norm or from_number,
-                                (inbound_text or "")[:80],
+                                _phone_hash(from_norm or from_number),
+                                len(inbound_text or ""),
                             )
                         if survey_result.get("duplicate"):
                             logger.info(
@@ -618,11 +626,11 @@ class TelnyxInboundMessagingService:
                             )
                 except Exception:
                     logger.exception(
-                        "survey_wa_inbound_handler_failed log_id=%s message_id=%s from=%r body=%r",
+                        "survey_wa_inbound_handler_failed log_id=%s message_id=%s from_hash=%s body_len=%s",
                         row.id,
                         message_id,
-                        from_norm or from_number,
-                        (body or "")[:120],
+                        _phone_hash(from_norm or from_number),
+                        len(body or ""),
                     )
 
             if not handled_feedback and not handled_survey:

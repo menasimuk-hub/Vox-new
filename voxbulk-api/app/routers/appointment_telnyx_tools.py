@@ -20,13 +20,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/appointments/telnyx-tools", tags=["appointment-telnyx-tools"])
 
 
-async def _verified_json(request: Request) -> dict:
+async def _verified_json(request: Request, db: Session | None = None) -> dict:
     raw_body = await request.body()
     try:
         verify_telnyx_webhook(
             raw_body,
             signature_header=request.headers.get("telnyx-signature-ed25519"),
             timestamp_header=request.headers.get("telnyx-timestamp"),
+            db=db,
         )
     except TelnyxWebhookVerificationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
@@ -46,7 +47,7 @@ async def telnyx_initialization_probe():
 @router.post("/initialization")
 async def telnyx_initialization(request: Request, db: Session = Depends(get_db)):
     """Telnyx dynamic-variables webhook (assistant.initialization)."""
-    payload = await _verified_json(request)
+    payload = await _verified_json(request, db)
     return build_initialization_response(db, payload)
 
 
@@ -59,7 +60,7 @@ async def telnyx_tool_probe(tool_name: str):
 @router.post("/{tool_name}")
 async def telnyx_tool(tool_name: str, request: Request, db: Session = Depends(get_db)):
     """Telnyx webhook tool handler (check_availability, reschedule, cancel, confirm)."""
-    payload = await _verified_json(request)
+    payload = await _verified_json(request, db)
     try:
         return dispatch_appointment_tool(db, tool_name, payload)
     except Exception as exc:

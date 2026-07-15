@@ -1076,6 +1076,18 @@ export default function TelnyxIntegration({
               placeholder='https://your-api-host.com'
             />
           </Field>
+          <Field
+            label='Webhook public key (Ed25519)'
+            hint='Telnyx Portal → Account Settings → Keys & Credentials → Public Key (base64). Required in production for signed webhooks. Env TELNYX_WEBHOOK_PUBLIC_KEY overrides this.'
+          >
+            <input
+              className='input'
+              value={String(activeConfig.webhook_public_key || '')}
+              onChange={(e) => setProviderField('telnyx', 'webhook_public_key', e.target.value)}
+              placeholder='Base64 public key'
+              autoComplete='off'
+            />
+          </Field>
           <div className='tableWrap'>
             <table className='table'>
               <thead>

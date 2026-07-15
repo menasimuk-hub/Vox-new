@@ -298,7 +298,7 @@ def dentally_sync(principal=Depends(get_current_principal)):
 
 
 @router.get("/dentally/sync/{task_id}")
-def dentally_sync_status(task_id: str):
+def dentally_sync_status(task_id: str, principal=Depends(get_current_principal)):
     res = celery_app.AsyncResult(task_id)
     return {"task_id": task_id, "state": res.state, "result": res.result if res.successful() else None}
 

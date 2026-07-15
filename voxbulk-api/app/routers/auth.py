@@ -21,6 +21,7 @@ from app.models.organisation_invite import OrganisationInvite
 from app.models.user import User
 from app.schemas.auth import ForgotPasswordIn, RegisterIn, ResetPasswordIn
 from app.services.password_reset_service import PasswordResetService
+from app.services.auth_rate_limit import check_auth_rate_limit
 from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
@@ -43,14 +44,44 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _GENERIC_RESET_MSG = "If this email matches an account, we've sent instructions to reset your password."
 
 
+def _client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    if request.client and request.client.host:
+        return str(request.client.host)[:64]
+    return "unknown"
+
+
+def _enforce_auth_rate_limit(*, scope: str, identity: str) -> None:
+    decision = check_auth_rate_limit(scope=scope, identity=identity)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please try again shortly.",
+            headers={"Retry-After": str(decision.retry_after_sec)},
+        )
+
+
+def _token_for_user(user: User, org_id: str) -> str:
+    return create_access_token(
+        subject=user.id,
+        org_id=org_id,
+        token_version=int(getattr(user, "token_version", 0) or 0),
+    )
+
+
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="forgot", identity=_client_ip(request))
+    _enforce_auth_rate_limit(scope="forgot-email", identity=str(payload.email).lower())
     PasswordResetService.request_reset(db, email=str(payload.email))
     return {"ok": True, "message": _GENERIC_RESET_MSG}
 
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordIn, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="reset", identity=_client_ip(request))
     ok, msg = PasswordResetService.consume_reset(db, raw_token=payload.token, new_password=payload.password)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
@@ -140,7 +171,7 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
                 organisation_name=(org.name if org else "") or "",
             )
 
-    token = create_access_token(subject=user.id, org_id=inv.org_id)
+    token = _token_for_user(user, inv.org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
 
 
@@ -181,7 +212,7 @@ def accept_invite_session(
     consume_invite_for_user(db, inv=inv, user=user)
     db.commit()
 
-    token = create_access_token(subject=user.id, org_id=inv.org_id)
+    token = _token_for_user(user, inv.org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
 
 
@@ -245,7 +276,7 @@ def oauth_complete_org_selection(payload: dict, db: Session = Depends(get_db)):
         org_ent = db.execute(select(Organisation).where(Organisation.id == org_id)).scalar_one_or_none()
         if org_ent is not None and bool(org_ent.is_suspended):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation suspended")
-    token = create_access_token(subject=user.id, org_id=org_id)
+    token = _token_for_user(user, org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": user.id}
 
 
@@ -274,7 +305,10 @@ def switch_organisation(
     if not db.execute(select(User).where(User.id == principal.user_id, User.is_active.is_(True))).scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
     _organisation_or_403_if_suspended(db, org_id)
-    token = create_access_token(subject=principal.user_id, org_id=org_id)
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    token = _token_for_user(user, org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": principal.user_id}
 
 
@@ -307,7 +341,7 @@ def set_my_role(payload: dict, db: Session = Depends(get_db), principal: Current
     return {"ok": True, "role": mem.role}
 
 @router.post("/register")
-def register(payload: RegisterIn, db: Session = Depends(get_db)):
+def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
     """
     Minimal self-serve registration for end-to-end integration.
 
@@ -318,30 +352,28 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
 
     Returns an access token for the newly created org.
     """
+    _enforce_auth_rate_limit(scope="register", identity=_client_ip(request))
     existing = db.execute(select(User.id).where(User.email == payload.email)).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    raw_org_id = payload.org_id
-    if isinstance(raw_org_id, str):
-        raw_org_id = raw_org_id.strip() or None
+    # Always create a new organisation. Joining an existing org requires an invite
+    # (POST /auth/accept-invite). Client-supplied org_id is ignored for security.
+    if payload.org_id and str(payload.org_id).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use an organisation invite link to join an existing organisation",
+        )
 
-    org: Organisation | None = None
-    if raw_org_id:
-        org = db.execute(select(Organisation).where(Organisation.id == str(raw_org_id))).scalar_one_or_none()
-        if org is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
-    else:
-        org = Organisation(name=payload.organisation_name)
-        db.add(org)
-        db.flush()
+    org = Organisation(name=payload.organisation_name)
+    db.add(org)
+    db.flush()
 
     user = User(email=str(payload.email), password_hash=hash_password(payload.password), is_active=True, is_superuser=False)
     db.add(user)
     db.flush()
 
-    mem_role = "member" if raw_org_id else "owner"
-    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role=mem_role))
+    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
     promo_code = str(payload.promo_code or "").strip().upper() or None
     if promo_code:
         try:
@@ -350,7 +382,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
             PromoOfferService.redeem_for_org(db, org_id=org.id, user_id=user.id, promo_code=promo_code)
         except PromoOfferError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    elif not raw_org_id:
+    else:
         BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
     db.commit()
 
@@ -361,12 +393,12 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
             organisation_name=org.name or "",
         )
 
-    token = create_access_token(subject=user.id, org_id=org.id)
+    token = _token_for_user(user, org.id)
     return {"access_token": token, "token_type": "bearer", "org_id": org.id, "user_id": user.id}
 
 
 @router.post("/self-serve")
-def self_serve(payload: dict, db: Session = Depends(get_db)):
+def self_serve(payload: dict, request: Request, db: Session = Depends(get_db)):
     """
     Legacy self-serve signup — creates an active account immediately (no admin approval).
     Prefer POST /auth/register for new integrations.
@@ -385,7 +417,7 @@ def self_serve(payload: dict, db: Session = Depends(get_db)):
         organisation_name=organisation_name,
         promo_code=promo_code,
     )
-    return register(reg, db)
+    return register(reg, request, db)
 
 
 @router.post("/token")
@@ -398,6 +430,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
     - password
     - org_id (optional if user has exactly one membership)
     """
+    _enforce_auth_rate_limit(scope="login", identity=_client_ip(request))
     form = await request.form()
     username = form.get("username")
     password = form.get("password")
@@ -407,6 +440,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username and password required")
 
     email_norm = str(username).strip().lower()
+    _enforce_auth_rate_limit(scope="login-email", identity=email_norm)
     user = db.execute(select(User).where(func.lower(User.email) == email_norm)).scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -454,7 +488,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
         if org_ent is not None and bool(org_ent.is_suspended):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation suspended")
 
-    token = create_access_token(subject=user.id, org_id=resolved_org_id)
+    token = _token_for_user(user, resolved_org_id)
     return {"access_token": token, "token_type": "bearer", "org_id": resolved_org_id, "user_id": user.id}
 
 

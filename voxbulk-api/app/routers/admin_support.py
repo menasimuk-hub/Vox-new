@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.admin_rbac import require_platform_admin, resolve_admin_role
+from app.core.admin_rbac import CAP_SUPPORT, require_cap, resolve_admin_role
 from app.core.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.user import User
@@ -26,12 +26,12 @@ def _role(db: Session, user: User) -> str:
 
 
 @router.get("/kpis")
-def admin_support_kpis(db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_support_kpis(db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     return SupportTicketService.kpis(db, role=_role(db, admin))
 
 
 @router.get("/admins")
-def admin_support_assignable_admins(db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_support_assignable_admins(db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     role = _role(db, admin)
     if support_visible_categories(role) is not None:
         # Scoped roles can view current owner list but not browse all admins for reassignment.
@@ -50,7 +50,7 @@ def admin_list_tickets(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_platform_admin),
+    admin: User = Depends(require_cap(CAP_SUPPORT)),
 ):
     rows = SupportTicketService.list_admin_tickets(
         db,
@@ -67,7 +67,7 @@ def admin_list_tickets(
 
 
 @router.get("/tickets/{ticket_id}")
-def admin_get_ticket(ticket_id: int, db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_get_ticket(ticket_id: int, db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     t = SupportTicketService.get_admin_ticket(db, role=_role(db, admin), ticket_id=ticket_id)
     if t is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -94,7 +94,7 @@ def admin_get_ticket(ticket_id: int, db: Session = Depends(get_db), admin: User 
 
 
 @router.get("/attachments/{attachment_id}")
-def admin_download_attachment(attachment_id: int, db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_download_attachment(attachment_id: int, db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     a = SupportTicketService.get_attachment(db, attachment_id)
     if a is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
@@ -108,7 +108,7 @@ def admin_download_attachment(attachment_id: int, db: Session = Depends(get_db),
 
 
 @router.post("/tickets/{ticket_id}/reply")
-def admin_reply_ticket(ticket_id: int, payload: TicketReplyIn, db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_reply_ticket(ticket_id: int, payload: TicketReplyIn, db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     t = SupportTicketService.get_admin_ticket(db, role=_role(db, admin), ticket_id=ticket_id)
     if t is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -117,7 +117,7 @@ def admin_reply_ticket(ticket_id: int, payload: TicketReplyIn, db: Session = Dep
 
 
 @router.post("/tickets/{ticket_id}/status")
-def admin_set_ticket_status(ticket_id: int, payload: TicketStatusUpdateIn, db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_set_ticket_status(ticket_id: int, payload: TicketStatusUpdateIn, db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     t = SupportTicketService.get_admin_ticket(db, role=_role(db, admin), ticket_id=ticket_id)
     if t is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -129,7 +129,7 @@ def admin_set_ticket_status(ticket_id: int, payload: TicketStatusUpdateIn, db: S
 
 
 @router.post("/tickets/{ticket_id}/assign")
-def admin_assign_ticket(ticket_id: int, payload: TicketAssignIn, db: Session = Depends(get_db), admin: User = Depends(require_platform_admin)):
+def admin_assign_ticket(ticket_id: int, payload: TicketAssignIn, db: Session = Depends(get_db), admin: User = Depends(require_cap(CAP_SUPPORT))):
     role = _role(db, admin)
     if support_visible_categories(role) is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only full support admins can reassign tickets")
@@ -144,22 +144,22 @@ def admin_assign_ticket(ticket_id: int, payload: TicketAssignIn, db: Session = D
 
 
 @router.get("/canned/categories")
-def admin_list_canned_categories(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_list_canned_categories(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     return [canned_category_to_dict(c) for c in CannedReplyService.list_categories(db)]
 
 
 @router.post("/canned/categories")
-def admin_create_canned_category(payload: CannedReplyCategoryIn, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_create_canned_category(payload: CannedReplyCategoryIn, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     return canned_category_to_dict(CannedReplyService.upsert_category(db, category_id=None, name=payload.name, description=payload.description))
 
 
 @router.put("/canned/categories/{category_id}")
-def admin_update_canned_category(category_id: int, payload: CannedReplyCategoryIn, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_update_canned_category(category_id: int, payload: CannedReplyCategoryIn, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     return canned_category_to_dict(CannedReplyService.upsert_category(db, category_id=category_id, name=payload.name, description=payload.description))
 
 
 @router.delete("/canned/categories/{category_id}")
-def admin_delete_canned_category(category_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_delete_canned_category(category_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     CannedReplyService.delete_category(db, category_id)
     return {"ok": True}
 
@@ -170,13 +170,13 @@ def admin_list_canned_replies(
     category_id: int | None = None,
     active_only: bool = False,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_platform_admin),
+    _admin: User = Depends(require_cap(CAP_SUPPORT)),
 ):
     return [canned_reply_to_dict(db, r) for r in CannedReplyService.list_replies(db, search=search, category_id=category_id, active_only=active_only)]
 
 
 @router.post("/canned/replies")
-def admin_create_canned_reply(payload: CannedReplyIn, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_create_canned_reply(payload: CannedReplyIn, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     try:
         row = CannedReplyService.upsert_reply(db, reply_id=None, **payload.model_dump())
     except ValueError as e:
@@ -185,7 +185,7 @@ def admin_create_canned_reply(payload: CannedReplyIn, db: Session = Depends(get_
 
 
 @router.put("/canned/replies/{reply_id}")
-def admin_update_canned_reply(reply_id: int, payload: CannedReplyIn, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_update_canned_reply(reply_id: int, payload: CannedReplyIn, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     try:
         row = CannedReplyService.upsert_reply(db, reply_id=reply_id, **payload.model_dump())
     except ValueError as e:
@@ -194,7 +194,7 @@ def admin_update_canned_reply(reply_id: int, payload: CannedReplyIn, db: Session
 
 
 @router.delete("/canned/replies/{reply_id}")
-def admin_delete_canned_reply(reply_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+def admin_delete_canned_reply(reply_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
     CannedReplyService.delete_reply(db, reply_id)
     return {"ok": True}
 

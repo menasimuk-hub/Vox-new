@@ -157,15 +157,26 @@ async def meta_whatsapp_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    from app.services.telnyx_webhook_security import webhook_signature_required
+
     raw_body = await request.body()
     app_secret = _meta_whatsapp_app_secret(db)
-    if app_secret:
+    signature_valid = False
+    if not app_secret:
+        if webhook_signature_required():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Meta WhatsApp app_secret is not configured",
+            )
+        logger.warning("meta_whatsapp_webhook_skipped_verify_no_app_secret")
+    else:
         try:
             verify_meta_webhook_signature(
                 app_secret=app_secret,
                 raw_body=raw_body,
                 signature_header=request.headers.get("X-Hub-Signature-256"),
             )
+            signature_valid = True
         except MetaWebhookVerificationError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     try:
@@ -179,7 +190,10 @@ async def meta_whatsapp_webhook(
         provider="meta_whatsapp",
         raw_body=raw_body,
         external_event_id=None,
-        signature_valid=True,
+        signature_valid=signature_valid,
     )
+    # Dev/test may process without signature; production always requires valid signature.
+    if webhook_signature_required() and not signature_valid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unsigned Meta webhook rejected")
     result = MetaWhatsappInboundService.handle_webhook(db, payload=payload)
     return result

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any
@@ -199,7 +200,11 @@ def _route_inbound_handlers(
             handled_feedback = bool(feedback_result.get("handled"))
             result["handled_feedback"] = handled_feedback
         except Exception:
-            logger.exception("meta_feedback_wa_inbound_handler_failed body=%r from=%r", inbound_text[:120], from_phone)
+            logger.exception(
+                "meta_feedback_wa_inbound_handler_failed body_len=%s from_hash=%s",
+                len(inbound_text or ""),
+                hashlib.sha256((from_phone or "").encode()).hexdigest()[:12] if from_phone else "",
+            )
 
     handled_survey = False
     survey_session_bug = False

@@ -20,13 +20,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/interview/telnyx-tools", tags=["interview-telnyx-tools"])
 
 
-async def _verified_json(request: Request) -> dict:
+async def _verified_json(request: Request, db: Session | None = None) -> dict:
     raw_body = await request.body()
     try:
         verify_telnyx_webhook(
             raw_body,
             signature_header=request.headers.get("telnyx-signature-ed25519"),
             timestamp_header=request.headers.get("telnyx-timestamp"),
+            db=db,
         )
     except TelnyxWebhookVerificationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
@@ -49,7 +50,7 @@ async def interview_tool_probe():
 
 @router.post("/end_call")
 async def interview_end_call(request: Request, db: Session = Depends(get_db)):
-    payload = await _verified_json(request)
+    payload = await _verified_json(request, db)
     try:
         return hangup_interview_call(db, payload)
     except Exception as exc:
@@ -59,7 +60,7 @@ async def interview_end_call(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/mark_recording_consent")
 async def interview_mark_recording_consent(request: Request, db: Session = Depends(get_db)):
-    payload = await _verified_json(request)
+    payload = await _verified_json(request, db)
     try:
         args = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
         consented = str(args.get("consented") or args.get("consent") or "yes").strip().lower()
@@ -72,7 +73,7 @@ async def interview_mark_recording_consent(request: Request, db: Session = Depen
 
 @router.post("/mark_question_asked")
 async def interview_mark_question_asked(request: Request, db: Session = Depends(get_db)):
-    payload = await _verified_json(request)
+    payload = await _verified_json(request, db)
     try:
         return mark_interview_session_signal(db, payload, signal="question_asked")
     except Exception as exc:
