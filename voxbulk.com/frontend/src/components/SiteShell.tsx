@@ -24,15 +24,6 @@ export function SiteHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
   const headerStyle = scrolled
     ? { backgroundColor: "rgba(10,22,40,0.92)", backdropFilter: "saturate(160%) blur(20px)", WebkitBackdropFilter: "saturate(160%) blur(20px)" }
     : { backgroundColor: "rgba(255,255,255,0.92)", backdropFilter: "saturate(160%) blur(18px)", WebkitBackdropFilter: "saturate(160%) blur(18px)" };
@@ -84,7 +75,7 @@ export function SiteHeader() {
             </Link>
           </nav>
 
-          <div className="hidden lg:flex items-center gap-2.5">
+          <div className="hidden md:flex items-center gap-2.5">
             <button
               onClick={auth.open}
               className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13.5px] font-semibold transition-colors ${
@@ -110,12 +101,7 @@ export function SiteHeader() {
             </Link>
           </div>
 
-          <button
-            type="button"
-            className={`lg:hidden inline-flex items-center justify-center min-h-11 min-w-11 rounded-lg ${scrolled ? "text-white" : "text-navy"}`}
-            aria-label="Open menu"
-            onClick={() => setOpen(true)}
-          >
+          <button className={`md:hidden p-2 ${scrolled ? "text-white" : "text-navy"}`} aria-label="Open menu" onClick={() => setOpen(true)}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="4" y1="7" x2="20" y2="7" />
               <line x1="4" y1="12" x2="20" y2="12" />
@@ -127,15 +113,10 @@ export function SiteHeader() {
 
 
       {open && (
-        <div className="fixed inset-0 z-[60] bg-white lg:hidden flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-white md:hidden flex flex-col">
           <div className="flex items-center justify-between px-5 h-[68px] border-b border-border">
             <BrandLogo surface="light" className="h-7 w-auto" />
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close menu"
-              className="inline-flex items-center justify-center min-h-11 min-w-11 rounded-lg text-heading"
-            >
+            <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2 text-heading">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="6" y1="6" x2="18" y2="18" />
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -143,30 +124,21 @@ export function SiteHeader() {
             </button>
           </div>
           <div className="flex-1 px-5 py-4 overflow-y-auto">
-            <Link
-              to="/"
-              hash="what-we-do"
-              onClick={() => setOpen(false)}
-              className="flex items-center justify-between min-h-14 border-b border-border text-[17px] font-medium text-heading"
-            >
-              What we do
-              <ArrowRight size={18} className="text-muted-text" />
-            </Link>
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-text mt-4 mb-1">Services</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-text mt-2 mb-1">Services</div>
             {productLinks.map((l) => (
               <Link key={l.to} to={l.to} onClick={() => setOpen(false)}
-                className="flex items-center justify-between min-h-14 border-b border-border text-[16px] font-medium text-heading">
+                className="flex items-center justify-between h-14 border-b border-border text-[16px] font-medium text-heading">
                 {l.label}
                 <ArrowRight size={18} className="text-muted-text" />
               </Link>
             ))}
-            <Link to="/pricing" onClick={() => setOpen(false)} className="flex items-center justify-between min-h-14 border-b border-border text-[17px] font-medium text-heading">
+            <Link to="/pricing" onClick={() => setOpen(false)} className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
               Pricing <ArrowRight size={18} className="text-muted-text" />
             </Link>
-            <Link to="/contact" onClick={() => setOpen(false)} className="flex items-center justify-between min-h-14 border-b border-border text-[17px] font-medium text-heading">
+            <Link to="/contact" onClick={() => setOpen(false)} className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
               Contact <ArrowRight size={18} className="text-muted-text" />
             </Link>
-            <button type="button" onClick={() => { setOpen(false); auth.open(); }} className="flex items-center min-h-14 text-[17px] font-medium text-body w-full text-left">Sign in</button>
+            <button onClick={() => { setOpen(false); auth.open(); }} className="flex items-center h-14 text-[17px] font-medium text-body w-full text-left">Sign in</button>
           </div>
           <div className="p-5 border-t border-border">
             <Link to="/contact" onClick={() => setOpen(false)} className="btn-primary w-full">

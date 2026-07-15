@@ -243,27 +243,23 @@ function SurveysPage() {
             <div className="mt-12 grid lg:grid-cols-2 gap-10 items-start">
               {/* Comparison table */}
               <div className="rounded-2xl border border-border overflow-hidden bg-white">
-                <div className="overflow-x-auto">
-                  <div className="min-w-[520px]">
-                    <div className="grid grid-cols-4 px-5 py-3 bg-beige text-[11.5px] font-bold uppercase tracking-wider text-muted-text">
-                      <span>Channel</span>
-                      <span className="text-center">Open rate</span>
-                      <span className="text-center">Response</span>
-                      <span className="text-right">Time to reply</span>
-                    </div>
-                    {channelCompare.map((row) => (
-                      <div
-                        key={row.channel}
-                        className={`grid grid-cols-4 px-5 py-4 items-center text-[13.5px] border-t border-border ${row.tone === "hero" ? "bg-primary/5" : ""}`}
-                      >
-                        <span className={`font-semibold ${row.tone === "hero" ? "text-primary" : "text-heading"}`}>{row.channel}</span>
-                        <span className={`text-center font-bold ${row.tone === "hero" ? "text-primary text-[16px]" : "text-body"}`}>{row.open}</span>
-                        <span className={`text-center font-bold ${row.tone === "hero" ? "text-primary text-[16px]" : "text-body"}`}>{row.response}</span>
-                        <span className={`text-right ${row.tone === "hero" ? "text-primary font-semibold" : "text-body"}`}>{row.time}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="grid grid-cols-4 px-5 py-3 bg-beige text-[11.5px] font-bold uppercase tracking-wider text-muted-text">
+                  <span>Channel</span>
+                  <span className="text-center">Open rate</span>
+                  <span className="text-center">Response</span>
+                  <span className="text-right">Time to reply</span>
                 </div>
+                {channelCompare.map((row) => (
+                  <div
+                    key={row.channel}
+                    className={`grid grid-cols-4 px-5 py-4 items-center text-[13.5px] border-t border-border ${row.tone === "hero" ? "bg-primary/5" : ""}`}
+                  >
+                    <span className={`font-semibold ${row.tone === "hero" ? "text-primary" : "text-heading"}`}>{row.channel}</span>
+                    <span className={`text-center font-bold ${row.tone === "hero" ? "text-primary text-[16px]" : "text-body"}`}>{row.open}</span>
+                    <span className={`text-center font-bold ${row.tone === "hero" ? "text-primary text-[16px]" : "text-body"}`}>{row.response}</span>
+                    <span className={`text-right ${row.tone === "hero" ? "text-primary font-semibold" : "text-body"}`}>{row.time}</span>
+                  </div>
+                ))}
               </div>
 
               {/* Fact cards */}

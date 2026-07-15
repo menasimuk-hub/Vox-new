@@ -70,7 +70,7 @@ export function HeroDashboard() {
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/5">
+        <div className="grid grid-cols-4 gap-px bg-white/5">
           {[
             { icon: FileText, label: "CVs scanned", value: "1,248" },
             { icon: Gauge, label: "Avg ATS", value: "76" },
@@ -79,7 +79,7 @@ export function HeroDashboard() {
           ].map((s, i) => (
             <div key={i} className="bg-[#0E1A2E] px-3 py-2 text-left">
               <div className="flex items-center gap-1.5 text-white/50 text-[10px] uppercase tracking-wider">
-                <s.icon size={11} className="text-gold shrink-0" /> <span className="truncate">{s.label}</span>
+                <s.icon size={11} className="text-gold" /> {s.label}
               </div>
               <div className="mt-0.5 text-[18px] font-bold text-white tracking-tight">{s.value}</div>
             </div>
@@ -91,7 +91,7 @@ export function HeroDashboard() {
               <div className="text-[10.5px] uppercase tracking-wider text-white/50 font-semibold">Top candidates</div>
               <div className="text-[10px] text-white/40">Senior Engineer · VB-ENG-204</div>
             </div>
-            <div className="hidden sm:grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40 border-b border-white/10">
+            <div className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 px-1 pb-1 text-[10px] uppercase tracking-wider text-white/40 border-b border-white/10">
               <span>Candidate</span><span className="text-right">ATS</span><span className="text-right">Interview</span><span className="text-right">Status</span>
             </div>
             <div className="flex-1 overflow-hidden divide-y divide-white/5">
@@ -102,22 +102,19 @@ export function HeroDashboard() {
                 { name: "Marcus Lee", role: "Full-stack", ats: 76, iv: 72, status: "Review", tone: "blue" },
                 { name: "Hannah Wood", role: "Senior Engineer", ats: 68, iv: 65, status: "Hold", tone: "muted" },
               ].map((c) => (
-                <div key={c.name} className="grid grid-cols-[1fr_auto] sm:grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 items-center py-1.5 px-1">
+                <div key={c.name} className="grid grid-cols-[1.4fr_0.55fr_0.55fr_0.7fr] gap-2 items-center py-1.5 px-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-teal flex items-center justify-center text-white font-semibold text-[9px] shrink-0">
                       {c.name.split(" ").map(n => n[0]).join("")}
                     </div>
                     <div className="min-w-0">
                       <div className="text-white font-semibold text-[12px] truncate leading-tight">{c.name}</div>
-                      <div className="text-[10px] text-white/45 truncate leading-tight">
-                        <span className="sm:hidden">{c.role} · ATS {c.ats}</span>
-                        <span className="hidden sm:inline">{c.role}</span>
-                      </div>
+                      <div className="text-[10px] text-white/45 truncate leading-tight">{c.role}</div>
                     </div>
                   </div>
-                  <div className="hidden sm:block text-right text-[13px] font-bold text-gold tabular-nums">{c.ats}</div>
-                  <div className="hidden sm:block text-right text-[13px] font-bold text-teal tabular-nums">{c.iv}</div>
-                  <div className="text-right shrink-0">
+                  <div className="text-right text-[13px] font-bold text-gold tabular-nums">{c.ats}</div>
+                  <div className="text-right text-[13px] font-bold text-teal tabular-nums">{c.iv}</div>
+                  <div className="text-right">
                     <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold ${
                       c.tone === "teal" ? "bg-teal/15 text-teal" :
                       c.tone === "gold" ? "bg-gold/15 text-gold" :
@@ -577,21 +574,21 @@ export type Billing = "monthly" | "yearly";
 
 export function BillingToggle({ value, onChange, className = "" }: { value: Billing; onChange: (b: Billing) => void; className?: string }) {
   return (
-    <div className={`inline-flex flex-wrap items-center justify-center gap-1 rounded-full border border-border bg-white p-1 shadow-elegant max-w-full ${className}`}>
+    <div className={`inline-flex items-center gap-1 rounded-full border border-border bg-white p-1 shadow-elegant ${className}`}>
       <button
         type="button"
         onClick={() => onChange("monthly")}
-        className={`min-h-11 md:min-h-0 md:h-8 px-4 rounded-full text-[12.5px] font-semibold transition-all ${value === "monthly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+        className={`h-8 px-4 rounded-full text-[12.5px] font-semibold transition-all ${value === "monthly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
       >
         Monthly
       </button>
       <button
         type="button"
         onClick={() => onChange("yearly")}
-        className={`min-h-11 md:min-h-0 md:h-8 pl-4 pr-2 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-1.5 sm:gap-2 transition-all ${value === "yearly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+        className={`h-8 pl-4 pr-2 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-2 transition-all ${value === "yearly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
       >
         Yearly
-        <span className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-full whitespace-nowrap ${value === "yearly" ? "bg-gold text-navy" : "bg-gold/15 text-primary"}`}>2 months free</span>
+        <span className={`text-[10px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-full ${value === "yearly" ? "bg-gold text-navy" : "bg-gold/15 text-primary"}`}>2 months free</span>
       </button>
     </div>
   );
@@ -767,7 +764,7 @@ export function Pricing() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {PLANS.map((p) => {
                 if (p.enterprise || p.ratePerMinGBP === null) {
                   return (
@@ -881,19 +878,16 @@ export function SliderRow({
   onChange: (v: number) => void; display: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-      <div className="flex items-center justify-between gap-3 sm:contents">
-        <label className="text-[13px] text-muted-text sm:min-w-[140px] sm:shrink-0">{label}</label>
-        <span className="text-[14px] font-semibold text-heading tabular-nums sm:hidden">{display}</span>
-      </div>
+    <div className="flex items-center gap-4">
+      <label className="text-[13px] text-muted-text min-w-[140px]">{label}</label>
       <input
         type="range"
         min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className="w-full min-w-0 flex-1 accent-primary h-11 sm:h-auto"
+        className="flex-1 accent-primary"
         aria-label={label}
       />
-      <span className="hidden sm:block text-[14px] font-semibold text-heading min-w-[60px] text-right tabular-nums shrink-0">{display}</span>
+      <span className="text-[14px] font-semibold text-heading min-w-[60px] text-right tabular-nums">{display}</span>
     </div>
   );
 }

@@ -350,7 +350,7 @@ function PricingPage() {
                 <SliderRow label="Call duration" value={dur} min={5} max={30} step={1} onChange={setDur} display={`${dur} min`} />
                 <SliderRow label="Number of interviews" value={num} min={10} max={500} step={10} onChange={setNum} display={`${num}`} />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {corePlans.map((p) => {
                   if (p.enterprise || p.ratePerMinGBP === null) {
                     return (
