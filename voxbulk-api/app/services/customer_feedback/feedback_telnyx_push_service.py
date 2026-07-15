@@ -45,14 +45,71 @@ def suggest_next_cfs_version_name(name: str, *, used_names: set[str] | None = No
         return None
     base, version = match.group(1), int(match.group(2))
     used = {str(n or "").strip().lower() for n in (used_names or set()) if str(n or "").strip()}
-    for bump in range(version + 1, version + 50):
+    for bump in range(version + 1, version + 200):
         candidate = f"{base}_v{bump}"
+        if candidate not in used:
+            return candidate
+    for bump in range(version + 1, version + 200):
+        candidate = f"{base}_v{bump}_utu"
         if candidate not in used:
             return candidate
     return None
 
 
-def collect_used_cfs_meta_names(db: Session) -> set[str]:
+_REMOTE_CFS_NAME_CACHE: dict[str, set[str]] = {}
+
+
+def clear_remote_cfs_meta_name_cache() -> None:
+    _REMOTE_CFS_NAME_CACHE.clear()
+
+
+def reserve_cfs_meta_name(name: str, *, service_code: str = "customer_feedback") -> None:
+    """Mark a name as used so later bumps in the same process skip it."""
+    clean = str(name or "").strip().lower()
+    if not clean:
+        return
+    key = str(service_code or "customer_feedback")
+    bucket = _REMOTE_CFS_NAME_CACHE.setdefault(key, set())
+    bucket.add(clean)
+
+
+def collect_remote_cfs_meta_names(db: Session, *, service_code: str = "customer_feedback") -> set[str]:
+    """cfs_* names on Meta primary + Telnyx backup (cached per process)."""
+    key = str(service_code or "customer_feedback")
+    cached = _REMOTE_CFS_NAME_CACHE.get(key)
+    if cached is not None:
+        return set(cached)
+
+    from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    used: set[str] = set()
+    primary = WaTemplateProfilePushService.resolve_primary_connection_profile_id(db, service_code=key)
+    backup = WaTemplateProfilePushService.resolve_backup_connection_profile_id(db, service_code=key)
+    for pid in (primary, backup):
+        if not pid:
+            continue
+        try:
+            remote = TelnyxWhatsappTemplateSyncService.fetch_remote_templates(
+                db,
+                connection_profile_id=pid,
+                service_code=key,
+                allow_account_waba_fallback=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("collect_remote_cfs_meta_names failed profile=%s err=%s", pid, str(exc)[:200])
+            continue
+        for item in remote or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip().lower()
+            if name.startswith("cfs_"):
+                used.add(name)
+    _REMOTE_CFS_NAME_CACHE[key] = set(used)
+    return set(used)
+
+
+def collect_used_cfs_meta_names(db: Session, *, include_remote: bool = False) -> set[str]:
     from app.models.customer_feedback import FeedbackWaTemplate
 
     used: set[str] = set()
@@ -64,7 +121,10 @@ def collect_used_cfs_meta_names(db: Session) -> set[str]:
             used.add(str(_feedback_meta_name_for_template(db, row) or "").strip().lower())
         except Exception:
             continue
-    return {n for n in used if n}
+    used = {n for n in used if n}
+    if include_remote:
+        used |= collect_remote_cfs_meta_names(db, service_code="customer_feedback")
+    return used
 
 
 class FeedbackTelnyxPushError(Exception):

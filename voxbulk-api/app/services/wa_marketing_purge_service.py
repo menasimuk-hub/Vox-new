@@ -274,7 +274,7 @@ def _build_preview_for_feedback_row(
         ),
     }
     current = str(getattr(row, "meta_template_name", "") or remote_name).strip().lower()
-    used = collect_used_cfs_meta_names(db)
+    used = collect_used_cfs_meta_names(db, include_remote=True)
     preview["new_local_name"] = suggest_next_cfs_version_name(current, used_names=used) or current
     return preview
 

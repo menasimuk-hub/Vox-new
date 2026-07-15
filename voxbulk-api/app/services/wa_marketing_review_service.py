@@ -70,10 +70,15 @@ def _survey_rename_preview(db: Session, row: TelnyxWhatsappTemplate, remote_name
 
 
 def _feedback_rename_preview(db: Session, row: FeedbackWaTemplate, remote_name: str) -> str:
+    from app.services.customer_feedback.feedback_telnyx_push_service import reserve_cfs_meta_name
+
     current = str(getattr(row, "meta_template_name", "") or remote_name).strip().lower()
-    used = collect_used_cfs_meta_names(db)
+    used = collect_used_cfs_meta_names(db, include_remote=True)
     bumped = suggest_next_cfs_version_name(current, used_names=used)
-    return bumped or current
+    chosen = bumped or current
+    if chosen and chosen != current:
+        reserve_cfs_meta_name(chosen)
+    return chosen
 
 
 def _enrich_candidates(db: Session, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -714,8 +719,10 @@ def run_full_marketing_migration(
     only_lint_ok_push: bool = True,
 ) -> dict[str, Any]:
     """One-shot: list all MARKETING → rewrite all langs → optional push to Meta+Telnyx."""
+    from app.services.customer_feedback.feedback_telnyx_push_service import clear_remote_cfs_meta_name_cache
     from app.services.wa_marketing_purge_service import apply_purge_plan, manifest_items_to_plan
 
+    clear_remote_cfs_meta_name_cache()
     llm_cfg = resolve_utility_llm_config(db)
     manifest = create_marketing_list_manifest(
         db,
