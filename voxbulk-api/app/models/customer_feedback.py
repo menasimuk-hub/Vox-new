@@ -174,9 +174,50 @@ class FeedbackResponse(Base):
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     answer_text_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    translation_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    transcription_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    detected_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
     step_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     answer_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackVoiceNoteJob(Base):
+    """Async STT + translation for Customer Feedback voice notes (WA + web)."""
+
+    __tablename__ = "feedback_voice_note_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "inbound_message_id",
+            "provider_media_id",
+            name="uq_feedback_voice_note_inbound_media",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_sessions.id"), nullable=False, index=True)
+    response_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_responses.id"), nullable=False, index=True)
+
+    inbound_message_id: Mapped[str] = mapped_column(String(128), nullable=False, default="", index=True)
+    provider_media_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    audio_mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    transcription_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    transcription_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    translation_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    detected_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    translated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transcribed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class FeedbackResultsInsightsCache(Base):

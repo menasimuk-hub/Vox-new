@@ -314,14 +314,20 @@ def build_respondents(
                     "question": question,
                     "answer": answer,
                     "original_text": str(resp.original_text or "").strip() or None,
+                    "answer_text_en": str(resp.answer_text_en or answer or "").strip() or None,
+                    "translated_text": str(resp.answer_text_en or answer or "").strip() or None,
+                    "translation_status": getattr(resp, "translation_status", None),
+                    "transcription_status": getattr(resp, "transcription_status", None),
+                    "detected_language": getattr(resp, "detected_language", None),
                     "question_key": str(resp.question_key or ""),
                     "step_order": int(resp.step_order or 0),
                     "step_role": step_role,
                     "answer_source": getattr(resp, "answer_source", None) or "text",
                 }
             )
-            if not quote and step_role in OPEN_STEP_ROLES and answer:
-                quote = answer[:200]
+            pending_voice = str(getattr(resp, "transcription_status", None) or "") == "pending"
+            if not quote and step_role in OPEN_STEP_ROLES and (answer or pending_voice):
+                quote = (answer or "Transcribing…")[:200]
         loc = locations.get(sess.location_id)
         sentiment = _session_sentiment(answers)
         unhappy = _is_unhappy(answers)
@@ -354,8 +360,10 @@ def build_open_comments(
     rows: list[dict[str, Any]] = []
     for resp in responses:
         answer = str(resp.answer_text_en or resp.answer_text or "").strip()
-        if not answer:
+        pending_voice = str(getattr(resp, "transcription_status", None) or "") == "pending"
+        if not answer and not pending_voice:
             continue
+        display = answer or "Transcribing…"
         question, step_role = template_meta(
             templates,
             survey_type_id=str(resp.survey_type_id),
@@ -372,25 +380,30 @@ def build_open_comments(
                 buttons = parsed if isinstance(parsed, list) else None
             except json.JSONDecodeError:
                 buttons = None
-        if source != "voice" and not is_open_text_step(step_role, answer, buttons):
+        if source != "voice" and not pending_voice and not is_open_text_step(step_role, answer, buttons):
             continue
         theme = ""
-        lower = answer.lower()
+        lower = display.lower()
         for label in theme_labels:
             if label.lower() in lower or any(w in lower for w in label.lower().split()[:2]):
                 theme = label
                 break
         sentiment = "neutral"
-        if classify_pge(answer) == "poor" or classify_yn(answer) == "no":
+        if answer and (classify_pge(answer) == "poor" or classify_yn(answer) == "no"):
             sentiment = "negative"
-        elif classify_pge(answer) in {"excellent", "good"} or classify_yn(answer) == "yes":
+        elif answer and (classify_pge(answer) in {"excellent", "good"} or classify_yn(answer) == "yes"):
             sentiment = "positive"
         rows.append(
             {
                 "id": resp.id,
                 "session_id": resp.session_id,
-                "text": answer,
+                "text": display,
                 "original_text": resp.original_text,
+                "answer_text_en": resp.answer_text_en or answer or None,
+                "translated_text": resp.answer_text_en or answer or None,
+                "translation_status": getattr(resp, "translation_status", None),
+                "transcription_status": getattr(resp, "transcription_status", None),
+                "detected_language": getattr(resp, "detected_language", None),
                 "answer_source": source,
                 "theme": theme or None,
                 "sentiment": sentiment,

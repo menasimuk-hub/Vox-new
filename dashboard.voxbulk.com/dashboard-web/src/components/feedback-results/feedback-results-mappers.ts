@@ -86,6 +86,8 @@ const TRANSLATION_UNAVAILABLE = "[Translation unavailable]";
 
 export type TextComment = {
   quote: string;
+  original?: string;
+  translationPending?: boolean;
   rating: "excellent" | "good" | "poor";
   theme: string;
 };
@@ -216,9 +218,20 @@ function hasArabicScript(text: string): boolean {
   return /[\u0600-\u06FF]/.test(text);
 }
 
-function normalizeBilingual(english: string, original?: string): BilingualAnswer {
+function normalizeBilingual(
+  english: string,
+  original?: string,
+  opts?: { transcriptionStatus?: string | null; translationStatus?: string | null },
+): BilingualAnswer {
   const en = english.trim();
   const orig = (original || "").trim();
+  const transcriptionStatus = String(opts?.transcriptionStatus || "").toLowerCase();
+  if (transcriptionStatus === "pending" || en === "Transcribing…") {
+    return { english: "Transcribing…", translationPending: true };
+  }
+  if (transcriptionStatus === "failed" && !en && !orig) {
+    return { english: "Transcription failed", translationPending: true };
+  }
   if (en === TRANSLATION_UNAVAILABLE && orig) {
     return { english: TRANSLATION_UNAVAILABLE, original: orig, translationPending: true };
   }
@@ -262,12 +275,16 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
     const raw = String(a.answer || "").trim();
     const original = String(a.original_text || "").trim();
     const role = String(a.step_role || "").toLowerCase();
+    const bilingualOpts = {
+      transcriptionStatus: a.transcription_status,
+      translationStatus: a.translation_status,
+    };
 
     if (role === "final_feedback_text" || qk === "open_question") {
       rows.push({
         question,
         type: "open",
-        openText: { ...normalizeBilingual(raw, original), source: a.answer_source },
+        openText: { ...normalizeBilingual(raw, original, bilingualOpts), source: a.answer_source },
       });
       continue;
     }
@@ -285,17 +302,23 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
       if (followRaw) {
         const fEn = String(followRaw.answer || "").trim();
         const fOrig = String(followRaw.original_text || "").trim();
-        followUp = { ...normalizeBilingual(fEn, fOrig), source: followRaw.answer_source };
+        followUp = {
+          ...normalizeBilingual(fEn, fOrig, {
+            transcriptionStatus: followRaw.transcription_status,
+            translationStatus: followRaw.translation_status,
+          }),
+          source: followRaw.answer_source,
+        };
       }
       rows.push({ question, type: "rating", rating: pge || "poor", followUp });
       continue;
     }
 
-    if (raw || original) {
+    if (raw || original || String(a.transcription_status || "") === "pending") {
       rows.push({
         question,
         type: "open",
-        openText: { ...normalizeBilingual(raw, original), source: a.answer_source },
+        openText: { ...normalizeBilingual(raw, original, bilingualOpts), source: a.answer_source },
       });
     }
   }
@@ -359,30 +382,39 @@ export function mapFeedbackResults(
   const voiceComments: VoiceComment[] = openComments
     .filter((c) => c.answer_source === "voice")
     .slice(0, 24)
-    .map((c, i) => ({
-      id: String(c.id || `v${i}`),
-      name: c.sentiment === "negative" ? "Anonymous · Unhappy" : "Anonymous · Excellent",
-      tone: c.sentiment === "negative" ? "destructive" : "success",
-      transcript: String(c.text || ""),
-      originalTranscript:
-        c.original_text && String(c.original_text).trim() !== String(c.text || "").trim()
-          ? String(c.original_text)
-          : undefined,
-      translationPending:
-        String(c.text || "").trim() === TRANSLATION_UNAVAILABLE &&
-        Boolean(c.original_text && String(c.original_text).trim()),
-      reason: String(c.theme || "Feedback"),
-      question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
-    }));
+    .map((c, i) => {
+      const english = String(c.text || "").trim();
+      const original = String(c.original_text || "").trim();
+      const transcribing = String((c as { transcription_status?: string }).transcription_status || "") === "pending";
+      return {
+        id: String(c.id || `v${i}`),
+        name: c.sentiment === "negative" ? "Anonymous · Unhappy" : "Anonymous · Excellent",
+        tone: c.sentiment === "negative" ? "destructive" : "success",
+        transcript: transcribing ? "Transcribing…" : english,
+        originalTranscript:
+          !transcribing && original && original !== english ? original : undefined,
+        translationPending:
+          transcribing ||
+          (english === TRANSLATION_UNAVAILABLE && Boolean(original)),
+        reason: String(c.theme || "Feedback"),
+        question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
+      };
+    });
 
   const textComments: TextComment[] = openComments
     .filter((c) => c.answer_source !== "voice")
     .slice(0, 32)
-    .map((c) => ({
-      quote: String(c.text || ""),
-      rating: ratingFromSentiment(c.sentiment),
-      theme: String(c.theme || "General"),
-    }));
+    .map((c) => {
+      const english = String(c.text || "").trim();
+      const original = String(c.original_text || "").trim();
+      return {
+        quote: english,
+        original: original && original !== english ? original : undefined,
+        translationPending: english === TRANSLATION_UNAVAILABLE && Boolean(original),
+        rating: ratingFromSentiment(c.sentiment),
+        theme: String(c.theme || "General"),
+      };
+    });
 
   const counts = summary.sentiment_counts || { unhappy: 0, neutral: 0, happy: 0 };
   const sentimentDistribution: SentimentSlice[] = [

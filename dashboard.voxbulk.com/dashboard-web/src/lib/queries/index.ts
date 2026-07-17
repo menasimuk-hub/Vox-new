@@ -282,6 +282,11 @@ export type FeedbackRespondent = {
     question?: string;
     answer?: string;
     original_text?: string | null;
+    answer_text_en?: string | null;
+    translated_text?: string | null;
+    translation_status?: string | null;
+    transcription_status?: string | null;
+    detected_language?: string | null;
     question_key?: string;
     step_order?: number;
     step_role?: string | null;
@@ -297,6 +302,11 @@ export type FeedbackOpenComment = {
   session_id?: string;
   text?: string;
   original_text?: string | null;
+  answer_text_en?: string | null;
+  translated_text?: string | null;
+  translation_status?: string | null;
+  transcription_status?: string | null;
+  detected_language?: string | null;
   answer_source?: string;
   theme?: string | null;
   sentiment?: string;

@@ -134,14 +134,16 @@ def build_feedback_results_csv(payload: dict[str, Any]) -> str:
             ]
         )
     writer.writerow([])
-    writer.writerow(["When", "Location", "Question", "Answer", "Phone"])
+    writer.writerow(["When", "Location", "Question", "Answer (English)", "Original", "Translation status", "Phone"])
     for row in payload.get("rows") or []:
         writer.writerow(
             [
                 row.get("created_at"),
                 row.get("location_name"),
                 row.get("question") or row.get("question_key"),
-                row.get("answer_text"),
+                row.get("answer_text_en") or row.get("translated_text") or row.get("answer_text"),
+                row.get("original_text") or "",
+                row.get("translation_status") or "",
                 row.get("visitor_phone") or "",
             ]
         )

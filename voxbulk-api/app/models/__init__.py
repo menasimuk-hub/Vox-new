@@ -125,6 +125,7 @@ from app.models.customer_feedback import (  # noqa: F401
     FeedbackSession,
     FeedbackSurveyType,
     FeedbackUsagePeriod,
+    FeedbackVoiceNoteJob,
     FeedbackWaSender,
     FeedbackWaTemplate,
     FeedbackMarketingSubscriber,

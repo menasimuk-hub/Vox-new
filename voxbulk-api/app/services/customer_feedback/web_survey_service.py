@@ -295,6 +295,7 @@ class FeedbackWebSurveyService:
             "original_text": original,
             "answer_text_en": answer_en,
             "translation_status": str(translated.get("translation_status") or ""),
+            "detected_language": detected,
         }
 
     @staticmethod
@@ -307,6 +308,7 @@ class FeedbackWebSurveyService:
         step_index: int,
         reason: str,
         reason_source: str = "text",
+        source_language: str | None = None,
     ) -> None:
         """Record the 'why did you rate poor?' answer as its own response row."""
         reason = str(reason or "").strip()
@@ -315,7 +317,7 @@ class FeedbackWebSurveyService:
         tpl = template_for_step(db, location, step, language=session.detected_language)
         survey_type_id = str(step.get("survey_type_id") or location.survey_type_id)
         fields = FeedbackWebSurveyService._voice_translation_fields(
-            db, text=reason, session=session, tpl=tpl
+            db, text=reason, session=session, tpl=tpl, source_language=source_language
         )
         db.add(
             FeedbackResponse(
@@ -328,6 +330,9 @@ class FeedbackWebSurveyService:
                 answer_text=fields["answer_text"],
                 original_text=fields["original_text"],
                 answer_text_en=fields["answer_text_en"],
+                translation_status=fields.get("translation_status") or None,
+                transcription_status=None,
+                detected_language=source_language or fields.get("detected_language") or session.detected_language,
                 step_order=step_index + 1,
                 answer_source=(reason_source or "text")[:16],
                 created_at=datetime.utcnow(),
@@ -427,6 +432,7 @@ class FeedbackWebSurveyService:
                 step_index=step_index,
                 reason=reason,
                 reason_source=reason_source,
+                source_language=source_language,
             )
             next_index = step_index + 1
             session.current_step = next_index
@@ -591,15 +597,21 @@ class FeedbackWebSurveyService:
         mode: str = "answer",
         answer: str | None = None,
     ) -> dict[str, Any]:
-        """Transcode + transcribe an uploaded voice note for the current web step.
+        """Accept a web voice upload, enqueue async STT+translate, optionally advance.
 
-        answer set: submit `answer` as the step answer with the transcript as a voice
-            reason, then advance (the low-rating reason screen "send voice note" case).
-        mode="answer": records the transcript as the current step answer and advances.
-        mode="reason": records a low-rating reason for the current step (no advance).
-        Returns the transcript plus, for advancing modes, the next question / completion.
+        Returns pending status immediately (no blocking STT on the request).
         """
-        from app.services.voice_transcription_service import VoiceTranscriptionService
+        from app.services.customer_feedback.feedback_voice_note_service import (
+            create_pending_response_and_job,
+            enqueue_feedback_voice_job,
+            store_web_upload,
+        )
+        from app.services.customer_feedback.feedback_wa_session_state import (
+            clear_tell_us_more_pending,
+            is_tell_us_more_pending,
+            load_feedback_session_state,
+            save_feedback_session_state,
+        )
 
         session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
         location = db.get(FeedbackLocation, session.location_id)
@@ -608,114 +620,181 @@ class FeedbackWebSurveyService:
         if not audio_bytes:
             raise ValueError("Empty audio upload")
 
-        result = VoiceTranscriptionService.transcribe_uploaded_audio(
-            db,
+        path = store_web_upload(
+            org_id=session.org_id,
+            session_id=session.id,
             audio_bytes=audio_bytes,
             filename=filename or "voice.webm",
             content_type=content_type or "audio/webm",
-            language="auto",
         )
-        transcript = str(getattr(result, "transcript", "") or "").strip()
-        stt_error = str(getattr(result, "error", "") or "").strip()
-        stt_language = getattr(result, "detected_language", None)
-        transcode_ok = getattr(result, "transcode_ok", None)
-        stt_provider = getattr(result, "stt_provider", None)
-
-        if not transcript or not getattr(result, "ok", False):
-            logger.warning(
-                "voice_web_transcription_empty session=%s mode=%s stt_error=%s storage=%s "
-                "transcode_ok=%s stt_provider=%s stt_language=%s",
-                session_id,
-                mode,
-                stt_error or "empty_transcript",
-                getattr(result, "storage_path", None),
-                transcode_ok,
-                stt_provider,
-                stt_language,
-            )
-            return {
-                "transcript": "",
-                "saved": False,
-                "stt_error": stt_error or "empty_transcript",
-                "transcode_ok": transcode_ok,
-                "stt_provider": stt_provider,
-            }
-
-        FeedbackWebSurveyService._apply_detected_language(
-            db,
-            session=session,
-            text=transcript,
-            stt_language=stt_language,
-        )
-        logger.info(
-            "voice_web_transcription_ok session=%s chars=%s transcode_ok=%s stt_provider=%s stt_language=%s",
-            session_id,
-            len(transcript),
-            transcode_ok,
-            stt_provider,
-            stt_language,
-        )
-
+        steps = _web_steps(db, location)
+        state = load_feedback_session_state(session)
         answer_value = str(answer).strip() if answer is not None else ""
+
+        # Rating + voice reason: save rating now, enqueue voice as low_reason, advance.
         if answer_value:
-            # Voice note carries a low-rating reason: submit the chosen rating with the
-            # spoken transcript as the reason and advance the flow.
-            return {
-                "transcript": transcript,
-                **FeedbackWebSurveyService.submit_answer(
+            step_index = int(session.current_step or 0)
+            if step_index < len(steps):
+                current_step = steps[step_index]
+                tpl = template_for_step(db, location, current_step, language=session.detected_language)
+                FeedbackWhatsappService._save_answer(
                     db,
-                    session_id=session_id,
+                    session=session,
+                    location=location,
+                    step=current_step,
+                    tpl=tpl,
                     answer=answer_value,
-                    reason=transcript,
-                    reason_source="voice",
-                ),
-            }
+                    step_index=step_index,
+                    answer_source="text",
+                )
+                qkey = f"{(tpl.template_key if tpl else str(current_step.get('template_key') or current_step.get('kind')))}__low_reason"
+                _resp, job = create_pending_response_and_job(
+                    db,
+                    session=session,
+                    location_id=session.location_id,
+                    survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+                    question_key=qkey,
+                    step_order=step_index + 1,
+                    audio_file_path=str(path),
+                    audio_original_filename=filename or "voice.webm",
+                    audio_mime_type=content_type or "audio/webm",
+                )
+                session.current_step = step_index + 1
+                db.add(session)
+                db.commit()
+                enqueue_feedback_voice_job(job.id)
+                if session.current_step >= len(steps):
+                    session.status = "completed"
+                    session.completed_at = datetime.utcnow()
+                    db.add(session)
+                    db.commit()
+                    return {
+                        "transcript": "",
+                        "pending": True,
+                        "transcription_status": "pending",
+                        "saved": True,
+                        "completed": True,
+                        "thank_you": True,
+                    }
+                question = _step_to_question(
+                    db, location, steps[session.current_step], language=session.detected_language
+                )
+                return {
+                    "transcript": "",
+                    "pending": True,
+                    "transcription_status": "pending",
+                    "saved": True,
+                    "completed": False,
+                    "step_index": session.current_step,
+                    "step_count": len(steps),
+                    "question": question,
+                }
 
         if mode == "transcribe":
-            # Transcribe only: caller fills the answer box and submits via the answer route.
-            return {"transcript": transcript}
-
-        if mode == "reason":
-            steps = _web_steps(db, location)
+            # Still async: create a temp pending row keyed for later client poll by response id.
             step_index = int(session.current_step or 0)
-            if step_index < len(steps) and transcript:
-                FeedbackWebSurveyService._save_low_rating_reason(
-                    db,
-                    session=session,
-                    location=location,
-                    step=steps[step_index],
-                    step_index=step_index,
-                    reason=transcript,
-                    reason_source="voice",
-                )
-                db.commit()
-            return {"transcript": transcript, "saved": bool(transcript)}
+            current_step = steps[step_index] if step_index < len(steps) else {"kind": "open_question"}
+            tpl = template_for_step(db, location, current_step, language=session.detected_language) if step_index < len(steps) else None
+            qkey = f"_transcribe_{(tpl.template_key if tpl else 'open')}"
+            _resp, job = create_pending_response_and_job(
+                db,
+                session=session,
+                location_id=session.location_id,
+                survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+                question_key=qkey,
+                step_order=max(step_index, 0) + 1,
+                audio_file_path=str(path),
+                audio_original_filename=filename or "voice.webm",
+                audio_mime_type=content_type or "audio/webm",
+            )
+            db.commit()
+            enqueue_feedback_voice_job(job.id)
+            return {
+                "transcript": "",
+                "pending": True,
+                "transcription_status": "pending",
+                "response_id": _resp.id,
+                "job_id": job.id,
+            }
 
-        if mode == "reason_prev":
-            steps = _web_steps(db, location)
-            step_index = int(session.current_step or 0) - 1
-            if step_index >= 0 and step_index < len(steps) and transcript:
-                FeedbackWebSurveyService._save_low_rating_reason(
-                    db,
-                    session=session,
-                    location=location,
-                    step=steps[step_index],
-                    step_index=step_index,
-                    reason=transcript,
-                    reason_source="voice",
-                )
-                db.commit()
-            return {"transcript": transcript, "saved": bool(transcript)}
+        if is_tell_us_more_pending(state) or mode in {"reason", "reason_prev", "answer"}:
+            step_index = int(session.current_step or 0)
+            if mode == "reason_prev":
+                step_index = max(0, step_index - 1)
+            if is_tell_us_more_pending(state):
+                step_index = int(state.get("tell_us_more_step_index") or step_index)
+                topic_key = str(state.get("tell_us_more_topic_key") or "topic")
+                survey_type_id = str(state.get("tell_us_more_survey_type_id") or location.survey_type_id)
+                question_key = f"{topic_key}__tell_us_more"
+                advance = True
+            elif mode in {"reason", "reason_prev"}:
+                if step_index >= len(steps):
+                    return {"transcript": "", "saved": False, "stt_error": "no_step"}
+                current_step = steps[step_index]
+                tpl = template_for_step(db, location, current_step, language=session.detected_language)
+                question_key = f"{(tpl.template_key if tpl else str(current_step.get('template_key') or current_step.get('kind')))}__low_reason"
+                survey_type_id = str(current_step.get("survey_type_id") or location.survey_type_id)
+                advance = False
+            else:
+                if step_index >= len(steps):
+                    return {"transcript": "", "saved": False, "stt_error": "no_step"}
+                current_step = steps[step_index]
+                tpl = template_for_step(db, location, current_step, language=session.detected_language)
+                question_key = tpl.template_key if tpl else str(current_step.get("template_key") or current_step.get("kind"))
+                survey_type_id = str(current_step.get("survey_type_id") or location.survey_type_id)
+                advance = True
 
-        # mode == "answer": treat transcript as the step's text answer (advances the flow).
-        result = FeedbackWebSurveyService.submit_answer(
-            db,
-            session_id=session_id,
-            answer=transcript,
-            answer_source="voice",
-            source_language=stt_language,
-        )
-        return {"transcript": transcript, "saved": True, **result}
+            _resp, job = create_pending_response_and_job(
+                db,
+                session=session,
+                location_id=session.location_id,
+                survey_type_id=survey_type_id,
+                question_key=question_key,
+                step_order=step_index + 1,
+                audio_file_path=str(path),
+                audio_original_filename=filename or "voice.webm",
+                audio_mime_type=content_type or "audio/webm",
+            )
+            out: dict[str, Any] = {
+                "transcript": "",
+                "pending": True,
+                "transcription_status": "pending",
+                "saved": True,
+                "response_id": _resp.id,
+                "job_id": job.id,
+            }
+            if advance:
+                if is_tell_us_more_pending(state):
+                    clear_tell_us_more_pending(state)
+                    save_feedback_session_state(session, state)
+                session.current_step = step_index + 1
+                db.add(session)
+                db.commit()
+                enqueue_feedback_voice_job(job.id)
+                if session.current_step >= len(steps):
+                    session.status = "completed"
+                    session.completed_at = datetime.utcnow()
+                    db.add(session)
+                    db.commit()
+                    out.update({"completed": True, "thank_you": True})
+                    return out
+                question = _step_to_question(
+                    db, location, steps[session.current_step], language=session.detected_language
+                )
+                out.update(
+                    {
+                        "completed": False,
+                        "step_index": session.current_step,
+                        "step_count": len(steps),
+                        "question": question,
+                    }
+                )
+                return out
+            db.commit()
+            enqueue_feedback_voice_job(job.id)
+            return out
+
+        return {"transcript": "", "saved": False, "stt_error": "unsupported_mode"}
 
     @staticmethod
     def session_status(db: Session, session_id: str) -> dict[str, Any]:

@@ -105,6 +105,11 @@ class FeedbackResultsService:
                     "question": question_label,
                     "answer_text": r.answer_text_en or r.answer_text,
                     "original_text": r.original_text,
+                    "answer_text_en": r.answer_text_en or r.answer_text,
+                    "translated_text": r.answer_text_en or r.answer_text,
+                    "translation_status": getattr(r, "translation_status", None),
+                    "transcription_status": getattr(r, "transcription_status", None),
+                    "detected_language": getattr(r, "detected_language", None),
                     "answer_source": getattr(r, "answer_source", None) or "text",
                     "visitor_phone": sess.visitor_phone if sess else None,
                     "visitor_language": getattr(sess, "detected_language", None) if sess else None,
@@ -307,6 +312,11 @@ class FeedbackResultsService:
                     "question_key": r.question_key,
                     "answer_text": r.answer_text_en or r.answer_text,
                     "original_text": r.original_text,
+                    "answer_text_en": r.answer_text_en or r.answer_text,
+                    "translated_text": r.answer_text_en or r.answer_text,
+                    "translation_status": getattr(r, "translation_status", None),
+                    "transcription_status": getattr(r, "transcription_status", None),
+                    "detected_language": getattr(r, "detected_language", None),
                     "visitor_language": getattr(
                         db.get(FeedbackSession, r.session_id), "detected_language", None
                     ),

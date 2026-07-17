@@ -111,39 +111,17 @@ class FeedbackWhatsappService:
         answer_source = "text"
         source_language: str | None = None
         if not normalized_body:
-            from app.services.customer_feedback.feedback_voice_service import is_voice_inbound, transcribe_inbound
+            from app.services.customer_feedback.feedback_voice_service import is_voice_inbound
 
             if is_voice_inbound(record):
                 session = FeedbackWhatsappService._active_session(db, from_phone=from_phone)
-                # Always auto-detect spoken language (do not pin session/template locale).
-                transcript, ok, stt_lang = transcribe_inbound(
-                    db,
-                    record=record or {},
-                    customer_phone=from_phone,
-                    language="auto",
-                )
-                if ok and transcript:
-                    normalized_body = transcript
-                    answer_source = "voice"
-                    source_language = stt_lang
-                    if session and stt_lang:
-                        from app.services.customer_feedback.locale_service import map_stt_language_code
-
-                        mapped = map_stt_language_code(stt_lang)
-                        if mapped and mapped != session.detected_language:
-                            session.detected_language = mapped
-                            db.add(session)
-                            db.flush()
-                elif session:
-                    FeedbackWhatsappService._send_wa(
-                        db,
-                        to_number=from_phone,
-                        body="Sorry, I couldn't hear that clearly. Please try again or type your reply.",
-                        org_id=session.org_id,
-                    )
-                    return {"handled": True, "reason": "voice_unclear"}
-                else:
+                if session is None:
                     return {"handled": False, "reason": "voice_no_session"}
+                return FeedbackWhatsappService._handle_voice_inbound_async(
+                    db,
+                    session=session,
+                    record=record or {},
+                )
 
         body_lower = normalized_body.lower().strip()
         if body_lower in STOP_WORDS:
@@ -412,6 +390,9 @@ class FeedbackWhatsappService:
                 answer_text=answer_en,
                 original_text=original,
                 answer_text_en=answer_en,
+                translation_status=str(translated.get("translation_status") or "") or None,
+                transcription_status=None,
+                detected_language=source_language or session.detected_language,
                 step_order=step_index + 1,
                 answer_source=answer_source or "text",
                 created_at=datetime.utcnow(),
@@ -453,12 +434,109 @@ class FeedbackWhatsappService:
                 answer_text=answer_en,
                 original_text=original,
                 answer_text_en=answer_en,
+                translation_status=str(translated.get("translation_status") or "") or None,
+                transcription_status=None,
+                detected_language=source_language or session.detected_language,
                 step_order=step_index + 1,
                 answer_source=answer_source or "text",
                 created_at=datetime.utcnow(),
             )
         )
         return True
+
+    @staticmethod
+    def _handle_voice_inbound_async(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        record: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Accept WA voice, save pending response, enqueue Celery STT+translate, advance flow."""
+        from app.services.customer_feedback.feedback_voice_note_service import (
+            create_pending_response_and_job,
+            enqueue_feedback_voice_job,
+            extract_wa_media,
+        )
+
+        location = db.get(FeedbackLocation, session.location_id)
+        if location is None:
+            return {"handled": True, "reason": "missing_location"}
+
+        media = extract_wa_media(record)
+        if not media.get("media_url"):
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body="Sorry, I couldn't receive that voice note. Please try again or type your reply.",
+                org_id=session.org_id,
+            )
+            return {"handled": True, "reason": "voice_no_media"}
+
+        state = load_feedback_session_state(session)
+        if is_tell_us_more_pending(state):
+            step_index = int(state.get("tell_us_more_step_index") or session.current_step or 0)
+            topic_key = str(state.get("tell_us_more_topic_key") or "topic")
+            survey_type_id = str(state.get("tell_us_more_survey_type_id") or location.survey_type_id)
+            question_key = f"{topic_key}__tell_us_more"
+            _response, job = create_pending_response_and_job(
+                db,
+                session=session,
+                location_id=session.location_id,
+                survey_type_id=survey_type_id,
+                question_key=question_key,
+                step_order=step_index + 1,
+                media_url=media["media_url"],
+                audio_mime_type=media.get("mime_type") or None,
+                inbound_message_id=media.get("inbound_message_id") or "",
+                provider_media_id=media.get("provider_media_id") or "",
+            )
+            clear_tell_us_more_pending(state)
+            save_feedback_session_state(session, state)
+            session.current_step = step_index + 1
+            db.add(session)
+            db.commit()
+            enqueue_feedback_voice_job(job.id)
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body="Thanks — we got your voice note and are processing it.",
+                org_id=session.org_id,
+                location=location,
+            )
+            return FeedbackWhatsappService._continue_after_step(db, session=session)
+
+        steps = FeedbackWhatsappService._steps_for_location(db, location)
+        step_index = int(session.current_step or 0)
+        if step_index >= len(steps):
+            return FeedbackWhatsappService._continue_after_step(db, session=session)
+        current_step = steps[step_index]
+        tpl = template_for_step(db, location, current_step, language=session.detected_language)
+        survey_type_id = str(current_step.get("survey_type_id") or location.survey_type_id)
+        question_key = tpl.template_key if tpl else str(current_step.get("template_key") or current_step.get("kind"))
+        _response, job = create_pending_response_and_job(
+            db,
+            session=session,
+            location_id=session.location_id,
+            survey_type_id=survey_type_id,
+            question_key=question_key,
+            step_order=step_index + 1,
+            media_url=media["media_url"],
+            audio_mime_type=media.get("mime_type") or None,
+            inbound_message_id=media.get("inbound_message_id") or "",
+            provider_media_id=media.get("provider_media_id") or "",
+        )
+        session.current_step = step_index + 1
+        db.add(session)
+        db.commit()
+        enqueue_feedback_voice_job(job.id)
+        FeedbackWhatsappService._send_wa(
+            db,
+            to_number=session.visitor_phone,
+            body="Thanks — we got your voice note and are processing it.",
+            org_id=session.org_id,
+            location=location,
+        )
+        return FeedbackWhatsappService._continue_after_step(db, session=session)
 
     @staticmethod
     def _continue_after_step(db: Session, *, session: FeedbackSession) -> dict[str, Any]:

@@ -624,6 +624,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 
 function VoiceCard({ v }: { v: VoiceComment }) {
   const isLow = v.tone === "destructive";
+  const transcribing = v.transcript === "Transcribing…";
   return (
     <div className={cn("rounded-xl border bg-background p-4 transition-shadow hover:shadow-md", isLow ? "border-destructive/30" : "border-success/30")}>
       <div className="mb-3 flex items-center justify-between">
@@ -632,13 +633,23 @@ function VoiceCard({ v }: { v: VoiceComment }) {
         </span>
         <Badge variant="outline" className="text-[10px]">{v.reason}</Badge>
       </div>
-      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">English · {v.question}</p>
-      <p className="text-sm leading-relaxed">"{v.transcript}"</p>
-      {v.translationPending ? (
-        <p className="mt-2 text-xs font-medium text-warning">Translation unavailable — see original below</p>
-      ) : null}
+      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+        {transcribing ? "Voice" : "English"} · {v.question}
+      </p>
+      {transcribing ? (
+        <p className="text-sm font-medium text-warning">Transcribing…</p>
+      ) : v.translationPending ? (
+        <p className="text-xs font-medium text-warning">Translation unavailable — see original below</p>
+      ) : (
+        <p className="text-sm leading-relaxed">"{v.transcript}"</p>
+      )}
       {v.originalTranscript ? (
-        <p className="mt-2 text-xs text-muted-foreground"><span className="font-medium">Original:</span> {v.originalTranscript}</p>
+        <div className="mt-2 space-y-1">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original</p>
+          <p className="rounded-md bg-muted/30 p-2 text-sm leading-relaxed" dir="auto">
+            {v.originalTranscript}
+          </p>
+        </div>
       ) : null}
     </div>
   );
@@ -669,7 +680,19 @@ function Action({ text, impact }: { text: string; impact: string }) {
   );
 }
 
-function Response({ quote, rating, theme }: { quote: string; rating: string; theme: string }) {
+function Response({
+  quote,
+  original,
+  translationPending,
+  rating,
+  theme,
+}: {
+  quote: string;
+  original?: string;
+  translationPending?: boolean;
+  rating: string;
+  theme: string;
+}) {
   const tone = rating === "excellent" ? "success" : rating === "good" ? "warning" : "destructive";
   return (
     <div className="rounded-xl border border-border bg-background p-4">
@@ -682,7 +705,10 @@ function Response({ quote, rating, theme }: { quote: string; rating: string; the
         )}>{rating}</span>
         <span className="text-muted-foreground">{theme}</span>
       </div>
-      <p className="text-sm leading-relaxed">"{quote}"</p>
+      <BilingualAnswerBlock
+        label="English"
+        text={{ english: quote, original, translationPending }}
+      />
     </div>
   );
 }
@@ -756,10 +782,15 @@ function FilterPill({ children, active, onClick, tone }: { children: React.React
 }
 
 function BilingualAnswerBlock({ label, text }: { label: string; text: BilingualAnswer }) {
+  const transcribing = text.english === "Transcribing…";
   return (
     <div className="mt-2 space-y-2">
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-      {text.translationPending ? (
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {transcribing ? "Voice" : label}
+      </p>
+      {transcribing ? (
+        <p className="text-sm font-medium text-warning">Transcribing…</p>
+      ) : text.translationPending ? (
         <p className="text-xs font-medium text-warning">Translation unavailable</p>
       ) : (
         <p className="rounded-md bg-muted/50 p-2 text-sm italic leading-relaxed">"{text.english}"</p>

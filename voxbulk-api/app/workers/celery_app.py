@@ -96,6 +96,7 @@ from app.workers import appointment_tasks  # noqa: E402, F401
 from app.workers import demo_account_tasks  # noqa: E402, F401
 from app.workers import survey_wa_template_tasks  # noqa: E402, F401
 from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
+from app.workers import feedback_voice_note_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 
