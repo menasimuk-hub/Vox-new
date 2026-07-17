@@ -1,12 +1,18 @@
 """Frontpage contact form validation (no SMTP send)."""
 
+from types import SimpleNamespace
+
 from app.services.frontpage_contact_service import FrontpageContactError, send_frontpage_contact
 
 
-def test_frontpage_contact_rejects_short_message(db):
+def test_frontpage_contact_rejects_short_message(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.frontpage_contact_service.SmtpMailerService.send_html",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not send")),
+    )
     try:
         send_frontpage_contact(
-            db,
+            SimpleNamespace(),
             name="Jane",
             email="jane@example.com",
             message="Hi",
@@ -16,7 +22,7 @@ def test_frontpage_contact_rejects_short_message(db):
         assert "10 characters" in str(exc)
 
 
-def test_frontpage_contact_honeypot_skips_send(db, monkeypatch):
+def test_frontpage_contact_honeypot_skips_send(monkeypatch):
     called = {"n": 0}
 
     def boom(*_a, **_k):
@@ -32,7 +38,7 @@ def test_frontpage_contact_honeypot_skips_send(db, monkeypatch):
         boom,
     )
     send_frontpage_contact(
-        db,
+        SimpleNamespace(),
         name="Jane Smith",
         email="jane@example.com",
         message="I would like a demo of VoxBulk please.",
