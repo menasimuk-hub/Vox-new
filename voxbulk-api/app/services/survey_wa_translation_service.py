@@ -92,21 +92,24 @@ class SurveyWaTranslationService:
                 for key in ("original_text", "translated_text", "translation_status", "detected_language"):
                     if row.get(key) in (None, "") and prev.get(key) not in (None, ""):
                         row[key] = prev[key]
-                # Prefer completed English display when incoming lost it.
+                # Prefer completed English display when a later save clobbered it.
+                # (Field copy above may restore translated_text/status first — still
+                # restore answer/answer_text if they still show the original.)
                 if (
                     str(prev.get("translation_status") or "") == "completed"
                     and str(prev.get("translated_text") or "").strip()
-                    and str(row.get("translation_status") or "") not in {"completed", "pending"}
-                    and not str(row.get("translated_text") or "").strip()
                 ):
                     en = str(prev.get("translated_text") or "").strip()
-                    row["translated_text"] = en
-                    row["translation_status"] = "completed"
-                    row["answer_display"] = en
-                    row["answer"] = en
-                    row["answer_text"] = en
-                    if prev.get("original_text"):
-                        row["original_text"] = prev["original_text"]
+                    display = str(row.get("answer") or row.get("answer_text") or "").strip()
+                    orig = str(prev.get("original_text") or row.get("original_text") or "").strip()
+                    if display != en and (not display or display == orig or not str(row.get("translated_text") or "").strip()):
+                        row["translated_text"] = en
+                        row["translation_status"] = "completed"
+                        row["answer_display"] = en
+                        row["answer"] = en
+                        row["answer_text"] = en
+                        if orig:
+                            row["original_text"] = orig
             merged.append(row)
         in_conv = dict(in_conv)
         in_conv["answers"] = merged
