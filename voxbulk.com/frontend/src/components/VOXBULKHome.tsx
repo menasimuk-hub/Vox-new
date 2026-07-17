@@ -573,6 +573,38 @@ export const CV_GBP = 0.75;
 
 export function fmt(n: number, dp = 2) { return n.toFixed(dp); }
 
+export type Billing = "monthly" | "yearly";
+
+export function BillingToggle({
+  value,
+  onChange,
+  className = "",
+}: {
+  value: Billing;
+  onChange: (b: Billing) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`inline-flex items-center gap-1 rounded-full border border-border bg-white p-1 shadow-elegant ${className}`}>
+      <button
+        type="button"
+        onClick={() => onChange("monthly")}
+        className={`h-8 px-4 rounded-full text-[12.5px] font-semibold transition-all ${value === "monthly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("yearly")}
+        className={`h-8 pl-4 pr-2 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-2 transition-all ${value === "yearly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
+      >
+        Yearly
+        <span className={`text-[10px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-full ${value === "yearly" ? "bg-gold text-navy" : "bg-gold/15 text-primary"}`}>2 months free</span>
+      </button>
+    </div>
+  );
+}
+
 function plansFromApi(apiPlans: PublicPlan[] | undefined): Plan[] | null {
   if (!apiPlans?.length) return null;
   return apiPlans.map((p) => {
