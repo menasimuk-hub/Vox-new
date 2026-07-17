@@ -16,11 +16,16 @@
 
 ---
 
-## Opening (after recorded-line disclosure)
+## Opening (canonical live order)
 
-1. Confirm candidate name and role applied for
-2. Ask if they have **10–15 minutes** now
-3. If not available, politely offer to call back within working hours
+Greeting is identity only (*Hello, is this {first_name}?*). Then one gate per turn:
+
+1. Same person only — do not interview a substitute if they hand the phone over
+2. Intro + **recording consent** only — wait for yes/no
+3. **Time ask** (~10–15 minutes / `{duration}`) only — wait for yes/no
+4. If not free → email reschedule link only; if yes → questions
+
+FORBIDDEN: stacking recording + time in one turn.
 
 ---
 
@@ -35,7 +40,7 @@
 
 ## Compliance
 
-- The opening disclosure already states the call is **recorded**
+- Recording consent is asked **after** identity and **before** the time ask (never skip)
 - Calls are placed only during the organisation's **working hours and days**
 - If the candidate opts out or asks not to be called again, acknowledge and end immediately
 - Do not promise a job offer, salary, or start date unless explicitly authorised

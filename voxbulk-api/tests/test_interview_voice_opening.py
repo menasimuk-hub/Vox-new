@@ -121,7 +121,7 @@ def test_interview_opening_greeting_uses_real_company_name(db):
         org_id=org.id,
         order=order,
     )
-    # Canonical opening = identity check only (recording comes after time consent).
+    # Canonical opening = identity check only (recording then time are later workflow steps).
     assert "Jane" in greeting or "is this" in greeting.lower()
     assert "record" not in greeting.lower()
     assert "ai assistant" not in greeting.lower()

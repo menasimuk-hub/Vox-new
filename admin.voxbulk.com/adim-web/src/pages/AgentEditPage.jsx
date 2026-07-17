@@ -17,8 +17,7 @@ const emptyAgent = {
   service_interview_role: '',
   service_lead_sales_role: '',
   service_appointment_role: '',
-  opening_disclosure_template:
-    'Hello {first_name}, this is {agent_name} calling from {company_name}. This call is recorded for quality and assessment. Do you have about 10 to 15 minutes now?',
+  opening_disclosure_template: 'Hello, is this {first_name}?',
   supports_survey: false,
   supports_interview: false,
   supports_lead_sales: false,

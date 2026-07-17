@@ -567,7 +567,7 @@ def resolve_opening_disclosure_template(
 
     template = ""
     if service_key == SERVICE_INTERVIEW:
-        # Canonical interview opening = identity check only (recording comes after time consent).
+        # Canonical interview opening = identity check only (recording then time are later workflow steps).
         dialect = dialect_code_for_agent(agent) if agent else ("SA" if use_arabic else "GB")
         if use_arabic:
             template = interview_opening_template_for_dialect(
@@ -947,8 +947,9 @@ def build_service_runtime_instructions(
             parts.append(
                 "This is a structured job interview screening call — NOT a survey. "
                 f"You are calling on behalf of {company_name} regarding the {role} interview. "
-                "Follow the canonical call workflow exactly: after identity confirm → intro + time → "
-                "if yes: recording disclosure then questions; if not a good time: email-link only and end. "
+                "Follow the canonical call workflow exactly: after identity confirm → same-person check → "
+                "recording consent (wait) → time ask (wait) → questions; "
+                "if they decline recording: end; if not a good time: email-link only and end. "
                 "Never say the generic word 'company' without the actual organisation name. "
                 "Do not re-ask the identity check — it was already spoken in the opening."
             )
@@ -989,19 +990,27 @@ def build_service_runtime_instructions(
                 parts.append(
                     "تمت خطوة الهوية فقط في أول المكالمة (مرحباً، ممكن اتكلم مع المرشّح؟). "
                     "لا تكرر سؤال الهوية. "
-                    "انتظر الرد: إذا نفي → اعتذر وأنهِ. إذا نعم → التعريف + المدة + هل الوقت مناسب. "
+                    "انتظر الرد: إذا نفي → اعتذر وأنهِ. إذا نعم → تأكد نفس الشخص (ممنوع بديل)، "
+                    "ثم التعريف + الإفصاح عن التسجيل فقط واستنى، "
+                    "ثم سؤال الوقت فقط واستنى. "
+                    "إذا رفض التسجيل → أنهِ بلا إعادة جدولة. "
                     "إذا الوقت غير مناسب → جملة رابط البريد الإلكتروني فقط ثم أنهِ (ممنوع طلب معاد شفهي). "
-                    "إذا الوقت مناسب → الإفصاح عن التسجيل (إلزامي) ثم جاهز للبدء ثم الأسئلة. "
+                    "إذا الوقت مناسب → الأسئلة. "
+                    "ممنوع دمج التسجيل والوقت في نفس الدور. "
                     "ممنوع اختراع أوصاف مثل «مقابلة فرد» أو «فرز»."
                 )
             else:
                 parts.append(
                     "Only the identity check was already spoken (Hello, is this the candidate?). "
                     "Do NOT repeat the identity check. "
-                    "Wait: if wrong person → apologise and end. If yes → introduce yourself, company, role interview, "
-                    "duration, and ask if now is a good time. "
+                    "Wait: if wrong person → apologise and end. If yes → same-person only "
+                    "(do not interview a substitute), then introduce yourself, company, role interview, "
+                    "and ask recording consent only — wait for yes/no. "
+                    "If they decline recording → end (no reschedule). "
+                    "If they consent → ask if now is a good time only — wait. "
                     "If not a good time → email-link reschedule line only, then end (no verbal callback). "
-                    "If yes → mandatory recording disclosure, settle-in, ready to start, then questions."
+                    "If yes → proceed to interview questions. "
+                    "FORBIDDEN: combining recording consent and the time ask in one turn."
                 )
         elif use_arabic:
             parts.append(
@@ -1040,10 +1049,18 @@ def build_service_runtime_instructions(
             else "If interrupted mid-sentence, restate only the unfinished sentence — never restart the full introduction."
         )
         behavior.append(
-            "لا تنتقل إلى أسئلة المقابلة حتى: (1) يتأكد الوقت مناسب و(2) يتم الإفصاح عن التسجيل ويوافق المرشّح."
+            "لا تنتقل إلى أسئلة المقابلة حتى: (1) تأكيد نفس الشخص و(2) موافقة التسجيل و(3) الوقت مناسب. "
+            "اسأل بوابة واحدة في كل مرة واستنى."
             if use_arabic
-            else "Do not continue to interview questions until (1) now is a good time and "
-            "(2) recording disclosure has been given and acknowledged."
+            else "Do not continue to interview questions until (1) same person is confirmed, "
+            "(2) recording disclosure has been acknowledged, and (3) now is a good time. "
+            "Ask only one gate question per turn and wait."
+        )
+        behavior.append(
+            "لو سلّم الخط لحد تاني أو جاوب بديل عن المرشّح: اعتذر وأنهِ — ممنوع تكمّل المقابلة مع شخص آخر."
+            if use_arabic
+            else "If they hand the phone to someone else or a substitute answers for the candidate: "
+            "apologise and end — do not continue the interview with another person."
         )
         behavior.append(
             "بعد آخر سؤال: اشكر المرشّح وقل إن الفريق سيراجع الإجابات ويتواصل خلال الإطار الزمني — ثم ودّع. لا تنهِ قبل ذلك."
