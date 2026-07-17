@@ -140,23 +140,23 @@ class SurveyWaVoiceNoteService:
         return job
 
     @staticmethod
-    def _resolve_recipient_language(recipient: ServiceOrderRecipient | None) -> str | None:
-        if recipient is None:
-            return None
-        for key in ("language", "locale"):
-            raw = str(getattr(recipient, key, "") or "").strip().lower()
-            if raw:
-                return raw.split("-")[0]
+    def _resolve_detected_language(text: str, provider_language: str | None) -> str | None:
+        """Prefer script heuristic over a false STT English label."""
+        clean = str(text or "").strip()
+        provider = str(provider_language or "").strip().lower() or None
         try:
-            payload = json.loads(recipient.result_json or "{}")
-            if isinstance(payload, dict):
-                for key in ("language", "locale"):
-                    raw = str(payload.get(key) or "").strip().lower()
-                    if raw:
-                        return raw.split("-")[0]
+            from app.utils.script_language import detect_script_language
+
+            script = detect_script_language(clean)
         except Exception:
-            pass
-        return None
+            script = None
+        if script and script != "en":
+            return script
+        if clean and any(ord(ch) > 127 for ch in clean):
+            return provider if provider and not provider.startswith("en") else "und"
+        if provider and not provider.startswith("en"):
+            return provider
+        return provider or ("en" if clean else None)
 
     @staticmethod
     def _transcribe_audio(
@@ -165,19 +165,29 @@ class SurveyWaVoiceNoteService:
         *,
         recipient: ServiceOrderRecipient | None = None,
     ) -> dict[str, Any]:
-        language = SurveyWaVoiceNoteService._resolve_recipient_language(recipient)
+        del recipient  # locale must not pin STT — always auto-detect
         try:
             from app.services.providers.deepinfra_service import DeepInfraProviderService
 
             if DeepInfraProviderService.is_configured(db):
-                return DeepInfraProviderService.transcribe_audio_file(
+                result = DeepInfraProviderService.transcribe_audio_file(
                     db,
                     audio_path=audio_path,
-                    language=language,
+                    language=None,
                 )
+                text = str(result.get("text") or "").strip()
+                result["detected_language"] = SurveyWaVoiceNoteService._resolve_detected_language(
+                    text, result.get("detected_language")
+                )
+                return result
         except Exception as exc:
             logger.warning("%s deepinfra_transcription_fallback reason=%s", LOG_PREFIX, str(exc)[:300])
-        return transcribe_with_whisper_cpp(audio_path)
+        result = transcribe_with_whisper_cpp(audio_path, language="auto")
+        text = str(result.get("text") or "").strip()
+        result["detected_language"] = SurveyWaVoiceNoteService._resolve_detected_language(
+            text, result.get("detected_language")
+        )
+        return result
 
     @staticmethod
     def process_transcription_job(db: Session, job_id: str) -> dict[str, Any]:
@@ -265,27 +275,31 @@ class SurveyWaVoiceNoteService:
 
     @staticmethod
     def _mark_answer_transcription_failed(db: Session, job: SurveyVoiceNoteJob, error: str) -> None:
-        recipient = db.get(ServiceOrderRecipient, job.recipient_id)
-        if recipient is None:
-            return
-        try:
-            payload = json.loads(recipient.result_json or "{}")
-        except Exception:
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
-        SurveyWaVoiceNoteService._update_answer_in_payload(
-            payload,
-            job=job,
-            updater=lambda ans: {
-                **ans,
-                "transcription_status": "failed",
-                "transcription_error": error[:500],
-            },
-        )
-        recipient.result_json = json.dumps(payload, ensure_ascii=False)
-        db.add(recipient)
-        db.commit()
+        from app.services.survey_recipient_result_lock import recipient_result_lock
+
+        with recipient_result_lock(job.recipient_id):
+            recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+            if recipient is None:
+                return
+            db.refresh(recipient)
+            try:
+                payload = json.loads(recipient.result_json or "{}")
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            SurveyWaVoiceNoteService._update_answer_in_payload(
+                payload,
+                job=job,
+                updater=lambda ans: {
+                    **ans,
+                    "transcription_status": "failed",
+                    "transcription_error": error[:500],
+                },
+            )
+            recipient.result_json = json.dumps(payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
 
     @staticmethod
     def _update_answer_in_payload(
@@ -296,14 +310,16 @@ class SurveyWaVoiceNoteService:
     ) -> None:
         conv = payload.setdefault("wa_conversation", {})
         answers = list(conv.get("answers") or [])
-        idx = job.answer_index
-        if idx is not None and 0 <= int(idx) < len(answers):
-            answers[int(idx)] = updater(dict(answers[int(idx)]))
-        else:
-            for i, ans in enumerate(answers):
-                if isinstance(ans, dict) and str(ans.get("voice_note_job_id") or "") == job.id:
-                    answers[i] = updater(dict(ans))
-                    break
+        updated = False
+        for i, ans in enumerate(answers):
+            if isinstance(ans, dict) and str(ans.get("voice_note_job_id") or "") == job.id:
+                answers[i] = updater(dict(ans))
+                updated = True
+                break
+        if not updated:
+            idx = job.answer_index
+            if idx is not None and 0 <= int(idx) < len(answers) and isinstance(answers[int(idx)], dict):
+                answers[int(idx)] = updater(dict(answers[int(idx)]))
         conv["answers"] = answers
         payload["wa_conversation"] = conv
 
@@ -312,14 +328,33 @@ class SurveyWaVoiceNoteService:
             if not isinstance(row, dict):
                 continue
             if str(row.get("voice_note_job_id") or "") == job.id:
-                updated = updater(row)
+                updated_row = updater(row)
                 extracted[i] = {
                     **row,
-                    "answer": updated.get("answer") or updated.get("answer_text") or row.get("answer"),
-                    "answer_text": updated.get("answer_text") or updated.get("answer"),
-                    "transcription_status": updated.get("transcription_status"),
-                    "detected_language": updated.get("detected_language"),
-                    "answer_source": updated.get("answer_source") or "voice_note",
+                    "answer": updated_row.get("answer_display")
+                    or updated_row.get("translated_text")
+                    or updated_row.get("answer")
+                    or updated_row.get("answer_text")
+                    or row.get("answer"),
+                    "answer_text": updated_row.get("answer_text") or updated_row.get("answer"),
+                    "transcription_status": updated_row.get("transcription_status"),
+                    "detected_language": updated_row.get("detected_language"),
+                    "answer_source": updated_row.get("answer_source") or "voice_note",
+                    **(
+                        {"original_text": updated_row["original_text"]}
+                        if updated_row.get("original_text")
+                        else {}
+                    ),
+                    **(
+                        {"translated_text": updated_row["translated_text"]}
+                        if updated_row.get("translated_text")
+                        else {}
+                    ),
+                    **(
+                        {"translation_status": updated_row["translation_status"]}
+                        if updated_row.get("translation_status")
+                        else {}
+                    ),
                 }
                 break
         payload["extracted_answers"] = extracted
@@ -332,69 +367,73 @@ class SurveyWaVoiceNoteService:
 
     @staticmethod
     def apply_transcript_to_recipient(db: Session, job: SurveyVoiceNoteJob) -> None:
-        recipient = db.get(ServiceOrderRecipient, job.recipient_id)
-        if recipient is None:
-            return
-        try:
-            payload = json.loads(recipient.result_json or "{}")
-        except Exception:
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
+        from app.services.survey_recipient_result_lock import recipient_result_lock
 
-        text = str(job.answer_text or "").strip()
+        with recipient_result_lock(job.recipient_id):
+            recipient = db.get(ServiceOrderRecipient, job.recipient_id)
+            if recipient is None:
+                return
+            db.refresh(recipient)
+            try:
+                payload = json.loads(recipient.result_json or "{}")
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
 
-        def _apply(ans: dict[str, Any]) -> dict[str, Any]:
-            return apply_transcript_to_answer(
-                ans,
-                text=text,
-                detected_language=job.detected_language,
-                status="completed",
+            text = str(job.answer_text or "").strip()
+            job.original_text = text or job.original_text
+            job.translation_status = "pending" if text else job.translation_status
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+
+            def _apply(ans: dict[str, Any]) -> dict[str, Any]:
+                return apply_transcript_to_answer(
+                    ans,
+                    text=text,
+                    detected_language=job.detected_language,
+                    status="completed",
+                )
+
+            SurveyWaVoiceNoteService._update_answer_in_payload(payload, job=job, updater=_apply)
+
+            if job.answer_context == "followup" and text:
+                from app.services.survey_wa_vague_negative_followup_service import merge_elaboration_into_answers
+
+                answers = list((payload.get("wa_conversation") or {}).get("answers") or [])
+                merge_elaboration_into_answers(answers, text)
+                payload.setdefault("wa_conversation", {})["answers"] = answers
+                payload["extracted_answers"] = [
+                    {
+                        "question": a["question"],
+                        "answer": a.get("answer_display")
+                        or a.get("translated_text")
+                        or a.get("answer_text")
+                        or a["answer"],
+                        **({"original_text": a["original_text"]} if a.get("original_text") else {}),
+                        **({"translated_text": a["translated_text"]} if a.get("translated_text") else {}),
+                        **({"translation_status": a["translation_status"]} if a.get("translation_status") else {}),
+                    }
+                    for a in answers
+                    if isinstance(a, dict) and a.get("question")
+                ]
+
+            recipient.result_json = json.dumps(payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
+            logger.info(
+                "%s transcript_attached job_id=%s recipient_id=%s report_answer_chars=%s",
+                LOG_PREFIX,
+                job.id,
+                recipient.id,
+                len(text),
             )
-
-        SurveyWaVoiceNoteService._update_answer_in_payload(payload, job=job, updater=_apply)
-
-        if job.answer_context == "followup" and text:
-            from app.services.survey_wa_vague_negative_followup_service import merge_elaboration_into_answers
-
-            answers = list((payload.get("wa_conversation") or {}).get("answers") or [])
-            merge_elaboration_into_answers(answers, text)
-            payload.setdefault("wa_conversation", {})["answers"] = answers
-            payload["extracted_answers"] = [
-                {
-                    "question": a["question"],
-                    "answer": a.get("answer_display") or a.get("answer_text") or a["answer"],
-                    **(
-                        {"original_text": a["original_text"]}
-                        if a.get("original_text")
-                        else {}
-                    ),
-                    **(
-                        {"translated_text": a["translated_text"]}
-                        if a.get("translated_text")
-                        else {}
-                    ),
-                }
-                for a in answers
-                if isinstance(a, dict) and a.get("question")
-            ]
-
-        recipient.result_json = json.dumps(payload, ensure_ascii=False)
-        db.add(recipient)
-        db.commit()
-        logger.info(
-            "%s transcript_attached job_id=%s recipient_id=%s report_answer_chars=%s",
-            LOG_PREFIX,
-            job.id,
-            recipient.id,
-            len(text),
-        )
 
         if text:
             from app.services.survey_wa_translation_service import SurveyWaTranslationService
 
             SurveyWaTranslationService.enqueue_answer_translation(
-                recipient.id,
+                job.recipient_id,
                 voice_note_job_id=job.id,
             )
 

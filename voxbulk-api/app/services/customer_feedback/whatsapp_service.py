@@ -115,12 +115,12 @@ class FeedbackWhatsappService:
 
             if is_voice_inbound(record):
                 session = FeedbackWhatsappService._active_session(db, from_phone=from_phone)
-                lang = session.detected_language if session else None
+                # Always auto-detect spoken language (do not pin session/template locale).
                 transcript, ok, stt_lang = transcribe_inbound(
                     db,
                     record=record or {},
                     customer_phone=from_phone,
-                    language=lang,
+                    language="auto",
                 )
                 if ok and transcript:
                     normalized_body = transcript

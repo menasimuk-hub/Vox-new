@@ -162,14 +162,24 @@ VOICE_ANSWER_METADATA_KEYS = (
     "inbound_message_id",
     "provider_media_id",
     "transcribed_at",
+    "original_text",
+    "translated_text",
+    "translation_status",
 )
 
 
 def merge_voice_metadata(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     out = dict(target)
     for key in VOICE_ANSWER_METADATA_KEYS:
-        if key in source and source[key] is not None:
-            out[key] = source[key]
+        if key not in source or source[key] is None:
+            continue
+        # Do not clobber a completed transcript with an empty pending value.
+        if key in {"answer_text", "answer", "original_text", "translated_text"}:
+            incoming = str(source[key] or "").strip()
+            existing = str(out.get(key) or "").strip()
+            if not incoming and existing:
+                continue
+        out[key] = source[key]
     return out
 
 
@@ -181,6 +191,10 @@ def apply_transcript_to_answer(answer: dict[str, Any], *, text: str, detected_la
     out["answer_display"] = cleaned
     out["answer_source"] = out.get("answer_source") or "voice_note"
     out["transcription_status"] = status
+    out["original_text"] = cleaned
+    # New transcript invalidates any prior English translation.
+    out.pop("translated_text", None)
+    out["translation_status"] = "pending" if cleaned else out.get("translation_status")
     if detected_language:
         out["detected_language"] = detected_language
     return out

@@ -107,9 +107,13 @@ class SurveyDispatchService:
                 sent += 1
             elif row_result["status"] == "skipped":
                 skipped += 1
+            elif row_result.get("error") == "outside_wa_survey_hours" or row_result["status"] == "pending":
+                # Hours-deferred stays pending for beat retry — do not inflate failed.
+                pass
             else:
                 failed += 1
 
+        deferred = sum(1 for r in rows if r.get("error") == "outside_wa_survey_hours")
         report = {
             "dispatch_at": datetime.utcnow().isoformat(),
             "provider": messaging_ready.get("provider") or "none",
@@ -119,6 +123,7 @@ class SurveyDispatchService:
             "sent": sent,
             "failed": failed,
             "skipped": skipped,
+            "deferred": deferred,
             "total": len(recipients),
             "recipients": rows,
             "note": (
@@ -447,4 +452,103 @@ class SurveyDispatchService:
             "status": "sent" if result.ok else "failed",
             "channel": result.channel,
             "detail": result.detail,
+        }
+
+    @staticmethod
+    def retry_deferred_wa_starts(db: Session, *, limit: int = 50) -> dict[str, Any]:
+        """Retry recipients deferred for outside_wa_survey_hours when the window is open."""
+        from sqlalchemy import select
+
+        from app.services.survey_whatsapp_conversation_service import _conversation_already_started
+        from app.utils.ofcom import platform_whatsapp_allowed
+
+        rows = db.execute(
+            select(ServiceOrderRecipient, ServiceOrder)
+            .join(ServiceOrder, ServiceOrder.id == ServiceOrderRecipient.order_id)
+            .where(
+                ServiceOrder.service_code == "survey",
+                ServiceOrder.status.in_(("running", "scheduled")),
+                ServiceOrderRecipient.status == "pending",
+            )
+            .order_by(ServiceOrderRecipient.created_at.asc())
+            .limit(max(1, min(int(limit or 50), 200)))
+        ).all()
+
+        attempted = sent = still_deferred = skipped = 0
+        details: list[dict[str, Any]] = []
+        for recipient, order in rows:
+            try:
+                payload = json.loads(recipient.result_json or "{}")
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            if str(payload.get("error") or "") != "outside_wa_survey_hours":
+                continue
+            if _conversation_already_started(recipient) or payload.get("intro_sent_at"):
+                skipped += 1
+                continue
+            conv = payload.get("wa_conversation") if isinstance(payload.get("wa_conversation"), dict) else {}
+            if conv.get("intro_sent_at") or conv.get("started_at"):
+                skipped += 1
+                continue
+
+            wa_ok, _reason = platform_whatsapp_allowed(db, str(recipient.phone or ""))
+            if not wa_ok:
+                still_deferred += 1
+                continue
+
+            try:
+                config = json.loads(order.config_json or "{}")
+            except Exception:
+                config = {}
+            from app.services.survey_wa_org_context_service import resolve_survey_organisation_name
+
+            org_name = resolve_survey_organisation_name(db, org_id=str(order.org_id), config=config)
+            organiser = str(
+                config.get("survey_organiser_name") or config.get("organiser_name") or org_name
+            ).strip()
+            intro_template = _survey_intro_text(config)
+            prefer_whatsapp = _uses_whatsapp(config)
+            messaging_ready = whatsapp_messaging_ready(db)
+            attempted += 1
+            row = SurveyDispatchService._dispatch_one(
+                db,
+                order=order,
+                recipient=recipient,
+                config=config,
+                intro_template=intro_template,
+                org_name=org_name,
+                organiser=organiser,
+                prefer_whatsapp=prefer_whatsapp,
+                messaging_ready=messaging_ready,
+            )
+            if row.get("status") == "sent":
+                sent += 1
+            elif row.get("error") == "outside_wa_survey_hours":
+                still_deferred += 1
+            details.append(row)
+
+            try:
+                report = json.loads(order.report_json or "{}")
+            except Exception:
+                report = {}
+            if isinstance(report, dict):
+                report["deferred_retry_at"] = datetime.utcnow().isoformat()
+                report["deferred_retry_last"] = row
+                if row.get("status") == "sent":
+                    report["sent"] = int(report.get("sent") or 0) + 1
+                    report["deferred"] = max(0, int(report.get("deferred") or 0) - 1)
+                    report["failed"] = max(0, int(report.get("failed") or 0) - 1)
+                order.report_json = json.dumps(report, ensure_ascii=False)
+                order.updated_at = datetime.utcnow()
+                db.add(order)
+                db.commit()
+
+        return {
+            "attempted": attempted,
+            "sent": sent,
+            "still_deferred": still_deferred,
+            "skipped": skipped,
+            "details": details,
         }

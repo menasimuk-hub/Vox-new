@@ -76,6 +76,10 @@ celery_app.conf.update(
             "task": "survey.sync_pending_wa_templates_if_any",
             "schedule": 1800.0,
         },
+        "survey-retry-deferred-wa-starts-10m": {
+            "task": "survey.retry_deferred_wa_starts",
+            "schedule": 600.0,
+        },
     },
 )
 
@@ -91,6 +95,7 @@ from app.workers import crm_automation_tasks  # noqa: E402, F401
 from app.workers import appointment_tasks  # noqa: E402, F401
 from app.workers import demo_account_tasks  # noqa: E402, F401
 from app.workers import survey_wa_template_tasks  # noqa: E402, F401
+from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
 

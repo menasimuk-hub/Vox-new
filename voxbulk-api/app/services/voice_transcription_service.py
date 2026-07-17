@@ -24,7 +24,7 @@ from app.services.survey_wa_voice_note_media_service import download_media_file,
 logger = logging.getLogger(__name__)
 
 MIN_TRANSCRIPT_CHARS = 2
-DEFAULT_STT_LANGUAGE = "ar"
+DEFAULT_STT_LANGUAGE = "auto"
 DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
 WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepinfra", "deepgram", "whisper_cpp", "groq")
 
@@ -46,13 +46,14 @@ def stt_provider_order() -> tuple[str, ...]:
 
 def _stt_language(language: str | None) -> str:
     raw = str(language or DEFAULT_STT_LANGUAGE).strip().lower()
-    if raw in {"auto", "detect", "multi"}:
+    if not raw or raw in {"auto", "detect", "multi"}:
         return "auto"
     if raw.startswith("ar"):
         return "ar"
     if raw.startswith("en"):
         return "en"
-    return DEFAULT_STT_LANGUAGE
+    # Unknown locale codes must not force Arabic/English — auto-detect instead.
+    return "auto"
 
 
 def is_low_quality_transcript(text: str) -> bool:
@@ -429,8 +430,7 @@ class VoiceTranscriptionService:
             raise RuntimeError(f"Deepgram STT failed: {err}")
         raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
         detected = _deepgram_detected_language(raw) if raw else None
-        if not detected and stt_lang not in {"auto"} and payload.get("language") not in {None, "auto"}:
-            detected = str(payload.get("language") or "")
+        # Never echo a pinned language as "detected" — that skips translation.
         return SttTranscriptionResult(
             text=str(payload.get("text") or "").strip(),
             detected_language=detected or None,

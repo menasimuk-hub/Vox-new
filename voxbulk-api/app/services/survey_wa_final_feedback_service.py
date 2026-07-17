@@ -365,6 +365,10 @@ def persist_final_feedback_text(
     cleaned = str(text or "").strip()
     conv = payload.setdefault("wa_conversation", {})
     answers = list(conv.get("answers") or [])
+    job_id = ""
+    if isinstance(voice_answer, dict):
+        job_id = str(voice_answer.get("voice_note_job_id") or "").strip()
+
     entry: dict[str, Any] = {
         "step_role": FINAL_FEEDBACK_TEXT_ROLE,
         "question": prompt,
@@ -378,25 +382,73 @@ def persist_final_feedback_text(
         if not cleaned and voice_answer.get("answer_source") == "voice_note":
             entry["answer"] = cleaned
             entry["answer_text"] = cleaned
-    answers.append(entry)
+
+    # Idempotent: update existing final-feedback / voice_note_job row instead of appending.
+    existing_idx: int | None = None
+    if job_id:
+        for i, ans in enumerate(answers):
+            if isinstance(ans, dict) and str(ans.get("voice_note_job_id") or "") == job_id:
+                existing_idx = i
+                break
+    if existing_idx is None:
+        for i in range(len(answers) - 1, -1, -1):
+            ans = answers[i]
+            if isinstance(ans, dict) and str(ans.get("step_role") or "") == FINAL_FEEDBACK_TEXT_ROLE:
+                existing_idx = i
+                break
+
+    if existing_idx is not None:
+        prev = dict(answers[existing_idx]) if isinstance(answers[existing_idx], dict) else {}
+        entry["answer_index"] = prev.get("answer_index", existing_idx)
+        for key in ("original_text", "translated_text", "translation_status", "detected_language"):
+            if entry.get(key) in (None, "") and prev.get(key) not in (None, ""):
+                entry[key] = prev[key]
+        answers[existing_idx] = entry
+    else:
+        answers.append(entry)
+
     conv["answers"] = answers
     conv["final_additional_feedback"] = cleaned
     payload["final_additional_feedback"] = cleaned
     extracted = list(payload.get("extracted_answers") or [])
-    extracted.append(
-        {
-            "question": prompt,
-            "answer": cleaned,
-            "answer_text": cleaned,
-            "step_role": FINAL_FEEDBACK_TEXT_ROLE,
-            "final_additional_feedback": cleaned,
-            **(
-                {k: entry[k] for k in ("answer_source", "transcription_status", "voice_note_job_id", "detected_language") if k in entry}
-                if isinstance(voice_answer, dict)
-                else {}
-            ),
-        }
-    )
+    extracted_row = {
+        "question": prompt,
+        "answer": entry.get("answer_display") or entry.get("translated_text") or cleaned,
+        "answer_text": entry.get("answer_text") or cleaned,
+        "step_role": FINAL_FEEDBACK_TEXT_ROLE,
+        "final_additional_feedback": cleaned,
+        **(
+            {
+                k: entry[k]
+                for k in (
+                    "answer_source",
+                    "transcription_status",
+                    "voice_note_job_id",
+                    "detected_language",
+                    "original_text",
+                    "translated_text",
+                    "translation_status",
+                )
+                if k in entry
+            }
+        ),
+    }
+    replaced_extracted = False
+    if job_id:
+        for i, row in enumerate(extracted):
+            if isinstance(row, dict) and str(row.get("voice_note_job_id") or "") == job_id:
+                extracted[i] = extracted_row
+                replaced_extracted = True
+                break
+    if not replaced_extracted:
+        for i in range(len(extracted) - 1, -1, -1):
+            row = extracted[i]
+            if isinstance(row, dict) and str(row.get("step_role") or "") == FINAL_FEEDBACK_TEXT_ROLE:
+                extracted[i] = extracted_row
+                replaced_extracted = True
+                break
+    if not replaced_extracted:
+        extracted.append(extracted_row)
     payload["extracted_answers"] = extracted
     payload["wa_conversation"] = conv
 
@@ -427,31 +479,45 @@ def try_complete_survey_after_final_feedback_voice(db, job) -> None:
     if str(recipient.status or "").lower() == "completed":
         return
 
-    try:
-        payload = json.loads(recipient.result_json or "{}")
-    except Exception:
-        return
-    if not isinstance(payload, dict):
-        return
-
-    conv = payload.get("wa_conversation") or {}
-    if conv.get("final_feedback_done") or not conv.get("awaiting_final_feedback_text"):
-        return
-
     from app.services.survey_whatsapp_conversation_service import _complete_linear_survey_thank_you
-
     from app.services.survey_session_service import SurveySessionService
+    from app.services.survey_recipient_result_lock import recipient_result_lock
+    from app.services.survey_wa_translation_service import SurveyWaTranslationService
 
     settings = final_feedback_settings(_order_config_from_service_order(order))
     text = str(job.answer_text or "").strip()
-    persist_final_feedback_text(payload, text=text, settings=settings)
-    conv = payload["wa_conversation"]
-    conv["final_feedback_done"] = True
-    conv.pop("awaiting_final_feedback_text", None)
-    payload["wa_conversation"] = conv
-    recipient.result_json = json.dumps(payload, ensure_ascii=False)
-    db.add(recipient)
-    db.commit()
+    voice_answer = {
+        "answer_source": "voice_note",
+        "transcription_status": job.transcription_status,
+        "voice_note_job_id": job.id,
+        "detected_language": job.detected_language,
+        "answer_text": text,
+        "original_text": job.original_text or text,
+        "translated_text": job.translated_text,
+        "translation_status": job.translation_status,
+    }
+    with recipient_result_lock(recipient.id):
+        db.refresh(recipient)
+        try:
+            existing = json.loads(recipient.result_json or "{}")
+        except Exception:
+            existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+        conv = existing.get("wa_conversation") or {}
+        if conv.get("final_feedback_done") or not conv.get("awaiting_final_feedback_text"):
+            return
+        payload = dict(existing)
+        persist_final_feedback_text(payload, text=text, settings=settings, voice_answer=voice_answer)
+        conv = payload["wa_conversation"]
+        conv["final_feedback_done"] = True
+        conv.pop("awaiting_final_feedback_text", None)
+        payload["wa_conversation"] = conv
+        payload = SurveyWaTranslationService.merge_preserved_translations(existing, payload)
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
+        db.add(recipient)
+        db.commit()
+    conv = payload.get("wa_conversation") or {}
 
     config = _order_config_from_service_order(order)
     flow, questions = _survey_completion_context(config)

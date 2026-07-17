@@ -217,40 +217,26 @@ def _save_recipient_result(
     *,
     enqueue_translation: bool = False,
 ) -> None:
-    recipient.result_json = json.dumps(payload, ensure_ascii=False)
-    recipient.updated_at = datetime.utcnow()
-    db.add(recipient)
-    db.commit()
-    # Always sweep for untranslated text answers: this is idempotent and cheap
-    # (it only enqueues non-English, not-yet-translated typed answers), so it
-    # covers every save path — mid-survey, tell-us-more, and final feedback.
-    _enqueue_text_answer_translation(recipient, payload)
+    from app.services.survey_recipient_result_lock import recipient_result_lock
+    from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+    with recipient_result_lock(recipient.id):
+        db.refresh(recipient)
+        existing = _recipient_result(recipient)
+        merged = SurveyWaTranslationService.merge_preserved_translations(existing, payload)
+        recipient.result_json = json.dumps(merged, ensure_ascii=False)
+        recipient.updated_at = datetime.utcnow()
+        db.add(recipient)
+        db.commit()
+        payload = merged
+    # Sweep typed + voice answers still missing English (heals silent enqueue failures).
+    SurveyWaTranslationService.reconcile_missing_translations(recipient, payload)
 
 
 def _enqueue_text_answer_translation(recipient: ServiceOrderRecipient, payload: dict[str, Any]) -> None:
-    conv = payload.get("wa_conversation") if isinstance(payload.get("wa_conversation"), dict) else {}
-    answers = conv.get("answers") if isinstance(conv.get("answers"), list) else []
-    if not answers:
-        return
     from app.services.survey_wa_translation_service import SurveyWaTranslationService
 
-    for idx, answer in enumerate(answers):
-        if not isinstance(answer, dict):
-            continue
-        # Voice notes are translated by the voice-note pipeline after transcription.
-        if str(answer.get("answer_source") or "") == "voice_note":
-            continue
-        # Skip answers already translated (or confirmed English).
-        if str(answer.get("translation_status") or "") in {"completed", "not_needed"}:
-            continue
-        if str(answer.get("translated_text") or "").strip():
-            continue
-        text = str(answer.get("answer") or answer.get("answer_text") or "").strip()
-        if not text:
-            continue
-        if not SurveyWaTranslationService.needs_translation(text, answer.get("detected_language")):
-            continue
-        SurveyWaTranslationService.enqueue_answer_translation(recipient.id, answer_index=idx)
+    SurveyWaTranslationService.reconcile_missing_translations(recipient, payload)
 
 
 def _survey_variables(
@@ -1601,13 +1587,21 @@ def _send_message(
     except Exception:
         pass
     if not result.ok:
-        payload = _recipient_result(recipient)
-        payload["error"] = result.detail or result.status
-        payload["channel"] = result.channel or "whatsapp"
-        recipient.result_json = json.dumps(payload, ensure_ascii=False)
-        recipient.status = "failed"
-        db.add(recipient)
-        db.commit()
+        from app.services.survey_recipient_result_lock import recipient_result_lock
+        from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+        with recipient_result_lock(recipient.id):
+            db.refresh(recipient)
+            payload = dict(_recipient_result(recipient))
+            payload["error"] = result.detail or result.status
+            payload["channel"] = result.channel or "whatsapp"
+            payload = SurveyWaTranslationService.merge_preserved_translations(
+                _recipient_result(recipient), payload
+            )
+            recipient.result_json = json.dumps(payload, ensure_ascii=False)
+            recipient.status = "failed"
+            db.add(recipient)
+            db.commit()
     return bool(result.ok)
 
 
@@ -3988,10 +3982,18 @@ def advance_after_tell_us_more_timeout(
     mark_tell_us_more_timeout(conv)
     next_step = step + 1
     if next_step > total:
-        payload["wa_conversation"] = conv
-        recipient.result_json = json.dumps(payload, ensure_ascii=False)
-        db.add(recipient)
-        db.commit()
+        from app.services.survey_recipient_result_lock import recipient_result_lock
+        from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+        with recipient_result_lock(recipient.id):
+            db.refresh(recipient)
+            payload["wa_conversation"] = conv
+            payload = SurveyWaTranslationService.merge_preserved_translations(
+                _recipient_result(recipient), payload
+            )
+            recipient.result_json = json.dumps(payload, ensure_ascii=False)
+            db.add(recipient)
+            db.commit()
         return False
     try:
         next_q = resolve_conversation_step(
@@ -4016,11 +4018,19 @@ def advance_after_tell_us_more_timeout(
     conv["current_template_id"] = next_q.get("template_id")
     conv["current_node_key"] = next_q.get("node_key")
     payload["wa_conversation"] = conv
-    recipient.result_json = json.dumps(payload, ensure_ascii=False)
-    db.add(recipient)
-    if session is not None:
-        SurveySessionService.advance_linear(db, session, config=config, from_step=step, to_step=next_step)
-    db.commit()
+    from app.services.survey_recipient_result_lock import recipient_result_lock
+    from app.services.survey_wa_translation_service import SurveyWaTranslationService
+
+    with recipient_result_lock(recipient.id):
+        db.refresh(recipient)
+        payload = SurveyWaTranslationService.merge_preserved_translations(
+            _recipient_result(recipient), payload
+        )
+        recipient.result_json = json.dumps(payload, ensure_ascii=False)
+        db.add(recipient)
+        if session is not None:
+            SurveySessionService.advance_linear(db, session, config=config, from_step=step, to_step=next_step)
+        db.commit()
     return _send_message(
         db,
         order=order,
