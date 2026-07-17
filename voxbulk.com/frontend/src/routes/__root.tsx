@@ -49,12 +49,9 @@ export const Route = createRootRoute({
     ],
 
     links: [
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Instrument+Serif&display=swap",
-      },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-400.woff2", crossOrigin: "anonymous" },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-600.woff2", crossOrigin: "anonymous" },
+      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/instrument-serif-400-italic.woff2", crossOrigin: "anonymous" },
       { rel: "icon", type: "image/x-icon", href: brandAssets.favicon },
       { rel: "icon", type: "image/png", href: brandAssets.faviconPng },
       { rel: "apple-touch-icon", href: brandAssets.faviconPng },

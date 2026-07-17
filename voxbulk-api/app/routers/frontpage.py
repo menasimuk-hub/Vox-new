@@ -308,6 +308,40 @@ def background_enrich_telnyx_lead(lead_id: str) -> None:
                 return
 
 
+class FrontpageContactIn(BaseModel):
+    name: str
+    email: str
+    message: str
+    company: str | None = None
+    website: str | None = None  # honeypot
+
+    @field_validator("name", "email", "message", mode="before")
+    @classmethod
+    def required_contact_text(cls, value):
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("This field is required")
+        return text
+
+
+@router.post("/contact")
+def submit_frontpage_contact(payload: FrontpageContactIn, db: Session = Depends(get_db)):
+    from app.services.frontpage_contact_service import FrontpageContactError, send_frontpage_contact
+
+    try:
+        send_frontpage_contact(
+            db,
+            name=payload.name,
+            email=payload.email,
+            message=payload.message,
+            company=payload.company,
+            website=payload.website,
+        )
+    except FrontpageContactError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"ok": True}
+
+
 @router.get("/talk-to-us/config")
 def get_frontpage_talk_to_us_config(db: Session = Depends(get_db)):
     settings, _ = _get_settings(db)

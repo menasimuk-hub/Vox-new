@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Users, Briefcase, Layers, BarChart3, Mic, Languages, FileText, Sparkles, Stethoscope, UserSearch, UtensilsCrossed, Hotel, Home, ShoppingBag, Car, GraduationCap, Scale, Dumbbell, HeartHandshake, Phone, MessageCircle, TrendingUp, Clock, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Users, Briefcase, Layers, BarChart3, Mic, Languages, FileText, Sparkles, Stethoscope, UserSearch, UtensilsCrossed, Hotel, Home, ShoppingBag, Car, GraduationCap, Scale, Dumbbell, HeartHandshake, Phone, MessageCircle, TrendingUp, Clock, CheckCircle2, Wand2, Wrench, Settings2 } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA } from "@/components/VOXBULKHome";
 
@@ -349,6 +349,82 @@ function SurveysPage() {
         </section>
 
 
+
+        {/* Custom-built surveys */}
+        <section className="py-24 md:py-28 bg-white">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <div className="grid lg:grid-cols-2 gap-14 items-center">
+              <div>
+                <span className="eyebrow">Custom-built for you</span>
+                <h2 className="mt-4 text-[36px] md:text-[48px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+                  Not on the list? We'll <span className="serif-italic text-primary">build it for you</span>.
+                </h2>
+                <p className="mt-5 text-[16px] text-body leading-[1.7] max-w-[560px]">
+                  Every business is different. If our 14 templates don't fit exactly, we design a survey — WhatsApp <em>or</em> AI calling — around your questions, your tone, your logic and your branding. Skip logic, branching, follow-ups, scoring rules — all yours.
+                </p>
+
+                <ul className="mt-7 space-y-3 text-[14.5px] text-body">
+                  {[
+                    { Icon: Wand2, t: "Your questions, your wording", d: "We workshop the flow with you, then our AI polishes it for WhatsApp or voice." },
+                    { Icon: Settings2, t: "Custom logic & branching", d: "Skip-logic, follow-ups, conditional paths, weighted scoring — however deep you want to go." },
+                    { Icon: Wrench, t: "Built once, sent forever", d: "One-time setup. After that it runs on your normal per-survey or per-minute rate." },
+                  ].map((b) => (
+                    <li key={b.t} className="flex items-start gap-3">
+                      <span className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0"><b.Icon size={16} /></span>
+                      <div>
+                        <div className="font-semibold text-heading">{b.t}</div>
+                        <div className="text-[13.5px] text-body leading-[1.6]">{b.d}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Pricing panel */}
+              <div className="rounded-3xl border border-border bg-beige p-7 md:p-9 shadow-elegant">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">How custom pricing works</div>
+                <h3 className="mt-3 text-[24px] font-bold text-heading tracking-[-0.02em] leading-[1.2]">
+                  Standard rates + a small one-off setup fee.
+                </h3>
+                <p className="mt-3 text-[14px] text-body leading-[1.65]">
+                  No hidden retainers. You pay the normal per-survey or per-minute rate you'd pay for a template — plus a one-time build fee based on complexity.
+                </p>
+
+                <div className="mt-6 space-y-3">
+                  <div className="rounded-2xl bg-white border border-border px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-[13px] font-semibold text-heading">WhatsApp survey — custom</div>
+                      <div className="text-[12.5px] text-muted-text">Same per-send rate as templates</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[12px] text-muted-text">+ setup from</div>
+                      <div className="text-[18px] font-bold text-heading tabular-nums">£99</div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-white border border-border px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-[13px] font-semibold text-heading">AI calling survey — custom</div>
+                      <div className="text-[12.5px] text-muted-text">Same per-minute rate as templates</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[12px] text-muted-text">+ setup from</div>
+                      <div className="text-[18px] font-bold text-heading tabular-nums">£249</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex items-start gap-2 text-[12.5px] text-muted-text leading-[1.55]">
+                  <CheckCircle2 size={14} className="text-teal mt-0.5 shrink-0" />
+                  <span>Setup covers design workshop, scripting, logic build, review round and go-live. Typical turnaround 3–5 working days.</span>
+                </div>
+
+                <Link to="/contact" className="mt-6 w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-navy text-white font-semibold text-[14px] hover:bg-navy/90 transition-colors">
+                  Design my custom survey <ArrowRight size={14} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <StatsRow items={[
           { value: "98%", label: "WhatsApp open rate" },

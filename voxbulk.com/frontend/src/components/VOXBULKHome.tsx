@@ -11,6 +11,7 @@ import {
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { useTalkModal } from "@/components/TalkModal";
 import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
+import { usePublicPricing, type PublicPlan } from "@/hooks/usePricing";
 
 
 /* ---------------- HERO ---------------- */
@@ -38,7 +39,8 @@ export function HeroDashboard() {
     "Final round auto-scheduled · Tue 14:30",
   ];
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0">
+
       <div className="absolute inset-0 -m-6 rounded-[32px] bg-gradient-to-br from-blue-500/15 via-transparent to-teal/15 blur-2xl" />
       <span className="absolute -top-3 left-10 w-2 h-2 rounded-full bg-gold shadow-[0_0_12px_2px_rgba(212,169,58,0.6)] float-a" />
       <span className="absolute top-16 -left-4 w-1.5 h-1.5 rounded-full bg-teal float-b" />
@@ -70,7 +72,7 @@ export function HeroDashboard() {
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-px bg-white/5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/5">
           {[
             { icon: FileText, label: "CVs scanned", value: "1,248" },
             { icon: Gauge, label: "Avg ATS", value: "76" },
@@ -189,7 +191,7 @@ export function Hero({
   const heading = headline ?? (
     <>
       <span className="sr-only">VoxBulk — </span>
-      Intelligent voice &amp; messaging that <span className="serif-italic text-gold">runs itself</span>.
+      Intelligent screening. <span className="serif-italic text-gold">Instant results.</span>
     </>
   );
   const subCopy = sub ?? (
@@ -208,19 +210,20 @@ export function Hero({
            style={{ background: "radial-gradient(circle, #4FB3A9 0%, transparent 60%)" }} />
 
       <div className="relative max-w-[1320px] mx-auto px-5 md:px-10 grid lg:grid-cols-[0.85fr_1.15fr] gap-10 lg:gap-12 items-center">
-        <div className="text-left">
+        <div className="text-left min-w-0">
           <div className="inline-flex items-center gap-2 px-3.5 h-8 rounded-full border border-white/15 bg-white/[0.06] text-[12.5px] text-white/80 backdrop-blur">
             <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" />
             {badgeText}
           </div>
 
-          <h1 className="mt-5 text-[38px] sm:text-[46px] lg:text-[54px] font-bold tracking-[-0.035em] leading-[1.04] text-white">
+          <h1 className="mt-5 text-[30px] sm:text-[42px] lg:text-[54px] font-bold tracking-[-0.035em] leading-[1.08] text-white break-words">
             {heading}
           </h1>
 
-          <p className="mt-5 max-w-[520px] text-[16px] md:text-[17px] text-white/70 leading-[1.6]">
+          <p className="mt-5 max-w-[520px] text-[15px] sm:text-[16px] md:text-[17px] text-white/70 leading-[1.6]">
             {subCopy}
           </p>
+
 
           <div className="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <Link to={primaryHref} className="btn-primary text-[15px] px-6 h-12">
@@ -425,7 +428,7 @@ const services = [
 
 export function LiveServices() {
   return (
-    <section id="services" className="py-24 md:py-32 bg-white">
+    <section id="services" className="py-24 md:py-32 bg-white scroll-mt-24">
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
         <div className="flex items-end justify-between flex-wrap gap-6">
           <div className="max-w-[680px]">
@@ -570,39 +573,39 @@ export const CV_GBP = 0.75;
 
 export function fmt(n: number, dp = 2) { return n.toFixed(dp); }
 
-export type Billing = "monthly" | "yearly";
-
-export function BillingToggle({ value, onChange, className = "" }: { value: Billing; onChange: (b: Billing) => void; className?: string }) {
-  return (
-    <div className={`inline-flex items-center gap-1 rounded-full border border-border bg-white p-1 shadow-elegant ${className}`}>
-      <button
-        type="button"
-        onClick={() => onChange("monthly")}
-        className={`h-8 px-4 rounded-full text-[12.5px] font-semibold transition-all ${value === "monthly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
-      >
-        Monthly
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("yearly")}
-        className={`h-8 pl-4 pr-2 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-2 transition-all ${value === "yearly" ? "bg-navy text-white" : "text-muted-text hover:text-heading"}`}
-      >
-        Yearly
-        <span className={`text-[10px] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-full ${value === "yearly" ? "bg-gold text-navy" : "bg-gold/15 text-primary"}`}>2 months free</span>
-      </button>
-    </div>
-  );
+function plansFromApi(apiPlans: PublicPlan[] | undefined): Plan[] | null {
+  if (!apiPlans?.length) return null;
+  return apiPlans.map((p) => {
+    const enterprise = Boolean(p.is_enterprise);
+    const payg = Boolean(p.is_payg);
+    const monthly = p.monthly_price_minor != null ? p.monthly_price_minor / 100 : null;
+    const rate = p.per_min_minor != null ? p.per_min_minor / 100 : null;
+    return {
+      name: p.name,
+      priceGBP: enterprise ? null : payg ? 0 : monthly,
+      ratePerMinGBP: enterprise ? null : rate,
+      mins: enterprise || payg ? null : p.minutes_included,
+      wa: enterprise ? "Unlimited" : payg ? "Pay/use" : p.whatsapp_included,
+      cv: enterprise ? "Unlimited" : payg ? "Pay/use" : p.cv_scans_included,
+      badge: p.is_featured ? "Most popular" : payg ? "No commitment" : enterprise ? "Custom pricing" : undefined,
+      enterprise,
+      payg,
+    };
+  });
 }
 
 export function Pricing() {
   const { currency: cur } = useCurrency();
+  const corePricing = usePublicPricing();
   const [topup, setTopup] = useState(50);
   const [dur, setDur] = useState(12);
   const [num, setNum] = useState(100);
-  const [billing, setBilling] = useState<Billing>("monthly");
 
   const s = SYM[cur];
   const fx = FX[cur];
+  const displayPlans = plansFromApi(corePricing.data?.plans) || PLANS;
+  // When API returns market-local prices, do not re-apply FX multipliers.
+  const priceFx = corePricing.data?.plans?.length ? 1 : fx;
 
 
   return (
@@ -625,11 +628,8 @@ export function Pricing() {
 
 
         {/* Plans */}
-        <div className="mt-6 flex justify-center">
-          <BillingToggle value={billing} onChange={setBilling} />
-        </div>
         <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          {PLANS.map((p) => {
+          {displayPlans.map((p) => {
             const featured = p.badge === "Most popular";
             const waV = typeof p.wa === "number" ? p.wa.toLocaleString() : p.wa;
             const cvV = typeof p.cv === "number" ? p.cv.toLocaleString() : p.cv;
@@ -669,7 +669,7 @@ export function Pricing() {
                       <span className="text-[13px] text-muted-text">/mo</span>
                     </div>
                     <div className="mt-1 text-[12px] text-muted-text">
-                      Per minute: <strong className="text-heading">{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong>
+                      Per minute: <strong className="text-heading">{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
                     </div>
                     <div className="mt-1 text-[11.5px] text-muted-text">
                       Only pay for what you use · no monthly fee
@@ -679,15 +679,15 @@ export function Pricing() {
                   <>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
-                        {s}{Math.round((p.priceGBP as number) * (billing === "yearly" ? 10 : 1) * fx)}
+                        {s}{Math.round((p.priceGBP as number) * priceFx)}
                       </span>
-                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{billing === "yearly" ? "/yr" : "/mo"}</span>
+                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
                     </div>
                     <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>
-                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * fx)}</strong>
+                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
                     </div>
                     <div className={`mt-1 text-[11.5px] ${featured ? "text-white/55" : "text-muted-text"}`}>
-                      Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * fx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * fx)}
+                      Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * priceFx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * priceFx)}
                     </div>
                   </>
                 )}
@@ -765,7 +765,7 @@ export function Pricing() {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {PLANS.map((p) => {
+              {displayPlans.map((p) => {
                 if (p.enterprise || p.ratePerMinGBP === null) {
                   return (
                     <div key={p.name} className="bg-beige rounded-xl px-4 py-3 text-center">
@@ -775,8 +775,8 @@ export function Pricing() {
                     </div>
                   );
                 }
-                const total = p.ratePerMinGBP * dur * num * fx;
-                const perCall = p.ratePerMinGBP * dur * fx;
+                const total = p.ratePerMinGBP * dur * num * priceFx;
+                const perCall = p.ratePerMinGBP * dur * priceFx;
                 return (
                   <div key={p.name} className="bg-beige rounded-xl px-4 py-3 text-center">
                     <div className="text-[11px] text-muted-text mb-1">{p.name}</div>
@@ -955,6 +955,8 @@ const faqItems = [
   { q: "How long does setup take?", a: "Most teams are live within a few days. We connect to your ATS, calendar (Cronofy or Calendly) and messaging tools, configure your roles, and run test conversations before going live." },
   { q: "How do AI voice interviews actually work?", a: "Candidates receive a scheduled link, dial in at their slot, and complete a natural conversation with our AI. The AI asks tailored questions, listens, follows up, and produces a scored, summarised report — all without human involvement." },
   { q: "Can I use VoxBulk just for surveys?", a: "Yes. WhatsApp surveys are available as a standalone service. The AI builds the questions, sends them, collects responses, and delivers a named or anonymous feedback report — whichever you need." },
+  { q: "Which languages and accents are supported?", a: "AI voice interviews and calling surveys support English (GB, Irish, Australian, American, Scottish and Canadian dialects) and Arabic (Egyptian and Saudi dialects). WhatsApp surveys and voice-note transcription work across 50+ languages, with responses translated to English in your dashboard." },
+  { q: "How is my data kept secure?", a: "VoxBulk is a multi-tenant platform with strict tenant isolation — each organisation's data is kept separate. Passwords use encrypted storage, integration secrets are encrypted at rest, and role-based access controls ensure only authorised team members see what they need. Production runs on secured infrastructure with controlled deployments, in UK and EU data centres." },
   { q: "Is VoxBulk GDPR compliant?", a: "Yes. All data stays within UK/EU data centres, calls and messages are encrypted in transit and at rest, and we sign a Data Processing Agreement with every customer." },
   { q: "What integrations are supported?", a: "Cronofy and Calendly for scheduling, WhatsApp for messaging surveys, plus API access to push results into your ATS or HRIS. Custom integrations are available on the Enterprise plan." },
   { q: "Can candidates opt out of speaking to AI?", a: "Yes. The AI announces itself at the start of every interaction, and candidates can request a human follow-up at any time." },
@@ -1252,7 +1254,7 @@ export function PlatformIntro() {
       <div className="max-w-[1080px] mx-auto px-5 md:px-10 text-center">
         <span className="eyebrow">One platform. Three products.</span>
         <h2 className="mt-4 text-[36px] md:text-[52px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
-          Intelligent voice and messaging that <span className="serif-italic text-primary">runs itself</span>.
+          Intelligent screening. <span className="serif-italic text-primary">Instant results.</span>
         </h2>
         <p className="mt-5 text-[17px] text-body max-w-[720px] mx-auto">
           VoxBulk automates the conversations your team doesn't have time for — from hiring to customer feedback.

@@ -1,25 +1,25 @@
 # VoxBulk
 
-> VoxBulk is an AI assistant platform that automates conversations, workflows and data collection for businesses. Live services include end-to-end recruitment automation (CV screening, scheduling, AI voice interviews and scoring), AI-run WhatsApp surveys, and QR-code customer feedback.
+VoxBulk is an AI assistant platform that automates conversations, workflows and
+data collection for businesses. We build intelligent voice and messaging tools
+that save teams time and deliver real insights.
 
-VoxBulk builds intelligent voice and messaging tools that save teams time and deliver real insights. All data stays within UK/EU data centres, traffic is encrypted in transit and at rest, and the platform is GDPR compliant with a Data Processing Agreement available to every customer.
+## Live services
 
-## Services
-
-- [Recruitment Automation](https://voxbulk.com/recruitment): Bulk CV ingestion and ATS scoring, tailored AI interview questions, automated candidate scheduling, fully AI-run voice interviews, scored results dashboards, and one-click final-round booking via Cronofy or Calendly.
-- [WhatsApp Surveys](https://voxbulk.com/surveys): AI-built WhatsApp surveys that send questions, collect responses and deliver named or anonymous feedback reports.
-- [Customer Feedback](https://voxbulk.com/feedback): QR-code WhatsApp feedback collection in 50+ languages with structured reporting.
+- CV upload & ATS — bulk CV ingestion, scoring and ranking against role requirements
+- AI interview question generation — tailored questions per role and candidate
+- Automated candidate scheduling — AI contacts candidates and books interviews
+- AI-run voice interviews — fully automated voice interviews at scheduled times
+- Results dashboard — scores, answers and highlights for hiring teams
+- One-click final round booking — Cronofy / Calendly integration
+- WhatsApp surveys — AI-built surveys, response collection, named or anonymous reports
 
 ## Key pages
 
-- [Homepage](https://voxbulk.com/): Product overview and what VoxBulk does.
-- [Pricing](https://voxbulk.com/pricing): Plans and pricing with monthly and yearly options.
-- [Contact / demo](https://voxbulk.com/contact): Talk to the team or book a demo.
-
-## Optional
-
-- [Legal & policies](https://voxbulk.com/legal-policies): Index of legal and compliance documents.
-- [Privacy Policy](https://voxbulk.com/privacy): How VoxBulk handles personal data.
-- [Terms of Service](https://voxbulk.com/terms): Terms governing use of VoxBulk.
-- [Cookie Policy](https://voxbulk.com/cookies): Use of cookies on the site.
-- [GDPR](https://voxbulk.com/gdpr): GDPR commitments and data processing details.
+- Homepage: /
+- Contact / demo: /contact
+- Privacy: /privacy
+- Terms: /terms
+- Cookies: /cookies
+- GDPR: /gdpr
+- Legal: /legal

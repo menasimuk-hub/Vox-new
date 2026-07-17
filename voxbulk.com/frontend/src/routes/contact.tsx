@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { z } from "zod";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { ArrowRight, ArrowLeft, Check, Mail, User, MessageSquare } from "lucide-react";
+import { frontpageApiFetch } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/contact")({
@@ -53,14 +54,21 @@ function ContactPage() {
     const parsed = schema.safeParse({ name, email, message });
     if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
     setSubmitting(true);
-    // Best-effort: store in a generic table if it exists; otherwise just simulate
     try {
-      // We don't have a contact_messages table — just simulate success.
-      await new Promise((r) => setTimeout(r, 600));
+      await frontpageApiFetch("/frontpage/contact", {
+        method: "POST",
+        body: JSON.stringify({
+          name: parsed.data.name,
+          email: parsed.data.email,
+          message: parsed.data.message,
+          website: "", // honeypot
+        }),
+      });
       setStep(3);
       toast.success("Thanks! We'll be in touch shortly.");
     } catch (e) {
-      setError("Something went wrong. Please try again.");
+      const msg = e instanceof Error ? e.message : "Something went wrong. Please try again.";
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
