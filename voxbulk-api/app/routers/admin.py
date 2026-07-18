@@ -3754,20 +3754,17 @@ def admin_set_org_user_blocked(
     return {"ok": True, "user_id": user_id, "is_active": user.is_active}
 
 
-@router.post("/organisations/{org_id}/users/{user_id}/hard-delete-test")
-def admin_hard_delete_org_user_test(
-    org_id: str,
+def _admin_run_hard_delete_user(
+    db: Session,
     user_id: str,
-    payload: dict,
-    db: Session = Depends(get_db),
-    _admin=Depends(require_cap(CAP_ORG_OPS)),
-):
-    """DEV/OPS TEST — wipe billing, detach FK refs, hard-delete user; delete solo org if applicable."""
+    body: dict,
+    *,
+    org_id: str | None = None,
+) -> dict:
     from sqlalchemy.exc import IntegrityError
 
     from app.services.user_hard_delete_service import HARD_DELETE_CONFIRM, UserHardDeleteError, hard_delete_user
 
-    body = payload if isinstance(payload, dict) else {}
     if str(body.get("confirm") or "").strip() != HARD_DELETE_CONFIRM:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -3795,6 +3792,38 @@ def admin_hard_delete_org_user_test(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/users/hard-delete-test")
+def admin_hard_delete_user_by_email_test(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    """DEV/OPS TEST — hard-delete any dashboard user by email (solo org wiped; shared orgs kept)."""
+    from app.services.user_hard_delete_service import find_user_id_by_email
+
+    body = payload if isinstance(payload, dict) else {}
+    email = str(body.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email is required")
+    user_id = find_user_id_by_email(db, email)
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No user with email {email}")
+    return _admin_run_hard_delete_user(db, user_id, body, org_id=None)
+
+
+@router.post("/organisations/{org_id}/users/{user_id}/hard-delete-test")
+def admin_hard_delete_org_user_test(
+    org_id: str,
+    user_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    """DEV/OPS TEST — wipe user (+ solo org). Works for any member, not only sole owners."""
+    body = payload if isinstance(payload, dict) else {}
+    return _admin_run_hard_delete_user(db, user_id, body, org_id=org_id)
 
 
 @router.delete("/organisations/{org_id}/users/{user_id}")

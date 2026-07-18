@@ -1269,6 +1269,55 @@ export default function OrgControlCenter() {
     }
   }
 
+  const hardDeleteAnyUser = async () => {
+    const defaultEmail = String(org?.contact_email || org?.billing_email || '').trim()
+    const email = window.prompt(
+      'TEST ONLY — permanently delete a dashboard user by email.\n' +
+        'Solo-member org is wiped; shared orgs keep other members.\n\n' +
+        'Enter user email:',
+      defaultEmail,
+    )
+    if (email === null) return
+    const trimmed = String(email).trim()
+    if (!trimmed) {
+      pushToast('Email is required', 'warning')
+      return
+    }
+    const typed = window.prompt(
+      `Permanently delete ${trimmed}?\n\nType exactly: HARD_DELETE`,
+    )
+    if (typed === null) return
+    if (String(typed).trim() !== 'HARD_DELETE') {
+      pushToast('Cancelled — type HARD_DELETE to confirm', 'warning')
+      return
+    }
+    setActionBusy('hardDeleteUser')
+    try {
+      const res = await apiFetch('/admin/users/hard-delete-test', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: trimmed,
+          confirm: 'HARD_DELETE',
+          delete_solo_org: true,
+          delete_service_orders: true,
+        }),
+      })
+      const solo = (res?.report?.solo_orgs || []).filter((x) => x?.purged).length
+      const shared = (res?.report?.shared_orgs_kept || []).length
+      pushToast(
+        `Hard deleted ${trimmed}` +
+          (solo ? ` · ${solo} solo org wiped` : '') +
+          (shared ? ` · ${shared} shared org kept` : ''),
+        'success',
+      )
+      await refreshAll()
+    } catch (e) {
+      pushToast(e?.message || 'Hard delete failed', 'danger')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
   return (
     <div className="occ">
       <ToastStack toasts={toasts} />
@@ -1517,13 +1566,14 @@ export default function OrgControlCenter() {
                 <Link className="occ-btn" to={`/organisations/${encodeURIComponent(selectedId)}`}>
                   Full profile
                 </Link>
-                <Link
+                <button
+                  type="button"
                   className="occ-btn danger"
-                  to="/organisations/profile?tab=users"
-                  onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', selectedId)}
+                  disabled={actionBusy === 'hardDeleteUser'}
+                  onClick={() => void hardDeleteAnyUser()}
                 >
-                  Hard delete user (TEST)
-                </Link>
+                  {actionBusy === 'hardDeleteUser' ? 'Deleting…' : 'Hard delete user (TEST)'}
+                </button>
                 {org?.deletion_status === 'pending' && deletionRequest ? (
                   <button type="button" className="occ-btn danger" onClick={() => openModal('completeDeletion')}>
                     Complete account deletion

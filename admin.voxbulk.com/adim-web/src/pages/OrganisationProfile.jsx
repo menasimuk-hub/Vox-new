@@ -557,7 +557,10 @@ export default function OrganisationProfile() {
       return
     }
     const typed = window.prompt(
-      `TEST ONLY — permanently delete ${email}, billing records, and this org if they are the sole member.\n\nType exactly: HARD_DELETE`,
+      `TEST ONLY — permanently delete ${email}.\n` +
+        `• Sole member of an org → wipe that org + billing\n` +
+        `• Shared org → remove this user only (org kept)\n\n` +
+        `Type exactly: HARD_DELETE`,
     )
     if (typed === null) return
     if (String(typed).trim() !== 'HARD_DELETE') {
@@ -1021,7 +1024,8 @@ export default function OrganisationProfile() {
             <div className='cardBody'>
               <p className='muted' style={{ fontSize: 12, marginBottom: 12 }}>
                 <strong style={{ color: 'var(--red)' }}>Hard delete (TEST)</strong> — last button in each row’s Actions column.
-                Wipes billing and permanently deletes the user (and solo org). Type <code>HARD_DELETE</code> to confirm.
+                Works for any member (not only sole owners). Solo org is wiped; shared orgs keep other members. Type{' '}
+                <code>HARD_DELETE</code> to confirm.
               </p>
               <div className='tableWrap'>
                 <table className='table'>
