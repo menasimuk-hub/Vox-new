@@ -8,15 +8,22 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.account_deletion_request import AccountDeletionRequest
+from app.models.agent import AgentAssignment
+from app.models.agent_service_assignment import AgentServiceAssignment
+from app.models.appointment import Appointment, AppointmentLog
 from app.models.billing_invoice import BillingInvoice
 from app.models.billing_redirect_flow import BillingRedirectFlow
 from app.models.billing_refund_review import BillingRefundReview
-from app.models.call_log import CallLog
-from app.models.credit_note import CreditNote
-from app.models.agent_service_assignment import AgentServiceAssignment
-from app.models.dentally_appointment import DentallyAppointment
 from app.models.branch import Branch
+from app.models.call_log import CallLog
+from app.models.connection_profile import ConnectionProfileOrg
+from app.models.credit_note import CreditNote
+from app.models.crm_survey_automation_event import CrmSurveyAutomationEvent
+from app.models.crm_synced_contact import CrmSyncedContact
+from app.models.custom_org_profile import CustomOrgProfile
 from app.models.customer_feedback import (
+    FeedbackAiFollowUpJob,
+    FeedbackIndustryOrganisation,
     FeedbackLocation,
     FeedbackMarketingSubscriber,
     FeedbackPromoCampaign,
@@ -26,7 +33,20 @@ from app.models.customer_feedback import (
     FeedbackResultsInsightsCache,
     FeedbackSession,
     FeedbackUsagePeriod,
+    FeedbackVoiceNoteJob,
 )
+from app.models.dentally_appointment import DentallyAppointment
+from app.models.hubspot_contact import HubspotContact
+from app.models.industry_organisation import IndustryOrganisation
+from app.models.interview_booking_token import InterviewBookingToken
+from app.models.membership import OrganisationMembership
+from app.models.notification import Notification
+from app.models.oauth_identity import OAuthIdentity
+from app.models.onboarding_request import OnboardingRequest
+from app.models.org_audit_event import OrganisationAuditEvent
+from app.models.org_opt_out import OrganisationOptOut
+from app.models.org_usage_period import OrgUsagePeriod
+from app.models.organisation import Organisation
 from app.models.organisation_ai_config import (
     OrganisationAIIdentity,
     OrganisationComplianceConfig,
@@ -34,25 +54,16 @@ from app.models.organisation_ai_config import (
     OrganisationWorkflowConfig,
 )
 from app.models.organisation_invite import OrganisationInvite
-from app.models.patient import Patient
-from app.models.whatsapp_log import WhatsAppLog
-from app.models.membership import OrganisationMembership
-from app.models.notification import Notification
-from app.models.oauth_identity import OAuthIdentity
-from app.models.onboarding_request import OnboardingRequest
-from app.models.org_audit_event import OrganisationAuditEvent
-from app.models.org_opt_out import OrganisationOptOut
-from app.models.organisation import Organisation
-from app.models.org_usage_period import OrgUsagePeriod
 from app.models.password_reset_token import PasswordResetToken
+from app.models.patient import Patient
 from app.models.payment_event import PaymentEvent
 from app.models.platform_compliance_audit import PlatformComplianceAuditEvent
+from app.models.pricing import OrgCustomPricing
 from app.models.promo_offer import PromoRedemption
+from app.models.provider_config import ProviderConfig
 from app.models.recovery_job import RecoveryJob
-from app.models.interview_booking_token import InterviewBookingToken
+from app.models.sales_rep import SalesCommission, SalesCustomer
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.models.survey_session import SurveySession
-from app.models.survey_voice_note_job import SurveyVoiceNoteJob
 from app.models.subscription import Subscription
 from app.models.support_ticket import (
     SupportTicket,
@@ -60,8 +71,13 @@ from app.models.support_ticket import (
     SupportTicketEvent,
     SupportTicketMessage,
 )
+from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob
+from app.models.survey_session import SurveySession, SurveySessionAnswer, SurveySessionDecision
+from app.models.survey_voice_note_job import SurveyVoiceNoteJob
+from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.models.user import User
 from app.models.wallet_transaction import WalletTransaction
+from app.models.whatsapp_log import WhatsAppLog
 
 HARD_DELETE_CONFIRM = "HARD_DELETE"
 
@@ -228,6 +244,21 @@ def detach_user_references(db: Session, user_id: str) -> dict[str, int]:
     return counts
 
 
+def _delete_survey_sessions_for_filters(db: Session, *session_filters) -> None:
+    """Delete survey sessions and FK children (answers/decisions/voice-note session links)."""
+    session_ids = list(db.execute(select(SurveySession.id).where(*session_filters)).scalars().all())
+    if not session_ids:
+        return
+    db.execute(delete(SurveySessionAnswer).where(SurveySessionAnswer.session_id.in_(session_ids)))
+    db.execute(delete(SurveySessionDecision).where(SurveySessionDecision.session_id.in_(session_ids)))
+    db.execute(
+        update(SurveyVoiceNoteJob)
+        .where(SurveyVoiceNoteJob.session_id.in_(session_ids))
+        .values(session_id=None)
+    )
+    db.execute(delete(SurveySession).where(SurveySession.id.in_(session_ids)))
+
+
 def _delete_service_orders_for_org(db: Session, org_id: str) -> int:
     order_ids = list(
         db.execute(select(ServiceOrder.id).where(ServiceOrder.org_id == org_id)).scalars().all()
@@ -244,9 +275,11 @@ def _delete_service_orders_for_org(db: Session, org_id: str) -> int:
         .where(BillingRedirectFlow.service_order_id.in_(order_ids))
         .values(service_order_id=None)
     )
-    db.execute(delete(SurveySession).where(SurveySession.order_id.in_(order_ids)))
-    db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.order_id.in_(order_ids)))
+    db.execute(delete(SurveyAiFollowUpJob).where(SurveyAiFollowUpJob.order_id.in_(order_ids)))
+    db.execute(delete(CrmSurveyAutomationEvent).where(CrmSurveyAutomationEvent.order_id.in_(order_ids)))
     db.execute(delete(SurveyVoiceNoteJob).where(SurveyVoiceNoteJob.order_id.in_(order_ids)))
+    db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.order_id.in_(order_ids)))
+    _delete_survey_sessions_for_filters(db, SurveySession.order_id.in_(order_ids))
     db.execute(delete(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id.in_(order_ids)))
     db.execute(delete(ServiceOrder).where(ServiceOrder.id.in_(order_ids)))
     return len(order_ids)
@@ -262,9 +295,15 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
         )
     orders_deleted = _delete_service_orders_for_org(db, org_id) if order_count and delete_service_orders else 0
 
-    db.execute(delete(SurveySession).where(SurveySession.org_id == org_id))
+    db.execute(delete(SurveyAiFollowUpJob).where(SurveyAiFollowUpJob.org_id == org_id))
+    db.execute(delete(CrmSurveyAutomationEvent).where(CrmSurveyAutomationEvent.org_id == org_id))
+    db.execute(delete(SurveyVoiceNoteJob).where(SurveyVoiceNoteJob.org_id == org_id))
     db.execute(delete(InterviewBookingToken).where(InterviewBookingToken.org_id == org_id))
+    _delete_survey_sessions_for_filters(db, SurveySession.org_id == org_id)
+
     # Customer Feedback: delete children before locations/org to satisfy FKs.
+    db.execute(delete(FeedbackAiFollowUpJob).where(FeedbackAiFollowUpJob.org_id == org_id))
+    db.execute(delete(FeedbackVoiceNoteJob).where(FeedbackVoiceNoteJob.org_id == org_id))
     db.execute(delete(FeedbackResponse).where(FeedbackResponse.org_id == org_id))
     db.execute(delete(FeedbackMarketingSubscriber).where(FeedbackMarketingSubscriber.org_id == org_id))
     db.execute(delete(FeedbackSession).where(FeedbackSession.org_id == org_id))
@@ -274,9 +313,20 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
     db.execute(delete(FeedbackPromoWallet).where(FeedbackPromoWallet.org_id == org_id))
     db.execute(delete(FeedbackUsagePeriod).where(FeedbackUsagePeriod.org_id == org_id))
     db.execute(delete(FeedbackLocation).where(FeedbackLocation.org_id == org_id))
+    db.execute(delete(FeedbackIndustryOrganisation).where(FeedbackIndustryOrganisation.org_id == org_id))
+
+    # Appointments: null self-FK then delete logs + rows.
+    appt_ids = list(db.execute(select(Appointment.id).where(Appointment.org_id == org_id)).scalars().all())
+    if appt_ids:
+        db.execute(update(Appointment).where(Appointment.id.in_(appt_ids)).values(rescheduled_from_id=None))
+        db.execute(delete(AppointmentLog).where(AppointmentLog.appointment_id.in_(appt_ids)))
+        db.execute(delete(Appointment).where(Appointment.id.in_(appt_ids)))
+
     db.execute(delete(WhatsAppLog).where(WhatsAppLog.org_id == org_id))
     db.execute(delete(DentallyAppointment).where(DentallyAppointment.org_id == org_id))
     db.execute(delete(Patient).where(Patient.org_id == org_id))
+    db.execute(delete(HubspotContact).where(HubspotContact.org_id == org_id))
+    db.execute(delete(CrmSyncedContact).where(CrmSyncedContact.org_id == org_id))
     db.execute(delete(CallLog).where(CallLog.org_id == org_id))
     db.execute(delete(RecoveryJob).where(RecoveryJob.org_id == org_id))
     db.execute(delete(OnboardingRequest).where(OnboardingRequest.org_id == org_id))
@@ -288,6 +338,19 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
     db.execute(delete(OrganisationServiceCatalogItem).where(OrganisationServiceCatalogItem.org_id == org_id))
     db.execute(delete(OrganisationWorkflowConfig).where(OrganisationWorkflowConfig.org_id == org_id))
     db.execute(delete(AgentServiceAssignment).where(AgentServiceAssignment.org_id == org_id))
+    db.execute(delete(AgentAssignment).where(AgentAssignment.org_id == org_id))
+    db.execute(delete(OrgCustomPricing).where(OrgCustomPricing.org_id == org_id))
+    db.execute(delete(IndustryOrganisation).where(IndustryOrganisation.org_id == org_id))
+    db.execute(delete(ConnectionProfileOrg).where(ConnectionProfileOrg.org_id == org_id))
+    db.execute(delete(ProviderConfig).where(ProviderConfig.org_id == org_id))
+    db.execute(delete(SalesCommission).where(SalesCommission.org_id == org_id))
+    db.execute(update(SalesCustomer).where(SalesCustomer.org_id == org_id).values(org_id=None))
+    db.execute(
+        update(CustomOrgProfile).where(CustomOrgProfile.org_id == org_id).values(org_id=None)
+    )
+    db.execute(
+        update(TelnyxWhatsappTemplate).where(TelnyxWhatsappTemplate.org_id == org_id).values(org_id=None)
+    )
     db.execute(
         update(PlatformComplianceAuditEvent)
         .where(PlatformComplianceAuditEvent.org_id == org_id)
