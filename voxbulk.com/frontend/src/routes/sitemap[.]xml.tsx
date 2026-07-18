@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
 import { SITE_ORIGIN } from "@/lib/brand";
+import { newsItems, posts } from "@/lib/blog-data";
 
 const BASE_URL = SITE_ORIGIN;
 
@@ -22,6 +23,10 @@ export const Route = createFileRoute("/sitemap.xml")({
           { path: "/feedback", changefreq: "weekly", priority: "0.9" },
           { path: "/pricing", changefreq: "weekly", priority: "0.9" },
           { path: "/contact", changefreq: "monthly", priority: "0.7" },
+          { path: "/blog", changefreq: "weekly", priority: "0.7" },
+          ...posts.map((p) => ({ path: `/blog/${p.slug}`, changefreq: "monthly" as const, priority: "0.6" })),
+          { path: "/news", changefreq: "weekly", priority: "0.7" },
+          ...newsItems.map((n) => ({ path: `/news/${n.slug}`, changefreq: "monthly" as const, priority: "0.55" })),
           { path: "/legal-policies", changefreq: "yearly", priority: "0.3" },
           { path: "/privacy", changefreq: "yearly", priority: "0.3" },
           { path: "/terms", changefreq: "yearly", priority: "0.3" },

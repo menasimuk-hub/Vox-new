@@ -18,15 +18,19 @@ import { Route as RecruitmentRouteImport } from './routes/recruitment'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as NewsRouteImport } from './routes/news'
 import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
 import { Route as LegalRouteImport } from './routes/legal'
 import { Route as GdprRouteImport } from './routes/gdpr'
 import { Route as FeedbackRouteImport } from './routes/feedback'
 import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
+import { Route as BlogRouteImport } from './routes/blog'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
+import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
+import { Route as NewsSlugRouteImport } from './routes/news.$slug'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -73,6 +77,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NewsRoute = NewsRouteImport.update({
+  id: '/news',
+  path: '/news',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LegalPoliciesRoute = LegalPoliciesRouteImport.update({
   id: '/legal-policies',
   path: '/legal-policies',
@@ -103,6 +112,11 @@ const ContactRoute = ContactRouteImport.update({
   path: '/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogRoute = BlogRouteImport.update({
+  id: '/blog',
+  path: '/blog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -118,15 +132,27 @@ const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
   path: '/survey/preview/$themeId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogSlugRoute = BlogSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => BlogRoute,
+} as any)
+const NewsSlugRoute = NewsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => NewsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
+  '/news': typeof NewsRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -138,15 +164,19 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/news/$slug': typeof NewsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
+  '/news': typeof NewsRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -158,16 +188,20 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/news/$slug': typeof NewsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
+  '/news': typeof NewsRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -179,17 +213,21 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/news/$slug': typeof NewsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blog'
     | '/contact'
     | '/cookies'
     | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
+    | '/news'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -201,15 +239,19 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/survey/preview/$themeId'
+    | '/blog/$slug'
+    | '/news/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/blog'
     | '/contact'
     | '/cookies'
     | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
+    | '/news'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -221,15 +263,19 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/survey/preview/$themeId'
+    | '/blog/$slug'
+    | '/news/$slug'
   id:
     | '__root__'
     | '/'
+    | '/blog'
     | '/contact'
     | '/cookies'
     | '/feedback'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
+    | '/news'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -241,16 +287,20 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/survey/preview/$themeId'
+    | '/blog/$slug'
+    | '/news/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BlogRoute: typeof BlogRouteWithChildren
   ContactRoute: typeof ContactRoute
   CookiesRoute: typeof CookiesRoute
   FeedbackRoute: typeof FeedbackRoute
   GdprRoute: typeof GdprRoute
   LegalRoute: typeof LegalRoute
   LegalPoliciesRoute: typeof LegalPoliciesRoute
+  NewsRoute: typeof NewsRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -329,6 +379,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/news': {
+      id: '/news'
+      path: '/news'
+      fullPath: '/news'
+      preLoaderRoute: typeof NewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/legal-policies': {
       id: '/legal-policies'
       path: '/legal-policies'
@@ -371,6 +428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blog': {
+      id: '/blog'
+      path: '/blog'
+      fullPath: '/blog'
+      preLoaderRoute: typeof BlogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -392,17 +456,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SurveyPreviewThemeIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blog/$slug': {
+      id: '/blog/$slug'
+      path: '/$slug'
+      fullPath: '/blog/$slug'
+      preLoaderRoute: typeof BlogSlugRouteImport
+      parentRoute: typeof BlogRoute
+    }
+    '/news/$slug': {
+      id: '/news/$slug'
+      path: '/$slug'
+      fullPath: '/news/$slug'
+      preLoaderRoute: typeof NewsSlugRouteImport
+      parentRoute: typeof NewsRoute
+    }
   }
 }
 
+interface BlogRouteChildren {
+  BlogSlugRoute: typeof BlogSlugRoute
+}
+
+const BlogRouteChildren: BlogRouteChildren = {
+  BlogSlugRoute: BlogSlugRoute,
+}
+
+const BlogRouteWithChildren = BlogRoute._addFileChildren(BlogRouteChildren)
+
+interface NewsRouteChildren {
+  NewsSlugRoute: typeof NewsSlugRoute
+}
+
+const NewsRouteChildren: NewsRouteChildren = {
+  NewsSlugRoute: NewsSlugRoute,
+}
+
+const NewsRouteWithChildren = NewsRoute._addFileChildren(NewsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BlogRoute: BlogRouteWithChildren,
   ContactRoute: ContactRoute,
   CookiesRoute: CookiesRoute,
   FeedbackRoute: FeedbackRoute,
   GdprRoute: GdprRoute,
   LegalRoute: LegalRoute,
   LegalPoliciesRoute: LegalPoliciesRoute,
+  NewsRoute: NewsRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,
