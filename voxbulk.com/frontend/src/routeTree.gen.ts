@@ -31,6 +31,8 @@ import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as NewsSlugRouteImport } from './routes/news.$slug'
+import { Route as BlogIndexRouteImport } from './routes/blog.index'
+import { Route as NewsIndexRouteImport } from './routes/news.index'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -132,6 +134,16 @@ const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
   path: '/survey/preview/$themeId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogIndexRoute = BlogIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BlogRoute,
+} as any)
+const NewsIndexRoute = NewsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => NewsRoute,
+} as any)
 const BlogSlugRoute = BlogSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
@@ -146,6 +158,7 @@ const NewsSlugRoute = NewsSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/blog': typeof BlogRouteWithChildren
+  '/blog/': typeof BlogIndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
@@ -153,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/news': typeof NewsRouteWithChildren
+  '/news/': typeof NewsIndexRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -170,6 +184,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/blog': typeof BlogRouteWithChildren
+  '/blog/': typeof BlogIndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
@@ -177,6 +192,7 @@ export interface FileRoutesByTo {
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/news': typeof NewsRouteWithChildren
+  '/news/': typeof NewsIndexRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -195,6 +211,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/blog': typeof BlogRouteWithChildren
+  '/blog/': typeof BlogIndexRoute
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
@@ -202,6 +219,7 @@ export interface FileRoutesById {
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
   '/news': typeof NewsRouteWithChildren
+  '/news/': typeof NewsIndexRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
   '/privacy': typeof PrivacyRoute
@@ -221,6 +239,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/blog'
+    | '/blog/'
     | '/contact'
     | '/cookies'
     | '/feedback'
@@ -228,6 +247,7 @@ export interface FileRouteTypes {
     | '/legal'
     | '/legal-policies'
     | '/news'
+    | '/news/'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -245,6 +265,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/blog'
+    | '/blog/'
     | '/contact'
     | '/cookies'
     | '/feedback'
@@ -252,6 +273,7 @@ export interface FileRouteTypes {
     | '/legal'
     | '/legal-policies'
     | '/news'
+    | '/news/'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -269,6 +291,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/blog'
+    | '/blog/'
     | '/contact'
     | '/cookies'
     | '/feedback'
@@ -276,6 +299,7 @@ export interface FileRouteTypes {
     | '/legal'
     | '/legal-policies'
     | '/news'
+    | '/news/'
     | '/onboarding'
     | '/pricing'
     | '/privacy'
@@ -463,6 +487,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlogSlugRouteImport
       parentRoute: typeof BlogRoute
     }
+    '/blog/': {
+      id: '/blog/'
+      path: '/'
+      fullPath: '/blog/'
+      preLoaderRoute: typeof BlogIndexRouteImport
+      parentRoute: typeof BlogRoute
+    }
     '/news/$slug': {
       id: '/news/$slug'
       path: '/$slug'
@@ -470,24 +501,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NewsSlugRouteImport
       parentRoute: typeof NewsRoute
     }
+    '/news/': {
+      id: '/news/'
+      path: '/'
+      fullPath: '/news/'
+      preLoaderRoute: typeof NewsIndexRouteImport
+      parentRoute: typeof NewsRoute
+    }
   }
 }
 
 interface BlogRouteChildren {
+  BlogIndexRoute: typeof BlogIndexRoute
   BlogSlugRoute: typeof BlogSlugRoute
 }
 
 const BlogRouteChildren: BlogRouteChildren = {
+  BlogIndexRoute: BlogIndexRoute,
   BlogSlugRoute: BlogSlugRoute,
 }
 
 const BlogRouteWithChildren = BlogRoute._addFileChildren(BlogRouteChildren)
 
 interface NewsRouteChildren {
+  NewsIndexRoute: typeof NewsIndexRoute
   NewsSlugRoute: typeof NewsSlugRoute
 }
 
 const NewsRouteChildren: NewsRouteChildren = {
+  NewsIndexRoute: NewsIndexRoute,
   NewsSlugRoute: NewsSlugRoute,
 }
 

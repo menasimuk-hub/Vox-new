@@ -3,6 +3,7 @@ import type {} from "@tanstack/react-start";
 
 import { SITE_ORIGIN } from "@/lib/brand";
 import { newsItems, posts } from "@/lib/blog-data";
+import { fetchBlogList, fetchNewsList } from "@/lib/site-content";
 
 const BASE_URL = SITE_ORIGIN;
 
@@ -16,6 +17,16 @@ export const Route = createFileRoute("/sitemap.xml")({
   server: {
     handlers: {
       GET: async () => {
+        let blogSlugs = posts.map((p) => p.slug);
+        let newsSlugs = newsItems.map((n) => n.slug);
+        try {
+          const [blog, news] = await Promise.all([fetchBlogList(), fetchNewsList()]);
+          if (blog.length) blogSlugs = blog.map((p) => p.slug);
+          if (news.length) newsSlugs = news.map((n) => n.slug);
+        } catch {
+          /* keep static fallback */
+        }
+
         const entries: SitemapEntry[] = [
           { path: "/", changefreq: "weekly", priority: "1.0" },
           { path: "/recruitment", changefreq: "weekly", priority: "0.9" },
@@ -24,9 +35,9 @@ export const Route = createFileRoute("/sitemap.xml")({
           { path: "/pricing", changefreq: "weekly", priority: "0.9" },
           { path: "/contact", changefreq: "monthly", priority: "0.7" },
           { path: "/blog", changefreq: "weekly", priority: "0.7" },
-          ...posts.map((p) => ({ path: `/blog/${p.slug}`, changefreq: "monthly" as const, priority: "0.6" })),
+          ...blogSlugs.map((slug) => ({ path: `/blog/${slug}`, changefreq: "monthly" as const, priority: "0.6" })),
           { path: "/news", changefreq: "weekly", priority: "0.7" },
-          ...newsItems.map((n) => ({ path: `/news/${n.slug}`, changefreq: "monthly" as const, priority: "0.55" })),
+          ...newsSlugs.map((slug) => ({ path: `/news/${slug}`, changefreq: "monthly" as const, priority: "0.55" })),
           { path: "/legal-policies", changefreq: "yearly", priority: "0.3" },
           { path: "/privacy", changefreq: "yearly", priority: "0.3" },
           { path: "/terms", changefreq: "yearly", priority: "0.3" },

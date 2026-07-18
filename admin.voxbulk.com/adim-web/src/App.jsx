@@ -83,6 +83,7 @@ export default function App() {
         <Route path='/marketing/promo-offers' element={<P.PromoOffers />} />
         <Route path='/marketing/promo-offers/new' element={<P.PromoOfferCreate />} />
         <Route path='/marketing/frontpage-call-leads' element={<P.FrontpageCallLeads />} />
+        <Route path='/marketing/news-blog' element={<P.NewsBlog />} />
         {/* Legacy paths (old admin builds used /ai-marketing/…) */}
         <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/lead-sources' replace />} />
         <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/lead-sources' replace />} />

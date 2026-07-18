@@ -260,6 +260,8 @@ const NAV = [
 
       ['Front page call leads', '/marketing/frontpage-call-leads'],
 
+      ['News & Blog', '/marketing/news-blog'],
+
     ],
 
   ],

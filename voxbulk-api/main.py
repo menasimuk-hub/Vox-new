@@ -53,6 +53,8 @@ from app.routers.demo import router as demo_router
 from app.routers.faq import router as faq_router
 from app.routers.frontpage import admin_router as admin_frontpage_router
 from app.routers.frontpage import router as frontpage_router
+from app.routers.site_blog_news import admin_router as admin_blog_news_router
+from app.routers.site_blog_news import router as blog_news_router
 from app.routers.notifications import router as notifications_router
 from app.routers.onboarding import router as onboarding_router
 from app.routers.organisations import router as organisations_router
@@ -638,8 +640,12 @@ app.include_router(promo_offers_router)
 app.include_router(promo_offers_router, prefix="/api")
 app.include_router(frontpage_router)
 app.include_router(frontpage_router, prefix="/api")
+app.include_router(blog_news_router)
+app.include_router(blog_news_router, prefix="/api")
 app.include_router(admin_frontpage_router)
 app.include_router(admin_frontpage_router, prefix="/api")
+app.include_router(admin_blog_news_router)
+app.include_router(admin_blog_news_router, prefix="/api")
 app.include_router(notifications_router)
 app.include_router(onboarding_router)
 app.include_router(admin_router)
