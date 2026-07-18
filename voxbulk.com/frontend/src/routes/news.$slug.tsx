@@ -1,10 +1,15 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, redirect } from "@tanstack/react-router";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { fetchNewsBySlug, fetchNewsList, type PublicNewsItem } from "@/lib/site-content";
+import { buildHeadFromSeo, fetchContentSeo, fetchSeoSettings, resolveRedirect } from "@/lib/seo";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/news/$slug")({
-  loader: async ({ params }) => {
+  loader: async ({ params, location }) => {
+    const redir = await resolveRedirect(location.pathname);
+    if (redir?.to_path) {
+      throw redirect({ href: redir.to_path });
+    }
     const item = await fetchNewsBySlug(params.slug);
     if (!item) throw notFound();
     let siblings: PublicNewsItem[] = [];
@@ -13,7 +18,8 @@ export const Route = createFileRoute("/news/$slug")({
     } catch {
       siblings = [item];
     }
-    return { item, siblings };
+    const [seo, settings] = await Promise.all([fetchContentSeo("news", params.slug), fetchSeoSettings()]);
+    return { item, siblings, seo, settings };
   },
   head: ({ loaderData }) => {
     if (!loaderData) {
@@ -21,6 +27,19 @@ export const Route = createFileRoute("/news/$slug")({
     }
     const n = loaderData.item;
     const desc = n.excerpt || n.body;
+    if (loaderData.seo) {
+      return buildHeadFromSeo(
+        {
+          ...loaderData.seo,
+          title: loaderData.seo.title || n.title,
+          meta_description: loaderData.seo.meta_description || desc,
+          path: `/news/${n.slug}`,
+          url: `https://voxbulk.com/news/${n.slug}`,
+        },
+        loaderData.settings || {},
+        { schemaType: "NewsArticle" },
+      );
+    }
     return {
       meta: [
         { title: `${n.title} — VoxBulk Newsroom` },

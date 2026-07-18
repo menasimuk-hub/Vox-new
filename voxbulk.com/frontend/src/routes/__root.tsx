@@ -4,6 +4,7 @@ import { AuthModalProvider } from "@/components/AuthModal";
 import { TalkModalProvider } from "@/components/TalkModal";
 import { CurrencyProvider } from "@/components/CurrencyContext";
 import { AuthProvider } from "@/lib/auth";
+import { fetchSeoSettings, type PublicSeoSettings } from "@/lib/seo";
 
 import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
 
@@ -32,59 +33,78 @@ function NotFoundComponent() {
 }
 
 export const Route = createRootRoute({
-  head: () => ({
-    meta: [
+  loader: async () => {
+    const settings = await fetchSeoSettings();
+    return { settings };
+  },
+  head: ({ loaderData }) => {
+    const s: PublicSeoSettings = loaderData?.settings || {};
+    const siteName = s.site_name || "VoxBulk";
+    const description =
+      s.home_description ||
+      s.default_meta_description ||
+      "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection for modern businesses.";
+    const title = s.home_title || siteName;
+    const meta: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "VoxBulk" },
-      { name: "description", content: "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection for modern businesses." },
-      { name: "author", content: "VoxBulk" },
-      { property: "og:title", content: "VoxBulk" },
-      { property: "og:description", content: "AI assistant platform automating conversations, workflows and data collection." },
+      { title },
+      { name: "description", content: description },
+      { name: "author", content: siteName },
+      { property: "og:title", content: title },
+      { property: "og:description", content: description },
       { property: "og:type", content: "website" },
-      { property: "og:site_name", content: "VoxBulk" },
+      { property: "og:site_name", content: siteName },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "VoxBulk" },
-      { name: "twitter:description", content: "AI assistant platform automating conversations, workflows and data collection." },
-    ],
+      { name: "twitter:title", content: title },
+      { name: "twitter:description", content: description },
+    ];
+    if (s.google_site_verification) {
+      meta.push({ name: "google-site-verification", content: s.google_site_verification });
+    }
+    if (s.default_social_image_url) {
+      meta.push({ property: "og:image", content: s.default_social_image_url });
+      meta.push({ name: "twitter:image", content: s.default_social_image_url });
+    }
 
-    links: [
-      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-400.woff2", crossOrigin: "anonymous" },
-      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-600.woff2", crossOrigin: "anonymous" },
-      { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/instrument-serif-400-italic.woff2", crossOrigin: "anonymous" },
-      { rel: "icon", type: "image/x-icon", href: brandAssets.favicon },
-      { rel: "icon", type: "image/png", href: brandAssets.faviconPng },
-      { rel: "apple-touch-icon", href: brandAssets.faviconPng },
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-    ],
-    scripts: [
-      {
-        type: "application/ld+json",
-        children: JSON.stringify({
-          "@context": "https://schema.org",
-          "@graph": [
-            {
-              "@type": "Organization",
-              name: "VoxBulk",
-              legalName: "VoxBulk LTD",
-              url: "https://voxbulk.com",
-              logo: `${SITE_ORIGIN}${brandAssets.logoBlack}`,
-              description: "AI assistant platform automating conversations, workflows and data collection.",
-            },
-            {
-              "@type": "WebSite",
-              name: "VoxBulk",
-              url: "https://voxbulk.com",
-            },
+    const graph: Array<Record<string, unknown>> = [];
+    if (s.schema_organization !== false) {
+      graph.push({
+        "@type": "Organization",
+        name: siteName,
+        legalName: "VoxBulk LTD",
+        url: "https://voxbulk.com",
+        logo: `${SITE_ORIGIN}${brandAssets.logoBlack}`,
+        description,
+      });
+    }
+    if (s.schema_website !== false) {
+      graph.push({ "@type": "WebSite", name: siteName, url: "https://voxbulk.com" });
+    }
 
-          ],
-        }),
-      },
-    ],
-  }),
+    return {
+      meta,
+      links: [
+        { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-400.woff2", crossOrigin: "anonymous" },
+        { rel: "preload", as: "font", type: "font/woff2", href: "/fonts/inter-600.woff2", crossOrigin: "anonymous" },
+        {
+          rel: "preload",
+          as: "font",
+          type: "font/woff2",
+          href: "/fonts/instrument-serif-400-italic.woff2",
+          crossOrigin: "anonymous",
+        },
+        { rel: "icon", type: "image/x-icon", href: brandAssets.favicon },
+        { rel: "icon", type: "image/png", href: brandAssets.faviconPng },
+        { rel: "apple-touch-icon", href: brandAssets.faviconPng },
+        { rel: "stylesheet", href: appCss },
+      ],
+      scripts:
+        graph.length > 0
+          ? [{ type: "application/ld+json", children: JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) }]
+          : [],
+    };
+  },
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,

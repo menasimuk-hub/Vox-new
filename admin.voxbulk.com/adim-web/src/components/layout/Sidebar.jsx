@@ -262,6 +262,8 @@ const NAV = [
 
       ['News & Blog', '/marketing/news-blog'],
 
+      ['SEO Control', '/marketing/seo-control'],
+
     ],
 
   ],

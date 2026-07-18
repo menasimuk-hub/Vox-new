@@ -136,3 +136,4 @@ from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.models.disabled_wa_template import DisabledWaTemplate  # noqa: F401
 from app.models.site_blog_news_item import SiteBlogNewsItem  # noqa: F401
+from app.models.site_seo import SiteSeoHealthSnapshot, SiteSeoRedirect, SiteSeoSettings  # noqa: F401

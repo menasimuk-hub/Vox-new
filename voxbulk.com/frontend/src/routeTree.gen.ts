@@ -33,6 +33,12 @@ import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as NewsSlugRouteImport } from './routes/news.$slug'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as NewsIndexRouteImport } from './routes/news.index'
+import { Route as FaqRouteImport } from './routes/faq'
+import { Route as FaqIndexRouteImport } from './routes/faq.index'
+import { Route as FaqSlugRouteImport } from './routes/faq.$slug'
+import { Route as RobotsDotxmlRouteImport } from './routes/robots[.]txt'
+import { Route as NewsSitemapDotxmlRouteImport } from './routes/news-sitemap[.]xml'
+import { Route as KeyDottxtRouteImport } from './routes/$key[.]txt'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -82,6 +88,26 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const NewsRoute = NewsRouteImport.update({
   id: '/news',
   path: '/news',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqRoute = FaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RobotsDotxmlRoute = RobotsDotxmlRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewsSitemapDotxmlRoute = NewsSitemapDotxmlRouteImport.update({
+  id: '/news-sitemap.xml',
+  path: '/news-sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeyDottxtRoute = KeyDottxtRouteImport.update({
+  id: '/$key.txt',
+  path: '/$key.txt',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LegalPoliciesRoute = LegalPoliciesRouteImport.update({
@@ -153,6 +179,16 @@ const NewsSlugRoute = NewsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
   getParentRoute: () => NewsRoute,
+} as any)
+const FaqIndexRoute = FaqIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => FaqRoute,
+} as any)
+const FaqSlugRoute = FaqSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => FaqRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -325,6 +361,7 @@ export interface RootRouteChildren {
   LegalRoute: typeof LegalRoute
   LegalPoliciesRoute: typeof LegalPoliciesRoute
   NewsRoute: typeof NewsRouteWithChildren
+  FaqRoute: typeof FaqRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -332,6 +369,9 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SigninRoute: typeof SigninRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  RobotsDotxmlRoute: typeof RobotsDotxmlRoute
+  NewsSitemapDotxmlRoute: typeof NewsSitemapDotxmlRoute
+  KeyDottxtRoute: typeof KeyDottxtRoute
   SurveysRoute: typeof SurveysRoute
   TermsRoute: typeof TermsRoute
   SurveyTokenRoute: typeof SurveyTokenRoute
@@ -535,6 +575,18 @@ const NewsRouteChildren: NewsRouteChildren = {
 
 const NewsRouteWithChildren = NewsRoute._addFileChildren(NewsRouteChildren)
 
+interface FaqRouteChildren {
+  FaqIndexRoute: typeof FaqIndexRoute
+  FaqSlugRoute: typeof FaqSlugRoute
+}
+
+const FaqRouteChildren: FaqRouteChildren = {
+  FaqIndexRoute: FaqIndexRoute,
+  FaqSlugRoute: FaqSlugRoute,
+}
+
+const FaqRouteWithChildren = FaqRoute._addFileChildren(FaqRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlogRoute: BlogRouteWithChildren,
@@ -545,6 +597,7 @@ const rootRouteChildren: RootRouteChildren = {
   LegalRoute: LegalRoute,
   LegalPoliciesRoute: LegalPoliciesRoute,
   NewsRoute: NewsRouteWithChildren,
+  FaqRoute: FaqRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,
@@ -552,6 +605,9 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SigninRoute: SigninRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  RobotsDotxmlRoute: RobotsDotxmlRoute,
+  NewsSitemapDotxmlRoute: NewsSitemapDotxmlRoute,
+  KeyDottxtRoute: KeyDottxtRoute,
   SurveysRoute: SurveysRoute,
   TermsRoute: TermsRoute,
   SurveyTokenRoute: SurveyTokenRoute,

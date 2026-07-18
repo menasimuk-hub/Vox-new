@@ -26,6 +26,9 @@ function writeConsent(value: CookieConsentValue) {
   } catch {
     /* ignore quota / private mode */
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("vox:cookie-consent", { detail: value }));
+  }
 }
 
 /** Lightweight first-visit privacy/cookie bar — no third-party scripts. */

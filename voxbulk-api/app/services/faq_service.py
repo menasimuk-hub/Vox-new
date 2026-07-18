@@ -111,7 +111,7 @@ class FAQService:
         now = datetime.utcnow()
         row = db.get(FAQItem, item_id) if item_id else None
         if row is None:
-            row = FAQItem(created_at=now)
+            row = FAQItem(created_at=now, published_at=now)
         if category_id and db.get(FAQCategory, category_id) is None:
             raise ValueError("FAQ category not found")
         row.category_id = category_id
@@ -121,6 +121,24 @@ class FAQService:
         row.is_published = bool(is_published)
         row.sort_order = int(sort_order or 0)
         row.updated_at = now
+        if not (row.slug or "").strip():
+            base = slugify(row.question)
+            candidate = base
+            n = 2
+            while True:
+                q = select(FAQItem.id).where(FAQItem.slug == candidate)
+                if row.id is not None:
+                    q = q.where(FAQItem.id != row.id)
+                if db.execute(q).scalar_one_or_none() is None:
+                    break
+                candidate = f"{base}-{n}"[:180]
+                n += 1
+            row.slug = candidate
+        if row.is_published and "noindex" not in (row.robots or "").lower():
+            if row.index_status == "excluded":
+                row.index_status = "pending"
+        elif not row.is_published or "noindex" in (row.robots or "").lower():
+            row.index_status = "excluded"
         db.add(row)
         db.commit()
         db.refresh(row)

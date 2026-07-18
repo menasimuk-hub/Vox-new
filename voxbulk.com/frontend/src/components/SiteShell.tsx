@@ -6,6 +6,7 @@ import logoLight from "@/assets/voxbulk-logo-light.svg";
 import { useAuthModal } from "@/components/AuthModal";
 import { useCurrency, MARKETS } from "@/components/CurrencyContext";
 import { CookieConsentBanner, openCookiePreferences } from "@/components/CookieConsentBanner";
+import { ConsentTrackingScripts } from "@/components/ConsentTrackingScripts";
 
 const productLinks = [
   { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
@@ -311,6 +312,7 @@ export function SiteFooter() {
         </div>
       </div>
       <CookieConsentBanner />
+      <ConsentTrackingScripts />
     </footer>
   );
 }

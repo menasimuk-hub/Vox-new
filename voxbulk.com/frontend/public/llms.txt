@@ -16,10 +16,17 @@ that save teams time and deliver real insights.
 
 ## Key pages
 
-- Homepage: /
-- Contact / demo: /contact
-- Privacy: /privacy
-- Terms: /terms
-- Cookies: /cookies
-- GDPR: /gdpr
-- Legal: /legal
+- [Homepage](https://voxbulk.com/)
+- [Recruitment Automation](https://voxbulk.com/recruitment)
+- [WhatsApp Surveys](https://voxbulk.com/surveys)
+- [Customer Feedback](https://voxbulk.com/feedback)
+- [Pricing](https://voxbulk.com/pricing)
+- [Journal / Blog](https://voxbulk.com/blog)
+- [Newsroom](https://voxbulk.com/news)
+- [FAQ](https://voxbulk.com/faq)
+- [Contact / demo](https://voxbulk.com/contact)
+- [Privacy](https://voxbulk.com/privacy)
+- [Terms](https://voxbulk.com/terms)
+- [Cookies](https://voxbulk.com/cookies)
+- [GDPR](https://voxbulk.com/gdpr)
+- [Legal](https://voxbulk.com/legal)
