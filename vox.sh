@@ -161,8 +161,14 @@ start_public() {
     npm install
     npm run build
   fi
-  nohup npm run preview -- --host 127.0.0.1 --port 5173 >>"$PUBLIC_LOG" 2>&1 &
-  echo "Public site started on 127.0.0.1:5173 (log: $PUBLIC_LOG)"
+  local log="$PUBLIC_LOG"
+  if [[ -e "$log" && ! -w "$log" ]]; then
+    log="/tmp/voxbulk-public-qusay.log"
+    echo "Warning: $PUBLIC_LOG not writable — logging to $log"
+  fi
+  : >>"$log" 2>/dev/null || true
+  nohup npm run preview -- --host 127.0.0.1 --port 5173 >>"$log" 2>&1 &
+  echo "Public site started on 127.0.0.1:5173 (log: $log)"
 }
 
 start_dashboard() {
@@ -180,8 +186,14 @@ start_dashboard() {
     npm install
     npm run build
   fi
-  nohup npm run preview -- --host 127.0.0.1 --port 5175 >>"$DASH_LOG" 2>&1 &
-  echo "Dashboard started on 127.0.0.1:5175 (log: $DASH_LOG)"
+  local log="$DASH_LOG"
+  if [[ -e "$log" && ! -w "$log" ]]; then
+    log="/tmp/voxbulk-dashboard-qusay.log"
+    echo "Warning: $DASH_LOG not writable — logging to $log"
+  fi
+  : >>"$log" 2>/dev/null || true
+  nohup npm run preview -- --host 127.0.0.1 --port 5175 >>"$log" 2>&1 &
+  echo "Dashboard started on 127.0.0.1:5175 (log: $log)"
 }
 
 status() {
