@@ -5,11 +5,12 @@ import logoDark from "@/assets/voxbulk-logo-dark.svg";
 import logoLight from "@/assets/voxbulk-logo-light.svg";
 import { useAuthModal } from "@/components/AuthModal";
 import { useCurrency, MARKETS } from "@/components/CurrencyContext";
+import { CookieConsentBanner, openCookiePreferences } from "@/components/CookieConsentBanner";
 
 const productLinks = [
   { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
-  { label: "WhatsApp Surveys", to: "/surveys", desc: "Smart surveys with 98% open rates", Icon: MessageCircle, tone: "teal" as const },
-  { label: "Customer Feedback", to: "/feedback", desc: "QR-code WhatsApp feedback in 50+ languages", Icon: Inbox, tone: "gold" as const },
+  { label: "WhatsApp Surveys", to: "/surveys", desc: "WhatsApp & AI calling surveys — live dashboard", Icon: MessageCircle, tone: "teal" as const },
+  { label: "Customer Feedback", to: "/feedback", desc: "QR feedback, voice notes, 50+ languages", Icon: Inbox, tone: "gold" as const },
 ];
 
 
@@ -292,10 +293,24 @@ export function SiteFooter() {
         <div className="my-10 h-px bg-white/10" />
         <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-white/40">
           <div>VoxBulk LTD · Registered in England &amp; Wales</div>
-          <div>GDPR Compliant · UK / EU data centres</div>
-
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Link to="/gdpr" className="hover:text-white/70 transition-colors">GDPR</Link>
+            <span aria-hidden>·</span>
+            <Link to="/privacy" className="hover:text-white/70 transition-colors">Privacy</Link>
+            <span aria-hidden>·</span>
+            <Link to="/cookies" className="hover:text-white/70 transition-colors">Cookies</Link>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              onClick={() => openCookiePreferences()}
+              className="hover:text-white/70 transition-colors"
+            >
+              Cookie settings
+            </button>
+          </div>
         </div>
       </div>
+      <CookieConsentBanner />
     </footer>
   );
 }

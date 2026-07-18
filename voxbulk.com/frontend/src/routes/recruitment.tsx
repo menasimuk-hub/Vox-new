@@ -9,7 +9,7 @@ export const Route = createFileRoute("/recruitment")({
   head: () => ({
     meta: [
       { title: "Recruitment Automation — VoxBulk" },
-      { name: "description", content: "AI screens every CV, books interviews on WhatsApp and runs the voice screening call — so your team only meets the top 5%." },
+      { name: "description", content: "Post one job, wake up to a shortlist. CV intake, ATS scoring, WhatsApp booking and 10–12 minute AI phone interviews with ranked recommendations." },
       { property: "og:title", content: "Recruitment Automation — VoxBulk" },
       { property: "og:description", content: "AI screening, scheduling and voice interviews — fully automated. Built for agencies and in-house TA teams hiring 20+ roles a month." },
     ],
@@ -25,12 +25,12 @@ function RecruitmentPage() {
       <main>
         <Hero
           badgeText="Live now · Recruitment Automation"
-          headline={<>Recruitment, fully <span className="serif-italic text-gold">automated</span>.</>}
+          headline={<>Post one job. <span className="serif-italic text-gold">Wake up to a shortlist</span>.</>}
           sub={
             <>
               Built for agencies and in-house TA teams hiring <strong className="text-white">20+ roles a month</strong>.
-              VoxBulk scores every CV, books interviews on WhatsApp and runs the screening call — your
-              team only meets the top 5%.
+              CV intake, ATS scoring, WhatsApp booking and 10–12 minute AI phone interviews — scored, transcribed and
+              ranked so your team only meets the top candidates.
             </>
           }
           primaryHref="/contact"

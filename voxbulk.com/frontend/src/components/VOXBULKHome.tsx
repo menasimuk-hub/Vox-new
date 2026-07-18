@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   FileText, Sparkles, CalendarCheck, PhoneCall, BarChart3, CheckCircle2, MessageCircle,
@@ -982,14 +982,25 @@ export function Testimonial() {
 }
 
 /* ---------------- FAQ ---------------- */
-const faqItems = [
+const faqItems: { q: string; a: ReactNode }[] = [
   { q: "What exactly does VoxBulk do?", a: "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection. Our first live service is end-to-end recruitment automation — CV screening, scheduling, AI voice interviews, scoring and final-round booking. We also offer AI-run WhatsApp surveys." },
   { q: "How long does setup take?", a: "Most teams are live within a few days. We connect to your ATS, calendar (Cronofy or Calendly) and messaging tools, configure your roles, and run test conversations before going live." },
   { q: "How do AI voice interviews actually work?", a: "Candidates receive a scheduled link, dial in at their slot, and complete a natural conversation with our AI. The AI asks tailored questions, listens, follows up, and produces a scored, summarised report — all without human involvement." },
   { q: "Can I use VoxBulk just for surveys?", a: "Yes. WhatsApp surveys are available as a standalone service. The AI builds the questions, sends them, collects responses, and delivers a named or anonymous feedback report — whichever you need." },
   { q: "Which languages and accents are supported?", a: "AI voice interviews and calling surveys support English (GB, Irish, Australian, American, Scottish and Canadian dialects) and Arabic (Egyptian and Saudi dialects). WhatsApp surveys and voice-note transcription work across 50+ languages, with responses translated to English in your dashboard." },
   { q: "How is my data kept secure?", a: "VoxBulk is a multi-tenant platform with strict tenant isolation — each organisation's data is kept separate. Passwords use encrypted storage, integration secrets are encrypted at rest, and role-based access controls ensure only authorised team members see what they need. Production runs on secured infrastructure with controlled deployments, in UK and EU data centres." },
-  { q: "Is VoxBulk GDPR compliant?", a: "Yes. All data stays within UK/EU data centres, calls and messages are encrypted in transit and at rest, and we sign a Data Processing Agreement with every customer." },
+  {
+    q: "Is VoxBulk GDPR compliant?",
+    a: (
+      <>
+        Yes. All data stays within UK/EU data centres, calls and messages are encrypted in transit and at rest, and we sign a Data Processing Agreement with every customer.{" "}
+        <Link to="/gdpr" className="text-primary font-semibold underline-offset-2 hover:underline">
+          Read our GDPR overview
+        </Link>
+        .
+      </>
+    ),
+  },
   { q: "What integrations are supported?", a: "Cronofy and Calendly for scheduling, WhatsApp for messaging surveys, plus API access to push results into your ATS or HRIS. Custom integrations are available on the Enterprise plan." },
   { q: "Can candidates opt out of speaking to AI?", a: "Yes. The AI announces itself at the start of every interaction, and candidates can request a human follow-up at any time." },
   { q: "Is there a contract or commitment?", a: "No long-term contract. Monthly subscription, cancel anytime with 30 days' notice. Enterprise customers can opt for annual terms with custom pricing." },
@@ -1302,21 +1313,21 @@ export function ProductCards() {
       icon: Sparkles,
       tone: "blue",
       title: "Recruitment Automation",
-      body: "AI interviews every candidate automatically — scoring skills, communication and fit before your team gets involved.",
+      body: "Post one job — wake up to a shortlist. CV intake, ATS scoring, WhatsApp booking and 10–12 minute AI voice interviews with ranked recommendations.",
       href: "/recruitment",
     },
     {
       icon: MessageCircle,
       tone: "teal",
       title: "WhatsApp Surveys",
-      body: "Send smart surveys straight to WhatsApp. 98% open rates, instant responses, all feeding into your dashboard.",
+      body: "WhatsApp and AI Calling collect far more answers than email. Customers respond in their language; your dashboard translates, charts and recommends what to fix.",
       href: "/surveys",
     },
     {
       icon: Inbox,
       tone: "gold",
       title: "Customer Feedback",
-      body: "One QR code on your counter or table. Customers scan, chat on WhatsApp, you get a weekly report.",
+      body: "One QR. Scan → WhatsApp → ~30s. Voice notes in 50+ languages, English dashboard, multi-location compare and red-flag recovery.",
       href: "/feedback",
     },
   ];

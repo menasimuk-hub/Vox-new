@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, type ReactNode } from "react";
 import { ArrowRight, Users, Briefcase, Layers, BarChart3, Mic, Languages, FileText, Sparkles, Stethoscope, UserSearch, UtensilsCrossed, Hotel, Home, ShoppingBag, Car, GraduationCap, Scale, Dumbbell, HeartHandshake, Phone, MessageCircle, TrendingUp, Clock, CheckCircle2, Wand2, Wrench, Settings2 } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA } from "@/components/VOXBULKHome";
@@ -7,9 +8,9 @@ export const Route = createFileRoute("/surveys")({
   head: () => ({
     meta: [
       { title: "WhatsApp Surveys — VoxBulk" },
-      { name: "description", content: "Smart AI-built surveys straight to WhatsApp. 98% open rates, instant results, zero chasing." },
+      { name: "description", content: "WhatsApp and AI Calling surveys with multilingual dashboards. Far more replies than email — translated, charted and actionable." },
       { property: "og:title", content: "WhatsApp Surveys — VoxBulk" },
-      { property: "og:description", content: "Surveys your audience actually responds to." },
+      { property: "og:description", content: "Two ways to ask. One dashboard." },
     ],
     links: [{ rel: "canonical", href: "https://voxbulk.com/surveys" }],
   }),
@@ -17,9 +18,27 @@ export const Route = createFileRoute("/surveys")({
 });
 
 const steps = [
-  { n: "01", title: "Build your survey", body: "VoxBulk generates smart questions based on your goal. Customise or use as is." },
-  { n: "02", title: "Send to your list", body: "Upload your contacts. VoxBulk sends each person a personalised WhatsApp message and guides them through in a natural conversation." },
-  { n: "03", title: "Review your results", body: "Every response scored, summarised and added to your dashboard in real time." },
+  { n: "01", title: "Build your survey", body: "VoxBulk generates smart questions for your goal — Excellent / Good / Poor, recommend rate, free text or voice. Customise or use as is." },
+  { n: "02", title: "Send on WhatsApp or AI Calling", body: "Upload contacts. Reach people where they reply: WhatsApp conversations or short AI voice calls — not ignored email links." },
+  { n: "03", title: "Act from one dashboard", body: "Every answer translated to English, scored and charted in real time — with themes, voice-note transcripts and AI actions for managers." },
+];
+
+const surveyFaqs: { q: string; a: ReactNode }[] = [
+  { q: "Why not email surveys?", a: "Email typically sees ~9% reply rates. WhatsApp and AI Calling routinely deliver several times more responses, with answers in under a minute." },
+  { q: "Can people reply with voice notes?", a: "Yes. Voice notes are transcribed and surfaced as themes so customers do not have to type long answers." },
+  { q: "Which languages are supported?", a: "50+ languages with automatic English translation in your dashboard. Original text and audio are preserved." },
+  {
+    q: "Is it GDPR compliant?",
+    a: (
+      <>
+        Yes. UK &amp; EU data centres and UK GDPR practices. See our{" "}
+        <Link to="/gdpr" className="text-primary font-semibold underline-offset-2 hover:underline">
+          GDPR overview
+        </Link>
+        .
+      </>
+    ),
+  },
 ];
 
 const audiences = [
@@ -54,14 +73,15 @@ const channelCompare = [
 ];
 
 function SurveysPage() {
+  const [openIdx, setOpenIdx] = useState<number | null>(0);
   return (
     <div className="bg-background text-body antialiased">
       <SiteHeader />
       <main>
         <Hero
           badgeText="Live now · WhatsApp Surveys"
-          headline={<>Surveys your audience actually <span className="serif-italic text-gold">responds to</span>.</>}
-          sub={<>Send smart AI-built surveys straight to WhatsApp. 98% open rates, instant results, zero chasing.</>}
+          headline={<>Two ways to ask. <span className="serif-italic text-gold">One dashboard</span>.</>}
+          sub={<>WhatsApp and AI Calling collect more answers than email. Customers respond in their own language; your dashboard translates, charts and recommends what to fix next.</>}
           primaryHref="/contact"
           primaryLabel="Request a demo"
         />
@@ -452,6 +472,41 @@ function SurveysPage() {
           </div>
         </section>
 
+
+        <section className="py-24 md:py-28 bg-white">
+          <div className="max-w-[860px] mx-auto px-5 md:px-10">
+            <div className="text-center">
+              <span className="eyebrow">FAQ</span>
+              <h2 className="mt-4 text-[36px] md:text-[48px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
+                Questions, <span className="serif-italic text-primary">answered</span>.
+              </h2>
+            </div>
+            <div className="mt-12 divide-y divide-border border-y border-border">
+              {surveyFaqs.map((item, i) => {
+                const open = openIdx === i;
+                return (
+                  <div key={item.q}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenIdx(open ? null : i)}
+                      className="w-full flex items-center justify-between text-left py-5 gap-6"
+                      aria-expanded={open}
+                    >
+                      <span className="text-[16px] md:text-[17px] font-semibold text-heading">{item.q}</span>
+                      <span className={`w-8 h-8 rounded-full border border-border flex items-center justify-center transition-transform ${open ? "rotate-45 bg-navy text-gold border-navy" : "text-heading"}`}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                      </span>
+                    </button>
+                    {open && <div className="pb-6 pr-12 text-[15.5px] text-body leading-[1.65]">{item.a}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
 
         <BottomCTA />
       </main>
