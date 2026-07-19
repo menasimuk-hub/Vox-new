@@ -55,9 +55,14 @@ def _org_response(org, db: Session) -> dict:
     data["currency_symbol"] = currency_symbol(currency)
     data["billing_currency_locked"] = billing_currency_is_locked(db, org)
     if getattr(org, "logo_storage_key", None):
-        data["logo_url"] = f"/organisations/me/logo/file"
+        # Cache-bust so browsers/sidebar refresh after replace (path alone stays the same).
+        key = str(org.logo_storage_key)
+        ver = key.rsplit("/", 1)[-1] or key
+        data["logo_url"] = f"/organisations/me/logo/file?v={ver}"
+        data["logo_storage_key"] = key
     else:
         data["logo_url"] = None
+        data["logo_storage_key"] = None
     return data
 
 SERVICE_API_REQUIRED_FIELDS = {
@@ -523,7 +528,9 @@ async def upload_my_logo(
     user = _actor_user(db, principal)
     if user:
         OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="profile.logo_updated", detail=file.filename)
-    return {"ok": True, "logo_url": "/organisations/me/logo/file"}
+    key = str(org.logo_storage_key)
+    ver = key.rsplit("/", 1)[-1] or key
+    return {"ok": True, "logo_url": f"/organisations/me/logo/file?v={ver}", "logo_storage_key": key}
 
 
 @router.get("/me/logo/file")
@@ -536,7 +543,14 @@ def get_my_logo_file(db: Session = Depends(get_db), principal=Depends(get_curren
     path = resolve_logo_path(org.logo_storage_key)
     if path is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo file missing")
-    return FileResponse(path, media_type=media_type_for_key(org.logo_storage_key))
+    return FileResponse(
+        path,
+        media_type=media_type_for_key(org.logo_storage_key),
+        headers={
+            "Cache-Control": "private, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.delete("/me/logo")

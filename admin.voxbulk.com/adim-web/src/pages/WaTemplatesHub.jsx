@@ -375,6 +375,44 @@ export default function WaTemplatesHub() {
     }
   }, [])
 
+  const pushSalesToMeta = useCallback(async () => {
+    if (
+      !window.confirm(
+        'Push all four sales MARKETING templates (voxbulk_sales_*) to Meta/Telnyx?\n\nLocal drafts will be refreshed first, then submitted for approval.',
+      )
+    ) {
+      return
+    }
+    setSyncing(true)
+    setError('')
+    setMsg('')
+    try {
+      const res = await apiFetch('/admin/wa-templates/push-sales', {
+        method: 'POST',
+        body: JSON.stringify({ force: true }),
+        timeoutMs: 180000,
+        quietNetworkHint: true,
+      })
+      const okCount = (res?.results || []).filter((r) => r?.ok).length
+      const failCount = (res?.results || []).filter((r) => !r?.ok).length
+      setMsg(
+        res?.ok
+          ? `Pushed ${okCount} sales templates to Meta/Telnyx. Wait for APPROVED, then Sync WhatsApp templates.`
+          : `Sales push finished with ${failCount} failure(s). Check row errors / Meta status.`,
+      )
+      if (!res?.ok) {
+        const firstErr = (res?.results || []).find((r) => !r?.ok)
+        if (firstErr?.error) setError(String(firstErr.error))
+      }
+      await loadSales()
+      refreshSelectedProfileSummary()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Sales push to Meta failed').detailText || e?.message)
+    } finally {
+      setSyncing(false)
+    }
+  }, [loadSales, refreshSelectedProfileSummary])
+
   const loadSurveyIndustries = useCallback(async () => {
     setSurveyIndustriesLoading(true)
     setSurveyIndustriesError('')
@@ -1397,18 +1435,31 @@ export default function WaTemplatesHub() {
                 loading={syncProfilesLoading}
                 disabled={syncing || refreshing || cleaning}
               />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
-                onClick={() => pushToPrimary()}
-                disabled={syncing || refreshing || cleaning || !primarySyncProfile?.id}
-                title="Push only changed templates from DB to Meta (primary). Skips already in sync."
-              >
-                {primarySyncProfile
-                  ? `Push changed → Meta ${primarySyncProfile.whatsapp_from || '99'}`
-                  : 'Push changed → Meta'}
-              </Button>
+              {tab === 'sales' ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => void pushSalesToMeta()}
+                  disabled={syncing || refreshing || cleaning}
+                  title="Refresh the four voxbulk_sales_* MARKETING drafts and push them to Meta/Telnyx"
+                >
+                  {syncing ? 'Pushing sales…' : 'Push sales → Meta'}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => pushToPrimary()}
+                  disabled={syncing || refreshing || cleaning || !primarySyncProfile?.id}
+                  title="Push only changed templates from DB to Meta (primary). Skips already in sync."
+                >
+                  {primarySyncProfile
+                    ? `Push changed → Meta ${primarySyncProfile.whatsapp_from || '99'}`
+                    : 'Push changed → Meta'}
+                </Button>
+              )}
               {(tab === 'survey' || tab === 'feedback') && backupSyncProfile?.id ? (
                 <Button
                   size="sm"

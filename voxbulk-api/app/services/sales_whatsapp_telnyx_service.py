@@ -22,6 +22,115 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"
 
+# Meta/Telnyx MARKETING drafts — numeric placeholders only ({{1}}, {{2}}, …).
+SALES_META_DRAFT_COMPONENTS: dict[str, list[dict[str, Any]]] = {
+    "sales_opt_in": [
+        {
+            "type": "BODY",
+            "text": (
+                "Hi {{1}},\n\n"
+                "Thanks for speaking with VOXBULK today.\n\n"
+                "When you're ready, tap Send offer below and we'll send your personal signup link.\n\n"
+                "Tap Stop if you don't want further messages.\n\n"
+                "— VOXBULK Sales"
+            ),
+            "example": {"body_text": [["Alex"]]},
+        },
+        {
+            "type": "BUTTONS",
+            "buttons": [
+                {"type": "QUICK_REPLY", "text": "Send offer"},
+                {"type": "QUICK_REPLY", "text": "Stop"},
+            ],
+        },
+    ],
+    "sales_offer": [
+        {
+            "type": "BODY",
+            "text": (
+                "Hi {{1}},\n\n"
+                "Your VOXBULK {{2}} is ready:\n"
+                "{{3}}\n\n"
+                "Tap Start account below to sign up — your offer applies automatically.\n\n"
+                "Tap Stop if you don't want further messages.\n\n"
+                "— VOXBULK Sales"
+            ),
+            "example": {
+                "body_text": [["Alex", "£20 welcome credit", "Includes £20 wallet credit after signup."]]
+            },
+        },
+        {
+            "type": "BUTTONS",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Start account",
+                    "url": "https://voxbulk.com/signin?{{1}}",
+                    "example": ["promo=TEST123"],
+                },
+                {"type": "QUICK_REPLY", "text": "Stop"},
+            ],
+        },
+    ],
+    "sales_offer_followup": [
+        {
+            "type": "BODY",
+            "text": (
+                "Hi {{1}},\n\n"
+                "Your VOXBULK {{2}} is still waiting for you.\n\n"
+                "Tap Open offer below to finish signup, or reply here if you need help.\n\n"
+                "Tap Stop to opt out.\n\n"
+                "— VOXBULK Sales"
+            ),
+            "example": {"body_text": [["Alex", "£20 welcome credit"]]},
+        },
+        {
+            "type": "BUTTONS",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Open offer",
+                    "url": "https://voxbulk.com/signin?{{1}}",
+                    "example": ["promo=TEST123"],
+                },
+                {"type": "QUICK_REPLY", "text": "Stop"},
+            ],
+        },
+    ],
+    "sales_offer_keyword_confirm": [
+        {
+            "type": "BODY",
+            "text": (
+                "Hi {{1}},\n\n"
+                "As requested — your VOXBULK {{2}}:\n"
+                "{{3}}\n\n"
+                "Tap Start account below. Your offer applies automatically when you sign up.\n\n"
+                "— VOXBULK Sales"
+            ),
+            "example": {
+                "body_text": [["Alex", "£20 welcome credit", "Includes £20 wallet credit after signup."]]
+            },
+        },
+        {
+            "type": "BUTTONS",
+            "buttons": [
+                {
+                    "type": "URL",
+                    "text": "Start account",
+                    "url": "https://voxbulk.com/signin?{{1}}",
+                    "example": ["promo=TEST123"],
+                }
+            ],
+        },
+    ],
+}
+
+
+def meta_draft_components_for_sales_key(sales_key: str) -> list[dict[str, Any]] | None:
+    key = str(sales_key or "").strip().lower()
+    comps = SALES_META_DRAFT_COMPONENTS.get(key)
+    return [dict(c) for c in comps] if comps else None
+
 # Previous Telnyx/Meta template names still present remotely after renames.
 TELNYX_SALES_TEMPLATE_LEGACY_NAMES: dict[str, str] = {
     "interview_email_sent": "interview_email_sent",

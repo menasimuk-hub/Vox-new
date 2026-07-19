@@ -810,16 +810,18 @@ class WaTemplateCleanupSyncService:
         return report
 
     @staticmethod
-    def ensure_sales_templates(db: Session) -> dict[str, Any]:
-        """Seed the four lead-sales templates locally if missing (no Meta push)."""
+    def ensure_sales_templates(db: Session, *, refresh_drafts: bool = True) -> dict[str, Any]:
+        """Seed/refresh the four lead-sales MARKETING templates locally (no Meta push)."""
         from app.data.system_whatsapp_defaults import SYSTEM_WHATSAPP_DEFAULTS
         from app.services.sales_whatsapp_telnyx_service import (
             TELNYX_SALES_TEMPLATE_LANGUAGE,
             TELNYX_SALES_TEMPLATE_NAMES,
+            meta_draft_components_for_sales_key,
         )
         from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
 
         created: list[str] = []
+        refreshed: list[str] = []
         existing: list[str] = []
         now = datetime.utcnow()
         sales_keys = (
@@ -829,32 +831,44 @@ class WaTemplateCleanupSyncService:
             "sales_offer_keyword_confirm",
         )
         for key in sales_keys:
-            row = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, key)
-            if row is not None:
-                existing.append(key)
-                continue
             meta_name = TELNYX_SALES_TEMPLATE_NAMES.get(key) or f"voxbulk_{key}"
             defaults = SYSTEM_WHATSAPP_DEFAULTS.get(key) or {}
-            body = str(defaults.get("body") or f"VoxBulk {key.replace('_', ' ')}").strip()
             display = str(defaults.get("name") or key.replace("_", " ").title())
-            components = [
-                {"type": "BODY", "text": body},
-                {"type": "FOOTER", "text": "Reply STOP to opt out"},
+            components = meta_draft_components_for_sales_key(key) or [
+                {
+                    "type": "BODY",
+                    "text": str(defaults.get("body") or f"VoxBulk {key.replace('_', ' ')}").strip(),
+                }
             ]
-            # Offer templates typically have a URL button — mark as needing Meta later.
-            if key != "sales_opt_in":
-                components.append(
-                    {
-                        "type": "BUTTONS",
-                        "buttons": [
-                            {
-                                "type": "URL",
-                                "text": "Get started",
-                                "url": "https://voxbulk.com/signin?{{1}}",
-                            }
-                        ],
-                    }
-                )
+            body = ""
+            for comp in components:
+                if str(comp.get("type") or "").upper() == "BODY":
+                    body = str(comp.get("text") or "")
+                    break
+
+            row = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, key)
+            if row is not None:
+                if refresh_drafts and str(row.status or "").upper() in {
+                    "LOCAL_DRAFT",
+                    "DRAFT",
+                    "PENDING",
+                    "REJECTED",
+                    "PAUSED",
+                }:
+                    row.name = meta_name
+                    row.display_name = display
+                    row.language = TELNYX_SALES_TEMPLATE_LANGUAGE
+                    row.category = "MARKETING"
+                    row.draft_components_json = json.dumps(components, ensure_ascii=False)
+                    row.body_preview = body[:500]
+                    row.local_sync_status = "draft"
+                    row.updated_at = now
+                    db.add(row)
+                    refreshed.append(key)
+                else:
+                    existing.append(key)
+                continue
+
             local_id = f"local-{uuid.uuid4().hex}"
             row = TelnyxWhatsappTemplate(
                 telnyx_record_id=local_id,
@@ -877,6 +891,107 @@ class WaTemplateCleanupSyncService:
             )
             db.add(row)
             created.append(key)
-        if created:
+        if created or refreshed:
             db.commit()
-        return {"ok": True, "created": created, "existing": existing, "total": len(sales_keys)}
+        return {
+            "ok": True,
+            "created": created,
+            "refreshed": refreshed,
+            "existing": existing,
+            "total": len(sales_keys),
+        }
+
+    @staticmethod
+    def push_sales_templates(db: Session, *, force: bool = True) -> dict[str, Any]:
+        """Push the four sales MARKETING templates to Meta/Telnyx (primary + backup)."""
+        from app.services.sales_whatsapp_telnyx_service import TELNYX_SALES_TEMPLATE_NAMES
+        from app.services.survey_whatsapp_template_service import (
+            SurveyWhatsappTemplateError,
+            SurveyWhatsappTemplateService,
+        )
+        from app.services.telnyx_whatsapp_template_sync_service import TelnyxWhatsappTemplateSyncService
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        seed = WaTemplateCleanupSyncService.ensure_sales_templates(db, refresh_drafts=True)
+        results: list[dict[str, Any]] = []
+        ok = True
+        sales_keys = (
+            "sales_opt_in",
+            "sales_offer",
+            "sales_offer_followup",
+            "sales_offer_keyword_confirm",
+        )
+        for key in sales_keys:
+            meta_name = TELNYX_SALES_TEMPLATE_NAMES.get(key) or f"voxbulk_{key}"
+            row = TelnyxWhatsappTemplateSyncService.get_for_sales_key(db, key)
+            if row is None:
+                ok = False
+                results.append({"sales_key": key, "name": meta_name, "ok": False, "error": "missing local row"})
+                continue
+            try:
+                primary_id = WaTemplateProfilePushService.resolve_primary_connection_profile_id(
+                    db, service_code="marketing"
+                ) or WaTemplateProfilePushService.resolve_primary_connection_profile_id(
+                    db, service_code="survey"
+                )
+                backup_id = WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+                    db, service_code="marketing"
+                ) or WaTemplateProfilePushService.resolve_backup_connection_profile_id(
+                    db, service_code="survey"
+                )
+                dual: dict[str, Any] = {
+                    "ok": True,
+                    "primary_profile_id": primary_id,
+                    "backup_profile_id": backup_id,
+                    "primary": None,
+                    "backup": None,
+                    "errors": [],
+                }
+                if not primary_id:
+                    raise RuntimeError("No WhatsApp connection profile configured for marketing/survey")
+                dual["primary"] = SurveyWhatsappTemplateService.push_to_telnyx(
+                    db,
+                    row,
+                    force_approved_update=force,
+                    connection_profile_id=primary_id,
+                    service_code="marketing",
+                )
+                if backup_id and backup_id != primary_id:
+                    try:
+                        dual["backup"] = SurveyWhatsappTemplateService.push_to_telnyx(
+                            db,
+                            row,
+                            force_approved_update=force,
+                            connection_profile_id=backup_id,
+                            service_code="marketing",
+                        )
+                    except Exception as backup_exc:  # noqa: BLE001
+                        dual["ok"] = False
+                        dual["errors"].append({"profile": "backup", "error": str(backup_exc)})
+                if dual.get("primary") and dual["primary"].get("ok") is False:
+                    dual["ok"] = False
+                entry = {
+                    "sales_key": key,
+                    "name": row.name,
+                    "ok": bool(dual.get("ok")),
+                    "status": getattr(row, "status", None),
+                    "result": dual,
+                }
+                if not entry["ok"]:
+                    ok = False
+                results.append(entry)
+            except SurveyWhatsappTemplateError as exc:
+                ok = False
+                results.append(
+                    {
+                        "sales_key": key,
+                        "name": row.name,
+                        "ok": False,
+                        "error": str(exc),
+                        "payload": getattr(exc, "payload", None),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                results.append({"sales_key": key, "name": row.name, "ok": False, "error": str(exc)})
+        return {"ok": ok, "seed": seed, "results": results}

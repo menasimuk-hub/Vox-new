@@ -1744,10 +1744,23 @@ def wa_templates_ensure_sales(
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
-    """Seed the four lead-sales templates locally if missing (no Meta push)."""
+    """Seed/refresh the four lead-sales MARKETING templates locally (no Meta push)."""
     from app.services.wa_template_cleanup_sync_service import WaTemplateCleanupSyncService
 
-    return WaTemplateCleanupSyncService.ensure_sales_templates(db)
+    return WaTemplateCleanupSyncService.ensure_sales_templates(db, refresh_drafts=True)
+
+
+@router.post("/wa-templates/push-sales")
+def wa_templates_push_sales(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Refresh sales MARKETING drafts and push all four voxbulk_sales_* templates to Meta/Telnyx."""
+    from app.services.wa_template_cleanup_sync_service import WaTemplateCleanupSyncService
+
+    body = payload if isinstance(payload, dict) else {}
+    return WaTemplateCleanupSyncService.push_sales_templates(db, force=bool(body.get("force", True)))
 
 
 @router.get("/opt-outs")
