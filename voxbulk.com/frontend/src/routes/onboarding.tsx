@@ -21,6 +21,7 @@ export const Route = createFileRoute("/onboarding")({
     meta: [
       { title: "Set up your company — VoxBulk" },
       { name: "description", content: "Tell us about your company so we can tailor your VoxBulk workspace — name, contact details, country and services." },
+      { name: "robots", content: "noindex,nofollow" },
       { property: "og:title", content: "Set up your company — VoxBulk" },
       { property: "og:description", content: "Quick company setup to tailor your VoxBulk workspace." },
       { property: "og:url", content: "https://voxbulk.com/onboarding" },

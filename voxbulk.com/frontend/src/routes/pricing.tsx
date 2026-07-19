@@ -8,6 +8,7 @@ import {
 } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, type PublicFeedbackPlan, type PublicPlan } from "@/hooks/usePricing";
+import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/pricing")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -15,12 +16,7 @@ export const Route = createFileRoute("/pricing")({
     product: search.product === "feedback" ? ("feedback" as const) : undefined,
   }),
   head: () => ({
-    meta: [
-      { title: "Pricing ΓÇö VoxBulk" },
-      { name: "description", content: "Simple pricing across every VoxBulk product. Pick one or combine them." },
-      { property: "og:title", content: "Pricing ΓÇö VoxBulk" },
-      { property: "og:description", content: "Pay for what you use. Cancel anytime." },
-    ],
+    meta: pageMeta("pricing"),
     links: [{ rel: "canonical", href: "https://voxbulk.com/pricing" }],
   }),
   component: PricingPage,

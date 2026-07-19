@@ -13,8 +13,9 @@ import type { AuthUser } from "@/lib/auth";
 export const Route = createFileRoute("/signin")({
   head: () => ({
     meta: [
-      { title: "Sign in — VOXBULK" },
-      { name: "description", content: "Sign in to your VoxBulk account to manage AI voice and messaging campaigns, workflows and results dashboards." },
+      { title: "Sign in — VoxBulk" },
+      { name: "description", content: "Sign in to your VoxBulk account to manage WhatsApp surveys, AI interviews, and results dashboards." },
+      { name: "robots", content: "noindex,nofollow" },
       { property: "og:title", content: "Sign in — VoxBulk" },
       { property: "og:description", content: "Access your VoxBulk dashboard." },
       { property: "og:url", content: "https://voxbulk.com/signin" },

@@ -5,6 +5,7 @@ import { TalkModalProvider } from "@/components/TalkModal";
 import { CurrencyProvider } from "@/components/CurrencyContext";
 import { AuthProvider } from "@/lib/auth";
 import { fetchSeoSettings, type PublicSeoSettings } from "@/lib/seo";
+import { HOME_KEYWORDS, PAGE_SEO } from "@/lib/seo-defaults";
 
 import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
 
@@ -43,19 +44,23 @@ export const Route = createRootRoute({
     const description =
       s.home_description ||
       s.default_meta_description ||
-      "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection for modern businesses.";
-    const title = s.home_title || siteName;
+      PAGE_SEO.home.description;
+    const title = s.home_title || PAGE_SEO.home.title || siteName;
+    const keywords =
+      [s.home_focus_keyword, s.home_tags].filter(Boolean).join(", ") || HOME_KEYWORDS;
     const meta: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title },
       { name: "description", content: description },
+      { name: "keywords", content: keywords },
       { name: "author", content: siteName },
       { property: "og:title", content: title },
       { property: "og:description", content: description },
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: siteName },
-      { name: "twitter:card", content: "summary" },
+      { property: "og:url", content: `${SITE_ORIGIN}/` },
+      { name: "twitter:card", content: s.default_social_image_url ? "summary_large_image" : "summary" },
       { name: "twitter:title", content: title },
       { name: "twitter:description", content: description },
     ];

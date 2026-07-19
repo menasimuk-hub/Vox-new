@@ -28,6 +28,8 @@ export type PublicSeoSettings = {
   default_social_image_url?: string | null;
   home_title?: string;
   home_description?: string;
+  home_focus_keyword?: string;
+  home_tags?: string;
   schema_organization?: boolean;
   schema_website?: boolean;
   schema_breadcrumbs?: boolean;

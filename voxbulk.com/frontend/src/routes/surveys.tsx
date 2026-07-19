@@ -3,15 +3,11 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Users, Briefcase, Layers, BarChart3, Mic, Languages, FileText, Sparkles, Stethoscope, UserSearch, UtensilsCrossed, Hotel, Home, ShoppingBag, Car, GraduationCap, Scale, Dumbbell, HeartHandshake, Phone, MessageCircle, TrendingUp, Clock, CheckCircle2, Wand2, Wrench, Settings2 } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA } from "@/components/VOXBULKHome";
+import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/surveys")({
   head: () => ({
-    meta: [
-      { title: "WhatsApp Surveys — VoxBulk" },
-      { name: "description", content: "WhatsApp and AI Calling surveys with multilingual dashboards. Far more replies than email — translated, charted and actionable." },
-      { property: "og:title", content: "WhatsApp Surveys — VoxBulk" },
-      { property: "og:description", content: "Two ways to ask. One dashboard." },
-    ],
+    meta: pageMeta("surveys"),
     links: [{ rel: "canonical", href: "https://voxbulk.com/surveys" }],
   }),
   component: SurveysPage,

@@ -103,14 +103,51 @@ def _derive_index_status(robots: str, *, visible: bool = True) -> str:
     return "pending"
 
 
+_DEFAULT_HOME_TITLE = "VoxBulk | WhatsApp Surveys, AI Interviews & Voice Agents for Business"
+_DEFAULT_HOME_DESCRIPTION = (
+    "Run WhatsApp surveys, QR customer feedback, and AI phone interviews from one UK-built platform. "
+    "Multilingual replies, scored interviews, and live dashboards — cancel anytime."
+)
+_DEFAULT_HOME_FOCUS = "whatsapp survey software"
+_DEFAULT_HOME_TAGS = (
+    "ai interview platform, customer feedback whatsapp, voice ai agents, "
+    "recruitment automation uk, qr code feedback, multilingual surveys"
+)
+
+
 def ensure_settings(db: Session) -> SiteSeoSettings:
     row = db.execute(select(SiteSeoSettings).where(SiteSeoSettings.id == "default")).scalar_one_or_none()
     if row:
+        # Fill empty homepage SEO only — never overwrite Admin-saved copy.
+        dirty = False
+        if not str(row.home_title or "").strip():
+            row.home_title = _DEFAULT_HOME_TITLE
+            dirty = True
+        if not str(row.home_description or "").strip():
+            row.home_description = _DEFAULT_HOME_DESCRIPTION
+            dirty = True
+        if not str(row.default_meta_description or "").strip():
+            row.default_meta_description = _DEFAULT_HOME_DESCRIPTION
+            dirty = True
+        if not str(row.home_focus_keyword or "").strip():
+            row.home_focus_keyword = _DEFAULT_HOME_FOCUS
+            dirty = True
+        if not str(row.home_tags or "").strip():
+            row.home_tags = _DEFAULT_HOME_TAGS
+            dirty = True
+        if dirty:
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            db.refresh(row)
         return row
     row = SiteSeoSettings(
         id="default",
-        default_meta_description="VoxBulk is an AI assistant platform that automates conversations, workflows and data collection.",
-        home_description="",
+        default_meta_description=_DEFAULT_HOME_DESCRIPTION,
+        home_title=_DEFAULT_HOME_TITLE,
+        home_description=_DEFAULT_HOME_DESCRIPTION,
+        home_focus_keyword=_DEFAULT_HOME_FOCUS,
+        home_tags=_DEFAULT_HOME_TAGS,
         robots_txt=DEFAULT_ROBOTS,
         updated_at=datetime.utcnow(),
     )
@@ -215,6 +252,8 @@ def settings_to_public(row: SiteSeoSettings) -> dict[str, Any]:
         "default_social_image_url": row.default_social_image_url,
         "home_title": row.home_title or "",
         "home_description": row.home_description or "",
+        "home_focus_keyword": row.home_focus_keyword or "",
+        "home_tags": row.home_tags or "",
         "schema_organization": bool(row.schema_organization),
         "schema_website": bool(row.schema_website),
         "schema_breadcrumbs": bool(row.schema_breadcrumbs),

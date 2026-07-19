@@ -4,15 +4,11 @@ import {
   Hero, WhoItsFor, BeforeAfter, Capabilities, LiveServices, CVIntake, HowItWorks,
   Proof, Metrics, Integrations, Pricing, RiskReversal, FAQ, BottomCTA, TalkToUs,
 } from "@/components/VOXBULKHome";
+import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/recruitment")({
   head: () => ({
-    meta: [
-      { title: "Recruitment Automation — VoxBulk" },
-      { name: "description", content: "Post one job, wake up to a shortlist. CV intake, ATS scoring, WhatsApp booking and 10–12 minute AI phone interviews with ranked recommendations." },
-      { property: "og:title", content: "Recruitment Automation — VoxBulk" },
-      { property: "og:description", content: "AI screening, scheduling and voice interviews — fully automated. Built for agencies and in-house TA teams hiring 20+ roles a month." },
-    ],
+    meta: pageMeta("recruitment"),
     links: [{ rel: "canonical", href: "https://voxbulk.com/recruitment" }],
   }),
   component: RecruitmentPage,

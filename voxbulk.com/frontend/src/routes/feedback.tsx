@@ -8,19 +8,11 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA, BillingToggle, type Billing } from "@/components/VOXBULKHome";
 import { useCurrency, SYM } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, type PublicFeedbackPlan } from "@/hooks/usePricing";
+import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/feedback")({
   head: () => ({
-    meta: [
-      { title: "Customer Feedback — VoxBulk" },
-      {
-        name: "description",
-        content:
-          "One QR code. Customers scan, answer on WhatsApp in their own language — including voice notes — and you get a live multi-location dashboard in English.",
-      },
-      { property: "og:title", content: "Customer Feedback — VoxBulk" },
-      { property: "og:description", content: "One QR. Their voice. Their language." },
-    ],
+    meta: pageMeta("feedback"),
     links: [{ rel: "canonical", href: "https://voxbulk.com/feedback" }],
   }),
   component: FeedbackPage,

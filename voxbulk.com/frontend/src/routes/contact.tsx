@@ -5,16 +5,11 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { ArrowRight, ArrowLeft, Check, Mail, User, MessageSquare } from "lucide-react";
 import { frontpageApiFetch } from "@/lib/api";
 import { toast } from "sonner";
+import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/contact")({
   head: () => ({
-    meta: [
-      { title: "Contact us — VoxBulk" },
-      { name: "description", content: "Get in touch with the VoxBulk team — book a demo, ask about pricing, integrations, GDPR or onboarding for your business." },
-      { property: "og:title", content: "Contact the VoxBulk Team" },
-      { property: "og:description", content: "Reach the VoxBulk team about demos, integrations, pricing and onboarding." },
-      { property: "og:url", content: "https://voxbulk.com/contact" },
-    ],
+    meta: pageMeta("contact"),
     links: [{ rel: "canonical", href: "https://voxbulk.com/contact" }],
   }),
 
