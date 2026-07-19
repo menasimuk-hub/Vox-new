@@ -143,12 +143,14 @@ def test_gsc_platform_config(db: Session) -> dict[str, Any]:
 
 
 def _state_signing_key() -> bytes:
-    # Prefer Fernet key material so state is tied to ENCRYPTION_KEY without long ciphertext in the URL.
-    try:
-        raw = get_encryptor().encrypt_str("gsc-oauth-state-v1")
-        return hashlib.sha256(raw.encode("utf-8")).digest()
-    except Exception:
-        return hashlib.sha256(b"voxbulk-gsc-oauth-state").digest()
+    # Must be deterministic across start/callback. Fernet ciphertext is random per call — do not derive from encrypt().
+    settings = get_settings()
+    material = (
+        str(getattr(settings, "encryption_key", None) or "").strip()
+        or str(getattr(settings, "jwt_secret_key", None) or "").strip()
+        or "voxbulk-gsc-oauth-state"
+    )
+    return hashlib.sha256(f"gsc-oauth-state-v1:{material}".encode("utf-8")).digest()
 
 
 def _make_state() -> str:

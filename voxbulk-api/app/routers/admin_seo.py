@@ -275,6 +275,9 @@ def admin_gsc_oauth_callback(
     try:
         gsc_oauth_complete(db, code=code, state=state)
     except ValueError as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("GSC OAuth callback failed: %s", exc)
         return RedirectResponse(url=f"{target}?tab=settings&gsc=error&message={quote(str(exc)[:200])}")
     return RedirectResponse(url=f"{target}?tab=settings&gsc=connected")
 
