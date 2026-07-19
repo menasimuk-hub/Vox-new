@@ -1967,10 +1967,15 @@ export default function SeoControl() {
                 <div className="d">
                   {settings.gsc_oauth_configured
                     ? 'Powers average ranking KPI. Save property URL, then Connect with Google OAuth.'
-                    : 'First save OAuth client in Admin → Integrations → Google Search Console, then Connect here.'}
+                    : 'Paste Client ID & secret first at Integrations → Google Search Console, then come back and Connect.'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {!settings.gsc_oauth_configured ? (
+                  <a className="sc-btn sc-btn-ghost sc-btn-sm" href="/integrations/google_search_console">
+                    Open credentials page
+                  </a>
+                ) : null}
                 {conn.gsc ? (
                   <>
                     <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={refreshGsc}>
@@ -1981,7 +1986,7 @@ export default function SeoControl() {
                     </button>
                   </>
                 ) : (
-                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={connectGsc}>
+                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy || !settings.gsc_oauth_configured} onClick={connectGsc}>
                     Connect
                   </button>
                 )}

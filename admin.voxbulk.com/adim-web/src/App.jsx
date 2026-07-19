@@ -117,6 +117,7 @@ export default function App() {
         <Route path='/integrations/calendly' element={<P.Integrations />} />
         <Route path='/integrations/cal_com' element={<P.Integrations />} />
         <Route path='/integrations/google_calendar' element={<P.Integrations />} />
+        <Route path='/integrations/google_search_console' element={<P.Integrations />} />
         <Route path='/integrations/microsoft_calendar' element={<P.Integrations />} />
         <Route path='/integrations/hubspot' element={<P.Integrations />} />
         <Route path='/integrations/pipedrive' element={<P.Integrations />} />

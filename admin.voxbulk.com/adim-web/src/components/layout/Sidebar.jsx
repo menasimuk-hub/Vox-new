@@ -311,6 +311,8 @@ const NAV = [
 
       ['Google Calendar', '/integrations/google_calendar'],
 
+      ['Google Search Console', '/integrations/google_search_console'],
+
       ['Microsoft 365 Calendar', '/integrations/microsoft_calendar'],
 
       ['HubSpot', '/integrations/hubspot'],
