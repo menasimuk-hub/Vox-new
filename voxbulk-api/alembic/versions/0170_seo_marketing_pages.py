@@ -16,9 +16,17 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # MySQL (esp. older modes) rejects DEFAULT on TEXT/BLOB — add nullable, backfill, then NOT NULL.
     op.add_column(
         "site_seo_settings",
-        sa.Column("marketing_pages_json", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("marketing_pages_json", sa.Text(), nullable=True),
+    )
+    op.execute("UPDATE site_seo_settings SET marketing_pages_json = '{}' WHERE marketing_pages_json IS NULL")
+    op.alter_column(
+        "site_seo_settings",
+        "marketing_pages_json",
+        existing_type=sa.Text(),
+        nullable=False,
     )
 
 
