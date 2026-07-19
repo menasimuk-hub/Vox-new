@@ -530,7 +530,10 @@ def list_content(db: Session, kind: str) -> list[dict[str, Any]]:
     if k not in KINDS:
         raise HTTPException(status_code=400, detail="kind must be blog, news, or faq")
     if k == KIND_FAQ:
-        rows = db.execute(select(FAQItem).order_by(FAQItem.sort_order.asc(), FAQItem.id.desc())).scalars().all()
+        from app.services.faq_service import FAQService
+
+        FAQService.ensure_marketing_faqs(db)
+        rows = db.execute(select(FAQItem).order_by(FAQItem.sort_order.asc(), FAQItem.id.asc())).scalars().all()
         return [_faq_row_to_seo(r) for r in rows]
     rows = (
         db.execute(
@@ -1232,11 +1235,14 @@ def submit_sitemap_to_google(db: Session) -> dict[str, Any]:
 
 
 def public_faq_list(db: Session) -> list[dict[str, Any]]:
+    from app.services.faq_service import FAQService
+
+    FAQService.ensure_marketing_faqs(db)
     rows = (
         db.execute(
             select(FAQItem)
             .where(FAQItem.is_published.is_(True))
-            .order_by(FAQItem.sort_order.asc(), FAQItem.id.desc())
+            .order_by(FAQItem.sort_order.asc(), FAQItem.id.asc())
         )
         .scalars()
         .all()

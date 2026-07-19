@@ -12,6 +12,7 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { useTalkModal } from "@/components/TalkModal";
 import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
 import { usePublicPricing, type PublicPlan } from "@/hooks/usePricing";
+import { frontpageApiFetch } from "@/lib/api";
 
 
 /* ---------------- HERO ---------------- */
@@ -982,13 +983,25 @@ export function Testimonial() {
 }
 
 /* ---------------- FAQ ---------------- */
-const faqItems: { q: string; a: ReactNode }[] = [
-  { q: "What exactly does VoxBulk do?", a: "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection. Our first live service is end-to-end recruitment automation — CV screening, scheduling, AI voice interviews, scoring and final-round booking. We also offer AI-run WhatsApp surveys." },
-  { q: "How long does setup take?", a: "Most teams are live within a few days. We connect to your ATS, calendar (Cronofy or Calendly) and messaging tools, configure your roles, and run test conversations before going live." },
-  { q: "How do AI voice interviews actually work?", a: "Candidates receive a scheduled link, dial in at their slot, and complete a natural conversation with our AI. The AI asks tailored questions, listens, follows up, and produces a scored, summarised report — all without human involvement." },
-  { q: "Can I use VoxBulk just for surveys?", a: "Yes. WhatsApp surveys are available as a standalone service. The AI builds the questions, sends them, collects responses, and delivers a named or anonymous feedback report — whichever you need." },
-  { q: "Which languages and accents are supported?", a: "AI voice interviews and calling surveys support English (GB, Irish, Australian, American, Scottish and Canadian dialects) and Arabic (Egyptian and Saudi dialects). WhatsApp surveys and voice-note transcription work across 50+ languages, with responses translated to English in your dashboard." },
-  { q: "How is my data kept secure?", a: "VoxBulk is a multi-tenant platform with strict tenant isolation — each organisation's data is kept separate. Passwords use encrypted storage, integration secrets are encrypted at rest, and role-based access controls ensure only authorised team members see what they need. Production runs on secured infrastructure with controlled deployments, in UK and EU data centres." },
+export type HomeFaqItem = { q: string; a: ReactNode; slug?: string };
+
+const FALLBACK_FAQ_ITEMS: HomeFaqItem[] = [
+  {
+    q: "What exactly does VoxBulk do?",
+    a: "VoxBulk is a UK-built AI platform for WhatsApp surveys, QR customer feedback, AI phone interviews, and voice agents. Automate conversations, collect multilingual responses, and act from live dashboards.",
+  },
+  {
+    q: "How long does setup take?",
+    a: "Most teams are live within a few days. We connect messaging, scheduling, and your workflows, configure your surveys or interview scripts, and run test conversations before going live.",
+  },
+  {
+    q: "How do AI voice interviews actually work?",
+    a: "Candidates receive a scheduled invite, join at their slot, and complete a natural phone conversation with our AI interviewer. The AI asks tailored questions, listens, follows up, and produces a scored, summarised report.",
+  },
+  {
+    q: "Can I use VoxBulk just for surveys or feedback?",
+    a: "Yes. WhatsApp surveys and QR customer feedback are available as standalone products. Collect replies (including voice notes), translate them, and deliver actionable reports — named or anonymous.",
+  },
   {
     q: "Is VoxBulk GDPR compliant?",
     a: (
@@ -1001,13 +1014,67 @@ const faqItems: { q: string; a: ReactNode }[] = [
       </>
     ),
   },
-  { q: "What integrations are supported?", a: "Cronofy and Calendly for scheduling, WhatsApp for messaging surveys, plus API access to push results into your ATS or HRIS. Custom integrations are available on the Enterprise plan." },
-  { q: "Can candidates opt out of speaking to AI?", a: "Yes. The AI announces itself at the start of every interaction, and candidates can request a human follow-up at any time." },
-  { q: "Is there a contract or commitment?", a: "No long-term contract. Monthly subscription, cancel anytime with 30 days' notice. Enterprise customers can opt for annual terms with custom pricing." },
+  {
+    q: "Is there a contract or commitment?",
+    a: "No long-term contract. Monthly subscription, cancel anytime with 30 days' notice. Enterprise customers can opt for annual terms with custom pricing.",
+  },
 ];
 
-export function FAQ() {
+function renderFaqAnswer(question: string, answer: string): ReactNode {
+  if (/gdpr/i.test(question)) {
+    return (
+      <>
+        {answer.replace(/\s*See voxbulk\.com\/gdpr.*$/i, "").trim()}{" "}
+        <Link to="/gdpr" className="text-primary font-semibold underline-offset-2 hover:underline">
+          Read our GDPR overview
+        </Link>
+        .
+      </>
+    );
+  }
+  return answer;
+}
+
+export function FAQ({ items }: { items?: HomeFaqItem[] }) {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
+  const [remote, setRemote] = useState<HomeFaqItem[] | null>(items?.length ? items : null);
+
+  useEffect(() => {
+    if (items?.length) {
+      setRemote(
+        items.map((it) => ({
+          ...it,
+          a: typeof it.a === "string" ? renderFaqAnswer(it.q, it.a) : it.a,
+        })),
+      );
+      return;
+    }
+    let cancelled = false;
+    frontpageApiFetch<{ items: Array<{ question?: string; answer?: string; title?: string; slug?: string }> }>(
+      "/frontpage/faq",
+    )
+      .then((data) => {
+        if (cancelled) return;
+        const mapped = (data.items || [])
+          .map((row) => {
+            const q = String(row.question || row.title || "").trim();
+            const a = String(row.answer || "").trim();
+            if (!q || !a) return null;
+            return { q, a: renderFaqAnswer(q, a), slug: row.slug };
+          })
+          .filter(Boolean) as HomeFaqItem[];
+        if (mapped.length) setRemote(mapped);
+      })
+      .catch(() => {
+        /* keep fallback */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  const faqItems = remote?.length ? remote : FALLBACK_FAQ_ITEMS;
+
   return (
     <section id="faq" className="py-24 md:py-32 bg-white">
       <div className="max-w-[860px] mx-auto px-5 md:px-10">
@@ -1021,7 +1088,7 @@ export function FAQ() {
           {faqItems.map((item, i) => {
             const open = openIdx === i;
             return (
-              <div key={item.q}>
+              <div key={item.slug || item.q}>
                 <button
                   onClick={() => setOpenIdx(open ? null : i)}
                   className="w-full flex items-center justify-between text-left py-5 gap-6"
@@ -1410,7 +1477,7 @@ export function PricingTeaser() {
   );
 }
 
-export default function VOXBULKHome() {
+export default function VOXBULKHome({ faqItems }: { faqItems?: HomeFaqItem[] } = {}) {
   return (
     <div className="bg-background text-body antialiased">
       <SiteHeader />
@@ -1424,7 +1491,7 @@ export default function VOXBULKHome() {
         <StatsRow />
         <Testimonial />
         <PricingTeaser />
-        <FAQ />
+        <FAQ items={faqItems} />
         <BottomCTA />
       </main>
       <SiteFooter />
