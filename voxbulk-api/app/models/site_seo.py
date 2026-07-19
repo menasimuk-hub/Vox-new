@@ -20,6 +20,9 @@ class SiteSeoSettings(Base):
     home_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     home_focus_keyword: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     home_tags: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # JSON map of path key → {title, description, keywords, og_description}
+    # Keys: surveys, feedback, recruitment, pricing, contact
+    marketing_pages_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     schema_organization: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     schema_website: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     schema_breadcrumbs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

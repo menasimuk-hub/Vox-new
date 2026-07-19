@@ -3,11 +3,13 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Users, Briefcase, Layers, BarChart3, Mic, Languages, FileText, Sparkles, Stethoscope, UserSearch, UtensilsCrossed, Hotel, Home, ShoppingBag, Car, GraduationCap, Scale, Dumbbell, HeartHandshake, Phone, MessageCircle, TrendingUp, Clock, CheckCircle2, Wand2, Wrench, Settings2 } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA } from "@/components/VOXBULKHome";
+import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/surveys")({
-  head: () => ({
-    meta: pageMeta("surveys"),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => ({
+    meta: pageMeta("surveys", { override: loaderData?.settings?.marketing_pages?.surveys }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/surveys" }],
   }),
   component: SurveysPage,

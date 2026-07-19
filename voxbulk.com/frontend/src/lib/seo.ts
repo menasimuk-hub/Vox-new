@@ -30,6 +30,17 @@ export type PublicSeoSettings = {
   home_description?: string;
   home_focus_keyword?: string;
   home_tags?: string;
+  marketing_pages?: Record<
+    string,
+    {
+      title?: string;
+      description?: string;
+      keywords?: string;
+      og_description?: string;
+      path?: string;
+      label?: string;
+    }
+  >;
   schema_organization?: boolean;
   schema_website?: boolean;
   schema_breadcrumbs?: boolean;

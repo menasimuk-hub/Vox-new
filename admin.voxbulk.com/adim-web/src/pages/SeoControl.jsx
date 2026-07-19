@@ -259,6 +259,18 @@ function emptyDraft() {
   }
 }
 
+const MARKETING_PAGE_KEYS = [
+  ['surveys', 'WhatsApp Surveys (/surveys)'],
+  ['feedback', 'Customer Feedback (/feedback)'],
+  ['recruitment', 'AI Interviews / Recruitment (/recruitment)'],
+  ['pricing', 'Pricing (/pricing)'],
+  ['contact', 'Contact / Demo (/contact)'],
+]
+
+function emptyMarketingPage() {
+  return { title: '', description: '', keywords: '', og_description: '' }
+}
+
 function emptySettings() {
   return {
     site_name: 'VoxBulk',
@@ -269,6 +281,13 @@ function emptySettings() {
     home_description: '',
     home_focus_keyword: '',
     home_tags: '',
+    marketing_pages: {
+      surveys: emptyMarketingPage(),
+      feedback: emptyMarketingPage(),
+      recruitment: emptyMarketingPage(),
+      pricing: emptyMarketingPage(),
+      contact: emptyMarketingPage(),
+    },
     schema_organization: true,
     schema_website: true,
     schema_breadcrumbs: true,
@@ -707,6 +726,7 @@ export default function SeoControl() {
         home_description: settings.home_description,
         home_focus_keyword: settings.home_focus_keyword,
         home_tags: settings.home_tags,
+        marketing_pages: settings.marketing_pages || {},
         schema_organization: !!settings.schema_organization,
         schema_website: !!settings.schema_website,
         schema_breadcrumbs: !!settings.schema_breadcrumbs,
@@ -1773,6 +1793,64 @@ export default function SeoControl() {
                 <input type="text" value={settings.home_tags} onChange={(e) => setSetting('home_tags', e.target.value)} />
               </div>
             </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>Product pages SEO</h3>
+            <div className="sc-card-sub">
+              Titles, descriptions and keywords for main marketing pages. Edit here anytime — changes apply after you save and the public site is redeployed/refreshed.
+            </div>
+            {MARKETING_PAGE_KEYS.map(([key, label]) => {
+              const page = (settings.marketing_pages && settings.marketing_pages[key]) || emptyMarketingPage()
+              const setPageField = (field, value) => {
+                setSettings((s) => ({
+                  ...s,
+                  marketing_pages: {
+                    ...(s.marketing_pages || {}),
+                    [key]: { ...(s.marketing_pages?.[key] || emptyMarketingPage()), [field]: value },
+                  },
+                }))
+              }
+              return (
+                <div key={key} style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 10 }}>{label}</div>
+                  <div className="sc-kv-row">
+                    <label>Title</label>
+                    <div>
+                      <input type="text" value={page.title || ''} onChange={(e) => setPageField('title', e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="sc-kv-row">
+                    <label>Meta description</label>
+                    <div>
+                      <textarea
+                        value={page.description || ''}
+                        onChange={(e) => setPageField('description', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="sc-kv-row">
+                    <label>Keywords</label>
+                    <div>
+                      <input
+                        type="text"
+                        value={page.keywords || ''}
+                        onChange={(e) => setPageField('keywords', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="sc-kv-row">
+                    <label>Social / OG description</label>
+                    <div>
+                      <textarea
+                        value={page.og_description || ''}
+                        onChange={(e) => setPageField('og_description', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           <div className="sc-settings-card">

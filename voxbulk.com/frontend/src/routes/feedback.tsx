@@ -8,11 +8,13 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { Hero, StatsRow, BottomCTA, BillingToggle, type Billing } from "@/components/VOXBULKHome";
 import { useCurrency, SYM } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, type PublicFeedbackPlan } from "@/hooks/usePricing";
+import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/feedback")({
-  head: () => ({
-    meta: pageMeta("feedback"),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => ({
+    meta: pageMeta("feedback", { override: loaderData?.settings?.marketing_pages?.feedback }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/feedback" }],
   }),
   component: FeedbackPage,

@@ -113,20 +113,135 @@ _DEFAULT_HOME_TAGS = (
     "ai interview platform, customer feedback whatsapp, voice ai agents, "
     "recruitment automation uk, qr code feedback, multilingual surveys"
 )
+_LEGACY_DEFAULT_META = (
+    "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection."
+)
+_LEGACY_DEFAULT_META_LONG = (
+    "VoxBulk is an AI assistant platform that automates conversations, workflows and data collection "
+    "for modern businesses."
+)
+
+MARKETING_PAGE_KEYS = ("surveys", "feedback", "recruitment", "pricing", "contact")
+
+DEFAULT_MARKETING_PAGES: dict[str, dict[str, str]] = {
+    "surveys": {
+        "label": "WhatsApp Surveys (/surveys)",
+        "path": "/surveys",
+        "title": "WhatsApp Survey Software with AI Calling | VoxBulk",
+        "description": (
+            "Send surveys on WhatsApp or short AI calls. Get 50+ language replies, "
+            "voice-note transcripts, and real-time charts — far higher response rates than email."
+        ),
+        "keywords": (
+            "whatsapp surveys, whatsapp survey software, ai calling surveys, "
+            "multilingual survey software, pulse survey whatsapp, employee survey whatsapp"
+        ),
+        "og_description": "WhatsApp and AI calling surveys with multilingual dashboards and actionable charts.",
+    },
+    "feedback": {
+        "label": "Customer Feedback (/feedback)",
+        "path": "/feedback",
+        "title": "WhatsApp Customer Feedback via QR Code | VoxBulk",
+        "description": (
+            "One QR per location. Guests reply on WhatsApp in their language — including voice notes — "
+            "while you see English insights across every site."
+        ),
+        "keywords": (
+            "whatsapp customer feedback, qr code feedback, restaurant feedback software, "
+            "multi location feedback, hospitality feedback whatsapp"
+        ),
+        "og_description": "One QR. Customers reply on WhatsApp in their language — you get English insights.",
+    },
+    "recruitment": {
+        "label": "AI Interviews / Recruitment (/recruitment)",
+        "path": "/recruitment",
+        "title": "AI Interview & Recruitment Automation | VoxBulk",
+        "description": (
+            "Automate CV screening, WhatsApp scheduling, and 10–12 minute AI phone interviews. "
+            "Ranked shortlists for agencies and TA teams hiring at scale."
+        ),
+        "keywords": (
+            "ai interview software, automated candidate screening, recruitment automation, "
+            "ai phone interviews, voice interview platform, ats screening"
+        ),
+        "og_description": (
+            "AI screening, WhatsApp booking, and scored voice interviews — fully automated for high-volume hiring."
+        ),
+    },
+    "pricing": {
+        "label": "Pricing (/pricing)",
+        "path": "/pricing",
+        "title": "Pricing — WhatsApp Surveys, Feedback & AI Interviews | VoxBulk",
+        "description": (
+            "Transparent pricing for WhatsApp surveys, customer feedback, and AI interview screening. "
+            "Combine products, pay for usage, cancel anytime."
+        ),
+        "keywords": "voxbulk pricing, whatsapp survey pricing, ai interview cost, customer feedback pricing",
+        "og_description": "Simple pricing across WhatsApp surveys, feedback, and AI interviews. Cancel anytime.",
+    },
+    "contact": {
+        "label": "Contact / Demo (/contact)",
+        "path": "/contact",
+        "title": "Book a Demo | Contact VoxBulk",
+        "description": (
+            "Talk to VoxBulk about WhatsApp surveys, AI interviews, voice agents, pricing, "
+            "integrations, and GDPR-ready onboarding for your team."
+        ),
+        "keywords": "voxbulk demo, whatsapp survey demo, ai interview demo, contact voxbulk",
+        "og_description": "Book a demo or ask about pricing, integrations, and GDPR onboarding.",
+    },
+}
+
+
+def _loads_marketing_pages(raw: str | None) -> dict[str, dict[str, str]]:
+    try:
+        data = json.loads(raw or "{}")
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out: dict[str, dict[str, str]] = {}
+    for key in MARKETING_PAGE_KEYS:
+        base = dict(DEFAULT_MARKETING_PAGES[key])
+        cur = data.get(key) if isinstance(data.get(key), dict) else {}
+        for field in ("title", "description", "keywords", "og_description"):
+            val = str(cur.get(field) or "").strip()
+            if val:
+                base[field] = val
+        out[key] = base
+    return out
+
+
+def _dump_marketing_pages(pages: dict[str, Any]) -> str:
+    clean: dict[str, dict[str, str]] = {}
+    for key in MARKETING_PAGE_KEYS:
+        src = pages.get(key) if isinstance(pages.get(key), dict) else {}
+        default = DEFAULT_MARKETING_PAGES[key]
+        clean[key] = {
+            "title": str(src.get("title") or default["title"]).strip() or default["title"],
+            "description": str(src.get("description") or default["description"]).strip() or default["description"],
+            "keywords": str(src.get("keywords") or default["keywords"]).strip() or default["keywords"],
+            "og_description": (
+                str(src.get("og_description") or default["og_description"]).strip() or default["og_description"]
+            ),
+        }
+    return json.dumps(clean, ensure_ascii=False)
 
 
 def ensure_settings(db: Session) -> SiteSeoSettings:
     row = db.execute(select(SiteSeoSettings).where(SiteSeoSettings.id == "default")).scalar_one_or_none()
     if row:
-        # Fill empty homepage SEO only — never overwrite Admin-saved copy.
+        # Fill empty / legacy homepage SEO only — never overwrite custom Admin copy.
         dirty = False
         if not str(row.home_title or "").strip():
             row.home_title = _DEFAULT_HOME_TITLE
             dirty = True
-        if not str(row.home_description or "").strip():
+        home_desc = str(row.home_description or "").strip()
+        if not home_desc or home_desc in (_LEGACY_DEFAULT_META, _LEGACY_DEFAULT_META_LONG):
             row.home_description = _DEFAULT_HOME_DESCRIPTION
             dirty = True
-        if not str(row.default_meta_description or "").strip():
+        default_desc = str(row.default_meta_description or "").strip()
+        if not default_desc or default_desc in (_LEGACY_DEFAULT_META, _LEGACY_DEFAULT_META_LONG):
             row.default_meta_description = _DEFAULT_HOME_DESCRIPTION
             dirty = True
         if not str(row.home_focus_keyword or "").strip():
@@ -135,6 +250,31 @@ def ensure_settings(db: Session) -> SiteSeoSettings:
         if not str(row.home_tags or "").strip():
             row.home_tags = _DEFAULT_HOME_TAGS
             dirty = True
+        # Seed missing marketing page keys without wiping Admin edits.
+        merged = _loads_marketing_pages(getattr(row, "marketing_pages_json", None))
+        dumped = _dump_marketing_pages(merged)
+        if str(getattr(row, "marketing_pages_json", None) or "").strip() in ("", "{}"):
+            row.marketing_pages_json = dumped
+            dirty = True
+        elif dumped != str(row.marketing_pages_json or ""):
+            # Ensure every key exists in stored JSON (additive merge only for missing keys).
+            try:
+                stored = json.loads(row.marketing_pages_json or "{}")
+            except Exception:
+                stored = {}
+            if not isinstance(stored, dict):
+                stored = {}
+            changed_keys = False
+            for key in MARKETING_PAGE_KEYS:
+                if key not in stored or not isinstance(stored.get(key), dict):
+                    stored[key] = {
+                        k: DEFAULT_MARKETING_PAGES[key][k]
+                        for k in ("title", "description", "keywords", "og_description")
+                    }
+                    changed_keys = True
+            if changed_keys:
+                row.marketing_pages_json = json.dumps(stored, ensure_ascii=False)
+                dirty = True
         if dirty:
             row.updated_at = datetime.utcnow()
             db.add(row)
@@ -148,6 +288,7 @@ def ensure_settings(db: Session) -> SiteSeoSettings:
         home_description=_DEFAULT_HOME_DESCRIPTION,
         home_focus_keyword=_DEFAULT_HOME_FOCUS,
         home_tags=_DEFAULT_HOME_TAGS,
+        marketing_pages_json=_dump_marketing_pages(DEFAULT_MARKETING_PAGES),
         robots_txt=DEFAULT_ROBOTS,
         updated_at=datetime.utcnow(),
     )
@@ -199,6 +340,7 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
         "home_description": row.home_description or "",
         "home_focus_keyword": row.home_focus_keyword or "",
         "home_tags": row.home_tags or "",
+        "marketing_pages": _loads_marketing_pages(getattr(row, "marketing_pages_json", None)),
         "schema_organization": bool(row.schema_organization),
         "schema_website": bool(row.schema_website),
         "schema_breadcrumbs": bool(row.schema_breadcrumbs),
@@ -254,6 +396,7 @@ def settings_to_public(row: SiteSeoSettings) -> dict[str, Any]:
         "home_description": row.home_description or "",
         "home_focus_keyword": row.home_focus_keyword or "",
         "home_tags": row.home_tags or "",
+        "marketing_pages": _loads_marketing_pages(getattr(row, "marketing_pages_json", None)),
         "schema_organization": bool(row.schema_organization),
         "schema_website": bool(row.schema_website),
         "schema_breadcrumbs": bool(row.schema_breadcrumbs),
@@ -305,6 +448,13 @@ def update_settings(db: Session, payload: dict[str, Any]) -> SiteSeoSettings:
     for f in ("schema_organization", "schema_website", "schema_breadcrumbs", "schema_content", "google_news_enabled"):
         if f in payload:
             setattr(row, f, bool(payload.get(f)))
+    if "marketing_pages" in payload and isinstance(payload.get("marketing_pages"), dict):
+        current = _loads_marketing_pages(getattr(row, "marketing_pages_json", None))
+        incoming = payload["marketing_pages"]
+        for key in MARKETING_PAGE_KEYS:
+            if key in incoming and isinstance(incoming.get(key), dict):
+                current[key] = {**current[key], **incoming[key]}
+        row.marketing_pages_json = _dump_marketing_pages(current)
     if payload.get("psi_api_key"):
         row.psi_api_key_encrypted = _encrypt(str(payload["psi_api_key"]))
     if payload.get("moz_access_id"):

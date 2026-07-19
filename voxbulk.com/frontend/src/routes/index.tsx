@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import VOXBULKHome from "@/components/VOXBULKHome";
 import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
+import { fetchSeoSettings } from "@/lib/seo";
 import { PAGE_SEO, pageMeta } from "@/lib/seo-defaults";
 
 const softwareJsonLd = {
@@ -67,22 +68,35 @@ const faqJsonLd = {
 };
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: pageMeta("home", { url: `${SITE_ORIGIN}/` }),
-    links: [
-      { rel: "icon", href: brandAssets.favicon },
-      { rel: "canonical", href: `${SITE_ORIGIN}/` },
-    ],
-    scripts: [
-      {
-        type: "application/ld+json",
-        children: JSON.stringify(softwareJsonLd),
-      },
-      {
-        type: "application/ld+json",
-        children: JSON.stringify(faqJsonLd),
-      },
-    ],
-  }),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => {
+    const s = loaderData?.settings || {};
+    const keywords = [s.home_focus_keyword, s.home_tags].filter(Boolean).join(", ");
+    return {
+      meta: pageMeta("home", {
+        url: `${SITE_ORIGIN}/`,
+        override: {
+          title: s.home_title,
+          description: s.home_description,
+          keywords: keywords || undefined,
+          ogDescription: s.home_description || PAGE_SEO.home.ogDescription,
+        },
+      }),
+      links: [
+        { rel: "icon", href: brandAssets.favicon },
+        { rel: "canonical", href: `${SITE_ORIGIN}/` },
+      ],
+      scripts: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(softwareJsonLd),
+        },
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(faqJsonLd),
+        },
+      ],
+    };
+  },
   component: VOXBULKHome,
 });

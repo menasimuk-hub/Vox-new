@@ -8,6 +8,7 @@ import {
 } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, type PublicFeedbackPlan, type PublicPlan } from "@/hooks/usePricing";
+import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/pricing")({
@@ -15,8 +16,9 @@ export const Route = createFileRoute("/pricing")({
     plan: typeof search.plan === "string" && search.plan.trim() ? search.plan.trim() : undefined,
     product: search.product === "feedback" ? ("feedback" as const) : undefined,
   }),
-  head: () => ({
-    meta: pageMeta("pricing"),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => ({
+    meta: pageMeta("pricing", { override: loaderData?.settings?.marketing_pages?.pricing }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/pricing" }],
   }),
   component: PricingPage,

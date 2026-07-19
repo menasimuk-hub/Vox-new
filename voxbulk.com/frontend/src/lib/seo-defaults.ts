@@ -56,11 +56,39 @@ export const PAGE_SEO = {
   },
 } as const;
 
+export type PageSeoOverride = {
+  title?: string;
+  description?: string;
+  keywords?: string;
+  og_description?: string;
+  ogDescription?: string;
+};
+
+export function resolvePageSeo(
+  page: keyof typeof PAGE_SEO,
+  override?: PageSeoOverride | null,
+): {
+  title: string;
+  description: string;
+  keywords: string;
+  ogDescription: string;
+} {
+  const base = PAGE_SEO[page];
+  const og =
+    (override?.og_description || override?.ogDescription || "").trim() || base.ogDescription;
+  return {
+    title: (override?.title || "").trim() || base.title,
+    description: (override?.description || "").trim() || base.description,
+    keywords: (override?.keywords || "").trim() || base.keywords,
+    ogDescription: og,
+  };
+}
+
 export function pageMeta(
   page: keyof typeof PAGE_SEO,
-  opts?: { url?: string; ogType?: string },
+  opts?: { url?: string; ogType?: string; override?: PageSeoOverride | null },
 ): Array<Record<string, string>> {
-  const seo = PAGE_SEO[page];
+  const seo = resolvePageSeo(page, opts?.override);
   const url = opts?.url || `${SITE_ORIGIN}/${page === "home" ? "" : page}`;
   return [
     { title: seo.title },

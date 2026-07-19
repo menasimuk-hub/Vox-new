@@ -4,11 +4,13 @@ import {
   Hero, WhoItsFor, BeforeAfter, Capabilities, LiveServices, CVIntake, HowItWorks,
   Proof, Metrics, Integrations, Pricing, RiskReversal, FAQ, BottomCTA, TalkToUs,
 } from "@/components/VOXBULKHome";
+import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/recruitment")({
-  head: () => ({
-    meta: pageMeta("recruitment"),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => ({
+    meta: pageMeta("recruitment", { override: loaderData?.settings?.marketing_pages?.recruitment }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/recruitment" }],
   }),
   component: RecruitmentPage,

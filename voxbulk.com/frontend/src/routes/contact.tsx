@@ -5,11 +5,13 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { ArrowRight, ArrowLeft, Check, Mail, User, MessageSquare } from "lucide-react";
 import { frontpageApiFetch } from "@/lib/api";
 import { toast } from "sonner";
+import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/contact")({
-  head: () => ({
-    meta: pageMeta("contact"),
+  loader: async () => ({ settings: await fetchSeoSettings() }),
+  head: ({ loaderData }) => ({
+    meta: pageMeta("contact", { override: loaderData?.settings?.marketing_pages?.contact }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/contact" }],
   }),
 
