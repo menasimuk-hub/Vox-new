@@ -285,6 +285,9 @@ function emptySettings() {
     google_news_publication: '',
     google_news_language: 'en',
     gsc_property_url: '',
+    gsc_oauth_configured: false,
+    gsc_avg_position: null,
+    gsc_avg_position_prev: null,
     connections: { gsc: false, psi: false, moz: false },
     psi_api_key_set: false,
     moz_access_id_set: false,
@@ -388,6 +391,28 @@ export default function SeoControl() {
     refreshTab(tab)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search || '')
+    const nextTab = params.get('tab')
+    if (nextTab && TABS.some(([id]) => id === nextTab)) {
+      setTab(nextTab)
+    }
+    const gsc = params.get('gsc')
+    if (gsc === 'connected') {
+      showToast('Google Search Console connected')
+    } else if (gsc === 'error') {
+      setMsg(params.get('message') || 'Google Search Console OAuth failed')
+    }
+    if (gsc || nextTab) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('gsc')
+      url.searchParams.delete('message')
+      url.searchParams.delete('tab')
+      window.history.replaceState({}, '', url.pathname + url.search)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const close = () => setInfoOpen(null)
@@ -707,6 +732,54 @@ export default function SeoControl() {
       showToast('Settings saved')
     } catch (e) {
       setMsg(errMsg(e, 'Save failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connectGsc = async () => {
+    setBusy(true)
+    setMsg('')
+    try {
+      if (settings.gsc_property_url) {
+        await apiFetch('/admin/seo/settings', {
+          method: 'PUT',
+          body: JSON.stringify({ gsc_property_url: settings.gsc_property_url }),
+        })
+      }
+      const data = await apiFetch('/admin/seo/gsc/oauth/start')
+      const url = data?.authorize_url
+      if (!url) throw new Error('No authorize URL returned')
+      window.location.href = url
+    } catch (e) {
+      setMsg(errMsg(e, 'Could not start Google Search Console OAuth'))
+      setBusy(false)
+    }
+  }
+
+  const disconnectGsc = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/gsc/disconnect', { method: 'POST' })
+      await loadSettings()
+      await loadOverview().catch(() => {})
+      showToast('Google Search Console disconnected')
+    } catch (e) {
+      setMsg(errMsg(e, 'Could not disconnect GSC'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refreshGsc = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/gsc/refresh', { method: 'POST' })
+      await loadSettings()
+      await loadOverview().catch(() => {})
+      showToast(data?.note || 'Search Console ranking refreshed')
+    } catch (e) {
+      setMsg(errMsg(e, 'Could not refresh GSC ranking'))
     } finally {
       setBusy(false)
     }
@@ -1891,7 +1964,27 @@ export default function SeoControl() {
                     {conn.gsc ? 'Connected' : 'Not connected'}
                   </span>
                 </div>
-                <div className="d">Powers average ranking KPI. Save property URL below, then verify with the meta code above.</div>
+                <div className="d">
+                  {settings.gsc_oauth_configured
+                    ? 'Powers average ranking KPI. Save property URL, then Connect with Google OAuth.'
+                    : 'First save OAuth client in Admin → Integrations → Google Search Console, then Connect here.'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {conn.gsc ? (
+                  <>
+                    <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={refreshGsc}>
+                      Refresh ranking
+                    </button>
+                    <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectGsc}>
+                      Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={connectGsc}>
+                    Connect
+                  </button>
+                )}
               </div>
             </div>
             <div className="sc-kv-row">
@@ -1901,10 +1994,21 @@ export default function SeoControl() {
                   type="text"
                   value={settings.gsc_property_url}
                   onChange={(e) => setSetting('gsc_property_url', e.target.value)}
-                  placeholder="https://voxbulk.com/"
+                  placeholder="https://voxbulk.com/ or sc-domain:voxbulk.com"
                 />
               </div>
             </div>
+            {settings.gsc_avg_position != null && settings.gsc_avg_position !== '' ? (
+              <div className="sc-kv-row">
+                <label>Average position (28d)</label>
+                <div className="d" style={{ paddingTop: 8 }}>
+                  {settings.gsc_avg_position}
+                  {settings.gsc_avg_position_prev != null && settings.gsc_avg_position_prev !== ''
+                    ? ` (prev ${settings.gsc_avg_position_prev})`
+                    : ''}
+                </div>
+              </div>
+            ) : null}
 
             <div className="sc-settings-row">
               <div>

@@ -346,6 +346,13 @@ def test_google_calendar_integration(db: Session = Depends(get_db), _admin=Depen
     return test_google_calendar_platform_config(db)
 
 
+@router.post("/integrations/google-search-console/test")
+def test_google_search_console_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.gsc_oauth_service import test_gsc_platform_config
+
+    return test_gsc_platform_config(db)
+
+
 @router.post("/integrations/microsoft-calendar/test")
 def test_microsoft_calendar_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     from app.services.microsoft_calendar_service import test_microsoft_calendar_platform_config

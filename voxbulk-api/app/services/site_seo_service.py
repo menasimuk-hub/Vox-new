@@ -191,11 +191,20 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
             "psi": bool(row.psi_connected),
             "moz": bool(row.moz_connected),
         },
+        "gsc_oauth_configured": False,  # filled by router/settings loader when db available
         "gsc_avg_position": row.gsc_avg_position,
         "gsc_avg_position_prev": row.gsc_avg_position_prev,
         "moz_domain_authority": row.moz_domain_authority,
         "moz_domain_authority_prev": row.moz_domain_authority_prev,
     }
+
+
+def settings_to_admin_with_oauth(db: Session, row: SiteSeoSettings) -> dict[str, Any]:
+    from app.services.gsc_oauth_service import gsc_oauth_configured
+
+    data = settings_to_admin(row)
+    data["gsc_oauth_configured"] = gsc_oauth_configured(db)
+    return data
 
 
 def settings_to_public(row: SiteSeoSettings) -> dict[str, Any]:

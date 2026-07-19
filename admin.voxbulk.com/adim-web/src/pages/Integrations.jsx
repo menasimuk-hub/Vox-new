@@ -57,6 +57,7 @@ const PROVIDERS = [
   { key: 'calendly', label: 'Calendly' },
   { key: 'cal_com', label: 'Cal.com' },
   { key: 'google_calendar', label: 'Google Calendar' },
+  { key: 'google_search_console', label: 'Google Search Console' },
   { key: 'microsoft_calendar', label: 'Microsoft 365 Calendar' },
   { key: 'hubspot', label: 'HubSpot' },
   { key: 'pipedrive', label: 'Pipedrive' },
@@ -670,6 +671,7 @@ export default function Integrations() {
   const [calendlyTestResult, setCalendlyTestResult] = useState(null)
   const [calComTestResult, setCalComTestResult] = useState(null)
   const [googleCalendarTestResult, setGoogleCalendarTestResult] = useState(null)
+  const [googleSearchConsoleTestResult, setGoogleSearchConsoleTestResult] = useState(null)
   const [microsoftCalendarTestResult, setMicrosoftCalendarTestResult] = useState(null)
   const [hubspotTestResult, setHubspotTestResult] = useState('')
   const [pipedriveTestResult, setPipedriveTestResult] = useState(null)
@@ -1062,7 +1064,7 @@ export default function Integrations() {
         if (!config.default_voice_id && config.voice_id) config.default_voice_id = config.voice_id
         if (!config.voice_id && config.default_voice_id) config.voice_id = config.default_voice_id
       }
-      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
+      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'google_search_console' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
@@ -1143,6 +1145,7 @@ export default function Integrations() {
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calComStatus = activeProvider === 'cal_com' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
+  const googleSearchConsoleStatus = activeProvider === 'google_search_console' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const microsoftCalendarStatus = activeProvider === 'microsoft_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const pipedriveStatus = activeProvider === 'pipedrive' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -1255,6 +1258,18 @@ export default function Integrations() {
     } catch (e) {
       setGoogleCalendarTestResult(null)
       setProviderError(e?.message || 'Google Calendar test failed')
+    }
+  }
+
+  const testGoogleSearchConsole = async () => {
+    setProviderError('')
+    setGoogleSearchConsoleTestResult({ detail: 'Testing Google Search Console…', ok: false, checks: [] })
+    try {
+      const result = await apiFetch('/admin/integrations/google-search-console/test', { method: 'POST' })
+      setGoogleSearchConsoleTestResult(result)
+    } catch (e) {
+      setGoogleSearchConsoleTestResult(null)
+      setProviderError(e?.message || 'Google Search Console test failed')
     }
   }
 
@@ -2757,6 +2772,45 @@ export default function Integrations() {
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving || !googleCalendarStatus.valid}>Save Google Calendar</button>
                       <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeSummary.configured}>Test Google Calendar</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeProvider === 'google_search_console' ? (
+              <div className='card'>
+                <div className='cardHead'>
+                  <h3>Google Search Console OAuth (SEO Control)</h3>
+                  <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
+                </div>
+                <div className='cardBody'>
+                  {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
+                  <div className='stack' style={{ gap: 12 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('google_search_console', e.target.checked)} />
+                      <span>Enable Search Console API for SEO Control ranking KPIs</span>
+                    </label>
+                    <div className='note'>
+                      Create a Google Cloud OAuth client (Web application). Enable <strong>Google Search Console API</strong>.
+                      Authorized redirect URI must be exactly:
+                      <code style={{ display: 'block', marginTop: 6 }}>https://api.voxbulk.com/admin/seo/gsc/oauth/callback</code>
+                      Then connect from SEO Control → Site Settings.
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client ID</label>
+                      <input className='input' style={googleSearchConsoleStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('google_search_console', 'client_id', e.target.value)} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Client secret</label>
+                      <input className='input' style={googleSearchConsoleStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, google_search_console: { ...(s.google_search_console || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Google client secret'} />
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Redirect URI</label>
+                      <input className='input' style={googleSearchConsoleStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('google_search_console', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/admin/seo/gsc/oauth/callback' />
+                    </div>
+                    {googleSearchConsoleTestResult ? <OAuthPlatformTestPanel result={googleSearchConsoleTestResult} /> : null}
+                    <div className='actions'>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('google_search_console')} disabled={providerSaving || !googleSearchConsoleStatus.valid}>Save Google Search Console</button>
+                      <button className='btn soft' onClick={testGoogleSearchConsole} disabled={providerSaving || !activeSummary.configured}>Test Google Search Console</button>
                     </div>
                   </div>
                 </div>

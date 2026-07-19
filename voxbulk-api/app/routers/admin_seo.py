@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.services import site_seo_service as svc
+from app.services.gsc_oauth_service import (
+    admin_redirect_origin,
+    disconnect_gsc,
+    gsc_oauth_complete,
+    gsc_oauth_start,
+    refresh_gsc_metrics,
+)
 from app.services.site_blog_news_image import save_uploaded_theme_image
 
 admin_router = APIRouter(prefix="/admin/seo", tags=["admin-seo"])
@@ -208,7 +218,7 @@ def admin_broken_fixed(
 
 @admin_router.get("/settings")
 def admin_get_settings(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    return svc.settings_to_admin(svc.ensure_settings(db))
+    return svc.settings_to_admin_with_oauth(db, svc.ensure_settings(db))
 
 
 @admin_router.put("/settings")
@@ -218,7 +228,7 @@ def admin_put_settings(
     _admin=Depends(require_platform_admin),
 ):
     row = svc.update_settings(db, body.model_dump(exclude_unset=True))
-    return svc.settings_to_admin(row)
+    return svc.settings_to_admin_with_oauth(db, row)
 
 
 @admin_router.post("/settings/connect-psi")
@@ -237,6 +247,44 @@ def admin_connect_moz(
     _admin=Depends(require_platform_admin),
 ):
     return svc.connect_moz(db, body.access_id, body.secret_key)
+
+
+@admin_router.get("/gsc/oauth/start")
+def admin_gsc_oauth_start(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    try:
+        return {"authorize_url": gsc_oauth_start(db)}
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@admin_router.get("/gsc/oauth/callback")
+def admin_gsc_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: Session = Depends(get_db),
+):
+    origin = admin_redirect_origin()
+    target = f"{origin}/marketing/seo-control"
+    if error:
+        return RedirectResponse(url=f"{target}?gsc=error&message={quote(error[:200])}")
+    try:
+        gsc_oauth_complete(db, code=code, state=state)
+    except ValueError as exc:
+        return RedirectResponse(url=f"{target}?tab=settings&gsc=error&message={quote(str(exc)[:200])}")
+    return RedirectResponse(url=f"{target}?tab=settings&gsc=connected")
+
+
+@admin_router.post("/gsc/disconnect")
+def admin_gsc_disconnect(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return disconnect_gsc(db)
+
+
+@admin_router.post("/gsc/refresh")
+def admin_gsc_refresh(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return refresh_gsc_metrics(db)
 
 
 @admin_router.post("/upload-image")

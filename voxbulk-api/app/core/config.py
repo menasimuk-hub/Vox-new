@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     google_calendar_client_secret: str = Field(default="", alias="GOOGLE_CALENDAR_CLIENT_SECRET")
     google_calendar_redirect_uri: str = Field(default="", alias="GOOGLE_CALENDAR_REDIRECT_URI")
 
+    google_gsc_client_id: str = Field(default="", alias="GOOGLE_GSC_CLIENT_ID")
+    google_gsc_client_secret: str = Field(default="", alias="GOOGLE_GSC_CLIENT_SECRET")
+    google_gsc_redirect_uri: str = Field(default="", alias="GOOGLE_GSC_REDIRECT_URI")
+
     cronofy_client_id: str = Field(default="", alias="CRONOFY_CLIENT_ID")
     cronofy_client_secret: str = Field(default="", alias="CRONOFY_CLIENT_SECRET")
     cronofy_redirect_uri: str = Field(default="", alias="CRONOFY_REDIRECT_URI")
@@ -126,6 +130,7 @@ class Settings(BaseSettings):
     # Invite links returned by admin API (public sign-in origin)
     public_app_origin: str = Field(default="http://localhost:5173", alias="PUBLIC_APP_ORIGIN")
     dashboard_app_origin: str = Field(default="http://localhost:5175", alias="DASHBOARD_APP_ORIGIN")
+    admin_app_origin: str = Field(default="https://admin.voxbulk.com", alias="ADMIN_APP_ORIGIN")
     booking_app_origin: str = Field(default="", alias="BOOKING_APP_ORIGIN")
 
     # Password reset email links expire after this window (minutes)

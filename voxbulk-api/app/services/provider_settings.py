@@ -46,6 +46,7 @@ class ProviderSettingsService:
         "calendly",
         "cal_com",
         "google_calendar",
+        "google_search_console",
         "microsoft_calendar",
         "cronofy",
         "hubspot",
@@ -87,6 +88,7 @@ class ProviderSettingsService:
         "calendly": {"client_id", "client_secret", "redirect_uri"},
         "cal_com": {"client_id", "client_secret", "redirect_uri"},
         "google_calendar": {"client_id", "client_secret", "redirect_uri"},
+        "google_search_console": {"client_id", "client_secret", "redirect_uri"},
         "microsoft_calendar": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
         "hubspot": set(),
@@ -119,6 +121,7 @@ class ProviderSettingsService:
         "calendly": {"client_secret"},
         "cal_com": {"client_secret"},
         "google_calendar": {"client_secret"},
+        "google_search_console": {"client_secret"},
         "microsoft_calendar": {"client_secret"},
         "cronofy": {"client_secret"},
         "hubspot": {"client_secret"},
@@ -238,6 +241,8 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_cal_com_config(config)
         if provider == "google_calendar":
             config = ProviderSettingsService._validate_google_calendar_config(config)
+        if provider == "google_search_console":
+            config = ProviderSettingsService._validate_google_search_console_config(config)
         if provider == "microsoft_calendar":
             config = ProviderSettingsService._validate_microsoft_calendar_config(config)
         if provider == "cronofy":
@@ -926,6 +931,27 @@ class ProviderSettingsService:
         if errors:
             details = "; ".join(f"{field}: {message}" for field, message in errors.items())
             raise ValueError(f"Google Calendar settings validation failed: {details}")
+        cfg["client_id"] = client_id
+        cfg["client_secret"] = client_secret
+        cfg["redirect_uri"] = redirect_uri
+        return cfg
+
+    @staticmethod
+    def _validate_google_search_console_config(config: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**config}
+        errors: dict[str, str] = {}
+        client_id = str(cfg.get("client_id") or "").strip()
+        client_secret = str(cfg.get("client_secret") or "").strip()
+        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        if not client_id:
+            errors["client_id"] = "Client ID is required"
+        if not client_secret:
+            errors["client_secret"] = "Client secret is required"
+        if not redirect_uri:
+            errors["redirect_uri"] = "Redirect URI is required"
+        if errors:
+            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
+            raise ValueError(f"Google Search Console settings validation failed: {details}")
         cfg["client_id"] = client_id
         cfg["client_secret"] = client_secret
         cfg["redirect_uri"] = redirect_uri
