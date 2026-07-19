@@ -409,18 +409,26 @@ class SalesRepService:
             if not customer.mobile:
                 return {"ok": False, "message": "Customer has no mobile number."}
             try:
-                from app.data.sales_offer_email_default import SALES_OFFER_WHATSAPP_BODY
-                from app.services.telnyx_messaging_service import TelnyxMessagingService
+                # Must use approved Meta/Telnyx marketing template (plain text fails outside 24h window).
+                from app.services.sales_whatsapp_send_service import send_sales_whatsapp
 
-                body = SALES_OFFER_WHATSAPP_BODY
-                for key, val in variables.items():
-                    body = body.replace(f"{{{{{key}}}}}", str(val))
-                body = f"{body}\n\nSign up: {signup_url}"
-                res = TelnyxMessagingService.send_whatsapp(
-                    db, to_number=customer.mobile, body=body, service_code="marketing"
+                str_vars = {k: str(v) for k, v in variables.items()}
+                plain = SalesOfferSendService._whatsapp_body(db, str_vars)
+                res = send_sales_whatsapp(
+                    db,
+                    to_number=customer.mobile,
+                    template_key="sales_offer",
+                    body=plain,
+                    variables=str_vars,
                 )
-                ok = bool(getattr(res, "ok", True))
-                log = {"channel": "wa", "ok": ok}
+                ok = bool(getattr(res, "ok", False))
+                log = {
+                    "channel": "wa",
+                    "ok": ok,
+                    "template_key": "sales_offer",
+                    "message_id": getattr(res, "external_id", None),
+                    "error": None if ok else (getattr(res, "detail", None) or getattr(res, "status", None)),
+                }
             except Exception as e:  # noqa: BLE001
                 log = {"channel": "wa", "ok": False, "error": str(e)}
         else:
