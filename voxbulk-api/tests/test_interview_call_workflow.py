@@ -10,7 +10,8 @@ def test_english_workflow_has_recording_and_closing():
     assert "anything you'd like to add" in flow
     assert "Our team will review your answers and be in touch within {timeframe}" in flow
     assert "Do not hang up until this full closing has been spoken" in flow
-    assert "do not rush the candidate" in flow.lower() or "Do not rush the candidate" in flow
+    assert "brisk and natural" in flow.lower()
+    assert "never cut them off" in flow.lower() or "give the candidate time" in flow.lower()
     assert "decline recording" in flow.lower() or "do not consent" in flow.lower()
     assert "not free" in flow.lower() or "asks to reschedule" in flow.lower()
     # Recording consent before time ask; one gate per turn.

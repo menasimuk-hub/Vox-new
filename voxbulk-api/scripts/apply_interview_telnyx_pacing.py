@@ -29,7 +29,8 @@ def main() -> int:
                 print(f"skip {agent.name}: no telnyx_assistant_id")
                 continue
             try:
-                result = apply_interview_assistant_pacing(db, aid, voice_speed=1.0)
+                # Use provider defaults (ElevenLabs ~1.12, NaturalHD ~1.2) — do not force 1.0.
+                result = apply_interview_assistant_pacing(db, aid)
                 voice = "voice_err" if result.get("voice_error") else "voice_ok"
                 intr = "int_err" if result.get("interruption_error") else "int_ok"
                 print(f"{agent.name}\t{aid}\t{voice}\t{intr}")

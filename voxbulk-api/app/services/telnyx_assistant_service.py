@@ -449,9 +449,9 @@ def apply_interview_assistant_pacing(
 ) -> dict[str, Any]:
     """Tune turn-taking and TTS so the agent sounds natural on the phone.
 
-    ElevenLabs Flash at 1.15 often sounds rushed/robotic — prefer 1.0.
+    ElevenLabs Flash at 1.0 often feels slow/bot-like on PSTN — prefer ~1.12.
     NaturalHD at 1.0 often sounded slow/"drunk" — prefer ~1.15–1.2.
-    Do not use 0.8 (robotic slow). Clamp stays 0.85–1.2.
+    Do not use 0.8 (robotic slow). Clamp stays 0.85–1.25.
     """
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     existing = fetch_telnyx_assistant(db, clean_id)
@@ -460,12 +460,12 @@ def apply_interview_assistant_pacing(
     tts_provider, _vid, _extras = parse_telnyx_assistant_voice(voice, voice_settings=current)
     # Provider-aware defaults when caller does not pass an explicit speed.
     if voice_speed is None:
-        target = 1.2 if (tts_provider == "telnyx" and "naturalhd" in voice.lower()) else 1.0
+        target = 1.2 if (tts_provider == "telnyx" and "naturalhd" in voice.lower()) else 1.12
     else:
         target = float(voice_speed)
     if tts_provider == "telnyx" and "naturalhd" in voice.lower():
         target = max(target, 1.15)
-    clamped = max(0.85, min(1.2, target))
+    clamped = max(0.85, min(1.25, target))
 
     # Minimal PATCH — do not resend the full voice_settings blob (Telnyx 400s on extras).
     # Always set voice_speed explicitly: Telnyx Natural uses it, and some ElevenLabs
@@ -474,10 +474,10 @@ def apply_interview_assistant_pacing(
         voice_patch: dict[str, Any] = {
             "speed": clamped,
             "voice_speed": clamped,
-            # Slightly steadier delivery on phone (less “bot chirp”).
-            "stability": 0.55,
-            "similarity_boost": 0.8,
-            "style": 0.15,
+            # Slightly more expressive on phone (less flat “bot” delivery).
+            "stability": 0.48,
+            "similarity_boost": 0.78,
+            "style": 0.28,
             "use_speaker_boost": True,
         }
         if voice:
