@@ -1999,7 +1999,7 @@ export default function SeoControl() {
                   type="text"
                   value={settings.gsc_property_url}
                   onChange={(e) => setSetting('gsc_property_url', e.target.value)}
-                  placeholder="https://voxbulk.com/ or sc-domain:voxbulk.com"
+                  placeholder="sc-domain:voxbulk.com (or https://voxbulk.com/)"
                 />
               </div>
             </div>

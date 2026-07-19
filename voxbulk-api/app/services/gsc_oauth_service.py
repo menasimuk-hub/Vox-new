@@ -254,6 +254,17 @@ def _refresh_access_token(db: Session, refresh_token: str) -> str:
     return access
 
 
+def _host_from_property(value: str) -> str:
+    raw = (value or "").strip().lower()
+    if raw.startswith("sc-domain:"):
+        return raw.split(":", 1)[1].strip()
+    for prefix in ("https://", "http://"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix) :]
+            break
+    return raw.split("/")[0].strip()
+
+
 def _pick_property(access_token: str, preferred: str) -> str:
     preferred = (preferred or "").strip()
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -272,7 +283,22 @@ def _pick_property(access_token: str, preferred: str) -> str:
         for u in urls:
             if u.rstrip("/") == preferred.rstrip("/"):
                 return u
-        # preferred not in list — still use it (user may have typed correctly but list delayed)
+        # Map https://voxbulk.com -> sc-domain:voxbulk.com (or matching URL-prefix)
+        host = _host_from_property(preferred)
+        if host:
+            domain_prop = f"sc-domain:{host}"
+            if domain_prop in urls:
+                return domain_prop
+            www_host = host[4:] if host.startswith("www.") else f"www.{host}"
+            for candidate in (f"https://{host}/", f"https://{www_host}/", f"http://{host}/"):
+                if candidate in urls:
+                    return candidate
+        # Fall back to first property on this Google account rather than a URL Google rejects
+        if urls:
+            for u in urls:
+                if host and host in u.lower():
+                    return u
+            return urls[0]
         return preferred
     for u in urls:
         if "voxbulk.com" in u.lower():
@@ -360,7 +386,20 @@ def refresh_gsc_metrics(db: Session, *, access_token: str | None = None) -> dict
             detail="Set Search Console property URL (e.g. https://voxbulk.com/ or sc-domain:voxbulk.com).",
         )
     token = access_token or _refresh_access_token(db, refresh)
-    position = _query_avg_position(token, site_url)
+    try:
+        position = _query_avg_position(token, site_url)
+    except HTTPException as exc:
+        detail = str(exc.detail or "")
+        if "403" in detail or "sufficient permission" in detail.lower():
+            corrected = _pick_property(token, site_url)
+            if corrected and corrected != site_url:
+                site_url = corrected
+                settings.gsc_property_url = site_url
+                position = _query_avg_position(token, site_url)
+            else:
+                raise
+        else:
+            raise
     if position is not None:
         if settings.gsc_avg_position is not None:
             settings.gsc_avg_position_prev = settings.gsc_avg_position
