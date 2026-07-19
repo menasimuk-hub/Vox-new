@@ -1273,7 +1273,9 @@ export default function OrgControlCenter() {
     const defaultEmail = String(org?.contact_email || org?.billing_email || '').trim()
     const email = window.prompt(
       'TEST ONLY — permanently delete a dashboard user by email.\n' +
-        'Solo-member org is wiped; shared orgs keep other members.\n\n' +
+        'Solo-member org is wiped (subscription/billing included).\n' +
+        'Shared orgs keep other members.\n' +
+        'Note: re-signup with a promo code creates a NEW plan + wallet — that is not leftover data.\n\n' +
         'Enter user email:',
       defaultEmail,
     )

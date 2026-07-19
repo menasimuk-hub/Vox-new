@@ -558,8 +558,9 @@ export default function OrganisationProfile() {
     }
     const typed = window.prompt(
       `TEST ONLY — permanently delete ${email}.\n` +
-        `• Sole member of an org → wipe that org + billing\n` +
-        `• Shared org → remove this user only (org kept)\n\n` +
+        `• Sole member of an org → wipe that org + billing/subscription\n` +
+        `• Shared org → remove this user only (org kept)\n` +
+        `Note: signing up again with a promo (e.g. UKMAN15) will create a NEW Starter plan + wallet credit.\n\n` +
         `Type exactly: HARD_DELETE`,
     )
     if (typed === null) return

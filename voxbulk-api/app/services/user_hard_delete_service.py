@@ -59,7 +59,7 @@ from app.models.patient import Patient
 from app.models.payment_event import PaymentEvent
 from app.models.platform_compliance_audit import PlatformComplianceAuditEvent
 from app.models.pricing import OrgCustomPricing
-from app.models.promo_offer import PromoRedemption
+from app.models.promo_offer import PromoOffer, PromoRedemption
 from app.models.provider_config import ProviderConfig
 from app.models.recovery_job import RecoveryJob
 from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
@@ -306,6 +306,53 @@ def _delete_sales_rep_for_user(db: Session, user_id: str) -> int:
     return 1
 
 
+def _cleanup_email_residuals(db: Session, email: str) -> dict[str, int]:
+    """Remove CRM/invite rows that survive by email after the user/org rows are gone."""
+    needle = str(email or "").strip().lower()
+    if not needle:
+        return {"invites_deleted": 0, "sales_customers_deleted": 0, "promo_redemptions_decremented": 0}
+
+    invites = int(
+        db.execute(
+            select(func.count()).select_from(OrganisationInvite).where(func.lower(OrganisationInvite.email) == needle)
+        ).scalar_one()
+        or 0
+    )
+    db.execute(delete(OrganisationInvite).where(func.lower(OrganisationInvite.email) == needle))
+
+    cust_ids = list(
+        db.execute(select(SalesCustomer.id).where(func.lower(SalesCustomer.email) == needle)).scalars().all()
+    )
+    if cust_ids:
+        db.execute(
+            update(SalesCommission)
+            .where(SalesCommission.sales_customer_id.in_(cust_ids))
+            .values(sales_customer_id=None)
+        )
+        db.execute(delete(SalesCustomer).where(SalesCustomer.id.in_(cust_ids)))
+
+    return {
+        "invites_deleted": invites,
+        "sales_customers_deleted": len(cust_ids),
+    }
+
+
+def _delete_promo_redemptions_for_user(db: Session, user_id: str) -> int:
+    """Delete promo redemptions and restore offer redemption_count for clean re-tests."""
+    rows = list(
+        db.execute(select(PromoRedemption).where(PromoRedemption.user_id == user_id)).scalars().all()
+    )
+    if not rows:
+        return 0
+    for red in rows:
+        offer = db.get(PromoOffer, red.promo_offer_id)
+        if offer is not None:
+            offer.redemption_count = max(0, int(offer.redemption_count or 0) - 1)
+            db.add(offer)
+        db.delete(red)
+    return len(rows)
+
+
 def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
     order_count = int(
         db.execute(select(func.count()).select_from(ServiceOrder).where(ServiceOrder.org_id == org_id)).scalar_one() or 0
@@ -487,11 +534,11 @@ def hard_delete_user(
 
     report["user_references"] = detach_user_references(db, user_id)
     report["sales_rep_deleted"] = _delete_sales_rep_for_user(db, user_id)
+    report["promo_redemptions_deleted"] = _delete_promo_redemptions_for_user(db, user_id)
 
     db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
     db.execute(delete(OAuthIdentity).where(OAuthIdentity.user_id == user_id))
     db.execute(delete(BillingRedirectFlow).where(BillingRedirectFlow.user_id == user_id))
-    db.execute(delete(PromoRedemption).where(PromoRedemption.user_id == user_id))
 
     for oid in solo_targets:
         for entry in report["solo_orgs"]:
@@ -516,6 +563,7 @@ def hard_delete_user(
             )
 
     db.execute(delete(OrganisationMembership).where(OrganisationMembership.user_id == user_id))
+    report["email_residuals"] = _cleanup_email_residuals(db, email)
     db.delete(user)
     report["status"] = "deleted"
     return report
