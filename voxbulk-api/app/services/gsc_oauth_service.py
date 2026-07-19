@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -140,23 +142,48 @@ def test_gsc_platform_config(db: Session) -> dict[str, Any]:
     )
 
 
+def _state_signing_key() -> bytes:
+    # Prefer Fernet key material so state is tied to ENCRYPTION_KEY without long ciphertext in the URL.
+    try:
+        raw = get_encryptor().encrypt_str("gsc-oauth-state-v1")
+        return hashlib.sha256(raw.encode("utf-8")).digest()
+    except Exception:
+        return hashlib.sha256(b"voxbulk-gsc-oauth-state").digest()
+
+
 def _make_state() -> str:
-    payload = f"{STATE_PREFIX}{int(datetime.utcnow().timestamp())}:{secrets.token_urlsafe(16)}"
-    return get_encryptor().encrypt_str(payload)
+    ts = str(int(datetime.utcnow().timestamp()))
+    nonce = secrets.token_urlsafe(12)
+    body = f"{ts}.{nonce}"
+    sig = hmac.new(_state_signing_key(), body.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return f"{body}.{sig}"
 
 
 def _verify_state(state: str) -> None:
     raw = (state or "").strip()
-    if not raw:
-        raise ValueError("Missing OAuth state")
-    try:
-        payload = get_encryptor().decrypt_str(raw)
-    except Exception as exc:
-        raise ValueError("Invalid OAuth state") from exc
-    if not payload.startswith(STATE_PREFIX):
+    parts = raw.split(".")
+    if len(parts) != 3:
+        # Backward-compatible: accept previous Fernet-encrypted states briefly
+        try:
+            payload = get_encryptor().decrypt_str(raw)
+        except Exception as exc:
+            raise ValueError("Invalid OAuth state") from exc
+        if not payload.startswith(STATE_PREFIX):
+            raise ValueError("Invalid OAuth state")
+        body = payload[len(STATE_PREFIX) :]
+        ts_str = body.split(":", 1)[0]
+        try:
+            ts = int(ts_str)
+        except ValueError as exc:
+            raise ValueError("Invalid OAuth state") from exc
+        if abs(int(datetime.utcnow().timestamp()) - ts) > STATE_MAX_AGE_SEC:
+            raise ValueError("OAuth state expired — try Connect again")
+        return
+    ts_str, nonce, sig = parts
+    body = f"{ts_str}.{nonce}"
+    expected = hmac.new(_state_signing_key(), body.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(expected, sig):
         raise ValueError("Invalid OAuth state")
-    body = payload[len(STATE_PREFIX) :]
-    ts_str = body.split(":", 1)[0]
     try:
         ts = int(ts_str)
     except ValueError as exc:
@@ -180,7 +207,6 @@ def gsc_oauth_start(db: Session) -> str:
         "state": _make_state(),
         "access_type": "offline",
         "prompt": "consent",
-        "include_granted_scopes": "true",
     }
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 

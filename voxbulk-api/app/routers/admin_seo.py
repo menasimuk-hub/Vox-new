@@ -264,12 +264,14 @@ def admin_gsc_oauth_callback(
     code: str = "",
     state: str = "",
     error: str = "",
+    error_description: str = "",
     db: Session = Depends(get_db),
 ):
     origin = admin_redirect_origin()
     target = f"{origin}/marketing/seo-control"
     if error:
-        return RedirectResponse(url=f"{target}?gsc=error&message={quote(error[:200])}")
+        detail = (error_description or error or "Google OAuth denied").strip()
+        return RedirectResponse(url=f"{target}?tab=settings&gsc=error&message={quote(detail[:200])}")
     try:
         gsc_oauth_complete(db, code=code, state=state)
     except ValueError as exc:

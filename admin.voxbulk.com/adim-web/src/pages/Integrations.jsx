@@ -2790,10 +2790,12 @@ export default function Integrations() {
                       <span>Enable Search Console API for SEO Control ranking KPIs</span>
                     </label>
                     <div className='note'>
-                      Create a Google Cloud OAuth client (Web application). Enable <strong>Google Search Console API</strong>.
-                      Authorized redirect URI must be exactly:
+                      Saving credentials here only configures the OAuth app — it does <strong>not</strong> connect Search Console yet.
+                      In Google Cloud: enable <strong>Google Search Console API</strong>, create OAuth client type <strong>Web application</strong>,
+                      set consent screen (External → Testing is fine), add your Google account as a <strong>Test user</strong>,
+                      and add this exact redirect URI:
                       <code style={{ display: 'block', marginTop: 6 }}>https://api.voxbulk.com/admin/seo/gsc/oauth/callback</code>
-                      Then connect from SEO Control → Site Settings.
+                      Then open SEO Control → Site Settings → <strong>Connect</strong> and sign in with the same Google account that owns the GSC property.
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client ID</label>
