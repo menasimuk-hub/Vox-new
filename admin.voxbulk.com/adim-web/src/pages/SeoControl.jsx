@@ -1876,9 +1876,21 @@ export default function SeoControl() {
           </div>
 
           <div className="sc-settings-card">
+            <h3>What “Submit” means</h3>
+            <div className="sc-card-sub">
+              Submit sends your <strong>sitemap URL list</strong> to search engines — not keywords.
+              The sitemap already includes homepage, product pages (/surveys, /feedback, /recruitment, /pricing, …),
+              Blog posts, News, and FAQ pages that are set to index.
+              Keyword Ideas only save phrases onto your pages; they are never “submitted” as keywords.
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
             <h3>Search engines — submit sitemap</h3>
             <div className="sc-card-sub">
-              Regenerates the sitemap, pings IndexNow (Bing/Yandex), then submits to connected engines. Google does not use IndexNow.
+              1) Rebuild sitemap list → 2) IndexNow ping (Bing/Yandex, if key exists) → 3) Tell Google / Bing / Yandex to fetch{' '}
+              <code>https://voxbulk.com/sitemap.xml</code>. Google needs a fresh Connect after write-scope was enabled
+              (old connection was read-only → 403).
             </div>
             <div className="sc-settings-row">
               <div>
@@ -1903,6 +1915,13 @@ export default function SeoControl() {
                 <div className="d">
                   Last: {engines?.google?.last_submitted_at ? fmtDate(engines.google.last_submitted_at) : '—'}
                   {engines?.google?.last_error ? ` · ${engines.google.last_error}` : ''}
+                  {!engines?.google?.last_error && !engines?.google?.last_submitted_at
+                    ? ''
+                    : ''}
+                  {(engines?.google?.last_error || '').includes('insufficient') ||
+                  (engines?.google?.last_error || '').includes('403')
+                    ? ' → Fix: APIs tab → Google → Disconnect → Connect again (approve write access).'
+                    : ''}
                 </div>
               </div>
               <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={submitGoogle}>
@@ -2030,7 +2049,7 @@ export default function SeoControl() {
             </h3>
             <div className="sc-card-sub">
               {settings.gsc_oauth_configured
-                ? 'OAuth app is configured. Click Connect once to authorize this Admin with write access for sitemap submit + ranking.'
+                ? 'If sitemap submit returns 403 insufficient scopes: Disconnect, then Connect again and approve access (write scope is required to submit sitemaps). Ranking refresh also uses this connection.'
                 : 'First save Client ID/secret under Integrations → Google Search Console, then return here.'}
             </div>
             <div className="sc-kv-row">
