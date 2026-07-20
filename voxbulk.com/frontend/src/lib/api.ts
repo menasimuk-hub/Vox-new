@@ -68,10 +68,21 @@ export function getApiBaseUrl() {
 
 /** Marketing site (voxbulk.com): same-origin `/frontpage` → Vite preview proxy → FastAPI on :8000. */
 export function getFrontpageApiBaseUrl() {
-  if (typeof window !== "undefined") {
-    const h = window.location.hostname.toLowerCase();
-    if (h === "voxbulk.com" || h === "www.voxbulk.com") return "";
+  // Server handlers (sitemap, IndexNow key file, SSR loaders) have no window/proxy — call local API.
+  if (typeof window === "undefined") {
+    const ssr =
+      (import.meta.env.VITE_SSR_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || "")
+        .trim()
+        .replace(/\/+$/, "") || "http://127.0.0.1:8000";
+    try {
+      const u = new URL(ssr.includes("://") ? ssr : `http://${ssr}`);
+      return u.origin;
+    } catch {
+      return "http://127.0.0.1:8000";
+    }
   }
+  const h = window.location.hostname.toLowerCase();
+  if (h === "voxbulk.com" || h === "www.voxbulk.com") return "";
   if (isViteDevelopment() && isLocalDevHost()) return "";
   return getApiBaseUrl();
 }
