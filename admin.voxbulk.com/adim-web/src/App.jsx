@@ -67,11 +67,11 @@ export default function App() {
         <Route path='/operations/running-appointments' element={<P.RunningAppointments />} />
         <Route path='/operations/orders/:orderId' element={<P.ServiceOrderDetail />} />
         <Route path='/operations/script-moderation' element={<P.ScriptModeration />} />
-        <Route path='/operations/call-queue' element={<P.OperationsQueue title='Call queue' />} />
-        <Route path='/operations/whatsapp-queue' element={<P.OperationsQueue title='WhatsApp queue' />} />
-        <Route path='/operations/failed-jobs' element={<P.OperationsQueue title='Failed jobs' />} />
-        <Route path='/operations/manual-retry' element={<P.OperationsQueue title='Manual retry' />} />
-        <Route path='/operations/recovery-events' element={<P.OperationsQueue title='Recovery events' />} />
+        <Route path='/operations/call-queue' element={<P.OperationsQueue mode='call-queue' />} />
+        <Route path='/operations/whatsapp-queue' element={<P.OperationsQueue mode='whatsapp-queue' />} />
+        <Route path='/operations/failed-jobs' element={<P.OperationsQueue mode='failed-jobs' />} />
+        <Route path='/operations/manual-retry' element={<P.OperationsQueue mode='manual-retry' />} />
+        <Route path='/operations/recovery-events' element={<P.OperationsQueue mode='recovery-events' />} />
 
         <Route path='/marketing/lead-sources' element={<P.LeadSources />} />
         <Route path='/marketing/lead-sales' element={<P.LeadSales />} />

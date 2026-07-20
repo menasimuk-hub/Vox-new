@@ -1,0 +1,302 @@
+.opsConsole {
+  --ops-bg: #f7f7f6;
+  --ops-surface: #fff;
+  --ops-surface2: #f0efed;
+  --ops-border: #e4e3e0;
+  --ops-border2: #d0cfc9;
+  --ops-text: #0f0f0e;
+  --ops-text2: #6b6a66;
+  --ops-text3: #9b9a96;
+  --ops-green: #16a34a;
+  --ops-green-bg: #f0fdf4;
+  --ops-amber: #d97706;
+  --ops-amber-bg: #fffbeb;
+  --ops-red: #dc2626;
+  --ops-red-bg: #fef2f2;
+  --ops-blue: #2563eb;
+  --ops-blue-bg: #eff6ff;
+  --ops-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+  --ops-radius: 10px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 4px 48px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ops-text);
+}
+
+.opsConsole-header {
+  padding: 22px 0 18px;
+  border-bottom: 1px solid var(--ops-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.opsConsole-title {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.opsConsole-sub {
+  font-size: 13px;
+  color: var(--ops-text3);
+  margin: 4px 0 0;
+  max-width: 720px;
+}
+
+.opsConsole-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.opsConsole-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--ops-radius);
+  border: 1px solid var(--ops-border);
+  background: var(--ops-surface);
+  font-size: 13px;
+}
+
+.opsConsole-note.error {
+  border-color: #fecaca;
+  background: var(--ops-red-bg);
+  color: #991b1b;
+}
+
+.opsConsole-note.ok {
+  border-color: #bbf7d0;
+  background: var(--ops-green-bg);
+  color: #166534;
+}
+
+.opsConsole-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+@media (max-width: 900px) {
+  .opsConsole-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.opsConsole-kpi {
+  background: var(--ops-surface);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.opsConsole-kpi.clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.opsConsole-kpi.clickable:hover {
+  border-color: var(--ops-border2);
+}
+
+.opsConsole-kpiLabel {
+  font-size: 12px;
+  color: var(--ops-text3);
+  margin-bottom: 4px;
+}
+
+.opsConsole-kpiValue {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.opsConsole-kpiHint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ops-text3);
+}
+
+.opsConsole-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 14px;
+}
+
+.opsConsole-chip {
+  border: 1px solid var(--ops-border);
+  background: var(--ops-surface);
+  color: var(--ops-text2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.opsConsole-chip.active {
+  background: var(--ops-text);
+  color: #fff;
+  border-color: var(--ops-text);
+}
+
+.opsConsole-panel {
+  background: var(--ops-surface);
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.opsConsole-panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ops-border);
+}
+
+.opsConsole-panelHead h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.opsConsole-panelHint {
+  font-size: 12px;
+  color: var(--ops-text3);
+}
+
+.opsConsole-tableWrap {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.opsConsole-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.opsConsole-table th,
+.opsConsole-table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ops-border);
+  vertical-align: top;
+}
+
+.opsConsole-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ops-text3);
+  font-weight: 600;
+  background: var(--ops-surface2);
+  white-space: nowrap;
+}
+
+.opsConsole-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.opsConsole-table tbody tr:hover td {
+  background: #fafaf9;
+}
+
+.opsConsole-mono {
+  font-family: var(--ops-mono);
+  font-size: 12px;
+}
+
+.opsConsole-muted {
+  color: var(--ops-text3);
+  font-size: 12px;
+}
+
+.opsConsole-errorCell {
+  max-width: 320px;
+  color: #991b1b;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.opsConsole-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.opsConsole-badge.failed,
+.opsConsole-badge.red {
+  background: var(--ops-red-bg);
+  color: var(--ops-red);
+}
+
+.opsConsole-badge.queued,
+.opsConsole-badge.received,
+.opsConsole-badge.processing,
+.opsConsole-badge.cyan {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.opsConsole-badge.calling,
+.opsConsole-badge.messaged,
+.opsConsole-badge.amber {
+  background: var(--ops-amber-bg);
+  color: var(--ops-amber);
+}
+
+.opsConsole-badge.recovered,
+.opsConsole-badge.processed,
+.opsConsole-badge.green {
+  background: var(--ops-green-bg);
+  color: var(--ops-green);
+}
+
+.opsConsole-badge.skipped,
+.opsConsole-badge.neutral {
+  background: var(--ops-surface2);
+  color: var(--ops-text2);
+}
+
+.opsConsole-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--ops-text3);
+  font-size: 13px;
+}
+
+.opsConsole-link {
+  color: var(--ops-blue);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.opsConsole-link:hover {
+  text-decoration: underline;
+}
+
+.opsConsole-rowActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

@@ -1,0 +1,123 @@
+.orgProfilePage {
+  --op-border: #e4e3e0;
+  --op-surface: #fff;
+  --op-surface2: #f0efed;
+  --op-text: #0f0f0e;
+  --op-text2: #6b6a66;
+  --op-text3: #9b9a96;
+  --op-radius: 10px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 4px 48px;
+}
+
+.orgProfilePage-header {
+  padding: 22px 0 18px;
+  border-bottom: 1px solid var(--op-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.orgProfilePage-title {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.orgProfilePage-sub {
+  font-size: 13px;
+  color: var(--op-text3);
+  margin: 4px 0 0;
+  max-width: 640px;
+}
+
+.orgProfilePage-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.orgProfilePage-id {
+  font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+  font-size: 12px;
+  color: var(--op-text2);
+  background: var(--op-surface2);
+  border: 1px solid var(--op-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.orgProfilePage-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.orgProfilePage-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--op-radius);
+  border: 1px solid var(--op-border);
+  background: var(--op-surface);
+  font-size: 13px;
+}
+
+.orgProfilePage-note.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.orgProfilePage-note.ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.orgProfilePage-tabs {
+  margin: 16px 0;
+}
+
+.orgProfilePage-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .orgProfilePage-grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.orgProfilePage-full {
+  width: 100%;
+  min-width: 0;
+}
+
+.orgProfilePage-quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.orgProfileFormWide .orgProfileGrid2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1100px) {
+  .orgProfileFormWide .orgProfileGrid3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 20px;
+  }
+}

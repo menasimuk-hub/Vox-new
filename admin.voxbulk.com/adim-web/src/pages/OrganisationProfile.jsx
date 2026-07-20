@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api'
 import { money } from '../lib/billingAdminUtils'
 import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import { adminOrderViewPath, interviewFormatLabel, nextColumnSort, orderListSortTs, orderMatchesSearch, sortRowsByColumn } from '../lib/serviceOrderAdmin'
+import './organisationProfile.css'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
 
@@ -40,33 +41,65 @@ function deletionPillClass(status) {
 }
 
 export default function OrganisationProfile() {
-  const orgId = localStorage.getItem('voxbulk_admin_selected_org_id') || ''
-  const signupUrl = orgId ? `${publicAppBase()}/signin?org_id=${encodeURIComponent(orgId)}` : ''
-
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = useMemo(() => tabFromSearchParams(searchParams), [searchParams])
   const selectedUserId = String(searchParams.get('user_id') || '').trim()
+  const orgIdFromQuery = String(searchParams.get('org_id') || '').trim()
+
+  const [orgId, setOrgId] = useState(() => orgIdFromQuery || localStorage.getItem('voxbulk_admin_selected_org_id') || '')
+  const [statusNote, setStatusNote] = useState({ type: '', text: '' })
+
+  const signupUrl = orgId ? `${publicAppBase()}/signin?org_id=${encodeURIComponent(orgId)}` : ''
+
+  useEffect(() => {
+    const fromQuery = orgIdFromQuery
+    const fromStore = localStorage.getItem('voxbulk_admin_selected_org_id') || ''
+    if (fromQuery) {
+      if (fromQuery !== fromStore) localStorage.setItem('voxbulk_admin_selected_org_id', fromQuery)
+      if (fromQuery !== orgId) setOrgId(fromQuery)
+      return
+    }
+    if (fromStore) {
+      if (fromStore !== orgId) setOrgId(fromStore)
+      const next = new URLSearchParams(searchParams)
+      next.set('org_id', fromStore)
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync org_id into URL once when missing
+  }, [orgIdFromQuery])
+
+  const buildParams = useCallback(
+    (overrides = {}) => {
+      const params = {}
+      const id = overrides.org_id !== undefined ? overrides.org_id : orgId
+      if (id) params.org_id = id
+      const nextTab = overrides.tab !== undefined ? overrides.tab : tab
+      if (nextTab && nextTab !== 'overview') params.tab = nextTab
+      const uid = overrides.user_id !== undefined ? overrides.user_id : selectedUserId
+      if (uid && (params.tab === 'users' || nextTab === 'users')) params.user_id = uid
+      return params
+    },
+    [orgId, tab, selectedUserId],
+  )
 
   const selectTab = useCallback(
     (id) => {
       const next = TAB_IDS.includes(id) ? id : 'overview'
-      if (next === 'overview') {
-        setSearchParams({}, { replace: true })
-      } else {
-        const params = { tab: next }
-        if (selectedUserId && next === 'users') params.user_id = selectedUserId
-        setSearchParams(params, { replace: true })
-      }
+      setSearchParams(buildParams({ tab: next, user_id: next === 'users' ? selectedUserId : '' }), { replace: true })
     },
-    [setSearchParams, selectedUserId],
+    [setSearchParams, buildParams, selectedUserId],
   )
 
   const selectUserActivity = useCallback(
     (userId) => {
-      setSearchParams({ tab: 'users', user_id: userId }, { replace: true })
+      setSearchParams(buildParams({ tab: 'users', user_id: userId }), { replace: true })
     },
-    [setSearchParams],
+    [setSearchParams, buildParams],
   )
+
+  const flash = useCallback((type, text) => {
+    setStatusNote({ type, text })
+  }, [])
 
   const [org, setOrg] = useState(null)
   const [branches, setBranches] = useState(null)
@@ -419,6 +452,7 @@ export default function OrganisationProfile() {
   const saveProfile = async () => {
     if (!orgId) return
     setProfileSaving(true)
+    setStatusNote({ type: '', text: '' })
     try {
       await apiFetch(`/admin/organisations/${orgId}`, {
         method: 'PATCH',
@@ -439,9 +473,9 @@ export default function OrganisationProfile() {
         }),
       })
       await refreshOrg()
-      window.alert('Profile saved.')
+      flash('ok', 'Profile saved.')
     } catch (e) {
-      window.alert(e?.message || 'Save failed')
+      flash('error', e?.message || 'Save failed')
     } finally {
       setProfileSaving(false)
     }
@@ -449,19 +483,20 @@ export default function OrganisationProfile() {
 
   const savePlan = async () => {
     if (!orgId || !planCode.trim()) {
-      window.alert('Choose a C.P plan code.')
+      flash('error', 'Choose a Core Platform plan.')
       return
     }
     setPlanSaving(true)
+    setStatusNote({ type: '', text: '' })
     try {
       await apiFetch(`/admin/organisations/${orgId}/subscription`, {
         method: 'PUT',
         body: JSON.stringify({ plan_code: planCode.trim(), status: subStatus.trim() || 'active' }),
       })
       await refreshOrg()
-      window.alert('C.P plan updated.')
+      flash('ok', 'Core Platform plan updated.')
     } catch (e) {
-      window.alert(e?.message || 'Could not update C.P plan')
+      flash('error', e?.message || 'Could not update Core Platform plan')
     } finally {
       setPlanSaving(false)
     }
@@ -469,10 +504,11 @@ export default function OrganisationProfile() {
 
   const saveFeedbackPlan = async () => {
     if (!orgId || !feedbackPlanCode.trim()) {
-      window.alert('Choose an F.B plan code.')
+      flash('error', 'Choose a Customer Feedback plan.')
       return
     }
     setFeedbackPlanSaving(true)
+    setStatusNote({ type: '', text: '' })
     try {
       await apiFetch(`/admin/organisations/${orgId}/feedback-subscription`, {
         method: 'PUT',
@@ -480,9 +516,9 @@ export default function OrganisationProfile() {
       })
       await refreshOrg()
       await refreshFeedbackPlans()
-      window.alert('F.B plan updated.')
+      flash('ok', 'Customer Feedback plan updated.')
     } catch (e) {
-      window.alert(e?.message || 'Could not update F.B plan')
+      flash('error', e?.message || 'Could not update Customer Feedback plan')
     } finally {
       setFeedbackPlanSaving(false)
     }
@@ -492,20 +528,21 @@ export default function OrganisationProfile() {
     if (!orgId) return
     const pounds = Number(walletCreditGbp || 0)
     if (!Number.isFinite(pounds) || pounds <= 0) {
-      window.alert('Enter a positive amount in GBP.')
+      flash('error', 'Enter a positive amount in GBP.')
       return
     }
     const amountPence = Math.round(pounds * 100)
     setWalletBusy(true)
+    setStatusNote({ type: '', text: '' })
     try {
       const res = await apiFetch(`/admin/organisations/${orgId}/wallet/credit`, {
         method: 'POST',
         body: JSON.stringify({ amount_pence: amountPence, note: 'Admin test credit' }),
       })
       await refreshOrg()
-      window.alert(`Wallet credited. New balance: ${res.wallet_balance_display || res.wallet_balance_gbp || ''}`)
+      flash('ok', `Wallet credited. New balance: ${res.wallet_balance_display || res.wallet_balance_gbp || ''}`)
     } catch (e) {
-      window.alert(e?.message || 'Could not credit wallet')
+      flash('error', e?.message || 'Could not credit wallet')
     } finally {
       setWalletBusy(false)
     }
@@ -514,14 +551,16 @@ export default function OrganisationProfile() {
   const saveSuspended = async (next) => {
     if (!orgId) return
     setSuspendSaving(true)
+    setStatusNote({ type: '', text: '' })
     try {
       await apiFetch(`/admin/organisations/${orgId}`, {
         method: 'PATCH',
         body: JSON.stringify({ is_suspended: next }),
       })
       await refreshOrg()
+      flash('ok', next ? 'Organisation suspended.' : 'Organisation unsuspended.')
     } catch (e) {
-      window.alert(e?.message || 'Could not update suspension')
+      flash('error', e?.message || 'Could not update suspension')
     } finally {
       setSuspendSaving(false)
     }
@@ -589,56 +628,80 @@ export default function OrganisationProfile() {
   }
 
   return (
-    <>
-      <div className='pageTop'>
+    <div className='orgProfilePage'>
+      <div className='orgProfilePage-header'>
         <div>
-          <h1>Organisation profile</h1>
-          <p>
-            Manage tenant profile, branches, members, plan, and suspension. New registrations appear under Users once they complete sign-up and are linked to this org.
+          <h1 className='orgProfilePage-title'>{org?.name || 'Organisation profile'}</h1>
+          <p className='orgProfilePage-sub'>
+            Tenant identity, branches, members, plans, and suspension. Billing ledger actions live in the Finance console.
           </p>
+          {orgId ? (
+            <div className='orgProfilePage-meta'>
+              <span className='orgProfilePage-id' title={orgId}>{orgId}</span>
+              {org?.is_suspended ? <span className='pill p-amber'>Suspended</span> : org ? <span className='pill p-green'>Active</span> : null}
+              {org?.category_name ? <span className='pill p-cyan'>{org.category_name}</span> : null}
+              {org?.deletion_status && org.deletion_status !== 'active' ? (
+                <span className={`pill ${deletionPillClass(org.deletion_status)}`}>{org.deletion_status}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        <div className='actions'>
-          <button
-            className='btn soft'
-            disabled={!orgId}
-            onClick={async () => {
-              if (!signupUrl) return
-              try {
-                await navigator.clipboard.writeText(signupUrl)
-                window.alert('Signup link copied.')
-              } catch {
-                window.prompt('Copy signup link:', signupUrl)
-              }
-            }}
-          >
-            Copy signup link
-          </button>
-          <button
-            className='btn soft'
-            disabled={!orgId}
-            onClick={() => signupUrl && window.open(signupUrl, '_blank', 'noopener,noreferrer')}
-          >
-            Open signup page
-          </button>
+        <div className='orgProfilePage-actions'>
+          <Link className='btn soft' to='/organisations'>Organisations</Link>
+          {orgId ? (
+            <>
+              <Link className='btn soft' to={`/organisations/${encodeURIComponent(orgId)}`}>Ops detail</Link>
+              <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link>
+              <button
+                type='button'
+                className='btn soft'
+                onClick={async () => {
+                  if (!signupUrl) return
+                  try {
+                    await navigator.clipboard.writeText(signupUrl)
+                    flash('ok', 'Signup link copied.')
+                  } catch {
+                    window.prompt('Copy signup link:', signupUrl)
+                  }
+                }}
+              >
+                Copy signup link
+              </button>
+              <button
+                type='button'
+                className='btn soft'
+                onClick={() => signupUrl && window.open(signupUrl, '_blank', 'noopener,noreferrer')}
+              >
+                Open signup
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
+      {statusNote.text ? (
+        <div className={`orgProfilePage-note ${statusNote.type === 'error' ? 'error' : 'ok'}`}>{statusNote.text}</div>
+      ) : null}
+
       {!orgId && (
-        <div className='card' style={{ marginBottom: 16 }}>
+        <div className='card' style={{ marginTop: 16, marginBottom: 16 }}>
           <div className='cardBody'>
-            <p className='muted'>Select an organisation from the list, or create one, then open this page again.</p>
+            <p className='muted' style={{ margin: 0 }}>Select an organisation from the list, then open Profile — or pass <code>?org_id=…</code> in the URL.</p>
+            <div className='orgProfilePage-quick'>
+              <Link className='btn primary' to='/organisations'>Browse organisations</Link>
+            </div>
           </div>
         </div>
       )}
 
       {loadError && orgId && (
-        <div className='card' style={{ marginBottom: 16, borderColor: '#fecaca' }}>
+        <div className='card' style={{ marginTop: 16, marginBottom: 16, borderColor: '#fecaca' }}>
           <div className='cardBody'>{loadError}</div>
         </div>
       )}
 
       {org?.deletion_status && org.deletion_status !== 'active' ? (
-        <div className='card' style={{ marginBottom: 16, borderColor: org.deletion_status === 'pending' ? 'rgba(245,158,11,0.45)' : 'rgba(220,38,38,0.35)' }}>
+        <div className='card' style={{ marginTop: 16, marginBottom: 16, borderColor: org.deletion_status === 'pending' ? 'rgba(245,158,11,0.45)' : 'rgba(220,38,38,0.35)' }}>
           <div className='cardBody' style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={`pill ${deletionPillClass(org.deletion_status)}`}>
               {org.deletion_status === 'pending' ? 'Pending deletion' : org.deletion_status === 'archived' ? 'Deleted' : org.deletion_status}
@@ -657,7 +720,7 @@ export default function OrganisationProfile() {
         </div>
       ) : null}
 
-      <div className='tabs' style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className='tabs orgProfilePage-tabs' style={{ flexWrap: 'wrap' }}>
         {TAB_IDS.map((id) => (
           <div
             key={id}
@@ -685,11 +748,20 @@ export default function OrganisationProfile() {
               <h2>{org ? org.name : orgId ? 'Loading…' : 'No organisation selected'}</h2>
               <p>
                 {org
-                  ? `${org.user_count} users · ${org.branch_count} branches · ${org.patient_count} patients · C.P ${org.core_plan_name || org.core_plan_code || org.plan_name || org.plan_code || '—'} · F.B ${org.feedback_plan_name || org.feedback_plan_code || '—'}`
+                  ? `${org.user_count} users · ${org.branch_count} branches · ${org.patient_count} patients · Core Platform ${org.core_plan_name || org.core_plan_code || org.plan_name || org.plan_code || '—'} · Customer Feedback ${org.feedback_plan_name || org.feedback_plan_code || '—'}`
                   : 'Select an org from the Organisations page.'}
               </p>
               {org?.category_name ? <span className='pill p-cyan'>Category: {org.category_name}</span> : null}
-              {org?.is_suspended ? <span className='pill p-amber'>Suspended — organisation login blocked</span> : <span className='pill p-green'>Active</span>}
+              {org?.is_suspended ? <span className='pill p-amber'>Suspended — organisation login blocked</span> : org ? <span className='pill p-green'>Active</span> : null}
+              {typeof org?.recovery_job_count === 'number' ? (
+                <span className='pill p-cyan' style={{ marginLeft: 6 }}>Recovery jobs: {org.recovery_job_count}</span>
+              ) : null}
+              <div className='orgProfilePage-quick'>
+                <button type='button' className='btn soft' onClick={() => selectTab('profile')}>Edit profile</button>
+                <button type='button' className='btn soft' onClick={() => selectTab('users')}>Manage users</button>
+                <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plans</button>
+                {orgId ? <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link> : null}
+              </div>
             </div>
             <div className='grid-4'>
               <div className='card stat' style={{ '--accent': '#0f766e' }}>
@@ -715,17 +787,18 @@ export default function OrganisationProfile() {
               <div className='cardHead'><h3>Billing snapshot</h3></div>
               <div className='cardBody'>
                 <div className='list'>
-                  <div className='listRow'><span>C.P plan</span><strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong></div>
-                  <div className='listRow'><span>C.P status</span><strong>{org?.core_subscription_status || org?.subscription_status || '—'}</strong></div>
-                  <div className='listRow'><span>F.B plan</span><strong>{org?.feedback_plan_name || org?.feedback_plan_code || '—'}</strong></div>
-                  <div className='listRow'><span>F.B status</span><strong>{org?.feedback_subscription_status || '—'}</strong></div>
-                  <div className='listRow'><span>Next billing (C.P)</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
-                  <div className='listRow'><span>Next charge (C.P)</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
+                  <div className='listRow'><span>Core Platform plan</span><strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong></div>
+                  <div className='listRow'><span>Core Platform status</span><strong>{org?.core_subscription_status || org?.subscription_status || '—'}</strong></div>
+                  <div className='listRow'><span>Customer Feedback plan</span><strong>{org?.feedback_plan_name || org?.feedback_plan_code || '—'}</strong></div>
+                  <div className='listRow'><span>Customer Feedback status</span><strong>{org?.feedback_subscription_status || '—'}</strong></div>
+                  <div className='listRow'><span>Next billing (Core)</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                  <div className='listRow'><span>Next charge (Core)</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
                   <div className='listRow'><span>Cancellation</span><strong>{financePreview?.status || 'none'}</strong></div>
+                  <div className='listRow'><span>Wallet</span><strong>{org?.wallet_balance_display || org?.wallet_balance_gbp || '—'}</strong></div>
                 </div>
                 <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
                   <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plan</button>
-                  <Link to='/organisations/all-users' className='btn soft' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Finance console</Link>
+                  {orgId ? <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`} className='btn soft'>Finance console</Link> : null}
                   <Link to='/onboarding/services' className='btn soft'>Product services</Link>
                 </div>
               </div>
@@ -735,46 +808,48 @@ export default function OrganisationProfile() {
       )}
 
       {tab === 'profile' && (
-        <div className='card' style={{ maxWidth: 920, width: '100%', minWidth: 0 }}>
+        <div className='card orgProfilePage-full'>
           <div className='cardHead'>
-            <h3>Organisation profile</h3>
+            <h3>Profile details</h3>
             <span className='pill p-cyan'>Saved fields</span>
           </div>
           <div className='cardBody'>
-            <div className='orgProfileForm'>
+            <div className='orgProfileForm orgProfileFormWide'>
               <section className='orgProfileSection'>
-                <div className='formField'>
-                  <label className='label' htmlFor='org-profile-name'>
-                    Organisation name
-                  </label>
-                  <input
-                    id='org-profile-name'
-                    className='input'
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                    disabled={!orgId}
-                  />
-                </div>
-                <div className='formField'>
-                  <label className='label' htmlFor='org-profile-category'>
-                    Category
-                  </label>
-                  <select
-                    id='org-profile-category'
-                    className='select'
-                    value={profileCategoryId}
-                    onChange={(e) => setProfileCategoryId(e.target.value)}
-                    disabled={!orgId}
-                  >
-                    <option value=''>No category</option>
-                    {(categories || []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.slug})
-                      </option>
-                    ))}
-                  </select>
-                  <div className='muted' style={{ fontSize: 12, lineHeight: 1.45 }}>
-                    Manage categories under Organisations → Categories.
+                <div className='orgProfileGrid2'>
+                  <div className='formField'>
+                    <label className='label' htmlFor='org-profile-name'>
+                      Organisation name
+                    </label>
+                    <input
+                      id='org-profile-name'
+                      className='input'
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      disabled={!orgId}
+                    />
+                  </div>
+                  <div className='formField'>
+                    <label className='label' htmlFor='org-profile-category'>
+                      Category
+                    </label>
+                    <select
+                      id='org-profile-category'
+                      className='select'
+                      value={profileCategoryId}
+                      onChange={(e) => setProfileCategoryId(e.target.value)}
+                      disabled={!orgId}
+                    >
+                      <option value=''>No category</option>
+                      {(categories || []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.slug})
+                        </option>
+                      ))}
+                    </select>
+                    <div className='muted' style={{ fontSize: 12, lineHeight: 1.45 }}>
+                      Manage categories under Organisations → Categories.
+                    </div>
                   </div>
                 </div>
               </section>
@@ -868,7 +943,7 @@ export default function OrganisationProfile() {
 
               <div className='actions' style={{ marginTop: 4 }}>
                 <button type='button' className='btn primary' disabled={!orgId || profileSaving} onClick={saveProfile}>
-                  {profileSaving ? 'Saving…' : 'Save'}
+                  {profileSaving ? 'Saving…' : 'Save profile'}
                 </button>
               </div>
             </div>
@@ -908,7 +983,7 @@ export default function OrganisationProfile() {
         <div className='stack' style={{ display: 'grid', gap: 14 }}>
           <div className='card'>
             <div className='cardHead'><h3>Add user (direct)</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 10, maxWidth: 520 }}>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
                 Creates an active login for a new email, or links an existing account to this organisation. Password is required only for brand-new emails.
               </p>
@@ -938,7 +1013,7 @@ export default function OrganisationProfile() {
 
           <div className='card'>
             <div className='cardHead'><h3>Invite user (link)</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 10, maxWidth: 520 }}>
+            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
                 Sends no email from the server — copy the invite URL and share it. The user sets their password on the public sign-in page.
               </p>
@@ -1241,9 +1316,9 @@ export default function OrganisationProfile() {
       )}
 
       {tab === 'plan' && (
-        <div className='stack' style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
+        <div className='orgProfilePage-grid2'>
           <div className='card'>
-            <div className='cardHead'><h3>C.P plan</h3><span className='pill p-cyan'>Core Platform</span></div>
+            <div className='cardHead'><h3>Core Platform plan</h3><span className='pill p-cyan'>Subscription</span></div>
             <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
                 Current: <strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong> ({org?.core_subscription_status || org?.subscription_status || '—'})
@@ -1257,7 +1332,7 @@ export default function OrganisationProfile() {
                 </div>
               ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>C.P plan</span>
+                <span className='muted' style={{ fontSize: 12 }}>Core Platform plan</span>
                 <PlanPickerSelect
                   value={planCode}
                   onChange={setPlanCode}
@@ -1279,16 +1354,16 @@ export default function OrganisationProfile() {
                 </div>
               ) : null}
               <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
-                {planSaving ? 'Applying…' : 'Apply C.P plan'}
+                {planSaving ? 'Applying…' : 'Apply Core Platform plan'}
               </button>
               <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Assigns the Core Platform subscription only. Does not change the F.B plan.
+                Assigns the Core Platform subscription only. Does not change the Customer Feedback plan.
               </p>
             </div>
           </div>
 
           <div className='card'>
-            <div className='cardHead'><h3>F.B plan</h3><span className='pill p-amber'>Customer Feedback</span></div>
+            <div className='cardHead'><h3>Customer Feedback plan</h3><span className='pill p-amber'>Separate billing</span></div>
             <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
               <p className='muted' style={{ fontSize: 13, margin: 0 }}>
                 Current: <strong>{org?.feedback_plan_name || org?.feedback_plan_code || 'None — assign below'}</strong>
@@ -1302,7 +1377,7 @@ export default function OrganisationProfile() {
                 </div>
               ) : null}
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>F.B plan</span>
+                <span className='muted' style={{ fontSize: 12 }}>Customer Feedback plan</span>
                 <PlanPickerSelect
                   value={feedbackPlanCode}
                   onChange={setFeedbackPlanCode}
@@ -1318,10 +1393,10 @@ export default function OrganisationProfile() {
                 <input className='input' value={feedbackSubStatus} onChange={(e) => setFeedbackSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
               </label>
               <button className='btn primary' disabled={!orgId || feedbackPlanSaving || !feedbackPlanCode.trim()} onClick={saveFeedbackPlan}>
-                {feedbackPlanSaving ? 'Applying…' : 'Apply F.B plan'}
+                {feedbackPlanSaving ? 'Applying…' : 'Apply Customer Feedback plan'}
               </button>
               <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Customer Feedback billing is separate from C.P. An org can have both plans at once.
+                Customer Feedback billing is separate from Core Platform. An org can have both plans at once.
               </p>
             </div>
           </div>
@@ -1348,7 +1423,7 @@ export default function OrganisationProfile() {
                 {walletBusy ? 'Crediting…' : 'Add wallet credit'}
               </button>
               <Link className='btn soft' to='/billing/wallet-ledger'>Global wallet ledger</Link>
-              <Link className='btn soft' to='/organisations/all-users' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Open finance console</Link>
+              {orgId ? <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Open finance console</Link> : null}
             </div>
           </div>
 
@@ -1358,11 +1433,13 @@ export default function OrganisationProfile() {
               <textarea className='input' rows={4} value={financeNote} onChange={(e) => setFinanceNote(e.target.value)} disabled={!orgId} placeholder='Internal finance/admin notes…' />
               <button className='btn soft' disabled={!orgId || financeBusy} onClick={async () => {
                 setFinanceBusy(true)
+                setStatusNote({ type: '', text: '' })
                 try {
                   await apiFetch(`/admin/organisations/${orgId}`, { method: 'PATCH', body: JSON.stringify({ finance_notes: financeNote.trim() || null }) })
                   await refreshOrg()
+                  flash('ok', 'Finance notes saved.')
                 } catch (e) {
-                  window.alert(e?.message || 'Could not save notes')
+                  flash('error', e?.message || 'Could not save notes')
                 } finally {
                   setFinanceBusy(false)
                 }
@@ -1373,7 +1450,7 @@ export default function OrganisationProfile() {
       )}
 
       {tab === 'suspend' && (
-        <div className='card' style={{ maxWidth: 560 }}>
+        <div className='card orgProfilePage-full'>
           <div className='cardHead'><h3>Organisation suspension</h3></div>
           <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
             <p className='muted' style={{ fontSize: 13, margin: 0 }}>
@@ -1392,6 +1469,6 @@ export default function OrganisationProfile() {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }

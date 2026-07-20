@@ -174,7 +174,7 @@ export default function Organisations() {
                         className='h-7'
                         onClick={() => {
                           localStorage.setItem('voxbulk_admin_selected_org_id', o.id)
-                          navigate('/organisations/profile')
+                          navigate(`/organisations/profile?org_id=${encodeURIComponent(o.id)}`)
                         }}
                       >
                         Profile
