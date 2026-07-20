@@ -314,12 +314,24 @@ def _voice_answer_placeholder(item: dict[str, Any]) -> str | None:
 
 
 def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None) -> dict[str, Any]:
-    transcript = resolve_answer_text(item) or _voice_answer_placeholder(item)
+    """Serialize an open answer with explicit Original + English fields for results UI."""
     source = _normalize_answer_source(item)
     job_id = str(item.get("voice_note_job_id") or "").strip() or None
-    original_text = str(item.get("original_text") or resolve_answer_text(item) or "").strip() or None
+    original_text = str(item.get("original_text") or "").strip() or None
     translated_text = str(item.get("translated_text") or "").strip() or None
-    display_text = translated_text or transcript
+    # Prefer stored original; never let English display clobber original when both exist.
+    if not original_text:
+        fallback = str(
+            item.get("answer_text") or item.get("answer") or item.get("final_additional_feedback") or ""
+        ).strip()
+        if fallback and fallback != translated_text:
+            original_text = fallback
+    display_text = translated_text or resolve_answer_text(item) or _voice_answer_placeholder(item)
+    transcript = display_text or original_text
+    # When translation completed, keep both sides explicit for the dashboard.
+    if original_text and translated_text and original_text == translated_text:
+        # not_needed / identical — still expose both keys for a stable UI contract
+        pass
     return {
         "question": str(item.get("question") or "Feedback").strip(),
         "step_role": str(item.get("step_role") or "").strip() or None,
@@ -331,6 +343,7 @@ def _serialize_open_answer(item: dict[str, Any], *, order_id: str | None = None)
         "translation_status": str(item.get("translation_status") or "").strip() or None,
         "original_text": original_text,
         "translated_text": translated_text,
+        "english_text": translated_text or display_text,
         "voice_note_job_id": job_id,
         "audio_url": _voice_audio_api_path(order_id or "", job_id) if order_id and source == "voice" else None,
         "text": display_text or transcript or None,
@@ -751,10 +764,41 @@ def sort_survey_answer_items(items: list[Any]) -> list[dict[str, Any]]:
     return [row[2] for row in indexed]
 
 
+def _normalize_wa_answer_bilingual(item: dict[str, Any]) -> dict[str, Any]:
+    """Ensure each WA answer exposes original_text + translated_text for results UI."""
+    out = dict(item)
+    original = str(out.get("original_text") or "").strip()
+    translated = str(out.get("translated_text") or "").strip()
+    display = resolve_answer_text(out) or str(out.get("answer") or out.get("answer_text") or "").strip()
+    if not original:
+        # Prefer true source text over English display.
+        candidate = str(
+            out.get("answer_text") or out.get("answer") or out.get("final_additional_feedback") or ""
+        ).strip()
+        if candidate and candidate != translated:
+            original = candidate
+        elif candidate and not translated:
+            original = candidate
+    if not translated and display and display != original:
+        # If answer was overwritten with English but translated_text missing
+        status = str(out.get("translation_status") or "").strip().lower()
+        if status in {"completed", "not_needed"} or (original and display != original):
+            translated = display if status == "completed" or (original and display != original) else translated
+    if original:
+        out["original_text"] = original
+    if translated:
+        out["translated_text"] = translated
+        out["english_text"] = translated
+    elif display:
+        out["english_text"] = display
+    return out
+
+
 def build_extracted_answer_entries(answers: list[Any]) -> list[dict[str, Any]]:
     """Mirror wa_conversation.answers for reporting with original + English fields."""
     out: list[dict[str, Any]] = []
     for item in sort_survey_answer_items(answers):
+        item = _normalize_wa_answer_bilingual(item)
         question = str(item.get("question") or "").strip()
         if not question:
             continue
@@ -766,6 +810,7 @@ def build_extracted_answer_entries(answers: list[Any]) -> list[dict[str, Any]]:
             entry["original_text"] = original
         if translated:
             entry["translated_text"] = translated
+            entry["english_text"] = translated
         if item.get("answer_index") is not None:
             entry["answer_index"] = item.get("answer_index")
         if item.get("step_index") is not None:
@@ -970,7 +1015,10 @@ def recipient_summary_row(
         ).strip()
 
     recommend_score = analysis.get("recommend_score", result.get("recommend_score"))
-    wa_answers = sort_survey_answer_items(wa_conv.get("answers") or [])
+    wa_answers = [
+        _normalize_wa_answer_bilingual(item)
+        for item in sort_survey_answer_items(wa_conv.get("answers") or [])
+    ]
     if recommend_score is None:
         for item in wa_answers:
             if isinstance(item, dict) and _is_rating_answer(item):
@@ -1075,7 +1123,11 @@ def recipient_detail_payload(recipient: ServiceOrderRecipient) -> dict[str, Any]
         "call_summary": str(result.get("call_summary") or "").strip() or None,
         "analysis": analysis or None,
         "extracted_answers": analysis.get("extracted_answers") or analysis.get("answers") or result.get("extracted_answers") or [],
-        "wa_answers": wa_conv.get("answers") or [],
+        "wa_answers": [
+            _normalize_wa_answer_bilingual(item)
+            for item in sort_survey_answer_items(wa_conv.get("answers") or [])
+            if isinstance(item, dict)
+        ],
         "final_additional_feedback": str(
             result.get("final_additional_feedback") or wa_conv.get("final_additional_feedback") or ""
         ).strip()

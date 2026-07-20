@@ -166,20 +166,34 @@ class SurveyWaVoiceNoteService:
         recipient: ServiceOrderRecipient | None = None,
     ) -> dict[str, Any]:
         del recipient  # locale must not pin STT — always auto-detect
+        # Bias Whisper toward Levantine / mixed Arabic–English WA audio without pinning language.
+        stt_prompt = (
+            "WhatsApp survey voice note. May be Levantine Arabic, Franco-Arabic, or mixed English. "
+            "Transcribe accurately; do not translate."
+        )
         try:
             from app.services.providers.deepinfra_service import DeepInfraProviderService
 
             if DeepInfraProviderService.is_configured(db):
+                model = DeepInfraProviderService.resolve_wa_survey_model(db)
                 result = DeepInfraProviderService.transcribe_audio_file(
                     db,
                     audio_path=audio_path,
                     language=None,
+                    prompt=stt_prompt,
+                    model_name=model,
                 )
                 text = str(result.get("text") or "").strip()
-                result["detected_language"] = SurveyWaVoiceNoteService._resolve_detected_language(
-                    text, result.get("detected_language")
+                if text:
+                    result["detected_language"] = SurveyWaVoiceNoteService._resolve_detected_language(
+                        text, result.get("detected_language")
+                    )
+                    return result
+                logger.warning(
+                    "%s deepinfra_empty_transcript model=%s falling_back_whisper_cpp",
+                    LOG_PREFIX,
+                    model,
                 )
-                return result
         except Exception as exc:
             logger.warning("%s deepinfra_transcription_fallback reason=%s", LOG_PREFIX, str(exc)[:300])
         result = transcribe_with_whisper_cpp(audio_path, language="auto")

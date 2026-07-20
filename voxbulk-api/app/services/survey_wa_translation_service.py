@@ -18,24 +18,53 @@ from app.services.survey_wa_open_text_service import apply_transcript_to_answer,
 logger = logging.getLogger(__name__)
 
 _TRANSLATE_SYSTEM = (
-    "You translate survey respondent messages into clear English. "
-    "Return ONLY the English translation with no commentary or quotes."
+    "You translate survey respondent feedback into clear, natural English for a business report. "
+    "Respondents often write Levantine Arabic, Franco-Arabic (Arabizi / chat Latin), Kurdish, "
+    "Turkish, or mixed scripts — including misspellings. "
+    "Map dialect carefully: e.g. dunya/dindya=world, harri/harr=hot, jidden=very, "
+    "wallahi=I swear (emphasis, not a religious-life topic), talaza/tlaja=fridge/freezer, "
+    "kharbana=broken. "
+    "Do NOT invent religious, political, or unrelated meanings from similar-looking words. "
+    "Preserve the respondent's intent. Return ONLY the English translation — no quotes, "
+    "no labels, no commentary."
 )
 
 _NON_ENGLISH_RE = re.compile(r"[^\x00-\x7F]")
 
+# Common Franco-Arabic / Arabizi tokens (Latin script dialect that still needs English).
+_FRANCO_ARABIC_RE = re.compile(
+    r"(?i)\b("
+    r"wallahi|wallah|walahi|inshallah|mashallah|"
+    r"jidden|jiddan|kteer|ktir|shu|shlon|lesh|leish|ya3ni|yani|"
+    r"dunya|dindya|dunye|harri|harr|talaza|tlaja|thallaja|kharban|kharbana|"
+    r"mnih|mniih|tamam|yalla|habibi|habibti|allah|"
+    r"3ala|3an|7ata|5alas|khalas|mafi|mafi[sh]?"
+    r")\b"
+)
+
 
 class SurveyWaTranslationService:
+    @staticmethod
+    def looks_like_franco_arabic(text: str) -> bool:
+        """True when Latin-script text looks like Arabizi / Franco-Arabic dialect."""
+        clean = str(text or "").strip()
+        if not clean:
+            return False
+        return bool(_FRANCO_ARABIC_RE.search(clean))
+
     @staticmethod
     def needs_translation(text: str, detected_language: str | None = None) -> bool:
         """True when answer should be translated to English.
 
         Non-ASCII / non-English script wins over a false STT ``en`` label.
+        Franco-Arabic (Latin dialect) also requires translation.
         """
         clean = str(text or "").strip()
         if not clean:
             return False
         if _NON_ENGLISH_RE.search(clean):
+            return True
+        if SurveyWaTranslationService.looks_like_franco_arabic(clean):
             return True
         lang = str(detected_language or "").strip().lower()
         if lang and not lang.startswith("en"):
@@ -139,13 +168,20 @@ class SurveyWaTranslationService:
                 "translation_status": "not_needed",
             }
         try:
+            lang_hint = str(detected_language or "").strip() or "unknown"
+            if SurveyWaTranslationService.looks_like_franco_arabic(original):
+                lang_hint = f"{lang_hint}; likely Franco-Arabic / Levantine dialect (Latin script)"
             result = OpenAIProviderService.complete(
                 db,
                 system_prompt=_TRANSLATE_SYSTEM,
                 messages=[
                     AgentMessage(
                         role="user",
-                        content=f"Source language hint: {detected_language or 'unknown'}\n\nMessage:\n{original}",
+                        content=(
+                            f"Source language hint: {lang_hint}\n\n"
+                            "Translate the respondent message below into clear English.\n\n"
+                            f"Message:\n{original}"
+                        ),
                     )
                 ],
                 max_tokens=900,
@@ -374,3 +410,55 @@ class SurveyWaTranslationService:
                 "recipient_id": recipient_id,
                 "translation_status": translation.get("translation_status"),
             }
+
+    @staticmethod
+    def retranslate_recipient_open_answers(
+        db: Session,
+        recipient_id: str,
+        *,
+        force: bool = True,
+        include_voice: bool = True,
+    ) -> dict[str, Any]:
+        """Re-run English translation for open answers on a recipient (reporting repair).
+
+        Set ``include_voice=False`` when voice jobs are being re-transcribed separately;
+        those answers re-translate automatically after STT completes.
+        """
+        recipient = db.get(ServiceOrderRecipient, recipient_id)
+        if recipient is None:
+            return {"ok": False, "error": "recipient_not_found", "attempted": 0}
+        try:
+            payload = json.loads(recipient.result_json or "{}")
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        conv = payload.get("wa_conversation") if isinstance(payload.get("wa_conversation"), dict) else {}
+        answers = list(conv.get("answers") or [])
+        attempted = 0
+        results: list[dict[str, Any]] = []
+        for idx, answer in enumerate(answers):
+            if not isinstance(answer, dict):
+                continue
+            job_id = str(answer.get("voice_note_job_id") or "").strip() or None
+            if job_id and not include_voice:
+                continue
+            text = SurveyWaTranslationService.resolve_source_text(answer)
+            if not text:
+                continue
+            if not force:
+                status = str(answer.get("translation_status") or "")
+                if status in {"completed", "not_needed"} and str(answer.get("translated_text") or "").strip():
+                    continue
+            if not SurveyWaTranslationService.needs_translation(text, answer.get("detected_language")):
+                if not force:
+                    continue
+            attempted += 1
+            out = SurveyWaTranslationService.process_recipient_translation(
+                db,
+                recipient_id,
+                voice_note_job_id=job_id,
+                answer_index=None if job_id else idx,
+            )
+            results.append({"index": idx, "voice_note_job_id": job_id, **out})
+        return {"ok": True, "recipient_id": recipient_id, "attempted": attempted, "results": results}

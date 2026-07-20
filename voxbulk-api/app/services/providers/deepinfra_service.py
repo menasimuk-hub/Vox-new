@@ -14,8 +14,11 @@ from app.services.provider_settings import ProviderSettingsService
 
 logger = logging.getLogger(__name__)
 
-DEEPINFRA_DEFAULT_MODEL = "openai/whisper-large-v3-turbo"
-DEEPINFRA_DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo"
+# Full large-v3 is more accurate on dialect / noisy WhatsApp audio than turbo.
+DEEPINFRA_DEFAULT_MODEL = "openai/whisper-large-v3"
+DEEPINFRA_DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/inference/openai/whisper-large-v3"
+# Prefer this for WA survey voice notes unless Admin config sets a non-turbo model.
+WA_SURVEY_WHISPER_MODEL = "openai/whisper-large-v3"
 
 
 class DeepInfraProviderService:
@@ -62,15 +65,35 @@ class DeepInfraProviderService:
             return False
 
     @staticmethod
+    def resolve_wa_survey_model(db: Session) -> str:
+        """WA surveys use full large-v3; keep Admin turbo only when explicitly configured."""
+        try:
+            config = DeepInfraProviderService._config(db)
+            configured = str(config.get("model_name") or "").strip()
+        except Exception:
+            return WA_SURVEY_WHISPER_MODEL
+        if not configured or "turbo" in configured.lower():
+            return WA_SURVEY_WHISPER_MODEL
+        return configured
+
+    @staticmethod
     def transcribe_audio_file(
         db: Session,
         *,
         audio_path: Path,
         language: str | None = None,
         prompt: str | None = None,
+        model_name: str | None = None,
     ) -> dict[str, Any]:
         start = time.perf_counter()
         config = DeepInfraProviderService._config(db)
+        override = str(model_name or "").strip()
+        if override:
+            config = {
+                **config,
+                "model_name": override,
+                "base_url": DeepInfraProviderService._resolve_base_url(None, override),
+            }
         headers = {"Authorization": f"Bearer {config['api_key']}"}
 
         mime = "audio/wav"
@@ -85,7 +108,7 @@ class DeepInfraProviderService:
         def _post(data: dict[str, str]) -> httpx.Response:
             with audio_path.open("rb") as handle:
                 files = {"audio": (audio_path.name, handle, mime)}
-                with httpx.Client(timeout=90.0, verify=DeepInfraProviderService._ssl_context()) as client:
+                with httpx.Client(timeout=120.0, verify=DeepInfraProviderService._ssl_context()) as client:
                     return client.post(config["base_url"], headers=headers, data=data or None, files=files)
 
         data: dict[str, str] = {}
