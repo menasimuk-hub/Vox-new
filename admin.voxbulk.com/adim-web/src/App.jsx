@@ -97,6 +97,10 @@ export default function App() {
         <Route path='/marketing/funnel' element={<Navigate to='/marketing/ai-team' replace />} />
         <Route path='/marketing/attribution' element={<Navigate to='/marketing/ai-team' replace />} />
 
+        <Route path='/partners' element={<Navigate to='/partners/dashboard' replace />} />
+        <Route path='/partners/dashboard' element={<P.PartnersDashboard />} />
+        <Route path='/partners/:providerKey' element={<P.PartnersProviderPage />} />
+
         <Route path='/integrations' element={<P.Integrations />} />
         <Route path='/integrations/kpi' element={<P.Integrations />} />
         <Route path='/integrations/dentally' element={<P.Integrations />} />

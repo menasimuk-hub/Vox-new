@@ -34,6 +34,8 @@ const GROUP_ICONS = {
 
   Integrations: 'ti-plug',
 
+  Partners: 'ti-handshake',
+
   'Billing & Finance': 'ti-credit-card',
 
   Support: 'ti-lifebuoy',
@@ -73,6 +75,8 @@ const GROUP_SECTION = {
   'AI Marketing': 'Growth & finance',
 
   Integrations: 'Growth & finance',
+
+  Partners: 'Growth & finance',
 
   'Billing & Finance': 'Growth & finance',
 
@@ -326,6 +330,28 @@ const NAV = [
       ['Webhooks', '/integrations/webhooks'],
 
       ['Social login', '/integrations/social-login'],
+
+    ],
+
+  ],
+
+  [
+
+    'Partners',
+
+    [
+
+      ['Provider Dashboard', '/partners/dashboard'],
+
+      ['Zoho Marketplace', '/partners/zoho'],
+
+      ['Breezy HR', '/partners/breezy'],
+
+      ['Workable', '/partners/workable'],
+
+      ['Bullhorn Marketplace', '/partners/bullhorn'],
+
+      ['Zapier', '/partners/zapier'],
 
     ],
 

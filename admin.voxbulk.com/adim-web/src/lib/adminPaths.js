@@ -24,6 +24,9 @@ export function canAccessAdminPath(role, pathname) {
 
   if (isUnder('/integrations') || isUnder('/services-api') || p.includes('/social-login')) return false
 
+  // Partners marketplace UI: accountant (KPI) + technical (settings); others denied.
+  if (isUnder('/partners')) return r === 'accountant' || r === 'technical'
+
   // Platform admins (distinct from Organisation → customer users listed per tenant).
   if (p === '/platform/users' || p.startsWith('/platform/users/')) {
     return r === 'superadmin'
