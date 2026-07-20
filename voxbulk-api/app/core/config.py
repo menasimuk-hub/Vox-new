@@ -174,6 +174,8 @@ class Settings(BaseSettings):
     assistant_error_alert_window_sec: int = Field(default=300, alias="ASSISTANT_ERROR_ALERT_WINDOW_SEC")
     assistant_oncall_admin_emails: str = Field(default="", alias="ASSISTANT_ONCALL_ADMIN_EMAILS")
     assistant_rate_limit_per_min: int = Field(default=20, alias="ASSISTANT_RATE_LIMIT_PER_MIN")
+    # Celery ops watchdog / Admin dashboard alerts (comma-separated). Falls back to assistant/invoice emails.
+    celery_ops_alert_emails: str = Field(default="", alias="CELERY_OPS_ALERT_EMAILS")
 
     @property
     def voice_note_allowed_mime_types(self) -> list[str]:

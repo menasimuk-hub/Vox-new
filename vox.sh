@@ -55,17 +55,36 @@ restart_celery() {
     echo "supervisorctl not found — install Celery via: sudo bash scripts/vps-setup-celery.sh"
     return
   fi
+  _sup() {
+    if supervisorctl "$@" >/dev/null 2>&1; then
+      supervisorctl "$@"
+      return $?
+    fi
+    if command -v sudo >/dev/null 2>&1; then
+      sudo -n supervisorctl "$@" 2>/dev/null || sudo supervisorctl "$@"
+      return $?
+    fi
+    return 1
+  }
   local name beat
   if name="$(celery_supervisor_name)"; then
-    supervisorctl restart "$name" && echo "Celery worker restarted ($name)"
+    _sup restart "$name" && echo "Celery worker restarted ($name)"
   else
     echo "Celery not in supervisor — run once: sudo bash scripts/vps-setup-celery.sh"
     echo "  (Required for WA voice-note transcription, billing jobs, webhooks)"
   fi
   if beat="$(celery_beat_supervisor_name)"; then
-    supervisorctl restart "$beat" && echo "Celery beat restarted ($beat)"
+    _sup restart "$beat" && echo "Celery beat restarted ($beat)"
   else
     echo "Celery beat not in supervisor — run: sudo bash scripts/vps-setup-celery.sh"
+  fi
+  # Drop stale beat schedule so new beat_schedule entries (e.g. deferred WA retry) load after deploy.
+  if [[ -f "$ROOT/voxbulk-api/celerybeat-schedule.db" ]]; then
+    rm -f "$ROOT/voxbulk-api/celerybeat-schedule.db" "$ROOT/voxbulk-api/celerybeat-schedule.db-shm" "$ROOT/voxbulk-api/celerybeat-schedule.db-wal" 2>/dev/null || true
+    if beat="$(celery_beat_supervisor_name)"; then
+      _sup restart "$beat" >/dev/null 2>&1 || true
+      echo "Celery beat schedule refreshed"
+    fi
   fi
 }
 

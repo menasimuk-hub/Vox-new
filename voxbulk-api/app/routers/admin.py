@@ -4342,6 +4342,20 @@ def admin_operations_overview(db: Session = Depends(get_db), _admin=Depends(requ
     }
 
 
+@router.get("/operations/celery")
+def admin_celery_status(_admin=Depends(require_platform_admin)):
+    from app.services.celery_ops_service import collect_status
+
+    return collect_status()
+
+
+@router.post("/operations/celery/restart")
+def admin_celery_restart(_admin=Depends(require_platform_admin)):
+    from app.services.celery_ops_service import restart_celery
+
+    return restart_celery()
+
+
 def _recovery_job_out(job: RecoveryJob) -> dict:
     return {
         "id": job.id,

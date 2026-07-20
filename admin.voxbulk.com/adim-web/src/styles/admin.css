@@ -732,6 +732,102 @@ body.dark .admin-search input::placeholder {
   box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
 }
 
+.dashCeleryMonitor {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+
+.dashCeleryMonitor.isGood {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.dashCeleryMonitor.isBad {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: #fffbfb;
+}
+
+.dashCeleryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 960px) {
+  .dashCeleryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .dashCeleryGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashCeleryStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 72px;
+}
+
+.dashCeleryValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--t1);
+  line-height: 1.2;
+}
+
+.dashCeleryIssues {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashCeleryIssues li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+.dashCeleryOk {
+  margin: 12px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #047857;
+}
+
+.dashCeleryMsg {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+}
+
+.dashCeleryChecked {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.btnIconLeading.spin {
+  animation: dashSpin 0.8s linear infinite;
+}
+
+@keyframes dashSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .dashKpiLabel {
   font-size: 11px;
   font-weight: 600;

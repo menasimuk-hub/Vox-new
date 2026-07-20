@@ -173,6 +173,9 @@ export default function Dashboard() {
   const [tickets, setTickets] = useState([])
   const [surveys, setSurveys] = useState(null)
   const [interviews, setInterviews] = useState(null)
+  const [celery, setCelery] = useState(null)
+  const [celeryRestarting, setCeleryRestarting] = useState(false)
+  const [celeryMsg, setCeleryMsg] = useState('')
   const [error, setError] = useState('')
 
   const loadIntegrations = useCallback(async () => {
@@ -254,6 +257,7 @@ export default function Dashboard() {
       setProviderBalances(balancesRes || { telnyx: null, elevenlabs: null })
       setSurveys(surveysRes)
       setInterviews(interviewsRes)
+      setCeleryMsg('')
     } catch (e) {
       setError(e?.message || 'Could not load dashboard')
     } finally {
@@ -261,9 +265,55 @@ export default function Dashboard() {
     }
   }, [])
 
+  const loadCelery = useCallback(async () => {
+    if (!isSuper) {
+      setCelery(null)
+      return
+    }
+    try {
+      const res = await apiFetch('/admin/operations/celery', { timeoutMs: 20000 })
+      setCelery(res || null)
+    } catch {
+      setCelery({ ok: false, issues: ['Could not load Celery status'] })
+    }
+  }, [isSuper])
+
+  const restartCelery = async () => {
+    if (!isSuper) return
+    if (!window.confirm('Restart Celery worker and beat on the server? Deferred jobs and schedules will resume after a few seconds.')) {
+      return
+    }
+    setCeleryRestarting(true)
+    setCeleryMsg('')
+    try {
+      const res = await apiFetch('/admin/operations/celery/restart', { method: 'POST', body: JSON.stringify({}) })
+      setCelery(res?.status || res || null)
+      setCeleryMsg(res?.ok ? 'Celery restarted successfully.' : res?.detail || 'Restart finished with issues — check status below.')
+    } catch (e) {
+      setCeleryMsg(e?.message || 'Celery restart failed')
+      await loadCelery()
+    } finally {
+      setCeleryRestarting(false)
+    }
+  }
+
   useEffect(() => {
     void loadAll()
   }, [loadAll, refreshKey])
+
+  useEffect(() => {
+    if (!isSuper) return undefined
+    let cancelled = false
+    const idleId = deferNonCritical(() => {
+      if (!cancelled) void loadCelery()
+    })
+    return () => {
+      cancelled = true
+      if (window.cancelIdleCallback && typeof idleId === 'number') {
+        window.cancelIdleCallback(idleId)
+      }
+    }
+  }, [isSuper, loadCelery, refreshKey])
 
   useEffect(() => {
     if (!isSuper) return undefined
@@ -377,6 +427,90 @@ export default function Dashboard() {
             </Link>
           ))}
         </div>
+      </DashboardSection>
+
+      <DashboardSection
+        title='Celery / background jobs'
+        description='Worker + beat health for deferred WA surveys, billing, and voice notes.'
+        action={
+          isSuper ? (
+            <button
+              type='button'
+              className='btn soft'
+              onClick={() => void restartCelery()}
+              disabled={celeryRestarting || loading}
+            >
+              <RefreshCw size={16} className={`btnIconLeading${celeryRestarting ? ' spin' : ''}`} />
+              {celeryRestarting ? 'Restarting…' : 'Restart Celery'}
+            </button>
+          ) : null
+        }
+      >
+        {!isSuper ? (
+          <p className='muted dashboardHint'>Celery controls are visible to superadmin only.</p>
+        ) : (
+          <div className={`dashCeleryMonitor${celery && celery.ok === false ? ' isBad' : celery?.ok ? ' isGood' : ''}`}>
+            <div className='dashCeleryGrid'>
+              <div className='dashCeleryStat'>
+                <span className='dashKpiLabel'>Worker</span>
+                <strong className='dashCeleryValue'>
+                  {loading ? '…' : celery?.worker?.supervisor?.state || (celery?.worker?.process_running ? 'PROCESS' : '—')}
+                </strong>
+                <span className='dashKpiSub'>
+                  ping {celery?.worker?.ping?.ok ? 'ok' : 'fail'}
+                  {celery?.worker?.ping?.nodes?.length ? ` · ${celery.worker.ping.nodes.length} node(s)` : ''}
+                </span>
+              </div>
+              <div className='dashCeleryStat'>
+                <span className='dashKpiLabel'>Beat</span>
+                <strong className='dashCeleryValue'>
+                  {loading ? '…' : celery?.beat?.supervisor?.state || (celery?.beat?.process_running ? 'PROCESS' : '—')}
+                </strong>
+                <span className='dashKpiSub'>
+                  schedule {celery?.beat?.schedule?.ok ? 'ok' : 'check needed'}
+                </span>
+              </div>
+              <div className='dashCeleryStat'>
+                <span className='dashKpiLabel'>Redis</span>
+                <strong className='dashCeleryValue'>{loading ? '…' : celery?.redis?.ok ? 'OK' : 'DOWN'}</strong>
+                <span className='dashKpiSub'>{celery?.redis?.detail || 'broker'}</span>
+              </div>
+              <div className='dashCeleryStat'>
+                <span className='dashKpiLabel'>Critical tasks</span>
+                <strong className='dashCeleryValue'>
+                  {loading
+                    ? '…'
+                    : `${(celery?.worker?.tasks?.has_critical || []).length}/${(celery?.critical_tasks || []).length || 4}`}
+                </strong>
+                <span className='dashKpiSub'>
+                  {celery?.stale_code
+                    ? 'Restart needed after deploy'
+                    : celery?.worker?.tasks?.missing_critical?.length
+                      ? `Missing: ${celery.worker.tasks.missing_critical.join(', ')}`
+                      : 'registered on worker'}
+                </span>
+              </div>
+            </div>
+            {celery?.issues?.length ? (
+              <ul className='dashCeleryIssues'>
+                {celery.issues.map((issue) => (
+                  <li key={issue}>
+                    <AlertTriangle size={14} /> {issue}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className='dashCeleryOk'>
+                <BadgeCheck size={14} /> Healthy — deferred WA starts and billing schedules can run.
+              </p>
+            )}
+            {celeryMsg ? <p className='dashCeleryMsg'>{celeryMsg}</p> : null}
+            <p className='muted dashCeleryChecked'>
+              Checked {celery?.checked_at ? fmt(celery.checked_at) : '—'}
+              {celeryRestarting ? ' · restarting…' : ''}
+            </p>
+          </div>
+        )}
       </DashboardSection>
 
       <DashboardSection title='Products' description='WA Survey, AI Interview, campaigns, and customer feedback — compact volume charts.'>

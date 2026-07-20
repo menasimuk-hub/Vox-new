@@ -149,6 +149,37 @@ else
   warn "Celery beat not RUNNING — scheduled billing emails will not fire"
 fi
 
+WATCHDOG="$ROOT/scripts/celery-watchdog.sh"
+chmod +x "$WATCHDOG" 2>/dev/null || true
+CRON_LINE="*/5 * * * * $WATCHDOG >> /tmp/voxbulk-celery-watchdog.log 2>&1"
+if command -v crontab >/dev/null 2>&1; then
+  existing="$(crontab -l 2>/dev/null || true)"
+  if echo "$existing" | grep -Fq "celery-watchdog.sh"; then
+    info "Celery watchdog cron already installed"
+  else
+    info "Installing Celery watchdog cron (every 5 minutes) …"
+    printf '%s\n%s\n' "$existing" "$CRON_LINE" | crontab - || warn "Could not install crontab for current user — add manually: $CRON_LINE"
+  fi
+else
+  warn "crontab not available — install watchdog manually: $CRON_LINE"
+fi
+
+# Allow API (non-interactive) restart without a password prompt when using sudo -n.
+SUDOERS_HINT="/etc/sudoers.d/voxbulk-celery"
+if [[ ! -f "$SUDOERS_HINT" ]]; then
+  RUN_USER="$(id -un 2>/dev/null || echo qusay)"
+  cat <<SUDOERS
+
+══════════════════════════════════════════════════════════════
+Optional: allow passwordless Celery restart for Admin UI
+══════════════════════════════════════════════════════════════
+  sudo tee $SUDOERS_HINT >/dev/null <<EOF
+$RUN_USER ALL=(root) NOPASSWD: /usr/bin/supervisorctl status voxbulk-celery, /usr/bin/supervisorctl status voxbulk-celery-beat, /usr/bin/supervisorctl restart voxbulk-celery, /usr/bin/supervisorctl restart voxbulk-celery-beat, /usr/bin/supervisorctl start voxbulk-celery, /usr/bin/supervisorctl start voxbulk-celery-beat, /usr/bin/supervisorctl stop voxbulk-celery, /usr/bin/supervisorctl stop voxbulk-celery-beat
+EOF
+  sudo chmod 440 $SUDOERS_HINT
+SUDOERS
+fi
+
 cat <<NOTES
 
 ══════════════════════════════════════════════════════════════
@@ -158,12 +189,19 @@ Celery setup complete
   Beat:      sudo supervisorctl status voxbulk-celery-beat
   Logs:      tail -f /tmp/voxbulk-celery.log
   Beat logs: tail -f /tmp/voxbulk-celery-beat.log
+  Watchdog:  $WATCHDOG  (cron every 5m + email on failure)
   Restart:   sudo supervisorctl restart voxbulk-celery voxbulk-celery-beat
   Or:        cd /www/voxbulk && ./vox.sh restart
+  Admin UI:  Dashboard → Celery / background jobs
+
+Alert emails (optional in voxbulk-api/.env):
+  CELERY_OPS_ALERT_EMAILS=you@example.com
+  (falls back to ASSISTANT_ONCALL_ADMIN_EMAILS / INVOICE_COMPANY_EMAIL)
 
 Retry stuck voice notes (admin session):
   POST /admin/wa-survey/voice-notes/{job_id}/retry
 
 Required for WA survey voice-note transcription (not optional).
-Celery beat runs billing renewal reminders, monthly billing, pending invoice reminders.
+Celery beat runs billing renewal reminders, monthly billing, pending invoice reminders,
+and deferred WA survey starts (contact-hours retry every 10 minutes).
 NOTES
