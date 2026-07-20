@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.services import site_seo_service as svc
+from app.services import seo_engine_service as engines
 from app.services.gsc_oauth_service import (
     admin_redirect_origin,
     disconnect_gsc,
@@ -52,6 +53,10 @@ class SettingsIn(BaseModel):
     psi_api_key: str | None = None
     moz_access_id: str | None = None
     moz_secret_key: str | None = None
+    auto_submit_weekly: bool | None = None
+    auto_indexnow_on_publish: bool | None = None
+    bing_site_url: str | None = None
+    marketing_pages: dict | None = None
 
 
 class ContentSeoIn(BaseModel):
@@ -82,6 +87,19 @@ class PsiConnectIn(BaseModel):
 class MozConnectIn(BaseModel):
     access_id: str = Field(min_length=1)
     secret_key: str = Field(min_length=1)
+
+
+class BingConnectIn(BaseModel):
+    api_key: str = Field(min_length=1)
+    site_url: str | None = None
+
+
+class YandexConnectIn(BaseModel):
+    oauth_token: str = Field(min_length=1)
+
+
+class KeywordAcceptIn(BaseModel):
+    target: str | None = None
 
 
 class MarkFixedIn(BaseModel):
@@ -169,7 +187,74 @@ def admin_sitemap_regen(db: Session = Depends(get_db), _admin=Depends(require_pl
 
 @admin_router.post("/sitemap/submit-google")
 def admin_sitemap_submit(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    return svc.submit_sitemap_to_google(db)
+    return engines.submit_sitemap_google(db)
+
+
+@admin_router.get("/engines")
+def admin_engines_status(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.engine_status(db)
+
+
+@admin_router.post("/engines/submit-all")
+def admin_engines_submit_all(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.run_engine_submit(db, source="manual")
+
+
+@admin_router.post("/engines/connect-bing")
+def admin_connect_bing(
+    body: BingConnectIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    return engines.connect_bing(db, body.api_key, body.site_url)
+
+
+@admin_router.post("/engines/disconnect-bing")
+def admin_disconnect_bing(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.disconnect_bing(db)
+
+
+@admin_router.post("/engines/connect-yandex")
+def admin_connect_yandex(
+    body: YandexConnectIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    return engines.connect_yandex(db, body.oauth_token)
+
+
+@admin_router.post("/engines/disconnect-yandex")
+def admin_disconnect_yandex(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.disconnect_yandex(db)
+
+
+@admin_router.get("/keywords")
+def admin_list_keywords(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.list_keyword_ideas(db)
+
+
+@admin_router.post("/keywords/refresh")
+def admin_refresh_keywords(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.refresh_keyword_ideas(db)
+
+
+@admin_router.post("/keywords/{idea_id}/accept")
+def admin_accept_keyword(
+    idea_id: str,
+    body: KeywordAcceptIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    return engines.accept_keyword_idea(db, idea_id, body.target)
+
+
+@admin_router.post("/keywords/{idea_id}/dismiss")
+def admin_dismiss_keyword(
+    idea_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    return engines.dismiss_keyword_idea(db, idea_id)
 
 
 @admin_router.put("/robots")

@@ -16,6 +16,7 @@ const TABS = [
   ['tech', 'Technical Health'],
   ['redirects', 'Redirects'],
   ['sitemap', 'Sitemap & Robots'],
+  ['keywords', 'Keyword Ideas'],
   ['settings', 'Site Settings'],
 ]
 const CONTENT_KINDS = ['blog', 'news', 'faq']
@@ -307,10 +308,18 @@ function emptySettings() {
     gsc_oauth_configured: false,
     gsc_avg_position: null,
     gsc_avg_position_prev: null,
-    connections: { gsc: false, psi: false, moz: false },
+    connections: { gsc: false, psi: false, moz: false, bing: false, yandex: false },
     psi_api_key_set: false,
     moz_access_id_set: false,
     moz_secret_key_set: false,
+    bing_api_key_set: false,
+    bing_site_url: 'https://voxbulk.com',
+    yandex_token_set: false,
+    yandex_user_id: '',
+    yandex_host_id: '',
+    auto_submit_weekly: false,
+    auto_indexnow_on_publish: true,
+    engines_last_run_at: null,
     indexnow_key: '',
     indexnow_last_pinged_at: null,
     robots_txt: '',
@@ -325,6 +334,10 @@ export default function SeoControl() {
   const [health, setHealth] = useState(null)
   const [redirects, setRedirects] = useState([])
   const [sitemap, setSitemap] = useState(null)
+  const [engines, setEngines] = useState(null)
+  const [keywords, setKeywords] = useState([])
+  const [bingKey, setBingKey] = useState('')
+  const [yandexToken, setYandexToken] = useState('')
   const [settings, setSettings] = useState(emptySettings())
   const [robotsTxt, setRobotsTxt] = useState('')
   const [rdFrom, setRdFrom] = useState('')
@@ -388,6 +401,16 @@ export default function SeoControl() {
     setRobotsTxt(data?.robots_txt || '')
   }
 
+  const loadEngines = async () => {
+    const data = await apiFetch('/admin/seo/engines')
+    setEngines(data)
+  }
+
+  const loadKeywords = async () => {
+    const data = await apiFetch('/admin/seo/keywords')
+    setKeywords(data?.items || [])
+  }
+
   const refreshTab = async (nextTab = tab) => {
     setLoading(true)
     setMsg('')
@@ -397,8 +420,9 @@ export default function SeoControl() {
       else if (nextTab === 'tech') await loadHealth()
       else if (nextTab === 'redirects') await loadRedirects()
       else if (nextTab === 'sitemap') {
-        await Promise.all([loadSitemap(), loadSettings()])
-      } else if (nextTab === 'settings') await loadSettings()
+        await Promise.all([loadSitemap(), loadSettings(), loadEngines()])
+      } else if (nextTab === 'keywords') await loadKeywords()
+      else if (nextTab === 'settings') await Promise.all([loadSettings(), loadEngines()])
     } catch (e) {
       setMsg(errMsg(e, 'Failed to load'))
     } finally {
@@ -662,9 +686,135 @@ export default function SeoControl() {
     try {
       const data = await apiFetch('/admin/seo/sitemap/submit-google', { method: 'POST' })
       setSitemap((s) => ({ ...s, last_submitted_at: data.submitted_at }))
-      showToast(data.note || 'Sitemap submitted')
+      await loadEngines().catch(() => {})
+      showToast(data.ok ? data.note || 'Submitted to Google' : data.error || 'Google submit failed')
     } catch (e) {
       setMsg(errMsg(e, 'Submit failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitAllEngines = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/engines/submit-all', { method: 'POST' })
+      setEngines((e) => ({ ...(e || {}), engines_last_result: data, engines_last_run_at: data.ran_at }))
+      await Promise.all([loadSitemap(), loadEngines()])
+      const parts = ['google', 'bing', 'yandex', 'indexnow']
+        .map((k) => {
+          const r = data?.[k]
+          if (!r) return null
+          if (r.skipped) return `${k}: skipped`
+          return `${k}: ${r.ok ? 'ok' : 'fail'}`
+        })
+        .filter(Boolean)
+      showToast(`Submit finished — ${parts.join(', ')}`)
+    } catch (e) {
+      setMsg(errMsg(e, 'Engine submit failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connectBing = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/engines/connect-bing', {
+        method: 'POST',
+        body: JSON.stringify({ api_key: bingKey, site_url: settings.bing_site_url || SITE }),
+      })
+      setBingKey('')
+      showToast('Bing Webmaster connected')
+      await Promise.all([loadEngines(), loadSettings()])
+    } catch (e) {
+      setMsg(errMsg(e, 'Bing connect failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnectBing = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/engines/disconnect-bing', { method: 'POST' })
+      showToast('Bing disconnected')
+      await Promise.all([loadEngines(), loadSettings()])
+    } catch (e) {
+      setMsg(errMsg(e, 'Bing disconnect failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const connectYandex = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/engines/connect-yandex', {
+        method: 'POST',
+        body: JSON.stringify({ oauth_token: yandexToken }),
+      })
+      setYandexToken('')
+      showToast('Yandex Webmaster connected')
+      await Promise.all([loadEngines(), loadSettings()])
+    } catch (e) {
+      setMsg(errMsg(e, 'Yandex connect failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnectYandex = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/engines/disconnect-yandex', { method: 'POST' })
+      showToast('Yandex disconnected')
+      await Promise.all([loadEngines(), loadSettings()])
+    } catch (e) {
+      setMsg(errMsg(e, 'Yandex disconnect failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refreshKeywords = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/keywords/refresh', { method: 'POST' })
+      setKeywords(data?.items || [])
+      showToast(`Found ${data?.suggested_count || 0} new keyword ideas`)
+    } catch (e) {
+      setMsg(errMsg(e, 'Keyword refresh failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const acceptKeyword = async (idea) => {
+    setBusy(true)
+    try {
+      const data = await apiFetch(`/admin/seo/keywords/${idea.id}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({ target: idea.target || 'home' }),
+      })
+      showToast(data?.note || 'Keyword accepted')
+      await loadKeywords()
+      await loadSettings().catch(() => {})
+    } catch (e) {
+      setMsg(errMsg(e, 'Accept failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const dismissKeyword = async (idea) => {
+    setBusy(true)
+    try {
+      await apiFetch(`/admin/seo/keywords/${idea.id}/dismiss`, { method: 'POST' })
+      showToast('Dismissed')
+      await loadKeywords()
+    } catch (e) {
+      setMsg(errMsg(e, 'Dismiss failed'))
     } finally {
       setBusy(false)
     }
@@ -743,6 +893,9 @@ export default function SeoControl() {
         google_news_publication: settings.google_news_publication,
         google_news_language: settings.google_news_language,
         gsc_property_url: settings.gsc_property_url,
+        auto_submit_weekly: !!settings.auto_submit_weekly,
+        auto_indexnow_on_publish: !!settings.auto_indexnow_on_publish,
+        bing_site_url: settings.bing_site_url || SITE,
       }
       const data = await apiFetch('/admin/seo/settings', {
         method: 'PUT',
@@ -1692,18 +1845,84 @@ export default function SeoControl() {
           </div>
 
           <div className="sc-settings-card">
-            <h3>Submit to Google</h3>
-            <div className="sc-card-sub">Ping Google Search Console to re-crawl your sitemap</div>
+            <h3>Search engines — submit sitemap</h3>
+            <div className="sc-card-sub">
+              Regenerates the sitemap, pings IndexNow (Bing/Yandex), then submits to connected engines. Google does not use IndexNow.
+            </div>
             <div className="sc-settings-row">
               <div>
-                <div className="t">Last submitted to Google</div>
+                <div className="t">Last multi-engine run</div>
                 <div className="d">
-                  {sitemap?.last_submitted_at ? fmtDate(sitemap.last_submitted_at) : 'Not submitted yet'}
+                  {engines?.engines_last_run_at ? fmtDate(engines.engines_last_run_at) : 'Not run yet'}
                 </div>
               </div>
-              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={submitGoogle}>
-                Submit sitemap to Google
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={submitAllEngines}>
+                Submit to all connected engines
               </button>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">
+                  Google{' '}
+                  <span className={`sc-status ${engines?.google?.connected ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                    <span className="dot" />
+                    {engines?.google?.connected ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="d">
+                  Last: {engines?.google?.last_submitted_at ? fmtDate(engines.google.last_submitted_at) : '—'}
+                  {engines?.google?.last_error ? ` · ${engines.google.last_error}` : ''}
+                </div>
+              </div>
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={submitGoogle}>
+                Submit to Google only
+              </button>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">
+                  Bing{' '}
+                  <span className={`sc-status ${engines?.bing?.connected ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                    <span className="dot" />
+                    {engines?.bing?.connected ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="d">
+                  Last: {engines?.bing?.last_submitted_at ? fmtDate(engines.bing.last_submitted_at) : '—'}
+                  {engines?.bing?.last_error ? ` · ${engines.bing.last_error}` : ''}
+                </div>
+              </div>
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('settings')}>
+                Connect in Settings
+              </button>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">
+                  Yandex{' '}
+                  <span className={`sc-status ${engines?.yandex?.connected ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                    <span className="dot" />
+                    {engines?.yandex?.connected ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="d">
+                  Last: {engines?.yandex?.last_submitted_at ? fmtDate(engines.yandex.last_submitted_at) : '—'}
+                  {engines?.yandex?.last_error ? ` · ${engines.yandex.last_error}` : ''}
+                </div>
+              </div>
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('settings')}>
+                Connect in Settings
+              </button>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">Weekly auto-submit (Mondays 06:15 UTC)</div>
+                <div className="d">Celery beat runs when enabled below — toggle in Site Settings</div>
+              </div>
+              <span className={`sc-status ${settings.auto_submit_weekly ? 'good' : 'pending'}`}>
+                <span className="dot" />
+                {settings.auto_submit_weekly ? 'On' : 'Off'}
+              </span>
             </div>
           </div>
 
@@ -1717,6 +1936,7 @@ export default function SeoControl() {
             </h3>
             <div className="sc-card-sub">
               Instantly notifies Bing, Yandex, and other engines when content changes. Google does not support IndexNow.
+              When auto-on-publish is on, saving Blog/News/FAQ SEO also pings IndexNow for that URL.
             </div>
             <div className="sc-settings-row">
               <div>
@@ -1756,6 +1976,107 @@ export default function SeoControl() {
                 Save robots.txt
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'keywords' ? (
+        <div>
+          <div className="sc-settings-card">
+            <h3>Keyword ideas</h3>
+            <div className="sc-card-sub">
+              Suggestions are built from your existing pages (not published as new pages). Accepting a keyword only adds it to homepage or product-page keyword fields — you approve every change.
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">{keywords.filter((k) => k.status === 'suggested').length} suggestions</div>
+                <div className="d">Accepted keywords update Site Settings / product page tags — no auto landing pages</div>
+              </div>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={refreshKeywords}>
+                Find new ideas
+              </button>
+            </div>
+          </div>
+          <div className="sc-settings-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table className="sc-table">
+              <thead>
+                <tr>
+                  <th>Phrase</th>
+                  <th>Target</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {keywords.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ color: 'var(--muted)' }}>
+                      No ideas yet — click Find new ideas
+                    </td>
+                  </tr>
+                ) : (
+                  keywords.map((idea) => (
+                    <tr key={idea.id}>
+                      <td>{idea.phrase}</td>
+                      <td>
+                        {idea.status === 'suggested' ? (
+                          <select
+                            value={idea.target || 'home'}
+                            onChange={(e) =>
+                              setKeywords((rows) =>
+                                rows.map((r) => (r.id === idea.id ? { ...r, target: e.target.value } : r)),
+                              )
+                            }
+                          >
+                            <option value="home">Homepage</option>
+                            <option value="surveys">Surveys</option>
+                            <option value="feedback">Feedback</option>
+                            <option value="recruitment">Recruitment</option>
+                            <option value="pricing">Pricing</option>
+                            <option value="contact">Contact</option>
+                          </select>
+                        ) : (
+                          idea.target || '—'
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          className={`sc-status ${
+                            idea.status === 'accepted' ? 'good' : idea.status === 'dismissed' ? 'pending' : 'warn'
+                          }`}
+                        >
+                          <span className="dot" />
+                          {idea.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {idea.status === 'suggested' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="sc-btn sc-btn-primary sc-btn-sm"
+                              disabled={busy}
+                              onClick={() => acceptKeyword(idea)}
+                              style={{ marginRight: 6 }}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="sc-btn sc-btn-ghost sc-btn-sm"
+                              disabled={busy}
+                              onClick={() => dismissKeyword(idea)}
+                            >
+                              Dismiss
+                            </button>
+                          </>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
@@ -2030,6 +2351,125 @@ export default function SeoControl() {
           </div>
 
           <div className="sc-settings-card">
+            <h3>Auto indexing & engine connectors</h3>
+            <div className="sc-card-sub">
+              Weekly Celery job (Mondays 06:15 UTC) regenerates sitemap, IndexNow ping, then submits to Google/Bing/Yandex when connected.
+              Reconnect Google after deploy — sitemap submit now needs full Search Console write access.
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">Weekly auto-submit to connected engines</div>
+                <div className="d">Requires Celery beat running on the VPS</div>
+              </div>
+              <label className="sc-switch">
+                <input
+                  type="checkbox"
+                  checked={!!settings.auto_submit_weekly}
+                  onChange={(e) => setSetting('auto_submit_weekly', e.target.checked)}
+                />
+                <span className="sc-slider" />
+              </label>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">IndexNow on Blog / News / FAQ save</div>
+                <div className="d">Pings Bing & Yandex when you save SEO for an indexable page</div>
+              </div>
+              <label className="sc-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.auto_indexnow_on_publish !== false}
+                  onChange={(e) => setSetting('auto_indexnow_on_publish', e.target.checked)}
+                />
+                <span className="sc-slider" />
+              </label>
+            </div>
+
+            <div className="sc-settings-row" style={{ marginTop: 12 }}>
+              <div>
+                <div className="t">
+                  Bing Webmaster{' '}
+                  <span className={`sc-status ${conn.bing || settings.bing_api_key_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                    <span className="dot" />
+                    {conn.bing || settings.bing_api_key_set ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="d">API key from Bing Webmaster Tools → Settings → API Access</div>
+              </div>
+              {conn.bing || settings.bing_api_key_set ? (
+                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectBing}>
+                  Disconnect
+                </button>
+              ) : null}
+            </div>
+            <div className="sc-kv-row">
+              <label>Bing site URL</label>
+              <div>
+                <input
+                  type="text"
+                  value={settings.bing_site_url || SITE}
+                  onChange={(e) => setSetting('bing_site_url', e.target.value)}
+                  placeholder="https://voxbulk.com"
+                />
+              </div>
+            </div>
+            <div className="sc-kv-row">
+              <label>Bing API key</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  value={bingKey}
+                  onChange={(e) => setBingKey(e.target.value)}
+                  placeholder={settings.bing_api_key_set ? '•••••••• (saved)' : 'Paste API key'}
+                />
+                <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy || !bingKey} onClick={connectBing}>
+                  Connect Bing
+                </button>
+              </div>
+            </div>
+
+            <div className="sc-settings-row" style={{ marginTop: 12 }}>
+              <div>
+                <div className="t">
+                  Yandex Webmaster{' '}
+                  <span className={`sc-status ${conn.yandex || settings.yandex_token_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                    <span className="dot" />
+                    {conn.yandex || settings.yandex_token_set ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                <div className="d">
+                  OAuth token from Yandex OAuth app with Webmaster access
+                  {settings.yandex_host_id ? ` · host ${settings.yandex_host_id}` : ''}
+                </div>
+              </div>
+              {conn.yandex || settings.yandex_token_set ? (
+                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectYandex}>
+                  Disconnect
+                </button>
+              ) : null}
+            </div>
+            <div className="sc-kv-row">
+              <label>Yandex OAuth token</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  value={yandexToken}
+                  onChange={(e) => setYandexToken(e.target.value)}
+                  placeholder={settings.yandex_token_set ? '•••••••• (saved)' : 'Paste OAuth token'}
+                />
+                <button
+                  type="button"
+                  className="sc-btn sc-btn-primary sc-btn-sm"
+                  disabled={busy || !yandexToken}
+                  onClick={connectYandex}
+                >
+                  Connect Yandex
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
             <h3>Data sources for ranking & trust score</h3>
             <div className="sc-card-sub">Connect these so Overview KPIs show real numbers</div>
 
@@ -2044,7 +2484,7 @@ export default function SeoControl() {
                 </div>
                 <div className="d">
                   {settings.gsc_oauth_configured
-                    ? 'Powers average ranking KPI. Save property URL, then Connect with Google OAuth.'
+                    ? 'Powers average ranking KPI + sitemap submit. Save property URL, then Connect with Google OAuth (reconnect after this update).'
                     : 'Paste Client ID & secret first at Integrations → Google Search Console, then come back and Connect.'}
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import { frontpageApiFetch } from "@/lib/api";
+import { SITE_ORIGIN } from "@/lib/brand";
 
 export type SeoContent = {
   slug: string;
@@ -53,10 +54,22 @@ export type PublicSeoSettings = {
 
 let settingsCache: PublicSeoSettings | null = null;
 
+export function absoluteSeoUrl(url: string | null | undefined): string | undefined {
+  const raw = (url || "").trim();
+  if (!raw) return undefined;
+  if (raw.startsWith("https://") || raw.startsWith("http://")) return raw;
+  if (raw.startsWith("//")) return `https:${raw}`;
+  if (raw.startsWith("/")) return `${SITE_ORIGIN}${raw}`;
+  return `${SITE_ORIGIN}/${raw}`;
+}
+
 export async function fetchSeoSettings(): Promise<PublicSeoSettings> {
   if (settingsCache) return settingsCache;
   try {
     settingsCache = await frontpageApiFetch<PublicSeoSettings>("/frontpage/seo/settings");
+    if (settingsCache?.default_social_image_url) {
+      settingsCache.default_social_image_url = absoluteSeoUrl(settingsCache.default_social_image_url) || null;
+    }
   } catch {
     settingsCache = {};
   }
@@ -102,7 +115,7 @@ export function buildHeadFromSeo(
   const robots = seo.robots || "index,follow";
   const ogTitle = seo.social_title || seo.meta_title || seo.title || title;
   const ogDesc = seo.social_description || description;
-  const ogImage = seo.social_image_url || settings.default_social_image_url || undefined;
+  const ogImage = absoluteSeoUrl(seo.social_image_url || settings.default_social_image_url || undefined);
 
   const meta: Array<Record<string, string>> = [
     { title },

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import get_settings
 
@@ -80,6 +81,14 @@ celery_app.conf.update(
             "task": "survey.retry_deferred_wa_starts",
             "schedule": 600.0,
         },
+        "seo-weekly-engine-submit": {
+            "task": "seo.weekly_engine_submit",
+            "schedule": crontab(hour=6, minute=15, day_of_week="mon"),
+        },
+        "seo-keyword-ideas-weekly": {
+            "task": "seo.refresh_keyword_ideas",
+            "schedule": crontab(hour=6, minute=30, day_of_week="mon"),
+        },
     },
 )
 
@@ -97,6 +106,6 @@ from app.workers import demo_account_tasks  # noqa: E402, F401
 from app.workers import survey_wa_template_tasks  # noqa: E402, F401
 from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
 from app.workers import feedback_voice_note_tasks  # noqa: E402, F401
+from app.workers import seo_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""
-

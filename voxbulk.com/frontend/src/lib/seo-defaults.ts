@@ -86,11 +86,11 @@ export function resolvePageSeo(
 
 export function pageMeta(
   page: keyof typeof PAGE_SEO,
-  opts?: { url?: string; ogType?: string; override?: PageSeoOverride | null },
+  opts?: { url?: string; ogType?: string; override?: PageSeoOverride | null; ogImage?: string | null },
 ): Array<Record<string, string>> {
   const seo = resolvePageSeo(page, opts?.override);
   const url = opts?.url || `${SITE_ORIGIN}/${page === "home" ? "" : page}`;
-  return [
+  const meta: Array<Record<string, string>> = [
     { title: seo.title },
     { name: "description", content: seo.description },
     { name: "keywords", content: seo.keywords },
@@ -102,4 +102,11 @@ export function pageMeta(
     { name: "twitter:title", content: seo.title },
     { name: "twitter:description", content: seo.ogDescription },
   ];
+  const image = (opts?.ogImage || "").trim();
+  if (image) {
+    const abs = image.startsWith("http") ? image : `${SITE_ORIGIN}${image.startsWith("/") ? image : `/${image}`}`;
+    meta.push({ property: "og:image", content: abs });
+    meta.push({ name: "twitter:image", content: abs });
+  }
+  return meta;
 }

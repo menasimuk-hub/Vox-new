@@ -216,16 +216,31 @@ def _save_recipient_result(
     payload: dict[str, Any],
     *,
     enqueue_translation: bool = False,
+    status: str | None = None,
 ) -> None:
+    from sqlalchemy import inspect as sa_inspect
+
     from app.services.survey_recipient_result_lock import recipient_result_lock
     from app.services.survey_wa_translation_service import SurveyWaTranslationService
 
     with recipient_result_lock(recipient.id):
+        # refresh() reloads DB state and would drop in-memory status changes (e.g. pending→sent
+        # after welcome). Preserve an explicit status or a dirty status set by the caller.
+        intended_status = str(status).strip() if status else None
+        if not intended_status:
+            try:
+                hist = sa_inspect(recipient).attrs.status.history
+                if hist.has_changes() and hist.added:
+                    intended_status = str(hist.added[0] or "").strip() or None
+            except Exception:
+                intended_status = None
+
         db.refresh(recipient)
         existing = _recipient_result(recipient)
         merged = SurveyWaTranslationService.merge_preserved_translations(existing, payload)
         recipient.result_json = json.dumps(merged, ensure_ascii=False)
-        recipient.updated_at = datetime.utcnow()
+        if intended_status:
+            recipient.status = intended_status
         db.add(recipient)
         db.commit()
         payload = merged
@@ -620,14 +635,17 @@ def _match_recipient_conversation(
     *,
     session_step: int | None = None,
 ) -> bool:
-    if str(recipient.status or "").lower() not in {"sent", "in_progress"}:
-        return False
+    status = str(recipient.status or "").lower()
     conv = _wa_conversation(_recipient_result(recipient))
     step = int(conv.get("step") or 0)
     total = int(conv.get("total") or 0)
+    # Welcome may have been sent while status stayed "pending" (hours-deferred retry bug).
+    welcome_pending = status == "pending" and bool(conv.get("intro_sent_at")) and step == 0
+    if status not in {"sent", "in_progress"} and not welcome_pending:
+        return False
     if session_step is not None and int(session_step) == 0:
         return step == 0 or bool(conv.get("intro_sent_at"))
-    if step == 0 and str(recipient.status or "").lower() in {"sent", "in_progress"}:
+    if step == 0 and (status in {"sent", "in_progress"} or welcome_pending):
         return True
     if conv.get("intro_sent_at") and step == 0:
         return True
@@ -1837,6 +1855,9 @@ def send_survey_opening(
         return False
 
     payload = _recipient_result(recipient)
+    payload.pop("error", None)
+    payload.pop("detail", None)
+    payload.pop("deferred_at", None)
     payload["channel"] = "whatsapp"
     payload["wa_conversation"] = {
         "step": 0,
@@ -1846,14 +1867,14 @@ def send_survey_opening(
         "awaiting_start": True,
     }
     payload = SurveySessionService.attach_session_to_result(payload, session)
-    recipient.status = "sent"
-    _save_recipient_result(db, recipient, payload)
+    _save_recipient_result(db, recipient, payload, status="sent")
     logger.info(
-        "%s opening_sent order=%s recipient=%s session_id=%s awaiting_start=true",
+        "%s opening_sent order=%s recipient=%s session_id=%s awaiting_start=true status=%s",
         LOG_PREFIX,
         order.id,
         recipient.id,
         session.id,
+        recipient.status,
     )
     welcome_name = str(template_row.name or template_row.display_name or "") if template_row else None
     log_wa_test_mode(

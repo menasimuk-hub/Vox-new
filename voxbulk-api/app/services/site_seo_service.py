@@ -41,6 +41,20 @@ Disallow: /signin
 Sitemap: https://voxbulk.com/sitemap.xml
 """
 
+
+def absolute_media_url(url: str | None) -> str | None:
+    """Social/Open Graph crawlers require absolute https URLs."""
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("https://") or raw.startswith("http://"):
+        return raw
+    if raw.startswith("//"):
+        return f"https:{raw}"
+    if raw.startswith("/"):
+        return f"{SITE_ORIGIN}{raw}"
+    return f"{SITE_ORIGIN}/{raw}"
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 STATIC_SITEMAP_PATHS = [
     "/",
@@ -335,7 +349,7 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
         "site_name": row.site_name,
         "title_template": row.title_template,
         "default_meta_description": row.default_meta_description or "",
-        "default_social_image_url": row.default_social_image_url,
+        "default_social_image_url": absolute_media_url(row.default_social_image_url),
         "home_title": row.home_title or "",
         "home_description": row.home_description or "",
         "home_focus_keyword": row.home_focus_keyword or "",
@@ -365,10 +379,20 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
         "robots_txt": row.robots_txt or DEFAULT_ROBOTS,
         "sitemap_last_generated_at": row.sitemap_last_generated_at.isoformat() if row.sitemap_last_generated_at else None,
         "sitemap_last_submitted_at": row.sitemap_last_submitted_at.isoformat() if row.sitemap_last_submitted_at else None,
+        "auto_submit_weekly": bool(getattr(row, "auto_submit_weekly", False)),
+        "auto_indexnow_on_publish": bool(getattr(row, "auto_indexnow_on_publish", True)),
+        "bing_site_url": getattr(row, "bing_site_url", None) or SITE_ORIGIN,
+        "bing_api_key_set": bool(_decrypt(getattr(row, "bing_api_key_encrypted", None))),
+        "yandex_user_id": getattr(row, "yandex_user_id", "") or "",
+        "yandex_host_id": getattr(row, "yandex_host_id", "") or "",
+        "yandex_token_set": bool(_decrypt(getattr(row, "yandex_oauth_token_encrypted", None))),
+        "engines_last_run_at": row.engines_last_run_at.isoformat() if getattr(row, "engines_last_run_at", None) else None,
         "connections": {
             "gsc": bool(row.gsc_connected),
             "psi": bool(row.psi_connected),
             "moz": bool(row.moz_connected),
+            "bing": bool(getattr(row, "bing_connected", False)),
+            "yandex": bool(getattr(row, "yandex_connected", False)),
         },
         "gsc_oauth_configured": False,  # filled by router/settings loader when db available
         "gsc_avg_position": row.gsc_avg_position,
@@ -391,7 +415,7 @@ def settings_to_public(row: SiteSeoSettings) -> dict[str, Any]:
         "site_name": row.site_name,
         "title_template": row.title_template,
         "default_meta_description": row.default_meta_description or "",
-        "default_social_image_url": row.default_social_image_url,
+        "default_social_image_url": absolute_media_url(row.default_social_image_url),
         "home_title": row.home_title or "",
         "home_description": row.home_description or "",
         "home_focus_keyword": row.home_focus_keyword or "",
@@ -439,13 +463,22 @@ def update_settings(db: Session, payload: dict[str, Any]) -> SiteSeoSettings:
         "google_news_language",
         "gsc_property_url",
         "robots_txt",
+        "bing_site_url",
     ]
     for f in str_fields:
         if f in payload:
             setattr(row, f, str(payload.get(f) or ""))
     if "default_social_image_url" in payload:
         row.default_social_image_url = payload.get("default_social_image_url") or None
-    for f in ("schema_organization", "schema_website", "schema_breadcrumbs", "schema_content", "google_news_enabled"):
+    for f in (
+        "schema_organization",
+        "schema_website",
+        "schema_breadcrumbs",
+        "schema_content",
+        "google_news_enabled",
+        "auto_submit_weekly",
+        "auto_indexnow_on_publish",
+    ):
         if f in payload:
             setattr(row, f, bool(payload.get(f)))
     if "marketing_pages" in payload and isinstance(payload.get("marketing_pages"), dict):
@@ -488,7 +521,7 @@ def _blog_row_to_seo(row: SiteBlogNewsItem) -> dict[str, Any]:
         "last_updated": (row.seo_updated_at or row.updated_at).isoformat() if (row.seo_updated_at or row.updated_at) else None,
         "social_title": row.social_title or "",
         "social_description": row.social_description or "",
-        "social_image_url": row.social_image_url or row.image_url,
+        "social_image_url": absolute_media_url(row.social_image_url or row.image_url),
         "index_status": row.index_status or _derive_index_status(row.robots, visible=row.is_visible),
         "index_requested_at": row.index_requested_at.isoformat() if row.index_requested_at else None,
         "is_visible": bool(row.is_visible),
@@ -518,7 +551,7 @@ def _faq_row_to_seo(row: FAQItem) -> dict[str, Any]:
         "last_updated": (row.seo_updated_at or row.updated_at).isoformat() if (row.seo_updated_at or row.updated_at) else None,
         "social_title": row.social_title or "",
         "social_description": row.social_description or "",
-        "social_image_url": row.social_image_url,
+        "social_image_url": absolute_media_url(row.social_image_url),
         "index_status": row.index_status or _derive_index_status(row.robots, visible=row.is_published),
         "index_requested_at": row.index_requested_at.isoformat() if row.index_requested_at else None,
         "is_visible": bool(row.is_published),
@@ -719,7 +752,10 @@ def update_content_seo(db: Session, kind: str, item_id: str, payload: dict[str, 
         row.updated_at = now
         db.commit()
         db.refresh(row)
-        return _faq_row_to_seo(row)
+        result = _faq_row_to_seo(row)
+        if row.is_published and _is_indexable_robots(row.robots):
+            _maybe_indexnow_on_publish(db, result["url"])
+        return result
 
     row = _get_blog(db, item_id)
     old_slug = row.slug
@@ -763,7 +799,10 @@ def update_content_seo(db: Session, kind: str, item_id: str, payload: dict[str, 
     row.updated_at = now
     db.commit()
     db.refresh(row)
-    return _blog_row_to_seo(row)
+    result = _blog_row_to_seo(row)
+    if row.is_visible and _is_indexable_robots(row.robots):
+        _maybe_indexnow_on_publish(db, result["url"])
+    return result
 
 
 def toggle_index(db: Session, kind: str, item_id: str) -> dict[str, Any]:
@@ -814,11 +853,11 @@ def request_indexing(db: Session, kind: str, item_id: str) -> dict[str, Any]:
 
     gsc_note = "Indexing request recorded. Connect Google Search Console in Site Settings to submit to Google."
     if settings.gsc_connected and _decrypt(settings.gsc_refresh_token_encrypted):
-        # Placeholder for full OAuth URL Inspection — record intent when connected
         gsc_note = (
             "Indexing request timestamp stored. Google Search Console URL Inspection "
             f"should be used for {url} (full OAuth inspection requires GSC API scopes)."
         )
+    _maybe_indexnow_on_publish(db, url)
     result["request_note"] = gsc_note
     return result
 
@@ -967,31 +1006,41 @@ def generate_indexnow_key(db: Session) -> dict[str, Any]:
     }
 
 
-def notify_indexnow(db: Session) -> dict[str, Any]:
+def notify_indexnow(db: Session, urls: list[str] | None = None) -> dict[str, Any]:
     settings = ensure_settings(db)
     key = (settings.indexnow_key or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="Generate an IndexNow key first.")
-    since = settings.indexnow_last_pinged_at or (datetime.utcnow() - timedelta(days=7))
-    urls: list[str] = []
-    for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.is_visible.is_(True))).scalars().all():
-        if not _is_indexable_robots(row.robots):
-            continue
-        ts = row.seo_updated_at or row.updated_at
-        if ts and ts >= since:
-            urls.append(f"{SITE_ORIGIN}{PATH_PREFIX[row.kind]}{row.slug}")
-    for row in db.execute(select(FAQItem).where(FAQItem.is_published.is_(True))).scalars().all():
-        if not row.slug or not _is_indexable_robots(row.robots):
-            continue
-        ts = row.seo_updated_at or row.updated_at
-        if ts and ts >= since:
-            urls.append(f"{SITE_ORIGIN}/faq/{row.slug}")
-    urls = urls[:10000] or [f"{SITE_ORIGIN}/"]
+    url_list: list[str] = []
+    if urls:
+        for u in urls:
+            raw = (u or "").strip()
+            if not raw:
+                continue
+            if raw.startswith("/"):
+                raw = f"{SITE_ORIGIN}{raw}"
+            if raw.startswith("http"):
+                url_list.append(raw)
+    else:
+        since = settings.indexnow_last_pinged_at or (datetime.utcnow() - timedelta(days=7))
+        for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.is_visible.is_(True))).scalars().all():
+            if not _is_indexable_robots(row.robots):
+                continue
+            ts = row.seo_updated_at or row.updated_at
+            if ts and ts >= since:
+                url_list.append(f"{SITE_ORIGIN}{PATH_PREFIX[row.kind]}{row.slug}")
+        for row in db.execute(select(FAQItem).where(FAQItem.is_published.is_(True))).scalars().all():
+            if not row.slug or not _is_indexable_robots(row.robots):
+                continue
+            ts = row.seo_updated_at or row.updated_at
+            if ts and ts >= since:
+                url_list.append(f"{SITE_ORIGIN}/faq/{row.slug}")
+    url_list = url_list[:10000] or [f"{SITE_ORIGIN}/"]
     payload = {
         "host": "voxbulk.com",
         "key": key,
         "keyLocation": f"{SITE_ORIGIN}/{key}.txt",
-        "urlList": urls,
+        "urlList": url_list,
     }
     try:
         with httpx.Client(timeout=20.0) as client:
@@ -1003,7 +1052,19 @@ def notify_indexnow(db: Session) -> dict[str, Any]:
     settings.indexnow_last_pinged_at = datetime.utcnow()
     settings.updated_at = datetime.utcnow()
     db.commit()
-    return {"ok": ok, "url_count": len(urls), "status_code": res.status_code, "detail": detail}
+    return {"ok": ok, "url_count": len(url_list), "status_code": res.status_code, "detail": detail, "urls": url_list[:20]}
+
+
+def _maybe_indexnow_on_publish(db: Session, url: str) -> None:
+    settings = ensure_settings(db)
+    if not getattr(settings, "auto_indexnow_on_publish", True):
+        return
+    if not (settings.indexnow_key or "").strip():
+        return
+    try:
+        notify_indexnow(db, [url])
+    except Exception:
+        pass
 
 
 def connect_psi(db: Session, api_key: str) -> dict[str, Any]:
@@ -1217,21 +1278,9 @@ def mark_broken_fixed(db: Session, url: str) -> dict[str, Any]:
 
 
 def submit_sitemap_to_google(db: Session) -> dict[str, Any]:
-    settings = ensure_settings(db)
-    settings.sitemap_last_submitted_at = datetime.utcnow()
-    settings.updated_at = datetime.utcnow()
-    db.commit()
-    if not settings.gsc_connected:
-        return {
-            "ok": False,
-            "submitted_at": settings.sitemap_last_submitted_at.isoformat(),
-            "note": "Timestamp saved. Connect Google Search Console in Site Settings to submit via API.",
-        }
-    return {
-        "ok": True,
-        "submitted_at": settings.sitemap_last_submitted_at.isoformat(),
-        "note": "Submission timestamp recorded. Full GSC Sitemaps API submit requires OAuth scopes.",
-    }
+    from app.services.seo_engine_service import submit_sitemap_google
+
+    return submit_sitemap_google(db)
 
 
 def public_faq_list(db: Session) -> list[dict[str, Any]]:

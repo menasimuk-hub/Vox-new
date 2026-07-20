@@ -20,7 +20,8 @@ from app.services import site_seo_service as seo
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GSC_SITES_URL = "https://www.googleapis.com/webmasters/v3/sites"
-GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
+# Full webmasters scope is required to submit sitemaps (readonly cannot).
+GSC_SCOPE = "https://www.googleapis.com/auth/webmasters"
 STATE_PREFIX = "gsc:"
 STATE_MAX_AGE_SEC = 15 * 60
 
@@ -414,6 +415,38 @@ def refresh_gsc_metrics(db: Session, *, access_token: str | None = None) -> dict
         "note": None
         if position is not None
         else "Connected, but Search Console has no query data for the last 28 days yet.",
+    }
+
+
+def submit_sitemap(db: Session, feed_url: str) -> dict[str, Any]:
+    """Submit (or re-submit) a sitemap URL via Search Console Sitemaps API."""
+    settings = seo.ensure_settings(db)
+    refresh = seo._decrypt(settings.gsc_refresh_token_encrypted)
+    if not settings.gsc_connected or not refresh:
+        raise HTTPException(
+            status_code=400,
+            detail="Connect Google Search Console in SEO Control first (reconnect if you connected before write access was enabled).",
+        )
+    site_url = (settings.gsc_property_url or "").strip()
+    if not site_url:
+        raise HTTPException(status_code=400, detail="Search Console property URL is missing.")
+    access = _refresh_access_token(db, refresh)
+    encoded_site = quote(site_url, safe="")
+    encoded_feed = quote(feed_url, safe="")
+    url = f"{GSC_SITES_URL}/{encoded_site}/sitemaps/{encoded_feed}"
+    headers = {"Authorization": f"Bearer {access}"}
+    with httpx.Client(timeout=45.0) as client:
+        res = client.put(url, headers=headers)
+    if res.status_code >= 400:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Google sitemap submit failed ({res.status_code}): {res.text[:300]}",
+        )
+    return {
+        "property_url": site_url,
+        "feed_url": feed_url,
+        "status_code": res.status_code,
+        "note": "Sitemap submitted to Google Search Console.",
     }
 
 

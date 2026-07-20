@@ -4,7 +4,7 @@ import { AuthModalProvider } from "@/components/AuthModal";
 import { TalkModalProvider } from "@/components/TalkModal";
 import { CurrencyProvider } from "@/components/CurrencyContext";
 import { AuthProvider } from "@/lib/auth";
-import { fetchSeoSettings, type PublicSeoSettings } from "@/lib/seo";
+import { fetchSeoSettings, type PublicSeoSettings, absoluteSeoUrl } from "@/lib/seo";
 import { HOME_KEYWORDS, PAGE_SEO } from "@/lib/seo-defaults";
 
 import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
@@ -68,8 +68,11 @@ export const Route = createRootRoute({
       meta.push({ name: "google-site-verification", content: s.google_site_verification });
     }
     if (s.default_social_image_url) {
-      meta.push({ property: "og:image", content: s.default_social_image_url });
-      meta.push({ name: "twitter:image", content: s.default_social_image_url });
+      const ogImage = absoluteSeoUrl(s.default_social_image_url);
+      if (ogImage) {
+        meta.push({ property: "og:image", content: ogImage });
+        meta.push({ name: "twitter:image", content: ogImage });
+      }
     }
 
     const graph: Array<Record<string, unknown>> = [];
