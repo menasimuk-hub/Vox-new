@@ -1,15 +1,15 @@
-"""0172 — Composite index on service_orders (org_id, service_code) for home-summary.
+"""0173 — Composite index on service_orders (org_id, service_code) for home-summary.
 
-Revision ID: 0172_service_orders_org_service_idx
-Revises: 0171_marketing_faqs_replace_demo
+Revision ID: 0173_service_orders_org_service_idx
+Revises: 0172_seo_engine_connectors
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "0172_service_orders_org_service_idx"
-down_revision = "0171_marketing_faqs_replace_demo"
+revision = "0173_service_orders_org_service_idx"
+down_revision = "0172_seo_engine_connectors"
 branch_labels = None
 depends_on = None
 
