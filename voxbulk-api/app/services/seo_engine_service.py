@@ -325,6 +325,65 @@ def run_engine_submit(db: Session, *, source: str = "manual") -> dict[str, Any]:
     return results
 
 
+def test_bing(db: Session) -> dict[str, Any]:
+    row = seo.ensure_settings(db)
+    key = seo._decrypt(getattr(row, "bing_api_key_encrypted", None))
+    if not key:
+        raise HTTPException(status_code=400, detail="Connect Bing first (save API key).")
+    url = f"https://ssl.bing.com/webmaster/api.svc/json/GetUserSites?apikey={quote(key, safe='')}"
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            res = client.get(url)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Bing API request failed: {exc}") from exc
+    if res.status_code >= 400:
+        raise HTTPException(status_code=400, detail=f"Bing test failed ({res.status_code}): {res.text[:240]}")
+    return {"ok": True, "status_code": res.status_code, "detail": "Bing API key works."}
+
+
+def test_yandex(db: Session) -> dict[str, Any]:
+    row = seo.ensure_settings(db)
+    token = seo._decrypt(getattr(row, "yandex_oauth_token_encrypted", None))
+    user_id = (row.yandex_user_id or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Connect Yandex first (save OAuth token).")
+    headers = {"Authorization": f"OAuth {token}"}
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            user_res = client.get("https://api.webmaster.yandex.net/v4/user", headers=headers)
+            if user_res.status_code >= 400:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Yandex test failed ({user_res.status_code}): {user_res.text[:240]}",
+                )
+            if not user_id:
+                user_id = str((user_res.json() or {}).get("user_id") or "")
+            hosts_res = client.get(
+                f"https://api.webmaster.yandex.net/v4/user/{user_id}/hosts",
+                headers=headers,
+            )
+            if hosts_res.status_code >= 400:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Yandex hosts test failed ({hosts_res.status_code}): {hosts_res.text[:240]}",
+                )
+            host_count = len((hosts_res.json() or {}).get("hosts") or [])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Yandex API request failed: {exc}") from exc
+    return {"ok": True, "user_id": user_id, "host_count": host_count, "detail": "Yandex token works."}
+
+
+def test_google(db: Session) -> dict[str, Any]:
+    from app.services.gsc_oauth_service import refresh_gsc_metrics
+
+    if not seo.ensure_settings(db).gsc_connected:
+        raise HTTPException(status_code=400, detail="Connect Google Search Console with OAuth first.")
+    data = refresh_gsc_metrics(db)
+    return {"ok": True, "detail": "Google Search Console token works.", **data}
+
+
 def weekly_auto_submit_if_enabled(db: Session) -> dict[str, Any]:
     row = seo.ensure_settings(db)
     if not getattr(row, "auto_submit_weekly", False):

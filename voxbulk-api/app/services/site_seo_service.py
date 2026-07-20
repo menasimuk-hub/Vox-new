@@ -598,7 +598,6 @@ def overview(db: Session) -> dict[str, Any]:
         return out
 
     ranking = None
-    trust = None
     if settings.gsc_connected and settings.gsc_avg_position is not None:
         ranking = {
             "current": float(settings.gsc_avg_position),
@@ -607,14 +606,6 @@ def overview(db: Session) -> dict[str, Any]:
         }
     else:
         ranking = {"current": None, "previous": None, "connected": False}
-    if settings.moz_connected and settings.moz_domain_authority is not None:
-        trust = {
-            "current": float(settings.moz_domain_authority),
-            "previous": float(settings.moz_domain_authority_prev or settings.moz_domain_authority),
-            "connected": True,
-        }
-    else:
-        trust = {"current": None, "previous": None, "connected": False}
 
     return {
         "total_pages": len(all_items),
@@ -624,14 +615,14 @@ def overview(db: Session) -> dict[str, Any]:
             "faq": counts(faq),
         },
         "ranking": ranking,
-        "trust": trust,
         "sitemap_last_submitted_at": settings.sitemap_last_submitted_at.isoformat()
         if settings.sitemap_last_submitted_at
         else None,
         "connections": {
             "gsc": bool(settings.gsc_connected),
             "psi": bool(settings.psi_connected),
-            "moz": bool(settings.moz_connected),
+            "bing": bool(getattr(settings, "bing_connected", False)),
+            "yandex": bool(getattr(settings, "yandex_connected", False)),
         },
     }
 

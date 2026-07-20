@@ -16,6 +16,7 @@ const TABS = [
   ['tech', 'Technical Health'],
   ['redirects', 'Redirects'],
   ['sitemap', 'Sitemap & Robots'],
+  ['apis', 'APIs'],
   ['keywords', 'Keyword Ideas'],
   ['settings', 'Site Settings'],
 ]
@@ -421,6 +422,8 @@ export default function SeoControl() {
       else if (nextTab === 'redirects') await loadRedirects()
       else if (nextTab === 'sitemap') {
         await Promise.all([loadSitemap(), loadSettings(), loadEngines()])
+      } else if (nextTab === 'apis') {
+        await Promise.all([loadSettings(), loadEngines()])
       } else if (nextTab === 'keywords') await loadKeywords()
       else if (nextTab === 'settings') await Promise.all([loadSettings(), loadEngines()])
     } catch (e) {
@@ -797,7 +800,7 @@ export default function SeoControl() {
         method: 'POST',
         body: JSON.stringify({ target: idea.target || 'home' }),
       })
-      showToast(data?.note || 'Keyword accepted')
+      showToast(data?.note || 'Keyword saved to page fields')
       await loadKeywords()
       await loadSettings().catch(() => {})
     } catch (e) {
@@ -863,7 +866,7 @@ export default function SeoControl() {
     }
   }
 
-  const saveSettings = async () => {
+  const saveSettings = async (extra = {}) => {
     setBusy(true)
     setMsg('')
     try {
@@ -896,15 +899,55 @@ export default function SeoControl() {
         auto_submit_weekly: !!settings.auto_submit_weekly,
         auto_indexnow_on_publish: !!settings.auto_indexnow_on_publish,
         bing_site_url: settings.bing_site_url || SITE,
+        ...extra,
       }
       const data = await apiFetch('/admin/seo/settings', {
         method: 'PUT',
         body: JSON.stringify(payload),
       })
       setSettings({ ...emptySettings(), ...data })
-      showToast('Settings saved')
+      showToast('Saved')
+      return data
     } catch (e) {
       setMsg(errMsg(e, 'Save failed'))
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const testGoogle = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/engines/test-google', { method: 'POST' })
+      showToast(data.detail || 'Google OK')
+      await loadSettings()
+    } catch (e) {
+      setMsg(errMsg(e, 'Google test failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const testBing = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/engines/test-bing', { method: 'POST' })
+      showToast(data.detail || 'Bing OK')
+    } catch (e) {
+      setMsg(errMsg(e, 'Bing test failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const testYandex = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/seo/engines/test-yandex', { method: 'POST' })
+      showToast(data.detail || 'Yandex OK')
+    } catch (e) {
+      setMsg(errMsg(e, 'Yandex test failed'))
     } finally {
       setBusy(false)
     }
@@ -1016,7 +1059,6 @@ export default function SeoControl() {
   const setSetting = (key, value) => setSettings((s) => ({ ...s, [key]: value }))
 
   const ranking = overview?.ranking
-  const trust = overview?.trust
   const byKind = overview?.by_kind || {}
   const totals = CONTENT_KINDS.reduce(
     (acc, k) => {
@@ -1453,19 +1495,8 @@ export default function SeoControl() {
               ranking?.previous,
               ranking?.connected,
               'Lower is better. Average position of queries where your site appears in Google Search.',
-              'Source: Google Search Console (connect in Site Settings)',
+              'Source: Google Search Console (connect in APIs tab)',
               false,
-            )}
-            {renderKpi(
-              'trust',
-              'Domain trust score',
-              'DA',
-              trust?.current,
-              trust?.previous,
-              trust?.connected,
-              'Moz Domain Authority — a 1–100 score estimating how likely the domain is to rank.',
-              'Source: Moz Domain Authority (connect Moz API keys in Site Settings)',
-              true,
             )}
           </div>
 
@@ -1892,8 +1923,8 @@ export default function SeoControl() {
                   {engines?.bing?.last_error ? ` · ${engines.bing.last_error}` : ''}
                 </div>
               </div>
-              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('settings')}>
-                Connect in Settings
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('apis')}>
+                Connect in APIs
               </button>
             </div>
             <div className="sc-settings-row">
@@ -1910,8 +1941,8 @@ export default function SeoControl() {
                   {engines?.yandex?.last_error ? ` · ${engines.yandex.last_error}` : ''}
                 </div>
               </div>
-              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('settings')}>
-                Connect in Settings
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('apis')}>
+                Connect in APIs
               </button>
             </div>
             <div className="sc-settings-row">
@@ -1980,17 +2011,220 @@ export default function SeoControl() {
         </div>
       ) : null}
 
+      {tab === 'apis' ? (
+        <div>
+          <div className="sc-settings-card">
+            <h3>Search & SEO APIs</h3>
+            <div className="sc-card-sub">
+              Each service has its own card. Save credentials, Connect (Google OAuth), then Test. Sitemap submit stays on the Sitemap tab — not here.
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>
+              Google Search Console{' '}
+              <span className={`sc-status ${conn.gsc ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                <span className="dot" />
+                {conn.gsc ? 'Connected' : 'Not connected'}
+              </span>
+            </h3>
+            <div className="sc-card-sub">
+              {settings.gsc_oauth_configured
+                ? 'OAuth app is configured. Click Connect once to authorize this Admin with write access for sitemap submit + ranking.'
+                : 'First save Client ID/secret under Integrations → Google Search Console, then return here.'}
+            </div>
+            <div className="sc-kv-row">
+              <label>Property URL</label>
+              <div>
+                <input
+                  type="text"
+                  value={settings.gsc_property_url}
+                  onChange={(e) => setSetting('gsc_property_url', e.target.value)}
+                  placeholder="sc-domain:voxbulk.com"
+                />
+              </div>
+            </div>
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 8, gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={() => saveSettings()}>
+                Save
+              </button>
+              {!settings.gsc_oauth_configured ? (
+                <a className="sc-btn sc-btn-ghost sc-btn-sm" href="/integrations/google_search_console">
+                  Open credentials
+                </a>
+              ) : null}
+              {conn.gsc ? (
+                <>
+                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={testGoogle}>
+                    Test
+                  </button>
+                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={refreshGsc}>
+                    Refresh ranking
+                  </button>
+                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectGsc}>
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="sc-btn sc-btn-ghost sc-btn-sm"
+                  disabled={busy || !settings.gsc_oauth_configured}
+                  onClick={connectGsc}
+                >
+                  Connect
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>
+              Bing Webmaster{' '}
+              <span className={`sc-status ${conn.bing || settings.bing_api_key_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                <span className="dot" />
+                {conn.bing || settings.bing_api_key_set ? 'Connected' : 'Not connected'}
+              </span>
+            </h3>
+            <div className="sc-card-sub">API key from Bing Webmaster Tools → Settings → API Access</div>
+            <div className="sc-kv-row">
+              <label>Site URL</label>
+              <div>
+                <input
+                  type="text"
+                  value={settings.bing_site_url || SITE}
+                  onChange={(e) => setSetting('bing_site_url', e.target.value)}
+                  placeholder="https://voxbulk.com"
+                />
+              </div>
+            </div>
+            <div className="sc-kv-row">
+              <label>API key</label>
+              <div>
+                <input
+                  type="password"
+                  value={bingKey}
+                  onChange={(e) => setBingKey(e.target.value)}
+                  placeholder={settings.bing_api_key_set ? '•••••••• (saved)' : 'Paste API key'}
+                />
+              </div>
+            </div>
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 8, gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={() => saveSettings()}>
+                Save site URL
+              </button>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy || !bingKey} onClick={connectBing}>
+                Save &amp; Connect
+              </button>
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy || !(conn.bing || settings.bing_api_key_set)} onClick={testBing}>
+                Test
+              </button>
+              {conn.bing || settings.bing_api_key_set ? (
+                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectBing}>
+                  Disconnect
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>
+              Yandex Webmaster{' '}
+              <span className={`sc-status ${conn.yandex || settings.yandex_token_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                <span className="dot" />
+                {conn.yandex || settings.yandex_token_set ? 'Connected' : 'Not connected'}
+              </span>
+            </h3>
+            <div className="sc-card-sub">
+              OAuth token from a Yandex OAuth app with Webmaster access
+              {settings.yandex_host_id ? ` · host ${settings.yandex_host_id}` : ''}
+            </div>
+            <div className="sc-kv-row">
+              <label>OAuth token</label>
+              <div>
+                <input
+                  type="password"
+                  value={yandexToken}
+                  onChange={(e) => setYandexToken(e.target.value)}
+                  placeholder={settings.yandex_token_set ? '•••••••• (saved)' : 'Paste OAuth token'}
+                />
+              </div>
+            </div>
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 8, gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy || !yandexToken} onClick={connectYandex}>
+                Save &amp; Connect
+              </button>
+              <button
+                type="button"
+                className="sc-btn sc-btn-ghost sc-btn-sm"
+                disabled={busy || !(conn.yandex || settings.yandex_token_set)}
+                onClick={testYandex}
+              >
+                Test
+              </button>
+              {conn.yandex || settings.yandex_token_set ? (
+                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectYandex}>
+                  Disconnect
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>
+              Google PageSpeed Insights{' '}
+              <span className={`sc-status ${conn.psi ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
+                <span className="dot" />
+                {conn.psi ? 'Connected' : 'Not connected'}
+              </span>
+            </h3>
+            <div className="sc-card-sub">Optional. Powers Core Web Vitals on Technical Health.</div>
+            <div className="sc-kv-row">
+              <label>API key</label>
+              <div>
+                <input
+                  type="text"
+                  value={psiKey}
+                  onChange={(e) => setPsiKey(e.target.value)}
+                  placeholder={settings.psi_api_key_set ? '•••••••• (saved)' : 'AIza...'}
+                />
+              </div>
+            </div>
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 8 }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy || !psiKey} onClick={connectPsi}>
+                Save &amp; Connect
+              </button>
+            </div>
+          </div>
+
+          <div className="sc-settings-card">
+            <h3>IndexNow</h3>
+            <div className="sc-card-sub">Free instant notify for Bing/Yandex. Generate once on Sitemap tab, then Test notify there.</div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">{indexKey ? `Key ready (${indexKey.slice(0, 10)}…)` : 'Not generated'}</div>
+                <div className="d">Open Sitemap &amp; Robots tab to generate / notify</div>
+              </div>
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('sitemap')}>
+                Go to Sitemap
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tab === 'keywords' ? (
         <div>
           <div className="sc-settings-card">
             <h3>Keyword ideas</h3>
             <div className="sc-card-sub">
-              Suggestions are built from your existing pages (not published as new pages). Accepting a keyword only adds it to homepage or product-page keyword fields — you approve every change.
+              Click <strong>Save keyword</strong> to add a phrase to homepage or product-page keyword fields only.
+              There is no “submit keywords” to Google — engines only get URLs/sitemaps.
             </div>
             <div className="sc-settings-row">
               <div>
                 <div className="t">{keywords.filter((k) => k.status === 'suggested').length} suggestions</div>
-                <div className="d">Accepted keywords update Site Settings / product page tags — no auto landing pages</div>
+                <div className="d">Save = store on your pages. No new landing pages. No engine submit.</div>
               </div>
               <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={refreshKeywords}>
                 Find new ideas
@@ -2059,7 +2293,7 @@ export default function SeoControl() {
                               onClick={() => acceptKeyword(idea)}
                               style={{ marginRight: 6 }}
                             >
-                              Accept
+                              Save keyword
                             </button>
                             <button
                               type="button"
@@ -2113,6 +2347,11 @@ export default function SeoControl() {
               <div>
                 <input type="text" value={settings.home_tags} onChange={(e) => setSetting('home_tags', e.target.value)} />
               </div>
+            </div>
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 12 }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={() => saveSettings()}>
+                Save homepage SEO
+              </button>
             </div>
           </div>
 
@@ -2173,6 +2412,12 @@ export default function SeoControl() {
               )
             })}
           </div>
+
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 12 }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={() => saveSettings()}>
+                Save product pages SEO
+              </button>
+            </div>
 
           <div className="sc-settings-card">
             <h3>Default meta</h3>
@@ -2351,15 +2596,14 @@ export default function SeoControl() {
           </div>
 
           <div className="sc-settings-card">
-            <h3>Auto indexing & engine connectors</h3>
+            <h3>Auto indexing</h3>
             <div className="sc-card-sub">
-              Weekly Celery job (Mondays 06:15 UTC) regenerates sitemap, IndexNow ping, then submits to Google/Bing/Yandex when connected.
-              Reconnect Google after deploy — sitemap submit now needs full Search Console write access.
+              Connect Google / Bing / Yandex under the APIs tab. Sitemap submit is on Sitemap &amp; Robots.
             </div>
             <div className="sc-settings-row">
               <div>
                 <div className="t">Weekly auto-submit to connected engines</div>
-                <div className="d">Requires Celery beat running on the VPS</div>
+                <div className="d">Mondays 06:15 UTC — requires Celery beat on VPS</div>
               </div>
               <label className="sc-switch">
                 <input
@@ -2373,7 +2617,7 @@ export default function SeoControl() {
             <div className="sc-settings-row">
               <div>
                 <div className="t">IndexNow on Blog / News / FAQ save</div>
-                <div className="d">Pings Bing & Yandex when you save SEO for an indexable page</div>
+                <div className="d">Pings Bing &amp; Yandex when you save SEO for an indexable page</div>
               </div>
               <label className="sc-switch">
                 <input
@@ -2384,224 +2628,19 @@ export default function SeoControl() {
                 <span className="sc-slider" />
               </label>
             </div>
-
-            <div className="sc-settings-row" style={{ marginTop: 12 }}>
-              <div>
-                <div className="t">
-                  Bing Webmaster{' '}
-                  <span className={`sc-status ${conn.bing || settings.bing_api_key_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
-                    <span className="dot" />
-                    {conn.bing || settings.bing_api_key_set ? 'Connected' : 'Not connected'}
-                  </span>
-                </div>
-                <div className="d">API key from Bing Webmaster Tools → Settings → API Access</div>
-              </div>
-              {conn.bing || settings.bing_api_key_set ? (
-                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectBing}>
-                  Disconnect
-                </button>
-              ) : null}
-            </div>
-            <div className="sc-kv-row">
-              <label>Bing site URL</label>
-              <div>
-                <input
-                  type="text"
-                  value={settings.bing_site_url || SITE}
-                  onChange={(e) => setSetting('bing_site_url', e.target.value)}
-                  placeholder="https://voxbulk.com"
-                />
-              </div>
-            </div>
-            <div className="sc-kv-row">
-              <label>Bing API key</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="password"
-                  value={bingKey}
-                  onChange={(e) => setBingKey(e.target.value)}
-                  placeholder={settings.bing_api_key_set ? '•••••••• (saved)' : 'Paste API key'}
-                />
-                <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy || !bingKey} onClick={connectBing}>
-                  Connect Bing
-                </button>
-              </div>
-            </div>
-
-            <div className="sc-settings-row" style={{ marginTop: 12 }}>
-              <div>
-                <div className="t">
-                  Yandex Webmaster{' '}
-                  <span className={`sc-status ${conn.yandex || settings.yandex_token_set ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
-                    <span className="dot" />
-                    {conn.yandex || settings.yandex_token_set ? 'Connected' : 'Not connected'}
-                  </span>
-                </div>
-                <div className="d">
-                  OAuth token from Yandex OAuth app with Webmaster access
-                  {settings.yandex_host_id ? ` · host ${settings.yandex_host_id}` : ''}
-                </div>
-              </div>
-              {conn.yandex || settings.yandex_token_set ? (
-                <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectYandex}>
-                  Disconnect
-                </button>
-              ) : null}
-            </div>
-            <div className="sc-kv-row">
-              <label>Yandex OAuth token</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="password"
-                  value={yandexToken}
-                  onChange={(e) => setYandexToken(e.target.value)}
-                  placeholder={settings.yandex_token_set ? '•••••••• (saved)' : 'Paste OAuth token'}
-                />
-                <button
-                  type="button"
-                  className="sc-btn sc-btn-primary sc-btn-sm"
-                  disabled={busy || !yandexToken}
-                  onClick={connectYandex}
-                >
-                  Connect Yandex
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="sc-settings-card">
-            <h3>Data sources for ranking & trust score</h3>
-            <div className="sc-card-sub">Connect these so Overview KPIs show real numbers</div>
-
-            <div className="sc-settings-row">
-              <div>
-                <div className="t">
-                  Google Search Console{' '}
-                  <span className={`sc-status ${conn.gsc ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
-                    <span className="dot" />
-                    {conn.gsc ? 'Connected' : 'Not connected'}
-                  </span>
-                </div>
-                <div className="d">
-                  {settings.gsc_oauth_configured
-                    ? 'Powers average ranking KPI + sitemap submit. Save property URL, then Connect with Google OAuth (reconnect after this update).'
-                    : 'Paste Client ID & secret first at Integrations → Google Search Console, then come back and Connect.'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {!settings.gsc_oauth_configured ? (
-                  <a className="sc-btn sc-btn-ghost sc-btn-sm" href="/integrations/google_search_console">
-                    Open credentials page
-                  </a>
-                ) : null}
-                {conn.gsc ? (
-                  <>
-                    <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={refreshGsc}>
-                      Refresh ranking
-                    </button>
-                    <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={disconnectGsc}>
-                      Disconnect
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy || !settings.gsc_oauth_configured} onClick={connectGsc}>
-                    Connect
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="sc-kv-row">
-              <label>Search Console property URL</label>
-              <div>
-                <input
-                  type="text"
-                  value={settings.gsc_property_url}
-                  onChange={(e) => setSetting('gsc_property_url', e.target.value)}
-                  placeholder="sc-domain:voxbulk.com (or https://voxbulk.com/)"
-                />
-              </div>
-            </div>
-            {settings.gsc_avg_position != null && settings.gsc_avg_position !== '' ? (
-              <div className="sc-kv-row">
-                <label>Average position (28d)</label>
-                <div className="d" style={{ paddingTop: 8 }}>
-                  {settings.gsc_avg_position}
-                  {settings.gsc_avg_position_prev != null && settings.gsc_avg_position_prev !== ''
-                    ? ` (prev ${settings.gsc_avg_position_prev})`
-                    : ''}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="sc-settings-row">
-              <div>
-                <div className="t">
-                  Google PageSpeed Insights{' '}
-                  <span className={`sc-status ${conn.psi ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
-                    <span className="dot" />
-                    {conn.psi ? 'Connected' : 'Not connected'}
-                  </span>
-                </div>
-                <div className="d">Powers Core Web Vitals on Technical Health. Free API key from Google Cloud Console.</div>
-              </div>
-              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={connectPsi}>
-                Connect
+            <div className="sc-editor-actions" style={{ borderTop: 'none', paddingTop: 12, gap: 8 }}>
+              <button type="button" className="sc-btn sc-btn-primary sc-btn-sm" disabled={busy} onClick={() => saveSettings()}>
+                Save auto indexing
               </button>
-            </div>
-            <div className="sc-kv-row">
-              <label>PageSpeed Insights API key</label>
-              <div>
-                <input
-                  type="text"
-                  value={psiKey}
-                  onChange={(e) => setPsiKey(e.target.value)}
-                  placeholder={settings.psi_api_key_set ? '•••••••• (key saved — paste new to replace)' : 'AIza...'}
-                />
-              </div>
-            </div>
-
-            <div className="sc-settings-row">
-              <div>
-                <div className="t">
-                  Moz (Domain Authority){' '}
-                  <span className={`sc-status ${conn.moz ? 'good' : 'pending'}`} style={{ marginLeft: 6 }}>
-                    <span className="dot" />
-                    {conn.moz ? 'Connected' : 'Not connected'}
-                  </span>
-                </div>
-                <div className="d">Powers the Domain trust score KPI.</div>
-              </div>
-              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={connectMoz}>
-                Connect
+              <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('apis')}>
+                Open APIs tab
               </button>
-            </div>
-            <div className="sc-kv-row">
-              <label>Moz Access ID</label>
-              <div>
-                <input
-                  type="text"
-                  value={mozAccessId}
-                  onChange={(e) => setMozAccessId(e.target.value)}
-                  placeholder={settings.moz_access_id_set ? '•••••••• (saved — paste new to replace)' : 'mozscape-xxxxxxxxx'}
-                />
-              </div>
-            </div>
-            <div className="sc-kv-row">
-              <label>Moz Secret Key</label>
-              <div>
-                <input
-                  type="password"
-                  value={mozSecretKey}
-                  onChange={(e) => setMozSecretKey(e.target.value)}
-                  placeholder={settings.moz_secret_key_set ? '••••••••' : 'Secret key'}
-                />
-              </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" className="sc-btn sc-btn-primary" disabled={busy} onClick={saveSettings}>
-              {busy ? 'Saving…' : 'Save settings'}
+            <button type="button" className="sc-btn sc-btn-primary" disabled={busy} onClick={() => saveSettings()}>
+              {busy ? 'Saving…' : 'Save all settings'}
             </button>
           </div>
         </div>

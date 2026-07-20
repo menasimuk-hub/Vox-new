@@ -228,6 +228,21 @@ def admin_disconnect_yandex(db: Session = Depends(get_db), _admin=Depends(requir
     return engines.disconnect_yandex(db)
 
 
+@admin_router.post("/engines/test-google")
+def admin_test_google(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.test_google(db)
+
+
+@admin_router.post("/engines/test-bing")
+def admin_test_bing(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.test_bing(db)
+
+
+@admin_router.post("/engines/test-yandex")
+def admin_test_yandex(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    return engines.test_yandex(db)
+
+
 @admin_router.get("/keywords")
 def admin_list_keywords(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     return engines.list_keyword_ideas(db)
