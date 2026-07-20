@@ -109,8 +109,7 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
   const orgQ = useQuery({
     queryKey: ["organisations", "me"],
     queryFn: () => apiFetch<Organisation>("/organisations/me"),
-    staleTime: 0,
-    refetchOnMount: "always",
+    staleTime: 1000 * 60 * 2,
     refetchOnWindowFocus: true,
   });
 

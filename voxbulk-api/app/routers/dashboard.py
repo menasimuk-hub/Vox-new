@@ -57,11 +57,22 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     org = OrganisationService.get_org(db, principal.org_id)
     _, _, visible = org_service_maps(org, db) if org else ({}, {}, {})
 
-    rows = list(
-        db.execute(select(ServiceOrder).where(ServiceOrder.org_id == principal.org_id)).scalars().all()
+    interviews = list(
+        db.execute(
+            select(ServiceOrder).where(
+                ServiceOrder.org_id == principal.org_id,
+                ServiceOrder.service_code == "interview",
+            )
+        ).scalars().all()
     )
-    interviews = [r for r in rows if r.service_code == "interview"]
-    surveys = [r for r in rows if r.service_code == "survey"]
+    surveys = list(
+        db.execute(
+            select(ServiceOrder).where(
+                ServiceOrder.org_id == principal.org_id,
+                ServiceOrder.service_code == "survey",
+            )
+        ).scalars().all()
+    )
 
     int_live = sum(1 for r in interviews if ServiceOrderService.is_live_interview(r))
     int_finished = sum(1 for r in interviews if ServiceOrderService.is_finished_interview(r))
@@ -81,14 +92,20 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
             return True
         return False
 
-    int_candidates = sum(int(r.recipient_count or 0) for r in interviews if _interview_kpi_order(r))
+    kpi_orders = [r for r in interviews if _interview_kpi_order(r)]
+    int_candidates = sum(int(r.recipient_count or 0) for r in kpi_orders)
     int_calls_attempted = 0
     int_calls_completed = 0
     int_recommended_advance = 0
-    for r in interviews:
-        if not _interview_kpi_order(r):
-            continue
-        recipients = ServiceOrderService.get_recipients(db, r.id)
+    if kpi_orders:
+        from app.models.service_order import ServiceOrderRecipient
+
+        kpi_ids = [r.id for r in kpi_orders]
+        recipients = list(
+            db.execute(
+                select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id.in_(kpi_ids))
+            ).scalars().all()
+        )
         for rec in recipients:
             st = str(rec.status or "").lower()
             if st not in {"", "pending", "queued", "skipped", "cancelled"}:

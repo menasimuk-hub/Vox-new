@@ -18,6 +18,9 @@ from app.services.uk_compliance_constants import (
     PRIMARY_LAUNCH_EMAIL_TEMPLATE_KEY,
 )
 
+# After the first successful ensure in this process, hot send paths skip the full key scan.
+_SYSTEM_TEMPLATES_ENSURED: bool = False
+
 EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "new_user",
     "account_deletion_completed",
@@ -158,6 +161,7 @@ class EmailTemplateService:
         New keys may be created from defaults; existing keys are left untouched (except empty
         compliance fields: lawful_basis / privacy_notice_url / contact_email).
         """
+        global _SYSTEM_TEMPLATES_ENSURED
         created = False
         for key in EMAIL_TEMPLATE_KEYS:
             defaults = SYSTEM_EMAIL_DEFAULTS.get(key, {})
@@ -182,6 +186,14 @@ class EmailTemplateService:
                 created = True
         if created:
             db.commit()
+        _SYSTEM_TEMPLATES_ENSURED = True
+
+    @staticmethod
+    def _ensure_system_templates_once(db: Session) -> None:
+        """Hot-path helper: full ensure only once per process (boot / first send)."""
+        if _SYSTEM_TEMPLATES_ENSURED:
+            return
+        EmailTemplateService.ensure_system_templates(db)
 
     @staticmethod
     def is_system_key(key: str) -> bool:
@@ -208,11 +220,10 @@ class EmailTemplateService:
         When a DB row exists, use saved admin content only (no silent merge with code defaults).
         """
         k = EmailTemplateService.normalize_key(key)
-        EmailTemplateService.ensure_system_templates(db)
+        EmailTemplateService._ensure_system_templates_once(db)
         row = EmailTemplateService.get(db, key=k)
         defaults = SYSTEM_EMAIL_DEFAULTS.get(k, {})
         if row is not None:
-            db.refresh(row)
             subject = str(row.subject or "")
             body = str(row.body or "")
             enabled = bool(row.is_enabled)

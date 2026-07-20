@@ -226,8 +226,6 @@ export default function App() {
         <Route path='/settings/legal' element={<P.LegalPages />} />
         <Route path='/settings/meeting-room' element={<P.MeetingRoomSettings />} />
         <Route path='/settings/legal/:slug/edit' element={<P.LegalPageEdit />} />
-        <Route path='/settings/wa-interview' element={<Navigate to='/ai/wa-templates?tab=interview' replace />} />
-        <Route path='/settings/wa-appointment' element={<Navigate to='/ai/wa-templates?tab=appointment' replace />} />
         <Route path='/customer-feedback/wa-templates' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/settings/disabled-wa-templates' element={<P.DisabledWaTemplates />} />
         <Route path='/settings/api-keys' element={G('API keys / secrets')} />
