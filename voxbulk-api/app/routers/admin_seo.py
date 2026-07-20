@@ -431,7 +431,10 @@ def public_resolve_redirect(path: str, db: Session = Depends(get_db)):
 @public_router.get("/seo/indexnow-key")
 def public_indexnow_key(db: Session = Depends(get_db)):
     row = svc.ensure_settings(db)
-    return {"key": row.indexnow_key or ""}
+    key = row.indexnow_key or ""
+    if key:
+        svc.write_indexnow_key_files(key)
+    return {"key": key}
 
 
 @public_router.get("/faq")

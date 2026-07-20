@@ -1992,7 +1992,7 @@ export default function SeoControl() {
               <div>
                 <div className="t">API key</div>
                 <div className="d">
-                  {indexKey ? `${indexKey.slice(0, 12)}… (hosted at /${indexKey}.txt)` : 'Not generated yet'}
+                  {indexKey ? `${indexKey.slice(0, 12)}… → https://voxbulk.com/${indexKey}.txt` : 'Not generated yet'}
                 </div>
               </div>
               <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy} onClick={generateIndexNow}>

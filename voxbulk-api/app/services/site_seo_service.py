@@ -11,6 +11,7 @@ import secrets
 import time
 import uuid
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -25,6 +26,9 @@ from app.models.site_blog_news_item import SiteBlogNewsItem
 from app.models.site_seo import SiteSeoHealthSnapshot, SiteSeoRedirect, SiteSeoSettings
 
 SITE_ORIGIN = "https://voxbulk.com"
+_INDEXNOW_KEY_RE = re.compile(r"^[a-f0-9]{32}\.txt$")
+# voxbulk-api/app/services → repo root
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 KIND_BLOG = "blog"
 KIND_NEWS = "news"
 KIND_FAQ = "faq"
@@ -984,16 +988,50 @@ def sitemap_stats(db: Session) -> dict[str, Any]:
     }
 
 
+def _indexnow_static_dirs() -> list[Path]:
+    """Public-site dirs that can serve /{key}.txt without SSR API calls."""
+    dirs = [
+        _REPO_ROOT / "voxbulk.com" / "frontend" / "public",
+        _REPO_ROOT / "voxbulk.com" / "frontend" / "dist" / "client",
+        Path("/www/wwwroot/voxbulk.com"),
+    ]
+    return [d for d in dirs if d.is_dir()]
+
+
+def write_indexnow_key_files(key: str) -> list[str]:
+    """Write IndexNow ownership file so Bing/Yandex can verify without Vite SSR."""
+    clean = (key or "").strip()
+    if not clean or not re.fullmatch(r"[a-f0-9]{32}", clean):
+        return []
+    written: list[str] = []
+    for directory in _indexnow_static_dirs():
+        try:
+            for old in directory.iterdir():
+                if old.is_file() and _INDEXNOW_KEY_RE.match(old.name) and old.name != f"{clean}.txt":
+                    try:
+                        old.unlink()
+                    except OSError:
+                        pass
+            path = directory / f"{clean}.txt"
+            path.write_text(clean, encoding="utf-8")
+            written.append(str(path))
+        except OSError:
+            continue
+    return written
+
+
 def generate_indexnow_key(db: Session) -> dict[str, Any]:
     settings = ensure_settings(db)
     key = secrets.token_hex(16)
     settings.indexnow_key = key
     settings.updated_at = datetime.utcnow()
     db.commit()
+    written = write_indexnow_key_files(key)
     return {
         "indexnow_key": key,
         "verification_url": f"{SITE_ORIGIN}/{key}.txt",
-        "note": "Key file is served dynamically at /{key}.txt on the public site.",
+        "files_written": written,
+        "note": "Key file is written to the public site static folders and served at /{key}.txt.",
     }
 
 
@@ -1002,6 +1040,7 @@ def notify_indexnow(db: Session, urls: list[str] | None = None) -> dict[str, Any
     key = (settings.indexnow_key or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="Generate an IndexNow key first.")
+    write_indexnow_key_files(key)
     url_list: list[str] = []
     if urls:
         for u in urls:
