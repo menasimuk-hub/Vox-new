@@ -1,11 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import {
-  DEMO_PARTNER_KPI,
-  connectionBadge,
-  getPartnerProvider,
-  modeBadge,
-} from '../lib/partnersCatalog'
+import { connectionBadge, getPartnerProvider, modeBadge } from '../lib/partnersCatalog'
 import './partners.css'
 
 const SETUP_STEPS = [
@@ -234,10 +229,9 @@ function ExtraFields({ provider, form, setForm }) {
 export default function PartnersProviderPage() {
   const { providerKey } = useParams()
   const provider = getPartnerProvider(providerKey)
-  const kpi = DEMO_PARTNER_KPI.rows.find((r) => r.key === provider?.key)
 
-  const [enabled, setEnabled] = useState(true)
-  const [mode, setMode] = useState(kpi?.mode || 'sandbox')
+  const [enabled, setEnabled] = useState(false)
+  const [mode, setMode] = useState('sandbox')
   const [checked, setChecked] = useState(() => SETUP_STEPS.map(() => false))
   const [testResult, setTestResult] = useState(null)
   const [savedFlash, setSavedFlash] = useState('')
@@ -247,14 +241,14 @@ export default function PartnersProviderPage() {
   const redirectUri = `https://api.voxbulk.com/partner/v1/oauth/${providerKey}/callback`
 
   const [form, setForm] = useState(() => ({
-    mappedOrg: 'VoxBulk UK',
-    resultWebhook: `https://partner.example.com/webhooks/voxbulk`,
+    mappedOrg: '',
+    resultWebhook: '',
     webhookSecret: '',
     connectionFee: '1.50',
     perMinute: '0.35',
     commission: String(provider?.commissionDefault ?? 18),
     estCost: '5.00',
-    clientId: `${providerKey || 'partner'}_client_abc`,
+    clientId: '',
     clientSecret: '',
     redirectUri,
     dataCentre: 'US',
@@ -267,28 +261,28 @@ export default function PartnersProviderPage() {
     appBridge: false,
     zapierUrl: '',
     testLang: 'en',
-    candidateName: 'Sarah Ahmed',
-    phone: '+447700900123',
-    jobTitle: 'Customer support agent',
-    partnerRef: `${String(providerKey || 'P').toUpperCase()}-TEST-001`,
-    questions: 'Tell me about your experience with CRM?\nHow do you handle pressure?',
+    candidateName: '',
+    phone: '',
+    jobTitle: '',
+    partnerRef: '',
+    questions: '',
   }))
 
   useEffect(() => {
     if (!provider) return
-    setEnabled(true)
-    setMode(kpi?.mode || 'sandbox')
+    setEnabled(false)
+    setMode('sandbox')
     setChecked(SETUP_STEPS.map(() => false))
     setTestResult(null)
     setForm({
-      mappedOrg: 'VoxBulk UK',
-      resultWebhook: 'https://partner.example.com/webhooks/voxbulk',
+      mappedOrg: '',
+      resultWebhook: '',
       webhookSecret: '',
       connectionFee: '1.50',
       perMinute: '0.35',
       commission: String(provider.commissionDefault ?? 18),
       estCost: '5.00',
-      clientId: `${provider.key}_client_abc`,
+      clientId: '',
       clientSecret: '',
       redirectUri: `https://api.voxbulk.com/partner/v1/oauth/${provider.key}/callback`,
       dataCentre: 'US',
@@ -301,11 +295,11 @@ export default function PartnersProviderPage() {
       appBridge: false,
       zapierUrl: '',
       testLang: 'en',
-      candidateName: 'Sarah Ahmed',
-      phone: '+447700900123',
-      jobTitle: 'Customer support agent',
-      partnerRef: `${provider.short.toUpperCase()}-TEST-001`,
-      questions: 'Tell me about your experience with CRM?\nHow do you handle pressure?',
+      candidateName: '',
+      phone: '',
+      jobTitle: '',
+      partnerRef: '',
+      questions: '',
     })
   }, [provider?.key])
 
@@ -318,23 +312,19 @@ export default function PartnersProviderPage() {
     return <Navigate to='/partners/dashboard' replace />
   }
 
-  const conn = connectionBadge(kpi?.connection || 'none')
-  const modeB = modeBadge(mode === '—' ? null : mode)
+  const conn = connectionBadge('none')
+  const modeB = modeBadge(mode)
 
   const flash = (msg) => {
     setSavedFlash(msg)
     window.setTimeout(() => setSavedFlash(''), 2500)
   }
 
-  const onSave = () => flash('Settings saved locally (API wiring comes next).')
-  const onPing = () => flash('Health ping: OK (demo).')
+  const onSave = () => flash('Save will work after Partner API is connected.')
+  const onPing = () => flash('Health check will work after Partner API is connected.')
   const onSendTest = () => {
-    setTestResult({
-      status: 'Accepted',
-      link: 'https://screening.voxbulk.com/demo-abc123',
-      eta: '4 min',
-    })
-    flash('Test job accepted (demo).')
+    setTestResult(null)
+    flash('Test jobs will work after Partner API is connected.')
   }
 
   return (
@@ -392,15 +382,13 @@ export default function PartnersProviderPage() {
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Mapped org</span>
-          <select
+          <input
             className='partners-control'
-            style={{ maxWidth: 240 }}
+            style={{ maxWidth: 280 }}
+            placeholder='Organisation ID or name'
             value={form.mappedOrg}
             onChange={(e) => setForm((f) => ({ ...f, mappedOrg: e.target.value }))}
-          >
-            <option>VoxBulk UK</option>
-            <option>VoxBulk ME</option>
-          </select>
+          />
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Developer portal</span>
@@ -434,16 +422,16 @@ export default function PartnersProviderPage() {
           <span className='partners-readonly'>•••••••••••• (generate to reveal)</span>
         </div>
         <div className='partners-btn-group'>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Sandbox key generation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key generation needs Partner API.')}>
             <i className='ti ti-key' /> Generate sandbox
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Rotate sandbox needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key rotation needs Partner API.')}>
             <i className='ti ti-refresh' /> Rotate sandbox
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Live key generation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key generation needs Partner API.')}>
             <i className='ti ti-key' /> Generate live
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Rotate live needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key rotation needs Partner API.')}>
             <i className='ti ti-refresh' /> Rotate live
           </button>
         </div>
@@ -656,7 +644,7 @@ export default function PartnersProviderPage() {
           <button type='button' className='partners-btn partners-btn-primary' onClick={onSendTest}>
             <i className='ti ti-send' /> Send test job
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Simulate webhook (demo).')}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Simulate webhook needs Partner API.')}>
             <i className='ti ti-refresh' /> Simulate webhook
           </button>
           <a className='partners-btn partners-btn-secondary' href={healthUrl} target='_blank' rel='noreferrer'>
@@ -680,51 +668,8 @@ export default function PartnersProviderPage() {
       {/* G */}
       <section className='partners-section'>
         <h3>G · Recent jobs</h3>
-        <div className='partners-footer-note' style={{ marginBottom: 12, marginTop: 0 }}>
-          Job history will appear here once the Partner API ledger is connected. Demo rows below.
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className='partners-mini-table'>
-            <thead>
-              <tr>
-                <th>Ref ID</th>
-                <th>Job</th>
-                <th>Candidate</th>
-                <th>Lang</th>
-                <th>Status</th>
-                <th>Score</th>
-                <th>Charge</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{provider.short.toUpperCase()}-101</td>
-                <td>Support agent</td>
-                <td>Sarah Ahmed</td>
-                <td>
-                  <span className='partners-badge partners-badge-green'>en</span>
-                </td>
-                <td>
-                  <span className='partners-badge partners-badge-green'>Passed</span>
-                </td>
-                <td>87</td>
-                <td>£7.80</td>
-              </tr>
-              <tr>
-                <td>{provider.short.toUpperCase()}-102</td>
-                <td>Sales rep</td>
-                <td>Mohammed Al-Fahd</td>
-                <td>
-                  <span className='partners-badge partners-badge-amber'>ar</span>
-                </td>
-                <td>
-                  <span className='partners-badge partners-badge-amber'>Review</span>
-                </td>
-                <td>64</td>
-                <td>£8.50</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className='partners-footer-note' style={{ marginTop: 0 }}>
+          No jobs yet. Rows appear here when this provider sends candidates through the Partner API.
         </div>
       </section>
     </div>

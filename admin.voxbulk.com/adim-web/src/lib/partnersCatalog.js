@@ -58,84 +58,32 @@ export function getPartnerProvider(key) {
   return PARTNER_PROVIDERS.find((p) => p.key === k) || null
 }
 
-/** Demo KPI rows until Partner API ledger is live. */
-export const DEMO_PARTNER_KPI = {
-  totals: {
-    connected: 3,
-    total: 5,
-    jobs: 128,
-    completed: 96,
-    gross: 864,
-    remittance: 691.2,
-    profit: 211.2,
-  },
-  rows: [
-    {
-      key: 'zoho',
-      connection: 'connected',
-      mode: 'live',
-      jobs: 45,
-      completed: 32,
-      gross: 288,
-      commission: 18,
-      remittance: 236.16,
-      cost: 160,
-      profit: 76.16,
-      lastActivity: '2h ago',
+/** Empty KPI until Partner API ledger is connected. */
+export function emptyPartnerKpi() {
+  return {
+    totals: {
+      connected: 0,
+      total: PARTNER_PROVIDERS.length,
+      jobs: 0,
+      completed: 0,
+      gross: 0,
+      remittance: 0,
+      profit: 0,
     },
-    {
-      key: 'breezy',
-      connection: 'sandbox',
-      mode: 'sandbox',
-      jobs: 23,
-      completed: 18,
-      gross: 162,
-      commission: 20,
-      remittance: 129.6,
-      cost: 90,
-      profit: 39.6,
-      lastActivity: '1d ago',
-    },
-    {
-      key: 'workable',
+    rows: PARTNER_PROVIDERS.map((p) => ({
+      key: p.key,
       connection: 'none',
       mode: null,
       jobs: 0,
       completed: 0,
       gross: 0,
-      commission: 18,
+      commission: p.commissionDefault,
       remittance: 0,
       cost: 0,
       profit: 0,
       lastActivity: null,
-    },
-    {
-      key: 'bullhorn',
-      connection: 'error',
-      mode: 'live',
-      jobs: 60,
-      completed: 46,
-      gross: 414,
-      commission: 22,
-      remittance: 322.92,
-      cost: 230,
-      profit: 92.92,
-      lastActivity: '15m ago',
-    },
-    {
-      key: 'zapier',
-      connection: 'connected',
-      mode: 'sandbox',
-      jobs: 0,
-      completed: 0,
-      gross: 0,
-      commission: 18,
-      remittance: 0,
-      cost: 0,
-      profit: 0,
-      lastActivity: '3d ago',
-    },
-  ],
+    })),
+  }
 }
 
 export function moneyGbp(n) {

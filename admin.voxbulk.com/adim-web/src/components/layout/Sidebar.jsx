@@ -34,7 +34,7 @@ const GROUP_ICONS = {
 
   Integrations: 'ti-plug',
 
-  Partners: 'ti-handshake',
+  Partners: 'ti-heart-handshake',
 
   'Billing & Finance': 'ti-credit-card',
 

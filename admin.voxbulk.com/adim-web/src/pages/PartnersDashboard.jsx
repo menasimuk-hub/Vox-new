@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  DEMO_PARTNER_KPI,
   PARTNER_PROVIDERS,
   connectionBadge,
+  emptyPartnerKpi,
   getPartnerProvider,
   modeBadge,
   moneyGbp,
@@ -13,17 +13,18 @@ import './partners.css'
 export default function PartnersDashboard() {
   const [range, setRange] = useState('7')
   const [modeFilter, setModeFilter] = useState('all')
+  const kpi = useMemo(() => emptyPartnerKpi(), [])
 
   const rows = useMemo(() => {
-    return DEMO_PARTNER_KPI.rows.filter((row) => {
+    return kpi.rows.filter((row) => {
       if (modeFilter === 'all') return true
       if (modeFilter === 'sandbox') return row.mode === 'sandbox'
       if (modeFilter === 'live') return row.mode === 'live'
       return true
     })
-  }, [modeFilter])
+  }, [modeFilter, kpi.rows])
 
-  const t = DEMO_PARTNER_KPI.totals
+  const t = kpi.totals
 
   return (
     <div className='partners-page'>
@@ -139,8 +140,8 @@ export default function PartnersDashboard() {
       </div>
 
       <div className='partners-footer-note'>
-        <i className='ti ti-info-circle' /> Profit is estimated from logged charges and commission %. Reconcile with
-        marketplace payouts monthly. Demo figures shown until Partner API ledger is live.
+        <i className='ti ti-info-circle' /> Profit is estimated from logged charges and commission %. Figures stay at
+        zero until each provider is configured and the Partner API records jobs.
       </div>
     </div>
   )
