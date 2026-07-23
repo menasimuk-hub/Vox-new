@@ -26,7 +26,8 @@ def upgrade() -> None:
         sa.Column("per_minute_gbp", sa.Float(), nullable=False, server_default="0.35"),
         sa.Column("commission_pct", sa.Float(), nullable=False, server_default="18"),
         sa.Column("est_cost_per_completed_gbp", sa.Float(), nullable=False, server_default="5"),
-        sa.Column("config_json", sa.Text(), nullable=False, server_default="{}"),
+        # MySQL rejects DEFAULT on TEXT/BLOB — app supplies "{}" on insert.
+        sa.Column("config_json", sa.Text(), nullable=False),
         sa.Column("last_health_at", sa.DateTime(), nullable=True),
         sa.Column("last_health_ok", sa.Boolean(), nullable=True),
         sa.Column("last_health_message", sa.String(length=300), nullable=False, server_default=""),
@@ -70,7 +71,8 @@ def upgrade() -> None:
         sa.Column("candidate_name", sa.String(length=200), nullable=False, server_default=""),
         sa.Column("candidate_phone", sa.String(length=40), nullable=False, server_default=""),
         sa.Column("preferred_language", sa.String(length=8), nullable=False, server_default="en"),
-        sa.Column("screening_questions_json", sa.Text(), nullable=False, server_default="[]"),
+        # MySQL rejects DEFAULT on TEXT/BLOB — app supplies "[]" on insert.
+        sa.Column("screening_questions_json", sa.Text(), nullable=False),
         sa.Column("callback_url", sa.String(length=500), nullable=False, server_default=""),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="accepted"),
         sa.Column("screening_link", sa.String(length=500), nullable=False, server_default=""),
