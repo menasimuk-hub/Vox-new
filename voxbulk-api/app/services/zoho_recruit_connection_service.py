@@ -28,16 +28,9 @@ ZOHO_RECRUIT_HOSTS: dict[str, tuple[str, str]] = {
     "ae": ("accounts.zoho.ae", "recruit.zoho.ae"),
 }
 
-# Comma-separated (Zoho OAuth convention). users + notes needed for health check / writeback.
-ZOHO_RECRUIT_SCOPES = ",".join(
-    [
-        "ZohoRecruit.users.ALL",
-        "ZohoRecruit.modules.candidate.ALL",
-        "ZohoRecruit.modules.application.ALL",
-        "ZohoRecruit.modules.jobopening.ALL",
-        "ZohoRecruit.modules.notes.ALL",
-    ]
-)
+# Space-separated (same pattern as Zoho CRM in this codebase). Use group scopes —
+# per-module names like modules.notes.ALL are rejected by some DCs as "Scope does not exist".
+ZOHO_RECRUIT_SCOPES = "ZohoRecruit.modules.ALL ZohoRecruit.users.ALL"
 
 PROVIDER_KEY = "zoho_recruit"
 DEFAULT_REDIRECT = "https://api.voxbulk.com/partner/v1/oauth/zoho/callback"
@@ -136,6 +129,28 @@ def oauth_start(*, org_id: str, partner_config: dict[str, Any]) -> str:
         "state": state,
     }
     return f"https://{accounts_host}/oauth/v2/auth?{urlencode(params)}"
+
+
+def oauth_disconnect(db: Session, org_id: str) -> dict[str, Any]:
+    """Clear Recruit OAuth tokens for the mapped org (does not touch sales CRM)."""
+    from app.models.organisation import Organisation
+
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise ValueError("Organisation not found")
+    org.zoho_recruit_config_json = None
+    db.add(org)
+    db.commit()
+    return {
+        "connected": False,
+        "oauth_app_ready": False,
+        "account_name": None,
+        "data_center": None,
+        "api_domain": None,
+        "connected_at": None,
+        "redirect_uri": DEFAULT_REDIRECT,
+        "scopes": ZOHO_RECRUIT_SCOPES,
+    }
 
 
 def oauth_complete(

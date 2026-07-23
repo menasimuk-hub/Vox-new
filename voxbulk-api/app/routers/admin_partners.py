@@ -70,6 +70,15 @@ def partner_oauth_start(
     return PartnerService.admin_oauth_start(db, provider_key)
 
 
+@router.post("/{provider_key}/oauth/disconnect")
+def partner_oauth_disconnect(
+    provider_key: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return PartnerService.admin_oauth_disconnect(db, provider_key)
+
+
 @router.post("/{provider_key}/test-recruit")
 def partner_test_recruit(
     provider_key: str,

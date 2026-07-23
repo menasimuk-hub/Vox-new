@@ -861,6 +861,25 @@ class PartnerService:
         return {"authorize_url": url}
 
     @staticmethod
+    def admin_oauth_disconnect(db: Session, key: str) -> dict[str, Any]:
+        if key != "zoho":
+            raise HTTPException(status_code=400, detail="OAuth disconnect is only for Zoho Recruit")
+        p = PartnerService.get_provider(db, key)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if not p.mapped_org_id:
+            raise HTTPException(status_code=400, detail="Map a VoxBulk organisation first")
+        from app.services.zoho_recruit_connection_service import oauth_disconnect, recruit_status
+
+        oauth_disconnect(db, str(p.mapped_org_id))
+        cfg = _loads(p.config_json, {})
+        return {
+            "ok": True,
+            "message": "Zoho Recruit disconnected",
+            "recruit": recruit_status(db, str(p.mapped_org_id), partner_config=cfg if isinstance(cfg, dict) else {}),
+        }
+
+    @staticmethod
     def admin_test_recruit(db: Session, key: str) -> dict[str, Any]:
         """Call Zoho Recruit users API with the mapped org's OAuth token."""
         if key != "zoho":

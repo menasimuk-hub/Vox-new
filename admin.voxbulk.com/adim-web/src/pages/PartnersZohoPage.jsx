@@ -200,6 +200,21 @@ export default function PartnersZohoPage() {
     }
   }
 
+  const disconnectZoho = async () => {
+    if (!window.confirm('Disconnect Zoho Recruit for the mapped organisation?')) return
+    setBusy('disconnect')
+    try {
+      const res = await apiFetch('/admin/partners/zoho/oauth/disconnect', { method: 'POST' })
+      if (res.recruit) setRecruit(res.recruit)
+      notify(res.message || 'Disconnected')
+      await load()
+    } catch (e) {
+      notify(e?.message || 'Disconnect failed', true)
+    } finally {
+      setBusy('')
+    }
+  }
+
   const testRecruit = async () => {
     setBusy('recruit')
     setActionError('')
@@ -392,6 +407,14 @@ export default function PartnersZohoPage() {
           <div className='partners-btn-group'>
             <button type='button' className='partners-btn partners-btn-primary' disabled={!!busy} onClick={connectZoho}>
               Connect Zoho Recruit
+            </button>
+            <button
+              type='button'
+              className='partners-btn partners-btn-secondary'
+              disabled={!!busy || !recruit?.connected}
+              onClick={disconnectZoho}
+            >
+              Disconnect
             </button>
             <button type='button' className='partners-btn partners-btn-secondary' disabled={!!busy} onClick={testRecruit}>
               Test Recruit API
