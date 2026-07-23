@@ -6,7 +6,7 @@ export const PARTNER_PROVIDERS = [
     label: 'Zoho Marketplace',
     short: 'Zoho',
     initials: 'ZH',
-    portalUrl: 'https://marketplace.zoho.com/developer',
+    portalUrl: 'https://www.zoho.com/marketplace/become-a-partner.html',
     partnerNameHeader: 'zoho',
     commissionDefault: 18,
     extraFields: 'zoho',
