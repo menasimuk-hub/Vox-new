@@ -14,6 +14,7 @@ class PartnerScreeningCreateIn(BaseModel):
     preferred_language: Literal["en", "ar"] = "en"
     callback_url: str | None = None
     job_description: str | None = None
+    candidate_email: str | None = None
 
 
 class PartnerScreeningCreateOut(BaseModel):

@@ -61,6 +61,15 @@ def ping_partner_health(
     return PartnerService.admin_ping_health(db, provider_key)
 
 
+@router.get("/{provider_key}/oauth/start")
+def partner_oauth_start(
+    provider_key: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return PartnerService.admin_oauth_start(db, provider_key)
+
+
 @router.post("/{provider_key}/test-screening", response_model=PartnerScreeningCreateOut)
 def admin_test_partner_screening(
     provider_key: str,
@@ -79,6 +88,7 @@ def admin_test_partner_screening(
         preferred_language=body.preferred_language,
         callback_url=body.callback_url,
         job_description=body.job_description,
+        candidate_email=body.candidate_email,
     )
     return PartnerScreeningCreateOut(
         status=row.status,

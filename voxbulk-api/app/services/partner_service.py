@@ -9,7 +9,7 @@ import logging
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -24,6 +24,7 @@ from app.models.partner import PartnerApiKey, PartnerProvider, PartnerScreening
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.user import User
 from app.services.interview_intake_service import create_new_interview_draft, intake_contacts_merge
+from app.services.platform_catalog_service import ServiceOrderService
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,7 @@ class PartnerService:
         preferred_language: str,
         callback_url: str | None = None,
         job_description: str | None = None,
+        candidate_email: str | None = None,
     ) -> PartnerScreening:
         lang = "ar" if str(preferred_language or "").lower().startswith("ar") else "en"
         questions = [str(q).strip() for q in (screening_questions or []) if str(q).strip()]
@@ -218,6 +220,9 @@ class PartnerService:
         cfg["criteria"] = "\n".join(f"- {q}" for q in questions) if questions else (job_description or "")
         cfg["interview_language"] = lang
         cfg["script_language_code"] = lang
+        cfg["delivery"] = "ai_call"
+        cfg["require_booking"] = True
+        cfg["booking_flow"] = "whatsapp_slot"
         cfg["partner"] = {
             "provider": principal.provider.key,
             "partner_reference_id": partner_reference_id,
@@ -228,9 +233,22 @@ class PartnerService:
             cfg["job_description"] = job_description
         order.config_json = json.dumps(cfg)
         order.title = f"Partner · {job_title}"[:200]
+
+        # Partner traffic is metered via partner ledger — mark order launchable.
+        now = _now()
+        order.payment_method = "partner"
+        order.payment_status = "approved"
+        order.status = "paid"
+        order.payment_note = f"Partner {principal.provider.key} screening ({principal.environment})"
+        order.scheduled_start_at = now
+        order.scheduled_end_at = now + timedelta(days=7)
+        cfg["calling_window_start_at"] = now.isoformat()
+        cfg["calling_window_end_at"] = order.scheduled_end_at.isoformat()
+        order.config_json = json.dumps(cfg)
         db.add(order)
         db.flush()
 
+        email = str(candidate_email or "").strip()
         intake_contacts_merge(
             db,
             order,
@@ -238,7 +256,7 @@ class PartnerService:
                 {
                     "name": candidate_name,
                     "phone": candidate_phone,
-                    "email": "",
+                    "email": email,
                 }
             ],
         )
@@ -255,11 +273,54 @@ class PartnerService:
         if recipient is None:
             raise HTTPException(status_code=500, detail="Failed to create candidate recipient")
 
-        screening_id = _new_id()
-        screening_link = f"https://voxbulk.com/help/zoho-recruit?screening={screening_id}"
-        if principal.provider.key != "zoho":
-            screening_link = f"https://voxbulk.com/help?q=partner-screening&id={screening_id}"
+        from app.services.interview_booking_service import (
+            InterviewBookingService,
+            booking_url_for_token,
+            ensure_full_day_booking_window,
+        )
 
+        order = ensure_full_day_booking_window(db, order)
+        token_row = InterviewBookingService.ensure_token(db, order, recipient)
+        screening_link = booking_url_for_token(token_row.token)
+
+        # Persist booking URL on recipient for reminders / dashboard.
+        try:
+            merged = _loads(getattr(recipient, "result_json", None), {})
+            if not isinstance(merged, dict):
+                merged = {}
+            merged.update(
+                {
+                    "booking_token": token_row.token,
+                    "booking_url": screening_link,
+                    "partner_screening": True,
+                }
+            )
+            recipient.result_json = json.dumps(merged, ensure_ascii=False)
+            db.add(recipient)
+        except Exception:
+            pass
+
+        invite_errors: list[str] = []
+        try:
+            invite_result = InterviewBookingService.send_invites(
+                db,
+                order,
+                recipient_ids=[recipient.id],
+                channels=["whatsapp", "email"] if email else ["whatsapp"],
+                force_resend=True,
+                force_email=True,
+            )
+            invite_errors = [str(e) for e in (invite_result or {}).get("errors") or []]
+        except Exception as exc:
+            logger.exception("partner screening invite failed")
+            invite_errors = [str(exc)[:300]]
+
+        try:
+            ServiceOrderService.schedule_order(db, order)
+        except Exception:
+            logger.exception("partner screening schedule_order failed")
+
+        screening_id = _new_id()
         cb = str(callback_url or principal.provider.result_webhook_url or "").strip()
         row = PartnerScreening(
             id=screening_id,
@@ -275,17 +336,23 @@ class PartnerService:
             preferred_language=lang,
             screening_questions_json=json.dumps(questions),
             callback_url=cb,
-            status="accepted",
+            status="invited" if screening_link else "accepted",
             screening_link=screening_link,
             estimated_completion_minutes=15,
             created_at=_now(),
             updated_at=_now(),
         )
+        if invite_errors:
+            row.webhook_last_error = ("Invite: " + "; ".join(invite_errors))[:500]
         db.add(row)
         db.flush()
-        cfg["partner"]["screening_id"] = screening_id
-        order.config_json = json.dumps(cfg)
-        db.add(order)
+        cfg = _loads(getattr(order, "config_json", None), {})
+        if isinstance(cfg, dict):
+            partner_meta = cfg.get("partner") if isinstance(cfg.get("partner"), dict) else {}
+            partner_meta["screening_id"] = screening_id
+            cfg["partner"] = partner_meta
+            order.config_json = json.dumps(cfg)
+            db.add(order)
         db.commit()
         db.refresh(row)
         return row
@@ -448,6 +515,24 @@ class PartnerService:
         db.refresh(row)
         PartnerService.deliver_result_webhook(db, row)
 
+        # Real Zoho Recruit writeback when org is OAuth-connected.
+        if provider and provider.key == "zoho" and row.org_id and row.partner_reference_id:
+            try:
+                from app.services.zoho_recruit_connection_service import write_screening_result
+
+                partner_cfg = _loads(provider.config_json, {})
+                write_screening_result(
+                    db,
+                    org_id=str(row.org_id),
+                    candidate_id=str(row.partner_reference_id),
+                    score=row.candidate_score,
+                    result_status=row.result_status,
+                    report_url=row.report_url,
+                    partner_config=partner_cfg if isinstance(partner_cfg, dict) else {},
+                )
+            except Exception:
+                logger.exception("zoho recruit writeback failed screening_id=%s", row.id)
+
     # ---- Admin ----
 
     @staticmethod
@@ -547,6 +632,19 @@ class PartnerService:
             .scalars()
             .all()
         )
+        partner_cfg = _loads(p.config_json, {})
+        recruit = None
+        if p.key == "zoho" and p.mapped_org_id:
+            try:
+                from app.services.zoho_recruit_connection_service import recruit_status
+
+                recruit = recruit_status(
+                    db,
+                    str(p.mapped_org_id),
+                    partner_config=partner_cfg if isinstance(partner_cfg, dict) else {},
+                )
+            except Exception:
+                recruit = {"connected": False, "oauth_app_ready": False}
         return {
             "provider": PartnerService._provider_dict(p),
             "keys": [
@@ -582,7 +680,9 @@ class PartnerService:
                 "inbound": "https://api.voxbulk.com/partner/v1/screenings",
                 "results": "https://api.voxbulk.com/partner/v1/results",
                 "health": "https://api.voxbulk.com/partner/v1/health",
+                "oauth_callback": "https://api.voxbulk.com/partner/v1/oauth/zoho/callback",
             },
+            "recruit": recruit,
         }
 
     @staticmethod
@@ -706,6 +806,7 @@ class PartnerService:
         preferred_language: str,
         callback_url: str | None = None,
         job_description: str | None = None,
+        candidate_email: str | None = None,
     ) -> PartnerScreening:
         p = PartnerService.get_provider(db, key)
         if p is None:
@@ -741,7 +842,23 @@ class PartnerService:
             preferred_language=preferred_language,
             callback_url=callback_url,
             job_description=job_description,
+            candidate_email=candidate_email,
         )
+
+    @staticmethod
+    def admin_oauth_start(db: Session, key: str) -> dict[str, Any]:
+        if key != "zoho":
+            raise HTTPException(status_code=400, detail="OAuth connect is only for Zoho Recruit")
+        p = PartnerService.get_provider(db, key)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if not p.mapped_org_id:
+            raise HTTPException(status_code=400, detail="Map a VoxBulk organisation first")
+        from app.services.zoho_recruit_connection_service import oauth_start
+
+        cfg = _loads(p.config_json, {})
+        url = oauth_start(org_id=str(p.mapped_org_id), partner_config=cfg if isinstance(cfg, dict) else {})
+        return {"authorize_url": url}
 
     @staticmethod
     def admin_ping_health(db: Session, key: str) -> dict[str, Any]:

@@ -26,7 +26,15 @@ function ExtraFields({ provider, form, setForm }) {
   if (kind === 'zoho') {
     return (
       <div className='partners-extra-block'>
-        <div className='partners-extra-title'>Zoho-specific fields</div>
+        <div className='partners-extra-title'>Zoho Recruit OAuth (required for score writeback)</div>
+        <p className='partners-helper' style={{ marginBottom: 12 }}>
+          Create a <strong>Server-based</strong> client at{' '}
+          <a href='https://api-console.zoho.com/' target='_blank' rel='noreferrer'>
+            api-console.zoho.com
+          </a>
+          , add redirect URI below, scopes: ZohoRecruit.modules.candidate.ALL (and application/jobopening). Then Save
+          and click Connect.
+        </p>
         <div className='partners-field-row'>
           <span className='partners-field-label'>OAuth Client ID</span>
           <input
@@ -63,11 +71,11 @@ function ExtraFields({ provider, form, setForm }) {
             value={form.dataCentre}
             onChange={(e) => setForm((f) => ({ ...f, dataCentre: e.target.value }))}
           >
-            <option value='US'>US</option>
+            <option value='US'>US (com)</option>
             <option value='EU'>EU</option>
+            <option value='UK'>UK</option>
             <option value='IN'>IN</option>
             <option value='AU'>AU</option>
-            <option value='UK'>UK</option>
             <option value='AE'>AE</option>
             <option value='SA'>SA</option>
           </select>
@@ -267,7 +275,8 @@ function buildConfig(provider, form) {
       client_id: form.clientId,
       client_secret: form.clientSecret,
       redirect_uri: form.redirectUri,
-      data_centre: form.dataCentre,
+      data_centre: form.dataCentre === 'US' ? 'com' : String(form.dataCentre || 'com').toLowerCase(),
+      data_center: form.dataCentre === 'US' ? 'com' : String(form.dataCentre || 'com').toLowerCase(),
     }
   }
   if (kind === 'breezy') {
@@ -309,6 +318,7 @@ export default function PartnersProviderPage() {
   const [recentJobs, setRecentJobs] = useState([])
   const [revealedKey, setRevealedKey] = useState(null)
   const [lastHealth, setLastHealth] = useState(null)
+  const [recruit, setRecruit] = useState(null)
   const [orgOptions, setOrgOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -331,6 +341,7 @@ export default function PartnersProviderPage() {
       setMode(p.mode || 'sandbox')
       setKeys(data?.keys || [])
       setRecentJobs(data?.recent_jobs || [])
+      setRecruit(data?.recruit || null)
       setLastHealth(
         p.last_health_at
           ? { at: p.last_health_at, ok: p.last_health_ok, message: p.last_health_message }
@@ -353,7 +364,11 @@ export default function PartnersProviderPage() {
         clientId: cfg.client_id || '',
         clientSecret: cfg.client_secret || '',
         redirectUri: cfg.redirect_uri || `https://api.voxbulk.com/partner/v1/oauth/${provider.key}/callback`,
-        dataCentre: cfg.data_centre || 'US',
+        dataCentre: (() => {
+          const raw = String(cfg.data_centre || cfg.data_center || 'com').toLowerCase()
+          if (raw === 'com' || raw === 'us') return 'US'
+          return raw.toUpperCase()
+        })(),
         bearerToken: cfg.bearer_token || '',
         companyId: cfg.company_id || '',
         partnerToken: cfg.partner_token || '',
@@ -391,6 +406,16 @@ export default function PartnersProviderPage() {
     setRevealedKey(null)
     setForm(defaultForm(provider.key, provider.commissionDefault))
     load()
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('oauth') === 'connected') flash('Zoho Recruit connected')
+      if (params.get('oauth') === 'error') flash(params.get('message') || 'Zoho OAuth failed')
+      if (params.get('oauth')) {
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    } catch {
+      /* ignore */
+    }
   }, [provider?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sharePct = useMemo(() => {
@@ -466,6 +491,35 @@ export default function PartnersProviderPage() {
     } catch (e) {
       flash(e?.message || 'Key generation failed')
     } finally {
+      setBusy(false)
+    }
+  }
+
+  const onConnectZoho = async () => {
+    if (provider.key !== 'zoho') return
+    setBusy(true)
+    try {
+      const body = {
+        enabled,
+        mode,
+        mapped_org_id: form.mappedOrg || null,
+        result_webhook_url: form.resultWebhook || '',
+        connection_fee_gbp: Number(form.connectionFee) || 1.5,
+        per_minute_gbp: Number(form.perMinute) || 0.35,
+        commission_pct: Number(form.commission) || 0,
+        est_cost_per_completed_gbp: Number(form.estCost) || 5,
+        config: buildConfig(provider, form),
+      }
+      if (form.webhookSecret) body.webhook_secret = form.webhookSecret
+      await apiFetch(`/admin/partners/${provider.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      const res = await apiFetch(`/admin/partners/${provider.key}/oauth/start`)
+      if (!res?.authorize_url) throw new Error('No authorize URL returned')
+      window.location.href = res.authorize_url
+    } catch (e) {
+      flash(e?.message || 'Zoho OAuth start failed')
       setBusy(false)
     }
   }
@@ -695,6 +749,20 @@ export default function PartnersProviderPage() {
           <i className='ti ti-info-circle' /> Auth: X-API-Key + X-Partner-Name
         </div>
         <ExtraFields provider={provider} form={form} setForm={setForm} />
+        {provider.key === 'zoho' ? (
+          <div className='partners-btn-group' style={{ marginTop: 12 }}>
+            <button type='button' className='partners-btn partners-btn-primary' onClick={onConnectZoho} disabled={busy}>
+              <i className='ti ti-plug' /> Connect Zoho Recruit
+            </button>
+            <span className='partners-helper'>
+              {recruit?.connected
+                ? `Connected${recruit.account_name ? ` · ${recruit.account_name}` : ''}`
+                : recruit?.oauth_app_ready
+                  ? 'OAuth app saved — click Connect'
+                  : 'Save Client ID + Secret first'}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <section className='partners-section'>
@@ -777,12 +845,11 @@ export default function PartnersProviderPage() {
           ))}
         </div>
         <div className='partners-tip'>
-          <strong>How to test</strong>
+          <strong>Real test</strong>
           <ul>
-            <li>Enable partner, map org, Save</li>
-            <li>Generate sandbox key (copy once)</li>
-            <li>Set Mode to Sandbox and Ping health</li>
-            <li>Send a test job below</li>
+            <li>Send test job returns a real /book/… link (candidate books a slot)</li>
+            <li>Use a real mobile in E.164 — WhatsApp invite is attempted</li>
+            <li>For Zoho writeback: Connect Zoho Recruit OAuth; use Partner ref = Zoho Candidate ID</li>
           </ul>
         </div>
       </section>

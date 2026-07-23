@@ -111,7 +111,7 @@ def test_partner_create_screening_ok(client: TestClient):
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["status"] == "accepted"
+    assert body["status"] in {"accepted", "invited"}
     assert body["partner_reference_id"] == "zoho-cand-001"
     assert body["screening_id"]
     assert body["screening_link"]
@@ -133,7 +133,7 @@ def test_partner_create_screening_ar(client: TestClient):
         },
     )
     assert res.status_code == 200, res.text
-    assert res.json()["status"] == "accepted"
+    assert res.json()["status"] in {"accepted", "invited"}
 
 
 def test_partner_results_log(client: TestClient):
