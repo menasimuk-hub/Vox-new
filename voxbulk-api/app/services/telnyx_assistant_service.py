@@ -474,10 +474,10 @@ def apply_interview_assistant_pacing(
         voice_patch: dict[str, Any] = {
             "speed": clamped,
             "voice_speed": clamped,
-            # Slightly more expressive on phone (less flat “bot” delivery).
-            "stability": 0.48,
-            "similarity_boost": 0.78,
-            "style": 0.28,
+            # Interview phone: clearer / more stable than casual expressive delivery.
+            "stability": 0.58,
+            "similarity_boost": 0.82,
+            "style": 0.15,
             "use_speaker_boost": True,
         }
         if voice:

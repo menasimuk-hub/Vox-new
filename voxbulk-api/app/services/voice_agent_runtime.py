@@ -549,7 +549,7 @@ def resolve_opening_disclosure_template(
         or config.get("client_name")
         or company_name
     ).strip()
-    agent_name = str((agent.voice_label if agent else None) or (agent.name if agent else None) or "the recruiter").strip()
+    agent_name = _agent_name(agent)
     role = str(config.get("role") or config.get("goal") or config.get("position") or "this role").strip()
     use_arabic = call_should_use_arabic(agent, config=config)
     duration = interview_duration_spoken(use_arabic=use_arabic, config=config)
@@ -1209,10 +1209,41 @@ def _org_name(config: dict[str, Any]) -> str:
     return "the hiring team"
 
 
+# Latin UI labels → Arabic spelling for TTS (Jammal→جمال, not جمل).
+_ARABIC_SPOKEN_AGENT_NAMES: dict[str, str] = {
+    "jammal": "جمال",
+    "jamal": "جمال",
+    "jamel": "جمال",
+    "sultan": "سلطان",
+}
+
+
 def _agent_name(agent: AgentDefinition | None) -> str:
+    """Spoken agent name for greetings/prompts.
+
+    Arabic agents keep a Latin ``voice_label`` for the UI (e.g. Jammal) but must
+    speak the Arabic spelling so TTS does not misread it as جمل.
+    """
     if agent is None:
         return "the recruiter"
-    return str(agent.voice_label or agent.name or "the recruiter").strip()
+    label = str(agent.voice_label or agent.name or "the recruiter").strip()
+    if not label:
+        return "the recruiter"
+    if not agent_is_arabic(agent):
+        return label
+    if any("\u0600" <= ch <= "\u06FF" for ch in label):
+        return label
+    key = re.sub(r"[^a-z0-9]+", "", label.lower())
+    for prefix in ("interviewar", "interview"):
+        if key.startswith(prefix) and len(key) > len(prefix):
+            key = key[len(prefix) :]
+    mapped = _ARABIC_SPOKEN_AGENT_NAMES.get(key)
+    if mapped:
+        return mapped
+    for lat, ar in _ARABIC_SPOKEN_AGENT_NAMES.items():
+        if lat in key:
+            return ar
+    return label
 
 
 def strip_opening_and_intro_from_script(script: str) -> str:

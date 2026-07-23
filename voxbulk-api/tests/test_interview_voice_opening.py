@@ -340,3 +340,33 @@ def test_arabic_interview_opening_is_identity_only(db):
     assert "ممكن اتكلم مع" in greeting or "Jane" in greeting
     assert "مسجّل" not in greeting and "مسجل" not in greeting
     assert "فرد" not in greeting
+
+
+def test_jammal_spoken_name_is_arabic_jamal_not_latin(db):
+    """TTS must hear جمال — Latin 'Jammal' is misread as جمل (camel)."""
+    org, order, recipient, _ = _seed_interview_call(db)
+    agent = AgentDefinition(
+        name="interview_AR-Jammal",
+        slug=f"interview-ar-jammal-{uuid.uuid4().hex[:8]}",
+        voice_label="Jammal",
+        accent_region="EG",
+        system_prompt="أنت {agent_name}، بتتصل بالنيابة عن {company_name}.",
+        opening_disclosure_template="مرحباً، ممكن اتكلم مع {first_name}؟",
+        supports_interview=True,
+        is_active=True,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    instructions = build_service_runtime_instructions(
+        db,
+        order=order,
+        config={"role": "مساعد رعاية", "approved_script": "INTRO\nThanks.\n\nQUESTIONS\n1. هل لديك خبرة؟\n\nCLOSING\nBye."},
+        recipient=recipient,
+        agent=agent,
+        service_key=SERVICE_INTERVIEW,
+    )
+    assert "جمال" in instructions
+    assert "معك جمال" in instructions or "أنت جمال" in instructions
+    assert "Jammal" not in instructions
