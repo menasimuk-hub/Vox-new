@@ -15,6 +15,7 @@ const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
   zoho: Building2,
   zoho_crm: Building2,
   zoho_bookings: Building2,
+  zoho_recruit: Building2,
 };
 
 /** Logos that fill the square — no inner padding. */

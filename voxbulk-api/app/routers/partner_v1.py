@@ -86,12 +86,14 @@ def zoho_recruit_oauth_callback(
     error_description: str = "",
     db: Session = Depends(get_db),
 ):
-    """Zoho API Console redirect — stores Recruit tokens on the mapped org."""
-    origin = str(get_settings().admin_app_origin or "https://admin.voxbulk.com").rstrip("/")
-    dest_base = f"{origin}/partners/zoho"
+    """Zoho API Console redirect — stores Recruit tokens on the connecting org."""
+    origin = str(get_settings().dashboard_app_origin or "https://dashboard.voxbulk.com").rstrip("/")
+    dest_base = f"{origin}/settings/integrations"
     if error:
         msg = str(error_description or error).strip() or "Zoho authorization was denied"
-        return RedirectResponse(url=f"{dest_base}?oauth=error&message={quote(msg[:200])}")
+        return RedirectResponse(
+            url=f"{dest_base}?ats=error&provider=zoho_recruit&tab=ats&message={quote(msg[:200])}"
+        )
     try:
         p = PartnerService.get_provider(db, "zoho")
         if p is None:
@@ -99,5 +101,7 @@ def zoho_recruit_oauth_callback(
         cfg = _loads(p.config_json, {})
         oauth_complete(db, code=code, state=state, partner_config=cfg if isinstance(cfg, dict) else {})
     except Exception as exc:
-        return RedirectResponse(url=f"{dest_base}?oauth=error&message={quote(str(exc)[:200])}")
-    return RedirectResponse(url=f"{dest_base}?oauth=connected")
+        return RedirectResponse(
+            url=f"{dest_base}?ats=error&provider=zoho_recruit&tab=ats&message={quote(str(exc)[:200])}"
+        )
+    return RedirectResponse(url=f"{dest_base}?ats=connected&provider=zoho_recruit&tab=ats")

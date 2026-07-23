@@ -614,6 +614,7 @@ def disconnect_org_integration(
 ):
     from app.services.crm_connection_service import disconnect_crm
     from app.services.integration_catalogue_service import (
+        ATS_GROUP,
         BOOKING_GROUP,
         CRM_GROUP,
         resolve_provider_spec,
@@ -628,6 +629,10 @@ def disconnect_org_integration(
             return disconnect_scheduling(db, principal.org_id, provider=spec.key)
         if spec.group == CRM_GROUP:
             return disconnect_crm(db, principal.org_id, provider=spec.key)
+        if spec.group == ATS_GROUP and spec.key == "zoho_recruit":
+            from app.services.zoho_recruit_connection_service import oauth_disconnect
+
+            return oauth_disconnect(db, principal.org_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
@@ -2051,6 +2056,49 @@ def zoho_crm_oauth_callback(
     return RedirectResponse(
         url=f"{origin}/settings/integrations?crm=connected&provider=zoho_crm&tab=crm"
     )
+
+
+@router.get("/zoho-recruit/status")
+def zoho_recruit_status_endpoint(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import recruit_status
+
+    return recruit_status(db, principal.org_id)
+
+
+@router.get("/zoho-recruit/oauth/start")
+def start_zoho_recruit_oauth(
+    data_center: str = Query(default="eu"),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import oauth_start
+
+    try:
+        return {
+            "authorize_url": oauth_start(
+                org_id=principal.org_id,
+                data_center=data_center,
+                db=db,
+            )
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/zoho-recruit/disconnect")
+def disconnect_zoho_recruit(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import oauth_disconnect
+
+    try:
+        return oauth_disconnect(db, principal.org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/{order_id}/interview/ats/quote")

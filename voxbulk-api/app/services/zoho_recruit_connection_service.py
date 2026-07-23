@@ -87,38 +87,116 @@ def credentials_from_partner_config(config: dict[str, Any] | None) -> tuple[str,
     return cid, secret, redirect, dc
 
 
+DATA_CENTER_OPTIONS: tuple[dict[str, str], ...] = (
+    {"id": "eu", "label": "Europe (EU)", "accounts": "accounts.zoho.eu"},
+    {"id": "uk", "label": "United Kingdom", "accounts": "accounts.zoho.uk"},
+    {"id": "com", "label": "United States", "accounts": "accounts.zoho.com"},
+    {"id": "ca", "label": "Canada", "accounts": "accounts.zohocloud.ca"},
+    {"id": "in", "label": "India", "accounts": "accounts.zoho.in"},
+    {"id": "au", "label": "Australia", "accounts": "accounts.zoho.com.au"},
+    {"id": "jp", "label": "Japan", "accounts": "accounts.zoho.jp"},
+    {"id": "ae", "label": "UAE", "accounts": "accounts.zoho.ae"},
+    {"id": "sa", "label": "Saudi Arabia", "accounts": "accounts.zoho.sa"},
+    {"id": "cn", "label": "China", "accounts": "accounts.zoho.com.cn"},
+)
+
+
+def load_partner_oauth_config(db: Session) -> dict[str, Any]:
+    """Platform Client ID/Secret from Admin → Partners → Zoho."""
+    from sqlalchemy import select
+
+    from app.models.partner import PartnerProvider
+
+    row = db.execute(select(PartnerProvider).where(PartnerProvider.key == "zoho")).scalar_one_or_none()
+    if row is None:
+        return {}
+    try:
+        import json
+
+        data = json.loads(row.config_json or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def partner_provider_enabled(db: Session) -> bool:
+    from sqlalchemy import select
+
+    from app.models.partner import PartnerProvider
+
+    row = db.execute(select(PartnerProvider).where(PartnerProvider.key == "zoho")).scalar_one_or_none()
+    return bool(row and row.enabled)
+
+
+def platform_oauth_configured(db: Session | None = None) -> bool:
+    if db is None:
+        return False
+    cfg = load_partner_oauth_config(db)
+    cid, secret, redirect, _ = credentials_from_partner_config(cfg)
+    return bool(cid and secret and redirect.startswith("http"))
+
+
 def get_recruit_config(db: Session, org_id: str) -> dict[str, Any]:
     return get_crm_config_raw(db, org_id, PROVIDER_KEY)
 
 
 def recruit_status(db: Session, org_id: str, *, partner_config: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = get_recruit_config(db, org_id)
-    cid, secret, redirect, partner_dc = credentials_from_partner_config(partner_config)
+    partner_cfg = partner_config if isinstance(partner_config, dict) else load_partner_oauth_config(db)
+    cid, secret, redirect, partner_dc = credentials_from_partner_config(partner_cfg)
     dc = _normalize_dc(str(cfg.get("data_center") or partner_dc or "com"))
     api_host = resolve_recruit_api_host(data_center=dc, api_domain=str(cfg.get("api_domain") or ""))
     return {
         "connected": bool(str(cfg.get("access_token") or "").strip()),
         "oauth_app_ready": bool(cid and secret and redirect.startswith("http")),
+        "platform_configured": bool(cid and secret and redirect.startswith("http")),
         "account_name": cfg.get("account_name"),
-        "data_center": dc,
-        "api_domain": api_host,
+        "data_center": dc if str(cfg.get("access_token") or "").strip() else None,
+        "api_domain": api_host if str(cfg.get("access_token") or "").strip() else None,
         "connected_at": cfg.get("connected_at"),
         "redirect_uri": redirect,
         "scopes": ZOHO_RECRUIT_SCOPES,
+        "data_centers": list(DATA_CENTER_OPTIONS),
     }
 
 
-def oauth_start(*, org_id: str, partner_config: dict[str, Any]) -> str:
-    cid, secret, redirect, dc = credentials_from_partner_config(partner_config)
+def _parse_oauth_state(state: str) -> tuple[str, str]:
+    """Return (org_id, data_center). State: org_id:zoho:dc:nonce"""
+    parts = [p for p in str(state or "").split(":") if p != ""]
+    if len(parts) < 1:
+        raise ValueError("Invalid OAuth state")
+    org_id = parts[0].strip()
+    if not org_id:
+        raise ValueError("Invalid OAuth state")
+    dc = "com"
+    if len(parts) >= 3 and parts[1].lower() == "zoho":
+        dc = _normalize_dc(parts[2])
+    return org_id, dc
+
+
+def oauth_start(
+    *,
+    org_id: str,
+    partner_config: dict[str, Any] | None = None,
+    data_center: str | None = None,
+    db: Session | None = None,
+) -> str:
+    cfg = (
+        partner_config
+        if isinstance(partner_config, dict) and (partner_config.get("client_id") or partner_config.get("client_secret"))
+        else (load_partner_oauth_config(db) if db is not None else {})
+    )
+    cid, secret, redirect, _fallback_dc = credentials_from_partner_config(cfg)
+    dc = _normalize_dc(data_center or _fallback_dc or "com")
     if not cid or not secret:
         raise ValueError(
-            "Save Zoho OAuth Client ID and Client Secret first "
-            "(from https://api-console.zoho.com — Server-based app with Recruit scopes)."
+            "Zoho Recruit is not configured yet. An admin must save Client ID and Secret "
+            "under Admin → Partners → Zoho."
         )
     if not org_id:
-        raise ValueError("Map a VoxBulk organisation before connecting Zoho Recruit")
+        raise ValueError("Organisation required to connect Zoho Recruit")
     accounts_host, _ = _hosts(dc)
-    state = f"{org_id}:zoho:{secrets.token_urlsafe(16)}"
+    state = f"{org_id}:zoho:{dc}:{secrets.token_urlsafe(16)}"
     params = {
         "client_id": cid,
         "redirect_uri": redirect,
@@ -132,7 +210,7 @@ def oauth_start(*, org_id: str, partner_config: dict[str, Any]) -> str:
 
 
 def oauth_disconnect(db: Session, org_id: str) -> dict[str, Any]:
-    """Clear Recruit OAuth tokens for the mapped org (does not touch sales CRM)."""
+    """Clear Recruit OAuth tokens for the org (does not touch sales CRM)."""
     from app.models.organisation import Organisation
 
     org = db.get(Organisation, org_id)
@@ -141,16 +219,7 @@ def oauth_disconnect(db: Session, org_id: str) -> dict[str, Any]:
     org.zoho_recruit_config_json = None
     db.add(org)
     db.commit()
-    return {
-        "connected": False,
-        "oauth_app_ready": False,
-        "account_name": None,
-        "data_center": None,
-        "api_domain": None,
-        "connected_at": None,
-        "redirect_uri": DEFAULT_REDIRECT,
-        "scopes": ZOHO_RECRUIT_SCOPES,
-    }
+    return recruit_status(db, org_id)
 
 
 def oauth_complete(
@@ -158,15 +227,14 @@ def oauth_complete(
     *,
     code: str,
     state: str,
-    partner_config: dict[str, Any],
+    partner_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not code or not state:
         raise ValueError("Missing OAuth code or state")
-    org_id = str(state).split(":", 1)[0].strip()
-    if not org_id:
-        raise ValueError("Invalid OAuth state")
+    org_id, dc = _parse_oauth_state(state)
 
-    cid, secret, redirect, dc = credentials_from_partner_config(partner_config)
+    cfg = partner_config if isinstance(partner_config, dict) else load_partner_oauth_config(db)
+    cid, secret, redirect, _ = credentials_from_partner_config(cfg)
     if not cid or not secret:
         raise ValueError("Zoho OAuth Client ID/Secret not configured on Partners → Zoho")
 
@@ -204,7 +272,7 @@ def oauth_complete(
             account_name = str(users[0].get("full_name") or users[0].get("email") or "").strip()
 
     expires_in = int(token_data.get("expires_in") or 3600)
-    cfg = {
+    stored = {
         "access_token": access_token,
         "refresh_token": str(token_data.get("refresh_token") or ""),
         "expires_at": (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat(),
@@ -213,8 +281,8 @@ def oauth_complete(
         "account_name": account_name,
         "connected_at": datetime.utcnow().isoformat(),
     }
-    save_crm_config_raw(db, org_id, PROVIDER_KEY, cfg)
-    return recruit_status(db, org_id, partner_config=partner_config)
+    save_crm_config_raw(db, org_id, PROVIDER_KEY, stored)
+    return recruit_status(db, org_id, partner_config=cfg)
 
 
 def _token_expired(cfg: dict[str, Any]) -> bool:

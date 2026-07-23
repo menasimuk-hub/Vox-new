@@ -33,12 +33,13 @@ from app.models.provider_config import ProviderConfig
 
 BOOKING_GROUP = "booking"
 CRM_GROUP = "crm"
+ATS_GROUP = "ats"
 
 
 @dataclass(frozen=True)
 class ProviderSpec:
     key: str
-    group: str  # "booking" | "crm"
+    group: str  # "booking" | "crm" | "ats"
     admin_provider: str  # the provider_configs.provider row that gates visibility
     label: str
     short_description: str
@@ -119,6 +120,14 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         short_description="Push interview shortlists and candidate updates to Zoho CRM contacts and deals.",
         icon_slug="zoho",
     ),
+    ProviderSpec(
+        key="zoho_recruit",
+        group=ATS_GROUP,
+        admin_provider="zoho_recruit",
+        label="Zoho Recruit",
+        short_description="Connect your Zoho Recruit account to run AI voice screening and write scores back to candidates.",
+        icon_slug="zoho",
+    ),
 )
 
 
@@ -140,12 +149,42 @@ def _admin_rows(db: Session) -> dict[str, ProviderConfig]:
     return {row.provider: row for row in rows}
 
 
-def _is_provider_visible(spec: ProviderSpec, admin_row: ProviderConfig | None) -> bool:
+def _is_provider_visible(spec: ProviderSpec, admin_row: ProviderConfig | None, db: Session | None = None) -> bool:
+    # Zoho Recruit is gated by Admin → Partners → Zoho (not provider_configs).
+    if spec.key == "zoho_recruit":
+        if db is None:
+            return False
+        from app.services.zoho_recruit_connection_service import partner_provider_enabled, platform_oauth_configured
+
+        return bool(partner_provider_enabled(db) and platform_oauth_configured(db))
     if admin_row is None:
         return False
     if not bool(admin_row.is_enabled):
         return False
     return bool(getattr(admin_row, "visible_to_orgs", False))
+
+
+def _ats_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
+    if spec.key != "zoho_recruit":
+        return {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
+    from app.services.zoho_recruit_connection_service import DATA_CENTER_OPTIONS, get_recruit_config
+
+    cfg = get_recruit_config(db, org.id)
+    has_token = bool(str(cfg.get("access_token") or "").strip())
+    last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
+    account_name = str(cfg.get("account_name") or "").strip() or None
+    dc = str(cfg.get("data_center") or "").strip() or None
+    return {
+        "connected": has_token,
+        "connected_account": account_name,
+        "connected_at": cfg.get("connected_at"),
+        "last_check": last_check,
+        "extra": {
+            "data_center": dc,
+            "api_domain": cfg.get("api_domain"),
+            "data_centers": list(DATA_CENTER_OPTIONS),
+        },
+    }
 
 
 def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
@@ -307,6 +346,9 @@ def _provider_actions(spec: ProviderSpec) -> dict[str, str]:
             actions["connect_url"] = f"{base}/pipedrive/oauth/start"
         elif spec.key == "zoho_crm":
             actions["connect_url"] = f"{base}/zoho-crm/oauth/start"
+    elif spec.group == ATS_GROUP:
+        if spec.key == "zoho_recruit":
+            actions["connect_url"] = f"{base}/zoho-recruit/oauth/start"
     return actions
 
 
@@ -340,6 +382,10 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
         from app.services.zoho_crm_connection_service import platform_oauth_configured as zoho_ready
 
         return bool(zoho_ready(db))
+    if spec.key == "zoho_recruit":
+        from app.services.zoho_recruit_connection_service import platform_oauth_configured as zr_ready
+
+        return bool(zr_ready(db))
     return False
 
 
@@ -361,6 +407,7 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
 
     booking: list[dict[str, Any]] = []
     crm: list[dict[str, Any]] = []
+    ats: list[dict[str, Any]] = []
 
     active_booking_provider: str | None = None
     if org is not None:
@@ -374,15 +421,18 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
 
     for spec in PROVIDER_REGISTRY:
         admin_row = admin_rows.get(spec.admin_provider)
-        visible = _is_provider_visible(spec, admin_row)
+        visible = _is_provider_visible(spec, admin_row, db)
         if not visible:
             continue
         platform_ready = _platform_ready_for(spec, db)
-        connection_view = (
-            _booking_connection_view(spec, org, db) if (spec.group == BOOKING_GROUP and org is not None)
-            else _crm_connection_view(spec, org, db) if (spec.group == CRM_GROUP and org is not None)
-            else {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
-        )
+        if spec.group == BOOKING_GROUP and org is not None:
+            connection_view = _booking_connection_view(spec, org, db)
+        elif spec.group == CRM_GROUP and org is not None:
+            connection_view = _crm_connection_view(spec, org, db)
+        elif spec.group == ATS_GROUP and org is not None:
+            connection_view = _ats_connection_view(spec, org, db)
+        else:
+            connection_view = {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
 
         another_booking_active = (
             spec.group == BOOKING_GROUP
@@ -436,12 +486,15 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
         }
         if spec.group == BOOKING_GROUP:
             booking.append(entry)
+        elif spec.group == ATS_GROUP:
+            ats.append(entry)
         else:
             crm.append(entry)
 
     return {
         "booking": booking,
         "crm": crm,
+        "ats": ats,
         "active_booking_provider": active_booking_provider if any(b["connected"] for b in booking) else None,
         "active_crm_provider": active_crm if any(c["connected"] for c in crm) else None,
     }

@@ -857,7 +857,11 @@ class PartnerService:
         from app.services.zoho_recruit_connection_service import oauth_start
 
         cfg = _loads(p.config_json, {})
-        url = oauth_start(org_id=str(p.mapped_org_id), partner_config=cfg if isinstance(cfg, dict) else {})
+        url = oauth_start(
+            org_id=str(p.mapped_org_id),
+            partner_config=cfg if isinstance(cfg, dict) else {},
+            db=db,
+        )
         return {"authorize_url": url}
 
     @staticmethod
@@ -1008,6 +1012,15 @@ class PartnerService:
         if ok and not has_key:
             ok = False
             msg = f"No active {p.mode} API key"
+        if key == "zoho":
+            cfg = _loads(p.config_json, {})
+            cid = str(cfg.get("client_id") or "").strip()
+            secret = str(cfg.get("client_secret") or "").strip()
+            if ok and (not cid or not secret):
+                ok = False
+                msg = "Save Zoho Client ID and Client Secret under App credentials"
+            elif ok:
+                msg = "OK – partner ready for dashboard Zoho Recruit connect"
         p.last_health_at = _now()
         p.last_health_ok = ok
         p.last_health_message = msg

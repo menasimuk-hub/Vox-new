@@ -35,7 +35,7 @@ type Props = {
   view: IntegrationView | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConnect: (view: IntegrationView) => void;
+  onConnect: (view: IntegrationView, options?: { dataCenter?: string }) => void;
   onTest: (view: IntegrationView) => Promise<TestResult | null>;
   onDisconnect: (view: IntegrationView) => Promise<void>;
   onRefresh: () => void;
@@ -44,6 +44,20 @@ type Props = {
     usesAccessToken: boolean;
   };
 };
+
+type DataCenterOption = { id: string; label: string; accounts?: string };
+
+const DEFAULT_RECRUIT_DCS: DataCenterOption[] = [
+  { id: "eu", label: "Europe (EU)" },
+  { id: "uk", label: "United Kingdom" },
+  { id: "com", label: "United States" },
+  { id: "ca", label: "Canada" },
+  { id: "in", label: "India" },
+  { id: "au", label: "Australia" },
+  { id: "jp", label: "Japan" },
+  { id: "ae", label: "UAE" },
+  { id: "sa", label: "Saudi Arabia" },
+];
 
 export function ProviderDetailSheet({
   view,
@@ -61,12 +75,20 @@ export function ProviderDetailSheet({
   const [scheduleBusy, setScheduleBusy] = React.useState(false);
   const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
   const [hubspotTokenBusy, setHubspotTokenBusy] = React.useState(false);
+  const [recruitDc, setRecruitDc] = React.useState("eu");
 
   React.useEffect(() => {
     setTestResult(null);
     setScheduleDraft("");
     setHubspotTokenDraft("");
-  }, [view?.key]);
+    const extras = view?.extra?.data_centers;
+    const first =
+      Array.isArray(extras) && extras.length > 0 && typeof (extras[0] as { id?: string })?.id === "string"
+        ? String((extras[0] as { id: string }).id)
+        : "eu";
+    const connectedDc = typeof view?.extra?.data_center === "string" ? view.extra.data_center : null;
+    setRecruitDc(connectedDc || first);
+  }, [view?.key, view?.extra?.data_center, view?.extra?.data_centers]);
 
   if (!view) return null;
   const status = statusFor(view);
@@ -313,6 +335,41 @@ export function ProviderDetailSheet({
             </div>
           ) : null}
 
+          {view.key === "zoho_recruit" && !view.connected ? (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label htmlFor="zoho-recruit-dc" className="text-sm">
+                Zoho data centre
+              </Label>
+              <select
+                id="zoho-recruit-dc"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                value={recruitDc}
+                onChange={(e) => setRecruitDc(e.target.value)}
+              >
+                {(
+                  (Array.isArray(view.extra?.data_centers)
+                    ? (view.extra.data_centers as DataCenterOption[])
+                    : DEFAULT_RECRUIT_DCS) as DataCenterOption[]
+                ).map((dc) => (
+                  <option key={dc.id} value={dc.id}>
+                    {dc.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Choose the region where your Zoho Recruit company is hosted (EU, UK, US, Canada, and more). Wrong region
+                usually causes login or API errors.
+              </p>
+            </div>
+          ) : null}
+
+          {view.key === "zoho_recruit" && view.connected && view.extra?.data_center ? (
+            <p className="text-xs text-muted-foreground">
+              Connected data centre: <span className="font-medium text-foreground">{String(view.extra.data_center).toUpperCase()}</span>
+              {view.extra.api_domain ? ` · ${String(view.extra.api_domain)}` : ""}
+            </p>
+          ) : null}
+
           <TestResultCard loading={testing} result={testResult} />
 
           <div className="flex flex-wrap gap-2 pt-2">
@@ -321,7 +378,12 @@ export function ProviderDetailSheet({
                 variant="default"
                 className="gap-1.5"
                 disabled={!view.platform_ready || Boolean(view.blocked_reason)}
-                onClick={() => onConnect(view)}
+                onClick={() =>
+                  onConnect(
+                    view,
+                    view.key === "zoho_recruit" ? { dataCenter: recruitDc } : undefined,
+                  )
+                }
               >
                 <Plug className="size-4" /> Connect {view.label}
               </Button>

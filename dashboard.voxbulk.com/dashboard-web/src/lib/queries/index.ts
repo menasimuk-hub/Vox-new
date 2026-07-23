@@ -1233,7 +1233,7 @@ export function useImportHubSpotListToOrder() {
 
 export type IntegrationCatalogueView = {
   key: string;
-  group: "booking" | "crm";
+  group: "booking" | "crm" | "ats";
   label: string;
   short_description: string;
   icon_slug: string;
@@ -1257,7 +1257,9 @@ export type IntegrationCatalogueView = {
 export type IntegrationCatalogue = {
   booking: IntegrationCatalogueView[];
   crm: IntegrationCatalogueView[];
+  ats: IntegrationCatalogueView[];
   active_booking_provider: string | null;
+  active_crm_provider?: string | null;
 };
 
 export function useIntegrationsCatalogue() {

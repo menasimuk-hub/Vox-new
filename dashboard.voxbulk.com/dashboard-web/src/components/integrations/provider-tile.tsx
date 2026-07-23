@@ -11,7 +11,7 @@ import { ProviderLogo } from "@/components/integrations/provider-logo";
 
 export type IntegrationView = {
   key: string;
-  group: "booking" | "crm";
+  group: "booking" | "crm" | "ats";
   label: string;
   short_description: string;
   icon_slug: string;

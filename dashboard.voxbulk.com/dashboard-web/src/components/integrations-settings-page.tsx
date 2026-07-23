@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, Plug, RefreshCw, Users } from "lucide-react";
+import { CalendarCheck, Briefcase, Plug, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -29,6 +29,7 @@ export type IntegrationsSearch = {
   message?: string;
   hubspot?: string;
   crm?: string;
+  ats?: string;
   tab?: string;
 };
 
@@ -42,11 +43,14 @@ const PROVIDER_LABEL: Record<string, string> = {
   hubspot: "HubSpot CRM",
   pipedrive: "Pipedrive",
   zoho_crm: "Zoho CRM",
+  zoho_recruit: "Zoho Recruit",
   cronofy: "Cronofy",
 };
 
-function tabFromSearch(tab?: string): "booking" | "crm" {
-  return tab === "crm" ? "crm" : "booking";
+function tabFromSearch(tab?: string): "booking" | "crm" | "ats" {
+  if (tab === "crm") return "crm";
+  if (tab === "ats") return "ats";
+  return "booking";
 }
 
 export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearch }) {
@@ -58,7 +62,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const disconnectMutation = useDisconnectIntegration();
   const oauthNoticeShown = React.useRef<string | null>(null);
 
-  const [activeTab, setActiveTab] = React.useState<"booking" | "crm">(() => tabFromSearch(search.tab));
+  const [activeTab, setActiveTab] = React.useState<"booking" | "crm" | "ats">(() => tabFromSearch(search.tab));
   const [sheetView, setSheetView] = React.useState<IntegrationView | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
 
@@ -72,6 +76,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       search.scheduling,
       search.hubspot,
       search.crm,
+      search.ats,
       search.provider,
       search.message,
     ]
@@ -99,6 +104,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     } else if (search.crm === "error") {
       message = search.message || "CRM connection failed";
       isError = true;
+    } else if (search.ats === "connected") {
+      const label = PROVIDER_LABEL[search.provider || ""] || search.provider || "ATS";
+      message = `Connected ${label} successfully`;
+    } else if (search.ats === "error") {
+      message = search.message || "ATS connection failed";
+      isError = true;
     }
 
     if (!message) return;
@@ -119,6 +130,16 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
 
       if (search.hubspot === "connected" || search.crm === "connected") {
         await hubspotQ.refetch();
+      }
+
+      if (search.ats === "connected" && search.provider === "zoho_recruit") {
+        const rows = (catalogueResult.data?.ats ?? []) as IntegrationView[];
+        const match = rows.find((row) => row.key === "zoho_recruit");
+        if (match?.connected) {
+          setActiveTab("ats");
+          setSheetView(match);
+          setSheetOpen(true);
+        }
       }
 
       const scheduleSetupProvider =
@@ -148,6 +169,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     search.message,
     search.hubspot,
     search.crm,
+    search.ats,
     search.tab,
     catalogueQ,
     hubspotQ,
@@ -158,10 +180,12 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const data = catalogueQ.data;
   const booking = (data?.booking ?? []) as IntegrationView[];
   const crm = (data?.crm ?? []) as IntegrationView[];
+  const ats = ((data as { ats?: IntegrationView[] } | undefined)?.ats ?? []) as IntegrationView[];
   const activeBookingProvider = data?.active_booking_provider ?? null;
   const activeBookingView = booking.find((b) => b.connected) || null;
   const activeCrmProvider = (data as { active_crm_provider?: string | null })?.active_crm_provider ?? null;
   const activeCrmView = crm.find((c) => c.connected) || null;
+  const activeAtsView = ats.find((a) => a.connected) || null;
 
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const hubspotMeta = {
@@ -179,13 +203,29 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     void hubspotQ.refetch();
   };
 
-  const connect = async (view: IntegrationView) => {
+  const connect = async (view: IntegrationView, options?: { dataCenter?: string }) => {
     if (!view.platform_ready) {
       toast.error(`${view.label} is not yet enabled by your VoxBulk admin`);
       return;
     }
     if (view.blocked_reason) {
       toast.error(view.blocked_reason);
+      return;
+    }
+    if (view.key === "zoho_recruit") {
+      const dc = String(options?.dataCenter || "eu").trim() || "eu";
+      try {
+        const data = await apiFetch<{ authorize_url?: string }>(
+          `/service-orders/zoho-recruit/oauth/start?data_center=${encodeURIComponent(dc)}`,
+        );
+        if (data?.authorize_url) {
+          window.location.href = data.authorize_url;
+          return;
+        }
+        toast.error("No authorization URL returned");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Zoho Recruit OAuth start failed");
+      }
       return;
     }
     if (view.key === "hubspot_meetings") {
@@ -306,8 +346,9 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     if (rows.length === 0) {
       return (
         <p className="rounded-lg border border-dashed bg-muted/30 p-6 text-sm leading-relaxed text-muted-foreground">
-          No providers in this group are available yet. In Admin → Integrations, open the provider, turn on{" "}
-          <strong>Enable</strong> and <strong>Visible to organisations</strong>, then save.
+          No providers in this group are available yet. For Zoho Recruit, enable the partner under Admin → Partners →
+          Zoho and save Client ID / Secret. For booking and CRM, turn on Enable and Visible to organisations in Admin →
+          Integrations.
         </p>
       );
     }
@@ -330,7 +371,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       <PageHeader
         eyebrow="Settings"
         title="Integrations"
-        description="Connect one booking provider for human interview scheduling, and your CRM to sync shortlisted candidates and survey results."
+        description="Connect booking and CRM tools, plus Zoho Recruit for AI voice screening — each organisation picks its own Zoho data centre."
         actions={
           <Button variant="outline" className="gap-1.5" onClick={refresh}>
             <RefreshCw className="size-4" /> Refresh
@@ -399,13 +440,50 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         </Card>
       ) : null}
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v === "crm" ? "crm" : "booking")} className="w-full">
-        <TabsList className="grid h-14 w-full grid-cols-2 gap-1 p-1.5 md:max-w-xl">
-          <TabsTrigger value="booking" className="h-11 gap-2 px-4 text-sm font-medium">
-            <CalendarCheck className="size-4" /> Booking providers
+      {activeAtsView && activeAtsView.connected ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <ProviderLogo
+                iconSlug={activeAtsView.icon_slug}
+                providerKey={activeAtsView.key}
+                label={activeAtsView.label}
+                className="size-11"
+                imgClassName="max-h-8 max-w-8"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium leading-tight">Active ATS: {activeAtsView.label}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {activeAtsView.connected_account || "Connected"}
+                  {typeof activeAtsView.extra?.data_center === "string"
+                    ? ` · ${String(activeAtsView.extra.data_center).toUpperCase()}`
+                    : ""}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openTile(activeAtsView)}>
+                <Plug className="size-4" /> Manage
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v === "crm" ? "crm" : v === "ats" ? "ats" : "booking")}
+        className="w-full"
+      >
+        <TabsList className="grid h-14 w-full grid-cols-3 gap-1 p-1.5 md:max-w-2xl">
+          <TabsTrigger value="booking" className="h-11 gap-2 px-3 text-sm font-medium">
+            <CalendarCheck className="size-4" /> Booking
           </TabsTrigger>
-          <TabsTrigger value="crm" className="h-11 gap-2 px-4 text-sm font-medium">
+          <TabsTrigger value="crm" className="h-11 gap-2 px-3 text-sm font-medium">
             <Users className="size-4" /> CRM
+          </TabsTrigger>
+          <TabsTrigger value="ats" className="h-11 gap-2 px-3 text-sm font-medium">
+            <Briefcase className="size-4" /> Recruiting
           </TabsTrigger>
         </TabsList>
         <TabsContent value="booking" className="mt-6 space-y-4">
@@ -413,6 +491,9 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         </TabsContent>
         <TabsContent value="crm" className="mt-6 space-y-4">
           {renderGrid(crm)}
+        </TabsContent>
+        <TabsContent value="ats" className="mt-6 space-y-4">
+          {renderGrid(ats)}
         </TabsContent>
       </Tabs>
 

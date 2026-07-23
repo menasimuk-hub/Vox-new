@@ -513,11 +513,48 @@ def _check_zoho_bookings(db: Session, org_id: str) -> list[dict[str, Any]]:
     return checks
 
 
+def _check_zoho_recruit(db: Session, org_id: str) -> list[dict[str, Any]]:
+    import httpx
+
+    from app.services.zoho_recruit_connection_service import (
+        _ensure_access_token,
+        load_partner_oauth_config,
+        recruit_status,
+    )
+
+    status = recruit_status(db, org_id)
+    if not status.get("connected"):
+        return [_check("oauth", False, "Zoho Recruit is not connected")]
+    try:
+        token, api_domain = _ensure_access_token(db, org_id, partner_config=load_partner_oauth_config(db))
+    except ValueError as exc:
+        return [_check("token", False, str(exc))]
+    with httpx.Client(timeout=20.0) as client:
+        res = client.get(
+            f"https://{api_domain}/recruit/v2/Candidates",
+            headers={"Authorization": f"Zoho-oauthtoken {token}"},
+            params={"per_page": 1},
+        )
+    ok = res.status_code < 400 or res.status_code == 204
+    detail = (
+        f"Recruit API reachable ({api_domain})"
+        if ok
+        else f"Recruit API HTTP {res.status_code}: {(res.text or '')[:160]}"
+    )
+    checks = [_check("recruit_api", ok, detail)]
+    if status.get("account_name"):
+        checks.append(_check("account", True, f"Connected as {status['account_name']}"))
+    if status.get("data_center"):
+        checks.append(_check("data_center", True, f"Data centre: {status['data_center']}"))
+    return checks
+
+
 _BOOKING_FIELD = "scheduling_config_json"
 _CRM_FIELDS: dict[str, str] = {
     "hubspot": "hubspot_config_json",
     "pipedrive": "pipedrive_config_json",
     "zoho_crm": "zoho_crm_config_json",
+    "zoho_recruit": "zoho_recruit_config_json",
 }
 
 _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, Any]]]]] = {
@@ -530,6 +567,7 @@ _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, 
     "hubspot": (_CRM_FIELDS["hubspot"], _check_hubspot_crm),
     "pipedrive": (_CRM_FIELDS["pipedrive"], _check_pipedrive_crm),
     "zoho_crm": (_CRM_FIELDS["zoho_crm"], _check_zoho_crm),
+    "zoho_recruit": (_CRM_FIELDS["zoho_recruit"], _check_zoho_recruit),
 }
 
 
