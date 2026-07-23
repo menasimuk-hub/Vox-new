@@ -151,6 +151,17 @@ def admin_request_indexing(
     return svc.request_indexing(db, kind, item_id)
 
 
+@admin_router.post("/content/{kind}/{item_id}/check-google-index")
+def admin_check_google_index(
+    kind: str,
+    item_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    """On-demand Google URL Inspection for one page (manual click only)."""
+    return svc.check_google_index(db, kind, item_id)
+
+
 @admin_router.get("/redirects")
 def admin_list_redirects(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     return {"items": svc.list_redirects(db)}

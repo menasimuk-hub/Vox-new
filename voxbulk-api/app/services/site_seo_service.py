@@ -112,12 +112,15 @@ def _normalize_path(path: str) -> str:
     return p
 
 
-def _derive_index_status(robots: str, *, visible: bool = True) -> str:
+def _derive_index_status(robots: str, *, visible: bool = True, current: str | None = None) -> str:
     if not visible:
         return "excluded"
     r = (robots or ROBOTS_INDEX).lower()
     if "noindex" in r:
         return "excluded"
+    # Keep a previously confirmed Google "indexed" flag unless robots/visibility exclude it.
+    if (current or "").strip().lower() == "indexed":
+        return "indexed"
     return "pending"
 
 
@@ -401,6 +404,13 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
         "gsc_oauth_configured": False,  # filled by router/settings loader when db available
         "gsc_avg_position": row.gsc_avg_position,
         "gsc_avg_position_prev": row.gsc_avg_position_prev,
+        "gsc_clicks": getattr(row, "gsc_clicks", None),
+        "gsc_clicks_prev": getattr(row, "gsc_clicks_prev", None),
+        "gsc_impressions": getattr(row, "gsc_impressions", None),
+        "gsc_impressions_prev": getattr(row, "gsc_impressions_prev", None),
+        "gsc_metrics_refreshed_at": row.gsc_metrics_refreshed_at.isoformat()
+        if getattr(row, "gsc_metrics_refreshed_at", None)
+        else None,
         "moz_domain_authority": row.moz_domain_authority,
         "moz_domain_authority_prev": row.moz_domain_authority_prev,
     }
@@ -592,13 +602,16 @@ def overview(db: Session) -> dict[str, Any]:
     all_items = blog + news + faq
 
     def counts(items: list[dict[str, Any]]) -> dict[str, int]:
-        out = {"total": len(items), "indexed": 0, "pending": 0, "excluded": 0}
+        out = {"total": len(items), "indexed": 0, "pending": 0, "excluded": 0, "allow_index": 0}
         for it in items:
-            st = it.get("index_status") or "pending"
-            if st in out:
-                out[st] += 1
+            st = (it.get("index_status") or "pending").strip().lower()
+            if st == "indexed":
+                out["indexed"] += 1
+            elif st == "excluded":
+                out["excluded"] += 1
             else:
                 out["pending"] += 1
+                out["allow_index"] += 1
         return out
 
     ranking = None
@@ -609,7 +622,39 @@ def overview(db: Session) -> dict[str, Any]:
             "connected": True,
         }
     else:
-        ranking = {"current": None, "previous": None, "connected": False}
+        ranking = {"current": None, "previous": None, "connected": bool(settings.gsc_connected)}
+
+    def _num(raw: str | None) -> float | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    traffic = {
+        "connected": bool(settings.gsc_connected),
+        "clicks": _num(getattr(settings, "gsc_clicks", None)),
+        "clicks_prev": _num(getattr(settings, "gsc_clicks_prev", None)),
+        "impressions": _num(getattr(settings, "gsc_impressions", None)),
+        "impressions_prev": _num(getattr(settings, "gsc_impressions_prev", None)),
+        "refreshed_at": settings.gsc_metrics_refreshed_at.isoformat()
+        if getattr(settings, "gsc_metrics_refreshed_at", None)
+        else None,
+    }
+
+    sitemap_entries = build_sitemap_entries(db)
+    try:
+        from app.services.seo_engine_service import engine_status
+
+        engines = engine_status(db)
+    except Exception:
+        engines = {
+            "auto_submit_weekly": bool(getattr(settings, "auto_submit_weekly", False)),
+            "engines_last_run_at": settings.engines_last_run_at.isoformat()
+            if getattr(settings, "engines_last_run_at", None)
+            else None,
+        }
 
     return {
         "total_pages": len(all_items),
@@ -619,8 +664,14 @@ def overview(db: Session) -> dict[str, Any]:
             "faq": counts(faq),
         },
         "ranking": ranking,
+        "traffic": traffic,
+        "sitemap_url_count": len(sitemap_entries),
+        "engines": engines,
         "sitemap_last_submitted_at": settings.sitemap_last_submitted_at.isoformat()
         if settings.sitemap_last_submitted_at
+        else None,
+        "indexnow_last_pinged_at": settings.indexnow_last_pinged_at.isoformat()
+        if settings.indexnow_last_pinged_at
         else None,
         "connections": {
             "gsc": bool(settings.gsc_connected),
@@ -742,7 +793,7 @@ def update_content_seo(db: Session, kind: str, item_id: str, payload: dict[str, 
                 row.published_at = datetime.fromisoformat(str(payload["published_at"])[:19])
             except ValueError:
                 pass
-        row.index_status = _derive_index_status(robots, visible=row.is_published)
+        row.index_status = _derive_index_status(robots, visible=row.is_published, current=row.index_status)
         row.seo_updated_at = now
         row.updated_at = now
         db.commit()
@@ -789,7 +840,7 @@ def update_content_seo(db: Session, kind: str, item_id: str, payload: dict[str, 
             row.published_at = date.fromisoformat(str(payload["published_at"])[:10])
         except ValueError:
             pass
-    row.index_status = _derive_index_status(robots, visible=row.is_visible)
+    row.index_status = _derive_index_status(robots, visible=row.is_visible, current=row.index_status)
     row.seo_updated_at = now
     row.updated_at = now
     db.commit()
@@ -808,7 +859,7 @@ def toggle_index(db: Session, kind: str, item_id: str) -> dict[str, Any]:
             row.robots = ROBOTS_INDEX
         else:
             row.robots = ROBOTS_NOINDEX
-        row.index_status = _derive_index_status(row.robots, visible=row.is_published)
+        row.index_status = _derive_index_status(row.robots, visible=row.is_published, current=row.index_status)
         row.seo_updated_at = datetime.utcnow()
         db.commit()
         db.refresh(row)
@@ -818,7 +869,7 @@ def toggle_index(db: Session, kind: str, item_id: str) -> dict[str, Any]:
         row.robots = ROBOTS_INDEX
     else:
         row.robots = ROBOTS_NOINDEX
-    row.index_status = _derive_index_status(row.robots, visible=row.is_visible)
+    row.index_status = _derive_index_status(row.robots, visible=row.is_visible, current=row.index_status)
     row.seo_updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
@@ -831,7 +882,7 @@ def request_indexing(db: Session, kind: str, item_id: str) -> dict[str, Any]:
         row = _get_faq(db, item_id)
         url = f"{SITE_ORIGIN}/faq/{row.slug}"
         row.index_requested_at = datetime.utcnow()
-        if row.index_status != "excluded":
+        if row.index_status not in {"excluded", "indexed"}:
             row.index_status = "pending"
         db.commit()
         db.refresh(row)
@@ -840,7 +891,7 @@ def request_indexing(db: Session, kind: str, item_id: str) -> dict[str, Any]:
         row_b = _get_blog(db, item_id)
         url = f"{SITE_ORIGIN}{PATH_PREFIX[row_b.kind]}{row_b.slug}"
         row_b.index_requested_at = datetime.utcnow()
-        if row_b.index_status != "excluded":
+        if row_b.index_status not in {"excluded", "indexed"}:
             row_b.index_status = "pending"
         db.commit()
         db.refresh(row_b)
@@ -849,12 +900,52 @@ def request_indexing(db: Session, kind: str, item_id: str) -> dict[str, Any]:
     gsc_note = "Indexing request recorded. Connect Google Search Console in Site Settings to submit to Google."
     if settings.gsc_connected and _decrypt(settings.gsc_refresh_token_encrypted):
         gsc_note = (
-            "Indexing request timestamp stored. Google Search Console URL Inspection "
-            f"should be used for {url} (full OAuth inspection requires GSC API scopes)."
+            "Indexing request timestamp stored. Use Check in Google on this row to confirm index status "
+            f"for {url} (on-demand only — no bulk Google load)."
         )
     _maybe_indexnow_on_publish(db, url)
     result["request_note"] = gsc_note
     return result
+
+
+def check_google_index(db: Session, kind: str, item_id: str) -> dict[str, Any]:
+    """Manual URL Inspection — updates local index_status from Google when admin clicks."""
+    from app.services.gsc_oauth_service import inspect_url
+
+    k = kind.strip().lower()
+    if k == KIND_FAQ:
+        row = _get_faq(db, item_id)
+        url = f"{SITE_ORIGIN}/faq/{row.slug}"
+        if not row.is_published or "noindex" in (row.robots or "").lower():
+            raise HTTPException(status_code=400, detail="Excluded / unpublished pages cannot be checked as indexed.")
+        inspection = inspect_url(db, url)
+        row.index_status = "indexed" if inspection.get("indexed") else "pending"
+        row.index_requested_at = datetime.utcnow()
+        row.seo_updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(row)
+        item = _faq_row_to_seo(row)
+    else:
+        row_b = _get_blog(db, item_id)
+        url = f"{SITE_ORIGIN}{PATH_PREFIX[row_b.kind]}{row_b.slug}"
+        if not row_b.is_visible or "noindex" in (row_b.robots or "").lower():
+            raise HTTPException(status_code=400, detail="Excluded / unpublished pages cannot be checked as indexed.")
+        inspection = inspect_url(db, url)
+        row_b.index_status = "indexed" if inspection.get("indexed") else "pending"
+        row_b.index_requested_at = datetime.utcnow()
+        row_b.seo_updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(row_b)
+        item = _blog_row_to_seo(row_b)
+
+    return {
+        "item": item,
+        "google": inspection,
+        "summary": (
+            f"Google: {inspection.get('coverage_state') or inspection.get('verdict') or 'checked'}"
+            + (" — marked Indexed" if inspection.get("indexed") else " — still Not checked / not indexed")
+        ),
+    }
 
 
 def list_redirects(db: Session) -> list[dict[str, Any]]:

@@ -20,6 +20,7 @@ from app.services import site_seo_service as seo
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GSC_SITES_URL = "https://www.googleapis.com/webmasters/v3/sites"
+GSC_URL_INSPECTION_URL = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
 # Full webmasters scope is required to submit sitemaps (readonly cannot).
 GSC_SCOPE = "https://www.googleapis.com/auth/webmasters"
 STATE_PREFIX = "gsc:"
@@ -310,6 +311,12 @@ def _pick_property(access_token: str, preferred: str) -> str:
 
 
 def _query_avg_position(access_token: str, site_url: str) -> float | None:
+    metrics = _query_search_analytics(access_token, site_url)
+    return metrics.get("position")
+
+
+def _query_search_analytics(access_token: str, site_url: str) -> dict[str, Any]:
+    """Site-level Search Analytics totals for the last 28 days (ending yesterday)."""
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=27)
     encoded = quote(site_url, safe="")
@@ -329,11 +336,78 @@ def _query_avg_position(access_token: str, site_url: str) -> float | None:
         )
     rows = (res.json() or {}).get("rows") or []
     if not rows:
-        return None
-    pos = rows[0].get("position")
-    if pos is None:
-        return None
-    return round(float(pos), 2)
+        return {
+            "clicks": None,
+            "impressions": None,
+            "position": None,
+            "ctr": None,
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        }
+    row = rows[0]
+    pos = row.get("position")
+    return {
+        "clicks": int(round(float(row.get("clicks") or 0))),
+        "impressions": int(round(float(row.get("impressions") or 0))),
+        "position": round(float(pos), 2) if pos is not None else None,
+        "ctr": float(row.get("ctr") or 0),
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    }
+
+
+def _is_google_indexed(*, coverage_state: str, verdict: str) -> bool:
+    coverage = (coverage_state or "").strip().lower()
+    if "not indexed" in coverage:
+        return False
+    if "indexed" in coverage:
+        return True
+    return (verdict or "").strip().upper() == "PASS"
+
+
+def inspect_url(db: Session, page_url: str) -> dict[str, Any]:
+    """On-demand URL Inspection (manual only — avoids bulk Google API load)."""
+    settings = seo.ensure_settings(db)
+    refresh = seo._decrypt(settings.gsc_refresh_token_encrypted)
+    if not settings.gsc_connected or not refresh:
+        raise HTTPException(status_code=400, detail="Connect Google Search Console in SEO Control → APIs first.")
+    site_url = (settings.gsc_property_url or "").strip()
+    if not site_url:
+        raise HTTPException(status_code=400, detail="Search Console property URL is missing.")
+    target = (page_url or "").strip()
+    if not target.startswith("http"):
+        raise HTTPException(status_code=400, detail="A full page URL is required.")
+    access = _refresh_access_token(db, refresh)
+    headers = {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
+    payload = {"inspectionUrl": target, "siteUrl": site_url}
+    with httpx.Client(timeout=45.0) as client:
+        res = client.post(GSC_URL_INSPECTION_URL, headers=headers, json=payload)
+    if res.status_code >= 400:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Google URL Inspection failed ({res.status_code}): {res.text[:300]}",
+        )
+    data = res.json() or {}
+    result = data.get("inspectionResult") or {}
+    index_status = result.get("indexStatusResult") or {}
+    coverage = str(index_status.get("coverageState") or "")
+    verdict = str(index_status.get("verdict") or result.get("verdict") or "")
+    last_crawl = str(index_status.get("lastCrawlTime") or "")
+    robots = str(index_status.get("robotsTxtState") or "")
+    indexing_state = str(index_status.get("indexingState") or "")
+    indexed = _is_google_indexed(coverage_state=coverage, verdict=verdict)
+    return {
+        "ok": True,
+        "url": target,
+        "property_url": site_url,
+        "indexed": indexed,
+        "coverage_state": coverage,
+        "verdict": verdict,
+        "indexing_state": indexing_state,
+        "robots_txt_state": robots,
+        "last_crawl_time": last_crawl,
+        "checked_at": datetime.utcnow().isoformat(),
+    }
 
 
 def gsc_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, Any]:
@@ -388,7 +462,7 @@ def refresh_gsc_metrics(db: Session, *, access_token: str | None = None) -> dict
         )
     token = access_token or _refresh_access_token(db, refresh)
     try:
-        position = _query_avg_position(token, site_url)
+        metrics = _query_search_analytics(token, site_url)
     except HTTPException as exc:
         detail = str(exc.detail or "")
         if "403" in detail or "sufficient permission" in detail.lower():
@@ -396,15 +470,27 @@ def refresh_gsc_metrics(db: Session, *, access_token: str | None = None) -> dict
             if corrected and corrected != site_url:
                 site_url = corrected
                 settings.gsc_property_url = site_url
-                position = _query_avg_position(token, site_url)
+                metrics = _query_search_analytics(token, site_url)
             else:
                 raise
         else:
             raise
+    position = metrics.get("position")
+    clicks = metrics.get("clicks")
+    impressions = metrics.get("impressions")
     if position is not None:
         if settings.gsc_avg_position is not None:
             settings.gsc_avg_position_prev = settings.gsc_avg_position
         settings.gsc_avg_position = str(position)
+    if clicks is not None:
+        if getattr(settings, "gsc_clicks", None) is not None:
+            settings.gsc_clicks_prev = settings.gsc_clicks
+        settings.gsc_clicks = str(clicks)
+    if impressions is not None:
+        if getattr(settings, "gsc_impressions", None) is not None:
+            settings.gsc_impressions_prev = settings.gsc_impressions
+        settings.gsc_impressions = str(impressions)
+    settings.gsc_metrics_refreshed_at = datetime.utcnow()
     settings.updated_at = datetime.utcnow()
     db.commit()
     return {
@@ -412,8 +498,16 @@ def refresh_gsc_metrics(db: Session, *, access_token: str | None = None) -> dict
         "gsc_property_url": site_url,
         "gsc_avg_position": settings.gsc_avg_position,
         "gsc_avg_position_prev": settings.gsc_avg_position_prev,
+        "gsc_clicks": settings.gsc_clicks,
+        "gsc_clicks_prev": settings.gsc_clicks_prev,
+        "gsc_impressions": settings.gsc_impressions,
+        "gsc_impressions_prev": settings.gsc_impressions_prev,
+        "gsc_metrics_refreshed_at": settings.gsc_metrics_refreshed_at.isoformat()
+        if settings.gsc_metrics_refreshed_at
+        else None,
+        "period": {"start_date": metrics.get("start_date"), "end_date": metrics.get("end_date")},
         "note": None
-        if position is not None
+        if position is not None or clicks is not None
         else "Connected, but Search Console has no query data for the last 28 days yet.",
     }
 

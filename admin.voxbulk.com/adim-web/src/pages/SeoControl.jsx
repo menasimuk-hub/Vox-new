@@ -41,6 +41,7 @@ const css = `
 .sc-stat-card.warn .value{ color:var(--warn); }
 .sc-stat-card.danger .value{ color:var(--danger); }
 .sc-kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px; }
+@media(min-width:900px){ .sc-kpi-grid{ grid-template-columns:repeat(4,1fr); } }
 .sc-kpi-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); position:relative; }
 .sc-kpi-head{ display:flex; align-items:center; gap:6px; margin-bottom:10px; }
 .sc-kpi-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:650; }
@@ -191,7 +192,15 @@ function robotsFromUi(ui) {
 
 function statusLabel(s) {
   const v = (s || 'pending').toLowerCase()
+  if (v === 'indexed') return 'Indexed (Google)'
+  if (v === 'excluded') return 'Excluded'
+  if (v === 'pending') return 'Not checked'
   return v.charAt(0).toUpperCase() + v.slice(1)
+}
+
+function formatCount(n) {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  return Number(n).toLocaleString()
 }
 
 function IconEdit() {
@@ -226,6 +235,15 @@ function IconSend() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M22 2 11 13" />
       <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+    </svg>
+  )
+}
+
+function IconSearch() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   )
 }
@@ -551,11 +569,42 @@ export default function SeoControl() {
   const requestIndexing = async (item, { closeAfter } = {}) => {
     try {
       await apiFetch(`/admin/seo/content/${tab}/${item.id}/request-indexing`, { method: 'POST' })
-      showToast('Indexing requested')
+      showToast('Indexing notified (IndexNow / request logged)')
       if (closeAfter) closeEditor()
       await loadContent(tab)
     } catch (e) {
       setMsg(errMsg(e, 'Could not request indexing'))
+    }
+  }
+
+  const checkGoogleIndex = async (item, { closeAfter } = {}) => {
+    setBusy(true)
+    try {
+      const data = await apiFetch(`/admin/seo/content/${tab}/${item.id}/check-google-index`, { method: 'POST' })
+      const summary = data?.summary || (data?.google?.indexed ? 'Indexed in Google' : 'Not indexed yet')
+      showToast(summary)
+      setMsg(summary)
+      if (closeAfter) closeEditor()
+      await loadContent(tab)
+      await loadOverview()
+    } catch (e) {
+      setMsg(errMsg(e, 'Google index check failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refreshGscTraffic = async () => {
+    setBusy(true)
+    try {
+      await apiFetch('/admin/seo/gsc/refresh', { method: 'POST' })
+      await loadOverview()
+      await loadSettings()
+      showToast('Google Search metrics refreshed')
+    } catch (e) {
+      setMsg(errMsg(e, 'Could not refresh Google metrics'))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1059,6 +1108,8 @@ export default function SeoControl() {
   const setSetting = (key, value) => setSettings((s) => ({ ...s, [key]: value }))
 
   const ranking = overview?.ranking
+  const traffic = overview?.traffic || {}
+  const engines = overview?.engines || {}
   const byKind = overview?.by_kind || {}
   const totals = CONTENT_KINDS.reduce(
     (acc, k) => {
@@ -1067,9 +1118,10 @@ export default function SeoControl() {
       acc.indexed += c.indexed || 0
       acc.pending += c.pending || 0
       acc.excluded += c.excluded || 0
+      acc.allow_index += c.allow_index || c.pending || 0
       return acc
     },
-    { total: 0, indexed: 0, pending: 0, excluded: 0 },
+    { total: 0, indexed: 0, pending: 0, excluded: 0, allow_index: 0 },
   )
 
   const titleLen = (draft.meta_title || '').length
@@ -1094,6 +1146,7 @@ export default function SeoControl() {
     const showDash = !connected || current == null
     let changeCls = 'flat'
     let changeText = connected ? 'No change' : 'Connect in Site Settings'
+    if (showDash && connected) changeText = 'Refresh Google metrics'
     if (!showDash && previous != null) {
       const delta = Number(current) - Number(previous)
       const improved = higherIsBetter ? delta > 0 : delta < 0
@@ -1119,7 +1172,7 @@ export default function SeoControl() {
           </button>
         </div>
         <div className="sc-kpi-value">
-          {showDash ? '—' : current}
+          {showDash ? '—' : key === 'clicks' || key === 'impressions' || key === 'sitemap' ? formatCount(current) : current}
           {!showDash ? <span className="unit">{unit}</span> : null}
         </div>
         <div className={`sc-kpi-change ${changeCls}`}>{changeText}</div>
@@ -1351,7 +1404,15 @@ export default function SeoControl() {
                 className="sc-btn sc-btn-ghost"
                 onClick={() => requestIndexing(editing, { closeAfter: false })}
               >
-                Request indexing
+                Notify IndexNow
+              </button>
+              <button
+                type="button"
+                className="sc-btn sc-btn-ghost"
+                disabled={busy}
+                onClick={() => checkGoogleIndex(editing, { closeAfter: false })}
+              >
+                Check in Google
               </button>
               <button type="button" className="sc-btn sc-btn-primary" disabled={busy} onClick={saveEditor}>
                 {busy ? 'Saving…' : 'Save'}
@@ -1373,7 +1434,7 @@ export default function SeoControl() {
                 className={`sc-chip ${filter === f ? 'active' : ''}`}
                 onClick={() => setFilter(f)}
               >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === 'pending' ? 'Not checked' : f === 'indexed' ? 'Indexed' : f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
@@ -1394,7 +1455,7 @@ export default function SeoControl() {
                   <th style={{ width: '40%' }}>{meta.label}</th>
                   <th>URL</th>
                   <th>Status</th>
-                  <th>Last request</th>
+                  <th>Last check</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -1441,10 +1502,19 @@ export default function SeoControl() {
                           <button
                             type="button"
                             className="sc-icon-btn"
-                            title="Request indexing"
+                            title="Notify IndexNow"
                             onClick={() => requestIndexing(item)}
                           >
                             <IconSend />
+                          </button>
+                          <button
+                            type="button"
+                            className="sc-icon-btn"
+                            title="Check in Google (on-demand)"
+                            disabled={busy || excluded}
+                            onClick={() => checkGoogleIndex(item)}
+                          >
+                            <IconSearch />
                           </button>
                         </div>
                       </td>
@@ -1494,10 +1564,52 @@ export default function SeoControl() {
               ranking?.current,
               ranking?.previous,
               ranking?.connected,
-              'Lower is better. Average position of queries where your site appears in Google Search.',
-              'Source: Google Search Console (connect in APIs tab)',
+              'Lower is better. Average position of queries where your site appears in Google Search (last 28 days).',
+              'Source: Google Search Console — refresh from Overview or APIs',
               false,
             )}
+            {renderKpi(
+              'clicks',
+              'Google clicks (28d)',
+              'clicks',
+              traffic?.clicks,
+              traffic?.clicks_prev,
+              traffic?.connected,
+              'Total clicks from Google Search in the last 28 days.',
+              'Source: Google Search Console',
+              true,
+            )}
+            {renderKpi(
+              'impressions',
+              'Google impressions (28d)',
+              'impressions',
+              traffic?.impressions,
+              traffic?.impressions_prev,
+              traffic?.connected,
+              'How often your pages appeared in Google Search results (last 28 days).',
+              'Source: Google Search Console',
+              true,
+            )}
+            {renderKpi(
+              'sitemap',
+              'Sitemap URLs',
+              'URLs',
+              overview?.sitemap_url_count,
+              overview?.sitemap_url_count,
+              true,
+              'Public pages currently listed in sitemap.xml (marketing + content).',
+              'Source: VoxBulk sitemap builder',
+              true,
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+            <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" disabled={busy || !ranking?.connected} onClick={refreshGscTraffic}>
+              Refresh Google metrics
+            </button>
+            <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('sitemap')}>
+              Submit sitemap / IndexNow
+            </button>
           </div>
 
           <div className="sc-stat-grid">
@@ -1507,14 +1619,14 @@ export default function SeoControl() {
               <div className="sub">Blog, News & FAQ combined</div>
             </div>
             <div className="sc-stat-card good">
-              <div className="label">Indexed</div>
+              <div className="label">Indexed (Google)</div>
               <div className="value">{totals.indexed}</div>
-              <div className="sub">Visible in Google search</div>
+              <div className="sub">Confirmed via Check in Google</div>
             </div>
             <div className="sc-stat-card warn">
-              <div className="label">Pending</div>
-              <div className="value">{totals.pending}</div>
-              <div className="sub">Awaiting next crawl</div>
+              <div className="label">Allow-index</div>
+              <div className="value">{totals.allow_index}</div>
+              <div className="sub">Visible, not yet Google-checked</div>
             </div>
             <div className="sc-stat-card danger">
               <div className="label">Excluded</div>
@@ -1525,6 +1637,9 @@ export default function SeoControl() {
 
           <div className="sc-breakdown">
             <h3>Indexing status by content type</h3>
+            <div className="sc-help" style={{ marginTop: -8, marginBottom: 14 }}>
+              Indexed only updates when you click <strong>Check in Google</strong> on a page (manual — light on the server).
+            </div>
             {CONTENT_KINDS.map((kind) => {
               const c = byKind[kind] || { indexed: 0, pending: 0, excluded: 0, total: 0 }
               const total = c.total || 1
@@ -1537,7 +1652,7 @@ export default function SeoControl() {
                     <span style={{ width: `${((c.excluded || 0) / total) * 100}%`, background: 'var(--danger)' }} />
                   </div>
                   <div className="sc-totals">
-                    {c.indexed || 0} indexed · {c.pending || 0} pending · {c.excluded || 0} excluded
+                    {c.indexed || 0} indexed · {c.pending || 0} not checked · {c.excluded || 0} excluded
                   </div>
                 </div>
               )
@@ -1545,12 +1660,16 @@ export default function SeoControl() {
           </div>
 
           <div className="sc-settings-card">
-            <h3>Google Search Console</h3>
-            <div className="sc-card-sub">Last sitemap submission and crawl summary</div>
+            <h3>Last engine activity</h3>
+            <div className="sc-card-sub">Sitemap / IndexNow submissions to Google, Bing, and Yandex</div>
             <div className="sc-settings-row">
               <div>
-                <div className="t">Sitemap last submitted</div>
-                <div className="d">{fmtDate(overview?.sitemap_last_submitted_at) === '—' ? 'Not submitted yet' : fmtDate(overview?.sitemap_last_submitted_at)}</div>
+                <div className="t">Last multi-engine run</div>
+                <div className="d">
+                  {fmtDate(engines?.engines_last_run_at || overview?.sitemap_last_submitted_at) === '—'
+                    ? 'Not run yet'
+                    : fmtDate(engines?.engines_last_run_at || overview?.sitemap_last_submitted_at)}
+                </div>
               </div>
               <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('sitemap')}>
                 Go to Sitemap
@@ -1558,8 +1677,18 @@ export default function SeoControl() {
             </div>
             <div className="sc-settings-row">
               <div>
-                <div className="t">Pages awaiting indexing</div>
-                <div className="d">Request indexing individually from the Blog, News, or FAQ tab</div>
+                <div className="t">IndexNow last ping</div>
+                <div className="d">
+                  {fmtDate(overview?.indexnow_last_pinged_at) === '—'
+                    ? 'Not pinged yet'
+                    : fmtDate(overview?.indexnow_last_pinged_at)}
+                </div>
+              </div>
+            </div>
+            <div className="sc-settings-row">
+              <div>
+                <div className="t">Confirm a page in Google</div>
+                <div className="d">Open Blog / News / FAQ → Check in Google on one URL (on-demand only)</div>
               </div>
             </div>
           </div>
