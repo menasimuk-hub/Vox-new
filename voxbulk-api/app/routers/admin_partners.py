@@ -70,6 +70,24 @@ def partner_oauth_start(
     return PartnerService.admin_oauth_start(db, provider_key)
 
 
+@router.post("/{provider_key}/test-recruit")
+def partner_test_recruit(
+    provider_key: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return PartnerService.admin_test_recruit(db, provider_key)
+
+
+@router.post("/{provider_key}/test-webhook")
+def partner_test_webhook(
+    provider_key: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    return PartnerService.admin_test_webhook(db, provider_key)
+
+
 @router.post("/{provider_key}/test-screening", response_model=PartnerScreeningCreateOut)
 def admin_test_partner_screening(
     provider_key: str,

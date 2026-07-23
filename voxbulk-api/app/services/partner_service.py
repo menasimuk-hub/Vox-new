@@ -861,6 +861,93 @@ class PartnerService:
         return {"authorize_url": url}
 
     @staticmethod
+    def admin_test_recruit(db: Session, key: str) -> dict[str, Any]:
+        """Call Zoho Recruit users API with the mapped org's OAuth token."""
+        if key != "zoho":
+            raise HTTPException(status_code=400, detail="Recruit test is only for Zoho")
+        p = PartnerService.get_provider(db, key)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if not p.mapped_org_id:
+            raise HTTPException(status_code=400, detail="Map a VoxBulk organisation first")
+        from app.services.zoho_recruit_connection_service import (
+            _ensure_access_token,
+            recruit_status,
+        )
+
+        cfg = _loads(p.config_json, {})
+        partner_cfg = cfg if isinstance(cfg, dict) else {}
+        status_info = recruit_status(db, str(p.mapped_org_id), partner_config=partner_cfg)
+        if not status_info.get("connected"):
+            return {"ok": False, "message": "Zoho Recruit is not connected — click Connect first", "recruit": status_info}
+        try:
+            import httpx
+
+            token, api_domain = _ensure_access_token(db, str(p.mapped_org_id), partner_config=partner_cfg)
+            with httpx.Client(timeout=20.0) as client:
+                res = client.get(
+                    f"https://{api_domain}/recruit/v2/users",
+                    headers={"Authorization": f"Zoho-oauthtoken {token}"},
+                    params={"type": "CurrentUser"},
+                )
+            if res.status_code >= 400:
+                return {
+                    "ok": False,
+                    "message": f"Zoho Recruit API error HTTP {res.status_code}: {res.text[:200]}",
+                    "recruit": status_info,
+                }
+            users = (res.json() or {}).get("users") or []
+            name = ""
+            if users and isinstance(users[0], dict):
+                name = str(users[0].get("full_name") or users[0].get("email") or "").strip()
+            return {
+                "ok": True,
+                "message": f"Zoho Recruit OK{f' — {name}' if name else ''}",
+                "recruit": status_info,
+                "api_domain": api_domain,
+            }
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)[:300], "recruit": status_info}
+
+    @staticmethod
+    def admin_test_webhook(db: Session, key: str) -> dict[str, Any]:
+        """POST a sample result payload to the configured result webhook URL."""
+        p = PartnerService.get_provider(db, key)
+        if p is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        url = str(p.result_webhook_url or "").strip()
+        if not url:
+            return {"ok": False, "message": "Set Result webhook URL and Save first"}
+        payload = {
+            "partner_reference_id": "voxbulk-test-ref",
+            "screening_id": "test",
+            "candidate_score": 88,
+            "status": "passed",
+            "report_url": "https://dashboard.voxbulk.com/",
+            "call_duration_minutes": 10.5,
+            "total_charge_amount": 5.18,
+            "provider": p.key,
+            "test": True,
+        }
+        headers = {"Content-Type": "application/json", "X-Voxbulk-Partner-Event": "screening.result.test"}
+        body = json.dumps(payload, separators=(",", ":"))
+        if p.webhook_secret_enc:
+            try:
+                secret = get_encryptor().decrypt_str(p.webhook_secret_enc)
+                sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+                headers["X-Voxbulk-Signature"] = sig
+            except Exception:
+                pass
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.post(url, content=body, headers=headers)
+            if resp.status_code >= 400:
+                return {"ok": False, "message": f"Webhook HTTP {resp.status_code}: {resp.text[:200]}"}
+            return {"ok": True, "message": f"Webhook delivered (HTTP {resp.status_code})"}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)[:300]}
+
+    @staticmethod
     def admin_ping_health(db: Session, key: str) -> dict[str, Any]:
         p = PartnerService.get_provider(db, key)
         if p is None:
