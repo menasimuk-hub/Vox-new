@@ -208,10 +208,125 @@ class PartnerService:
         job_description: str | None = None,
         candidate_email: str | None = None,
     ) -> PartnerScreening:
+        return PartnerService.create_screening_core(
+            db,
+            provider=principal.provider,
+            org_id=principal.org_id,
+            environment=principal.environment,
+            partner_reference_id=partner_reference_id,
+            job_title=job_title,
+            screening_questions=screening_questions,
+            candidate_name=candidate_name,
+            candidate_phone=candidate_phone,
+            preferred_language=preferred_language,
+            callback_url=callback_url,
+            job_description=job_description,
+            candidate_email=candidate_email,
+            default_callback_url=principal.provider.result_webhook_url,
+        )
+
+    @staticmethod
+    def create_org_zoho_screening(
+        db: Session,
+        *,
+        org_id: str,
+        partner_reference_id: str,
+        job_title: str,
+        screening_questions: list[str],
+        candidate_name: str,
+        candidate_phone: str,
+        preferred_language: str = "en",
+        callback_url: str | None = None,
+        job_description: str | None = None,
+        candidate_email: str | None = None,
+    ) -> PartnerScreening:
+        """Dashboard / org-scoped launch — uses Recruit OAuth on this org for writeback."""
+        from app.services.zoho_recruit_connection_service import recruit_status
+
+        provider = PartnerService.get_provider(db, "zoho")
+        if provider is None or not provider.enabled:
+            raise HTTPException(status_code=400, detail="Zoho partner is not enabled — ask your admin")
+        status_info = recruit_status(db, org_id)
+        if not status_info.get("connected"):
+            raise HTTPException(
+                status_code=400,
+                detail="Connect Zoho Recruit under Settings → Integrations → Recruiting first",
+            )
+        return PartnerService.create_screening_core(
+            db,
+            provider=provider,
+            org_id=org_id,
+            environment=str(provider.mode or "sandbox"),
+            partner_reference_id=partner_reference_id,
+            job_title=job_title,
+            screening_questions=screening_questions,
+            candidate_name=candidate_name,
+            candidate_phone=candidate_phone,
+            preferred_language=preferred_language,
+            callback_url=callback_url,
+            job_description=job_description,
+            candidate_email=candidate_email,
+            default_callback_url=provider.result_webhook_url,
+        )
+
+    @staticmethod
+    def list_org_zoho_screenings(db: Session, org_id: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        provider = PartnerService.get_provider(db, "zoho")
+        if provider is None:
+            return []
+        rows = (
+            db.execute(
+                select(PartnerScreening)
+                .where(
+                    PartnerScreening.provider_id == provider.id,
+                    PartnerScreening.org_id == org_id,
+                )
+                .order_by(PartnerScreening.created_at.desc())
+                .limit(max(1, min(int(limit or 25), 100)))
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "partner_reference_id": r.partner_reference_id,
+                "job_title": r.job_title,
+                "candidate_name": r.candidate_name,
+                "candidate_phone": r.candidate_phone,
+                "preferred_language": r.preferred_language,
+                "status": r.status,
+                "result_status": r.result_status,
+                "candidate_score": r.candidate_score,
+                "screening_link": r.screening_link,
+                "report_url": r.report_url,
+                "created_at": r.created_at.isoformat() + "Z" if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+    @staticmethod
+    def create_screening_core(
+        db: Session,
+        *,
+        provider: PartnerProvider,
+        org_id: str,
+        environment: str,
+        partner_reference_id: str,
+        job_title: str,
+        screening_questions: list[str],
+        candidate_name: str,
+        candidate_phone: str,
+        preferred_language: str,
+        callback_url: str | None = None,
+        job_description: str | None = None,
+        candidate_email: str | None = None,
+        default_callback_url: str | None = None,
+    ) -> PartnerScreening:
         lang = "ar" if str(preferred_language or "").lower().startswith("ar") else "en"
         questions = [str(q).strip() for q in (screening_questions or []) if str(q).strip()]
-        user_id = PartnerService._org_owner_user_id(db, principal.org_id)
-        order = create_new_interview_draft(db, org_id=principal.org_id, user_id=user_id)
+        user_id = PartnerService._org_owner_user_id(db, org_id)
+        order = create_new_interview_draft(db, org_id=org_id, user_id=user_id)
         cfg = _loads(getattr(order, "config_json", None), {})
         if not isinstance(cfg, dict):
             cfg = {}
@@ -224,9 +339,9 @@ class PartnerService:
         cfg["require_booking"] = True
         cfg["booking_flow"] = "whatsapp_slot"
         cfg["partner"] = {
-            "provider": principal.provider.key,
+            "provider": provider.key,
             "partner_reference_id": partner_reference_id,
-            "environment": principal.environment,
+            "environment": environment,
             "screening_id": None,
         }
         if job_description:
@@ -239,7 +354,7 @@ class PartnerService:
         order.payment_method = "partner"
         order.payment_status = "approved"
         order.status = "paid"
-        order.payment_note = f"Partner {principal.provider.key} screening ({principal.environment})"
+        order.payment_note = f"Partner {provider.key} screening ({environment})"
         order.scheduled_start_at = now
         order.scheduled_end_at = now + timedelta(days=7)
         cfg["calling_window_start_at"] = now.isoformat()
@@ -321,13 +436,13 @@ class PartnerService:
             logger.exception("partner screening schedule_order failed")
 
         screening_id = _new_id()
-        cb = str(callback_url or principal.provider.result_webhook_url or "").strip()
+        cb = str(callback_url or default_callback_url or "").strip()
         row = PartnerScreening(
             id=screening_id,
-            provider_id=principal.provider.id,
+            provider_id=provider.id,
             partner_reference_id=str(partner_reference_id).strip(),
-            environment=principal.environment,
-            org_id=principal.org_id,
+            environment=environment,
+            org_id=org_id,
             order_id=order.id,
             recipient_id=recipient.id,
             job_title=job_title.strip(),

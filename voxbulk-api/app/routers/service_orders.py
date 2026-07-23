@@ -2101,6 +2101,83 @@ def disconnect_zoho_recruit(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/zoho-recruit/candidates")
+def list_zoho_recruit_candidates(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import list_recent_candidates
+
+    try:
+        items = list_recent_candidates(db, principal.org_id, page=page, per_page=per_page)
+        return {"items": items}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/zoho-recruit/screenings")
+def list_zoho_recruit_screenings(
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.partner_service import PartnerService
+
+    return {"items": PartnerService.list_org_zoho_screenings(db, principal.org_id, limit=limit)}
+
+
+@router.post("/zoho-recruit/screenings")
+def create_zoho_recruit_screening(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.partner_service import PartnerService
+
+    phone = str(body.get("candidate_phone") or "").strip()
+    ref = str(body.get("partner_reference_id") or body.get("candidate_id") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="candidate_phone is required")
+    if not ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="partner_reference_id (Zoho Candidate ID) is required",
+        )
+    questions = body.get("screening_questions") or []
+    if not isinstance(questions, list):
+        questions = []
+    if not questions:
+        questions = ["Tell me about your relevant experience for this role."]
+    try:
+        row = PartnerService.create_org_zoho_screening(
+            db,
+            org_id=principal.org_id,
+            partner_reference_id=ref,
+            job_title=str(body.get("job_title") or "AI voice screening").strip() or "AI voice screening",
+            screening_questions=[str(q) for q in questions],
+            candidate_name=str(body.get("candidate_name") or "Candidate").strip() or "Candidate",
+            candidate_phone=phone,
+            preferred_language=str(body.get("preferred_language") or "en"),
+            callback_url=body.get("callback_url"),
+            job_description=body.get("job_description"),
+            candidate_email=body.get("candidate_email"),
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "status": row.status,
+        "screening_id": row.id,
+        "partner_reference_id": row.partner_reference_id,
+        "screening_link": row.screening_link,
+        "estimated_completion_minutes": row.estimated_completion_minutes,
+        "invite_error": row.webhook_last_error or None,
+    }
+
+
 @router.get("/{order_id}/interview/ats/quote")
 def quote_interview_ats(
     order_id: str,

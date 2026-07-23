@@ -342,6 +342,49 @@ export default function PartnersZohoPage() {
             </button>
           </div>
           <div className='partners-warn'>Keys show once. Copy immediately.</div>
+          <div className='partners-warn' style={{ marginTop: 16 }}>
+            <strong>Start screening from Zoho (custom button / Flow)</strong>
+            <p style={{ margin: '8px 0 0' }}>
+              In Zoho Recruit, add a Candidate custom button that POSTs to the inbound URL with your API key. Map the
+              Candidate ID as <code>partner_reference_id</code>. Dashboard users can also launch from Settings →
+              Integrations → Recruiting without this.
+            </p>
+            <pre
+              style={{
+                marginTop: 10,
+                padding: 10,
+                background: '#0f172a',
+                color: '#e2e8f0',
+                borderRadius: 8,
+                fontSize: 11,
+                overflow: 'auto',
+                userSelect: 'text',
+              }}
+            >{`curl -X POST ${INBOUND_URL} \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: YOUR_SANDBOX_OR_LIVE_KEY" \\
+  -H "X-Partner-Name: zoho" \\
+  -d '{
+    "partner_reference_id": "ZOHO_CANDIDATE_ID",
+    "job_title": "Sales Associate",
+    "screening_questions": ["Tell me about your experience."],
+    "candidate_name": "Jane Doe",
+    "candidate_phone": "+447700900000",
+    "preferred_language": "en"
+  }'`}</pre>
+            <button
+              type='button'
+              className='partners-btn partners-btn-secondary'
+              style={{ marginTop: 10 }}
+              onClick={() =>
+                copyText(
+                  `curl -X POST ${INBOUND_URL} -H "Content-Type: application/json" -H "X-API-Key: YOUR_KEY" -H "X-Partner-Name: zoho" -d "{\\"partner_reference_id\\":\\"ZOHO_CANDIDATE_ID\\",\\"job_title\\":\\"Sales Associate\\",\\"screening_questions\\":[\\"Tell me about your experience.\\"],\\"candidate_name\\":\\"Jane Doe\\",\\"candidate_phone\\":\\"+447700900000\\",\\"preferred_language\\":\\"en\\"}"`,
+                )
+              }
+            >
+              Copy curl
+            </button>
+          </div>
         </section>
       ) : null}
 

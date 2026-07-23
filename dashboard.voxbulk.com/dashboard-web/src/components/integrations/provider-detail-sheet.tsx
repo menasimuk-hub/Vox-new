@@ -26,6 +26,7 @@ import {
   type TestResult,
 } from "@/components/integrations/test-result-card";
 import type { IntegrationView } from "@/components/integrations/provider-tile";
+import { ZohoRecruitLaunchPanel } from "@/components/integrations/zoho-recruit-launch-panel";
 
 function statusFor(view: IntegrationView): IntegrationStatus {
   return integrationStatusFor(view);
@@ -361,6 +362,10 @@ export function ProviderDetailSheet({
                 usually causes login or API errors.
               </p>
             </div>
+          ) : null}
+
+          {view.key === "zoho_recruit" && view.connected ? (
+            <ZohoRecruitLaunchPanel onLaunched={onRefresh} />
           ) : null}
 
           {view.key === "zoho_recruit" && view.connected && view.extra?.data_center ? (

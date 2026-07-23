@@ -309,7 +309,11 @@ def _ensure_access_token(db: Session, org_id: str, partner_config: dict[str, Any
     if not refresh:
         raise ValueError("Zoho Recruit token expired — reconnect OAuth")
 
-    cid, secret, _, partner_dc = credentials_from_partner_config(partner_config or {})
+    cid, secret, _, partner_dc = credentials_from_partner_config(
+        partner_config
+        if isinstance(partner_config, dict) and (partner_config.get("client_id") or partner_config.get("client_secret"))
+        else load_partner_oauth_config(db)
+    )
     if not cid or not secret:
         raise ValueError("Zoho OAuth Client Secret missing — save it on Partners → Zoho and reconnect")
 
@@ -339,6 +343,44 @@ def _ensure_access_token(db: Session, org_id: str, partner_config: dict[str, Any
     )
     save_crm_config_raw(db, org_id, PROVIDER_KEY, cfg)
     return access_token, str(cfg.get("api_domain") or recruit_host)
+
+
+def list_recent_candidates(db: Session, org_id: str, *, page: int = 1, per_page: int = 50) -> list[dict[str, Any]]:
+    """Fetch recent Zoho Recruit candidates for the launch picker."""
+    token, api_domain = _ensure_access_token(db, org_id)
+    page = max(1, int(page or 1))
+    per_page = max(1, min(int(per_page or 50), 200))
+    with httpx.Client(timeout=30.0) as client:
+        res = client.get(
+            f"https://{api_domain}/recruit/v2/Candidates",
+            headers={"Authorization": f"Zoho-oauthtoken {token}"},
+            params={"page": page, "per_page": per_page, "sort_order": "desc", "sort_by": "Created_Time"},
+        )
+    if res.status_code == 204:
+        return []
+    if res.status_code >= 400:
+        raise ValueError(f"Zoho Candidates API HTTP {res.status_code}: {(res.text or '')[:200]}")
+    data = res.json() or {}
+    rows = data.get("data") or []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        phone = (
+            str(row.get("Mobile") or row.get("Phone") or row.get("Secondary_Phone") or "").strip()
+        )
+        email = str(row.get("Email") or "").strip()
+        name = str(row.get("Full_Name") or row.get("Last_Name") or row.get("First_Name") or "").strip()
+        out.append(
+            {
+                "id": str(row.get("id") or "").strip(),
+                "name": name,
+                "email": email,
+                "phone": phone,
+                "job_title": str(row.get("Current_Job_Title") or row.get("Skill_Set") or "").strip(),
+            }
+        )
+    return [c for c in out if c.get("id")]
 
 
 def write_screening_result(
