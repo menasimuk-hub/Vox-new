@@ -1109,7 +1109,7 @@ export default function SeoControl() {
 
   const ranking = overview?.ranking
   const traffic = overview?.traffic || {}
-  const engines = overview?.engines || {}
+  const overviewEngines = overview?.engines || {}
   const byKind = overview?.by_kind || {}
   const totals = CONTENT_KINDS.reduce(
     (acc, k) => {
@@ -1666,9 +1666,9 @@ export default function SeoControl() {
               <div>
                 <div className="t">Last multi-engine run</div>
                 <div className="d">
-                  {fmtDate(engines?.engines_last_run_at || overview?.sitemap_last_submitted_at) === '—'
+                  {fmtDate(overviewEngines?.engines_last_run_at || overview?.sitemap_last_submitted_at) === '—'
                     ? 'Not run yet'
-                    : fmtDate(engines?.engines_last_run_at || overview?.sitemap_last_submitted_at)}
+                    : fmtDate(overviewEngines?.engines_last_run_at || overview?.sitemap_last_submitted_at)}
                 </div>
               </div>
               <button type="button" className="sc-btn sc-btn-ghost sc-btn-sm" onClick={() => switchTab('sitemap')}>
