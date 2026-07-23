@@ -2710,6 +2710,25 @@ def admin_notifications_summary(db: Session = Depends(get_db), _admin=Depends(re
     return NotificationService.admin_pending_count(db)
 
 
+@router.get("/notifications")
+def admin_notifications_feed(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_ORG_OPS)),
+):
+    from app.services.notification_service import NotificationService
+
+    return {"items": NotificationService.admin_notification_feed(db, limit=limit)}
+
+
+@router.post("/notifications/clear-tickets")
+def admin_notifications_clear_tickets(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_ORG_OPS))):
+    from app.services.notification_service import NotificationService
+
+    cleared = NotificationService.clear_admin_unread_tickets(db)
+    return {"cleared": cleared}
+
+
 @router.post("/organisations/{org_id}/control-center/cancellation/reverse")
 def admin_occ_reverse_cancellation(
     org_id: str,

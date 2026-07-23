@@ -500,6 +500,68 @@ class NotificationService:
         }
 
     @staticmethod
+    def admin_notification_feed(db: Session, *, limit: int = 20) -> list[dict]:
+        """Pending billing requests + admin-unread support tickets for the admin top-bar panel."""
+        from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+        cap = max(1, min(int(limit or 20), 50))
+        items: list[dict] = []
+
+        billing = SubscriptionCancellationService.list_billing_requests(db, status="pending", limit=cap)
+        for row in billing:
+            kind = str(row.get("type") or "billing")
+            org_name = row.get("org_name") or "Organisation"
+            title = "Refund review" if kind == "refund_review" else "Cancellation request"
+            items.append(
+                {
+                    "id": f"billing:{kind}:{row.get('id')}",
+                    "kind": "billing_request",
+                    "title": title,
+                    "subtitle": f"{org_name} · {row.get('status') or 'pending'}",
+                    "href": "/invoices?tab=requests",
+                    "created_at": row.get("requested_at"),
+                }
+            )
+
+        tickets = list(
+            db.execute(
+                select(SupportTicket)
+                .where(SupportTicket.admin_unread == True)  # noqa: E712
+                .order_by(SupportTicket.updated_at.desc())
+                .limit(cap)
+            ).scalars()
+        )
+        for t in tickets:
+            ref = t.public_ref or f"TKT-{t.id:06d}"
+            items.append(
+                {
+                    "id": f"ticket:{t.id}",
+                    "kind": "support_ticket",
+                    "title": t.subject or ref,
+                    "subtitle": f"{ref} · unread",
+                    "href": f"/support/tickets/{t.id}",
+                    "created_at": (t.last_message_at or t.updated_at or t.created_at).isoformat()
+                    if (t.last_message_at or t.updated_at or t.created_at)
+                    else None,
+                }
+            )
+
+        items.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return items[:cap]
+
+    @staticmethod
+    def clear_admin_unread_tickets(db: Session) -> int:
+        """Mark all admin-unread support tickets as read. Billing pending items are unchanged."""
+        now = datetime.utcnow()
+        result = db.execute(
+            update(SupportTicket)
+            .where(SupportTicket.admin_unread == True)  # noqa: E712
+            .values(admin_unread=False, updated_at=now)
+        )
+        db.commit()
+        return int(result.rowcount or 0)
+
+    @staticmethod
     def mark_ticket_read(db: Session, *, org_id: str, user_id: str, ticket_id: int) -> None:
         now = datetime.utcnow()
         rows = list(
