@@ -481,6 +481,63 @@
   transform: translateX(18px);
 }
 
+.partners-page .partners-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 20px;
+  padding: 4px;
+  background: #f3eee6;
+  border: 1px solid #e3d8ce;
+  border-radius: 12px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.partners-page .partners-tab {
+  border: none;
+  background: transparent;
+  color: #6b5e4f;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.partners-page .partners-tab:hover {
+  color: #1e2a3a;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.partners-page .partners-tab.active {
+  background: #fff;
+  color: #1e2a3a;
+  box-shadow: 0 1px 2px rgba(10, 22, 40, 0.06);
+}
+
+.partners-page.partners-zoho .partners-section {
+  margin-top: 0;
+}
+
+.partners-page.partners-zoho .partners-section h3 {
+  display: none;
+}
+
+body.dark .partners-page .partners-tabs {
+  background: #1a2433;
+  border-color: #2a3648;
+}
+
+body.dark .partners-page .partners-tab {
+  color: #9aa7b8;
+}
+
+body.dark .partners-page .partners-tab.active {
+  background: #243044;
+  color: #f3f6fb;
+}
+
 body.dark .partners-page .partners-header h1 {
   color: #ecf2fc;
 }
