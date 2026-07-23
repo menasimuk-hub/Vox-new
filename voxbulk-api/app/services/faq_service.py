@@ -27,8 +27,8 @@ class FAQService:
                 db.delete(row)
                 removed += 1
 
-        # Drop empty demo categories if nothing left in them.
-        for slug in ("getting-started", "billing", "technical"):
+        # Drop leftover empty demo-only categories (not in the Help catalogue).
+        for slug in ("technical", "product"):
             cat = db.execute(select(FAQCategory).where(FAQCategory.slug == slug)).scalar_one_or_none()
             if cat is None:
                 continue
@@ -81,12 +81,12 @@ class FAQService:
                     db.add(row)
                     created += 1
                     continue
-                # Existing row: keep Admin-edited Q&A; only repair public SEO visibility.
+                # Existing row: keep Admin-edited Q&A; repair category placement + public SEO.
                 dirty = False
                 if not str(row.slug or "").strip():
                     row.slug = slug
                     dirty = True
-                if row.category_id is None:
+                if row.category_id != product.id:
                     row.category_id = product.id
                     dirty = True
                 if not row.is_published:

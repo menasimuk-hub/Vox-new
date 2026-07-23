@@ -273,6 +273,22 @@
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .spin-slow { animation: spin-slow 24s linear infinite; }
 
+/* Help center animated backdrop */
+@keyframes help-grid { from { background-position: 0 0, 0 0; } to { background-position: 48px 48px, 48px 48px; } }
+.help-grid-move { animation: help-grid 20s linear infinite; }
+@keyframes help-drift-a { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,40px) scale(1.08); } }
+@keyframes help-drift-b { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,-30px) scale(1.1); } }
+@keyframes help-drift-c { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,-40px) scale(0.92); } }
+.help-drift-a { animation: help-drift-a 18s ease-in-out infinite; }
+.help-drift-b { animation: help-drift-b 22s ease-in-out infinite; }
+.help-drift-c { animation: help-drift-c 16s ease-in-out infinite; }
+@keyframes help-orb-a { 0%,100% { transform: translate(0,0); opacity: 0.7; } 50% { transform: translate(20px,-30px); opacity: 1; } }
+@keyframes help-orb-b { 0%,100% { transform: translate(0,0); opacity: 0.5; } 50% { transform: translate(-25px,20px); opacity: 0.9; } }
+@keyframes help-orb-c { 0%,100% { transform: translate(0,0); opacity: 0.6; } 50% { transform: translate(15px,25px); opacity: 1; } }
+.help-orb-a { animation: help-orb-a 9s ease-in-out infinite; }
+.help-orb-b { animation: help-orb-b 11s ease-in-out infinite; }
+.help-orb-c { animation: help-orb-c 13s ease-in-out infinite; }
+
 /* Serif accent */
 .serif-italic { font-family: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif; font-style: italic; font-weight: 400; letter-spacing: -0.01em; }
 
