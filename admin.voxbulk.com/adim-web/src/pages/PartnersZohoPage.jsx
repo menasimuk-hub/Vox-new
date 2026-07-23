@@ -49,6 +49,7 @@ export default function PartnersZohoPage() {
   const [flash, setFlash] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
+  const [actionError, setActionError] = useState('')
   const [testName, setTestName] = useState('')
   const [testPhone, setTestPhone] = useState('')
   const [testEmail, setTestEmail] = useState('')
@@ -56,9 +57,12 @@ export default function PartnersZohoPage() {
   const [testRef, setTestRef] = useState('')
   const [lastScreening, setLastScreening] = useState(null)
 
-  const notify = useCallback((msg) => {
-    setFlash(msg)
-    window.setTimeout(() => setFlash(''), 4000)
+  const notify = useCallback((msg, isError = false) => {
+    const text = String(msg || '')
+    setFlash(text)
+    if (isError) setActionError(text)
+    else if (text) setActionError('')
+    window.setTimeout(() => setFlash(''), 5000)
   }, [])
 
   const applyPayload = useCallback((data) => {
@@ -90,7 +94,7 @@ export default function PartnersZohoPage() {
       applyPayload(data)
       setOrgOptions(orgs?.items || [])
     } catch (e) {
-      notify(e?.message || 'Failed to load')
+      notify(e?.message || 'Failed to load', true)
     } finally {
       setLoading(false)
     }
@@ -104,7 +108,7 @@ export default function PartnersZohoPage() {
         notify('Zoho Recruit connected')
         setTab('oauth')
       }
-      if (params.get('oauth') === 'error') notify(params.get('message') || 'OAuth failed')
+      if (params.get('oauth') === 'error') notify(params.get('message') || 'OAuth failed', true)
       if (params.get('oauth')) window.history.replaceState({}, '', window.location.pathname)
     } catch {
       /* ignore */
@@ -150,7 +154,7 @@ export default function PartnersZohoPage() {
       setWebhookSecret('')
       notify('Saved')
     } catch (e) {
-      notify(e?.message || 'Save failed')
+      notify(e?.message || 'Save failed', true)
     } finally {
       setBusy('')
     }
@@ -164,7 +168,7 @@ export default function PartnersZohoPage() {
       notify(`${environment} key ready — copy now`)
       await load()
     } catch (e) {
-      notify(e?.message || 'Key failed')
+      notify(e?.message || 'Key failed', true)
     } finally {
       setBusy('')
     }
@@ -191,19 +195,20 @@ export default function PartnersZohoPage() {
       if (!res?.authorize_url) throw new Error('No authorize URL')
       window.location.href = res.authorize_url
     } catch (e) {
-      notify(e?.message || 'OAuth start failed')
+      notify(e?.message || 'OAuth start failed', true)
       setBusy('')
     }
   }
 
   const testRecruit = async () => {
     setBusy('recruit')
+    setActionError('')
     try {
       const res = await apiFetch('/admin/partners/zoho/test-recruit', { method: 'POST' })
       if (res.recruit) setRecruit(res.recruit)
-      notify(res.message || (res.ok ? 'Recruit OK' : 'Recruit failed'))
+      notify(res.message || (res.ok ? 'Recruit OK' : 'Recruit failed'), !res.ok)
     } catch (e) {
-      notify(e?.message || 'Recruit test failed')
+      notify(e?.message || 'Recruit test failed', true)
     } finally {
       setBusy('')
     }
@@ -213,9 +218,9 @@ export default function PartnersZohoPage() {
     setBusy('webhook')
     try {
       const res = await apiFetch('/admin/partners/zoho/test-webhook', { method: 'POST' })
-      notify(res.message || (res.ok ? 'Webhook OK' : 'Webhook failed'))
+      notify(res.message || (res.ok ? 'Webhook OK' : 'Webhook failed'), !res.ok)
     } catch (e) {
-      notify(e?.message || 'Webhook test failed')
+      notify(e?.message || 'Webhook test failed', true)
     } finally {
       setBusy('')
     }
@@ -242,7 +247,7 @@ export default function PartnersZohoPage() {
       notify(data.screening_link?.includes('/book/') ? 'Booking link created' : 'Screening created')
       await load()
     } catch (e) {
-      notify(e?.message || 'Screening failed')
+      notify(e?.message || 'Screening failed', true)
     } finally {
       setBusy('')
     }
@@ -392,6 +397,20 @@ export default function PartnersZohoPage() {
               Test Recruit API
             </button>
           </div>
+          {actionError ? (
+            <div className='partners-warn' style={{ marginTop: 14 }}>
+              <strong>Error (copy this):</strong>
+              <div style={{ marginTop: 6, userSelect: 'text', wordBreak: 'break-word' }}>{actionError}</div>
+              <button
+                type='button'
+                className='partners-btn partners-btn-secondary'
+                style={{ marginTop: 10 }}
+                onClick={() => copyText(actionError)}
+              >
+                Copy error
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
