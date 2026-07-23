@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 import { connectionBadge, getPartnerProvider, modeBadge } from '../lib/partnersCatalog'
 import './partners.css'
 
@@ -66,6 +67,9 @@ function ExtraFields({ provider, form, setForm }) {
             <option value='EU'>EU</option>
             <option value='IN'>IN</option>
             <option value='AU'>AU</option>
+            <option value='UK'>UK</option>
+            <option value='AE'>AE</option>
+            <option value='SA'>SA</option>
           </select>
         </div>
       </div>
@@ -226,31 +230,18 @@ function ExtraFields({ provider, form, setForm }) {
   )
 }
 
-export default function PartnersProviderPage() {
-  const { providerKey } = useParams()
-  const provider = getPartnerProvider(providerKey)
-
-  const [enabled, setEnabled] = useState(false)
-  const [mode, setMode] = useState('sandbox')
-  const [checked, setChecked] = useState(() => SETUP_STEPS.map(() => false))
-  const [testResult, setTestResult] = useState(null)
-  const [savedFlash, setSavedFlash] = useState('')
-
-  const inboundUrl = `https://api.voxbulk.com/partner/v1/screenings`
-  const healthUrl = `https://api.voxbulk.com/partner/v1/health`
-  const redirectUri = `https://api.voxbulk.com/partner/v1/oauth/${providerKey}/callback`
-
-  const [form, setForm] = useState(() => ({
+function defaultForm(providerKey, commissionDefault) {
+  return {
     mappedOrg: '',
     resultWebhook: '',
     webhookSecret: '',
     connectionFee: '1.50',
     perMinute: '0.35',
-    commission: String(provider?.commissionDefault ?? 18),
+    commission: String(commissionDefault ?? 18),
     estCost: '5.00',
     clientId: '',
     clientSecret: '',
-    redirectUri,
+    redirectUri: `https://api.voxbulk.com/partner/v1/oauth/${providerKey}/callback`,
     dataCentre: 'US',
     bearerToken: '',
     companyId: '',
@@ -266,42 +257,141 @@ export default function PartnersProviderPage() {
     jobTitle: '',
     partnerRef: '',
     questions: '',
-  }))
+  }
+}
+
+function buildConfig(provider, form) {
+  const kind = provider.extraFields
+  if (kind === 'zoho') {
+    return {
+      client_id: form.clientId,
+      client_secret: form.clientSecret,
+      redirect_uri: form.redirectUri,
+      data_centre: form.dataCentre,
+    }
+  }
+  if (kind === 'breezy') {
+    return {
+      bearer_token: form.bearerToken,
+      company_id: form.companyId,
+      inbound_webhook_secret: form.webhookSecret,
+    }
+  }
+  if (kind === 'workable') {
+    return {
+      partner_token: form.partnerToken,
+      client_id: form.workableClientId,
+      subdomain: form.subdomain,
+    }
+  }
+  if (kind === 'bullhorn') {
+    return {
+      client_id: form.clientId,
+      client_secret: form.clientSecret,
+      corporation_id: form.corpId,
+      app_bridge: !!form.appBridge,
+    }
+  }
+  return { zapier_url: form.zapierUrl }
+}
+
+export default function PartnersProviderPage() {
+  const { providerKey } = useParams()
+  const provider = getPartnerProvider(providerKey)
+
+  const [enabled, setEnabled] = useState(false)
+  const [mode, setMode] = useState('sandbox')
+  const [connection, setConnection] = useState('none')
+  const [checked, setChecked] = useState(() => SETUP_STEPS.map(() => false))
+  const [testResult, setTestResult] = useState(null)
+  const [savedFlash, setSavedFlash] = useState('')
+  const [keys, setKeys] = useState([])
+  const [recentJobs, setRecentJobs] = useState([])
+  const [revealedKey, setRevealedKey] = useState(null)
+  const [lastHealth, setLastHealth] = useState(null)
+  const [orgOptions, setOrgOptions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  const inboundUrl = `https://api.voxbulk.com/partner/v1/screenings`
+  const healthUrl = `https://api.voxbulk.com/partner/v1/health`
+
+  const [form, setForm] = useState(() => defaultForm(providerKey, provider?.commissionDefault))
+
+  const flash = useCallback((msg) => {
+    setSavedFlash(msg)
+    window.setTimeout(() => setSavedFlash(''), 3500)
+  }, [])
+
+  const applyProviderPayload = useCallback(
+    (data) => {
+      const p = data?.provider || {}
+      const cfg = p.config || {}
+      setEnabled(!!p.enabled)
+      setMode(p.mode || 'sandbox')
+      setKeys(data?.keys || [])
+      setRecentJobs(data?.recent_jobs || [])
+      setLastHealth(
+        p.last_health_at
+          ? { at: p.last_health_at, ok: p.last_health_ok, message: p.last_health_message }
+          : null,
+      )
+      const hasActive = (data?.keys || []).some((k) => k.is_active)
+      if (p.last_health_ok === false) setConnection('error')
+      else if (p.enabled && hasActive && p.mapped_org_id) setConnection(p.mode === 'live' ? 'connected' : 'sandbox')
+      else setConnection('none')
+
+      setForm((prev) => ({
+        ...prev,
+        mappedOrg: p.mapped_org_id || '',
+        resultWebhook: p.result_webhook_url || '',
+        webhookSecret: '',
+        connectionFee: String(p.connection_fee_gbp ?? 1.5),
+        perMinute: String(p.per_minute_gbp ?? 0.35),
+        commission: String(p.commission_pct ?? provider?.commissionDefault ?? 18),
+        estCost: String(p.est_cost_per_completed_gbp ?? 5),
+        clientId: cfg.client_id || '',
+        clientSecret: cfg.client_secret || '',
+        redirectUri: cfg.redirect_uri || `https://api.voxbulk.com/partner/v1/oauth/${provider.key}/callback`,
+        dataCentre: cfg.data_centre || 'US',
+        bearerToken: cfg.bearer_token || '',
+        companyId: cfg.company_id || '',
+        partnerToken: cfg.partner_token || '',
+        workableClientId: cfg.client_id || '',
+        subdomain: cfg.subdomain || '',
+        corpId: cfg.corporation_id || '',
+        appBridge: !!cfg.app_bridge,
+        zapierUrl: cfg.zapier_url || '',
+      }))
+    },
+    [provider],
+  )
+
+  const load = useCallback(async () => {
+    if (!provider) return
+    setLoading(true)
+    try {
+      const [data, orgs] = await Promise.all([
+        apiFetch(`/admin/partners/${provider.key}`),
+        apiFetch('/admin/partners/org-options').catch(() => ({ items: [] })),
+      ])
+      applyProviderPayload(data)
+      setOrgOptions(orgs?.items || [])
+    } catch (e) {
+      flash(e?.message || 'Failed to load provider')
+    } finally {
+      setLoading(false)
+    }
+  }, [provider, applyProviderPayload, flash])
 
   useEffect(() => {
     if (!provider) return
-    setEnabled(false)
-    setMode('sandbox')
     setChecked(SETUP_STEPS.map(() => false))
     setTestResult(null)
-    setForm({
-      mappedOrg: '',
-      resultWebhook: '',
-      webhookSecret: '',
-      connectionFee: '1.50',
-      perMinute: '0.35',
-      commission: String(provider.commissionDefault ?? 18),
-      estCost: '5.00',
-      clientId: '',
-      clientSecret: '',
-      redirectUri: `https://api.voxbulk.com/partner/v1/oauth/${provider.key}/callback`,
-      dataCentre: 'US',
-      bearerToken: '',
-      companyId: '',
-      partnerToken: '',
-      workableClientId: '',
-      subdomain: '',
-      corpId: '',
-      appBridge: false,
-      zapierUrl: '',
-      testLang: 'en',
-      candidateName: '',
-      phone: '',
-      jobTitle: '',
-      partnerRef: '',
-      questions: '',
-    })
-  }, [provider?.key])
+    setRevealedKey(null)
+    setForm(defaultForm(provider.key, provider.commissionDefault))
+    load()
+  }, [provider?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sharePct = useMemo(() => {
     const c = Number(form.commission) || 0
@@ -312,19 +402,107 @@ export default function PartnersProviderPage() {
     return <Navigate to='/partners/dashboard' replace />
   }
 
-  const conn = connectionBadge('none')
+  const conn = connectionBadge(connection)
   const modeB = modeBadge(mode)
 
-  const flash = (msg) => {
-    setSavedFlash(msg)
-    window.setTimeout(() => setSavedFlash(''), 2500)
+  const keyMeta = (environment) => {
+    const active = keys.find((k) => k.environment === environment && k.is_active)
+    if (!active) return 'Not generated'
+    if (revealedKey?.environment === environment) return revealedKey.api_key
+    return `${active.key_prefix}… (active)`
   }
 
-  const onSave = () => flash('Save will work after Partner API is connected.')
-  const onPing = () => flash('Health check will work after Partner API is connected.')
-  const onSendTest = () => {
+  const onSave = async () => {
+    setBusy(true)
+    try {
+      const body = {
+        enabled,
+        mode,
+        mapped_org_id: form.mappedOrg || null,
+        result_webhook_url: form.resultWebhook || '',
+        connection_fee_gbp: Number(form.connectionFee) || 1.5,
+        per_minute_gbp: Number(form.perMinute) || 0.35,
+        commission_pct: Number(form.commission) || 0,
+        est_cost_per_completed_gbp: Number(form.estCost) || 5,
+        config: buildConfig(provider, form),
+      }
+      if (form.webhookSecret) body.webhook_secret = form.webhookSecret
+      const data = await apiFetch(`/admin/partners/${provider.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      applyProviderPayload(data)
+      flash('Saved')
+    } catch (e) {
+      flash(e?.message || 'Save failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onPing = async () => {
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/admin/partners/${provider.key}/health`, { method: 'POST' })
+      setLastHealth({ at: res.checked_at, ok: res.ok, message: res.message })
+      flash(res.message || (res.ok ? 'Health OK' : 'Health failed'))
+      await load()
+    } catch (e) {
+      flash(e?.message || 'Health check failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onGenerateKey = async (environment) => {
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/admin/partners/${provider.key}/keys?environment=${environment}`, {
+        method: 'POST',
+      })
+      setRevealedKey({ environment, api_key: res.api_key })
+      flash(`${environment} key generated — copy it now`)
+      await load()
+    } catch (e) {
+      flash(e?.message || 'Key generation failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onSendTest = async () => {
+    setBusy(true)
     setTestResult(null)
-    flash('Test jobs will work after Partner API is connected.')
+    try {
+      const questions = String(form.questions || '')
+        .split('\n')
+        .map((q) => q.trim())
+        .filter(Boolean)
+      const partnerRef = form.partnerRef || `test-${Date.now()}`
+      const data = await apiFetch(`/admin/partners/${provider.key}/test-screening`, {
+        method: 'POST',
+        body: JSON.stringify({
+          partner_reference_id: partnerRef,
+          job_title: form.jobTitle || 'Test role',
+          screening_questions: questions,
+          candidate_name: form.candidateName || 'Test Candidate',
+          candidate_phone: form.phone || '+447700900000',
+          preferred_language: form.testLang || 'en',
+          callback_url: form.resultWebhook || undefined,
+        }),
+      })
+      setTestResult({
+        status: data.status || 'accepted',
+        link: data.screening_link,
+        eta: `${data.estimated_completion_minutes || 15} min`,
+      })
+      flash('Test screening accepted')
+      await load()
+    } catch (e) {
+      flash(e?.message || 'Test job failed')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -344,10 +522,10 @@ export default function PartnersProviderPage() {
         <span className={`partners-badge ${conn.cls}`}>{conn.text}</span>
         <span className={`partners-badge ${modeB.cls}`}>{modeB.text}</span>
         {savedFlash ? <span className='partners-helper'>{savedFlash}</span> : null}
+        {loading ? <span className='partners-helper'>Loading…</span> : null}
         <span className='partners-tagline'>Dual English + Arabic AI voice screening</span>
       </div>
 
-      {/* A */}
       <section className='partners-section'>
         <h3>A · Connection &amp; Mode</h3>
         <div className='partners-field-row'>
@@ -378,17 +556,37 @@ export default function PartnersProviderPage() {
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Last health check</span>
-          <span className='partners-field-value'>—</span>
+          <span className='partners-field-value'>
+            {lastHealth
+              ? `${lastHealth.ok ? 'OK' : 'Fail'} · ${lastHealth.message || ''} · ${lastHealth.at || ''}`
+              : '—'}
+          </span>
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Mapped org</span>
-          <input
-            className='partners-control'
-            style={{ maxWidth: 280 }}
-            placeholder='Organisation ID or name'
-            value={form.mappedOrg}
-            onChange={(e) => setForm((f) => ({ ...f, mappedOrg: e.target.value }))}
-          />
+          {orgOptions.length ? (
+            <select
+              className='partners-control'
+              style={{ maxWidth: 320 }}
+              value={form.mappedOrg}
+              onChange={(e) => setForm((f) => ({ ...f, mappedOrg: e.target.value }))}
+            >
+              <option value=''>Select organisation…</option>
+              {orgOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} ({o.id.slice(0, 8)}…)
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className='partners-control'
+              style={{ maxWidth: 280 }}
+              placeholder='Organisation ID'
+              value={form.mappedOrg}
+              onChange={(e) => setForm((f) => ({ ...f, mappedOrg: e.target.value }))}
+            />
+          )}
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Developer portal</span>
@@ -397,16 +595,15 @@ export default function PartnersProviderPage() {
           </a>
         </div>
         <div className='partners-btn-group'>
-          <button type='button' className='partners-btn partners-btn-primary' onClick={onSave}>
+          <button type='button' className='partners-btn partners-btn-primary' onClick={onSave} disabled={busy}>
             <i className='ti ti-device-floppy' /> Save
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={onPing}>
+          <button type='button' className='partners-btn partners-btn-secondary' onClick={onPing} disabled={busy}>
             <i className='ti ti-heartbeat' /> Ping health
           </button>
         </div>
       </section>
 
-      {/* B */}
       <section className='partners-section'>
         <h3>B · API Credentials</h3>
         <div className='partners-field-row'>
@@ -415,23 +612,37 @@ export default function PartnersProviderPage() {
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Sandbox API key</span>
-          <span className='partners-readonly'>•••••••••••• (generate to reveal)</span>
+          <span className='partners-readonly'>
+            {keyMeta('sandbox')}
+            {revealedKey?.environment === 'sandbox' ? (
+              <button type='button' className='partners-copy-btn' onClick={() => copyText(revealedKey.api_key)} title='Copy'>
+                <i className='ti ti-copy' />
+              </button>
+            ) : null}
+          </span>
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Live API key</span>
-          <span className='partners-readonly'>•••••••••••• (generate to reveal)</span>
+          <span className='partners-readonly'>
+            {keyMeta('live')}
+            {revealedKey?.environment === 'live' ? (
+              <button type='button' className='partners-copy-btn' onClick={() => copyText(revealedKey.api_key)} title='Copy'>
+                <i className='ti ti-copy' />
+              </button>
+            ) : null}
+          </span>
         </div>
         <div className='partners-btn-group'>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key generation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' disabled={busy} onClick={() => onGenerateKey('sandbox')}>
             <i className='ti ti-key' /> Generate sandbox
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key rotation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' disabled={busy} onClick={() => onGenerateKey('sandbox')}>
             <i className='ti ti-refresh' /> Rotate sandbox
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key generation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' disabled={busy} onClick={() => onGenerateKey('live')}>
             <i className='ti ti-key' /> Generate live
           </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Key rotation needs Partner API.')}>
+          <button type='button' className='partners-btn partners-btn-secondary' disabled={busy} onClick={() => onGenerateKey('live')}>
             <i className='ti ti-refresh' /> Rotate live
           </button>
         </div>
@@ -440,7 +651,6 @@ export default function PartnersProviderPage() {
         </div>
       </section>
 
-      {/* C */}
       <section className='partners-section'>
         <h3>C · Webhooks &amp; Endpoints</h3>
         <div className='partners-field-row'>
@@ -469,6 +679,7 @@ export default function PartnersProviderPage() {
             style={{ maxWidth: 260 }}
             value={form.webhookSecret}
             onChange={(e) => setForm((f) => ({ ...f, webhookSecret: e.target.value }))}
+            placeholder='Leave blank to keep existing'
           />
         </div>
         <div className='partners-field-row'>
@@ -486,7 +697,6 @@ export default function PartnersProviderPage() {
         <ExtraFields provider={provider} form={form} setForm={setForm} />
       </section>
 
-      {/* D */}
       <section className='partners-section'>
         <h3>D · Pricing &amp; commission</h3>
         <div className='partners-field-row'>
@@ -544,7 +754,6 @@ export default function PartnersProviderPage() {
         </div>
       </section>
 
-      {/* E */}
       <section className='partners-section'>
         <h3>E · Setup guide</h3>
         <div className='partners-checklist'>
@@ -570,15 +779,14 @@ export default function PartnersProviderPage() {
         <div className='partners-tip'>
           <strong>How to test</strong>
           <ul>
-            <li>Use sandbox keys and set Mode to Sandbox</li>
-            <li>Send a test job with sample candidate data</li>
-            <li>Verify the result webhook is called</li>
-            <li>Check the report in Recent jobs</li>
+            <li>Enable partner, map org, Save</li>
+            <li>Generate sandbox key (copy once)</li>
+            <li>Set Mode to Sandbox and Ping health</li>
+            <li>Send a test job below</li>
           </ul>
         </div>
       </section>
 
-      {/* F */}
       <section className='partners-section'>
         <h3>F · Test panel</h3>
         <div className='partners-field-row'>
@@ -628,7 +836,6 @@ export default function PartnersProviderPage() {
             value={form.partnerRef}
             onChange={(e) => setForm((f) => ({ ...f, partnerRef: e.target.value }))}
           />
-          <span className='partners-helper'>auto-generate later</span>
         </div>
         <div className='partners-field-row'>
           <span className='partners-field-label'>Questions</span>
@@ -638,14 +845,12 @@ export default function PartnersProviderPage() {
             style={{ minWidth: 280 }}
             value={form.questions}
             onChange={(e) => setForm((f) => ({ ...f, questions: e.target.value }))}
+            placeholder='One question per line'
           />
         </div>
         <div className='partners-btn-group'>
-          <button type='button' className='partners-btn partners-btn-primary' onClick={onSendTest}>
+          <button type='button' className='partners-btn partners-btn-primary' onClick={onSendTest} disabled={busy}>
             <i className='ti ti-send' /> Send test job
-          </button>
-          <button type='button' className='partners-btn partners-btn-secondary' onClick={() => flash('Simulate webhook needs Partner API.')}>
-            <i className='ti ti-refresh' /> Simulate webhook
           </button>
           <a className='partners-btn partners-btn-secondary' href={healthUrl} target='_blank' rel='noreferrer'>
             <i className='ti ti-external-link' /> Health URL
@@ -665,12 +870,44 @@ export default function PartnersProviderPage() {
         ) : null}
       </section>
 
-      {/* G */}
       <section className='partners-section'>
         <h3>G · Recent jobs</h3>
-        <div className='partners-footer-note' style={{ marginTop: 0 }}>
-          No jobs yet. Rows appear here when this provider sends candidates through the Partner API.
-        </div>
+        {recentJobs.length === 0 ? (
+          <div className='partners-footer-note' style={{ marginTop: 0 }}>
+            No jobs yet. Rows appear here when this provider sends candidates through the Partner API.
+          </div>
+        ) : (
+          <div className='partners-table-wrap'>
+            <table className='partners-table'>
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Candidate</th>
+                  <th>Job</th>
+                  <th>Lang</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Charge</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentJobs.map((j) => (
+                  <tr key={j.id}>
+                    <td>{j.partner_reference_id}</td>
+                    <td>{j.candidate_name}</td>
+                    <td>{j.job_title}</td>
+                    <td>{j.preferred_language}</td>
+                    <td>{j.result_status || j.status}</td>
+                    <td>{j.candidate_score ?? '—'}</td>
+                    <td>{j.total_charge_gbp != null ? `£${Number(j.total_charge_gbp).toFixed(2)}` : '—'}</td>
+                    <td>{j.created_at || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   )

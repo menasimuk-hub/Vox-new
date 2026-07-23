@@ -27,6 +27,7 @@ from app.routers.admin_email import router as admin_email_router
 from app.routers.admin_email_legal import router as admin_email_legal_router
 from app.routers.admin_messaging import router as admin_messaging_router
 from app.routers.admin_connection_profiles import router as admin_connection_profiles_router
+from app.routers.admin_partners import router as admin_partners_router
 from app.routers.admin_custom_org import router as admin_custom_org_router
 from app.routers.admin_wa_survey import router as admin_wa_survey_router
 from app.routers.admin_wa_convert import router as admin_wa_convert_router
@@ -77,6 +78,7 @@ from app.routers.customer_feedback import router as customer_feedback_router
 from app.routers.public_feedback import router as public_feedback_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
+from app.routers.partner_v1 import router as partner_v1_router
 from app.routers.admin_ai_team import router as admin_ai_team_router
 from app.routers.admin_sales_reps import router as admin_sales_reps_router
 from app.routers.sales import router as sales_router
@@ -664,6 +666,8 @@ app.include_router(admin_email_router)
 app.include_router(admin_email_legal_router)
 app.include_router(admin_messaging_router)
 app.include_router(admin_connection_profiles_router)
+app.include_router(admin_partners_router)
+app.include_router(admin_partners_router, prefix="/api")
 app.include_router(admin_custom_org_router)
 app.include_router(admin_wa_survey_router)
 app.include_router(admin_wa_convert_router)
@@ -673,6 +677,8 @@ app.include_router(admin_compliance_router)
 app.include_router(admin_support_router)
 app.include_router(service_orders_router)
 app.include_router(interview_booking_public_router)
+app.include_router(partner_v1_router)
+app.include_router(partner_v1_router, prefix="/api")
 app.include_router(admin_ai_team_router)
 app.include_router(admin_ai_team_router, prefix="/api")
 app.include_router(brand_public_router)

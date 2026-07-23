@@ -1,22 +1,65 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 import {
   PARTNER_PROVIDERS,
   connectionBadge,
-  emptyPartnerKpi,
   getPartnerProvider,
   modeBadge,
   moneyGbp,
 } from '../lib/partnersCatalog'
 import './partners.css'
 
+function emptyKpi() {
+  return {
+    totals: { connected: 0, total: PARTNER_PROVIDERS.length, jobs: 0, completed: 0, gross: 0, remittance: 0, profit: 0 },
+    rows: PARTNER_PROVIDERS.map((p) => ({
+      key: p.key,
+      connection: 'none',
+      mode: null,
+      jobs: 0,
+      completed: 0,
+      gross: 0,
+      commission: p.commissionDefault,
+      remittance: 0,
+      cost: 0,
+      profit: 0,
+      lastActivity: null,
+    })),
+  }
+}
+
 export default function PartnersDashboard() {
   const [range, setRange] = useState('7')
   const [modeFilter, setModeFilter] = useState('all')
-  const kpi = useMemo(() => emptyPartnerKpi(), [])
+  const [kpi, setKpi] = useState(emptyKpi)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const data = await apiFetch('/admin/partners/kpi')
+        if (!cancelled) setKpi(data || emptyKpi())
+      } catch (e) {
+        if (!cancelled) {
+          setError(e?.message || 'Failed to load partner KPI')
+          setKpi(emptyKpi())
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const rows = useMemo(() => {
-    return kpi.rows.filter((row) => {
+    return (kpi.rows || []).filter((row) => {
       if (modeFilter === 'all') return true
       if (modeFilter === 'sandbox') return row.mode === 'sandbox'
       if (modeFilter === 'live') return row.mode === 'live'
@@ -24,7 +67,7 @@ export default function PartnersDashboard() {
     })
   }, [modeFilter, kpi.rows])
 
-  const t = kpi.totals
+  const t = kpi.totals || emptyKpi().totals
 
   return (
     <div className='partners-page'>
@@ -52,6 +95,9 @@ export default function PartnersDashboard() {
           </label>
         </div>
       </div>
+
+      {error ? <div className='partners-warn'>{error}</div> : null}
+      {loading ? <div className='partners-footer-note'>Loading partner KPIs…</div> : null}
 
       <div className='partners-kpi-grid'>
         <div className='partners-kpi-card'>
@@ -126,7 +172,7 @@ export default function PartnersDashboard() {
                   <td>{moneyGbp(row.remittance)}</td>
                   <td>{moneyGbp(row.cost)}</td>
                   <td>{moneyGbp(row.profit)}</td>
-                  <td>{row.lastActivity || '—'}</td>
+                  <td>{row.last_activity || row.lastActivity || '—'}</td>
                   <td>
                     <Link className='partners-action-link' to={`/partners/${row.key}`}>
                       Open settings →
@@ -140,8 +186,8 @@ export default function PartnersDashboard() {
       </div>
 
       <div className='partners-footer-note'>
-        <i className='ti ti-info-circle' /> Profit is estimated from logged charges and commission %. Figures stay at
-        zero until each provider is configured and the Partner API records jobs.
+        <i className='ti ti-info-circle' /> Profit is estimated from logged charges and commission %. Reconcile with
+        marketplace payouts monthly.
       </div>
     </div>
   )

@@ -390,6 +390,12 @@ class InterviewAnalysisService:
 
             run_interview_analysis_if_needed(db, order=order, recipient=recipient)
             try:
+                from app.services.partner_service import PartnerService
+
+                PartnerService.on_interview_analysis_complete(db, order=order, recipient=recipient)
+            except Exception:
+                logger.exception("%s partner_result_webhook_failed", LOG_PREFIX)
+            try:
                 from app.services.interview_session_billing_service import meter_session_if_needed
 
                 meter_session_if_needed(db, order, recipient)
