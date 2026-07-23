@@ -1,0 +1,41 @@
+// Zoho Recruit custom function → Candidate custom button.
+// Replace YOUR_API_KEY.
+
+candidateId = candidate.get("id");
+name = ifnull(candidate.get("Full_Name"), "Candidate");
+phone = ifnull(candidate.get("Mobile"), candidate.get("Phone"));
+email = ifnull(candidate.get("Email"), "");
+jobTitle = ifnull(candidate.get("Current_Job_Title"), "AI voice screening");
+
+if(phone == null || phone == "")
+{
+	return "Candidate phone is required";
+}
+
+headerMap = Map();
+headerMap.put("Content-Type", "application/json");
+headerMap.put("X-API-Key", "YOUR_API_KEY");
+headerMap.put("X-Partner-Name", "zoho");
+
+body = Map();
+body.put("partner_reference_id", candidateId.toString());
+body.put("job_title", jobTitle);
+body.put("screening_questions", {"Tell me about your relevant experience for this role."});
+body.put("candidate_name", name);
+body.put("candidate_phone", phone);
+body.put("preferred_language", "en");
+if(email != "")
+{
+	body.put("candidate_email", email);
+}
+
+resp = invokeurl
+[
+	url :"https://api.voxbulk.com/partner/v1/screenings"
+	type :POST
+	parameters:body.toString()
+	headers:headerMap
+	detailed:true
+];
+
+return resp;

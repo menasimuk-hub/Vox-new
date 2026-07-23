@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoxBulk AI Voice Screening</title>
+    <link rel="stylesheet" href="css/widget.css" />
+    <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hdr">
+        <div class="brand">VoxBulk</div>
+        <div class="sub">AI Voice Screening</div>
+      </header>
+
+      <section id="setup" class="card hidden">
+        <h2>Connect VoxBulk</h2>
+        <p class="muted">Paste your Partner API key from Admin → Partners → Zoho → API keys (once per browser).</p>
+        <label>API base</label>
+        <input id="apiBase" type="text" value="https://api.voxbulk.com" />
+        <label>API key</label>
+        <input id="apiKey" type="password" placeholder="vb_zoho_sandbox_…" autocomplete="off" />
+        <button id="saveSetup" type="button" class="btn primary">Save</button>
+      </section>
+
+      <section id="main" class="card hidden">
+        <div id="candBox" class="cand">
+          <div class="muted">Loading candidate…</div>
+        </div>
+
+        <label>Language</label>
+        <select id="lang">
+          <option value="en">English</option>
+          <option value="ar">Arabic</option>
+        </select>
+
+        <label>Job title</label>
+        <input id="jobTitle" type="text" value="AI voice screening" />
+
+        <label>Phone</label>
+        <input id="phone" type="text" placeholder="+44…" />
+
+        <label>Email (optional)</label>
+        <input id="email" type="email" />
+
+        <label>Screening question</label>
+        <input id="question" type="text" value="Tell me about your relevant experience for this role." />
+
+        <div class="row">
+          <button id="launch" type="button" class="btn primary">Launch screening</button>
+          <button id="editSetup" type="button" class="btn ghost">API key</button>
+        </div>
+
+        <div id="status" class="status muted"></div>
+        <a id="linkOut" class="link hidden" href="#" target="_blank" rel="noopener"></a>
+      </section>
+    </div>
+    <script src="js/widget.js"></script>
+  </body>
+</html>

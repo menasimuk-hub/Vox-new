@@ -6,11 +6,13 @@ import './partners.css'
 
 const REDIRECT_URI = 'https://api.voxbulk.com/partner/v1/oauth/zoho/callback'
 const INBOUND_URL = 'https://api.voxbulk.com/partner/v1/screenings'
+const WIDGET_URL = 'https://dashboard.voxbulk.com/zoho-recruit-widget/'
 const TABS = [
   { id: 'connection', label: 'Connection' },
   { id: 'credentials', label: 'App credentials' },
   { id: 'keys', label: 'API keys' },
   { id: 'webhook', label: 'Webhook' },
+  { id: 'zoho-app', label: 'Zoho app' },
 ]
 
 function copyText(text) {
@@ -418,6 +420,44 @@ export default function PartnersZohoPage() {
             <button type='button' className='partners-btn partners-btn-secondary' disabled={!!busy} onClick={testWebhook}>
               Test webhook
             </button>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === 'zoho-app' ? (
+        <section className='partners-section'>
+          <p className='partners-helper' style={{ marginBottom: 14 }}>
+            Install the VoxBulk widget inside Zoho Recruit so recruiters launch screenings from a Candidate page.
+          </p>
+          <div className='partners-field-row'>
+            <span className='partners-field-label'>Widget URL</span>
+            <span className='partners-readonly'>
+              {WIDGET_URL}
+              <button type='button' className='partners-copy-btn' onClick={() => copyText(WIDGET_URL)}>
+                <i className='ti ti-copy' />
+              </button>
+            </span>
+          </div>
+          <ol style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.6, fontSize: 13, color: '#334155' }}>
+            <li>In Zoho Recruit → Setup → Developer Space / Widgets → Add widget</li>
+            <li>Choose External hosting and paste the Widget URL above</li>
+            <li>Attach it to Candidates detail view or a Custom Button</li>
+            <li>Generate an API key on the API keys tab</li>
+            <li>Open a Candidate → open the widget → paste the API key once → Launch screening</li>
+            <li>Mapped org must have Dashboard → Integrations → Recruiting → Zoho Recruit connected (for score writeback)</li>
+          </ol>
+          <div className='partners-warn'>
+            ZIP for Internal hosting / Marketplace packaging lives in the repo at{' '}
+            <code>zoho-recruit-extension/dist/VoxBulk-Zoho-Recruit-Widget.zip</code>. Deluge custom-button script:{' '}
+            <code>zoho-recruit-extension/deluge/launch_screening.dg</code>.
+          </div>
+          <div className='partners-btn-group'>
+            <button type='button' className='partners-btn partners-btn-secondary' onClick={() => copyText(WIDGET_URL)}>
+              Copy widget URL
+            </button>
+            <a className='partners-btn partners-btn-secondary' href={WIDGET_URL} target='_blank' rel='noreferrer'>
+              Open widget
+            </a>
           </div>
         </section>
       ) : null}

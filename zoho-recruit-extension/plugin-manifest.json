@@ -1,0 +1,36 @@
+{
+  "locale": ["en"],
+  "service": "RECRUIT",
+  "modules": {
+    "widgets": [
+      {
+        "location": "Candidates.detail.button",
+        "name": "VoxBulk AI Screening",
+        "url": "/app/widget.html",
+        "logo": "/app/img/logo.svg"
+      },
+      {
+        "location": "Candidates.detail",
+        "name": "VoxBulk AI Screening",
+        "url": "/app/widget.html",
+        "logo": "/app/img/logo.svg"
+      }
+    ]
+  },
+  "config": [
+    {
+      "name": "api_base",
+      "type": "text",
+      "label": "VoxBulk API base URL",
+      "mandatory": false,
+      "value": "https://api.voxbulk.com"
+    },
+    {
+      "name": "api_key",
+      "type": "text",
+      "label": "VoxBulk Partner API Key",
+      "mandatory": true
+    }
+  ],
+  "usedConnections": []
+}
