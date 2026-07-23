@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { frontpageApiFetch } from "@/lib/api";
 import { HelpCircle, ArrowRight } from "lucide-react";
@@ -12,6 +12,9 @@ type FaqItem = {
 };
 
 export const Route = createFileRoute("/faq/")({
+  beforeLoad: () => {
+    throw redirect({ to: "/help", replace: true });
+  },
   loader: async () => {
     try {
       const data = await frontpageApiFetch<{ items: FaqItem[] }>("/frontpage/faq");
@@ -25,9 +28,10 @@ export const Route = createFileRoute("/faq/")({
       { title: "FAQ — VoxBulk" },
       { name: "description", content: "Answers to common questions about VoxBulk products, billing, and support." },
       { property: "og:title", content: "FAQ — VoxBulk" },
-      { property: "og:url", content: "https://voxbulk.com/faq" },
+      { property: "og:url", content: "https://voxbulk.com/help" },
+      { name: "robots", content: "noindex,follow" },
     ],
-    links: [{ rel: "canonical", href: "https://voxbulk.com/faq" }],
+    links: [{ rel: "canonical", href: "https://voxbulk.com/help" }],
   }),
   component: FaqIndex,
 });
@@ -48,35 +52,30 @@ function FaqIndex() {
               Frequently asked questions
             </h1>
             <p className="mt-5 max-w-[560px] text-[16px] text-navy/70 leading-[1.65]">
-              Short answers on product, billing, and support. Pick a topic below.
+              Moved to the Help centre.{" "}
+              <Link to="/help" className="text-gold font-semibold underline-offset-2 hover:underline">
+                Go to Help
+              </Link>
+              .
             </p>
           </div>
         </section>
         <section className="max-w-[860px] mx-auto px-5 md:px-10 mt-12 space-y-4">
-          {items.length === 0 ? (
-            <p className="text-navy/60">No published FAQ entries yet.</p>
-          ) : (
-            items.map((it) => (
-              <Link
-                key={it.slug}
-                to="/faq/$slug"
-                params={{ slug: it.slug }}
-                className="group block rounded-xl border border-navy/10 bg-white p-5 md:p-6 hover:border-gold transition-colors"
-              >
-                <h2 className="font-serif text-[22px] text-navy group-hover:text-gold transition-colors">
-                  {it.question || it.title}
-                </h2>
-                {(it.meta_description || it.answer) && (
-                  <p className="mt-2 text-[14.5px] text-navy/65 line-clamp-2">
-                    {it.meta_description || it.answer}
-                  </p>
-                )}
-                <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-gold">
-                  Read answer <ArrowRight size={13} />
-                </span>
-              </Link>
-            ))
-          )}
+          {items.map((it) => (
+            <Link
+              key={it.slug}
+              to="/faq/$slug"
+              params={{ slug: it.slug }}
+              className="group block rounded-xl border border-navy/10 bg-white p-5 md:p-6 hover:border-gold transition-colors"
+            >
+              <h2 className="font-serif text-[22px] text-navy group-hover:text-gold transition-colors">
+                {it.question || it.title}
+              </h2>
+              <span className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-gold">
+                Read answer <ArrowRight size={13} />
+              </span>
+            </Link>
+          ))}
         </section>
       </main>
       <SiteFooter />

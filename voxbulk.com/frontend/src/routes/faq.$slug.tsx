@@ -25,8 +25,8 @@ export const Route = createFileRoute("/faq/$slug")({
       <SiteHeader />
       <main className="flex-1 pt-[130px] pb-24 max-w-[720px] mx-auto px-6 text-center">
         <h1 className="font-serif text-[36px] text-navy">FAQ not found</h1>
-        <Link to="/faq" className="mt-8 inline-flex items-center gap-2 text-gold font-semibold">
-          <ArrowLeft size={16} /> Back to FAQ
+        <Link to="/help" className="mt-8 inline-flex items-center gap-2 text-gold font-semibold">
+          <ArrowLeft size={16} /> Back to Help
         </Link>
       </main>
       <SiteFooter />
@@ -43,10 +43,10 @@ function FaqDetail() {
       <main className="flex-1 pt-[110px] md:pt-[130px] pb-24">
         <article className="max-w-[720px] mx-auto px-5 md:px-8">
           <Link
-            to="/faq"
+            to="/help"
             className="inline-flex items-center gap-2 text-[13px] font-semibold text-navy/60 hover:text-gold transition-colors"
           >
-            <ArrowLeft size={14} /> FAQ
+            <ArrowLeft size={14} /> Help centre
           </Link>
           <h1 className="mt-8 font-serif text-[34px] md:text-[46px] leading-[1.08] tracking-[-0.02em] text-navy">
             {item.question || item.title}

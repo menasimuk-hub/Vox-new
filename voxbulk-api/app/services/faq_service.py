@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.data.marketing_faqs import DEMO_SUPPORT_FAQ_QUESTIONS, MARKETING_FAQ_CATEGORY, MARKETING_FAQS
+from app.data.marketing_faqs import DEMO_SUPPORT_FAQ_QUESTIONS, MARKETING_FAQ_GROUPS
 from app.models.faq import FAQCategory, FAQItem
 
 
@@ -18,7 +18,7 @@ def slugify(value: str) -> str:
 class FAQService:
     @staticmethod
     def ensure_marketing_faqs(db: Session) -> dict[str, int]:
-        """Remove demo support FAQs from public SEO and upsert marketing frontpage FAQs."""
+        """Remove demo support FAQs from public SEO and insert missing marketing FAQs only."""
         now = datetime.utcnow()
         removed = 0
         demo_rows = db.execute(select(FAQItem)).scalars().all()
@@ -38,62 +38,72 @@ class FAQService:
             if remaining is None:
                 db.delete(cat)
 
-        cat_name, cat_slug, cat_order = MARKETING_FAQ_CATEGORY
-        product = db.execute(select(FAQCategory).where(FAQCategory.slug == cat_slug)).scalar_one_or_none()
-        if product is None:
-            product = FAQCategory(name=cat_name, slug=cat_slug, sort_order=cat_order, created_at=now)
-            db.add(product)
-            db.flush()
-
         created = 0
-        for question, answer, slug, sort_order, featured in MARKETING_FAQS:
-            row = db.execute(select(FAQItem).where(FAQItem.slug == slug)).scalar_one_or_none()
-            if row is None:
-                row = db.execute(select(FAQItem).where(FAQItem.question == question)).scalar_one_or_none()
-            if row is None:
-                row = FAQItem(
-                    category_id=product.id,
-                    question=question,
-                    answer=answer,
-                    slug=slug,
-                    is_featured=bool(featured),
-                    is_published=True,
-                    sort_order=int(sort_order),
-                    robots="index,follow",
-                    meta_title=f"{question} | VoxBulk FAQ",
-                    meta_description=answer[:155].rstrip() + ("…" if len(answer) > 155 else ""),
-                    focus_keyword="voxbulk faq",
-                    index_status="pending",
-                    created_at=now,
-                    updated_at=now,
-                    published_at=now,
-                )
-                db.add(row)
-                created += 1
-                continue
-            # Existing row: keep Admin-edited Q&A; only repair public SEO visibility.
-            dirty = False
-            if not str(row.slug or "").strip():
-                row.slug = slug
-                dirty = True
-            if row.category_id is None:
-                row.category_id = product.id
-                dirty = True
-            if not row.is_published:
-                row.is_published = True
-                dirty = True
-            if "noindex" in str(row.robots or "").lower():
-                row.robots = "index,follow"
-                dirty = True
-            if not str(row.meta_title or "").strip():
-                row.meta_title = f"{row.question} | VoxBulk FAQ"
-                dirty = True
-            if not str(row.meta_description or "").strip():
-                row.meta_description = (row.answer or "")[:155]
-                dirty = True
-            if dirty:
-                row.updated_at = now
-                db.add(row)
+        for (cat_name, cat_slug, cat_order), faqs in MARKETING_FAQ_GROUPS:
+            product = db.execute(select(FAQCategory).where(FAQCategory.slug == cat_slug)).scalar_one_or_none()
+            if product is None:
+                product = FAQCategory(name=cat_name, slug=cat_slug, sort_order=cat_order, created_at=now)
+                db.add(product)
+                db.flush()
+            else:
+                dirty_cat = False
+                if product.name != cat_name:
+                    product.name = cat_name
+                    dirty_cat = True
+                if int(product.sort_order or 0) != int(cat_order):
+                    product.sort_order = int(cat_order)
+                    dirty_cat = True
+                if dirty_cat:
+                    db.add(product)
+
+            for question, answer, slug, sort_order, featured in faqs:
+                row = db.execute(select(FAQItem).where(FAQItem.slug == slug)).scalar_one_or_none()
+                if row is None:
+                    row = db.execute(select(FAQItem).where(FAQItem.question == question)).scalar_one_or_none()
+                if row is None:
+                    row = FAQItem(
+                        category_id=product.id,
+                        question=question,
+                        answer=answer,
+                        slug=slug,
+                        is_featured=bool(featured),
+                        is_published=True,
+                        sort_order=int(sort_order),
+                        robots="index,follow",
+                        meta_title=f"{question} | VoxBulk Help",
+                        meta_description=answer[:155].rstrip() + ("…" if len(answer) > 155 else ""),
+                        focus_keyword="voxbulk help",
+                        index_status="pending",
+                        created_at=now,
+                        updated_at=now,
+                        published_at=now,
+                    )
+                    db.add(row)
+                    created += 1
+                    continue
+                # Existing row: keep Admin-edited Q&A; only repair public SEO visibility.
+                dirty = False
+                if not str(row.slug or "").strip():
+                    row.slug = slug
+                    dirty = True
+                if row.category_id is None:
+                    row.category_id = product.id
+                    dirty = True
+                if not row.is_published:
+                    row.is_published = True
+                    dirty = True
+                if "noindex" in str(row.robots or "").lower():
+                    row.robots = "index,follow"
+                    dirty = True
+                if not str(row.meta_title or "").strip():
+                    row.meta_title = f"{row.question} | VoxBulk Help"
+                    dirty = True
+                if not str(row.meta_description or "").strip():
+                    row.meta_description = (row.answer or "")[:155]
+                    dirty = True
+                if dirty:
+                    row.updated_at = now
+                    db.add(row)
 
         db.commit()
         return {"removed_demo": removed, "created": created}

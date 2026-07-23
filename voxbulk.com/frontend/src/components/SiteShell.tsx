@@ -218,7 +218,7 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
 
 const footerCols: Array<{ title: string; links: Array<[string, string | null]> }> = [
   { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
-  { title: "Resources", links: [["Blog", "/blog"], ["News", "/news"]] },
+  { title: "Resources", links: [["Help", "/help"], ["Blog", "/blog"], ["News", "/news"]] },
   { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"]] },
 ];
 

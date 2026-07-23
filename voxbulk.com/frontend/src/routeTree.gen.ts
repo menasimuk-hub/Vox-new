@@ -36,6 +36,9 @@ import { Route as NewsIndexRouteImport } from './routes/news.index'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as FaqIndexRouteImport } from './routes/faq.index'
 import { Route as FaqSlugRouteImport } from './routes/faq.$slug'
+import { Route as HelpRouteImport } from './routes/help'
+import { Route as HelpIndexRouteImport } from './routes/help.index'
+import { Route as HelpZohoRecruitRouteImport } from './routes/help.zoho-recruit'
 import { Route as RobotsDotxmlRouteImport } from './routes/robots[.]txt'
 import { Route as NewsSitemapDotxmlRouteImport } from './routes/news-sitemap[.]xml'
 import { Route as KeyDottxtRouteImport } from './routes/$key[.]txt'
@@ -93,6 +96,11 @@ const NewsRoute = NewsRouteImport.update({
 const FaqRoute = FaqRouteImport.update({
   id: '/faq',
   path: '/faq',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RobotsDotxmlRoute = RobotsDotxmlRouteImport.update({
@@ -189,6 +197,16 @@ const FaqSlugRoute = FaqSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
   getParentRoute: () => FaqRoute,
+} as any)
+const HelpIndexRoute = HelpIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => HelpRoute,
+} as any)
+const HelpZohoRecruitRoute = HelpZohoRecruitRouteImport.update({
+  id: '/zoho-recruit',
+  path: '/zoho-recruit',
+  getParentRoute: () => HelpRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -362,6 +380,7 @@ export interface RootRouteChildren {
   LegalPoliciesRoute: typeof LegalPoliciesRoute
   NewsRoute: typeof NewsRouteWithChildren
   FaqRoute: typeof FaqRouteWithChildren
+  HelpRoute: typeof HelpRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   PricingRoute: typeof PricingRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -587,6 +606,18 @@ const FaqRouteChildren: FaqRouteChildren = {
 
 const FaqRouteWithChildren = FaqRoute._addFileChildren(FaqRouteChildren)
 
+interface HelpRouteChildren {
+  HelpIndexRoute: typeof HelpIndexRoute
+  HelpZohoRecruitRoute: typeof HelpZohoRecruitRoute
+}
+
+const HelpRouteChildren: HelpRouteChildren = {
+  HelpIndexRoute: HelpIndexRoute,
+  HelpZohoRecruitRoute: HelpZohoRecruitRoute,
+}
+
+const HelpRouteWithChildren = HelpRoute._addFileChildren(HelpRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlogRoute: BlogRouteWithChildren,
@@ -598,6 +629,7 @@ const rootRouteChildren: RootRouteChildren = {
   LegalPoliciesRoute: LegalPoliciesRoute,
   NewsRoute: NewsRouteWithChildren,
   FaqRoute: FaqRouteWithChildren,
+  HelpRoute: HelpRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   PricingRoute: PricingRoute,
   PrivacyRoute: PrivacyRoute,

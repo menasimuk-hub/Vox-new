@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
-from app.models.faq import FAQItem
+from app.models.faq import FAQCategory, FAQItem
 from app.models.site_blog_news_item import SiteBlogNewsItem
 from app.models.site_seo import SiteSeoHealthSnapshot, SiteSeoRedirect, SiteSeoSettings
 
@@ -69,6 +69,8 @@ STATIC_SITEMAP_PATHS = [
     "/contact",
     "/blog",
     "/news",
+    "/help",
+    "/help/zoho-recruit",
     "/faq",
     "/legal-policies",
     "/privacy",
@@ -543,8 +545,16 @@ def _blog_row_to_seo(row: SiteBlogNewsItem) -> dict[str, Any]:
     }
 
 
-def _faq_row_to_seo(row: FAQItem) -> dict[str, Any]:
+def _faq_category_map(db: Session) -> dict[int, tuple[str, str]]:
+    cats = db.execute(select(FAQCategory)).scalars().all()
+    return {int(c.id): (str(c.name), str(c.slug)) for c in cats}
+
+
+def _faq_row_to_seo(row: FAQItem, cats: dict[int, tuple[str, str]] | None = None) -> dict[str, Any]:
     path = f"/faq/{row.slug}"
+    cat_name, cat_slug = ("Product", "product")
+    if cats and row.category_id and int(row.category_id) in cats:
+        cat_name, cat_slug = cats[int(row.category_id)]
     return {
         "id": str(row.id),
         "kind": KIND_FAQ,
@@ -554,6 +564,8 @@ def _faq_row_to_seo(row: FAQItem) -> dict[str, Any]:
         "slug": row.slug,
         "path": path,
         "url": f"{SITE_ORIGIN}{path}",
+        "category_name": cat_name,
+        "category_slug": cat_slug,
         "meta_title": row.meta_title or row.question,
         "meta_description": row.meta_description or "",
         "canonical_url": row.canonical_url or "",
@@ -580,8 +592,9 @@ def list_content(db: Session, kind: str) -> list[dict[str, Any]]:
         from app.services.faq_service import FAQService
 
         FAQService.ensure_marketing_faqs(db)
+        cats = _faq_category_map(db)
         rows = db.execute(select(FAQItem).order_by(FAQItem.sort_order.asc(), FAQItem.id.asc())).scalars().all()
-        return [_faq_row_to_seo(r) for r in rows]
+        return [_faq_row_to_seo(r, cats) for r in rows]
     rows = (
         db.execute(
             select(SiteBlogNewsItem)
@@ -1408,6 +1421,7 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
     from app.services.faq_service import FAQService
 
     FAQService.ensure_marketing_faqs(db)
+    cats = _faq_category_map(db)
     rows = (
         db.execute(
             select(FAQItem)
@@ -1422,9 +1436,8 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
         if not r.slug:
             continue
         if "noindex" in (r.robots or "").lower():
-            # still listable? For public FAQ index, skip noindex pages
             continue
-        out.append(_faq_row_to_seo(r))
+        out.append(_faq_row_to_seo(r, cats))
     return out
 
 
@@ -1432,7 +1445,8 @@ def public_faq_by_slug(db: Session, slug: str) -> dict[str, Any]:
     row = db.execute(select(FAQItem).where(FAQItem.slug == slug, FAQItem.is_published.is_(True))).scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="FAQ not found")
-    return _faq_row_to_seo(row)
+    cats = _faq_category_map(db)
+    return _faq_row_to_seo(row, cats)
 
 
 def public_content_seo(db: Session, kind: str, slug: str) -> dict[str, Any]:
