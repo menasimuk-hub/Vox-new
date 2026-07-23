@@ -62,6 +62,8 @@ class Organisation(Base):
     hubspot_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     pipedrive_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     zoho_crm_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Partner ATS (Zoho Recruit) — separate from sales CRM (zoho_crm_config_json).
+    zoho_recruit_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     allowed_services_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     logo_storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
