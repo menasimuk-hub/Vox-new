@@ -884,25 +884,48 @@ class PartnerService:
             import httpx
 
             token, api_domain = _ensure_access_token(db, str(p.mapped_org_id), partner_config=partner_cfg)
+            headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+            name = ""
             with httpx.Client(timeout=20.0) as client:
-                res = client.get(
+                # Prefer users (needs ZohoRecruit.users.ALL). Fall back to Candidates
+                # so older tokens still pass after we fixed the recruit.zoho.* host.
+                user_res = client.get(
                     f"https://{api_domain}/recruit/v2/users",
-                    headers={"Authorization": f"Zoho-oauthtoken {token}"},
+                    headers=headers,
                     params={"type": "CurrentUser"},
                 )
-            if res.status_code >= 400:
-                return {
-                    "ok": False,
-                    "message": f"Zoho Recruit API error HTTP {res.status_code}: {res.text[:200]}",
-                    "recruit": status_info,
-                }
-            users = (res.json() or {}).get("users") or []
-            name = ""
-            if users and isinstance(users[0], dict):
-                name = str(users[0].get("full_name") or users[0].get("email") or "").strip()
+                if user_res.status_code < 400:
+                    users = (user_res.json() or {}).get("users") or []
+                    if users and isinstance(users[0], dict):
+                        name = str(users[0].get("full_name") or users[0].get("email") or "").strip()
+                else:
+                    cand_res = client.get(
+                        f"https://{api_domain}/recruit/v2/Candidates",
+                        headers=headers,
+                        params={"per_page": 1},
+                    )
+                    # 200/204 = authorized; 401 scope mismatch on users alone is not a hard fail.
+                    if cand_res.status_code >= 400 and cand_res.status_code != 204:
+                        detail = (user_res.text or cand_res.text or "")[:200]
+                        if "OAUTH_SCOPE_MISMATCH" in (user_res.text or ""):
+                            return {
+                                "ok": False,
+                                "message": (
+                                    "Recruit host OK, but token is missing users/notes scopes — "
+                                    "click Connect Zoho Recruit again and Accept the new permissions"
+                                ),
+                                "recruit": status_info,
+                                "api_domain": api_domain,
+                            }
+                        return {
+                            "ok": False,
+                            "message": f"Zoho Recruit API error HTTP {cand_res.status_code}: {detail}",
+                            "recruit": status_info,
+                            "api_domain": api_domain,
+                        }
             return {
                 "ok": True,
-                "message": f"Zoho Recruit OK{f' — {name}' if name else ''}",
+                "message": f"Zoho Recruit OK{f' — {name}' if name else f' — {api_domain}'}",
                 "recruit": status_info,
                 "api_domain": api_domain,
             }

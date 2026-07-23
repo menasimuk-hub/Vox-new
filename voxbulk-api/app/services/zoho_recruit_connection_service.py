@@ -28,10 +28,15 @@ ZOHO_RECRUIT_HOSTS: dict[str, tuple[str, str]] = {
     "ae": ("accounts.zoho.ae", "recruit.zoho.ae"),
 }
 
-ZOHO_RECRUIT_SCOPES = (
-    "ZohoRecruit.modules.candidate.ALL "
-    "ZohoRecruit.modules.application.ALL "
-    "ZohoRecruit.modules.jobopening.ALL"
+# Comma-separated (Zoho OAuth convention). users + notes needed for health check / writeback.
+ZOHO_RECRUIT_SCOPES = ",".join(
+    [
+        "ZohoRecruit.users.ALL",
+        "ZohoRecruit.modules.candidate.ALL",
+        "ZohoRecruit.modules.application.ALL",
+        "ZohoRecruit.modules.jobopening.ALL",
+        "ZohoRecruit.modules.notes.ALL",
+    ]
 )
 
 PROVIDER_KEY = "zoho_recruit"
@@ -49,6 +54,37 @@ def _hosts(data_center: str) -> tuple[str, str]:
     return ZOHO_RECRUIT_HOSTS[_normalize_dc(data_center)]
 
 
+def resolve_recruit_api_host(*, data_center: str | None = None, api_domain: str | None = None) -> str:
+    """Recruit REST host. Token api_domain is often www.zohoapis.* (CRM) which 404s for /recruit/v2."""
+    raw = str(api_domain or "").strip().lower()
+    raw = raw.removeprefix("https://").removeprefix("http://").split("/")[0].strip()
+    if raw.startswith("recruit.") and "zoho" in raw:
+        return raw
+    # Map zohoapis DC suffix → recruit host when possible.
+    if "zohoapis.eu" in raw or raw.endswith(".eu"):
+        return "recruit.zoho.eu"
+    if "zohoapis.in" in raw:
+        return "recruit.zoho.in"
+    if "zohoapis.com.au" in raw or raw.endswith(".com.au"):
+        return "recruit.zoho.com.au"
+    if "zohoapis.jp" in raw:
+        return "recruit.zoho.jp"
+    if "zohoapis.com.cn" in raw:
+        return "recruit.zoho.com.cn"
+    if "zohocloud.ca" in raw:
+        return "recruit.zohocloud.ca"
+    if "zohoapis.sa" in raw:
+        return "recruit.zoho.sa"
+    if "zohoapis.ae" in raw:
+        return "recruit.zoho.ae"
+    if "zohoapis.uk" in raw or raw.endswith(".uk"):
+        return "recruit.zoho.uk"
+    if raw.startswith("www.zohoapis.") or "zohoapis" in raw:
+        return "recruit.zoho.com"
+    _, recruit_host = _hosts(data_center or "com")
+    return recruit_host
+
+
 def credentials_from_partner_config(config: dict[str, Any] | None) -> tuple[str, str, str, str]:
     cfg = config if isinstance(config, dict) else {}
     cid = str(cfg.get("client_id") or "").strip()
@@ -64,13 +100,15 @@ def get_recruit_config(db: Session, org_id: str) -> dict[str, Any]:
 
 def recruit_status(db: Session, org_id: str, *, partner_config: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = get_recruit_config(db, org_id)
-    cid, secret, redirect, _ = credentials_from_partner_config(partner_config)
+    cid, secret, redirect, partner_dc = credentials_from_partner_config(partner_config)
+    dc = _normalize_dc(str(cfg.get("data_center") or partner_dc or "com"))
+    api_host = resolve_recruit_api_host(data_center=dc, api_domain=str(cfg.get("api_domain") or ""))
     return {
         "connected": bool(str(cfg.get("access_token") or "").strip()),
         "oauth_app_ready": bool(cid and secret and redirect.startswith("http")),
         "account_name": cfg.get("account_name"),
-        "data_center": _normalize_dc(str(cfg.get("data_center") or "com")),
-        "api_domain": cfg.get("api_domain"),
+        "data_center": dc,
+        "api_domain": api_host,
         "connected_at": cfg.get("connected_at"),
         "redirect_uri": redirect,
         "scopes": ZOHO_RECRUIT_SCOPES,
@@ -136,7 +174,8 @@ def oauth_complete(
     if not access_token:
         raise ValueError("Zoho did not return an access token")
 
-    api_domain = str(token_data.get("api_domain") or recruit_host).strip().lstrip("https://").lstrip("http://")
+    token_api_domain = str(token_data.get("api_domain") or "").strip()
+    api_domain = resolve_recruit_api_host(data_center=dc, api_domain=token_api_domain or recruit_host)
     account_name = ""
     with httpx.Client(timeout=30.0) as client:
         user_res = client.get(
@@ -176,21 +215,22 @@ def _token_expired(cfg: dict[str, Any]) -> bool:
 def _ensure_access_token(db: Session, org_id: str, partner_config: dict[str, Any] | None = None) -> tuple[str, str]:
     cfg = get_recruit_config(db, org_id)
     token = str(cfg.get("access_token") or "").strip()
-    api_domain = str(cfg.get("api_domain") or "").strip()
+    dc = _normalize_dc(str(cfg.get("data_center") or "com"))
+    api_domain = resolve_recruit_api_host(data_center=dc, api_domain=str(cfg.get("api_domain") or ""))
     if not token:
         raise ValueError("Zoho Recruit is not connected for this organisation")
     if not _token_expired(cfg):
-        return token, api_domain or _hosts(str(cfg.get("data_center") or "com"))[1]
+        return token, api_domain
 
     refresh = str(cfg.get("refresh_token") or "").strip()
     if not refresh:
         raise ValueError("Zoho Recruit token expired — reconnect OAuth")
 
-    cid, secret, _, dc = credentials_from_partner_config(partner_config or {})
+    cid, secret, _, partner_dc = credentials_from_partner_config(partner_config or {})
     if not cid or not secret:
         raise ValueError("Zoho OAuth Client Secret missing — save it on Partners → Zoho and reconnect")
 
-    accounts_host, recruit_host = _hosts(str(cfg.get("data_center") or dc))
+    accounts_host, recruit_host = _hosts(str(cfg.get("data_center") or partner_dc))
     with httpx.Client(timeout=30.0) as client:
         token_res = client.post(
             f"https://{accounts_host}/oauth/v2/token",
@@ -210,8 +250,10 @@ def _ensure_access_token(db: Session, org_id: str, partner_config: dict[str, Any
     expires_in = int(token_data.get("expires_in") or 3600)
     cfg["access_token"] = access_token
     cfg["expires_at"] = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
-    if token_data.get("api_domain"):
-        cfg["api_domain"] = str(token_data["api_domain"]).strip().lstrip("https://").lstrip("http://")
+    cfg["api_domain"] = resolve_recruit_api_host(
+        data_center=str(cfg.get("data_center") or partner_dc),
+        api_domain=str(token_data.get("api_domain") or recruit_host),
+    )
     save_crm_config_raw(db, org_id, PROVIDER_KEY, cfg)
     return access_token, str(cfg.get("api_domain") or recruit_host)
 
