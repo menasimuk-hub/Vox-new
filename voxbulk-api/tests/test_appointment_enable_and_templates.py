@@ -64,6 +64,31 @@ def test_enabled_services_patch_includes_appointments(app_client):
     assert me.json()["enabled_services"]["appointments"] is True
 
 
+def test_enabled_services_patch_includes_feedback_campaigns(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db, email="fc-enable@example.com")
+        allowed, enabled, _ = org_service_maps(org, db)
+        allowed, enabled = merge_admin_allowed_services(allowed, enabled, {"feedback_campaigns": True})
+        org.allowed_services_json = serialize_allowed_services(allowed)
+        org.enabled_services_json = serialize_enabled_services(enabled)
+        db.add(org)
+        db.commit()
+
+    headers = _headers(app_client, user, org)
+    res = app_client.patch(
+        "/organisations/me/enabled-services",
+        headers=headers,
+        json={"feedback_campaigns": True},
+    )
+    assert res.status_code == 200, res.text
+    assert (res.json().get("enabled_services") or {}).get("feedback_campaigns") is True
+
+    me = app_client.get("/organisations/me", headers=headers)
+    assert me.json()["enabled_services"]["feedback_campaigns"] is True
+
+
 def test_appointment_wa_templates_seeded():
     from app.core.database import get_sessionmaker
 

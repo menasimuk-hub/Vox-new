@@ -18,6 +18,7 @@ from app.services.onboarding_service import OrganisationOnboardingService, Suppo
 from app.services.org_rbac import OrgRbacService
 from app.services.org_enabled_services import (
     AtLeastOneServiceRequiredError,
+    SERVICE_KEYS,
     ServiceNotAllowedError,
     clamp_enabled_to_allowed,
     merge_admin_allowed_services,
@@ -179,7 +180,7 @@ def update_enabled_services(
     allowed, enabled, _ = org_service_maps(org, db)
     patch = {
         k: getattr(body, k)
-        for k in ("interview", "survey", "customer_feedback", "recovery", "follow_up", "campaigns", "appointments")
+        for k in SERVICE_KEYS
         if getattr(body, k, None) is not None
     }
     try:
