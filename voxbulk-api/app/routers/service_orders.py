@@ -32,17 +32,12 @@ def _interview_draft_payload(db: Session, *, order, recipients, summary, billing
 
 def _campaign_owner_user_id(db: Session, principal) -> str | None:
     """Members are scoped to their own campaigns; owners/managers see all."""
-    cached = getattr(principal, "_campaign_owner_filter", Ellipsis)
-    if cached is not Ellipsis:
-        return cached  # type: ignore[return-value]
     try:
-        value = OrgRbacService.campaign_owner_filter_for(
+        return OrgRbacService.campaign_owner_filter_for(
             db, org_id=principal.org_id, user_id=principal.user_id
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-    setattr(principal, "_campaign_owner_filter", value)
-    return value
 
 
 def _require_org_service(db: Session, org_id: str, service_code: str) -> Organisation:

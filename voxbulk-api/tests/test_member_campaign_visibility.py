@@ -10,7 +10,12 @@ from sqlalchemy import select
 
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
-from app.models.customer_feedback import FeedbackIndustry, FeedbackLocation, FeedbackSurveyType
+from app.models.customer_feedback import (
+    FeedbackIndustry,
+    FeedbackLocation,
+    FeedbackSurveyType,
+    FeedbackWaSender,
+)
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
@@ -149,6 +154,22 @@ def test_feedback_locations_scoped_by_creator(app_client):
             .order_by(FeedbackSurveyType.sort_order)
             .limit(1)
         ).scalar_one()
+        sender = db.execute(
+            select(FeedbackWaSender).where(FeedbackWaSender.country_code == "gb")
+        ).scalar_one_or_none()
+        if sender is None:
+            db.add(
+                FeedbackWaSender(
+                    id=str(uuid.uuid4()),
+                    country_code="gb",
+                    phone_e164="+447700900111",
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                )
+            )
+        else:
+            sender.phone_e164 = "+447700900111"
+            db.add(sender)
 
         org = Organisation(
             name="FB Vis Org",

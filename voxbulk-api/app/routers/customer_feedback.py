@@ -48,17 +48,13 @@ def _require_feedback_campaigns_enabled(db: Session, org_id: str) -> None:
 
 
 def _campaign_owner_user_id(db: Session, principal) -> str | None:
-    cached = getattr(principal, "_campaign_owner_filter", Ellipsis)
-    if cached is not Ellipsis:
-        return cached  # type: ignore[return-value]
+    """Members are scoped to their own campaigns; owners/managers see all."""
     try:
-        value = OrgRbacService.campaign_owner_filter_for(
+        return OrgRbacService.campaign_owner_filter_for(
             db, org_id=principal.org_id, user_id=principal.user_id
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
-    setattr(principal, "_campaign_owner_filter", value)
-    return value
 
 @router.get("/catalog/industries")
 def list_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
