@@ -120,6 +120,21 @@ def probe_confidential_oauth_token(
     }
 
 
+def oauth_probe_credentials_accepted(reason: str | None) -> bool:
+    """True when a dummy-code token probe shows client_id (+ secret) are accepted.
+
+    ``probe_confidential_oauth_token`` returns ``invalid_grant_expected`` (or
+    ``unexpected_but_nonfatal``) for a valid confidential client. Older callers
+    that only matched ``invalid_grant`` / ``invalid_code`` false-failed Admin Test.
+    """
+    return str(reason or "").strip().lower() in {
+        "invalid_grant",
+        "invalid_code",
+        "invalid_grant_expected",
+        "unexpected_but_nonfatal",
+    }
+
+
 def validate_oauth_platform_fields(
     *,
     client_id: str,

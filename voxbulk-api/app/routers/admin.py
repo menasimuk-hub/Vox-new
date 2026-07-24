@@ -435,13 +435,37 @@ def test_zoho_crm_integration(db: Session = Depends(get_db), _admin=Depends(requ
 
 @router.post("/integrations/zoho_bookings/test")
 def test_zoho_bookings_integration(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.provider_settings import ProviderSettingsService
     from app.services.zoho_crm_connection_service import test_zoho_crm_platform_config
 
+    bookings = ProviderSettingsService.summary(db, provider="zoho_bookings")
     result = test_zoho_crm_platform_config(db)
+    tile_enabled = bool(bookings.get("is_enabled"))
+    checks = list(result.get("checks") or [])
+    checks.append(
+        {
+            "name": "bookings_tile",
+            "status": "ok" if tile_enabled else "fail",
+            "message": (
+                "Zoho Bookings tile is enabled for Dashboard"
+                if tile_enabled
+                else "Enable Zoho Bookings in Admin → Integrations → Zoho Bookings"
+            ),
+        }
+    )
+    ok = bool(result.get("ok")) and tile_enabled
+    result["ok"] = ok
+    result["checks"] = checks
     result["detail"] = (
         "Zoho Bookings uses the same Zoho OAuth app as Zoho CRM. "
-        + str(result.get("detail") or "")
+        + (
+            "Ready — connect Zoho CRM, then pick a Bookings service."
+            if ok
+            else str(result.get("detail") or checks[-1]["message"])
+        )
     )
+    result["bookings_enabled"] = tile_enabled
+    result["bookings_release_mode"] = bookings.get("release_mode")
     return result
 
 

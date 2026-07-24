@@ -20,6 +20,7 @@ from app.services.crm_connection_service import (
 from app.services.oauth_platform_test_service import (
     finalize_platform_test,
     mask_client_id,
+    oauth_probe_credentials_accepted,
     platform_credential_source,
     probe_confidential_oauth_token,
     validate_oauth_platform_fields,
@@ -116,18 +117,21 @@ def test_zoho_crm_platform_config(db: Session) -> dict[str, Any]:
         },
         use_json=False,
     )
+    probe_ok = oauth_probe_credentials_accepted(probe.get("reason"))
     checks.append(
         {
             "name": "zoho_api",
-            "status": "ok" if probe["reason"] in {"invalid_code", "invalid_grant"} else "fail",
+            "status": "ok" if probe_ok else "fail",
             "message": probe["detail"],
         }
     )
-    ok = fields_ok and probe["reason"] in {"invalid_code", "invalid_grant"}
+    ok = fields_ok and probe_ok
     return finalize_platform_test(
         checks,
         ok=ok,
-        detail="Zoho CRM OAuth app verified. Connect from Dashboard → Integrations.",
+        detail="Zoho CRM OAuth app verified. Connect from Dashboard → Integrations."
+        if ok
+        else checks[-1]["message"],
         redirect_uri=redirect,
         credential_source=source,
         client_id_masked=mask_client_id(client_id),
