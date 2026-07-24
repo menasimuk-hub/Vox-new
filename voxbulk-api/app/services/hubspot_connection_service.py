@@ -204,14 +204,7 @@ def disconnect_hubspot(db: Session, org_id: str) -> dict[str, Any]:
     if org is None:
         raise ValueError("Organisation not found")
     org.hubspot_config_json = None
-    sched_raw = getattr(org, "scheduling_config_json", None)
-    if sched_raw:
-        try:
-            sched = json.loads(sched_raw)
-            if isinstance(sched, dict) and str(sched.get("provider") or "").lower() == "hubspot_meetings":
-                org.scheduling_config_json = None
-        except Exception:
-            pass
+    # HubSpot Meetings can stand alone via pasted URL — keep scheduling config.
     db.add(org)
     db.commit()
     return hubspot_status(db, org_id)

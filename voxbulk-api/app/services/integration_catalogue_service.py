@@ -80,7 +80,7 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         group=BOOKING_GROUP,
         admin_provider="hubspot",
         label="HubSpot Meetings",
-        short_description="Reuse your HubSpot meeting links (requires HubSpot CRM connected).",
+        short_description="Paste a HubSpot meeting link for shortlisted candidates (CRM optional).",
         icon_slug="hubspot",
     ),
     ProviderSpec(
@@ -88,7 +88,7 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         group=BOOKING_GROUP,
         admin_provider="zoho_bookings",
         label="Zoho Bookings",
-        short_description="Share a Zoho Bookings page with candidates (requires Zoho CRM connected).",
+        short_description="Paste a Zoho Bookings page URL for shortlisted candidates (CRM optional).",
         icon_slug="zoho",
     ),
     ProviderSpec(
@@ -233,17 +233,9 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
     if spec.key == "calendly":
         connected = connected and token_ready
     elif spec.key == "hubspot_meetings":
-        from app.services.hubspot_connection_service import hubspot_status
-
         connected = connected and bool(str(cfg.get("meeting_link_url") or "").strip())
-        if not hubspot_status(db, org.id).get("connected"):
-            connected = False
     elif spec.key == "zoho_bookings":
-        from app.services.zoho_crm_connection_service import zoho_crm_status
-
         connected = connected and bool(str(cfg.get("service_url") or "").strip())
-        if not zoho_crm_status(db, org.id).get("connected"):
-            connected = False
     elif spec.key in {"cal_com", "google_calendar", "microsoft_calendar"}:
         connected = connected and token_ready
     else:
@@ -272,9 +264,13 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
             cfg.get("event_type_url")
             or cfg.get("schedule_url")
             or cfg.get("meeting_link_url")
+            or cfg.get("service_url")
             or cfg.get("event_type_uri")
         ),
-        "schedule_name": cfg.get("schedule_name") or cfg.get("meeting_link_name") or cfg.get("event_type_slug"),
+        "schedule_name": cfg.get("schedule_name")
+        or cfg.get("meeting_link_name")
+        or cfg.get("service_name")
+        or cfg.get("event_type_slug"),
         "expires_at": cfg.get("expires_at"),
         "event_type_configured": event_type_configured,
         "human_scheduling_ready": connected and event_type_configured,
@@ -355,10 +351,12 @@ def _provider_actions(spec: ProviderSpec) -> dict[str, str]:
         elif spec.key == "microsoft_calendar":
             actions["connect_url"] = f"{base}/scheduling/oauth/microsoft-calendar/start"
         elif spec.key == "hubspot_meetings":
-            # Connects via HubSpot meeting-link picker, not a fresh OAuth.
-            actions["connect_url"] = f"{base}/scheduling/hubspot/meeting-links"
+            # Paste-URL connect (CRM optional). List endpoint still available when CRM is connected.
+            actions["select_url"] = f"{base}/scheduling/hubspot/select-meeting-link"
+            actions["meeting_links_url"] = f"{base}/scheduling/hubspot/meeting-links"
         elif spec.key == "zoho_bookings":
-            actions["connect_url"] = f"{base}/scheduling/zoho/booking-services"
+            actions["select_url"] = f"{base}/scheduling/zoho/select-booking-service"
+            actions["booking_services_url"] = f"{base}/scheduling/zoho/booking-services"
     elif spec.group == CRM_GROUP:
         if spec.key == "hubspot":
             actions["connect_url"] = f"{base}/hubspot/oauth/start"
@@ -381,13 +379,13 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
         from app.services.scheduling_connection_service import platform_oauth_configured
 
         if spec.key == "hubspot_meetings":
-            from app.services.hubspot_connection_service import platform_oauth_configured as hs_ready
+            from app.services.integration_release_service import IntegrationReleaseService
 
-            return bool(hs_ready(db))
+            return IntegrationReleaseService.provider_enabled(db, "hubspot_meetings")
         if spec.key == "zoho_bookings":
-            from app.services.zoho_crm_connection_service import platform_oauth_configured as zoho_ready
+            from app.services.integration_release_service import IntegrationReleaseService
 
-            return bool(zoho_ready(db))
+            return IntegrationReleaseService.provider_enabled(db, "zoho_bookings")
         if spec.key == "microsoft_calendar":
             from app.services.microsoft_calendar_service import platform_oauth_configured as ms_ready
 
@@ -433,7 +431,6 @@ def list_integrations_for_org(
 ) -> dict[str, list[dict[str, Any]]]:
     """Return the integrations the org can see, grouped by category."""
     from app.services.crm_connection_service import active_crm_provider, crm_provider_label
-    from app.services.crm_providers import CRM_DEPENDENT_BOOKING
     from app.services.integration_release_service import IntegrationReleaseService, RELEASE_TESTING
 
     org = db.get(Organisation, org_id)
@@ -475,13 +472,6 @@ def list_integrations_for_org(
             and active_booking_provider is not None
             and active_booking_provider != spec.key
         )
-        parent_crm = CRM_DEPENDENT_BOOKING.get(spec.key)
-        missing_parent_crm = (
-            spec.group == BOOKING_GROUP
-            and parent_crm is not None
-            and active_crm != parent_crm
-            and not connection_view.get("connected")
-        )
         another_crm_active = (
             spec.group == CRM_GROUP
             and active_crm is not None
@@ -492,9 +482,6 @@ def list_integrations_for_org(
         blocked_reason: str | None = None
         if another_booking_active and not connection_view.get("connected"):
             blocked_reason = "Another booking provider is currently active."
-        elif missing_parent_crm:
-            parent_label = crm_provider_label(parent_crm) or parent_crm.replace("_", " ").title()
-            blocked_reason = f"Connect {parent_label} first."
         elif another_crm_active:
             current_label = crm_provider_label(active_crm) or active_crm.replace("_", " ").title()
             blocked_reason = f"Disconnect {current_label} first to connect this CRM."

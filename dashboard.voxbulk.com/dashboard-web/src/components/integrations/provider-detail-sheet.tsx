@@ -220,9 +220,55 @@ export function ProviderDetailSheet({
     isBookingPage && view.key === "google_calendar" && view.connected;
   const showMicrosoftScheduleField =
     isBookingPage && view.key === "microsoft_calendar" && view.connected;
+  const showHubspotMeetingsUrlField = isBookingPage && view.key === "hubspot_meetings";
+  const showZohoBookingsUrlField = isBookingPage && view.key === "zoho_bookings";
   const showHubspotTokenField =
     !isBookingPage && view.key === "hubspot" && hubspot?.usesAccessToken && !view.connected;
   const showBreezyConnect = view.key === "breezy_hr" && !view.connected;
+
+  const saveHubspotMeetingUrl = async () => {
+    const url = scheduleDraft.trim();
+    if (!url.startsWith("http")) {
+      toast.error("Paste your HubSpot meeting link (https://meetings.hubspot.com/…)");
+      return;
+    }
+    setScheduleBusy(true);
+    try {
+      await apiFetch("/service-orders/scheduling/hubspot/select-meeting-link", {
+        method: "POST",
+        body: JSON.stringify({ meeting_link_url: url, meeting_link_name: "" }),
+      });
+      toast.success("HubSpot meeting URL saved");
+      setScheduleDraft("");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save URL");
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
+
+  const saveZohoBookingsUrl = async () => {
+    const url = scheduleDraft.trim();
+    if (!url.startsWith("http")) {
+      toast.error("Paste your Zoho Bookings page URL (https://…)");
+      return;
+    }
+    setScheduleBusy(true);
+    try {
+      await apiFetch("/service-orders/scheduling/zoho/select-booking-service", {
+        method: "POST",
+        body: JSON.stringify({ service_url: url, service_name: "" }),
+      });
+      toast.success("Zoho Bookings URL saved");
+      setScheduleDraft("");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save URL");
+    } finally {
+      setScheduleBusy(false);
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -372,6 +418,56 @@ export function ProviderDetailSheet({
             </div>
           ) : null}
 
+          {showHubspotMeetingsUrlField ? (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label htmlFor="hubspot-meeting-url" className="text-sm">
+                HubSpot meeting link
+              </Label>
+              <Input
+                id="hubspot-meeting-url"
+                autoFocus={open && !view.connected}
+                placeholder="https://meetings.hubspot.com/…"
+                value={scheduleDraft}
+                onChange={(e) => setScheduleDraft(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={scheduleBusy || !scheduleDraft.trim() || !view.platform_ready || Boolean(view.blocked_reason)}
+                onClick={() => void saveHubspotMeetingUrl()}
+              >
+                <Plug className="size-4" /> {view.connected ? "Update meeting URL" : "Connect with URL"}
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Paste your public HubSpot meeting link. HubSpot CRM is optional — only needed if you also want CRM sync.
+              </p>
+            </div>
+          ) : null}
+
+          {showZohoBookingsUrlField ? (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label htmlFor="zoho-bookings-url" className="text-sm">
+                Zoho Bookings page URL
+              </Label>
+              <Input
+                id="zoho-bookings-url"
+                autoFocus={open && !view.connected}
+                placeholder="https://bookings.zoho.com/…"
+                value={scheduleDraft}
+                onChange={(e) => setScheduleDraft(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={scheduleBusy || !scheduleDraft.trim() || !view.platform_ready || Boolean(view.blocked_reason)}
+                onClick={() => void saveZohoBookingsUrl()}
+              >
+                <Plug className="size-4" /> {view.connected ? "Update Bookings URL" : "Connect with URL"}
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Paste your Zoho Bookings page URL. Zoho CRM is optional — only needed if you also want CRM sync.
+              </p>
+            </div>
+          ) : null}
+
           {showHubspotTokenField ? (
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
               <Label htmlFor="hubspot-token" className="text-sm">HubSpot Service key</Label>
@@ -504,7 +600,11 @@ export function ProviderDetailSheet({
           <TestResultCard loading={testing} result={testResult} />
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {!view.connected && view.actions.connect_url && view.key !== "breezy_hr" ? (
+            {!view.connected &&
+            view.actions.connect_url &&
+            view.key !== "breezy_hr" &&
+            view.key !== "hubspot_meetings" &&
+            view.key !== "zoho_bookings" ? (
               <Button
                 variant="default"
                 className="gap-1.5"

@@ -16,7 +16,8 @@ CRM_PROVIDER_LABELS: dict[str, str] = {
     "breezy_hr": "Breezy HR",
 }
 
-# Booking providers that require a matching CRM connection.
+# Optional CRM pairing for booking providers (list links/services via API).
+# Booking can also connect with a pasted URL alone — CRM is not required.
 CRM_DEPENDENT_BOOKING: dict[str, str] = {
     "hubspot_meetings": "hubspot",
     "zoho_bookings": "zoho_crm",

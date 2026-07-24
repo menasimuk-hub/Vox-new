@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
 from app.models.organisation import Organisation
-from app.services.crm_providers import CRM_CONFIG_COLUMNS, CRM_DEPENDENT_BOOKING, CRM_PROVIDERS, crm_provider_label
+from app.services.crm_providers import CRM_CONFIG_COLUMNS, CRM_PROVIDERS, crm_provider_label
 
 
 def _loads(raw: str | None) -> dict[str, Any]:
@@ -113,12 +113,8 @@ def disconnect_crm(db: Session, org_id: str, *, provider: str | None = None) -> 
             raise ValueError(f"Not connected to {provider}")
     column = CRM_CONFIG_COLUMNS[current]
     setattr(org, column, None)
-    sched_raw = getattr(org, "scheduling_config_json", None)
-    if sched_raw:
-        sched = _loads(sched_raw)
-        sched_provider = str(sched.get("provider") or "").strip().lower()
-        if CRM_DEPENDENT_BOOKING.get(sched_provider) == current:
-            org.scheduling_config_json = None
+    # Booking (HubSpot Meetings / Zoho Bookings) can stand alone via pasted URL —
+    # do not clear scheduling when CRM is disconnected.
     db.add(org)
     db.commit()
     return crm_status_summary(db, org_id)

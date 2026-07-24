@@ -324,22 +324,41 @@ def _check_hubspot_meetings(db: Session, org_id: str) -> list[dict[str, Any]]:
     sched = get_scheduling_config(db, org_id)
     if str(sched.get("provider") or "").lower() != "hubspot_meetings":
         return [_check("connection", False, "HubSpot Meetings is not the active booking provider")]
+    meeting_url = str(sched.get("meeting_link_url") or "").strip()
+    checks: list[dict[str, Any]] = [
+        _check(
+            "meeting_url",
+            bool(meeting_url.startswith("http")),
+            "Meeting URL is set" if meeting_url.startswith("http") else "Paste a HubSpot meeting URL",
+        )
+    ]
+    if not meeting_url.startswith("http"):
+        return checks
+
     hs = hubspot_status(db, org_id)
     if not hs.get("connected"):
-        return [_check("hubspot_crm", False, "Connect HubSpot CRM before testing HubSpot Meetings")]
+        checks.append(
+            _check(
+                "hubspot_crm",
+                True,
+                "URL-only mode (HubSpot CRM not connected — optional for listing links)",
+            )
+        )
+        return checks
     if hs.get("uses_access_token") is True:
-        return [
+        checks.append(
             _check(
                 "auth_mode",
-                False,
-                "HubSpot Meetings requires OAuth mode (Service key mode cannot list meeting links)",
+                True,
+                "URL-only booking active (Service key CRM cannot list meeting links)",
             )
-        ]
+        )
+        return checks
     token = str(get_hubspot_config(db, org_id).get("access_token") or "").strip()
     if not token:
-        return [_check("token", False, "HubSpot CRM token missing — reconnect HubSpot")]
+        checks.append(_check("token", True, "URL-only booking active (CRM token missing)"))
+        return checks
     headers = {"Authorization": f"Bearer {token}"}
-    checks: list[dict[str, Any]] = []
 
     with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
         meet_res = client.get("https://api.hubapi.com/scheduler/v3/meetings/meeting-links", headers=headers)
@@ -482,16 +501,34 @@ def _check_zoho_bookings(db: Session, org_id: str) -> list[dict[str, Any]]:
     sched = get_scheduling_config(db, org_id)
     if str(sched.get("provider") or "").lower() != "zoho_bookings":
         return [_check("connection", False, "Zoho Bookings is not the active booking provider")]
+    booking_url = str(sched.get("service_url") or "").strip()
+    checks: list[dict[str, Any]] = [
+        _check(
+            "booking_url",
+            bool(booking_url.startswith("http")),
+            "Bookings URL is set" if booking_url.startswith("http") else "Paste a Zoho Bookings URL",
+        )
+    ]
+    if not booking_url.startswith("http"):
+        return checks
+
     zs = zoho_crm_status(db, org_id)
     if not zs.get("connected"):
-        return [_check("zoho_crm", False, "Connect Zoho CRM before testing Zoho Bookings")]
+        checks.append(
+            _check(
+                "zoho_crm",
+                True,
+                "URL-only mode (Zoho CRM not connected — optional for listing services)",
+            )
+        )
+        return checks
     cfg = get_zoho_crm_config(db, org_id)
     token = str(cfg.get("access_token") or "").strip()
     api_domain = str(cfg.get("api_domain") or "www.zohoapis.com").strip()
     if not token:
-        return [_check("token", False, "Zoho CRM token missing — reconnect Zoho CRM")]
+        checks.append(_check("token", True, "URL-only booking active (CRM token missing)"))
+        return checks
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    checks: list[dict[str, Any]] = []
     with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
         res = client.get(f"https://{api_domain}/bookings/v1/json/services", headers=headers)
     if res.status_code >= 400:

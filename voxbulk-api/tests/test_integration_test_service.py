@@ -254,7 +254,22 @@ def test_hubspot_crm_private_app_token_skips_oauth_introspection(session, monkey
     assert any(c["name"] == "contacts_probe" and c["status"] == "ok" for c in result["checks"])
 
 
-def test_hubspot_meetings_requires_oauth(session, monkeypatch):
+def test_hubspot_meetings_url_only_ok_without_crm(session):
+    from app.services.integration_test_service import deep_health_check
+
+    org = _seed_org(session)
+    _set_scheduling(
+        session,
+        org.id,
+        {"provider": "hubspot_meetings", "meeting_link_url": "https://meetings.hubspot.com/x", "connection_mode": "url"},
+    )
+
+    result = deep_health_check(session, org.id, "hubspot_meetings")
+    assert result["ok"] is True
+    assert any(c["name"] == "meeting_url" and c["status"] == "ok" for c in result["checks"])
+
+
+def test_hubspot_meetings_private_app_crm_still_url_ok(session, monkeypatch):
     from app.services.hubspot_connection_service import save_hubspot_config
     from app.services.integration_test_service import deep_health_check
 
@@ -275,9 +290,8 @@ def test_hubspot_meetings_requires_oauth(session, monkeypatch):
     )
 
     result = deep_health_check(session, org.id, "hubspot_meetings")
-    assert result["ok"] is False
-    # Private-app mode cannot list meeting links, so auth_mode check fires.
-    assert any(c["name"] == "auth_mode" for c in result["checks"])
+    assert result["ok"] is True
+    assert any(c["name"] == "meeting_url" and c["status"] == "ok" for c in result["checks"])
 
 
 def test_unknown_provider_raises(session):

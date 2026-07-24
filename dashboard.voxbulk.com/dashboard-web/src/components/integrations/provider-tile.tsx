@@ -30,6 +30,9 @@ export type IntegrationView = {
     disconnect_url: string;
     test_url: string;
     connect_token_url?: string;
+    select_url?: string;
+    meeting_links_url?: string;
+    booking_services_url?: string;
   };
   extra: Record<string, unknown>;
 };

@@ -228,56 +228,8 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       }
       return;
     }
-    if (view.key === "hubspot_meetings") {
-      try {
-        const meetings = await apiFetch<{ meeting_links?: Array<{ id: string; name: string; url: string }> }>(
-          "/service-orders/scheduling/hubspot/meeting-links",
-        );
-        const links = meetings?.meeting_links || [];
-        if (links.length === 0) {
-          toast.error("No HubSpot meeting links found — check Scheduler scopes and reconnect CRM");
-          return;
-        }
-        const first = links[0];
-        await apiFetch("/service-orders/scheduling/hubspot/select-meeting-link", {
-          method: "POST",
-          body: JSON.stringify({
-            meeting_link_id: first.id,
-            meeting_link_url: first.url,
-            meeting_link_name: first.name,
-          }),
-        });
-        toast.success("HubSpot Meetings connected");
-        refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not connect HubSpot Meetings");
-      }
-      return;
-    }
-    if (view.key === "zoho_bookings") {
-      try {
-        const services = await apiFetch<{ booking_services?: Array<{ id: string; name: string; url: string }> }>(
-          "/service-orders/scheduling/zoho/booking-services",
-        );
-        const rows = services?.booking_services || [];
-        if (rows.length === 0) {
-          toast.error("No Zoho Bookings services found — check Zoho Bookings scopes and reconnect Zoho CRM");
-          return;
-        }
-        const first = rows[0];
-        await apiFetch("/service-orders/scheduling/zoho/select-booking-service", {
-          method: "POST",
-          body: JSON.stringify({
-            service_id: first.id,
-            service_url: first.url,
-            service_name: first.name,
-          }),
-        });
-        toast.success("Zoho Bookings connected");
-        refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not connect Zoho Bookings");
-      }
+    if (view.key === "hubspot_meetings" || view.key === "zoho_bookings") {
+      toast.info("Paste your booking page URL in the panel, then save");
       return;
     }
     if (view.key === "hubspot") {

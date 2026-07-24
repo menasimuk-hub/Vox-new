@@ -69,23 +69,26 @@ def test_crm_exclusivity_blocks_second_provider(session):
     assert active_crm_provider(session, org.id) == "zoho_crm"
 
 
-def test_disconnect_crm_cascades_zoho_bookings(session):
+def test_disconnect_crm_keeps_url_only_zoho_bookings(session):
     from app.services.crm_connection_service import disconnect_crm, save_crm_config_raw
 
     org = _seed_org(session)
     save_crm_config_raw(session, org.id, "zoho_crm", {"access_token": "tok"})
     org.scheduling_config_json = json.dumps(
-        {"provider": "zoho_bookings", "service_url": "https://bookings.example/s/1"}
+        {"provider": "zoho_bookings", "service_url": "https://bookings.example/s/1", "connection_mode": "url"}
     )
     session.add(org)
     session.commit()
     disconnect_crm(session, org.id, provider="zoho_crm")
     session.refresh(org)
     assert org.zoho_crm_config_json is None
-    assert org.scheduling_config_json is None
+    assert org.scheduling_config_json is not None
+    sched = json.loads(org.scheduling_config_json)
+    assert sched["provider"] == "zoho_bookings"
+    assert sched["service_url"] == "https://bookings.example/s/1"
 
 
-def test_catalogue_blocks_second_crm_and_missing_parent(session):
+def test_catalogue_blocks_second_crm_not_booking_without_parent(session):
     from app.services.crm_connection_service import save_crm_config_raw
     from app.services.integration_catalogue_service import list_integrations_for_org
 
@@ -101,7 +104,8 @@ def test_catalogue_blocks_second_crm_and_missing_parent(session):
 
     assert hubspot["blocked_reason"] and "Disconnect Pipedrive" in hubspot["blocked_reason"]
     assert zoho_crm["blocked_reason"] and "Disconnect Pipedrive" in zoho_crm["blocked_reason"]
-    assert zoho_bookings["blocked_reason"] and "Connect Zoho CRM" in zoho_bookings["blocked_reason"]
+    # Booking no longer requires parent CRM — paste URL is enough.
+    assert not zoho_bookings.get("blocked_reason")
     assert result["active_crm_provider"] == "pipedrive"
 
 
