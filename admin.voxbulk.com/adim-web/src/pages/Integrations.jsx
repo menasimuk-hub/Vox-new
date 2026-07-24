@@ -355,6 +355,8 @@ function SocialLoginSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [flash, setFlash] = useState('')
+  const [activeTab, setActiveTab] = useState(SOCIAL_PROVIDERS[0].key)
   const [providers, setProviders] = useState(() =>
     Object.fromEntries(SOCIAL_PROVIDERS.map((p) => [p.key, defaultSocialProviderState(p.key)]))
   )
@@ -364,7 +366,7 @@ function SocialLoginSettings() {
     setError('')
     try {
       const rows = await apiFetch('/admin/social-login/providers')
-      const next = { ...providers }
+      const next = Object.fromEntries(SOCIAL_PROVIDERS.map((p) => [p.key, defaultSocialProviderState(p.key)]))
       if (Array.isArray(rows)) {
         for (const r of rows) {
           if (r?.provider && next[r.provider]) next[r.provider] = r
@@ -393,22 +395,20 @@ function SocialLoginSettings() {
     }))
   }
 
-  const setEnabled = (providerKey, enabled) => {
+  const updateSecretDraft = (providerKey, field, value) => {
+    const secretKey = `${providerKey}_${field}_draft`
     setProviders((s) => ({
       ...s,
-      [providerKey]: { ...s[providerKey], is_enabled: Boolean(enabled) },
+      [providerKey]: { ...s[providerKey], [secretKey]: value },
     }))
-    // Auto-save when toggled
-    setTimeout(() => {
-      saveProvider(providerKey)
-    }, 0)
   }
 
-  const saveProvider = async (providerKey) => {
+  const saveProvider = async (providerKey, overrides = {}) => {
     setSaving(true)
     setError('')
+    setFlash('')
     try {
-      const p = providers[providerKey]
+      const p = { ...(providers[providerKey] || {}), ...overrides }
       const config = { ...(p?.config || {}) }
       if (providerKey === 'apple') {
         const draft = String(p?.[`${providerKey}_private_key_draft`] || '').trim()
@@ -423,6 +423,8 @@ function SocialLoginSettings() {
         body: JSON.stringify({ is_enabled: Boolean(p?.is_enabled), config }),
       })
       setProviders((s) => ({ ...s, [providerKey]: updated }))
+      setFlash('Saved')
+      window.setTimeout(() => setFlash(''), 2500)
     } catch (e) {
       setError(e?.message || 'Save failed')
     } finally {
@@ -430,209 +432,163 @@ function SocialLoginSettings() {
     }
   }
 
-  const updateSecretDraft = (providerKey, field, value) => {
-    const secretKey = `${providerKey}_${field}_draft`
+  const setEnabled = (providerKey, enabled) => {
+    const next = Boolean(enabled)
     setProviders((s) => ({
       ...s,
-      [providerKey]: { ...s[providerKey], [secretKey]: value },
+      [providerKey]: { ...s[providerKey], is_enabled: next },
     }))
+    void saveProvider(providerKey, { is_enabled: next })
   }
 
+  const sp = SOCIAL_PROVIDERS.find((p) => p.key === activeTab) || SOCIAL_PROVIDERS[0]
+  const row = providers[sp.key] || defaultSocialProviderState(sp.key)
+  const pill = statusPill(row)
+  const last = row?.updated_at ? new Date(row.updated_at).toLocaleString() : '—'
+  const missing = joinMissingFields(row?.missing_fields)
+  const isApple = sp.key === 'apple'
+  const secretIsSet = isApple ? Boolean(row?.secret_set?.private_key) : Boolean(row?.secret_set?.client_secret)
+  const tabIcon = sp.key === 'google' ? 'ti-brand-google' : sp.key === 'apple' ? 'ti-brand-apple' : 'ti-brand-linkedin'
+
   return (
-    <div className='card'>
-      <div className='cardHead'>
-        <h3>Providers</h3>
-        <span className='pill p-cyan'>Google · Apple · LinkedIn</span>
+    <div className='socialLoginPanel card'>
+      <div className='socialLoginTabs' role='tablist' aria-label='Social login providers'>
+        {SOCIAL_PROVIDERS.map((p) => {
+          const r = providers[p.key]
+          const on = Boolean(r?.is_enabled && r?.configured)
+          return (
+            <button
+              key={p.key}
+              type='button'
+              role='tab'
+              aria-selected={activeTab === p.key}
+              className={`socialLoginTab ${activeTab === p.key ? 'active' : ''}`}
+              onClick={() => setActiveTab(p.key)}
+            >
+              <i className={`ti ${p.key === 'google' ? 'ti-brand-google' : p.key === 'apple' ? 'ti-brand-apple' : 'ti-brand-linkedin'}`} />
+              <span>{p.label}</span>
+              <span className={`socialLoginTabDot ${on ? 'on' : r?.is_enabled ? 'warn' : ''}`} title={on ? 'Live' : r?.is_enabled ? 'Incomplete' : 'Off'} />
+            </button>
+          )
+        })}
       </div>
-      <div className='cardBody'>
-        {error && (
-          <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>
-            {error}
-          </div>
-        )}
-        {loading ? <div className='note'>Loading…</div> : null}
-        {!loading && (
-          <div className='stack' style={{ gap: 16 }}>
-            {SOCIAL_PROVIDERS.map((sp) => {
-              const row = providers[sp.key]
-              const pill = statusPill(row)
-              const last = row?.updated_at ? new Date(row.updated_at).toLocaleString() : '-'
-              const missing = joinMissingFields(row?.missing_fields)
-              const isApple = sp.key === 'apple'
-              const secretIsSet = isApple
-                ? Boolean(row?.secret_set?.private_key)
-                : Boolean(row?.secret_set?.client_secret)
-              return (
-                <div key={sp.key} className='card' style={{ margin: 0 }}>
-                  <div className='cardHead'>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <h3 style={{ fontSize: 15 }}>{sp.label}</h3>
-                      <span className={`pill ${pill.cls}`}>{pill.text}</span>
+
+      <div className='socialLoginBody'>
+        {error ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)', marginBottom: 10 }}>{error}</div> : null}
+        {flash ? <div className='note' style={{ marginBottom: 10 }}>{flash}</div> : null}
+        {loading ? (
+          <div className='muted' style={{ fontSize: 13 }}>Loading…</div>
+        ) : (
+          <>
+            <div className='socialLoginMeta'>
+              <div className='socialLoginMetaLeft'>
+                <i className={`ti ${tabIcon}`} />
+                <div>
+                  <div className='socialLoginTitle'>
+                    {sp.label}
+                    <span className={`pill ${pill.cls}`}>{pill.text}</span>
+                  </div>
+                  <div className='muted' style={{ fontSize: 11 }}>Updated {last}{missing ? ` · Missing: ${missing}` : ''}</div>
+                </div>
+              </div>
+              <label className='socialLoginToggle'>
+                <span>Show on sign-in</span>
+                <input
+                  type='checkbox'
+                  checked={Boolean(row?.is_enabled)}
+                  onChange={(e) => setEnabled(sp.key, e.target.checked)}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+
+            <div className='socialLoginForm'>
+              <label className='socialLoginRow'>
+                <span>{isApple ? 'Services ID' : 'Client ID'}</span>
+                <input
+                  className='input'
+                  value={String(row?.config?.client_id || '')}
+                  onChange={(e) => setField(sp.key, 'client_id', e.target.value)}
+                  placeholder={isApple ? 'com.example.web' : 'Client ID'}
+                />
+              </label>
+
+              {isApple ? (
+                <>
+                  <label className='socialLoginRow'>
+                    <span>Team ID</span>
+                    <input
+                      className='input'
+                      value={String(row?.config?.team_id || '')}
+                      onChange={(e) => setField(sp.key, 'team_id', e.target.value)}
+                      placeholder='Apple Developer Team ID'
+                    />
+                  </label>
+                  <label className='socialLoginRow'>
+                    <span>Key ID</span>
+                    <input
+                      className='input'
+                      value={String(row?.config?.key_id || '')}
+                      onChange={(e) => setField(sp.key, 'key_id', e.target.value)}
+                      placeholder='Sign in with Apple key ID'
+                    />
+                  </label>
+                  <label className='socialLoginRow socialLoginRowTop'>
+                    <span>Private key (.p8)</span>
+                    <div className='socialLoginFieldStack'>
+                      <textarea
+                        className='input'
+                        rows={5}
+                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}
+                        value={String(row?.[`${sp.key}_private_key_draft`] || '')}
+                        onChange={(e) => updateSecretDraft(sp.key, 'private_key', e.target.value)}
+                        placeholder={secretIsSet ? 'Leave blank to keep current key' : 'Paste Apple .p8 private key'}
+                      />
+                      <span className='muted' style={{ fontSize: 11 }}>
+                        Secrets are never returned. Leave blank to keep the current key.
+                      </span>
                     </div>
-                    <span className='muted' style={{ fontSize: 12 }}>
-                      Updated: {last}
+                  </label>
+                </>
+              ) : (
+                <label className='socialLoginRow'>
+                  <span>Client secret</span>
+                  <div className='socialLoginFieldStack'>
+                    <input
+                      className='input'
+                      type='password'
+                      value={String(row?.[`${sp.key}_client_secret_draft`] || '')}
+                      onChange={(e) => updateSecretDraft(sp.key, 'client_secret', e.target.value)}
+                      placeholder={secretIsSet ? 'Leave blank to keep current' : 'Required'}
+                      autoComplete='new-password'
+                    />
+                    <span className='muted' style={{ fontSize: 11 }}>
+                      Secrets are never returned. Leave blank to keep the current secret.
                     </span>
                   </div>
-                  <div className='cardBody' style={{ paddingTop: 16 }}>
-                    <div className='miniGrid'>
-                      <div className='mini'>
-                        <label>Status</label>
-                        <strong>
-                          {row?.exists
-                            ? row?.is_enabled
-                              ? row?.configured
-                                ? 'Configured'
-                                : 'Incomplete'
-                              : 'Disabled'
-                            : 'Not configured'}
-                        </strong>
-                      </div>
-                      <div className='mini'>
-                        <label>Last update</label>
-                        <strong>{last}</strong>
-                      </div>
-                      <div className='mini'>
-                        <label>Missing</label>
-                        <strong>{missing || '-'}</strong>
-                      </div>
-                      <div className='mini'>
-                        <label>{isApple ? 'Private key' : 'Client secret'}</label>
-                        <strong>{secretIsSet ? 'Set' : 'Not set'}</strong>
-                      </div>
-                    </div>
+                </label>
+              )}
 
-                    <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                          <label className='label' style={{ margin: 0 }}>
-                            Show on sign-in page
-                          </label>
-                          <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative', width: 50, height: 28 }}>
-                            <input
-                              type='checkbox'
-                              checked={Boolean(row?.is_enabled)}
-                              onChange={(e) => setEnabled(sp.key, e.target.checked)}
-                              style={{ display: 'none' }}
-                            />
-                            <span
-                              style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                backgroundColor: Boolean(row?.is_enabled) ? '#10b981' : '#d1d5db',
-                                borderRadius: '9999px',
-                                transition: 'background-color 0.3s ease',
-                                border: '1px solid transparent',
-                              }}
-                            />
-                            <span
-                              style={{
-                                position: 'absolute',
-                                top: 2,
-                                left: Boolean(row?.is_enabled) ? 24 : 2,
-                                width: 24,
-                                height: 24,
-                                backgroundColor: 'white',
-                                borderRadius: '9999px',
-                                transition: 'left 0.3s ease',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                              }}
-                            />
-                          </label>
-                        </div>
-                      </div>
+              <label className='socialLoginRow'>
+                <span>Callback URL</span>
+                <input
+                  className='input'
+                  value={String(row?.config?.redirect_uri || '')}
+                  onChange={(e) => setField(sp.key, 'redirect_uri', e.target.value)}
+                  placeholder='https://api.voxbulk.com/auth/oauth/…/callback'
+                />
+              </label>
+            </div>
 
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label className='label'>{isApple ? 'Services ID (Client ID)' : 'Client ID'}</label>
-                        <input
-                          className='input'
-                          style={{ width: '100%', minWidth: 0 }}
-                          value={String(row?.config?.client_id || '')}
-                          onChange={(e) => setField(sp.key, 'client_id', e.target.value)}
-                          placeholder={isApple ? 'com.example.web' : 'Client ID'}
-                        />
-                      </div>
-
-                      {isApple ? (
-                        <>
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            <label className='label'>Team ID</label>
-                            <input
-                              className='input'
-                              style={{ width: '100%', minWidth: 0 }}
-                              value={String(row?.config?.team_id || '')}
-                              onChange={(e) => setField(sp.key, 'team_id', e.target.value)}
-                              placeholder='Apple Developer Team ID'
-                            />
-                          </div>
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            <label className='label'>Key ID</label>
-                            <input
-                              className='input'
-                              style={{ width: '100%', minWidth: 0 }}
-                              value={String(row?.config?.key_id || '')}
-                              onChange={(e) => setField(sp.key, 'key_id', e.target.value)}
-                              placeholder='Sign in with Apple key ID'
-                            />
-                          </div>
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            <label className='label'>Private key (.p8)</label>
-                            <textarea
-                              className='input'
-                              style={{ width: '100%', minWidth: 0, minHeight: 120, fontFamily: 'monospace' }}
-                              value={String(row?.[`${sp.key}_private_key_draft`] || '')}
-                              onChange={(e) => updateSecretDraft(sp.key, 'private_key', e.target.value)}
-                              placeholder={secretIsSet ? 'Leave blank to keep current key' : 'Paste Apple .p8 private key'}
-                            />
-                            <div className='muted' style={{ fontSize: 12 }}>
-                              Existing keys are never shown. Leave blank to keep the current one.
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ display: 'grid', gap: 6 }}>
-                          <label className='label'>Client secret</label>
-                          <input
-                            className='input'
-                            style={{ width: '100%', minWidth: 0 }}
-                            type='password'
-                            value={String(row?.[`${sp.key}_client_secret_draft`] || '')}
-                            onChange={(e) => updateSecretDraft(sp.key, 'client_secret', e.target.value)}
-                            placeholder={secretIsSet ? 'Leave blank to keep current' : 'Required'}
-                          />
-                          <div className='muted' style={{ fontSize: 12 }}>
-                            Existing secrets are never shown. Leave blank to keep the current one.
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label className='label'>Redirect / callback URL</label>
-                        <input
-                          className='input'
-                          style={{ width: '100%', minWidth: 0 }}
-                          value={String(row?.config?.redirect_uri || '')}
-                          onChange={(e) => setField(sp.key, 'redirect_uri', e.target.value)}
-                          placeholder='Redirect URL'
-                        />
-                      </div>
-                    </div>
-
-                    <div className='actions' style={{ marginTop: 12 }}>
-                      <button className='btn soft' onClick={load} disabled={saving}>
-                        Reload
-                      </button>
-                      <button className='btn primary' onClick={() => saveProvider(sp.key)} disabled={saving}>
-                        {saving ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+            <div className='socialLoginActions'>
+              <button type='button' className='btn soft' onClick={load} disabled={saving || loading}>
+                Reload
+              </button>
+              <button type='button' className='btn primary' onClick={() => void saveProvider(sp.key)} disabled={saving}>
+                {saving ? 'Saving…' : `Save ${sp.label}`}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -2028,7 +1984,7 @@ export default function Integrations() {
                       : 'Integrations'}
           </h1>
           {isSocialLoginRoute ? (
-            <p>Configure social login providers and control their availability on the public sign-in page.</p>
+            <p>Google, Apple, and LinkedIn credentials for the public sign-in page.</p>
           ) : isKpiRoute ? (
             <p>Overview of every integration — green when enabled and connected, red when setup is incomplete.</p>
           ) : isWebhooksRoute ? (
@@ -2053,24 +2009,8 @@ export default function Integrations() {
       ) : null}
 
       {isSocialLoginRoute ? (
-        <div className='pageShell integrationPageShell'>
-          <IntegrationProviderShell summary={null}>
-            <div className='stack'>
-              <SocialLoginSettings />
-              <div className='card'>
-                <div className='cardHead'>
-                  <h3>Security</h3>
-                  <span className='pill p-cyan'>Secrets</span>
-                </div>
-                <div className='cardBody'>
-                  <div className='note'>
-                    Client secrets are accepted when saving but are never returned to the browser. Leave the secret field
-                    blank to keep the current one.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </IntegrationProviderShell>
+        <div className='pageShell integrationPageShell socialLoginShell'>
+          <SocialLoginSettings />
         </div>
       ) : activeProvider === 'telnyx' ? (
         <div className='pageShell telnyxPageShell'>

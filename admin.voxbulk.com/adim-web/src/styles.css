@@ -6428,6 +6428,204 @@ body.dark .matrix th {
   border-color: rgba(220, 38, 38, 0.35);
 }
 
+/* Social Login — compact Stripe-style tabs */
+.socialLoginShell {
+  max-width: 720px;
+}
+
+.socialLoginPanel {
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.socialLoginPanel.card {
+  margin: 0;
+}
+
+.socialLoginTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--b1);
+  background: var(--s2);
+  padding: 0 8px;
+}
+
+.socialLoginTab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--t2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: -1px;
+  min-height: 42px;
+  padding: 0 14px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.socialLoginTab i {
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.socialLoginTab:hover {
+  color: var(--t1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.socialLoginTab.active {
+  color: var(--grn);
+  border-bottom-color: var(--grn);
+  background: var(--s1);
+}
+
+.socialLoginTabDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--b2);
+  flex-shrink: 0;
+}
+
+.socialLoginTabDot.on {
+  background: #16a34a;
+}
+
+.socialLoginTabDot.warn {
+  background: #d97706;
+}
+
+.socialLoginBody {
+  padding: 14px 16px 16px;
+}
+
+.socialLoginMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--b1);
+}
+
+.socialLoginMetaLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.socialLoginMetaLeft > i {
+  font-size: 20px;
+  color: var(--t2);
+  margin-top: 2px;
+}
+
+.socialLoginTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1);
+}
+
+.socialLoginToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.socialLoginToggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--grn);
+}
+
+.socialLoginForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.socialLoginRow {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--b1);
+  margin: 0;
+}
+
+.socialLoginRow:last-of-type {
+  border-bottom: none;
+}
+
+.socialLoginRow > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+}
+
+.socialLoginRowTop {
+  align-items: start;
+  padding-top: 12px;
+}
+
+.socialLoginRowTop > span:first-child {
+  padding-top: 8px;
+}
+
+.socialLoginFieldStack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.socialLoginRow .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.socialLoginActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--b1);
+}
+
+@media (max-width: 640px) {
+  .socialLoginRow,
+  .socialLoginRowTop {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .socialLoginRowTop > span:first-child {
+    padding-top: 0;
+  }
+
+  .socialLoginTabs {
+    overflow-x: auto;
+  }
+}
+
 .integrationKpiHub {
   display: flex;
   flex-direction: column;
