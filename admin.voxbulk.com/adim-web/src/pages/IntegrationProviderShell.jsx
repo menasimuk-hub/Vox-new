@@ -12,9 +12,9 @@ export default function IntegrationProviderShell({
   enableLabel,
   enabled,
   onEnabledChange,
-  visibleToOrgs,
-  onVisibleToOrgsChange,
-  showVisibilityToggle = true,
+  releaseMode,
+  onReleaseModeChange,
+  showReleaseToggle = true,
   summary,
   saving,
   onSave,
@@ -25,7 +25,7 @@ export default function IntegrationProviderShell({
   children,
 }) {
   const status = integrationCardStatus(summary)
-  const resolvedVisible = visibleToOrgs ?? summary?.visible_to_orgs ?? false
+  const resolvedMode = releaseMode || summary?.release_mode || (summary?.visible_to_orgs ? 'live' : 'testing')
 
   return (
     <div className='integrationProviderPage'>
@@ -41,14 +41,22 @@ export default function IntegrationProviderShell({
                 <span>{enableLabel}</span>
               </label>
             ) : null}
-            {showVisibilityToggle && onVisibleToOrgsChange ? (
-              <label className='integrationEnableRow' title='When off, this provider is fully configured but hidden from every organisation’s dashboard. Use this for soft launches.'>
-                <input
-                  type='checkbox'
-                  checked={Boolean(resolvedVisible)}
-                  onChange={(e) => onVisibleToOrgsChange?.(e.target.checked)}
-                />
-                <span>Visible to organisations (required for customer dashboard)</span>
+            {showReleaseToggle && onReleaseModeChange ? (
+              <label
+                className='integrationEnableRow'
+                title='Testing: only Admin Test group emails see this on the dashboard and in linked FAQs. Live: visible to all organisations.'
+                style={{ gap: 8 }}
+              >
+                <span>Release</span>
+                <select
+                  className='input'
+                  style={{ width: 'auto', minWidth: 120, height: 32 }}
+                  value={resolvedMode === 'live' ? 'live' : 'testing'}
+                  onChange={(e) => onReleaseModeChange?.(e.target.value)}
+                >
+                  <option value='testing'>Testing</option>
+                  <option value='live'>Live</option>
+                </select>
               </label>
             ) : null}
             {summary ? <span className={`pill ${status.pillClass}`}>{status.label}</span> : null}

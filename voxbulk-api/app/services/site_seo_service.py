@@ -1419,6 +1419,7 @@ def submit_sitemap_to_google(db: Session) -> dict[str, Any]:
 
 def public_faq_list(db: Session) -> list[dict[str, Any]]:
     from app.services.faq_service import FAQService
+    from app.services.integration_release_service import IntegrationReleaseService
 
     FAQService.ensure_marketing_faqs(db)
     cats = _faq_category_map(db)
@@ -1437,13 +1438,24 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
             continue
         if "noindex" in (r.robots or "").lower():
             continue
+        # Anonymous public site: hide Testing-linked FAQs entirely.
+        if not IntegrationReleaseService.can_view_faq_item(
+            db, linked_provider=getattr(r, "linked_provider", None), viewer_email=None
+        ):
+            continue
         out.append(_faq_row_to_seo(r, cats))
     return out
 
 
 def public_faq_by_slug(db: Session, slug: str) -> dict[str, Any]:
+    from app.services.integration_release_service import IntegrationReleaseService
+
     row = db.execute(select(FAQItem).where(FAQItem.slug == slug, FAQItem.is_published.is_(True))).scalar_one_or_none()
     if not row:
+        raise HTTPException(status_code=404, detail="FAQ not found")
+    if not IntegrationReleaseService.can_view_faq_item(
+        db, linked_provider=getattr(row, "linked_provider", None), viewer_email=None
+    ):
         raise HTTPException(status_code=404, detail="FAQ not found")
     cats = _faq_category_map(db)
     return _faq_row_to_seo(row, cats)

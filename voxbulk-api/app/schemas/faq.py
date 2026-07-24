@@ -18,6 +18,7 @@ class FAQItemIn(BaseModel):
     is_featured: bool = False
     is_published: bool = True
     sort_order: int = 0
+    linked_provider: str | None = Field(default=None, max_length=50)
 
 
 class FAQCategoryOut(BaseModel):

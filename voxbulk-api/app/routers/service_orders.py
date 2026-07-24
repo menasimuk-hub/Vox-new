@@ -585,9 +585,12 @@ def list_org_integrations(
     principal=Depends(get_current_principal),
 ):
     """Unified catalogue of integrations visible to the current org."""
+    from app.models.user import User
     from app.services.integration_catalogue_service import list_integrations_for_org
 
-    return list_integrations_for_org(db, principal.org_id)
+    user = db.get(User, principal.user_id)
+    viewer_email = getattr(user, "email", None) if user else None
+    return list_integrations_for_org(db, principal.org_id, viewer_email=viewer_email)
 
 
 @router.post("/integrations/{provider}/test")

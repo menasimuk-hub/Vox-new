@@ -181,6 +181,9 @@ def upsert_provider_settings(
     visible_to_orgs = payload.get("visible_to_orgs")
     if visible_to_orgs is not None:
         visible_to_orgs = bool(visible_to_orgs)
+    release_mode = payload.get("release_mode")
+    if release_mode is not None:
+        release_mode = str(release_mode).strip().lower() or None
     config = payload.get("config") or {}
     if not isinstance(config, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="config must be an object")
@@ -191,12 +194,56 @@ def upsert_provider_settings(
             is_enabled=is_enabled,
             config=config,
             visible_to_orgs=visible_to_orgs,
+            release_mode=release_mode,
         )
         return ProviderSettingsService.get_platform_config_admin_view(db, provider=provider.lower())
     except ProviderUnknown:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/integration-testers")
+def admin_list_integration_testers(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.services.integration_release_service import IntegrationReleaseService
+
+    return {
+        "items": [IntegrationReleaseService.tester_to_dict(r) for r in IntegrationReleaseService.list_testers(db)]
+    }
+
+
+@router.post("/integration-testers")
+def admin_add_integration_tester(
+    payload: dict,
+    db: Session = Depends(get_db),
+    admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.integration_release_service import IntegrationReleaseService
+
+    email = str((payload or {}).get("email") or "").strip()
+    try:
+        row = IntegrationReleaseService.add_tester(
+            db,
+            email=email,
+            created_by_admin_user_id=getattr(admin, "id", None),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return IntegrationReleaseService.tester_to_dict(row)
+
+
+@router.delete("/integration-testers/{tester_id}")
+def admin_delete_integration_tester(
+    tester_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    from app.services.integration_release_service import IntegrationReleaseService
+
+    ok = IntegrationReleaseService.remove_tester(db, tester_id=tester_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tester not found")
+    return {"ok": True}
 
 
 @router.post("/integrations/azure_speech/test-tts")

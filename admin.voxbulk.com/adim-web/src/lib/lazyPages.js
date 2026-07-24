@@ -2,6 +2,7 @@ import { lazy } from 'react'
 
 export const Dashboard = lazy(() => import('../pages/Dashboard'))
 export const Organisations = lazy(() => import('../pages/Organisations'))
+export const IntegrationTestGroup = lazy(() => import('../pages/IntegrationTestGroup'))
 export const ZoneOrganisations = lazy(() => import('../pages/ZoneOrganisations'))
 export const OrganisationDetail = lazy(() => import('../pages/OrganisationDetail'))
 export const OrgControlCenter = lazy(() => import('../pages/OrgControlCenter'))

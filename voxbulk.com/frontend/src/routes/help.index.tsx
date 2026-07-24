@@ -191,12 +191,36 @@ export const Route = createFileRoute("/help/")({
     category: typeof search.category === "string" ? search.category : undefined,
   }),
   loader: async () => {
+    let zohoVisible = false;
+    try {
+      const vis = await frontpageApiFetch<{ visible?: boolean }>(
+        "/frontpage/integration-visibility/zoho_recruit",
+      );
+      zohoVisible = Boolean(vis?.visible);
+    } catch {
+      zohoVisible = false;
+    }
     try {
       const data = await frontpageApiFetch<{ items: FaqItem[] }>("/frontpage/faq");
-      const items = data.items?.length ? data.items : FALLBACK_ITEMS;
-      return { items, categories: buildCategories(items) };
+      let items = data.items?.length ? data.items : FALLBACK_ITEMS;
+      if (!zohoVisible) {
+        items = items.filter(
+          (i) =>
+            i.category_slug !== "zoho-recruit" &&
+            !String(i.slug || "").startsWith("zoho-recruit"),
+        );
+      }
+      return { items, categories: buildCategories(items), zohoVisible };
     } catch {
-      return { items: FALLBACK_ITEMS, categories: buildCategories(FALLBACK_ITEMS) };
+      let items = FALLBACK_ITEMS;
+      if (!zohoVisible) {
+        items = items.filter(
+          (i) =>
+            i.category_slug !== "zoho-recruit" &&
+            !String(i.slug || "").startsWith("zoho-recruit"),
+        );
+      }
+      return { items, categories: buildCategories(items), zohoVisible };
     }
   },
   head: () => ({
@@ -222,7 +246,11 @@ export const Route = createFileRoute("/help/")({
 });
 
 function HelpPage() {
-  const { categories } = Route.useLoaderData() as { items: FaqItem[]; categories: HelpCategory[] };
+  const { categories, zohoVisible } = Route.useLoaderData() as {
+    items: FaqItem[];
+    categories: HelpCategory[];
+    zohoVisible?: boolean;
+  };
   const search = Route.useSearch();
   const [active, setActive] = useState<string | null>(search.category || null);
   const [q, setQ] = useState(search.q || "");
@@ -317,7 +345,7 @@ function HelpPage() {
                 )}
               </>
             ) : (
-              <CategoryDetail category={current} onBack={() => setActive(null)} />
+              <CategoryDetail category={current} onBack={() => setActive(null)} zohoVisible={Boolean(zohoVisible)} />
             )}
 
             <div className="mt-16 rounded-2xl bg-dark text-white p-8 md:p-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden relative">
@@ -348,7 +376,15 @@ function HelpPage() {
   );
 }
 
-function CategoryDetail({ category, onBack }: { category: HelpCategory; onBack: () => void }) {
+function CategoryDetail({
+  category,
+  onBack,
+  zohoVisible,
+}: {
+  category: HelpCategory;
+  onBack: () => void;
+  zohoVisible?: boolean;
+}) {
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const tone = toneStyles[category.tone];
   return (
@@ -369,7 +405,7 @@ function CategoryDetail({ category, onBack }: { category: HelpCategory; onBack: 
           <div>
             <h2 className="text-[22px] md:text-[26px] font-bold text-heading tracking-[-0.02em]">{category.title}</h2>
             <p className="mt-1.5 text-[14px] text-muted-text leading-[1.6] max-w-[620px]">{category.desc}</p>
-            {category.slug === "zoho-recruit" ? (
+            {category.slug === "zoho-recruit" && zohoVisible ? (
               <Link
                 to="/help/zoho-recruit"
                 className="inline-flex items-center gap-1 mt-3 text-[13px] font-semibold text-primary hover:gap-2 transition-all"

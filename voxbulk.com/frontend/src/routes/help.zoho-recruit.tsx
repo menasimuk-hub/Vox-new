@@ -1,8 +1,23 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { ArrowLeft } from "lucide-react";
+import { frontpageApiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/help/zoho-recruit")({
+  loader: async () => {
+    try {
+      const data = await frontpageApiFetch<{ visible?: boolean }>(
+        "/frontpage/integration-visibility/zoho_recruit",
+      );
+      if (!data?.visible) {
+        throw redirect({ to: "/help" });
+      }
+    } catch (e) {
+      if (e && typeof e === "object" && "to" in e) throw e;
+      throw redirect({ to: "/help" });
+    }
+    return {};
+  },
   head: () => ({
     meta: [
       { title: "Zoho Recruit AI Voice Screening — VoxBulk Help" },

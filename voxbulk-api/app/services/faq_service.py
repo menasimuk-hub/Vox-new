@@ -57,6 +57,7 @@ class FAQService:
                     db.add(product)
 
             for question, answer, slug, sort_order, featured in faqs:
+                linked = "zoho_recruit" if cat_slug == "zoho-recruit" else None
                 row = db.execute(select(FAQItem).where(FAQItem.slug == slug)).scalar_one_or_none()
                 if row is None:
                     row = db.execute(select(FAQItem).where(FAQItem.question == question)).scalar_one_or_none()
@@ -73,6 +74,7 @@ class FAQService:
                         meta_title=f"{question} | VoxBulk Help",
                         meta_description=answer[:155].rstrip() + ("…" if len(answer) > 155 else ""),
                         focus_keyword="voxbulk help",
+                        linked_provider=linked,
                         index_status="pending",
                         created_at=now,
                         updated_at=now,
@@ -83,6 +85,9 @@ class FAQService:
                     continue
                 # Existing row: keep Admin-edited Q&A; repair category placement + public SEO.
                 dirty = False
+                if linked and not str(getattr(row, "linked_provider", None) or "").strip():
+                    row.linked_provider = linked
+                    dirty = True
                 if not str(row.slug or "").strip():
                     row.slug = slug
                     dirty = True
@@ -149,6 +154,8 @@ class FAQService:
         published_only: bool = False,
         limit: int = 100,
         offset: int = 0,
+        viewer_email: str | None = None,
+        apply_integration_release_gate: bool = False,
     ) -> list[FAQItem]:
         FAQService.seed_defaults(db)
         stmt = select(FAQItem)
@@ -159,16 +166,40 @@ class FAQService:
         if search:
             q = f"%{search.strip()}%"
             stmt = stmt.where(or_(FAQItem.question.ilike(q), FAQItem.answer.ilike(q)))
-        return list(
+        rows = list(
             db.execute(
                 stmt.order_by(FAQItem.is_featured.desc(), FAQItem.sort_order.asc(), FAQItem.updated_at.desc())
                 .limit(min(max(limit, 1), 200))
                 .offset(max(offset, 0))
             ).scalars()
         )
+        if not apply_integration_release_gate:
+            return rows
+        from app.services.integration_release_service import IntegrationReleaseService
+
+        return [
+            r
+            for r in rows
+            if IntegrationReleaseService.can_view_faq_item(
+                db,
+                linked_provider=getattr(r, "linked_provider", None),
+                viewer_email=viewer_email,
+            )
+        ]
 
     @staticmethod
-    def upsert_item(db: Session, *, item_id: int | None, category_id: int | None, question: str, answer: str, is_featured: bool, is_published: bool, sort_order: int) -> FAQItem:
+    def upsert_item(
+        db: Session,
+        *,
+        item_id: int | None,
+        category_id: int | None,
+        question: str,
+        answer: str,
+        is_featured: bool,
+        is_published: bool,
+        sort_order: int,
+        linked_provider: str | None = None,
+    ) -> FAQItem:
         now = datetime.utcnow()
         row = db.get(FAQItem, item_id) if item_id else None
         if row is None:
@@ -181,6 +212,9 @@ class FAQService:
         row.is_featured = bool(is_featured)
         row.is_published = bool(is_published)
         row.sort_order = int(sort_order or 0)
+        if linked_provider is not None:
+            link = str(linked_provider or "").strip().lower() or None
+            row.linked_provider = link
         row.updated_at = now
         if not (row.slug or "").strip():
             base = slugify(row.question)
@@ -225,9 +259,11 @@ def item_to_dict(db: Session, item: FAQItem) -> dict:
         "category_name": cat_name,
         "question": item.question,
         "answer": item.answer,
+        "slug": item.slug,
         "is_featured": bool(item.is_featured),
         "is_published": bool(item.is_published),
         "sort_order": item.sort_order,
+        "linked_provider": getattr(item, "linked_provider", None),
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

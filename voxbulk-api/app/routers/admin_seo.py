@@ -458,6 +458,20 @@ def public_faq_item(slug: str, db: Session = Depends(get_db)):
     return svc.public_faq_by_slug(db, slug)
 
 
+@public_router.get("/integration-visibility/{provider_key}")
+def public_integration_visibility(provider_key: str, db: Session = Depends(get_db)):
+    """Anonymous check: whether a provider is Live (public help / marketing)."""
+    from app.services.integration_release_service import IntegrationReleaseService
+
+    key = str(provider_key or "").strip().lower()
+    visible = IntegrationReleaseService.can_view_provider(db, key, None)
+    return {
+        "provider": key,
+        "visible": bool(visible),
+        "release_mode": IntegrationReleaseService.get_release_mode(db, key) if key else "testing",
+    }
+
+
 @public_router.get("/seo/content/{kind}/{slug}")
 def public_content_seo(kind: str, slug: str, db: Session = Depends(get_db)):
     return svc.public_content_seo(db, kind, slug)

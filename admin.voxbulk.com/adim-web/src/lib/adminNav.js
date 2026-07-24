@@ -49,6 +49,7 @@ export const NAV = [
     [
       ['All organisations', '/organisations'],
       ['All users', '/organisations/all-users'],
+      ['Test group', '/organisations/test-group'],
       ['GB users', '/organisations/zone/gb'],
       ['USA users', '/organisations/zone/us'],
       ['Canada users', '/organisations/zone/ca'],

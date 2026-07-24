@@ -14,9 +14,18 @@ router = APIRouter(tags=["faq"])
 
 
 @router.get("/faq")
-def public_faq(search: str | None = None, db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
+def public_faq(search: str | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    user = db.get(User, principal.user_id)
+    viewer_email = getattr(user, "email", None) if user else None
     cats = FAQService.list_categories(db)
-    items = FAQService.list_items(db, search=search, published_only=True, limit=200)
+    items = FAQService.list_items(
+        db,
+        search=search,
+        published_only=True,
+        limit=200,
+        viewer_email=viewer_email,
+        apply_integration_release_gate=True,
+    )
     grouped = []
     for c in cats:
         rows = [item_to_dict(db, i) for i in items if i.category_id == c.id]

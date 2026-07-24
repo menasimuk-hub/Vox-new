@@ -169,6 +169,7 @@ class ProviderSettingsService:
         is_enabled: bool,
         config: dict[str, Any],
         visible_to_orgs: bool | None = None,
+        release_mode: str | None = None,
     ) -> ProviderConfig:
         provider = provider.lower()
         ProviderSettingsService._assert_provider(provider)
@@ -263,23 +264,39 @@ class ProviderSettingsService:
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         cipher = enc.encrypt_str(payload)
 
+        from app.services.integration_release_service import (
+            IntegrationReleaseService,
+            normalize_release_mode,
+            release_mode_to_visible,
+            visible_to_release_mode,
+            RELEASE_TESTING,
+        )
+
+        # Prefer explicit release_mode; fall back to legacy visible_to_orgs.
+        resolved_mode: str | None = None
+        if release_mode is not None:
+            resolved_mode = normalize_release_mode(release_mode, default=RELEASE_TESTING)
+        elif visible_to_orgs is not None:
+            resolved_mode = visible_to_release_mode(bool(visible_to_orgs))
+
         obj = existing
 
         if obj is None:
-            resolved_visible = bool(visible_to_orgs) if visible_to_orgs is not None else False
+            mode = resolved_mode if resolved_mode is not None else RELEASE_TESTING
             obj = ProviderConfig(
                 scope="platform",
                 org_id=None,
                 provider=provider,
                 is_enabled=is_enabled,
-                visible_to_orgs=resolved_visible,
+                visible_to_orgs=release_mode_to_visible(mode),
+                release_mode=mode,
                 encrypted_json=cipher,
             )
         else:
             obj.is_enabled = is_enabled
             obj.encrypted_json = cipher
-            if visible_to_orgs is not None:
-                obj.visible_to_orgs = bool(visible_to_orgs)
+            if resolved_mode is not None:
+                IntegrationReleaseService.apply_release_mode_to_config(obj, resolved_mode)
             obj.updated_at = datetime.utcnow()
 
         db.add(obj)
@@ -1159,6 +1176,7 @@ class ProviderSettingsService:
                 "exists": False,
                 "is_enabled": False,
                 "visible_to_orgs": False,
+                "release_mode": "testing",
                 "updated_at": None,
                 "configured": False,
                 "missing_fields": sorted(list(ProviderSettingsService._required_fields(provider))),
@@ -1179,11 +1197,16 @@ class ProviderSettingsService:
             cfg = validate_meta_whatsapp_config(cfg)
         missing = ProviderSettingsService._missing_fields(provider, cfg)
         configured = bool(enabled) and len(missing) == 0
+        from app.services.integration_release_service import normalize_release_mode, visible_to_release_mode
+
+        mode = getattr(obj, "release_mode", None) or visible_to_release_mode(getattr(obj, "visible_to_orgs", False))
+        mode = normalize_release_mode(mode)
         return {
             "provider": provider,
             "exists": True,
             "is_enabled": bool(obj.is_enabled),
             "visible_to_orgs": bool(getattr(obj, "visible_to_orgs", False)),
+            "release_mode": mode,
             "updated_at": obj.updated_at,
             "configured": configured,
             "missing_fields": missing,

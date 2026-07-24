@@ -3,18 +3,13 @@
 This is the single source of truth for the redesigned dashboard Integrations
 page. It joins:
 
-- admin platform config (`provider_configs.is_enabled` + `visible_to_orgs`)
-- per-org connection state (`scheduling_config_json` / `hubspot_config_json`)
-- a hard-coded provider registry (label, description, group, action URLs)
+- admin platform config (`provider_configs.is_enabled` + `release_mode`)
+- partner Zoho Recruit (`enabled` + `release_mode`)
+- per-org connection state
+- Admin Test group emails (when release_mode is testing)
 
-Wave 1 surfaces six providers split across two groups:
-
-- ``booking``: Calendly, Cal.com, Google Calendar, HubSpot Meetings, Microsoft Calendar
-- ``crm``: HubSpot
-
-A provider is only included in ``list_integrations_for_org`` when both
-``is_enabled`` and ``visible_to_orgs`` are true on its admin row (with
-sensible fallbacks for the legacy single-toggle world).
+A provider is included when enabled and either Live, or Testing and the
+viewer login email is in the Test group.
 """
 
 from __future__ import annotations
@@ -149,19 +144,19 @@ def _admin_rows(db: Session) -> dict[str, ProviderConfig]:
     return {row.provider: row for row in rows}
 
 
-def _is_provider_visible(spec: ProviderSpec, admin_row: ProviderConfig | None, db: Session | None = None) -> bool:
-    # Zoho Recruit is gated by Admin → Partners → Zoho (not provider_configs).
-    if spec.key == "zoho_recruit":
-        if db is None:
-            return False
-        from app.services.zoho_recruit_connection_service import partner_provider_enabled, platform_oauth_configured
+def _is_provider_visible(
+    spec: ProviderSpec,
+    admin_row: ProviderConfig | None,
+    db: Session | None = None,
+    *,
+    viewer_email: str | None = None,
+) -> bool:
+    from app.services.integration_release_service import IntegrationReleaseService
 
-        return bool(partner_provider_enabled(db) and platform_oauth_configured(db))
-    if admin_row is None:
+    if db is None:
         return False
-    if not bool(admin_row.is_enabled):
-        return False
-    return bool(getattr(admin_row, "visible_to_orgs", False))
+    # Enabled + Testing/Live + Test group (login email).
+    return IntegrationReleaseService.can_view_provider(db, spec.key, viewer_email)
 
 
 def _ats_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
@@ -397,13 +392,20 @@ def _iso_or_none(value: Any) -> str | None:
     return str(value)
 
 
-def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[str, Any]]]:
+def list_integrations_for_org(
+    db: Session,
+    org_id: str,
+    *,
+    viewer_email: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """Return the integrations the org can see, grouped by category."""
     from app.services.crm_connection_service import active_crm_provider, crm_provider_label
     from app.services.crm_providers import CRM_DEPENDENT_BOOKING
+    from app.services.integration_release_service import IntegrationReleaseService, RELEASE_TESTING
 
     org = db.get(Organisation, org_id)
     admin_rows = _admin_rows(db)
+    is_tester = IntegrationReleaseService.is_tester(db, viewer_email)
 
     booking: list[dict[str, Any]] = []
     crm: list[dict[str, Any]] = []
@@ -421,10 +423,11 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
 
     for spec in PROVIDER_REGISTRY:
         admin_row = admin_rows.get(spec.admin_provider)
-        visible = _is_provider_visible(spec, admin_row, db)
+        visible = _is_provider_visible(spec, admin_row, db, viewer_email=viewer_email)
         if not visible:
             continue
         platform_ready = _platform_ready_for(spec, db)
+        release_mode = IntegrationReleaseService.get_release_mode(db, spec.key)
         if spec.group == BOOKING_GROUP and org is not None:
             connection_view = _booking_connection_view(spec, org, db)
         elif spec.group == CRM_GROUP and org is not None:
@@ -474,7 +477,9 @@ def list_integrations_for_org(db: Session, org_id: str) -> dict[str, list[dict[s
             "short_description": spec.short_description,
             "icon_slug": spec.icon_slug,
             "platform_ready": platform_ready,
-            "visible_to_orgs": True,
+            "visible_to_orgs": release_mode != RELEASE_TESTING,
+            "release_mode": release_mode,
+            "testing": release_mode == RELEASE_TESTING and is_tester,
             "connected": bool(connection_view.get("connected")),
             "connected_account": connection_view.get("connected_account"),
             "connected_at": _iso_or_none(connection_view.get("connected_at")),

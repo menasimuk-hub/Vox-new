@@ -875,18 +875,19 @@ export default function Integrations() {
   const setProviderEnabled = (providerKey, value) => {
     setProviderDrafts((s) => {
       const next = { ...(s[providerKey] || {}), is_enabled: Boolean(value) }
-      // Booking/CRM providers: enabling should show on customer dashboards unless admin hides explicitly.
+      // Booking/CRM: enabling defaults to Live unless admin already chose Testing.
       if (VISIBLE_TO_ORGS_PROVIDERS.includes(providerKey) && Boolean(value)) {
-        next.visible_to_orgs = true
+        if (next.release_mode == null) next.release_mode = 'live'
       }
       return { ...s, [providerKey]: next }
     })
   }
 
-  const setProviderVisible = (providerKey, value) => {
+  const setProviderReleaseMode = (providerKey, value) => {
+    const mode = value === 'live' ? 'live' : 'testing'
     setProviderDrafts((s) => ({
       ...s,
-      [providerKey]: { ...(s[providerKey] || {}), visible_to_orgs: Boolean(value) },
+      [providerKey]: { ...(s[providerKey] || {}), release_mode: mode, visible_to_orgs: mode === 'live' },
     }))
   }
 
@@ -1075,21 +1076,27 @@ export default function Integrations() {
         config.auth_mode = 'private_app'
       }
       const isEnabled = draft.is_enabled == null ? Boolean(existing.is_enabled) : Boolean(draft.is_enabled)
-      let visibleToOrgs =
-        draft.visible_to_orgs == null ? Boolean(existing.visible_to_orgs) : Boolean(draft.visible_to_orgs)
+      let releaseMode =
+        draft.release_mode != null
+          ? draft.release_mode
+          : existing.release_mode || (existing.visible_to_orgs ? 'live' : 'testing')
       if (
         VISIBLE_TO_ORGS_PROVIDERS.includes(providerKey) &&
         isEnabled &&
+        draft.release_mode == null &&
         draft.visible_to_orgs == null &&
-        !existing.visible_to_orgs
+        !existing.visible_to_orgs &&
+        existing.release_mode !== 'testing'
       ) {
-        visibleToOrgs = true
+        releaseMode = 'live'
       }
+      releaseMode = releaseMode === 'live' ? 'live' : 'testing'
       const updated = await apiFetch(`/admin/integrations/${providerKey}`, {
         method: 'PUT',
         body: JSON.stringify({
           is_enabled: isEnabled,
-          visible_to_orgs: visibleToOrgs,
+          release_mode: releaseMode,
+          visible_to_orgs: releaseMode === 'live',
           config,
         }),
       })
@@ -1120,7 +1127,7 @@ export default function Integrations() {
   const hasUnsavedProviderDraft = (providerKey) => {
     const draft = providerDrafts[providerKey]
     if (!draft || typeof draft !== 'object') return false
-    if (draft.is_enabled !== undefined || draft.visible_to_orgs !== undefined) return true
+    if (draft.is_enabled !== undefined || draft.visible_to_orgs !== undefined || draft.release_mode !== undefined) return true
     if (draft.config && Object.keys(draft.config).length > 0) return true
     for (const [key, value] of Object.entries(draft)) {
       if (key.endsWith('_draft') && String(value || '').trim()) return true
@@ -1137,8 +1144,11 @@ export default function Integrations() {
   const activeDraft = activeProvider ? providerDrafts[activeProvider] || {} : {}
   const activeConfig = { ...(activeSummary.config || {}), ...(activeDraft.config || {}) }
   const activeEnabled = activeDraft.is_enabled == null ? Boolean(activeSummary.is_enabled) : Boolean(activeDraft.is_enabled)
-  const activeVisible = activeDraft.visible_to_orgs == null ? Boolean(activeSummary.visible_to_orgs) : Boolean(activeDraft.visible_to_orgs)
-  const showActiveVisibilityToggle = VISIBLE_TO_ORGS_PROVIDERS.includes(activeProvider || '')
+  const activeReleaseMode =
+    activeDraft.release_mode != null
+      ? activeDraft.release_mode
+      : activeSummary.release_mode || (activeSummary.visible_to_orgs ? 'live' : 'testing')
+  const showActiveReleaseToggle = VISIBLE_TO_ORGS_PROVIDERS.includes(activeProvider || '')
   const openAIStatus = activeProvider === 'openai' ? openAIValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const azureStatus = activeProvider === 'azure_speech' ? azureSpeechValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -2181,9 +2191,9 @@ export default function Integrations() {
           <IntegrationProviderShell
             summary={activeSummary}
             providerError={providerError}
-            showVisibilityToggle={showActiveVisibilityToggle}
-            visibleToOrgs={activeVisible}
-            onVisibleToOrgsChange={showActiveVisibilityToggle ? ((value) => setProviderVisible(activeProvider, value)) : undefined}
+            showReleaseToggle={showActiveReleaseToggle}
+            releaseMode={activeReleaseMode === 'live' ? 'live' : 'testing'}
+            onReleaseModeChange={showActiveReleaseToggle ? ((value) => setProviderReleaseMode(activeProvider, value)) : undefined}
           >
             <div className='stack'>
             {activeProvider === 'azure_speech' ? (

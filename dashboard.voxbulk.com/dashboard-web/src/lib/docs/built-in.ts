@@ -291,7 +291,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         group: "Booking providers",
         title: "Why a provider may be hidden from your list",
         routes: ["/settings/integrations"],
-        body: "Every integration has two admin-side flags:\n\n• Platform credentials configured — VoxBulk's OAuth app is wired up.\n• Visible to organisations — actually show this provider in customer dashboards.\n\nA provider only appears in your Integrations page when BOTH flags are on. This lets VoxBulk admins finish setting up a new provider privately, test it themselves, and only flip it on once it is ready. If you expect a provider to be there and it isn't, ask your admin to confirm both flags are on.",
+        body: "Every customer-facing integration (Booking, CRM, Recruiting) has:\n\n• Enable — platform credentials are configured and usable.\n• Release: Testing | Live — Testing shows the tile (and its linked FAQs) only to emails on the Admin Test group list. Live shows them to every organisation.\n\nA provider only appears on your Integrations page when it is enabled and either Live, or Testing and your login email is a tester. If you expect a provider and do not see it, ask your admin.",
       },
       {
         id: "settings-team",

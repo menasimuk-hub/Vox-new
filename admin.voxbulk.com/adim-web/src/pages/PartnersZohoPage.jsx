@@ -24,6 +24,7 @@ export default function PartnersZohoPage() {
   const [tab, setTab] = useState('connection')
   const [enabled, setEnabled] = useState(false)
   const [mode, setMode] = useState('sandbox')
+  const [releaseMode, setReleaseMode] = useState('testing')
   const [connection, setConnection] = useState('none')
   const [mappedOrg, setMappedOrg] = useState('')
   const [orgOptions, setOrgOptions] = useState([])
@@ -51,6 +52,7 @@ export default function PartnersZohoPage() {
     const cfg = p.config || {}
     setEnabled(!!p.enabled)
     setMode(p.mode || 'sandbox')
+    setReleaseMode(p.release_mode === 'live' ? 'live' : 'testing')
     setMappedOrg(p.mapped_org_id || '')
     setResultWebhook(p.result_webhook_url || '')
     setClientId(cfg.client_id || '')
@@ -96,6 +98,7 @@ export default function PartnersZohoPage() {
     const body = {
       enabled,
       mode,
+      release_mode: releaseMode === 'live' ? 'live' : 'testing',
       mapped_org_id: mappedOrg || null,
       result_webhook_url: resultWebhook || '',
       config: {
@@ -218,6 +221,19 @@ export default function PartnersZohoPage() {
             <span className='partners-field-label'>Mode</span>
             <select className='partners-control' style={{ maxWidth: 180 }} value={mode} onChange={(e) => setMode(e.target.value)}>
               <option value='sandbox'>Sandbox</option>
+              <option value='live'>Live</option>
+            </select>
+          </div>
+          <div className='partners-field-row'>
+            <span className='partners-field-label'>Dashboard release</span>
+            <select
+              className='partners-control'
+              style={{ maxWidth: 180 }}
+              value={releaseMode}
+              onChange={(e) => setReleaseMode(e.target.value)}
+              title='Testing: only Test group emails see Zoho Recruit + its FAQs. Live: everyone.'
+            >
+              <option value='testing'>Testing</option>
               <option value='live'>Live</option>
             </select>
           </div>

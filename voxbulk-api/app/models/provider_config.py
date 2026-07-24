@@ -30,6 +30,8 @@ class ProviderConfig(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # twilio/dentally/vapi/gocardless
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     visible_to_orgs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # testing = Test group emails only; live = all orgs. Synced with visible_to_orgs on write.
+    release_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="testing", server_default="testing")
 
     encrypted_json: Mapped[str] = mapped_column(Text, nullable=False)
 

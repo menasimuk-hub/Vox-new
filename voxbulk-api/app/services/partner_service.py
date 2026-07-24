@@ -802,11 +802,14 @@ class PartnerService:
 
     @staticmethod
     def _provider_dict(p: PartnerProvider) -> dict[str, Any]:
+        from app.services.integration_release_service import normalize_release_mode
+
         return {
             "key": p.key,
             "label": p.label,
             "enabled": bool(p.enabled),
             "mode": p.mode,
+            "release_mode": normalize_release_mode(getattr(p, "release_mode", None)),
             "mapped_org_id": p.mapped_org_id,
             "result_webhook_url": p.result_webhook_url,
             "webhook_secret_set": bool(p.webhook_secret_enc),
@@ -830,6 +833,8 @@ class PartnerService:
             p.enabled = bool(payload["enabled"])
         if payload.get("mode") in {"sandbox", "live"}:
             p.mode = payload["mode"]
+        if payload.get("release_mode") in {"testing", "live"}:
+            p.release_mode = payload["release_mode"]
         if "mapped_org_id" in payload:
             org_id = payload["mapped_org_id"]
             if org_id:

@@ -33,6 +33,7 @@ export default function App() {
         <Route path='/dashboard/llm-call-spend' element={<Navigate to='/dashboard' replace />} />
 
         <Route path='/organisations' element={<P.Organisations />} />
+        <Route path='/organisations/test-group' element={<P.IntegrationTestGroup />} />
         <Route path='/organisations/all-users' element={<P.OrgControlCenter />} />
         <Route path='/organisations/all-users/:orgId' element={<P.OrgControlCenter />} />
         <Route path='/organisations/profile' element={<P.OrganisationProfile />} />

@@ -17,7 +17,9 @@ class PartnerProvider(Base):
     key: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     label: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="sandbox")  # sandbox|live
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="sandbox")  # sandbox|live (API keys)
+    # testing = Test group only on dashboard/FAQ; live = everyone. Separate from mode.
+    release_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="testing", server_default="testing")
     mapped_org_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=True, index=True)
     result_webhook_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     webhook_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)

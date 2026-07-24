@@ -17,6 +17,8 @@ export type IntegrationView = {
   icon_slug: string;
   platform_ready: boolean;
   visible_to_orgs: boolean;
+  release_mode?: "testing" | "live";
+  testing?: boolean;
   connected: boolean;
   connected_account: string | null;
   connected_at: string | null;
@@ -76,7 +78,14 @@ export function ProviderTile({ view, active, onOpen }: Props) {
       </div>
       <div className="flex min-h-20 min-w-0 flex-1 flex-col justify-center gap-1 px-3 py-2 sm:min-h-[5.5rem]">
         <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-semibold leading-snug">{view.label}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-snug">
+            <span className="truncate">{view.label}</span>
+            {view.testing ? (
+              <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                Testing
+              </span>
+            ) : null}
+          </span>
           <IntegrationStatusPill status={status} />
         </div>
         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{subline}</p>
