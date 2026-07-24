@@ -24,7 +24,7 @@ export const Route = createFileRoute("/help/zoho-recruit")({
       {
         name: "description",
         content:
-          "How to connect VoxBulk AI Voice Screening to Zoho Recruit: install, API setup, English/Arabic screening, pricing, privacy, and support.",
+          "Hybrid Zoho Recruit + VoxBulk: connect OAuth, import candidates in Dashboard, run AI interviews and ATS, scores write back to Zoho Notes.",
       },
       { name: "robots", content: "index,follow" },
       { property: "og:title", content: "Zoho Recruit AI Voice Screening — VoxBulk Help" },
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/help/zoho-recruit")({
           "@type": "HowTo",
           name: "Connect VoxBulk AI Voice Screening to Zoho Recruit",
           description:
-            "Install VoxBulk from Zoho Marketplace, connect your account, and run AI voice candidate screening in English or Arabic.",
+            "Connect Zoho Recruit in VoxBulk Dashboard, import candidates, run AI interviews, and write scores back to Zoho.",
           step: [
             {
               "@type": "HowToStep",
@@ -48,18 +48,18 @@ export const Route = createFileRoute("/help/zoho-recruit")({
             },
             {
               "@type": "HowToStep",
-              name: "Install from Zoho Marketplace",
-              text: "Open the VoxBulk AI Voice Screening listing for Zoho Recruit and follow the vendor install redirect.",
+              name: "Connect Zoho Recruit",
+              text: "In Dashboard → Settings → Integrations → Recruiting, connect Zoho Recruit and pick your data centre.",
             },
             {
               "@type": "HowToStep",
-              name: "Connect credentials",
-              text: "In VoxBulk Admin → Partners → Zoho, generate sandbox keys and map your organisation.",
+              name: "Create an interview campaign",
+              text: "Open Interviews → New, generate and approve AI questions, then import candidates from Zoho in Step 2.",
             },
             {
               "@type": "HowToStep",
-              name: "Send a test candidate",
-              text: "Send a test job with candidate name, phone, and language en or ar, then confirm score and report return.",
+              name: "Launch and write back",
+              text: "Run ATS if needed, launch AI interviews. Scores and status write back to Zoho Candidate Notes.",
             },
           ],
         }),
@@ -87,18 +87,20 @@ function ZohoRecruitHelp() {
             Connect VoxBulk AI Voice Screening to Zoho Recruit
           </h1>
           <p className="mt-5 text-[17px] leading-[1.75] text-navy/75">
-            VoxBulk runs AI voice interviews for candidates in Zoho Recruit — English and Arabic — then returns a
-            score, status, and report so recruiters can shortlist faster.
+            Use VoxBulk Dashboard for the full interview workflow. Import your Zoho candidate list, run AI questions,
+            optional email CV + ATS, then AI calls. When interviews finish, VoxBulk writes score and status back to the
+            Zoho Candidate as Notes (English and Arabic).
           </p>
 
           <div className="mt-10 space-y-10 text-[17px] leading-[1.75] text-navy/85">
             <section>
               <h2 className="font-serif text-[26px] text-navy">What you get</h2>
               <ul className="mt-4 list-disc pl-5 space-y-2">
-                <li>AI phone screening with your job questions</li>
+                <li>Import candidates from Zoho Recruit into a VoxBulk interview campaign</li>
+                <li>AI-generated interview questions you approve once per campaign</li>
+                <li>Optional careers@ email CV intake and ATS scoring before dial</li>
                 <li>Languages: English (en) and Arabic (ar)</li>
-                <li>Score 0–100 and status: passed / review / rejected</li>
-                <li>Call duration and report link returned to your workflow</li>
+                <li>Score 0–100 and status: passed / review / rejected written back to Zoho Notes</li>
               </ul>
             </section>
 
@@ -112,22 +114,28 @@ function ZohoRecruitHelp() {
                   </a>
                   .
                 </li>
-                <li>Open the VoxBulk AI Voice Screening extension for Zoho Recruit on Zoho Marketplace and install (vendor redirect).</li>
                 <li>
-                  In VoxBulk Admin → <strong>Partners → Zoho Marketplace</strong>, generate sandbox API keys and map
-                  your organisation.
+                  Optional: install the VoxBulk extension from Zoho Marketplace (Candidate widget → Open VoxBulk).
                 </li>
-                <li>Send a test candidate (name, phone E.164, job title, questions, language en or ar).</li>
-                <li>Confirm the result webhook / score appears and review the report link.</li>
-                <li>When ready, switch to live keys and go live.</li>
+                <li>
+                  In Dashboard → <strong>Settings → Integrations → Recruiting</strong>, connect Zoho Recruit and choose
+                  your data centre.
+                </li>
+                <li>
+                  Open <strong>Interviews → New</strong>: generate and approve AI questions, then in Step 2 use{" "}
+                  <strong>Import from Zoho Recruit</strong> (filter by job/stage).
+                </li>
+                <li>Optionally enable email CV collection and run ATS, then launch AI interviews.</li>
+                <li>After each completed interview, open the Candidate in Zoho and confirm the VoxBulk Notes writeback.</li>
               </ol>
             </section>
 
             <section>
               <h2 className="font-serif text-[26px] text-navy">Pricing</h2>
               <p className="mt-4">
-                £1.50 connection fee + £0.35 per minute. Typical completed screen about £7–£9. No upfront install fee.
-                Zoho Marketplace may keep a platform commission on remitted usage.
+                Usage is billed on VoxBulk (interview connection fee + per-minute rate, and ATS CV scan fees where
+                applicable). Typical completed voice screen about £7–£9. Marketplace listing is a connector — metered
+                voice is not sold as Zoho checkout minutes.
               </p>
             </section>
 
@@ -135,8 +143,8 @@ function ZohoRecruitHelp() {
               <h2 className="font-serif text-[26px] text-navy">Personal data</h2>
               <p className="mt-4">
                 We store candidate name, phone, email (if provided), job details, screening Q&amp;A, language, call
-                recording/transcript, AI score/status, report URL, and ATS reference IDs. Your organisation is the
-                controller; VoxBulk is the processor. See{" "}
+                recording/transcript, AI score/status, report URL, and ATS reference IDs (including Zoho Candidate ID).
+                Your organisation is the controller; VoxBulk is the processor. See{" "}
                 <Link to="/privacy" className="text-gold font-semibold underline-offset-2 hover:underline">
                   Privacy Policy
                 </Link>
@@ -158,9 +166,9 @@ function ZohoRecruitHelp() {
                 .
               </p>
               <p className="mt-3">
-                More Zoho FAQs:{" "}
+                More help:{" "}
                 <Link to="/help" className="text-gold font-semibold underline-offset-2 hover:underline">
-                  Help centre → Zoho Recruit
+                  Help centre
                 </Link>
                 .
               </p>
