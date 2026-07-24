@@ -1,0 +1,9 @@
+{
+  "name": "voxbulk-zoho-recruit-extension",
+  "private": true,
+  "version": "1.0.0",
+  "description": "VoxBulk AI Voice Screening widget for Zoho Recruit Marketplace",
+  "scripts": {
+    "pack": "node scripts/pack.mjs"
+  }
+}

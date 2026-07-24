@@ -169,8 +169,22 @@
     }
   }
 
+  function mergeExtensionConfig(cfg) {
+    var next = Object.assign({}, cfg || {});
+    try {
+      if (window.ZOHO && ZOHO.RECRUIT && ZOHO.RECRUIT.CONFIG && typeof ZOHO.RECRUIT.CONFIG.getConfig === "function") {
+        var zc = ZOHO.RECRUIT.CONFIG.getConfig() || {};
+        if (zc.api_key && !next.api_key) next.api_key = String(zc.api_key);
+        if (zc.api_base && !next.api_base) next.api_base = String(zc.api_base);
+      }
+    } catch (e) {
+      /* ignore — Marketplace may inject config later */
+    }
+    return next;
+  }
+
   function bootUi() {
-    var cfg = loadConfig();
+    var cfg = mergeExtensionConfig(loadConfig());
     $("apiBase").value = cfg.api_base || "https://api.voxbulk.com";
     $("apiKey").value = cfg.api_key || "";
     if (!cfg.api_key) showSetup(true);
@@ -182,7 +196,7 @@
         api_key: $("apiKey").value.trim(),
       });
       showSetup(false);
-      setStatus("API key saved on this browser.");
+      setStatus("API key saved for this install.");
     };
     $("editSetup").onclick = function () {
       showSetup(true);
@@ -197,8 +211,16 @@
 
   if (window.ZOHO && ZOHO.embeddedApp) {
     ZOHO.embeddedApp.on("PageLoad", onPageLoad);
-    ZOHO.embeddedApp.init();
+    ZOHO.embeddedApp.init().then(function () {
+      var cfg = mergeExtensionConfig(loadConfig());
+      if (cfg.api_key) {
+        saveConfig(cfg);
+        $("apiBase").value = cfg.api_base || "https://api.voxbulk.com";
+        $("apiKey").value = cfg.api_key || "";
+        showSetup(false);
+      }
+    }).catch(function () {});
   } else {
-    setStatus("Zoho SDK not detected — open this widget inside Zoho Recruit.", true);
+    setStatus("Zoho SDK not detected — open this widget inside Zoho Recruit after Marketplace install.", true);
   }
 })();

@@ -1,22 +1,34 @@
-# VoxBulk Zoho Recruit widget
+# VoxBulk AI Voice Screening — Zoho Recruit Marketplace extension
 
-Embed AI Voice Screening inside Zoho Recruit (Candidate detail / custom button).
+Installable Zoho Recruit app. After Zoho Marketplace approval, customers **Install** VoxBulk and launch AI screening from a Candidate page.
 
-## Install (your Zoho — no Marketplace wait)
+## Backend (already live)
 
-### External host (fastest)
+| Step | System |
+|------|--------|
+| Create screening | `POST https://api.voxbulk.com/partner/v1/screenings` |
+| Headers | `X-API-Key`, `X-Partner-Name: zoho` |
+| Org Connect / Launch (fallback) | Dashboard → Integrations → Recruiting |
+| Score writeback | Zoho Candidate note/fields via OAuth on the VoxBulk org |
 
-1. Zoho Recruit → Setup → Widgets → Add widget  
-2. Hosting: External  
-3. URL: https://dashboard.voxbulk.com/zoho-recruit-widget/  
-4. Attach to Candidates detail or a Custom Button  
-5. Open Candidate → widget → paste Partner API key → Launch  
+## Package layout
 
-### Internal ZIP
+```
+zoho-recruit-extension/
+  plugin-manifest.json   # ZET / Marketplace widget locations
+  app/widget.html        # Candidate UI
+  app/js/widget.js
+  app/css/widget.css
+  app/img/logo.svg
+  dist/*.zip             # Upload / submit artifact
+  MARKETPLACE_SUBMIT.md  # Submit checklist for Zoho
+```
 
-Upload `dist/VoxBulk-Zoho-Recruit-Widget.zip` in Zoho Developer Console (Internal hosting).
+Hosted twin (external URL for widget hosting):
 
-Or rebuild:
+`https://dashboard.voxbulk.com/zoho-recruit-widget/`
+
+## Pack ZIP
 
 ```bash
 cd zoho-recruit-extension
@@ -25,18 +37,8 @@ zet validate
 zet pack
 ```
 
-## API key
+Or zip `app/` + `plugin-manifest.json` into `dist/VoxBulk-Zoho-Recruit-Widget.zip`.
 
-Admin → Partners → Zoho → API keys.
+## Admin
 
-## Writeback
-
-Admin Mapped org must have Dashboard → Integrations → Recruiting → Zoho Recruit connected.
-
-## Deluge fallback
-
-See `deluge/launch_screening.dg` for a Candidate custom button without a widget UI.
-
-## Marketplace
-
-Same widget; public listing needs Zoho Marketplace submission + review.
+Admin → Partners → Zoho → **Zoho app** tab = Marketplace submit / install notes only.

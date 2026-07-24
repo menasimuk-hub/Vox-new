@@ -1,6 +1,7 @@
 {
   "locale": ["en"],
   "service": "RECRUIT",
+  "whiteListedDomains": ["https://api.voxbulk.com", "https://dashboard.voxbulk.com"],
   "modules": {
     "widgets": [
       {

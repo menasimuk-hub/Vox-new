@@ -359,49 +359,15 @@ export default function PartnersZohoPage() {
               Generate live
             </button>
           </div>
-          <div className='partners-warn'>Keys show once. Copy immediately.</div>
-          <div className='partners-warn' style={{ marginTop: 16 }}>
-            <strong>Start screening from Zoho (custom button / Flow)</strong>
-            <p style={{ margin: '8px 0 0' }}>
-              In Zoho Recruit, add a Candidate custom button that POSTs to the inbound URL with your API key. Map the
-              Candidate ID as <code>partner_reference_id</code>. Dashboard users can also launch from Settings →
-              Integrations → Recruiting without this.
-            </p>
-            <pre
-              style={{
-                marginTop: 10,
-                padding: 10,
-                background: '#0f172a',
-                color: '#e2e8f0',
-                borderRadius: 8,
-                fontSize: 11,
-                overflow: 'auto',
-                userSelect: 'text',
-              }}
-            >{`curl -X POST ${INBOUND_URL} \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: YOUR_SANDBOX_OR_LIVE_KEY" \\
-  -H "X-Partner-Name: zoho" \\
-  -d '{
-    "partner_reference_id": "ZOHO_CANDIDATE_ID",
-    "job_title": "Sales Associate",
-    "screening_questions": ["Tell me about your experience."],
-    "candidate_name": "Jane Doe",
-    "candidate_phone": "+447700900000",
-    "preferred_language": "en"
-  }'`}</pre>
-            <button
-              type='button'
-              className='partners-btn partners-btn-secondary'
-              style={{ marginTop: 10 }}
-              onClick={() =>
-                copyText(
-                  `curl -X POST ${INBOUND_URL} -H "Content-Type: application/json" -H "X-API-Key: YOUR_KEY" -H "X-Partner-Name: zoho" -d "{\\"partner_reference_id\\":\\"ZOHO_CANDIDATE_ID\\",\\"job_title\\":\\"Sales Associate\\",\\"screening_questions\\":[\\"Tell me about your experience.\\"],\\"candidate_name\\":\\"Jane Doe\\",\\"candidate_phone\\":\\"+447700900000\\",\\"preferred_language\\":\\"en\\"}"`,
-                )
-              }
-            >
-              Copy curl
-            </button>
+          <div className='partners-warn'>Keys show once. Copy immediately. Used by the Marketplace widget and Partner API.</div>
+          <div className='partners-field-row' style={{ marginTop: 12 }}>
+            <span className='partners-field-label'>Inbound URL</span>
+            <span className='partners-readonly'>
+              {INBOUND_URL}
+              <button type='button' className='partners-copy-btn' onClick={() => copyText(INBOUND_URL)}>
+                <i className='ti ti-copy' />
+              </button>
+            </span>
           </div>
         </section>
       ) : null}
@@ -443,7 +409,9 @@ export default function PartnersZohoPage() {
       {tab === 'zoho-app' ? (
         <section className='partners-section'>
           <p className='partners-helper' style={{ marginBottom: 14 }}>
-            Install the VoxBulk widget inside Zoho Recruit so recruiters launch screenings from a Candidate page.
+            Ship VoxBulk inside Zoho Recruit via <strong>Zoho Marketplace</strong>. Customers Install the listing; screenings
+            still run through the Partner API and score writeback. Until Zoho approves the listing, use Dashboard →
+            Integrations → Recruiting → Launch screening.
           </p>
           <div className='partners-field-row'>
             <span className='partners-field-label'>Widget URL</span>
@@ -454,18 +422,31 @@ export default function PartnersZohoPage() {
               </button>
             </span>
           </div>
+          <div className='partners-field-row'>
+            <span className='partners-field-label'>Extension ZIP</span>
+            <span className='partners-readonly'>
+              zoho-recruit-extension/dist/VoxBulk-Zoho-Recruit-Widget.zip
+            </span>
+          </div>
           <ol style={{ margin: '0 0 16px', paddingLeft: 20, lineHeight: 1.6, fontSize: 13, color: '#334155' }}>
-            <li>In Zoho Recruit → Setup → Developer Space / Widgets → Add widget</li>
-            <li>Choose External hosting and paste the Widget URL above</li>
-            <li>Attach it to Candidates detail view or a Custom Button</li>
-            <li>Generate an API key on the API keys tab</li>
-            <li>Open a Candidate → open the widget → paste the API key once → Launch screening</li>
-            <li>Mapped org must have Dashboard → Integrations → Recruiting → Zoho Recruit connected (for score writeback)</li>
+            <li>Confirm this org: Enabled, Client ID/Secret, API key, Mapped org connected on Recruiting</li>
+            <li>Pack / use the extension ZIP from the repo (<code>zoho-recruit-extension/</code>)</li>
+            <li>
+              Open{' '}
+              <a href='https://marketplace.zoho.com/' target='_blank' rel='noreferrer'>
+                Zoho Marketplace
+              </a>{' '}
+              vendor console → submit a Zoho Recruit extension
+            </li>
+            <li>Upload the ZIP (or register the Widget URL if the form asks for external hosting)</li>
+            <li>Fill listing: name, screenshots, privacy policy, support URL — see repo checklist</li>
+            <li>Submit for Zoho review; after approval, customers Install from Marketplace</li>
+            <li>Customer pastes Partner API key once in the widget, then Launch from Candidate</li>
           </ol>
           <div className='partners-warn'>
-            ZIP for Internal hosting / Marketplace packaging lives in the repo at{' '}
-            <code>zoho-recruit-extension/dist/VoxBulk-Zoho-Recruit-Widget.zip</code>. Deluge custom-button script:{' '}
-            <code>zoho-recruit-extension/deluge/launch_screening.dg</code>.
+            Full submit checklist:{' '}
+            <code>zoho-recruit-extension/MARKETPLACE_SUBMIT.md</code>. Do not use Setup → Functions / Deluge for this
+            product path.
           </div>
           <div className='partners-btn-group'>
             <button type='button' className='partners-btn partners-btn-secondary' onClick={() => copyText(WIDGET_URL)}>
@@ -473,6 +454,14 @@ export default function PartnersZohoPage() {
             </button>
             <a className='partners-btn partners-btn-secondary' href={WIDGET_URL} target='_blank' rel='noreferrer'>
               Open widget
+            </a>
+            <a
+              className='partners-btn partners-btn-secondary'
+              href='https://marketplace.zoho.com/'
+              target='_blank'
+              rel='noreferrer'
+            >
+              Zoho Marketplace
             </a>
           </div>
         </section>
