@@ -102,10 +102,20 @@ def test_member_lists_only_own_service_orders(app_client):
         org.enabled_services_json = serialize_enabled_services(enabled)
         db.add(org)
         order_a = ServiceOrderService.create_order(
-            db, org_id=org.id, user_id=member_a.id, service_code="interview", title="A campaign"
+            db,
+            org_id=org.id,
+            user_id=member_a.id,
+            service_code="interview",
+            title="A campaign",
+            config={"draft_saved_by_user": True, "role": "Engineer"},
         )
         order_b = ServiceOrderService.create_order(
-            db, org_id=org.id, user_id=member_b.id, service_code="interview", title="B campaign"
+            db,
+            org_id=org.id,
+            user_id=member_b.id,
+            service_code="interview",
+            title="B campaign",
+            config={"draft_saved_by_user": True, "role": "Designer"},
         )
         db.commit()
         org_id = org.id
