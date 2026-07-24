@@ -147,13 +147,51 @@ def test_google_calendar_missing_scopes(session, monkeypatch):
         monkeypatch,
         {
             "userinfo": _Resp(200, payload={"email": "owner@example.com"}),
-            "calendarList": _Resp(403, payload={"error": "insufficient_scopes"}, text="403"),
+            "calendarList": _Resp(403, payload={"error": {"message": "Request had insufficient authentication scopes."}}, text="403"),
         },
     )
 
     result = deep_health_check(session, org.id, "google_calendar")
     assert result["ok"] is False
     assert any(c["name"] == "scopes" for c in result["checks"])
+    assert any(c["name"] == "schedule_url" and c["status"] == "ok" for c in result["checks"])
+
+
+def test_google_calendar_api_disabled(session, monkeypatch):
+    from app.services.integration_test_service import deep_health_check
+
+    org = _seed_org(session)
+    _set_scheduling(
+        session,
+        org.id,
+        {
+            "provider": "google_calendar",
+            "access_token": "tok",
+            "schedule_url": "https://calendar.app.google/abc",
+        },
+    )
+    _patch_httpx(
+        monkeypatch,
+        {
+            "userinfo": _Resp(200, payload={"email": "owner@example.com"}),
+            "calendarList": _Resp(
+                403,
+                payload={
+                    "error": {
+                        "message": "Google Calendar API has not been used in project 123 before or it is disabled."
+                    }
+                },
+                text="403",
+            ),
+        },
+    )
+
+    result = deep_health_check(session, org.id, "google_calendar")
+    assert result["ok"] is False
+    assert any(
+        c["name"] == "calendars" and "Calendar API is disabled" in (c.get("message") or "")
+        for c in result["checks"]
+    )
 
 
 def test_microsoft_calendar_ok(session, monkeypatch):

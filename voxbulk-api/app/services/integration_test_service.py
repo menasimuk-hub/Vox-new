@@ -238,19 +238,36 @@ def _check_google_calendar(db: Session, org_id: str) -> list[dict[str, Any]]:
             headers=headers,
         )
     if cal_res.status_code == 403:
-        checks.append(
-            _check(
-                "scopes",
-                False,
-                "Missing calendar.readonly scope — disconnect and reconnect Google Calendar",
+        detail = ""
+        try:
+            detail = str((cal_res.json() or {}).get("error", {}).get("message") or "").strip()
+        except Exception:
+            detail = (cal_res.text or "")[:240].strip()
+        low = detail.lower()
+        if "has not been used" in low or "is disabled" in low or "accessnotconfigured" in low:
+            checks.append(
+                _check(
+                    "calendars",
+                    False,
+                    "Google Calendar API is disabled on this Cloud project — enable it in Google Cloud Console "
+                    "(APIs & Services → Library → Google Calendar API), wait a few minutes, then Test again",
+                )
             )
-        )
-        return checks
-    if cal_res.status_code >= 400:
+        else:
+            checks.append(
+                _check(
+                    "scopes",
+                    False,
+                    detail
+                    or "Calendar API returned 403 — disconnect and reconnect Google Calendar, and confirm the "
+                    "calendar scope was granted",
+                )
+            )
+    elif cal_res.status_code >= 400:
         checks.append(_check("calendars", False, f"Calendar list failed ({cal_res.status_code})"))
-        return checks
-    items = (cal_res.json() or {}).get("items") or []
-    checks.append(_check("calendars", True, f"{len(items)} calendars accessible"))
+    else:
+        items = (cal_res.json() or {}).get("items") or []
+        checks.append(_check("calendars", True, f"{len(items)} calendars accessible"))
 
     schedule_url = str(cfg.get("schedule_url") or "").strip()
     checks.append(
