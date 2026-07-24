@@ -2,14 +2,29 @@
 
 Installable Zoho Recruit app. After Zoho Marketplace approval, customers **Install** VoxBulk and launch AI screening from a Candidate page.
 
-## Backend (already live)
+Installable Zoho Recruit app. After Zoho Marketplace approval, customers **Install** VoxBulk and open the Candidate widget to jump into the VoxBulk Dashboard hybrid workflow (import list → AI interview → writeback).
+
+## Hybrid flow (recommended)
+
+| Step | Where |
+|------|--------|
+| Connect OAuth | Dashboard → Integrations → Recruiting |
+| Create campaign + AI questions | Dashboard → Interviews → New |
+| Import Zoho candidates | Interview wizard Step 2 |
+| Email CV + ATS | Dashboard (careers@ + Run ATS) |
+| AI calls + billing | VoxBulk wallet |
+| Score writeback | Zoho Candidate Notes (automatic) |
+
+## Backend
 
 | Step | System |
 |------|--------|
-| Create screening | `POST https://api.voxbulk.com/partner/v1/screenings` |
-| Headers | `X-API-Key`, `X-Partner-Name: zoho` |
-| Org Connect / Launch (fallback) | Dashboard → Integrations → Recruiting |
-| Score writeback | Zoho Candidate note/fields via OAuth on the VoxBulk org |
+| Import list | `POST /service-orders/zoho-recruit/candidates/import-to-order` |
+| Org Connect | Dashboard OAuth |
+| Score writeback | Notes on Candidate via OAuth |
+
+The Marketplace widget is **thin**: shows Candidate context + **Open VoxBulk** deep link (not a one-question launcher).
+
 
 ## Package layout
 

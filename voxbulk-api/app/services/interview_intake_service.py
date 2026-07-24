@@ -201,7 +201,11 @@ def compute_intake_errors(recipient: ServiceOrderRecipient) -> list[str]:
         errors.append("CV low-quality — generic questions only")
     elif quality == "corrupt":
         errors.append("CV unreadable")
-    elif quality == "missing" and str(recipient.intake_source or "") != "csv":
+    elif quality == "missing" and str(recipient.intake_source or "") not in {
+        "csv",
+        "zoho_recruit",
+        "merged",
+    }:
         errors.append("CV missing")
     # de-dupe preserve order
     seen: set[str] = set()

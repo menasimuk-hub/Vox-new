@@ -113,6 +113,9 @@ select {
   background: var(--accent);
   color: var(--accent-ink);
   flex: 1;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
 }
 
 .btn.ghost {

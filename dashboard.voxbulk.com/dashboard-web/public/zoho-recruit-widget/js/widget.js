@@ -1,44 +1,35 @@
 (function () {
-  var STORAGE_KEY = "voxbulk_zoho_widget_v1";
+  var DASH_BASE = "https://dashboard.voxbulk.com/interviews/new";
   var state = {
     candidateId: "",
     name: "",
-    phone: "",
-    email: "",
-    jobTitle: "AI voice screening",
   };
 
   function $(id) {
     return document.getElementById(id);
   }
 
-  function loadConfig() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function saveConfig(cfg) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg || {}));
+  function escapeHtml(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function setStatus(msg, isError) {
     var el = $("status");
+    if (!el) return;
     el.textContent = msg || "";
     el.className = "status" + (isError ? " err" : " muted");
   }
 
-  function showSetup(show) {
-    $("setup").classList.toggle("hidden", !show);
-    $("main").classList.toggle("hidden", show);
-  }
-
   function renderCandidate() {
     var box = $("candBox");
+    var link = $("openDash");
     if (!state.candidateId) {
-      box.innerHTML = '<div class="muted">Open a Candidate in Zoho Recruit, then open this widget.</div>';
+      box.innerHTML = '<div class="muted">Open a Candidate in Zoho Recruit to deep-link into VoxBulk.</div>';
+      if (link) link.href = DASH_BASE;
       return;
     }
     box.innerHTML =
@@ -48,17 +39,14 @@
       '<div class="muted">ID: ' +
       escapeHtml(state.candidateId) +
       "</div>";
-    $("phone").value = state.phone || "";
-    $("email").value = state.email || "";
-    if (state.jobTitle) $("jobTitle").value = state.jobTitle;
-  }
-
-  function escapeHtml(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    if (link) {
+      link.href =
+        DASH_BASE +
+        "?zoho_candidate_id=" +
+        encodeURIComponent(state.candidateId) +
+        (state.name ? "&zoho_candidate_name=" + encodeURIComponent(state.name) : "");
+    }
+    setStatus("Open VoxBulk to import this candidate into an interview campaign.");
   }
 
   function pickField(data, keys) {
@@ -74,9 +62,6 @@
     if (data && data.data && data.data[0]) row = data.data[0];
     if (!row || typeof row !== "object") return;
     state.name = pickField(row, ["Full_Name", "Last_Name", "First_Name", "name"]);
-    state.phone = pickField(row, ["Mobile", "Phone", "Secondary_Phone", "phone"]);
-    state.email = pickField(row, ["Email", "email"]);
-    state.jobTitle = pickField(row, ["Current_Job_Title", "Skill_Set"]) || state.jobTitle;
     if (row.id) state.candidateId = String(row.id);
     renderCandidate();
   }
@@ -91,10 +76,10 @@
           applyRecord(resp);
         })
         .catch(function () {
-          setStatus("Could not load candidate fields from Zoho — enter phone manually.", true);
+          setStatus("Could not load candidate fields — open VoxBulk and search by Candidate ID.", true);
         });
     } catch (e) {
-      setStatus("Could not load candidate fields from Zoho — enter phone manually.", true);
+      setStatus("Could not load candidate fields — open VoxBulk and search by Candidate ID.", true);
     }
   }
 
@@ -106,120 +91,11 @@
     else renderCandidate();
   }
 
-  async function launch() {
-    var cfg = loadConfig();
-    var apiKey = String(cfg.api_key || "").trim();
-    var apiBase = String(cfg.api_base || "https://api.voxbulk.com").replace(/\/$/, "");
-    var phone = $("phone").value.trim();
-    var candidateId = state.candidateId;
-    if (!apiKey) {
-      showSetup(true);
-      setStatus("Save your VoxBulk API key first.", true);
-      return;
-    }
-    if (!candidateId) {
-      setStatus("Open this widget from a Zoho Candidate record.", true);
-      return;
-    }
-    if (!phone) {
-      setStatus("Candidate phone is required.", true);
-      return;
-    }
-
-    $("launch").disabled = true;
-    $("linkOut").classList.add("hidden");
-    setStatus("Creating screening…");
-
-    try {
-      var res = await fetch(apiBase + "/partner/v1/screenings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey,
-          "X-Partner-Name": "zoho",
-        },
-        body: JSON.stringify({
-          partner_reference_id: candidateId,
-          job_title: $("jobTitle").value.trim() || "AI voice screening",
-          screening_questions: [$("question").value.trim() || "Tell me about your relevant experience for this role."],
-          candidate_name: state.name || "Candidate",
-          candidate_phone: phone,
-          candidate_email: $("email").value.trim() || undefined,
-          preferred_language: $("lang").value === "ar" ? "ar" : "en",
-        }),
-      });
-      var body = await res.json().catch(function () {
-        return {};
-      });
-      if (!res.ok) {
-        throw new Error(body.detail || body.message || "HTTP " + res.status);
-      }
-      var link = body.screening_link || "";
-      setStatus("Screening created (" + (body.status || "ok") + "). Invite sent when WhatsApp/email is configured.");
-      if (link) {
-        var a = $("linkOut");
-        a.href = link;
-        a.textContent = link;
-        a.classList.remove("hidden");
-      }
-    } catch (e) {
-      setStatus(e && e.message ? e.message : "Launch failed", true);
-    } finally {
-      $("launch").disabled = false;
-    }
-  }
-
-  function mergeExtensionConfig(cfg) {
-    var next = Object.assign({}, cfg || {});
-    try {
-      if (window.ZOHO && ZOHO.RECRUIT && ZOHO.RECRUIT.CONFIG && typeof ZOHO.RECRUIT.CONFIG.getConfig === "function") {
-        var zc = ZOHO.RECRUIT.CONFIG.getConfig() || {};
-        if (zc.api_key && !next.api_key) next.api_key = String(zc.api_key);
-        if (zc.api_base && !next.api_base) next.api_base = String(zc.api_base);
-      }
-    } catch (e) {
-      /* ignore — Marketplace may inject config later */
-    }
-    return next;
-  }
-
-  function bootUi() {
-    var cfg = mergeExtensionConfig(loadConfig());
-    $("apiBase").value = cfg.api_base || "https://api.voxbulk.com";
-    $("apiKey").value = cfg.api_key || "";
-    if (!cfg.api_key) showSetup(true);
-    else showSetup(false);
-
-    $("saveSetup").onclick = function () {
-      saveConfig({
-        api_base: $("apiBase").value.trim() || "https://api.voxbulk.com",
-        api_key: $("apiKey").value.trim(),
-      });
-      showSetup(false);
-      setStatus("API key saved for this install.");
-    };
-    $("editSetup").onclick = function () {
-      showSetup(true);
-    };
-    $("launch").onclick = function () {
-      launch();
-    };
-    renderCandidate();
-  }
-
-  bootUi();
+  renderCandidate();
 
   if (window.ZOHO && ZOHO.embeddedApp) {
     ZOHO.embeddedApp.on("PageLoad", onPageLoad);
-    ZOHO.embeddedApp.init().then(function () {
-      var cfg = mergeExtensionConfig(loadConfig());
-      if (cfg.api_key) {
-        saveConfig(cfg);
-        $("apiBase").value = cfg.api_base || "https://api.voxbulk.com";
-        $("apiKey").value = cfg.api_key || "";
-        showSetup(false);
-      }
-    }).catch(function () {});
+    ZOHO.embeddedApp.init().catch(function () {});
   } else {
     setStatus("Zoho SDK not detected — open this widget inside Zoho Recruit after Marketplace install.", true);
   }

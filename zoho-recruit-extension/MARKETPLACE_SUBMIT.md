@@ -32,10 +32,10 @@ Use this after the extension ZIP is ready. Zoho reviews the listing; approval ti
 
 **Name:** VoxBulk AI Voice Screening  
 
-**Short description:** AI phone screening for Zoho Recruit candidates (English & Arabic). Launch from the Candidate record; scores write back to Zoho.  
+**Short description:** AI phone screening for Zoho Recruit candidates (English & Arabic). Open VoxBulk from the Candidate record; import lists, run ATS and AI interviews in Dashboard; scores write back to Zoho Notes.  
 
 **Long description (draft):**  
-VoxBulk runs AI voice interviews for your candidates. Install the extension, open a Candidate, launch screening, and receive score and notes on the same Candidate after the call. Works across Zoho data centres. Screening traffic uses the VoxBulk Partner API; organisations connect Recruit OAuth from the VoxBulk dashboard for writeback.
+VoxBulk runs AI voice interviews for your candidates. Install the extension, open a Candidate, jump to VoxBulk Dashboard to create a campaign, import your Zoho list, approve AI questions, optionally collect CVs by email and run ATS, then launch AI calls. Scores and status write back to the same Zoho Candidate. Works across Zoho data centres. Organisations connect Recruit OAuth from the VoxBulk dashboard.
 
 **Category:** Recruiting / ATS / HR  
 

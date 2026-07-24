@@ -396,6 +396,12 @@ class InterviewAnalysisService:
             except Exception:
                 logger.exception("%s partner_result_webhook_failed", LOG_PREFIX)
             try:
+                from app.services.zoho_recruit_connection_service import maybe_writeback_interview_result
+
+                maybe_writeback_interview_result(db, order=order, recipient=recipient)
+            except Exception:
+                logger.exception("%s zoho_recruit_writeback_failed", LOG_PREFIX)
+            try:
                 from app.services.interview_session_billing_service import meter_session_if_needed
 
                 meter_session_if_needed(db, order, recipient)

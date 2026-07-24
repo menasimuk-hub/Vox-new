@@ -345,42 +345,186 @@ def _ensure_access_token(db: Session, org_id: str, partner_config: dict[str, Any
     return access_token, str(cfg.get("api_domain") or recruit_host)
 
 
-def list_recent_candidates(db: Session, org_id: str, *, page: int = 1, per_page: int = 50) -> list[dict[str, Any]]:
-    """Fetch recent Zoho Recruit candidates for the launch picker."""
+def _candidate_row_from_zoho(row: dict[str, Any]) -> dict[str, Any] | None:
+    cid = str(row.get("id") or "").strip()
+    if not cid:
+        return None
+    phone = str(row.get("Mobile") or row.get("Phone") or row.get("Secondary_Phone") or "").strip()
+    email = str(row.get("Email") or "").strip()
+    name = str(row.get("Full_Name") or row.get("Last_Name") or row.get("First_Name") or "").strip()
+    stage = str(
+        row.get("Candidate_Status")
+        or row.get("Application_Status")
+        or row.get("Stage")
+        or ""
+    ).strip()
+    job_lookup = row.get("Job_Opening_Name") or row.get("Job_Opening_ID") or {}
+    job_id = ""
+    job_name = ""
+    if isinstance(job_lookup, dict):
+        job_id = str(job_lookup.get("id") or "").strip()
+        job_name = str(job_lookup.get("name") or "").strip()
+    elif job_lookup:
+        job_name = str(job_lookup).strip()
+    return {
+        "id": cid,
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "job_title": str(row.get("Current_Job_Title") or row.get("Skill_Set") or job_name or "").strip(),
+        "stage": stage,
+        "job_id": job_id,
+        "job_name": job_name,
+        "phone_missing": not bool(phone),
+    }
+
+
+def list_job_openings(db: Session, org_id: str, *, page: int = 1, per_page: int = 50) -> list[dict[str, Any]]:
+    """List Zoho Recruit job openings for import filters."""
     token, api_domain = _ensure_access_token(db, org_id)
     page = max(1, int(page or 1))
     per_page = max(1, min(int(per_page or 50), 200))
     with httpx.Client(timeout=30.0) as client:
         res = client.get(
-            f"https://{api_domain}/recruit/v2/Candidates",
+            f"https://{api_domain}/recruit/v2/Job_Openings",
             headers={"Authorization": f"Zoho-oauthtoken {token}"},
             params={"page": page, "per_page": per_page, "sort_order": "desc", "sort_by": "Created_Time"},
         )
     if res.status_code == 204:
         return []
     if res.status_code >= 400:
-        raise ValueError(f"Zoho Candidates API HTTP {res.status_code}: {(res.text or '')[:200]}")
-    data = res.json() or {}
-    rows = data.get("data") or []
+        raise ValueError(f"Zoho Job Openings API HTTP {res.status_code}: {(res.text or '')[:200]}")
+    rows = (res.json() or {}).get("data") or []
     out: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        phone = (
-            str(row.get("Mobile") or row.get("Phone") or row.get("Secondary_Phone") or "").strip()
-        )
-        email = str(row.get("Email") or "").strip()
-        name = str(row.get("Full_Name") or row.get("Last_Name") or row.get("First_Name") or "").strip()
-        out.append(
-            {
-                "id": str(row.get("id") or "").strip(),
-                "name": name,
-                "email": email,
-                "phone": phone,
-                "job_title": str(row.get("Current_Job_Title") or row.get("Skill_Set") or "").strip(),
+        jid = str(row.get("id") or "").strip()
+        if not jid:
+            continue
+        title = str(row.get("Job_Opening_Name") or row.get("Posting_Title") or row.get("Name") or "").strip()
+        status = str(row.get("Job_Opening_Status") or row.get("Status") or "").strip()
+        out.append({"id": jid, "name": title or jid, "status": status})
+    return out
+
+
+def list_recent_candidates(
+    db: Session,
+    org_id: str,
+    *,
+    page: int = 1,
+    per_page: int = 50,
+    job_id: str | None = None,
+    stage: str | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch Zoho Recruit candidates (optional job / stage filters)."""
+    token, api_domain = _ensure_access_token(db, org_id)
+    page = max(1, int(page or 1))
+    per_page = max(1, min(int(per_page or 50), 200))
+    job = str(job_id or "").strip()
+    stage_f = str(stage or "").strip()
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    rows: list[Any] = []
+
+    with httpx.Client(timeout=30.0) as client:
+        if job:
+            # Preferred: candidates related to a Job Opening.
+            related = client.get(
+                f"https://{api_domain}/recruit/v2/Job_Openings/{job}/Candidates",
+                headers=headers,
+                params={"page": page, "per_page": per_page},
+            )
+            if related.status_code == 204:
+                rows = []
+            elif related.status_code < 400:
+                rows = (related.json() or {}).get("data") or []
+            else:
+                # Fallback: Applications related list, then map Candidate ids.
+                apps = client.get(
+                    f"https://{api_domain}/recruit/v2/Job_Openings/{job}/Applications",
+                    headers=headers,
+                    params={"page": page, "per_page": per_page},
+                )
+                if apps.status_code < 400 and apps.status_code != 204:
+                    app_rows = (apps.json() or {}).get("data") or []
+                    cand_ids: list[str] = []
+                    for ar in app_rows:
+                        if not isinstance(ar, dict):
+                            continue
+                        cand = ar.get("Candidate_Name") or ar.get("Candidate_ID") or ar.get("Candidate")
+                        if isinstance(cand, dict) and cand.get("id"):
+                            cand_ids.append(str(cand["id"]))
+                        elif ar.get("id") and str(ar.get("Candidate_Name") or "").strip():
+                            # Some orgs store candidate on Application itself
+                            pass
+                    for cid in cand_ids[:per_page]:
+                        one = client.get(
+                            f"https://{api_domain}/recruit/v2/Candidates/{cid}",
+                            headers=headers,
+                        )
+                        if one.status_code < 400:
+                            payload = one.json() or {}
+                            data = payload.get("data")
+                            if isinstance(data, list) and data:
+                                rows.append(data[0])
+                            elif isinstance(data, dict):
+                                rows.append(data)
+                elif related.status_code >= 400:
+                    raise ValueError(
+                        f"Zoho Job candidates API HTTP {related.status_code}: {(related.text or '')[:200]}"
+                    )
+        else:
+            params: dict[str, Any] = {
+                "page": page,
+                "per_page": per_page,
+                "sort_order": "desc",
+                "sort_by": "Created_Time",
             }
-        )
-    return [c for c in out if c.get("id")]
+            if stage_f:
+                safe = stage_f.replace("\\", "\\\\").replace('"', '\\"')
+                params["criteria"] = f'(Candidate_Status:equals:"{safe}")'
+            res = client.get(
+                f"https://{api_domain}/recruit/v2/Candidates",
+                headers=headers,
+                params=params,
+            )
+            if res.status_code == 204:
+                rows = []
+            elif res.status_code >= 400:
+                raise ValueError(f"Zoho Candidates API HTTP {res.status_code}: {(res.text or '')[:200]}")
+            else:
+                rows = (res.json() or {}).get("data") or []
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        mapped = _candidate_row_from_zoho(row)
+        if not mapped:
+            continue
+        if stage_f and mapped.get("stage") and mapped["stage"].lower() != stage_f.lower():
+            continue
+        if job and not mapped.get("job_id"):
+            mapped["job_id"] = job
+        out.append(mapped)
+    return out
+
+
+def _writeback_field_map(db: Session, org_id: str, partner_config: dict[str, Any] | None) -> dict[str, str]:
+    """Prefer org Integrations map; fall back to Admin Partners → Zoho config."""
+    org_cfg = get_recruit_config(db, org_id)
+    partner_cfg = partner_config if isinstance(partner_config, dict) else load_partner_oauth_config(db)
+    return {
+        "score_field": str(
+            org_cfg.get("score_field") or partner_cfg.get("score_field") or ""
+        ).strip(),
+        "status_field": str(
+            org_cfg.get("status_field") or partner_cfg.get("status_field") or ""
+        ).strip(),
+        "report_url_field": str(
+            org_cfg.get("report_url_field") or partner_cfg.get("report_url_field") or ""
+        ).strip(),
+    }
 
 
 def write_screening_result(
@@ -393,17 +537,17 @@ def write_screening_result(
     report_url: str | None,
     partner_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Push AI screening outcome onto a Zoho Recruit Candidate record."""
+    """Push AI screening outcome onto a Zoho Recruit Candidate record (Notes always)."""
     cid = str(candidate_id or "").strip()
     if not cid:
         return {"ok": False, "detail": "No Zoho candidate id (partner_reference_id)"}
 
     token, api_domain = _ensure_access_token(db, org_id, partner_config=partner_config)
     headers = {"Authorization": f"Zoho-oauthtoken {token}", "Content-Type": "application/json"}
-    cfg = partner_config if isinstance(partner_config, dict) else {}
-    score_field = str(cfg.get("score_field") or "").strip()
-    status_field = str(cfg.get("status_field") or "").strip()
-    report_field = str(cfg.get("report_url_field") or "").strip()
+    fields = _writeback_field_map(db, org_id, partner_config)
+    score_field = fields["score_field"]
+    status_field = fields["status_field"]
+    report_field = fields["report_url_field"]
 
     record: dict[str, Any] = {"id": cid}
     if score_field and score is not None:
@@ -459,3 +603,246 @@ def write_screening_result(
             )
 
     return {"ok": updated or note_ok, "candidate_updated": updated, "note_created": note_ok}
+
+
+def _loads_recipient_result(recipient: Any) -> dict[str, Any]:
+    import json
+
+    try:
+        raw = getattr(recipient, "result_json", None)
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str) and raw.strip():
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def recipient_zoho_candidate_id(recipient: Any) -> str:
+    data = _loads_recipient_result(recipient)
+    return str(data.get("zoho_recruit_candidate_id") or "").strip()
+
+
+def import_candidates_to_order(
+    db: Session,
+    org_id: str,
+    *,
+    order_id: str,
+    candidate_ids: list[str] | None = None,
+    job_id: str | None = None,
+    stage: str | None = None,
+    import_all_matching: bool = False,
+) -> dict[str, Any]:
+    """Idempotent import of Zoho Recruit candidates into an interview campaign."""
+    import json
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from app.models.service_order import ServiceOrder, ServiceOrderRecipient
+    from app.services.interview_intake_service import (
+        _assert_interview_draft,
+        _coerce_contact_phone,
+        compute_intake_errors,
+    )
+
+    order = db.get(ServiceOrder, order_id)
+    if order is None or str(order.org_id) != str(org_id):
+        raise ValueError("Interview order not found")
+    if str(order.service_code or "") != "interview":
+        raise ValueError("Order is not an interview campaign")
+    _assert_interview_draft(order)
+
+    ids = [str(x).strip() for x in (candidate_ids or []) if str(x).strip()]
+    job = str(job_id or "").strip() or None
+    stage_f = str(stage or "").strip() or None
+
+    listed = list_recent_candidates(db, org_id, page=1, per_page=200, job_id=job, stage=stage_f)
+    by_id = {str(c["id"]): c for c in listed if c.get("id")}
+
+    # Fetch any selected ids missing from the filtered page.
+    missing_ids = [i for i in ids if i not in by_id]
+    if missing_ids:
+        token, api_domain = _ensure_access_token(db, org_id)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        with httpx.Client(timeout=30.0) as client:
+            for cid in missing_ids:
+                res = client.get(f"https://{api_domain}/recruit/v2/Candidates/{cid}", headers=headers)
+                if res.status_code >= 400:
+                    continue
+                payload = res.json() or {}
+                data = payload.get("data")
+                row = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
+                if isinstance(row, dict):
+                    mapped = _candidate_row_from_zoho(row)
+                    if mapped:
+                        by_id[mapped["id"]] = mapped
+
+    if import_all_matching and not ids:
+        selected = list(by_id.values())
+    else:
+        selected = [by_id[i] for i in ids if i in by_id]
+    if not selected:
+        raise ValueError("No Zoho candidates selected or matched")
+
+    recipients = list(
+        db.execute(select(ServiceOrderRecipient).where(ServiceOrderRecipient.order_id == order.id)).scalars()
+    )
+    existing_by_zoho: dict[str, ServiceOrderRecipient] = {}
+    for r in recipients:
+        zid = recipient_zoho_candidate_id(r)
+        if zid:
+            existing_by_zoho[zid] = r
+
+    added = 0
+    updated = 0
+    skipped = 0
+    missing_phone = 0
+
+    cfg: dict[str, Any] = {}
+    try:
+        cfg = json.loads(order.config_json or "{}")
+        if not isinstance(cfg, dict):
+            cfg = {}
+    except Exception:
+        cfg = {}
+    if job:
+        cfg["zoho_job_id"] = job
+        order.config_json = json.dumps(cfg, ensure_ascii=False)
+
+    for cand in selected:
+        zid = str(cand.get("id") or "").strip()
+        if not zid:
+            skipped += 1
+            continue
+        name = str(cand.get("name") or "").strip() or "Candidate"
+        phone_raw = str(cand.get("phone") or "").strip() or None
+        email = str(cand.get("email") or "").strip() or None
+        phone, phone_errors = _coerce_contact_phone(phone_raw)
+        if not phone:
+            missing_phone += 1
+
+        match = existing_by_zoho.get(zid)
+        result_meta = {
+            "zoho_recruit_candidate_id": zid,
+            "zoho_job_id": str(cand.get("job_id") or job or "").strip() or None,
+            "zoho_stage": str(cand.get("stage") or "").strip() or None,
+            "intake_source": "zoho_recruit",
+        }
+        if match:
+            if name and (not match.name or match.name == "Unknown"):
+                match.name = name
+            if phone and not match.phone:
+                match.phone = phone
+            if email and not match.email:
+                match.email = email
+            merged = _loads_recipient_result(match)
+            merged.update({k: v for k, v in result_meta.items() if v})
+            match.result_json = json.dumps(merged, ensure_ascii=False)
+            match.intake_source = "zoho_recruit"
+            match.intake_errors_json = json.dumps(compute_intake_errors(match), ensure_ascii=False)
+            db.add(match)
+            updated += 1
+            continue
+
+        recipient = ServiceOrderRecipient(
+            order_id=order.id,
+            row_number=len(recipients) + 1,
+            name=name,
+            phone=phone,
+            email=email,
+            status="pending",
+            cv_quality="missing",
+            intake_source="zoho_recruit",
+            intake_errors_json=json.dumps(phone_errors, ensure_ascii=False),
+            result_json=json.dumps({k: v for k, v in result_meta.items() if v}, ensure_ascii=False),
+        )
+        recipient.intake_errors_json = json.dumps(compute_intake_errors(recipient), ensure_ascii=False)
+        db.add(recipient)
+        recipients.append(recipient)
+        existing_by_zoho[zid] = recipient
+        added += 1
+
+    db.flush()
+    recipients = list(
+        db.execute(
+            select(ServiceOrderRecipient)
+            .where(ServiceOrderRecipient.order_id == order.id)
+            .order_by(ServiceOrderRecipient.row_number)
+        ).scalars()
+    )
+    for i, r in enumerate(recipients, start=1):
+        r.row_number = i
+        db.add(r)
+    order.recipient_count = len(recipients)
+    order.updated_at = datetime.utcnow()
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "order_id": order.id,
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "missing_phone": missing_phone,
+        "recipient_count": order.recipient_count,
+        "zoho_job_id": job,
+    }
+
+
+def maybe_writeback_interview_result(db: Session, *, order: Any, recipient: Any) -> dict[str, Any] | None:
+    """Write Dashboard interview outcome to Zoho when recipient was imported from Recruit."""
+    from app.services.partner_service import recommendation_to_status
+
+    zid = recipient_zoho_candidate_id(recipient)
+    if not zid:
+        return None
+    org_id = str(getattr(order, "org_id", "") or "").strip()
+    if not org_id:
+        return None
+
+    parsed = _loads_recipient_result(recipient)
+    analysis = parsed.get("analysis") if isinstance(parsed.get("analysis"), dict) else {}
+    score_raw = analysis.get("score") if analysis else parsed.get("score")
+    try:
+        score = int(score_raw) if score_raw is not None else None
+    except Exception:
+        score = None
+    recommendation = analysis.get("recommendation") if analysis else parsed.get("recommendation")
+    result_status = recommendation_to_status(str(recommendation) if recommendation else None, score)
+    report_url = (
+        f"https://dashboard.voxbulk.com/interview/orders/{order.id}/recipients/{recipient.id}"
+    )
+
+    try:
+        result = write_screening_result(
+            db,
+            org_id=org_id,
+            candidate_id=zid,
+            score=score,
+            result_status=result_status,
+            report_url=report_url,
+        )
+        merged = dict(parsed)
+        merged["zoho_writeback"] = {
+            "ok": bool(result.get("ok")),
+            "at": datetime.utcnow().isoformat(),
+            "result_status": result_status,
+            "score": score,
+        }
+        import json
+
+        recipient.result_json = json.dumps(merged, ensure_ascii=False)
+        db.add(recipient)
+        db.commit()
+        return result
+    except Exception:
+        logger.exception(
+            "zoho_recruit_dashboard_writeback_failed order_id=%s recipient_id=%s",
+            getattr(order, "id", None),
+            getattr(recipient, "id", None),
+        )
+        return {"ok": False, "detail": "writeback_failed"}

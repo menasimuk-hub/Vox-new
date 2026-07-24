@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
+import { ZohoRecruitImportPanel } from "@/components/integrations/zoho-recruit-import-panel";
 import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
 import { isArabicRegionCode } from "@/lib/interview-agent-regions";
 import { PageHeader } from "@/components/page-header";
@@ -84,6 +85,8 @@ export const Route = createFileRoute("/_app/interviews/new")({
   head: () => ({ meta: [{ title: "Create interview — VoxBulk" }] }),
   validateSearch: (search: Record<string, unknown>) => {
     const orderId = typeof search.order_id === "string" ? search.order_id.trim() : "";
+    const zohoCandidateId =
+      typeof search.zoho_candidate_id === "string" ? search.zoho_candidate_id.trim() : "";
     const rawNew = search.new;
     const explicitNew =
       rawNew === "1" ||
@@ -93,6 +96,7 @@ export const Route = createFileRoute("/_app/interviews/new")({
     return {
       new: orderId ? false : rawNew === undefined ? true : explicitNew,
       order_id: orderId || undefined,
+      zoho_candidate_id: zohoCandidateId || undefined,
     };
   },
   component: CreateInterview,
@@ -316,7 +320,7 @@ function collectInterviewLaunchErrors(opts: {
 }
 
 function CreateInterview() {
-  const { new: wantNew, order_id: draftOrderId } = Route.useSearch();
+  const { new: wantNew, order_id: draftOrderId, zoho_candidate_id: zohoCandidateId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
@@ -343,6 +347,13 @@ function CreateInterview() {
   const [waPreviewConfirmationTemplateName, setWaPreviewConfirmationTemplateName] = React.useState<string | undefined>();
   const [waPreviewSyncLabel, setWaPreviewSyncLabel] = React.useState<string | undefined>();
   const [waPreviewLoading, setWaPreviewLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!zohoCandidateId) return;
+    toast.message("Opened from Zoho Recruit", {
+      description: `Import candidate ${zohoCandidateId} in Step 2 · Import from Zoho Recruit (select by ID after refresh).`,
+    });
+  }, [zohoCandidateId]);
 
   const [preview, setPreview] = React.useState(false);
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
@@ -2075,6 +2086,16 @@ function CreateInterview() {
               </p>
             </div>
           </div>
+
+          {orderId ? (
+            <ZohoRecruitImportPanel
+              orderId={orderId}
+              disabled={candidatesLocked || campaignReadOnly}
+              onImported={() => {
+                void draftQ.refetch();
+              }}
+            />
+          ) : null}
 
           <div className="md:col-span-2 min-w-0">
             <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">

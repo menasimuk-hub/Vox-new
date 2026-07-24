@@ -2108,14 +2108,67 @@ def disconnect_zoho_recruit(
 def list_zoho_recruit_candidates(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    job_id: str | None = Query(default=None),
+    stage: str | None = Query(default=None),
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     from app.services.zoho_recruit_connection_service import list_recent_candidates
 
     try:
-        items = list_recent_candidates(db, principal.org_id, page=page, per_page=per_page)
+        items = list_recent_candidates(
+            db,
+            principal.org_id,
+            page=page,
+            per_page=per_page,
+            job_id=job_id,
+            stage=stage,
+        )
         return {"items": items}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/zoho-recruit/job-openings")
+def list_zoho_recruit_job_openings(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import list_job_openings
+
+    try:
+        items = list_job_openings(db, principal.org_id, page=page, per_page=per_page)
+        return {"items": items}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/zoho-recruit/candidates/import-to-order")
+def import_zoho_recruit_candidates_to_order(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.zoho_recruit_connection_service import import_candidates_to_order
+
+    order_id = str(body.get("order_id") or "").strip()
+    if not order_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="order_id required")
+    candidate_ids = body.get("candidate_ids") or []
+    if not isinstance(candidate_ids, list):
+        candidate_ids = []
+    try:
+        return import_candidates_to_order(
+            db,
+            principal.org_id,
+            order_id=order_id,
+            candidate_ids=[str(x) for x in candidate_ids],
+            job_id=body.get("job_id"),
+            stage=body.get("stage"),
+            import_all_matching=bool(body.get("import_all_matching")),
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

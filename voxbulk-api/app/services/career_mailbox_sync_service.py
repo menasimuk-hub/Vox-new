@@ -165,6 +165,16 @@ def _process_message(db: Session, msg: Message) -> tuple[str, int]:
             db, order, parsed=parsed, storage_key=key, sender_email=reply_to or None
         )
         order = _order
+        try:
+            from app.services.interview_email_ats_service import auto_ats_for_cv_recipient
+
+            auto_ats_for_cv_recipient(db, order, recipient)
+        except Exception:
+            logger.exception(
+                "career_mailbox_auto_ats_failed order_id=%s recipient_id=%s",
+                getattr(order, "id", None),
+                getattr(recipient, "id", None),
+            )
         from app.services.interview_cv_collection_service import maybe_close_cv_collection_on_limit
 
         maybe_close_cv_collection_on_limit(db, order)
