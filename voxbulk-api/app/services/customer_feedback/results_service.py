@@ -44,8 +44,11 @@ class FeedbackResultsService:
         date_to: datetime | None = None,
         response_limit: int = 5000,
         row_limit: int = 500,
+        created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
         loc_q = select(FeedbackLocation).where(FeedbackLocation.org_id == org_id)
+        if created_by_user_id:
+            loc_q = loc_q.where(FeedbackLocation.created_by_user_id == created_by_user_id)
         if location_id:
             loc_q = loc_q.where(FeedbackLocation.id == location_id)
         locations = list(db.execute(loc_q.order_by(FeedbackLocation.name)).scalars().all())
@@ -163,6 +166,7 @@ class FeedbackResultsService:
         survey_type_id: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
         data = FeedbackResultsService._load_scoped_data(
             db,
@@ -171,6 +175,7 @@ class FeedbackResultsService:
             survey_type_id=survey_type_id,
             date_from=date_from,
             date_to=date_to,
+            created_by_user_id=created_by_user_id,
         )
         loc = data["locations_by_id"].get(location_id) if location_id else None
         return {
@@ -194,12 +199,14 @@ class FeedbackResultsService:
         location_id: str | None = None,
         survey_type_id: str | None = None,
         force: bool = False,
+        created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
         data = FeedbackResultsService._load_scoped_data(
             db,
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            created_by_user_id=created_by_user_id,
         )
         open_comments = build_open_comments(
             data["all_responses"],
@@ -231,12 +238,14 @@ class FeedbackResultsService:
         location_id: str | None = None,
         survey_type_id: str | None = None,
         include_ai: bool = True,
+        created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
         results = FeedbackResultsService.customer_results(
             db,
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            created_by_user_id=created_by_user_id,
         )
         if include_ai:
             insights = FeedbackResultsService.customer_insights(
@@ -244,6 +253,7 @@ class FeedbackResultsService:
                 org_id,
                 location_id=location_id,
                 survey_type_id=survey_type_id,
+                created_by_user_id=created_by_user_id,
             )
             results["ai"] = insights.get("ai")
             results["open_comments"] = insights.get("open_comments") or results.get("open_comments")
@@ -267,9 +277,15 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        created_by_user_id: str | None = None,
     ) -> str:
         payload = FeedbackResultsService.export_payload(
-            db, org_id, location_id=location_id, survey_type_id=survey_type_id, include_ai=False
+            db,
+            org_id,
+            location_id=location_id,
+            survey_type_id=survey_type_id,
+            include_ai=False,
+            created_by_user_id=created_by_user_id,
         )
         return build_feedback_results_csv(payload)
 
@@ -280,9 +296,15 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        created_by_user_id: str | None = None,
     ) -> bytes:
         payload = FeedbackResultsService.export_payload(
-            db, org_id, location_id=location_id, survey_type_id=survey_type_id, include_ai=True
+            db,
+            org_id,
+            location_id=location_id,
+            survey_type_id=survey_type_id,
+            include_ai=True,
+            created_by_user_id=created_by_user_id,
         )
         return build_feedback_results_pdf(payload)
 

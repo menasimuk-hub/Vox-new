@@ -57,22 +57,29 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     org = OrganisationService.get_org(db, principal.org_id)
     _, _, visible = org_service_maps(org, db) if org else ({}, {}, {})
 
-    interviews = list(
-        db.execute(
-            select(ServiceOrder).where(
-                ServiceOrder.org_id == principal.org_id,
-                ServiceOrder.service_code == "interview",
-            )
-        ).scalars().all()
+    from app.services.org_rbac import OrgRbacService
+
+    try:
+        owner_filter = OrgRbacService.campaign_owner_filter_for(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except PermissionError:
+        owner_filter = principal.user_id
+
+    interview_stmt = select(ServiceOrder).where(
+        ServiceOrder.org_id == principal.org_id,
+        ServiceOrder.service_code == "interview",
     )
-    surveys = list(
-        db.execute(
-            select(ServiceOrder).where(
-                ServiceOrder.org_id == principal.org_id,
-                ServiceOrder.service_code == "survey",
-            )
-        ).scalars().all()
+    survey_stmt = select(ServiceOrder).where(
+        ServiceOrder.org_id == principal.org_id,
+        ServiceOrder.service_code == "survey",
     )
+    if owner_filter:
+        interview_stmt = interview_stmt.where(ServiceOrder.user_id == owner_filter)
+        survey_stmt = survey_stmt.where(ServiceOrder.user_id == owner_filter)
+
+    interviews = list(db.execute(interview_stmt).scalars().all())
+    surveys = list(db.execute(survey_stmt).scalars().all())
 
     int_live = sum(1 for r in interviews if ServiceOrderService.is_live_interview(r))
     int_finished = sum(1 for r in interviews if ServiceOrderService.is_finished_interview(r))
@@ -169,6 +176,9 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
         locations = list(
             db.execute(select(FeedbackLocation).where(FeedbackLocation.org_id == principal.org_id)).scalars().all()
         )
+        if owner_filter:
+            locations = [loc for loc in locations if str(loc.created_by_user_id or "") == str(owner_filter)]
+        loc_ids = {loc.id for loc in locations}
         responses = list(
             db.execute(
                 select(FeedbackResponse)
@@ -177,6 +187,8 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
                 .limit(200)
             ).scalars().all()
         )
+        if owner_filter:
+            responses = [r for r in responses if r.location_id in loc_ids]
         sentiment = {"excellent": 0, "good": 0, "poor": 0}
         unhappy: list[dict] = []
         recent: list[dict] = []
@@ -237,12 +249,12 @@ def home_summary(db: Session = Depends(get_db), principal=Depends(get_current_pr
     if visible.get("survey"):
         from app.services.survey_results_service import survey_home_feedback_snapshot
 
-        feedback_parts.append(survey_home_feedback_snapshot(db, org_id=principal.org_id))
+        feedback_parts.append(survey_home_feedback_snapshot(db, org_id=principal.org_id, created_by_user_id=owner_filter))
 
     if visible.get("interview"):
         from app.services.interview_results_service import interview_home_activity_snapshot
 
-        feedback_parts.append(interview_home_activity_snapshot(db, org_id=principal.org_id))
+        feedback_parts.append(interview_home_activity_snapshot(db, org_id=principal.org_id, created_by_user_id=owner_filter))
 
     if feedback_parts:
         feedback_block = {

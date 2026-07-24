@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.models.organisation import Organisation
 from app.models.service_order import ServiceOrderRecipient
+from app.services.org_rbac import OrgRbacService
 from app.services.org_service_credit_service import OrgServiceCreditError, OrgServiceCreditService
 from app.services.platform_catalog_service import PlatformCatalogService, ServiceOrderService
 
@@ -27,6 +28,21 @@ def _interview_draft_payload(db: Session, *, order, recipients, summary, billing
         "billing_context": billing,
         **PlatformCatalogService.interview_platform_capabilities(db),
     }
+
+
+def _campaign_owner_user_id(db: Session, principal) -> str | None:
+    """Members are scoped to their own campaigns; owners/managers see all."""
+    cached = getattr(principal, "_campaign_owner_filter", Ellipsis)
+    if cached is not Ellipsis:
+        return cached  # type: ignore[return-value]
+    try:
+        value = OrgRbacService.campaign_owner_filter_for(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    setattr(principal, "_campaign_owner_filter", value)
+    return value
 
 
 def _require_org_service(db: Session, org_id: str, service_code: str) -> Organisation:
@@ -51,13 +67,32 @@ def _require_org_service(db: Session, org_id: str, service_code: str) -> Organis
     return org
 
 
-def _require_order_service(db: Session, org_id: str, order_id: str) -> tuple[Organisation, object]:
-    order = ServiceOrderService.get_order(db, order_id, org_id=org_id)
+def _require_order_service(
+    db: Session,
+    org_id: str,
+    order_id: str,
+    *,
+    created_by_user_id: str | None = None,
+) -> tuple[Organisation, object]:
+    order = ServiceOrderService.get_order(
+        db, order_id, org_id=org_id, created_by_user_id=created_by_user_id
+    )
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = _require_org_service(db, org_id, str(order.service_code or ""))
     return org, order
 
+
+def _get_order_or_404(db: Session, order_id: str, principal):
+    order = ServiceOrderService.get_order(
+        db,
+        order_id,
+        org_id=principal.org_id,
+        created_by_user_id=_campaign_owner_user_id(db, principal),
+    )
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    return order
 
 @router.get("/catalog")
 def list_catalog(db: Session = Depends(get_db), _principal=Depends(get_current_principal)):
@@ -262,7 +297,7 @@ def list_my_orders(
         from sqlalchemy import func
 
         purge_empty_interview_drafts(db, org_id=principal.org_id)
-        rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
+        rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code, created_by_user_id=_campaign_owner_user_id(db, principal))
         visible: list = []
         for row in rows:
             if row.service_code != "interview" or row.status != "draft" or row.payment_status != "unpaid":
@@ -277,7 +312,7 @@ def list_my_orders(
                 visible.append(row)
         return [ServiceOrderService.order_to_dict(r, db=db) for r in visible]
 
-    rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code)
+    rows = ServiceOrderService.list_orders(db, org_id=principal.org_id, service_code=service_code, created_by_user_id=_campaign_owner_user_id(db, principal))
     return [ServiceOrderService.order_to_dict(r, db=db) for r in rows]
 
 
@@ -373,7 +408,7 @@ def get_interview_draft(
     order = None
     requested_id = str(order_id or "").strip()
     if requested_id:
-        order = ServiceOrderService.get_order(db, requested_id, org_id=principal.org_id)
+        order = ServiceOrderService.get_order(db, requested_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
         if order is None or order.service_code != "interview":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview order not found")
     if order is None:
@@ -438,7 +473,7 @@ def ensure_interview_draft(payload: dict, db: Session = Depends(get_db), princip
     _require_org_service(db, principal.org_id, "interview")
     order_id = str(payload.get("order_id") or "").strip()
     if order_id:
-        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
         if order.service_code != "interview":
@@ -528,7 +563,10 @@ def list_interview_reports(
     from app.services.interview_report_service import InterviewReportService
 
     _require_org_service(db, principal.org_id, "interview")
-    return InterviewReportService.list_batches(db, principal.org_id, period=period)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return InterviewReportService.list_batches(
+        db, principal.org_id, period=period, created_by_user_id=owner_filter
+    )
 
 
 @router.get("/interview-reports/export.csv")
@@ -542,7 +580,10 @@ def export_interview_reports_csv(
     _require_org_service(db, principal.org_id, "interview")
     from fastapi.responses import Response
 
-    payload = InterviewReportService.list_batches(db, principal.org_id, period=period)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    payload = InterviewReportService.list_batches(
+        db, principal.org_id, period=period, created_by_user_id=owner_filter
+    )
     csv_text = InterviewReportService.export_batches_csv(payload)
     filename = f"interview-batches-{period}.csv"
     return Response(
@@ -649,7 +690,7 @@ def disconnect_org_integration(
 def list_order_recipients(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_intake_service import intake_summary, list_intake_recipients
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipients = list_intake_recipients(db, order)
@@ -670,7 +711,7 @@ async def intake_contacts_file(
         parse_contacts_csv_relaxed_from_bytes,
     )
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     content = await file.read()
@@ -694,7 +735,7 @@ async def intake_mixed_uploads(
 ):
     from app.services.interview_intake_service import intake_mixed_files
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if not files:
@@ -704,7 +745,7 @@ async def intake_mixed_uploads(
         payload.append((upload.filename or "upload", await upload.read()))
     try:
         result = intake_mixed_files(db, order, payload)
-        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
         result["order"] = ServiceOrderService.order_to_dict(order)
         return result
     except ValueError as e:
@@ -720,7 +761,7 @@ async def intake_cv_uploads(
 ):
     from app.services.interview_intake_service import intake_cv_files
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if not files:
@@ -730,7 +771,7 @@ async def intake_cv_uploads(
         payload.append((upload.filename or "cv.pdf", await upload.read()))
     try:
         result = intake_cv_files(db, order, payload)
-        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+        order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
         result["order"] = ServiceOrderService.order_to_dict(order)
         return result
     except ValueError as e:
@@ -747,7 +788,7 @@ def patch_recipient(
 ):
     from app.services.interview_intake_service import list_intake_recipients, recipient_intake_dict, update_intake_recipient
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
@@ -779,7 +820,7 @@ def remove_recipient(
 ):
     from app.services.interview_intake_service import delete_intake_recipient, intake_summary, list_intake_recipients
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = ServiceOrderService.get_recipient(db, order.id, recipient_id)
@@ -811,7 +852,7 @@ def download_recipient_cv(
 
     from app.services.career_cv_storage_service import cv_media_type, resolve_cv_path
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "interview":
@@ -840,14 +881,14 @@ def download_recipient_cv(
 
 @router.get("/{order_id}")
 def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _, order = _require_order_service(db, principal.org_id, order_id)
+    _, order = _require_order_service(db, principal.org_id, order_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     recipients = ServiceOrderService.get_recipients(db, order.id)
     return ServiceOrderService.order_to_dict(order, include_recipients=True, recipients=recipients, db=db)
 
 
 @router.post("/{order_id}/archive")
 def archive_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.status in {"running", "paused", "scheduled"}:
@@ -869,7 +910,7 @@ def archive_order(order_id: str, db: Session = Depends(get_db), principal=Depend
 
 @router.patch("/{order_id}")
 def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -929,7 +970,7 @@ async def upload_recipients(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     content = await file.read()
@@ -962,7 +1003,7 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
     from app.services.interview_billing_context import org_interview_billing_context
 
     logger = logging.getLogger(__name__)
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = db.get(Organisation, principal.org_id)
@@ -995,7 +1036,7 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
 
 @router.post("/{order_id}/pay-promo-credits")
 def pay_with_promo_credits(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = db.get(Organisation, principal.org_id)
@@ -1019,7 +1060,7 @@ def get_survey_launch_eligibility(
     from app.services.billing_currency import currency_symbol
     from app.services.survey_launch_eligibility_service import SurveyLaunchEligibilityService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "survey":
@@ -1048,7 +1089,7 @@ def get_interview_launch_eligibility(
     from app.services.billing_currency import currency_symbol
     from app.services.interview_launch_eligibility_service import InterviewLaunchEligibilityService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "interview":
@@ -1078,7 +1119,7 @@ def launch_survey_campaign(
     from app.services.survey_launch_service import SurveyLaunchService
 
     logger = logging.getLogger(__name__)
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = db.get(Organisation, principal.org_id)
@@ -1107,7 +1148,7 @@ def delete_order(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1119,7 +1160,7 @@ def delete_order(
 
 @router.post("/{order_id}/duplicate")
 def duplicate_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "survey":
@@ -1138,7 +1179,7 @@ def duplicate_order(order_id: str, db: Session = Depends(get_db), principal=Depe
 
 @router.post("/{order_id}/pause")
 def pause_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1150,7 +1191,7 @@ def pause_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
 
 @router.post("/{order_id}/resume")
 def resume_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1162,7 +1203,7 @@ def resume_order(order_id: str, db: Session = Depends(get_db), principal=Depends
 
 @router.post("/{order_id}/stop")
 def stop_order(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1174,7 +1215,7 @@ def stop_order(order_id: str, payload: dict | None = None, db: Session = Depends
 
 @router.post("/{order_id}/complete")
 def complete_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1186,7 +1227,7 @@ def complete_order(order_id: str, db: Session = Depends(get_db), principal=Depen
 
 @router.post("/{order_id}/schedule")
 def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1198,7 +1239,7 @@ def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depen
 
 @router.post("/{order_id}/start")
 def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1843,7 +1884,7 @@ def push_survey_result_to_crm(
 ):
     from app.services.crm_survey_result_sync_service import sync_survey_result_to_active_crm
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "survey":
@@ -1890,7 +1931,7 @@ def get_crm_survey_automation(
 ):
     from app.services.crm_deal_survey_automation_service import automation_status
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "survey":
@@ -1910,7 +1951,7 @@ def patch_crm_survey_automation(
         update_crm_automation_settings,
     )
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -1936,7 +1977,7 @@ def test_crm_survey_automation(
 ):
     from app.services.crm_deal_survey_automation_service import CrmDealSurveyAutomationError, dry_run_crm_automation
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2375,7 +2416,7 @@ def quote_interview_ats(
     from app.services.interview_ats_billing_service import InterviewAtsBillingError, quote_ats_run
 
     logger = logging.getLogger(__name__)
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2405,7 +2446,7 @@ def run_interview_ats(
     )
     from app.services.recovery_service import OrganisationService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = OrganisationService.get_org(db, principal.org_id)
@@ -2440,7 +2481,7 @@ def apply_interview_ats_threshold(
     from app.services.interview_cv_collection_service import CvCollectionConfigError, validate_and_apply_cv_config
     from app.services.interview_cv_email_service import _loads_config
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     body = payload if isinstance(payload, dict) else {}
@@ -2486,7 +2527,7 @@ def close_interview_cv_collection_early(
 ):
     from app.services.interview_cv_email_service import close_cv_collection_early
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2601,7 +2642,7 @@ def push_survey_result_to_hubspot(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.hubspot_contact_sync_service import HubspotContactSyncError, sync_survey_result_to_hubspot
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     if order.service_code != "survey":
@@ -2632,7 +2673,7 @@ def save_interview_shortlist(
 ):
     from app.services.interview_scheduling_service import InterviewSchedulingService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2651,7 +2692,7 @@ def send_interview_scheduling(
 ):
     from app.services.interview_scheduling_service import InterviewSchedulingService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     body = payload or {}
@@ -2679,7 +2720,7 @@ def launch_interview_after_payment(
     from app.services.interview_launch_service import InterviewLaunchService
 
     logger = logging.getLogger(__name__)
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     org = db.get(Organisation, principal.org_id)
@@ -2727,7 +2768,7 @@ def preview_interview_booking_template(
 ):
     from app.services.interview_booking_service import InterviewBookingService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     preview = InterviewBookingService.preview_template(db, order, sync_first=sync)
@@ -2743,7 +2784,7 @@ def send_interview_booking_invites(
 ):
     from app.services.interview_booking_service import InterviewBookingService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     body = payload if isinstance(payload, dict) else {}
@@ -2769,7 +2810,7 @@ def send_interview_booking_invites(
 def get_interview_results(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_results_service import InterviewResultsService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2788,7 +2829,7 @@ def get_interview_recipient_detail(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.interview_results_service import InterviewResultsService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -2810,7 +2851,7 @@ def get_interview_recipient_activity(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.interview_activity_service import InterviewActivityService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -2831,7 +2872,7 @@ def get_interview_candidate_report_html(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import HTMLResponse
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -2853,7 +2894,7 @@ def get_interview_candidate_report_pdf(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -2886,7 +2927,7 @@ def get_interview_recipient_recording(
         fetch_interview_recording,
     )
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     recipient = db.get(ServiceOrderRecipient, recipient_id)
@@ -2940,7 +2981,7 @@ def export_interview_results_csv(
     from app.services.interview_results_service import InterviewResultsService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     csv_text = InterviewResultsService.export_results_csv(db, order)
@@ -2958,7 +2999,7 @@ def export_interview_results_pdf(
     from app.services.interview_results_service import InterviewResultsService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     pdf_bytes = InterviewResultsService.export_results_pdf(db, order)
@@ -2973,7 +3014,7 @@ def export_interview_results_pdf(
 def get_interview_batch_report(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_report_service import InterviewReportService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -2989,7 +3030,7 @@ def export_interview_batch_report_csv(
     from app.services.interview_report_service import InterviewReportService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -3020,7 +3061,7 @@ def download_survey_voice_note_audio(
     from app.models.survey_voice_note_job import SurveyVoiceNoteJob
     from app.services.survey_analysis_service import _recipient_result
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
@@ -3057,7 +3098,7 @@ def get_survey_results(order_id: str, db: Session = Depends(get_db), principal=D
     from app.services.survey_results_service import SurveyResultsService
     import json
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -3079,7 +3120,7 @@ def export_survey_results_csv(order_id: str, db: Session = Depends(get_db), prin
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -3099,7 +3140,7 @@ def export_survey_results_pdf(order_id: str, db: Session = Depends(get_db), prin
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -3119,7 +3160,7 @@ def export_survey_results_xlsx(order_id: str, db: Session = Depends(get_db), pri
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     try:
@@ -3146,7 +3187,7 @@ def get_survey_recipient_detail(
     from app.models.service_order import ServiceOrderRecipient
     from app.services.survey_results_service import SurveyResultsService
 
-    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id)
+    order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     raise HTTPException(

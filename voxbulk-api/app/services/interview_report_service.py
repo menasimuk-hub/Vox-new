@@ -58,8 +58,10 @@ def _in_period(order: ServiceOrder, start: datetime | None, end: datetime | None
     return True
 
 
-def _reportable_orders(db: Session, org_id: str) -> list[ServiceOrder]:
-    rows = db.execute(
+def _reportable_orders(
+    db: Session, org_id: str, *, created_by_user_id: str | None = None
+) -> list[ServiceOrder]:
+    stmt = (
         select(ServiceOrder)
         .where(
             ServiceOrder.org_id == org_id,
@@ -68,8 +70,10 @@ def _reportable_orders(db: Session, org_id: str) -> list[ServiceOrder]:
             ServiceOrder.recipient_count > 0,
         )
         .order_by(ServiceOrder.completed_at.desc(), ServiceOrder.updated_at.desc())
-    ).scalars().all()
-    return list(rows)
+    )
+    if created_by_user_id:
+        stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
+    return list(db.execute(stmt).scalars().all())
 
 
 def _batch_summary(db: Session, order: ServiceOrder) -> dict[str, Any]:
@@ -125,10 +129,12 @@ def _overview_from_batches(batches: list[dict[str, Any]]) -> dict[str, Any]:
 
 class InterviewReportService:
     @staticmethod
-    def list_batches(db: Session, org_id: str, *, period: str = "month") -> dict[str, Any]:
+    def list_batches(
+        db: Session, org_id: str, *, period: str = "month", created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
         start, end = period_bounds(period)
         batches: list[dict[str, Any]] = []
-        for order in _reportable_orders(db, org_id):
+        for order in _reportable_orders(db, org_id, created_by_user_id=created_by_user_id):
             if not _in_period(order, start, end):
                 continue
             batches.append(_batch_summary(db, order))

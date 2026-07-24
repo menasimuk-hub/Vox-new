@@ -1713,28 +1713,53 @@ class ServiceOrderService:
         return order
 
     @staticmethod
-    def list_orders(db: Session, *, org_id: str | None = None, service_code: str | None = None, limit: int = 100) -> list[ServiceOrder]:
+    def list_orders(
+        db: Session,
+        *,
+        org_id: str | None = None,
+        service_code: str | None = None,
+        created_by_user_id: str | None = None,
+        limit: int = 100,
+    ) -> list[ServiceOrder]:
         stmt = select(ServiceOrder).order_by(ServiceOrder.created_at.desc()).limit(limit)
         if org_id:
             stmt = stmt.where(ServiceOrder.org_id == org_id)
         if service_code:
             stmt = stmt.where(ServiceOrder.service_code == service_code)
+        if created_by_user_id:
+            stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
         return list(db.execute(stmt).scalars())
 
     @staticmethod
-    def get_order(db: Session, order_id: str, *, org_id: str | None = None) -> ServiceOrder | None:
+    def get_order(
+        db: Session,
+        order_id: str,
+        *,
+        org_id: str | None = None,
+        created_by_user_id: str | None = None,
+    ) -> ServiceOrder | None:
         stmt = select(ServiceOrder).where(ServiceOrder.id == order_id)
         if org_id:
             stmt = stmt.where(ServiceOrder.org_id == org_id)
+        if created_by_user_id:
+            stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
         return db.execute(stmt).scalar_one_or_none()
 
     @staticmethod
-    def resolve_order_ref(db: Session, ref: str, *, org_id: str | None = None) -> ServiceOrder | None:
+    def resolve_order_ref(
+        db: Session,
+        ref: str,
+        *,
+        org_id: str | None = None,
+        created_by_user_id: str | None = None,
+    ) -> ServiceOrder | None:
         """Match order UUID, campaign_id (VB-CMP-…), or reference_id (VB-INT-…)."""
         key = str(ref or "").strip()
         if not key:
             return None
-        order = ServiceOrderService.get_order(db, key, org_id=org_id)
+        order = ServiceOrderService.get_order(
+            db, key, org_id=org_id, created_by_user_id=created_by_user_id
+        )
         if order is not None:
             return order
         upper = key.upper()
@@ -1743,6 +1768,8 @@ class ServiceOrderService:
         )
         if org_id:
             stmt = stmt.where(ServiceOrder.org_id == org_id)
+        if created_by_user_id:
+            stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
         return db.execute(stmt.limit(1)).scalar_one_or_none()
 
     @staticmethod

@@ -261,7 +261,9 @@ class FeedbackPromoCampaignService:
         }
 
     @staticmethod
-    def create_campaign(db: Session, *, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_campaign(
+        db: Session, *, org_id: str, payload: dict[str, Any], created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
         template_id = str(payload.get("template_id") or "")
         template = _TEMPLATE_BY_ID.get(template_id)
         if template is None:
@@ -295,6 +297,7 @@ class FeedbackPromoCampaignService:
             cost_minor=int(quote["cost_minor"]),
             currency=str(quote["currency"]),
             status="awaiting_payment",
+            created_by_user_id=(str(created_by_user_id).strip() or None) if created_by_user_id else None,
             created_at=now,
             updated_at=now,
         )
@@ -304,24 +307,28 @@ class FeedbackPromoCampaignService:
         return FeedbackPromoCampaignService._campaign_dict(row)
 
     @staticmethod
-    def list_campaigns(db: Session, *, org_id: str) -> list[dict[str, Any]]:
-        rows = list(
-            db.execute(
-                select(FeedbackPromoCampaign)
-                .where(FeedbackPromoCampaign.org_id == org_id)
-                .order_by(FeedbackPromoCampaign.created_at.desc())
-                .limit(50)
-            )
-            .scalars()
-            .all()
+    def list_campaigns(
+        db: Session, *, org_id: str, created_by_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        stmt = (
+            select(FeedbackPromoCampaign)
+            .where(FeedbackPromoCampaign.org_id == org_id)
+            .order_by(FeedbackPromoCampaign.created_at.desc())
+            .limit(50)
         )
+        if created_by_user_id:
+            stmt = stmt.where(FeedbackPromoCampaign.created_by_user_id == created_by_user_id)
+        rows = list(db.execute(stmt).scalars().all())
         return [FeedbackPromoCampaignService._campaign_dict(r) for r in rows]
 
     @staticmethod
-    def dashboard_stats(db: Session, *, org_id: str) -> dict[str, Any]:
-        rows = list(
-            db.execute(select(FeedbackPromoCampaign).where(FeedbackPromoCampaign.org_id == org_id)).scalars().all()
-        )
+    def dashboard_stats(
+        db: Session, *, org_id: str, created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
+        stmt = select(FeedbackPromoCampaign).where(FeedbackPromoCampaign.org_id == org_id)
+        if created_by_user_id:
+            stmt = stmt.where(FeedbackPromoCampaign.created_by_user_id == created_by_user_id)
+        rows = list(db.execute(stmt).scalars().all())
         sent = sum(int(r.sent_count or 0) for r in rows)
         yes = sum(int(r.yes_count or 0) for r in rows)
         no = sum(int(r.no_count or 0) for r in rows)
@@ -335,9 +342,28 @@ class FeedbackPromoCampaignService:
         }
 
     @staticmethod
-    def checkout(db: Session, *, org_id: str, campaign_id: str) -> dict[str, Any]:
+    def get_campaign_row(
+        db: Session,
+        *,
+        org_id: str,
+        campaign_id: str,
+        created_by_user_id: str | None = None,
+    ) -> FeedbackPromoCampaign | None:
         row = db.get(FeedbackPromoCampaign, campaign_id)
         if row is None or row.org_id != org_id:
+            return None
+        if created_by_user_id and str(row.created_by_user_id or "") != str(created_by_user_id):
+            return None
+        return row
+
+    @staticmethod
+    def checkout(
+        db: Session, *, org_id: str, campaign_id: str, created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
+        row = FeedbackPromoCampaignService.get_campaign_row(
+            db, org_id=org_id, campaign_id=campaign_id, created_by_user_id=created_by_user_id
+        )
+        if row is None:
             raise FeedbackPromoCampaignError("Campaign not found")
         if row.status not in {"awaiting_payment", "draft"}:
             raise FeedbackPromoCampaignError("Campaign is not awaiting payment")
@@ -371,9 +397,13 @@ class FeedbackPromoCampaignService:
         }
 
     @staticmethod
-    def launch(db: Session, *, org_id: str, campaign_id: str) -> dict[str, Any]:
-        row = db.get(FeedbackPromoCampaign, campaign_id)
-        if row is None or row.org_id != org_id:
+    def launch(
+        db: Session, *, org_id: str, campaign_id: str, created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
+        row = FeedbackPromoCampaignService.get_campaign_row(
+            db, org_id=org_id, campaign_id=campaign_id, created_by_user_id=created_by_user_id
+        )
+        if row is None:
             raise FeedbackPromoCampaignError("Campaign not found")
         if row.status == "completed":
             return {"ok": True, "status": "completed", "sent_count": row.sent_count}

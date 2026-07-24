@@ -21,6 +21,7 @@ from app.services.customer_feedback.results_service import FeedbackResultsServic
 from app.schemas.dashboard import SubscriptionCancellationOut, SubscriptionCancellationRequestIn
 from app.services.gocardless_service import GoCardlessConfigError, GoCardlessProviderError
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
+from app.services.org_rbac import OrgRbacService
 
 router = APIRouter(prefix="/customer-feedback", tags=["customer-feedback"])
 
@@ -44,6 +45,20 @@ def _require_feedback_campaigns_enabled(db: Session, org_id: str) -> None:
             status_code=403,
             detail="Send campaign add-on is not enabled for this organisation.",
         )
+
+
+def _campaign_owner_user_id(db: Session, principal) -> str | None:
+    cached = getattr(principal, "_campaign_owner_filter", Ellipsis)
+    if cached is not Ellipsis:
+        return cached  # type: ignore[return-value]
+    try:
+        value = OrgRbacService.campaign_owner_filter_for(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    setattr(principal, "_campaign_owner_filter", value)
+    return value
 
 @router.get("/catalog/industries")
 def list_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
@@ -248,7 +263,13 @@ def reverse_feedback_cancellation(db: Session = Depends(get_db), principal=Depen
 @router.get("/locations")
 def list_locations(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)
-    return {"ok": True, "items": FeedbackLocationService.list_locations(db, principal.org_id)}
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return {
+        "ok": True,
+        "items": FeedbackLocationService.list_locations(
+            db, principal.org_id, created_by_user_id=owner_filter
+        ),
+    }
 
 
 @router.post("/locations/preview")
@@ -265,7 +286,9 @@ def preview_location(payload: dict, db: Session = Depends(get_db), principal=Dep
 def create_location(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)
     try:
-        item = FeedbackLocationService.create_location(db, principal.org_id, payload)
+        item = FeedbackLocationService.create_location(
+            db, principal.org_id, payload, created_by_user_id=principal.user_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "item": item}
@@ -280,7 +303,13 @@ def update_location(
 ):
     _require_feedback_enabled(db, principal.org_id)
     try:
-        item = FeedbackLocationService.update_location(db, principal.org_id, location_id, payload)
+        item = FeedbackLocationService.update_location(
+            db,
+            principal.org_id,
+            location_id,
+            payload,
+            created_by_user_id=_campaign_owner_user_id(db, principal),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "item": item}
@@ -294,7 +323,12 @@ def delete_location(
 ):
     _require_feedback_enabled(db, principal.org_id)
     try:
-        FeedbackLocationService.delete_location(db, principal.org_id, location_id)
+        FeedbackLocationService.delete_location(
+            db,
+            principal.org_id,
+            location_id,
+            created_by_user_id=_campaign_owner_user_id(db, principal),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True}
@@ -309,7 +343,11 @@ def get_results(
 ):
     _require_feedback_enabled(db, principal.org_id)
     return FeedbackResultsService.customer_results(
-        db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
+        db,
+        principal.org_id,
+        location_id=location_id,
+        survey_type_id=survey_type_id,
+        created_by_user_id=_campaign_owner_user_id(db, principal),
     )
 
 
@@ -321,6 +359,15 @@ def get_results_compare(
 ):
     _require_feedback_enabled(db, principal.org_id)
     ids = [x.strip() for x in str(location_ids or "").split(",") if x.strip()]
+    owner_filter = _campaign_owner_user_id(db, principal)
+    if owner_filter:
+        allowed = {
+            str(item["id"])
+            for item in FeedbackLocationService.list_locations(
+                db, principal.org_id, created_by_user_id=owner_filter
+            )
+        }
+        ids = [i for i in ids if i in allowed]
     try:
         return FeedbackResultsService.customer_compare(db, principal.org_id, location_ids=ids)
     except ValueError as e:
@@ -342,6 +389,7 @@ def get_results_insights(
         location_id=location_id,
         survey_type_id=survey_type_id,
         force=force,
+        created_by_user_id=_campaign_owner_user_id(db, principal),
     )
 
 
@@ -373,7 +421,11 @@ def export_results_csv(
 
     _require_feedback_enabled(db, principal.org_id)
     csv_text = FeedbackResultsService.export_csv(
-        db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
+        db,
+        principal.org_id,
+        location_id=location_id,
+        survey_type_id=survey_type_id,
+        created_by_user_id=_campaign_owner_user_id(db, principal),
     )
     suffix = (location_id or "all")[:8]
     return Response(
@@ -394,7 +446,11 @@ def export_results_pdf(
 
     _require_feedback_enabled(db, principal.org_id)
     pdf_bytes = FeedbackResultsService.export_pdf(
-        db, principal.org_id, location_id=location_id, survey_type_id=survey_type_id
+        db,
+        principal.org_id,
+        location_id=location_id,
+        survey_type_id=survey_type_id,
+        created_by_user_id=_campaign_owner_user_id(db, principal),
     )
     suffix = (location_id or "all")[:8]
     return Response(
@@ -432,20 +488,40 @@ def quote_promo_campaign(payload: dict, db: Session = Depends(get_db), principal
 @router.get("/promo-campaigns")
 def list_promo_campaigns(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_campaigns_enabled(db, principal.org_id)
-    return {"ok": True, "items": FeedbackPromoCampaignService.list_campaigns(db, org_id=principal.org_id)}
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return {
+        "ok": True,
+        "items": FeedbackPromoCampaignService.list_campaigns(
+            db, org_id=principal.org_id, created_by_user_id=owner_filter
+        ),
+    }
 
 
 @router.get("/promo-campaigns/dashboard")
 def promo_campaign_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_campaigns_enabled(db, principal.org_id)
-    return {"ok": True, **FeedbackPromoCampaignService.dashboard_stats(db, org_id=principal.org_id)}
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return {
+        "ok": True,
+        **FeedbackPromoCampaignService.dashboard_stats(
+            db, org_id=principal.org_id, created_by_user_id=owner_filter
+        ),
+    }
 
 
 @router.post("/promo-campaigns")
 def create_promo_campaign(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
-        return {"ok": True, "item": FeedbackPromoCampaignService.create_campaign(db, org_id=principal.org_id, payload=payload)}
+        return {
+            "ok": True,
+            "item": FeedbackPromoCampaignService.create_campaign(
+                db,
+                org_id=principal.org_id,
+                payload=payload,
+                created_by_user_id=principal.user_id,
+            ),
+        }
     except FeedbackPromoCampaignError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -454,7 +530,12 @@ def create_promo_campaign(payload: dict, db: Session = Depends(get_db), principa
 def checkout_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
-        return FeedbackPromoCampaignService.checkout(db, org_id=principal.org_id, campaign_id=campaign_id)
+        return FeedbackPromoCampaignService.checkout(
+            db,
+            org_id=principal.org_id,
+            campaign_id=campaign_id,
+            created_by_user_id=_campaign_owner_user_id(db, principal),
+        )
     except FeedbackPromoCampaignError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -463,6 +544,11 @@ def checkout_promo_campaign(campaign_id: str, db: Session = Depends(get_db), pri
 def launch_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
-        return FeedbackPromoCampaignService.launch(db, org_id=principal.org_id, campaign_id=campaign_id)
+        return FeedbackPromoCampaignService.launch(
+            db,
+            org_id=principal.org_id,
+            campaign_id=campaign_id,
+            created_by_user_id=_campaign_owner_user_id(db, principal),
+        )
     except FeedbackPromoCampaignError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

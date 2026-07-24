@@ -29,11 +29,29 @@ def effective_role(role: str | None) -> str:
     return r
 
 
+def can_view_all_campaigns(role: str | None) -> bool:
+    """Owners and managers see every org campaign; members see only their own."""
+    return effective_role(role) in ORG_TEAM_MANAGERS
+
+
+def campaign_owner_filter(role: str | None, user_id: str) -> str | None:
+    """Return user_id to filter campaign lists/detail for members; None = no filter (owner/manager)."""
+    if can_view_all_campaigns(role):
+        return None
+    uid = str(user_id or "").strip()
+    return uid or None
+
+
 def _normalize_role(role: str | None) -> str:
     return effective_role(role)
 
 
 class OrgRbacService:
+    @staticmethod
+    def campaign_owner_filter_for(db: Session, *, org_id: str, user_id: str) -> str | None:
+        role = OrgRbacService.role_for(db, org_id=org_id, user_id=user_id)
+        return campaign_owner_filter(role, user_id)
+
     @staticmethod
     def membership_for(db: Session, *, org_id: str, user_id: str) -> OrganisationMembership | None:
         return db.execute(

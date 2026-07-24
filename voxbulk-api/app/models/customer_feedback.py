@@ -108,6 +108,7 @@ class FeedbackLocation(Base):
     open_question_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     marketing_opt_in_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     survey_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -317,5 +318,6 @@ class FeedbackPromoCampaign(Base):
     yes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     no_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     launched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

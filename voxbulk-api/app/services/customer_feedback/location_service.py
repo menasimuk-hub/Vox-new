@@ -148,16 +148,17 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
 
 class FeedbackLocationService:
     @staticmethod
-    def list_locations(db: Session, org_id: str) -> list[dict[str, Any]]:
-        rows = list(
-            db.execute(
-                select(FeedbackLocation)
-                .where(FeedbackLocation.org_id == org_id)
-                .order_by(FeedbackLocation.created_at.desc())
-            )
-            .scalars()
-            .all()
+    def list_locations(
+        db: Session, org_id: str, *, created_by_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        stmt = (
+            select(FeedbackLocation)
+            .where(FeedbackLocation.org_id == org_id)
+            .order_by(FeedbackLocation.created_at.desc())
         )
+        if created_by_user_id:
+            stmt = stmt.where(FeedbackLocation.created_by_user_id == created_by_user_id)
+        rows = list(db.execute(stmt).scalars().all())
         return [location_to_dict(db, r) for r in rows]
 
     @staticmethod
@@ -203,7 +204,9 @@ class FeedbackLocationService:
         }
 
     @staticmethod
-    def create_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_location(
+        db: Session, org_id: str, payload: dict[str, Any], *, created_by_user_id: str | None = None
+    ) -> dict[str, Any]:
         if FeedbackBillingService.get_active_subscription(db, org_id) is None:
             raise ValueError("Subscribe to a Customer feedback package before adding locations.")
         max_loc = FeedbackBillingService.max_locations(db, org_id)
@@ -276,6 +279,7 @@ class FeedbackLocationService:
             open_question_enabled=open_question,
             marketing_opt_in_enabled=marketing_opt_in,
             survey_config_json=json.dumps(survey_config),
+            created_by_user_id=(str(created_by_user_id).strip() or None) if created_by_user_id else None,
             created_at=now,
             updated_at=now,
         )
@@ -285,9 +289,33 @@ class FeedbackLocationService:
         return location_to_dict(db, row)
 
     @staticmethod
-    def update_location(db: Session, org_id: str, location_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def get_location_row(
+        db: Session,
+        org_id: str,
+        location_id: str,
+        *,
+        created_by_user_id: str | None = None,
+    ) -> FeedbackLocation | None:
         row = db.get(FeedbackLocation, location_id)
         if row is None or row.org_id != org_id:
+            return None
+        if created_by_user_id and str(row.created_by_user_id or "") != str(created_by_user_id):
+            return None
+        return row
+
+    @staticmethod
+    def update_location(
+        db: Session,
+        org_id: str,
+        location_id: str,
+        payload: dict[str, Any],
+        *,
+        created_by_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        row = FeedbackLocationService.get_location_row(
+            db, org_id, location_id, created_by_user_id=created_by_user_id
+        )
+        if row is None:
             raise ValueError("Location not found")
         if payload.get("name"):
             row.name = str(payload["name"]).strip()
@@ -331,7 +359,9 @@ class FeedbackLocationService:
         return location_to_dict(db, row)
 
     @staticmethod
-    def delete_location(db: Session, org_id: str, location_id: str) -> None:
+    def delete_location(
+        db: Session, org_id: str, location_id: str, *, created_by_user_id: str | None = None
+    ) -> None:
         from sqlalchemy import delete, update
 
         from app.models.customer_feedback import (
@@ -340,8 +370,10 @@ class FeedbackLocationService:
             FeedbackSession,
         )
 
-        row = db.get(FeedbackLocation, location_id)
-        if row is None or row.org_id != org_id:
+        row = FeedbackLocationService.get_location_row(
+            db, org_id, location_id, created_by_user_id=created_by_user_id
+        )
+        if row is None:
             raise ValueError("Location not found")
         loc_id = str(row.id)
         session_ids = [

@@ -425,6 +425,7 @@ def interview_home_activity_snapshot(
     db: Session,
     *,
     org_id: str,
+    created_by_user_id: str | None = None,
     limit_recent: int = 8,
     limit_unhappy: int = 6,
 ) -> dict[str, Any]:
@@ -437,14 +438,13 @@ def interview_home_activity_snapshot(
     unhappy: list[dict[str, Any]] = []
     recent_candidates: list[tuple[datetime, dict[str, Any]]] = []
 
-    orders = list(
-        db.execute(
-            select(ServiceOrder).where(
-                ServiceOrder.org_id == org_id,
-                ServiceOrder.service_code == "interview",
-            )
-        ).scalars()
+    stmt = select(ServiceOrder).where(
+        ServiceOrder.org_id == org_id,
+        ServiceOrder.service_code == "interview",
     )
+    if created_by_user_id:
+        stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
+    orders = list(db.execute(stmt).scalars())
 
     for order in orders:
         if str(order.status or "").lower() not in {"running", "completed", "paid"}:
