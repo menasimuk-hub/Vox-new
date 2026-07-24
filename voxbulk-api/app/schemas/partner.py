@@ -51,6 +51,7 @@ class PartnerHealthOut(BaseModel):
 class PartnerProviderUpdateIn(BaseModel):
     enabled: bool | None = None
     mode: Literal["sandbox", "live"] | None = None
+    release_mode: Literal["testing", "live"] | None = None
     mapped_org_id: str | None = None
     result_webhook_url: str | None = None
     webhook_secret: str | None = None

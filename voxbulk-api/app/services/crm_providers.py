@@ -13,6 +13,7 @@ CRM_PROVIDER_LABELS: dict[str, str] = {
     "pipedrive": "Pipedrive",
     "zoho_crm": "Zoho CRM",
     "zoho_recruit": "Zoho Recruit",
+    "breezy_hr": "Breezy HR",
 }
 
 # Booking providers that require a matching CRM connection.
@@ -25,9 +26,9 @@ CRM_CONFIG_COLUMNS: dict[str, str] = {
     "hubspot": "hubspot_config_json",
     "pipedrive": "pipedrive_config_json",
     "zoho_crm": "zoho_crm_config_json",
-    # ATS tokens for Partners → Zoho Recruit. Not in CRM_PROVIDERS so it does not
-    # displace HubSpot / Pipedrive / Zoho CRM as the org's active sales CRM.
+    # ATS tokens. Not in CRM_PROVIDERS so they do not displace the active sales CRM.
     "zoho_recruit": "zoho_recruit_config_json",
+    "breezy_hr": "breezy_hr_config_json",
 }
 
 

@@ -77,11 +77,18 @@ export function ProviderDetailSheet({
   const [hubspotTokenDraft, setHubspotTokenDraft] = React.useState("");
   const [hubspotTokenBusy, setHubspotTokenBusy] = React.useState(false);
   const [recruitDc, setRecruitDc] = React.useState("eu");
+  const [breezyTokenDraft, setBreezyTokenDraft] = React.useState("");
+  const [breezyCompanies, setBreezyCompanies] = React.useState<{ id: string; name: string }[]>([]);
+  const [breezyCompanyId, setBreezyCompanyId] = React.useState("");
+  const [breezyBusy, setBreezyBusy] = React.useState(false);
 
   React.useEffect(() => {
     setTestResult(null);
     setScheduleDraft("");
     setHubspotTokenDraft("");
+    setBreezyTokenDraft("");
+    setBreezyCompanies([]);
+    setBreezyCompanyId("");
     const extras = view?.extra?.data_centers;
     const first =
       Array.isArray(extras) && extras.length > 0 && typeof (extras[0] as { id?: string })?.id === "string"
@@ -158,12 +165,64 @@ export function ProviderDetailSheet({
     }
   };
 
+  const loadBreezyCompanies = async () => {
+    const token = breezyTokenDraft.trim();
+    if (!token) {
+      toast.error("Paste your Breezy API token first");
+      return;
+    }
+    setBreezyBusy(true);
+    try {
+      const data = await apiFetch<{ items?: { id: string; name: string }[] }>(
+        "/service-orders/breezy-hr/companies",
+        { method: "POST", body: JSON.stringify({ api_token: token }) },
+      );
+      const items = data?.items || [];
+      setBreezyCompanies(items);
+      setBreezyCompanyId(items[0]?.id || "");
+      if (!items.length) toast.error("No companies found for this token");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not validate Breezy token");
+      setBreezyCompanies([]);
+    } finally {
+      setBreezyBusy(false);
+    }
+  };
+
+  const connectBreezy = async () => {
+    const token = breezyTokenDraft.trim();
+    if (!token) {
+      toast.error("Paste your Breezy API token first");
+      return;
+    }
+    if (!breezyCompanyId) {
+      toast.error("Select a Breezy company");
+      return;
+    }
+    setBreezyBusy(true);
+    try {
+      await apiFetch("/service-orders/breezy-hr/connect", {
+        method: "POST",
+        body: JSON.stringify({ api_token: token, company_id: breezyCompanyId }),
+      });
+      toast.success("Breezy HR connected");
+      setBreezyTokenDraft("");
+      setBreezyCompanies([]);
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not connect Breezy HR");
+    } finally {
+      setBreezyBusy(false);
+    }
+  };
+
   const showGoogleScheduleField =
     isBookingPage && view.key === "google_calendar" && view.connected;
   const showMicrosoftScheduleField =
     isBookingPage && view.key === "microsoft_calendar" && view.connected;
   const showHubspotTokenField =
     !isBookingPage && view.key === "hubspot" && hubspot?.usesAccessToken && !view.connected;
+  const showBreezyConnect = view.key === "breezy_hr" && !view.connected;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -336,6 +395,73 @@ export function ProviderDetailSheet({
             </div>
           ) : null}
 
+          {showBreezyConnect ? (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label htmlFor="breezy-token" className="text-sm">
+                Breezy API token
+              </Label>
+              <Input
+                id="breezy-token"
+                type="password"
+                autoComplete="off"
+                placeholder="breezy_pat_…"
+                value={breezyTokenDraft}
+                onChange={(e) => {
+                  setBreezyTokenDraft(e.target.value);
+                  setBreezyCompanies([]);
+                  setBreezyCompanyId("");
+                }}
+                disabled={breezyBusy}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Create a token in Breezy → My Settings → API Keys, then load companies and connect.
+              </p>
+              {breezyCompanies.length > 0 ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="breezy-company" className="text-sm">
+                    Company
+                  </Label>
+                  <select
+                    id="breezy-company"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={breezyCompanyId}
+                    onChange={(e) => setBreezyCompanyId(e.target.value)}
+                    disabled={breezyBusy}
+                  >
+                    {breezyCompanies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={breezyBusy || !breezyTokenDraft.trim()}
+                  onClick={() => void loadBreezyCompanies()}
+                >
+                  Load companies
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={
+                    breezyBusy ||
+                    !breezyTokenDraft.trim() ||
+                    !breezyCompanyId ||
+                    !view.platform_ready ||
+                    Boolean(view.blocked_reason)
+                  }
+                  onClick={() => void connectBreezy()}
+                >
+                  <Plug className="size-4" /> Connect Breezy
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {view.key === "zoho_recruit" && !view.connected ? (
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
               <Label htmlFor="zoho-recruit-dc" className="text-sm">
@@ -378,7 +504,7 @@ export function ProviderDetailSheet({
           <TestResultCard loading={testing} result={testResult} />
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {!view.connected && view.actions.connect_url ? (
+            {!view.connected && view.actions.connect_url && view.key !== "breezy_hr" ? (
               <Button
                 variant="default"
                 className="gap-1.5"

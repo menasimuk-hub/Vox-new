@@ -636,6 +636,10 @@ def disconnect_org_integration(
             from app.services.zoho_recruit_connection_service import oauth_disconnect
 
             return oauth_disconnect(db, principal.org_id)
+        if spec.group == ATS_GROUP and spec.key == "breezy_hr":
+            from app.services.breezy_hr_connection_service import disconnect as breezy_disconnect
+
+            return breezy_disconnect(db, principal.org_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider is not disconnectable from the dashboard")
@@ -2232,6 +2236,131 @@ def create_zoho_recruit_screening(
         "estimated_completion_minutes": row.estimated_completion_minutes,
         "invite_error": row.webhook_last_error or None,
     }
+
+
+@router.get("/breezy-hr/status")
+def breezy_hr_status_endpoint(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import breezy_status
+
+    return breezy_status(db, principal.org_id)
+
+
+@router.post("/breezy-hr/companies")
+def breezy_hr_list_companies(
+    body: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Validate a Breezy PAT and return companies (before connect)."""
+    from app.services.breezy_hr_connection_service import list_companies_for_token, platform_ready
+
+    if not platform_ready(db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Breezy HR is not enabled yet. Ask your admin to enable it under Partners → Breezy HR.",
+        )
+    token = str(body.get("api_token") or body.get("access_token") or "").strip()
+    try:
+        return {"items": list_companies_for_token(token)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/breezy-hr/connect")
+def breezy_hr_connect(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import connect_token
+
+    token = str(body.get("api_token") or body.get("access_token") or "").strip()
+    company_id = str(body.get("company_id") or "").strip() or None
+    try:
+        return connect_token(db, principal.org_id, api_token=token, company_id=company_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/breezy-hr/disconnect")
+def breezy_hr_disconnect(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import disconnect
+
+    try:
+        return disconnect(db, principal.org_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/breezy-hr/positions")
+def breezy_hr_list_positions(
+    state: str | None = Query(default="published"),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import list_positions
+
+    try:
+        state_f = None if state in (None, "", "all") else state
+        return {"items": list_positions(db, principal.org_id, state=state_f)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get("/breezy-hr/candidates")
+def breezy_hr_list_candidates(
+    position_id: str = Query(..., min_length=1),
+    page: int = Query(1, ge=1, le=50),
+    per_page: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import list_candidates
+
+    try:
+        return {
+            "items": list_candidates(
+                db,
+                principal.org_id,
+                position_id=position_id,
+                page=page,
+                per_page=per_page,
+            )
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/breezy-hr/candidates/import-to-order")
+def breezy_hr_import_candidates(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.breezy_hr_connection_service import import_candidates_to_order
+
+    order_id = str(body.get("order_id") or "").strip()
+    position_id = str(body.get("position_id") or "").strip()
+    ids = body.get("candidate_ids") or []
+    if not isinstance(ids, list):
+        ids = []
+    try:
+        return import_candidates_to_order(
+            db,
+            principal.org_id,
+            order_id=order_id,
+            position_id=position_id,
+            candidate_ids=[str(x) for x in ids],
+            import_all_matching=bool(body.get("import_all_matching")),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.get("/{order_id}/interview/ats/quote")

@@ -204,6 +204,7 @@ def compute_intake_errors(recipient: ServiceOrderRecipient) -> list[str]:
     elif quality == "missing" and str(recipient.intake_source or "") not in {
         "csv",
         "zoho_recruit",
+        "breezy_hr",
         "merged",
     }:
         errors.append("CV missing")

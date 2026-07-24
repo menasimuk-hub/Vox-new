@@ -648,6 +648,28 @@ class PartnerService:
             except Exception:
                 logger.exception("zoho recruit writeback failed screening_id=%s", row.id)
 
+        # Breezy HR writeback when mapped org is connected (partner_reference_id = position_id:candidate_id).
+        if provider and provider.key == "breezy" and row.org_id and row.partner_reference_id:
+            try:
+                from app.services.breezy_hr_connection_service import (
+                    parse_partner_reference,
+                    write_screening_result as breezy_write,
+                )
+
+                position_id, candidate_id = parse_partner_reference(str(row.partner_reference_id))
+                if position_id and candidate_id:
+                    breezy_write(
+                        db,
+                        org_id=str(row.org_id),
+                        position_id=position_id,
+                        candidate_id=candidate_id,
+                        score=row.candidate_score,
+                        result_status=row.result_status,
+                        report_url=row.report_url,
+                    )
+            except Exception:
+                logger.exception("breezy hr writeback failed screening_id=%s", row.id)
+
     # ---- Admin ----
 
     @staticmethod
@@ -749,6 +771,7 @@ class PartnerService:
         )
         partner_cfg = _loads(p.config_json, {})
         recruit = None
+        breezy = None
         if p.key == "zoho" and p.mapped_org_id:
             try:
                 from app.services.zoho_recruit_connection_service import recruit_status
@@ -760,6 +783,13 @@ class PartnerService:
                 )
             except Exception:
                 recruit = {"connected": False, "oauth_app_ready": False}
+        if p.key == "breezy" and p.mapped_org_id:
+            try:
+                from app.services.breezy_hr_connection_service import breezy_status
+
+                breezy = breezy_status(db, str(p.mapped_org_id))
+            except Exception:
+                breezy = {"connected": False}
         return {
             "provider": PartnerService._provider_dict(p),
             "keys": [
@@ -798,6 +828,7 @@ class PartnerService:
                 "oauth_callback": "https://api.voxbulk.com/partner/v1/oauth/zoho/callback",
             },
             "recruit": recruit,
+            "breezy": breezy,
         }
 
     @staticmethod
@@ -1141,6 +1172,8 @@ class PartnerService:
                 msg = "Save Zoho Client ID and Client Secret under App credentials"
             elif ok:
                 msg = "OK – partner ready for dashboard Zoho Recruit connect"
+        if key == "breezy" and ok:
+            msg = "OK – partner ready; orgs connect Breezy with an API token in the dashboard"
         p.last_health_at = _now()
         p.last_health_ok = ok
         p.last_health_message = msg

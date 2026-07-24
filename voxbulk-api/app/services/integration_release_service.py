@@ -29,6 +29,7 @@ ORG_INTEGRATION_KEYS = frozenset(
         "pipedrive",
         "zoho_crm",
         "zoho_recruit",
+        "breezy_hr",
     }
 )
 
@@ -124,6 +125,11 @@ class IntegrationReleaseService:
             if partner is None:
                 return RELEASE_TESTING
             return normalize_release_mode(getattr(partner, "release_mode", None), default=RELEASE_TESTING)
+        if key == "breezy_hr":
+            partner = db.execute(select(PartnerProvider).where(PartnerProvider.key == "breezy")).scalar_one_or_none()
+            if partner is None:
+                return RELEASE_TESTING
+            return normalize_release_mode(getattr(partner, "release_mode", None), default=RELEASE_TESTING)
         admin_key = IntegrationReleaseService._admin_provider_key(key)
         row = db.execute(
             select(ProviderConfig).where(
@@ -146,6 +152,10 @@ class IntegrationReleaseService:
             from app.services.zoho_recruit_connection_service import partner_provider_enabled, platform_oauth_configured
 
             return bool(partner_provider_enabled(db) and platform_oauth_configured(db))
+        if key == "breezy_hr":
+            from app.services.breezy_hr_connection_service import partner_provider_enabled
+
+            return bool(partner_provider_enabled(db))
         admin_key = IntegrationReleaseService._admin_provider_key(key)
         row = db.execute(
             select(ProviderConfig).where(

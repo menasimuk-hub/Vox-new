@@ -402,6 +402,14 @@ class InterviewAnalysisService:
             except Exception:
                 logger.exception("%s zoho_recruit_writeback_failed", LOG_PREFIX)
             try:
+                from app.services.breezy_hr_connection_service import (
+                    maybe_writeback_interview_result as breezy_writeback,
+                )
+
+                breezy_writeback(db, order=order, recipient=recipient)
+            except Exception:
+                logger.exception("%s breezy_hr_writeback_failed", LOG_PREFIX)
+            try:
                 from app.services.interview_session_billing_service import meter_session_if_needed
 
                 meter_session_if_needed(db, order, recipient)

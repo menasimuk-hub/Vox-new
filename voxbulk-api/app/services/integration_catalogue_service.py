@@ -123,6 +123,14 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         short_description="Connect your Zoho Recruit account to run AI voice screening and write scores back to candidates.",
         icon_slug="zoho",
     ),
+    ProviderSpec(
+        key="breezy_hr",
+        group=ATS_GROUP,
+        admin_provider="breezy_hr",
+        label="Breezy HR",
+        short_description="Connect Breezy HR to import candidates into AI voice screening and write results back to the candidate stream.",
+        icon_slug="breezy",
+    ),
 )
 
 
@@ -160,26 +168,44 @@ def _is_provider_visible(
 
 
 def _ats_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
-    if spec.key != "zoho_recruit":
-        return {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
-    from app.services.zoho_recruit_connection_service import DATA_CENTER_OPTIONS, get_recruit_config
+    if spec.key == "zoho_recruit":
+        from app.services.zoho_recruit_connection_service import DATA_CENTER_OPTIONS, get_recruit_config
 
-    cfg = get_recruit_config(db, org.id)
-    has_token = bool(str(cfg.get("access_token") or "").strip())
-    last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
-    account_name = str(cfg.get("account_name") or "").strip() or None
-    dc = str(cfg.get("data_center") or "").strip() or None
-    return {
-        "connected": has_token,
-        "connected_account": account_name,
-        "connected_at": cfg.get("connected_at"),
-        "last_check": last_check,
-        "extra": {
-            "data_center": dc,
-            "api_domain": cfg.get("api_domain"),
-            "data_centers": list(DATA_CENTER_OPTIONS),
-        },
-    }
+        cfg = get_recruit_config(db, org.id)
+        has_token = bool(str(cfg.get("access_token") or "").strip())
+        last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
+        account_name = str(cfg.get("account_name") or "").strip() or None
+        dc = str(cfg.get("data_center") or "").strip() or None
+        return {
+            "connected": has_token,
+            "connected_account": account_name,
+            "connected_at": cfg.get("connected_at"),
+            "last_check": last_check,
+            "extra": {
+                "data_center": dc,
+                "api_domain": cfg.get("api_domain"),
+                "data_centers": list(DATA_CENTER_OPTIONS),
+            },
+        }
+    if spec.key == "breezy_hr":
+        from app.services.breezy_hr_connection_service import get_breezy_config
+
+        cfg = get_breezy_config(db, org.id)
+        has_token = bool(str(cfg.get("access_token") or "").strip())
+        company_id = str(cfg.get("company_id") or "").strip()
+        company_name = str(cfg.get("company_name") or "").strip() or None
+        last_check = cfg.get("last_check") if isinstance(cfg.get("last_check"), dict) else None
+        return {
+            "connected": has_token and bool(company_id),
+            "connected_account": company_name or company_id or None,
+            "connected_at": cfg.get("connected_at"),
+            "last_check": last_check,
+            "extra": {
+                "company_id": company_id or None,
+                "auth_mode": "api_token",
+            },
+        }
+    return {"connected": False, "connected_account": None, "connected_at": None, "extra": {}}
 
 
 def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session) -> dict[str, Any]:
@@ -344,6 +370,9 @@ def _provider_actions(spec: ProviderSpec) -> dict[str, str]:
     elif spec.group == ATS_GROUP:
         if spec.key == "zoho_recruit":
             actions["connect_url"] = f"{base}/zoho-recruit/oauth/start"
+        elif spec.key == "breezy_hr":
+            actions["connect_token_url"] = f"{base}/breezy-hr/connect"
+            actions["companies_url"] = f"{base}/breezy-hr/companies"
     return actions
 
 
@@ -381,6 +410,10 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
         from app.services.zoho_recruit_connection_service import platform_oauth_configured as zr_ready
 
         return bool(zr_ready(db))
+    if spec.key == "breezy_hr":
+        from app.services.breezy_hr_connection_service import platform_ready as breezy_ready
+
+        return bool(breezy_ready(db))
     return False
 
 

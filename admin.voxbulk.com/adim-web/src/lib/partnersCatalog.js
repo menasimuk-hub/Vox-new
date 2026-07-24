@@ -16,10 +16,10 @@ export const PARTNER_PROVIDERS = [
     label: 'Breezy HR',
     short: 'Breezy',
     initials: 'BR',
-    portalUrl: 'https://breezy.hr/integrations/build',
+    portalUrl: 'https://developer.breezy.hr/',
     partnerNameHeader: 'breezy',
     commissionDefault: 20,
-    extraFields: 'breezy',
+    extraFields: null,
   },
   {
     key: 'workable',

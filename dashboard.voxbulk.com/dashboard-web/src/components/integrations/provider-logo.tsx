@@ -1,4 +1,4 @@
-import { Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
+import { Briefcase, Building2, Calendar, CalendarCheck, CalendarClock, CalendarRange, PlugZap } from "lucide-react";
 
 import { IntegrationBrandIcon, resolveBrandSlug } from "@/components/integrations/integration-brand-icons";
 import { integrationLogoTileBg } from "@/lib/integration-logos";
@@ -16,6 +16,8 @@ const FALLBACK_ICONS: Record<string, typeof CalendarCheck> = {
   zoho_crm: Building2,
   zoho_bookings: Building2,
   zoho_recruit: Building2,
+  breezy: Briefcase,
+  breezy_hr: Briefcase,
 };
 
 /** Logos that fill the square — no inner padding. */

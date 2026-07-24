@@ -549,12 +549,29 @@ def _check_zoho_recruit(db: Session, org_id: str) -> list[dict[str, Any]]:
     return checks
 
 
+def _check_breezy_hr(db: Session, org_id: str) -> list[dict[str, Any]]:
+    from app.services.breezy_hr_connection_service import breezy_status, list_positions
+
+    status = breezy_status(db, org_id)
+    if not status.get("connected"):
+        return [_check("token", False, "Breezy HR is not connected")]
+    try:
+        positions = list_positions(db, org_id, state=None)
+    except ValueError as exc:
+        return [_check("api", False, str(exc))]
+    checks = [_check("api", True, f"Breezy API reachable · {len(positions)} position(s)")]
+    if status.get("account_name"):
+        checks.append(_check("company", True, f"Company: {status['account_name']}"))
+    return checks
+
+
 _BOOKING_FIELD = "scheduling_config_json"
 _CRM_FIELDS: dict[str, str] = {
     "hubspot": "hubspot_config_json",
     "pipedrive": "pipedrive_config_json",
     "zoho_crm": "zoho_crm_config_json",
     "zoho_recruit": "zoho_recruit_config_json",
+    "breezy_hr": "breezy_hr_config_json",
 }
 
 _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, Any]]]]] = {
@@ -568,6 +585,7 @@ _PROVIDER_RUNNERS: dict[str, tuple[str, Callable[[Session, str], list[dict[str, 
     "pipedrive": (_CRM_FIELDS["pipedrive"], _check_pipedrive_crm),
     "zoho_crm": (_CRM_FIELDS["zoho_crm"], _check_zoho_crm),
     "zoho_recruit": (_CRM_FIELDS["zoho_recruit"], _check_zoho_recruit),
+    "breezy_hr": (_CRM_FIELDS["breezy_hr"], _check_breezy_hr),
 }
 
 

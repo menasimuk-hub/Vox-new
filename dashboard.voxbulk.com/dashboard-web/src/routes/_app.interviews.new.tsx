@@ -30,6 +30,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Stepper, WizardNav, type WizardStepDef } from "@/components/create-wizard";
 import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
 import { ZohoRecruitImportPanel } from "@/components/integrations/zoho-recruit-import-panel";
+import { BreezyHrImportPanel } from "@/components/integrations/breezy-hr-import-panel";
 import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
 import { isArabicRegionCode } from "@/lib/interview-agent-regions";
 import { PageHeader } from "@/components/page-header";
@@ -87,6 +88,10 @@ export const Route = createFileRoute("/_app/interviews/new")({
     const orderId = typeof search.order_id === "string" ? search.order_id.trim() : "";
     const zohoCandidateId =
       typeof search.zoho_candidate_id === "string" ? search.zoho_candidate_id.trim() : "";
+    const breezyCandidateId =
+      typeof search.breezy_candidate_id === "string" ? search.breezy_candidate_id.trim() : "";
+    const breezyPositionId =
+      typeof search.breezy_position_id === "string" ? search.breezy_position_id.trim() : "";
     const rawNew = search.new;
     const explicitNew =
       rawNew === "1" ||
@@ -97,6 +102,8 @@ export const Route = createFileRoute("/_app/interviews/new")({
       new: orderId ? false : rawNew === undefined ? true : explicitNew,
       order_id: orderId || undefined,
       zoho_candidate_id: zohoCandidateId || undefined,
+      breezy_candidate_id: breezyCandidateId || undefined,
+      breezy_position_id: breezyPositionId || undefined,
     };
   },
   component: CreateInterview,
@@ -320,7 +327,7 @@ function collectInterviewLaunchErrors(opts: {
 }
 
 function CreateInterview() {
-  const { new: wantNew, order_id: draftOrderId, zoho_candidate_id: zohoCandidateId } = Route.useSearch();
+  const { new: wantNew, order_id: draftOrderId, zoho_candidate_id: zohoCandidateId, breezy_candidate_id: breezyCandidateId, breezy_position_id: breezyPositionId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
@@ -2091,6 +2098,18 @@ function CreateInterview() {
             <ZohoRecruitImportPanel
               orderId={orderId}
               disabled={candidatesLocked || campaignReadOnly}
+              onImported={() => {
+                void draftQ.refetch();
+              }}
+            />
+          ) : null}
+
+          {orderId ? (
+            <BreezyHrImportPanel
+              orderId={orderId}
+              disabled={candidatesLocked || campaignReadOnly}
+              initialPositionId={breezyPositionId}
+              initialCandidateId={breezyCandidateId}
               onImported={() => {
                 void draftQ.refetch();
               }}
