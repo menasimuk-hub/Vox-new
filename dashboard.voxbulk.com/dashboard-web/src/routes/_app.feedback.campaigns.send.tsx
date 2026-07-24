@@ -15,12 +15,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { IPhonePreview } from "@/components/iphone-preview";
 import { apiFetch } from "@/lib/api";
 import { queryKeys, useFeedbackMarketingSubscriberCount, useFeedbackPromoTemplates } from "@/lib/queries";
+import { requireEnabledService } from "@/lib/guards/service-route";
 
 const searchSchema = z.object({ template: z.string().optional() });
 
 export const Route = createFileRoute("/_app/feedback/campaigns/send")({
   head: () => ({ meta: [{ title: "Send campaign — Customer feedback" }] }),
   validateSearch: searchSchema,
+  beforeLoad: () => requireEnabledService("feedbackCampaigns"),
   component: FeedbackCampaignSend,
 });
 

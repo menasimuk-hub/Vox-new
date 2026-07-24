@@ -12,6 +12,16 @@ def test_defaults_interview_and_survey_on():
     services = parse_enabled_services(None)
     assert services["interview"] is True
     assert services["survey"] is True
+    assert services["feedback_campaigns"] is False
+
+
+def test_user_can_enable_feedback_campaigns_when_allowed():
+    allowed = parse_enabled_services(None)
+    allowed["feedback_campaigns"] = True
+    enabled = parse_enabled_services(None)
+    next_enabled = merge_user_enabled_services(allowed, enabled, {"feedback_campaigns": True})
+    assert next_enabled["feedback_campaigns"] is True
+    assert effective_services(allowed, next_enabled)["feedback_campaigns"] is True
 
 
 def test_user_can_hide_survey_when_both_allowed():

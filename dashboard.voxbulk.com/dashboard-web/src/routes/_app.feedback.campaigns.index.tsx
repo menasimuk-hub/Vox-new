@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { requireEnabledService } from "@/lib/guards/service-route";
 import { useFeedbackPromoDashboard } from "@/lib/queries";
 
 export const Route = createFileRoute("/_app/feedback/campaigns/")({
   head: () => ({ meta: [{ title: "Campaign dashboard — Customer feedback" }] }),
+  beforeLoad: () => requireEnabledService("feedbackCampaigns"),
   component: FeedbackCampaignDashboard,
 });
 

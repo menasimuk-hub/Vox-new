@@ -34,6 +34,17 @@ def _require_feedback_enabled(db: Session, org_id: str) -> None:
         raise HTTPException(status_code=403, detail="Customer feedback is not enabled for this organisation.")
 
 
+def _require_feedback_campaigns_enabled(db: Session, org_id: str) -> None:
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    _allowed, _enabled, visible = org_service_maps(org, db)
+    if not is_service_enabled(visible, "feedback_campaigns"):
+        raise HTTPException(
+            status_code=403,
+            detail="Send campaign add-on is not enabled for this organisation.",
+        )
+
 @router.get("/catalog/industries")
 def list_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)
@@ -336,7 +347,7 @@ def get_results_insights(
 
 @router.get("/marketing-subscribers/count")
 def marketing_subscriber_count(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     count = int(
         db.execute(
             select(func.count())
@@ -395,13 +406,13 @@ def export_results_pdf(
 
 @router.get("/promo-campaigns/templates")
 def list_promo_templates(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     return {"ok": True, "items": FeedbackPromoCampaignService.list_templates()}
 
 
 @router.post("/promo-campaigns/quote")
 def quote_promo_campaign(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
         return {
             "ok": True,
@@ -420,19 +431,19 @@ def quote_promo_campaign(payload: dict, db: Session = Depends(get_db), principal
 
 @router.get("/promo-campaigns")
 def list_promo_campaigns(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     return {"ok": True, "items": FeedbackPromoCampaignService.list_campaigns(db, org_id=principal.org_id)}
 
 
 @router.get("/promo-campaigns/dashboard")
 def promo_campaign_dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     return {"ok": True, **FeedbackPromoCampaignService.dashboard_stats(db, org_id=principal.org_id)}
 
 
 @router.post("/promo-campaigns")
 def create_promo_campaign(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
         return {"ok": True, "item": FeedbackPromoCampaignService.create_campaign(db, org_id=principal.org_id, payload=payload)}
     except FeedbackPromoCampaignError as e:
@@ -441,7 +452,7 @@ def create_promo_campaign(payload: dict, db: Session = Depends(get_db), principa
 
 @router.post("/promo-campaigns/{campaign_id}/checkout")
 def checkout_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
         return FeedbackPromoCampaignService.checkout(db, org_id=principal.org_id, campaign_id=campaign_id)
     except FeedbackPromoCampaignError as e:
@@ -450,7 +461,7 @@ def checkout_promo_campaign(campaign_id: str, db: Session = Depends(get_db), pri
 
 @router.post("/promo-campaigns/{campaign_id}/launch")
 def launch_promo_campaign(campaign_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_feedback_enabled(db, principal.org_id)
+    _require_feedback_campaigns_enabled(db, principal.org_id)
     try:
         return FeedbackPromoCampaignService.launch(db, org_id=principal.org_id, campaign_id=campaign_id)
     except FeedbackPromoCampaignError as e:

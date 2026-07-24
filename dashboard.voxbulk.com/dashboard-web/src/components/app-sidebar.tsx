@@ -34,6 +34,8 @@ type Item = {
   icon: React.ComponentType<{ className?: string }>;
   isActive?: (path: string) => boolean;
   addon?: boolean;
+  /** When set, item is shown only if this service is visible. */
+  requiresService?: ServiceKey;
 };
 type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales";
 type Group = {
@@ -107,8 +109,8 @@ const groups: Group[] = [
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
     { title: "Compare locations", url: "/feedback/compare", icon: GitCompare },
-    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true },
-    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true },
+    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns" },
+    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns" },
   ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
@@ -161,16 +163,23 @@ export function AppSidebar() {
 
   const baseGroups = groups
     .map((g) => {
-      if (g.key !== "settings") return g;
-      return {
-        ...g,
-        items: g.items.filter((item) => {
+      let items = g.items;
+      if (g.key === "settings") {
+        items = items.filter((item) => {
           if (item.url === "/settings/team") return canManageTeam(role);
           if (item.url === "/settings/profile") return true;
           return canManageOrgSettings(role);
-        }),
-      };
+        });
+      }
+      items = items.filter((item) => {
+        if (!item.requiresService) return true;
+        if (!loaded) return false;
+        return Boolean(visible[item.requiresService]);
+      });
+      if (items.length === 0) return null;
+      return { ...g, items };
     })
+    .filter((g): g is Group => Boolean(g))
     .filter((g) => {
       if (billingOnly) return g.key === "account";
       if (g.key === "account" && !canAccessBilling(role)) return false;

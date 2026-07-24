@@ -9,6 +9,7 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
     "interview": True,
     "survey": True,
     "customer_feedback": False,
+    "feedback_campaigns": False,
     "recovery": False,
     "follow_up": False,
     "campaigns": False,
@@ -21,6 +22,7 @@ SERVICE_LABELS: dict[str, str] = {
     "interview": "Interviews",
     "survey": "Surveys",
     "customer_feedback": "Customer feedback",
+    "feedback_campaigns": "Add-on · Send campaign",
     "appointments": "Appointments",
     "recovery": "Recovery",
     "follow_up": "Follow up",
@@ -31,6 +33,7 @@ SERVICE_ADMIN_ICONS: dict[str, str] = {
     "interview": "ti-phone",
     "survey": "ti-clipboard",
     "customer_feedback": "ti-message-circle",
+    "feedback_campaigns": "ti-send",
     "appointments": "ti-calendar",
     "recovery": "ti-heart",
     "follow_up": "ti-bell",
@@ -42,6 +45,7 @@ DASHBOARD_SERVICE_ICONS: dict[str, str] = {
     "interview": "icon-black",
     "survey": "icon-black",
     "customer_feedback": "icon-black",
+    "feedback_campaigns": "icon-black",
     "recovery": "icon-black",
     "follow_up": "icon-black",
     "campaigns": "icon-dark",
@@ -106,7 +110,8 @@ class ServiceNotAllowedError(ValueError):
 def validate_at_least_one_enabled(services: dict[str, bool]) -> None:
     if not any_service_enabled(services):
         raise AtLeastOneServiceRequiredError(
-            "At least one dashboard service must remain enabled (interview, survey, customer feedback, recovery, follow up, or campaigns)."
+            "At least one dashboard service must remain enabled "
+            "(interview, survey, customer feedback, send campaign add-on, recovery, follow up, or campaigns)."
         )
 
 
@@ -198,6 +203,10 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
         "surveys": "survey",
         "customer_feedback": "customer_feedback",
         "feedback": "customer_feedback",
+        "feedback_campaigns": "feedback_campaigns",
+        "feedback-campaigns": "feedback_campaigns",
+        "promo_campaigns": "feedback_campaigns",
+        "send_campaign": "feedback_campaigns",
         "recovery": "recovery",
         "follow_up": "follow_up",
         "follow-up": "follow_up",

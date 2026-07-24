@@ -5,12 +5,21 @@ import { apiFetch } from "@/lib/api";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import type { ApiEnabledServices, Organisation } from "@/lib/types/api";
 
-export type ServiceKey = "interviews" | "surveys" | "feedback" | "appointments" | "recovery" | "followup" | "campaigns";
+export type ServiceKey =
+  | "interviews"
+  | "surveys"
+  | "feedback"
+  | "feedbackCampaigns"
+  | "appointments"
+  | "recovery"
+  | "followup"
+  | "campaigns";
 
 const DEFAULT: Record<ServiceKey, boolean> = {
   interviews: true,
   surveys: true,
   feedback: false,
+  feedbackCampaigns: false,
   appointments: false,
   recovery: false,
   followup: false,
@@ -24,6 +33,7 @@ function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
     feedback: Boolean(raw.customer_feedback),
+    feedbackCampaigns: Boolean(raw.feedback_campaigns),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -43,6 +53,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     interviews: "interview" in raw ? Boolean(raw.interview) : true,
     surveys: "survey" in raw ? Boolean(raw.survey) : true,
     feedback: Boolean(raw.customer_feedback),
+    feedbackCampaigns: Boolean(raw.feedback_campaigns),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -60,6 +71,7 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
     interview: state.interviews,
     survey: state.surveys,
     customer_feedback: state.feedback,
+    feedback_campaigns: state.feedbackCampaigns,
     appointments: state.appointments,
     recovery: showRecoveryModules ? state.recovery : false,
     follow_up: showRecoveryModules ? state.followup : false,
@@ -72,6 +84,7 @@ function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<Servi
     interviews: allowed.interviews && enabled.interviews,
     surveys: allowed.surveys && enabled.surveys,
     feedback: allowed.feedback && enabled.feedback,
+    feedbackCampaigns: allowed.feedbackCampaigns && enabled.feedbackCampaigns,
     appointments: allowed.appointments && enabled.appointments,
     recovery: allowed.recovery && enabled.recovery,
     followup: allowed.followup && enabled.followup,
