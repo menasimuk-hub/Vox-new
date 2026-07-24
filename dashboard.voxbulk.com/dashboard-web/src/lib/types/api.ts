@@ -3,6 +3,7 @@ export type ApiEnabledServices = {
   survey?: boolean;
   customer_feedback?: boolean;
   feedback_campaigns?: boolean;
+  expo?: boolean;
   appointments?: boolean;
   recovery?: boolean;
   follow_up?: boolean;

@@ -50,7 +50,20 @@ def list_industries(db: Session = Depends(get_db), principal=Depends(get_current
 
 @router.get("/packages")
 def list_packages(zone: str = "gb", db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_expo_enabled(db, principal.org_id)
+    # Price list: campaign users need Expo enabled; billing roles may view packages for purchasing.
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    _allowed, _enabled, visible = org_service_maps(org, db)
+    expo_on = is_service_enabled(visible, "expo")
+    if not expo_on:
+        try:
+            OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+        except PermissionError as e:
+            raise HTTPException(
+                status_code=403,
+                detail="VoxBulk Expo is not enabled for this organisation.",
+            ) from e
     return {"ok": True, "items": ExpoBoothService.list_packages(db, market_zone=zone)}
 
 

@@ -10,6 +10,7 @@ export type ServiceKey =
   | "surveys"
   | "feedback"
   | "feedbackCampaigns"
+  | "expo"
   | "appointments"
   | "recovery"
   | "followup"
@@ -20,6 +21,7 @@ const DEFAULT: Record<ServiceKey, boolean> = {
   surveys: true,
   feedback: false,
   feedbackCampaigns: false,
+  expo: false,
   appointments: false,
   recovery: false,
   followup: false,
@@ -34,6 +36,7 @@ function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     surveys: raw.survey !== false,
     feedback: Boolean(raw.customer_feedback),
     feedbackCampaigns: Boolean(raw.feedback_campaigns),
+    expo: Boolean(raw.expo),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -54,6 +57,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     surveys: "survey" in raw ? Boolean(raw.survey) : true,
     feedback: Boolean(raw.customer_feedback),
     feedbackCampaigns: Boolean(raw.feedback_campaigns),
+    expo: Boolean(raw.expo),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -72,6 +76,7 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
     survey: state.surveys,
     customer_feedback: state.feedback,
     feedback_campaigns: state.feedbackCampaigns,
+    expo: state.expo,
     appointments: state.appointments,
     recovery: showRecoveryModules ? state.recovery : false,
     follow_up: showRecoveryModules ? state.followup : false,
@@ -85,6 +90,7 @@ function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<Servi
     surveys: allowed.surveys && enabled.surveys,
     feedback: allowed.feedback && enabled.feedback,
     feedbackCampaigns: allowed.feedbackCampaigns && enabled.feedbackCampaigns,
+    expo: allowed.expo && enabled.expo,
     appointments: allowed.appointments && enabled.appointments,
     recovery: allowed.recovery && enabled.recovery,
     followup: allowed.followup && enabled.followup,

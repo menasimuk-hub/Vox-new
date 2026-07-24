@@ -28,6 +28,7 @@ const items: ServiceItem[] = [
     desc: "Promo WhatsApp Send campaign and Campaign dashboard.",
     Icon: Send,
   },
+  { key: "expo", title: "VoxBulk Expo", desc: "Exhibition WhatsApp lead capture with QR + product PDFs.", Icon: QrCode },
   { key: "appointments", title: "Appointments", desc: "CRM booking confirmation via WhatsApp + AI calls.", Icon: CalendarClock },
   { key: "campaigns", title: "Broadcast campaigns", desc: "WhatsApp template broadcasts.", brandIcon: brandAssets.iconDark },
   { key: "recovery", title: "Recovery", desc: "Missed-appointment & recall outreach.", Icon: HeartPulse },

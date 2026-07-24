@@ -112,6 +112,12 @@ const groups: Group[] = [
     { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns" },
     { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns" },
   ]},
+  { key: "expo", label: "VoxBulk Expo", items: [
+    { title: "Create Expo booth", url: "/expo/new", icon: QrCode },
+    { title: "Saved booths", url: "/expo", icon: ListChecks },
+    { title: "Lead results", url: "/expo/leads", icon: BarChart3 },
+    { title: "Packages & pricing", url: "/account/expo/packages", icon: Package },
+  ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
     { title: "My templates", url: "/campaigns", icon: ListChecks },
@@ -138,6 +144,7 @@ const groups: Group[] = [
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
+    { title: "Expo packages", url: "/account/expo/packages", icon: Package },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
@@ -365,6 +372,7 @@ function headIcon(key: GroupKey) {
     case "interviews": return PhoneCall;
     case "surveys": return ClipboardList;
     case "feedback": return QrCode;
+    case "expo": return QrCode;
     case "appointments": return CalendarClock;
     case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;
