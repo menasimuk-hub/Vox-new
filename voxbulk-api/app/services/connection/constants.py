@@ -5,6 +5,7 @@ from __future__ import annotations
 SERVICE_AI_INTERVIEW = "ai_interview"
 SERVICE_SURVEY = "survey"
 SERVICE_CUSTOMER_FEEDBACK = "customer_feedback"
+SERVICE_EXPO = "expo"
 SERVICE_BOOKING = "booking"
 SERVICE_MARKETING = "marketing"
 
@@ -12,6 +13,7 @@ ALL_SERVICE_CODES: tuple[str, ...] = (
     SERVICE_AI_INTERVIEW,
     SERVICE_SURVEY,
     SERVICE_CUSTOMER_FEEDBACK,
+    SERVICE_EXPO,
     SERVICE_BOOKING,
     SERVICE_MARKETING,
 )

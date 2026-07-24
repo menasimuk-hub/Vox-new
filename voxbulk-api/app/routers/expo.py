@@ -1,0 +1,151 @@
+"""Customer dashboard API — VoxBulk Expo (WhatsApp exhibition lead capture)."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.dependencies import get_current_principal
+from app.models.expo import ExpoBooth
+from app.models.organisation import Organisation
+from app.services.expo.booth_service import ExpoBoothService
+from app.services.expo.results_service import ExpoResultsService
+from app.services.org_enabled_services import is_service_enabled, org_service_maps
+from app.services.org_rbac import OrgRbacService
+
+router = APIRouter(prefix="/expo", tags=["expo"])
+
+
+def _require_expo_enabled(db: Session, org_id: str) -> None:
+    org = db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    _allowed, _enabled, visible = org_service_maps(org, db)
+    if not is_service_enabled(visible, "expo"):
+        raise HTTPException(status_code=403, detail="VoxBulk Expo is not enabled for this organisation.")
+
+
+def _campaign_owner_user_id(db: Session, principal) -> str | None:
+    """Members are scoped to their own booths; owners/managers see all."""
+    try:
+        return OrgRbacService.campaign_owner_filter_for(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+
+def _get_owned_booth(db: Session, *, org_id: str, booth_id: str, owner_user_id: str | None) -> ExpoBooth:
+    booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
+    if booth is None or (owner_user_id and booth.created_by_user_id != owner_user_id):
+        raise HTTPException(status_code=404, detail="Booth not found")
+    return booth
+
+
+@router.get("/catalog/industries")
+def list_industries(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    return {"ok": True, "items": ExpoBoothService.list_industries(db)}
+
+
+@router.get("/packages")
+def list_packages(zone: str = "gb", db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    return {"ok": True, "items": ExpoBoothService.list_packages(db, market_zone=zone)}
+
+
+@router.get("/booths")
+def list_booths(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return {
+        "ok": True,
+        "items": ExpoBoothService.list_booths(db, org_id=principal.org_id, owner_user_id=owner_filter),
+    }
+
+
+@router.post("/booths")
+def create_booth(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    try:
+        item = ExpoBoothService.create_booth(
+            db, org_id=principal.org_id, user_id=principal.user_id, payload=payload
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "item": item}
+
+
+@router.get("/booths/{booth_id}")
+def get_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    booth = _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    return {"ok": True, "item": ExpoBoothService.serialize_booth(db, booth)}
+
+
+@router.delete("/booths/{booth_id}")
+def delete_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    try:
+        ExpoBoothService.delete_booth(db, org_id=principal.org_id, booth_id=booth_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True}
+
+
+@router.get("/results/summary")
+def results_summary(
+    booth_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    return ExpoResultsService.customer_summary(
+        db, principal.org_id, booth_id=booth_id, created_by_user_id=owner_filter
+    )
+
+
+@router.get("/results/leads")
+def results_leads(
+    booth_id: str | None = None,
+    score: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    items = ExpoResultsService.customer_leads(
+        db, principal.org_id, booth_id=booth_id, score=score, created_by_user_id=owner_filter
+    )
+    return {"ok": True, "items": items}
+
+
+@router.get("/results/export.csv")
+def results_export_csv(
+    booth_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    csv_text = ExpoResultsService.export_csv(
+        db, principal.org_id, booth_id=booth_id, created_by_user_id=owner_filter
+    )
+    suffix = (booth_id or "all")[:8]
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="expo-leads-{suffix}.csv"'},
+    )

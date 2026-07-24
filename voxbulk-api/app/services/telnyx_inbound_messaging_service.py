@@ -542,12 +542,39 @@ class TelnyxInboundMessagingService:
                 inbound_text if _looks_like_uuid(inbound_text) else ""
             )
 
+            handled_expo = False
+            expo_result: dict[str, Any] | None = None
+            try:
+                from app.services.expo.booth_service import extract_expo_token
+
+                expo_trigger_token = extract_expo_token(inbound_text)
+            except Exception:
+                expo_trigger_token = None
+            if expo_trigger_token:
+                try:
+                    from app.services.expo.whatsapp_service import ExpoWhatsappService
+
+                    expo_result = ExpoWhatsappService.try_handle_inbound(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        org_id=org_id,
+                        record=record if isinstance(record, dict) else None,
+                    )
+                    handled_expo = bool(expo_result.get("handled"))
+                except Exception:
+                    logger.exception(
+                        "expo_wa_inbound_handler_failed body=%r from=%r",
+                        inbound_text[:120],
+                        from_norm or from_number,
+                    )
+
             handled_feedback = False
             feedback_result: dict[str, Any] | None = None
             from app.services.customer_feedback.location_service import FeedbackLocationService
 
             feedback_trigger_token = FeedbackLocationService.parse_trigger_ref(inbound_text)
-            if feedback_trigger_token:
+            if not handled_expo and feedback_trigger_token:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -575,7 +602,7 @@ class TelnyxInboundMessagingService:
                     )
 
             # Survey WA is isolated from interview booking: route survey first when applicable.
-            if not handled_feedback:
+            if not handled_expo and not handled_feedback:
                 try:
                     from app.services.survey_whatsapp_conversation_service import (
                         try_handle_survey_whatsapp_inbound,
@@ -633,7 +660,22 @@ class TelnyxInboundMessagingService:
                         len(body or ""),
                     )
 
-            if not handled_feedback and not handled_survey:
+            if not handled_expo and not handled_feedback and not handled_survey:
+                try:
+                    from app.services.expo.whatsapp_service import ExpoWhatsappService
+
+                    expo_result = ExpoWhatsappService.try_handle_inbound(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        org_id=org_id,
+                        record=record if isinstance(record, dict) else None,
+                    )
+                    handled_expo = bool(expo_result.get("handled"))
+                except Exception:
+                    logger.exception("expo_wa_session_handler_failed from=%r", from_norm or from_number)
+
+            if not handled_expo and not handled_feedback and not handled_survey:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -657,7 +699,7 @@ class TelnyxInboundMessagingService:
                     logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
 
             handled_appointment = False
-            if not handled_feedback and not handled_survey:
+            if not handled_expo and not handled_feedback and not handled_survey:
                 try:
                     from app.services.appointment_wa_inbound_service import try_handle_inbound as try_handle_appointment_inbound
 
@@ -757,7 +799,13 @@ class TelnyxInboundMessagingService:
                             (body or "")[:120],
                             from_norm or from_number,
                         )
-            if not handled_interview and not handled_survey and not survey_session_bug and not handled_feedback:
+            if (
+                not handled_interview
+                and not handled_survey
+                and not survey_session_bug
+                and not handled_feedback
+                and not handled_expo
+            ):
                 logger.warning(
                     "inbound_fallback_after_survey_miss org=%s from=%r body=%r — "
                     "no active survey session; routing to sales/generic handlers",

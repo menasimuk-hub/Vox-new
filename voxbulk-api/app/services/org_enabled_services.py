@@ -10,6 +10,7 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
     "survey": True,
     "customer_feedback": False,
     "feedback_campaigns": False,
+    "expo": False,
     "recovery": False,
     "follow_up": False,
     "campaigns": False,
@@ -23,6 +24,7 @@ SERVICE_LABELS: dict[str, str] = {
     "survey": "Surveys",
     "customer_feedback": "Customer feedback",
     "feedback_campaigns": "Add-on · Send campaign",
+    "expo": "VoxBulk Expo",
     "appointments": "Appointments",
     "recovery": "Recovery",
     "follow_up": "Follow up",
@@ -34,6 +36,7 @@ SERVICE_ADMIN_ICONS: dict[str, str] = {
     "survey": "ti-clipboard",
     "customer_feedback": "ti-message-circle",
     "feedback_campaigns": "ti-send",
+    "expo": "ti-qrcode",
     "appointments": "ti-calendar",
     "recovery": "ti-heart",
     "follow_up": "ti-bell",
@@ -46,6 +49,7 @@ DASHBOARD_SERVICE_ICONS: dict[str, str] = {
     "survey": "icon-black",
     "customer_feedback": "icon-black",
     "feedback_campaigns": "icon-black",
+    "expo": "icon-black",
     "recovery": "icon-black",
     "follow_up": "icon-black",
     "campaigns": "icon-dark",
@@ -111,7 +115,7 @@ def validate_at_least_one_enabled(services: dict[str, bool]) -> None:
     if not any_service_enabled(services):
         raise AtLeastOneServiceRequiredError(
             "At least one dashboard service must remain enabled "
-            "(interview, survey, customer feedback, send campaign add-on, recovery, follow up, or campaigns)."
+            "(interview, survey, customer feedback, expo, send campaign add-on, recovery, follow up, or campaigns)."
         )
 
 

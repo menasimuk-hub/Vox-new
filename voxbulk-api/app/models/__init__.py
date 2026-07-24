@@ -132,6 +132,17 @@ from app.models.customer_feedback import (  # noqa: F401
     FeedbackPromoSend,
     FeedbackPromoWallet,
 )
+from app.models.expo import (  # noqa: F401
+    ExpoBooth,
+    ExpoBoothAsset,
+    ExpoExhibition,
+    ExpoIndustry,
+    ExpoLead,
+    ExpoPackage,
+    ExpoResponse,
+    ExpoSession,
+    ExpoVoiceNoteJob,
+)
 from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.models.disabled_wa_template import DisabledWaTemplate  # noqa: F401
