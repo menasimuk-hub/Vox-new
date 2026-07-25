@@ -122,6 +122,54 @@ class SalesRepService:
         return db.execute(select(SalesRep).where(SalesRep.user_id == str(user_id))).scalar_one_or_none()
 
     @staticmethod
+    def partner_org_for_user(db: Session, *, user_id: str) -> Organisation | None:
+        from app.models.membership import OrganisationMembership
+
+        membership = (
+            db.execute(
+                select(OrganisationMembership)
+                .where(OrganisationMembership.user_id == str(user_id))
+                .order_by(OrganisationMembership.created_at.asc())
+            )
+            .scalars()
+            .first()
+        )
+        if membership is None:
+            return None
+        return db.get(Organisation, membership.org_id)
+
+    @staticmethod
+    def reset_partner_org_services_to_defaults(db: Session, org: Organisation) -> None:
+        """Restore Interview + Survey defaults (same as a new normal org). Inactive modules stay off."""
+        from app.services.org_enabled_services import (
+            DEFAULT_ENABLED_SERVICES,
+            serialize_allowed_services,
+            serialize_enabled_services,
+        )
+
+        defaults = dict(DEFAULT_ENABLED_SERVICES)
+        org.allowed_services_json = serialize_allowed_services(defaults)
+        org.enabled_services_json = serialize_enabled_services(defaults)
+        db.add(org)
+
+    @staticmethod
+    def reset_all_partner_org_services(db: Session) -> dict[str, Any]:
+        """Reset every Partner Channel workspace to default active services."""
+        reps = db.execute(select(SalesRep).where(SalesRep.kind == KIND_PARTNER_CHANNEL)).scalars().all()
+        reset = 0
+        org_ids: list[str] = []
+        for rep in reps:
+            org = SalesRepService.partner_org_for_user(db, user_id=rep.user_id)
+            if org is None:
+                continue
+            SalesRepService.reset_partner_org_services_to_defaults(db, org)
+            reset += 1
+            org_ids.append(str(org.id))
+        if reset:
+            db.commit()
+        return {"ok": True, "reset": reset, "org_ids": org_ids}
+
+    @staticmethod
     def list_reps(db: Session, *, kind: str | None = None) -> list[dict[str, Any]]:
         q = select(SalesRep).order_by(SalesRep.created_at.desc())
         if kind:

@@ -49,6 +49,12 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
     return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
 
 
+@router.post("/partner-channel/reset-services")
+def reset_partner_channel_services(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    """Reset all Partner Channel orgs to default active services (Interview + Survey)."""
+    return SalesRepService.reset_all_partner_org_services(db)
+
+
 def _get_rep(db: Session, rep_id: str) -> SalesRep:
     rep = db.execute(select(SalesRep).where(SalesRep.id == str(rep_id))).scalar_one_or_none()
     if rep is None:
