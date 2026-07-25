@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.expo import ExpoBoothAsset, ExpoSession
+from app.models.expo import ExpoBoothAsset, ExpoLead, ExpoSession
 from app.services.expo.asset_storage_service import resolve_storage_abs_path
 from app.services.expo.booth_service import BOOTH_CLOSED_MESSAGE, ExpoBoothService, booth_is_expired
 from app.services.expo.question_bank import parse_contact_capture, web_ui_for_question_key
@@ -209,11 +211,27 @@ async def upload_business_card(
         image_bytes=raw,
         content_type=ctype,
     )
-    # Prefer OCR phone/email over web pending placeholders
+    # Prefer OCR phone/email/name over web pending placeholders (session + lead)
+    lead = db.execute(
+        select(ExpoLead).where(ExpoLead.session_id == session.id).limit(1)
+    ).scalar_one_or_none()
     if fields.get("phone"):
         session.visitor_phone = str(fields["phone"])[:32]
+        if lead is not None:
+            lead.visitor_phone = str(fields["phone"])[:32]
     if fields.get("email"):
         session.visitor_email = str(fields["email"])[:255]
+        if lead is not None:
+            lead.visitor_email = str(fields["email"])[:255]
+    if fields.get("name") and lead is not None:
+        lead.name = str(fields["name"])[:255]
+    if fields.get("company") and lead is not None:
+        lead.company = str(fields["company"])[:255]
+    if card_path and lead is not None:
+        lead.business_card_path = str(card_path)[:2000]
+    if lead is not None:
+        lead.updated_at = datetime.utcnow()
+        db.add(lead)
     db.add(session)
     db.commit()
 

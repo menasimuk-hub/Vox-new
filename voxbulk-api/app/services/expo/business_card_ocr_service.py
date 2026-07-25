@@ -147,6 +147,46 @@ def _clean_email(raw: str | None) -> str | None:
     return text[:255]
 
 
+def is_placeholder_phone(phone: str | None) -> bool:
+    p = str(phone or "").strip().lower()
+    return (not p) or p.startswith("web-pending-") or p.startswith("web-card-")
+
+
+def is_placeholder_email(email: str | None) -> bool:
+    e = str(email or "").strip().lower()
+    return (not e) or e.endswith("@expo.local") or e in {"pending@expo.local", "card@expo.local"}
+
+
+def _normalize_card_image_bytes(image_bytes: bytes, content_type: str = "image/jpeg") -> tuple[bytes, str]:
+    """Convert HEIC/PNG/WebP (etc.) to JPEG so vision OCR accepts the payload."""
+    mime = str(content_type or "").split(";")[0].strip().lower() or "image/jpeg"
+    if mime in {"image/jpeg", "image/jpg"} and len(image_bytes) < 6_000_000:
+        return image_bytes, "image/jpeg"
+    try:
+        import io
+
+        from PIL import Image, ImageOps
+
+        img = Image.open(io.BytesIO(image_bytes))
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        elif img.mode == "L":
+            img = img.convert("RGB")
+        # Cap long edge for vision API cost/latency
+        max_edge = 1600
+        w, h = img.size
+        scale = min(1.0, max_edge / float(max(w, h) or 1))
+        if scale < 1.0:
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    except Exception as exc:
+        logger.warning("expo_card_image_normalize_failed err=%s mime=%s", exc, mime)
+        return image_bytes, mime if mime.startswith("image/") else "image/jpeg"
+
+
 class ExpoBusinessCardService:
     @staticmethod
     def extract_from_inbound(db: Session, record: dict[str, Any] | None) -> dict[str, str | None]:
@@ -178,7 +218,7 @@ class ExpoBusinessCardService:
     ) -> dict[str, str | None]:
         if not image_bytes:
             return {}
-        mime = content_type if str(content_type).startswith("image/") else "image/jpeg"
+        image_bytes, mime = _normalize_card_image_bytes(image_bytes, content_type)
         b64 = base64.b64encode(image_bytes).decode("ascii")
         data_url = f"data:{mime};base64,{b64}"
         try:
@@ -188,7 +228,11 @@ class ExpoBusinessCardService:
             return {}
         model = str(config.get("default_model") or "gpt-4o-mini").strip() or "gpt-4o-mini"
         # Prefer a vision-capable model when admin set something odd
-        if "realtime" in model.lower() or model.startswith("whisper"):
+        if "realtime" in model.lower() or model.startswith("whisper") or "audio" in model.lower():
+            model = "gpt-4o-mini"
+        if model in {"gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"} or "gpt-4o" in model:
+            pass
+        elif "gpt-3.5" in model.lower():
             model = "gpt-4o-mini"
         payload = {
             "model": model,
@@ -198,7 +242,9 @@ class ExpoBusinessCardService:
                     "content": (
                         "You extract contact details from a business card photo. "
                         "Return JSON only. Use null when a field is missing or unreadable. "
-                        "Prefer the person's name (not job title) for name."
+                        "Prefer the person's full name (not job title) for name. "
+                        "Company is the organisation / brand name on the card. "
+                        "Phone should include country code when visible."
                     ),
                 },
                 {
@@ -220,7 +266,7 @@ class ExpoBusinessCardService:
                     "strict": True,
                 },
             },
-            "max_tokens": 300,
+            "max_tokens": 400,
             "temperature": 0,
         }
         try:
@@ -228,7 +274,7 @@ class ExpoBusinessCardService:
                 OpenAIProviderService._endpoint_url(config, "/v1/chat/completions"),
                 json=payload,
                 headers=OpenAIProviderService._headers(config),
-                timeout=60.0,
+                timeout=90.0,
             )
             response.raise_for_status()
             raw = response.json()
@@ -238,12 +284,20 @@ class ExpoBusinessCardService:
             parsed = json.loads(text) if text else {}
             if not isinstance(parsed, dict):
                 return {}
-            return {
+            fields = {
                 "name": (str(parsed.get("name") or "").strip() or None),
                 "company": (str(parsed.get("company") or "").strip() or None),
                 "email": _clean_email(parsed.get("email")),
                 "phone": _clean_phone(parsed.get("phone")),
             }
+            logger.info(
+                "expo_card_ocr_ok name=%s company=%s email=%s phone=%s",
+                bool(fields.get("name")),
+                bool(fields.get("company")),
+                bool(fields.get("email")),
+                bool(fields.get("phone")),
+            )
+            return fields
         except Exception as exc:
             logger.warning("expo_card_ocr_failed err=%s", exc)
             return {}
@@ -289,17 +343,17 @@ class ExpoBusinessCardService:
         try:
             from pathlib import Path
 
+            normalized, mime = _normalize_card_image_bytes(image_bytes, content_type)
             root = Path(__file__).resolve().parents[3] / "data" / "expo-cards" / str(org_id)
             root.mkdir(parents=True, exist_ok=True)
-            ctype = str(content_type or "").lower()
             ext = ".jpg"
-            if "png" in ctype:
+            if "png" in mime:
                 ext = ".png"
-            elif "webp" in ctype:
+            elif "webp" in mime:
                 ext = ".webp"
             name = f"{booth_id[:8]}-{uuid.uuid4().hex[:10]}{ext}"
             abs_path = root / name
-            abs_path.write_bytes(image_bytes)
+            abs_path.write_bytes(normalized)
             return f"data/expo-cards/{org_id}/{name}"
         except Exception as exc:
             logger.warning("expo_card_save_failed err=%s", exc)
@@ -317,14 +371,15 @@ class ExpoBusinessCardService:
         """OCR + persist a browser-uploaded business card image."""
         if not image_bytes:
             return {}, None
+        normalized, mime = _normalize_card_image_bytes(image_bytes, content_type)
         fields = ExpoBusinessCardService.extract_from_bytes(
-            db, image_bytes=image_bytes, content_type=content_type
+            db, image_bytes=normalized, content_type=mime
         )
         rel = ExpoBusinessCardService.persist_card_bytes(
             org_id=org_id,
             booth_id=booth_id,
-            image_bytes=image_bytes,
-            content_type=content_type,
+            image_bytes=normalized,
+            content_type=mime,
         )
         return fields, rel
 

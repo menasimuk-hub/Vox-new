@@ -10,11 +10,22 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoResponse, ExpoSession, ExpoVoiceNoteJob
-from app.services.customer_feedback.feedback_answer_service import translate_answer_to_english
+from app.services.customer_feedback.feedback_answer_service import (
+    TRANSLATION_UNAVAILABLE_EN,
+    translate_answer_to_english,
+)
 from app.services.voice_transcription_service import is_low_quality_transcript
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[expo-voice]"
+
+
+def _english_or_original(translated: dict[str, Any], original: str) -> str:
+    """Prefer English translation; fall back to original if CF returns the unavailable sentinel."""
+    answer_en = str(translated.get("answer_text_en") or "").strip()
+    if not answer_en or answer_en == TRANSLATION_UNAVAILABLE_EN:
+        return original
+    return answer_en
 
 
 def enqueue_expo_voice_job(job_id: str) -> None:
@@ -170,7 +181,7 @@ def process_expo_voice_job(db: Session, job_id: str) -> dict[str, Any]:
             source_language=detected,
         )
         original = str(translated.get("original_text") or text).strip()
-        answer_en = str(translated.get("answer_text_en") or original).strip()
+        answer_en = _english_or_original(translated, original)
 
         job.original_text = original
         job.translated_text = answer_en
@@ -264,7 +275,7 @@ def process_web_voice_bytes(
             source_language=detected,
         )
         original = str(translated.get("original_text") or text).strip()
-        answer_en = str(translated.get("answer_text_en") or original).strip()
+        answer_en = _english_or_original(translated, original)
 
         job.original_text = original
         job.translated_text = answer_en

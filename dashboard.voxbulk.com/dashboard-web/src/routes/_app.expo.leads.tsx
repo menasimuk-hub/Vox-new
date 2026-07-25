@@ -45,6 +45,33 @@ type LeadAnswer = {
   step_order?: number;
 };
 
+const TRANSLATION_UNAVAILABLE = "[Translation unavailable]";
+
+function displayPhone(phone?: string | null): string | null {
+  const p = String(phone || "").trim();
+  if (!p || p.startsWith("web-pending-") || p.startsWith("web-card-")) return null;
+  return p;
+}
+
+function displayEmail(email?: string | null): string | null {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e || e.endsWith("@expo.local")) return null;
+  return String(email || "").trim() || null;
+}
+
+function displayInterest(interest?: string | null): string {
+  const t = String(interest || "").trim();
+  if (!t || t === TRANSLATION_UNAVAILABLE) return "—";
+  return t;
+}
+
+function displayAnswer(en?: string | null, original?: string | null, fallback?: string | null): string {
+  const english = String(en || fallback || "").trim();
+  const orig = String(original || fallback || "").trim();
+  if (!english || english === TRANSLATION_UNAVAILABLE) return orig || "—";
+  return english;
+}
+
 type LeadRow = {
   id: string;
   created_at?: string | null;
@@ -303,11 +330,11 @@ function ExpoLeads() {
                       <td className="px-4 py-3">
                         <p className="font-medium text-foreground">{lead.name || "Unknown"}</p>
                         <p className="text-xs text-muted-foreground">
-                          {[lead.company, lead.visitor_phone].filter(Boolean).join(" · ") || "—"}
+                          {[lead.company, displayPhone(lead.visitor_phone)].filter(Boolean).join(" · ") || "—"}
                         </p>
                       </td>
-                      <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground" title={lead.interest || ""}>
-                        {lead.interest || "—"}
+                      <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground" title={displayInterest(lead.interest)}>
+                        {displayInterest(lead.interest)}
                       </td>
                       <td className="px-4 py-3">
                         <ScoreBadge score={lead.lead_score} />
@@ -365,9 +392,9 @@ function ExpoLeads() {
                   <Skeleton className="h-40 w-full rounded-lg" />
                 ) : null}
                 <DetailRow icon={<Building2 className="size-4" />} label="Company" value={detail.company} />
-                <DetailRow icon={<Phone className="size-4" />} label="Phone" value={detail.visitor_phone} />
-                <DetailRow icon={<Mail className="size-4" />} label="Email" value={detail.visitor_email} />
-                <DetailRow label="Interest" value={detail.interest} />
+                <DetailRow icon={<Phone className="size-4" />} label="Phone" value={displayPhone(detail.visitor_phone)} />
+                <DetailRow icon={<Mail className="size-4" />} label="Email" value={displayEmail(detail.visitor_email)} />
+                <DetailRow label="Interest" value={displayInterest(detail.interest) === "—" ? null : displayInterest(detail.interest)} />
                 <DetailRow label="Timeline" value={detail.buying_timeline} />
                 <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
                 <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
@@ -392,7 +419,11 @@ function ExpoLeads() {
                     </p>
                     {(detail.answers || []).map((a, i) => {
                       const original = (a.original_text || a.answer_text || "").trim();
-                      const english = (a.answer_text_en || a.answer_text || "").trim();
+                      const englishRaw = (a.answer_text_en || a.answer_text || "").trim();
+                      const english =
+                        !englishRaw || englishRaw === TRANSLATION_UNAVAILABLE
+                          ? ""
+                          : englishRaw;
                       const showBoth =
                         original &&
                         english &&
@@ -418,7 +449,9 @@ function ExpoLeads() {
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-1 whitespace-pre-wrap">{english || original || "—"}</p>
+                            <p className="mt-1 whitespace-pre-wrap">
+                              {displayAnswer(englishRaw, original, a.answer_text)}
+                            </p>
                           )}
                         </div>
                       );

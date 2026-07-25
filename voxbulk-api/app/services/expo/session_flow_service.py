@@ -30,7 +30,11 @@ from app.services.expo.question_bank import (
     parse_contact_capture,
     parse_question_config,
 )
-from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
+from app.services.customer_feedback.feedback_answer_service import TRANSLATION_UNAVAILABLE_EN
+from app.services.expo.business_card_ocr_service import (
+    ExpoBusinessCardService,
+    is_placeholder_phone,
+)
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
@@ -307,8 +311,11 @@ class ExpoSessionFlowService:
                 business_card_path=business_card_path,
             )
 
-        answer_en = str(answer_text_en or clean).strip() or clean
         original = str(original_text or clean).strip() or clean
+        answer_en = str(answer_text_en or clean).strip() or clean
+        # Never persist the CF sentinel — Expo leads should show the original transcript
+        if not answer_en or answer_en == TRANSLATION_UNAVAILABLE_EN:
+            answer_en = original or clean
         if detected_language:
             session.detected_language = str(detected_language)[:16]
         response_id = str(uuid.uuid4())
@@ -424,7 +431,8 @@ class ExpoSessionFlowService:
                 if fields.get("email"):
                     lead.visitor_email = fields["email"][:255]
                     session.visitor_email = fields["email"][:255]
-                if fields.get("phone") and not str(lead.visitor_phone or session.visitor_phone or "").strip():
+                if fields.get("phone"):
+                    # Always overwrite web-pending / web-card placeholders on lead + session
                     lead.visitor_phone = fields["phone"][:32]
                     session.visitor_phone = fields["phone"][:32]
                 if business_card_path:
@@ -435,15 +443,46 @@ class ExpoSessionFlowService:
             for fk in ("name", "company", "email", "phone"):
                 if fields.get(fk):
                     _log(f"card_{fk}", str(fields[fk]), "ocr")
-            state.pop("contact_substep", None)
+
+            has_identity = bool(fields.get("name") or fields.get("company"))
+            if not has_identity:
+                # OCR failed / unreadable — keep contact open so visitor can retry or type
+                state["contact_substep"] = "awaiting"
+                state["contact_via"] = "card_retry"
+                if business_card_path:
+                    state["business_card_path"] = business_card_path
+                ExpoSessionFlowService._save_state(session, state)
+                db.add(session)
+                db.commit()
+                return _empty_step_result(
+                    done=False,
+                    prompt=(
+                        "I couldn't read a name or company from that photo. "
+                        "Please try a clearer shot of the card, or type your full name."
+                    ),
+                )
+
             state["contact_via"] = "card"
             state["card_fields"] = {k: v for k, v in fields.items() if v}
+            confirm = ExpoBusinessCardService.confirmation_message(fields)
+
+            # Web card-first starts with a placeholder phone — still collect real mobile
+            if channel == "web" and is_placeholder_phone(session.visitor_phone):
+                state["contact_substep"] = "mobile"
+                ExpoSessionFlowService._save_state(session, state)
+                db.add(session)
+                db.commit()
+                return _empty_step_result(
+                    done=False,
+                    prompt=f"{confirm}\n\n{CONTACT_MOBILE_PROMPT}".strip(),
+                )
+
+            state.pop("contact_substep", None)
             ExpoSessionFlowService._save_state(session, state)
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
                 session.current_step = 1
             db.add(session)
             db.commit()
-            confirm = ExpoBusinessCardService.confirmation_message(fields)
             nxt = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             next_prompt = str(nxt.get("prompt") or "").strip()
             nxt["prompt"] = f"{confirm}\n\n{next_prompt}".strip() if next_prompt else confirm
@@ -482,8 +521,8 @@ class ExpoSessionFlowService:
                 lead.company = answer[:255]
                 lead.updated_at = datetime.utcnow()
                 db.add(lead)
-            # WhatsApp already has the visitor mobile; web still needs it if not set
-            need_mobile = channel == "web" and not str(session.visitor_phone or "").strip()
+            # WhatsApp already has the visitor mobile; web still needs a real (non-placeholder) number
+            need_mobile = channel == "web" and is_placeholder_phone(session.visitor_phone)
             if need_mobile:
                 state["contact_substep"] = "mobile"
                 ExpoSessionFlowService._save_state(session, state)
@@ -525,7 +564,7 @@ class ExpoSessionFlowService:
     @staticmethod
     def _apply_answer_to_lead(lead: ExpoLead, key: str, text: str) -> None:
         clean = text.strip()
-        if not clean:
+        if not clean or clean == TRANSLATION_UNAVAILABLE_EN:
             return
         if key == "name":
             lead.name = clean[:255]
