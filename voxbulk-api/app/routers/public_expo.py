@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.expo import ExpoBoothAsset, ExpoSession
+from app.services.expo.asset_storage_service import resolve_storage_abs_path
 from app.services.expo.booth_service import ExpoBoothService
 from app.services.expo.session_flow_service import THANK_YOU_TEXT, ExpoSessionFlowService
 
@@ -104,6 +105,9 @@ def get_booth_asset(token: str, asset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Asset not found")
     if asset.external_url:
         return RedirectResponse(asset.external_url)
-    if asset.storage_path:
-        return FileResponse(asset.storage_path)
+    abs_path = resolve_storage_abs_path(asset.storage_path)
+    if abs_path is not None:
+        filename = abs_path.name
+        media = "application/pdf" if abs_path.suffix.lower() == ".pdf" else None
+        return FileResponse(abs_path, filename=filename, media_type=media)
     raise HTTPException(status_code=404, detail="Asset file not available yet")

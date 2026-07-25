@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -32,10 +32,14 @@ type Package = {
 type AssetDraft = {
   title: string;
   short_description: string;
+  source: "link" | "upload";
   external_url: string;
+  storage_path: string;
+  original_filename: string;
   match_keywords: string;
   kind: string;
   is_default: boolean;
+  uploading?: boolean;
 };
 
 export const Route = createFileRoute("/_app/expo/new")({
@@ -69,7 +73,17 @@ function CreateExpoBooth() {
     "Please collect your free gift from our stand team — thanks for completing the short questionnaire!",
   );
   const [assets, setAssets] = React.useState<AssetDraft[]>([
-    { title: "", short_description: "", external_url: "", match_keywords: "", kind: "pdf", is_default: true },
+    {
+      title: "",
+      short_description: "",
+      source: "upload",
+      external_url: "",
+      storage_path: "",
+      original_filename: "",
+      match_keywords: "",
+      kind: "pdf",
+      is_default: true,
+    },
   ]);
   const [packageId, setPackageId] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -88,7 +102,11 @@ function CreateExpoBooth() {
     1: Boolean(industryId),
     2: Boolean(exhibitionName.trim() && company.trim()),
     3: true,
-    4: assets.some((a) => a.title.trim() && (a.external_url.trim() || a.short_description.trim())),
+    4: assets.some(
+      (a) =>
+        a.title.trim() &&
+        ((a.source === "link" && a.external_url.trim()) || (a.source === "upload" && a.storage_path.trim())),
+    ),
     5: true,
     6: Boolean(packageId),
     7: true,
@@ -119,13 +137,18 @@ function CreateExpoBooth() {
         free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
         package_id: packageId,
         assets: assets
-          .filter((a) => a.title.trim())
+          .filter(
+            (a) =>
+              a.title.trim() &&
+              ((a.source === "link" && a.external_url.trim()) || (a.source === "upload" && a.storage_path.trim())),
+          )
           .map((a, idx) => ({
             title: a.title.trim(),
             short_description: a.short_description.trim() || null,
-            external_url: a.external_url.trim() || null,
+            external_url: a.source === "link" ? a.external_url.trim() || null : null,
+            storage_path: a.source === "upload" ? a.storage_path.trim() || null : null,
             match_keywords: a.match_keywords.trim() || null,
-            kind: a.kind || "pdf",
+            kind: a.kind || (a.source === "upload" ? "pdf" : "link"),
             is_default: a.is_default || idx === 0,
             sort_order: (idx + 1) * 10,
           })),
@@ -296,16 +319,109 @@ function CreateExpoBooth() {
                       rows={2}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>PDF / video URL</Label>
-                    <Input
-                      value={asset.external_url}
-                      onChange={(e) =>
-                        setAssets((rows) => rows.map((r, i) => (i === idx ? { ...r, external_url: e.target.value } : r)))
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={asset.source === "upload" ? "default" : "outline"}
+                      onClick={() =>
+                        setAssets((rows) =>
+                          rows.map((r, i) =>
+                            i === idx
+                              ? { ...r, source: "upload", external_url: "", kind: r.kind || "pdf" }
+                              : r,
+                          ),
+                        )
                       }
-                      placeholder="https://…"
-                    />
+                    >
+                      Upload PDF / image
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={asset.source === "link" ? "default" : "outline"}
+                      onClick={() =>
+                        setAssets((rows) =>
+                          rows.map((r, i) =>
+                            i === idx
+                              ? { ...r, source: "link", storage_path: "", original_filename: "", kind: "link" }
+                              : r,
+                          ),
+                        )
+                      }
+                    >
+                      Paste link
+                    </Button>
                   </div>
+                  {asset.source === "upload" ? (
+                    <div className="space-y-2">
+                      <Label>Upload file (PDF or image, max 20 MB)</Label>
+                      <Input
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
+                        disabled={asset.uploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          void (async () => {
+                            setAssets((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...r, uploading: true } : r)),
+                            );
+                            try {
+                              const res = (await apiUploadFiles("/expo/assets/upload", [file], "file")) as {
+                                item?: {
+                                  storage_path?: string;
+                                  original_filename?: string;
+                                  kind?: string;
+                                };
+                              };
+                              const item = res?.item || {};
+                              setAssets((rows) =>
+                                rows.map((r, i) =>
+                                  i === idx
+                                    ? {
+                                        ...r,
+                                        uploading: false,
+                                        storage_path: String(item.storage_path || ""),
+                                        original_filename: String(item.original_filename || file.name),
+                                        kind: String(item.kind || "pdf"),
+                                        title: r.title.trim() || String(item.original_filename || file.name),
+                                      }
+                                    : r,
+                                ),
+                              );
+                              toast.success("File uploaded");
+                            } catch (err) {
+                              setAssets((rows) =>
+                                rows.map((r, i) => (i === idx ? { ...r, uploading: false } : r)),
+                              );
+                              toast.error(err instanceof Error ? err.message : "Upload failed");
+                            }
+                          })();
+                        }}
+                      />
+                      {asset.uploading ? (
+                        <p className="text-xs text-muted-foreground">Uploading…</p>
+                      ) : asset.storage_path ? (
+                        <p className="text-xs text-muted-foreground">
+                          Uploaded: {asset.original_filename || "file"}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>PDF / video / brochure URL</Label>
+                      <Input
+                        value={asset.external_url}
+                        onChange={(e) =>
+                          setAssets((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, external_url: e.target.value } : r)),
+                          )
+                        }
+                        placeholder="https://…"
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label>Match keywords (optional)</Label>
                     <Input
@@ -344,7 +460,10 @@ function CreateExpoBooth() {
                       {
                         title: "",
                         short_description: "",
+                        source: "upload",
                         external_url: "",
+                        storage_path: "",
+                        original_filename: "",
                         match_keywords: "",
                         kind: "pdf",
                         is_default: false,

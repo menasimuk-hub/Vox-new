@@ -348,6 +348,13 @@ class ExpoBoothService:
             if not title:
                 continue
             key = str(raw.get("asset_key") or re.sub(r"[^a-z0-9]+", "_", title.lower())).strip("_")[:64] or f"asset_{idx+1}"
+            storage_path = (str(raw.get("storage_path") or "").strip() or None)
+            external_url = (str(raw.get("external_url") or "").strip() or None)
+            if storage_path and (".." in storage_path.replace("\\", "/").split("/") or not storage_path.startswith("data/expo-assets/")):
+                raise ValueError("Invalid uploaded file path")
+            if not storage_path and not external_url:
+                continue
+            kind = str(raw.get("kind") or ("pdf" if (storage_path or "").lower().endswith(".pdf") else "link"))[:16]
             db.add(
                 ExpoBoothAsset(
                     id=str(uuid.uuid4()),
@@ -356,8 +363,9 @@ class ExpoBoothService:
                     asset_key=key,
                     title=title[:255],
                     short_description=(str(raw.get("short_description") or "").strip() or None),
-                    kind=str(raw.get("kind") or "pdf")[:16],
-                    external_url=(str(raw.get("external_url") or "").strip() or None),
+                    kind=kind,
+                    storage_path=storage_path,
+                    external_url=external_url,
                     match_keywords=(str(raw.get("match_keywords") or "").strip() or None),
                     is_default=bool(raw.get("is_default")),
                     sort_order=int(raw.get("sort_order") or (idx + 1) * 10),

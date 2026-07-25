@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_principal
 from app.models.expo import ExpoBooth
 from app.models.organisation import Organisation
+from app.services.expo.asset_storage_service import save_expo_asset_upload
 from app.services.expo.booth_service import ExpoBoothService
 from app.services.expo.results_service import ExpoResultsService
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
@@ -91,6 +92,22 @@ def create_booth(payload: dict, db: Session = Depends(get_db), principal=Depends
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "item": item}
+
+
+@router.post("/assets/upload")
+async def upload_expo_asset(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Upload a PDF/image before creating a booth; returns storage_path to attach on create."""
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    saved = await save_expo_asset_upload(org_id=principal.org_id, upload=file)
+    return {"ok": True, "item": saved}
 
 
 @router.get("/booths/{booth_id}")
