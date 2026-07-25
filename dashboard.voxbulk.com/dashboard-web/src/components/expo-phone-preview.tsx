@@ -135,13 +135,13 @@ type WebProps = {
   qrImageUrl?: string;
 };
 
-/** Live scan landing preview — WhatsApp vs Web choice (same pattern as Customer Feedback). */
+/** Live scan landing preview — WhatsApp vs Web choice (expo dark theme). */
 export function ExpoScanChoosePreview({
   companyName,
   eventName,
   size = "md",
   label = "Scan landing",
-  templateName = "Default template",
+  templateName = "Expo template",
 }: {
   companyName: string;
   eventName: string;
@@ -152,42 +152,60 @@ export function ExpoScanChoosePreview({
   return (
     <ExpoIPhoneFrame size={size} label={label}>
       <div
-        className="flex h-full flex-col overflow-y-auto px-3 pb-8 pt-10"
+        className="relative flex h-full flex-col overflow-hidden px-3 pb-8 pt-10"
         style={{
-          background: "linear-gradient(165deg, #f7f1e6 0%, #efe6d4 45%, #f5efe4 100%)",
-          color: "#2d2926",
+          background:
+            "radial-gradient(120% 80% at 0% 0%, rgba(56,189,248,0.18) 0%, transparent 55%), radial-gradient(120% 80% at 100% 100%, rgba(167,139,250,0.14) 0%, transparent 55%), #0c1222",
+          color: "#eaf2ff",
         }}
       >
-        <p className="text-center text-[10px] font-medium uppercase tracking-wide text-[#2d2926]/70">
-          {templateName}
-        </p>
-        <p className="mt-1 text-center text-[13px] font-semibold">{companyName || "Your stand"}</p>
-        {eventName ? <p className="text-center text-[10px] text-[#2d2926]/55">{eventName}</p> : null}
-        <h2 className="mt-4 font-serif text-[22px] leading-tight tracking-tight">
-          Nice to meet
-          <br />
-          <span className="italic">you</span>
-          <span className="text-[#b8954a]">.</span>
-        </h2>
-        <p className="mt-2 text-[10px] leading-snug text-[#2d2926]/65">
-          Under a minute — choose WhatsApp (any language) or complete here in English.
-        </p>
-        <div className="mt-3 inline-flex self-start rounded-full border border-[#2d2926]/12 bg-white/70 px-2 py-1 text-[9px] text-[#2d2926]/65">
-          WhatsApp = all languages · Web = English
-        </div>
-        <div className="mt-3 grid gap-2">
-          <div className="rounded-xl bg-[#25D366] p-3 text-white shadow-sm">
-            <p className="text-[12px] font-semibold">Continue on WhatsApp</p>
-            <p className="mt-0.5 text-[9px] opacity-90">Reply in your own language · voice OK</p>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage:
+              "linear-gradient(#eaf2ff 1px, transparent 1px), linear-gradient(90deg, #eaf2ff 1px, transparent 1px)",
+            backgroundSize: "34px 34px",
+          }}
+        />
+        <div className="relative">
+          <p className="text-center text-[10px] font-medium uppercase tracking-wide text-[#eaf2ff]/62">
+            {templateName}
+          </p>
+          <p className="mt-1 text-center text-[13px] font-semibold">{companyName || "Your stand"}</p>
+          {eventName ? <p className="text-center text-[10px] text-[#eaf2ff]/55">{eventName}</p> : null}
+          <h2 className="mt-4 font-serif text-[22px] leading-tight tracking-tight">
+            Nice to meet
+            <br />
+            <span className="italic">you</span>
+            <span className="text-[#38bdf8]">.</span>
+          </h2>
+          <p className="mt-2 text-[10px] leading-snug text-[#eaf2ff]/62">
+            Under a minute — choose WhatsApp (any language) or complete here in English.
+          </p>
+          <div
+            className="mt-3 inline-flex self-start rounded-full border px-2 py-1 text-[9px] text-[#eaf2ff]/62"
+            style={{ background: "rgba(255,255,255,0.06)", borderColor: "rgba(234,242,255,0.16)" }}
+          >
+            WhatsApp = all languages · Web = English
           </div>
-          <div className="rounded-xl border border-[#2d2926]/12 bg-white p-3 shadow-sm">
-            <p className="text-[12px] font-semibold">Complete here</p>
-            <p className="mt-0.5 text-[9px] text-[#2d2926]/60">Quick on-page form · English</p>
+          <div className="mt-3 grid gap-2">
+            <div className="rounded-xl bg-[#25D366] p-3 text-white shadow-sm">
+              <p className="text-[12px] font-semibold">Continue on WhatsApp</p>
+              <p className="mt-0.5 text-[9px] opacity-90">Reply in your own language · voice OK</p>
+            </div>
+            <div
+              className="rounded-xl p-3 text-white shadow-sm"
+              style={{ background: "linear-gradient(135deg,#38bdf8,#6366f1)" }}
+            >
+              <p className="text-[12px] font-semibold">Complete here</p>
+              <p className="mt-0.5 text-[9px] opacity-90">Quick on-page form · English</p>
+            </div>
           </div>
+          <p className="mt-auto pt-4 text-center text-[8px] text-[#eaf2ff]/50">
+            Private — only shared with {companyName || "the exhibitor"}.
+          </p>
         </div>
-        <p className="mt-auto pt-4 text-center text-[8px] text-[#2d2926]/50">
-          Private — only shared with {companyName || "the exhibitor"}.
-        </p>
       </div>
     </ExpoIPhoneFrame>
   );
@@ -200,7 +218,7 @@ export function ExpoWebPhonePreview({
   questions,
   size = "md",
   label = "Web",
-  templateName = "Customer Feedback",
+  templateName = "Expo",
   qrImageUrl,
 }: WebProps) {
   const cameraRef = React.useRef<HTMLInputElement>(null);
@@ -208,21 +226,34 @@ export function ExpoWebPhonePreview({
 
   return (
     <ExpoIPhoneFrame size={size} label={label}>
-      <div className="flex h-full flex-col bg-[#f0f2f5] text-[#0f172a]">
-        <div
-          className="border-b border-emerald-800/20 px-4 pb-3 pt-10 text-white"
-          style={{ background: "linear-gradient(180deg,#075e54 0%, #128c7e 100%)" }}
-        >
-          <p className="text-[10px] font-medium uppercase tracking-wide text-white/70">
-            {templateName} style
+      <div
+        className="flex h-full flex-col"
+        style={{
+          background:
+            "radial-gradient(120% 80% at 0% 0%, rgba(56,189,248,0.16) 0%, transparent 55%), #0c1222",
+          color: "#eaf2ff",
+        }}
+      >
+        <div className="border-b px-4 pb-3 pt-10" style={{ borderColor: "rgba(234,242,255,0.12)" }}>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#eaf2ff]/55">
+            {templateName} · booth
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-tight">{companyName || "Your company"}</p>
-          <p className="text-[11px] text-white/80">{eventName || "Exhibition"}</p>
+          <p className="text-[11px] text-[#eaf2ff]/55">{eventName || "Exhibition"}</p>
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full" style={{ background: "rgba(234,242,255,0.16)" }}>
+            <div
+              className="h-full w-1/3 rounded-full"
+              style={{ background: "linear-gradient(90deg,#38bdf8,#6366f1,#a78bfa)" }}
+            />
+          </div>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-10">
-          <div className="rounded-xl border border-white bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-medium text-slate-700">Contact</p>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">{contactHint}</p>
+          <div
+            className="rounded-xl border p-3"
+            style={{ background: "rgba(255,255,255,0.06)", borderColor: "rgba(234,242,255,0.16)" }}
+          >
+            <p className="text-[11px] font-medium text-[#eaf2ff]">Contact</p>
+            <p className="mt-1 text-[10px] leading-snug text-[#eaf2ff]/55">{contactHint}</p>
             <div className="mt-2 grid gap-1.5">
               <input
                 ref={cameraRef}
@@ -240,7 +271,12 @@ export function ExpoWebPhonePreview({
               <button
                 type="button"
                 onClick={() => cameraRef.current?.click()}
-                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-dashed border-emerald-600/40 bg-emerald-50 text-[10px] font-medium text-emerald-800"
+                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-dashed text-[10px] font-medium"
+                style={{
+                  borderColor: "rgba(56,189,248,0.45)",
+                  background: "rgba(56,189,248,0.12)",
+                  color: "#eaf2ff",
+                }}
               >
                 <Camera className="size-3.5" />
                 {cardPreview ? "Retake business card" : "Camera · capture business card"}
@@ -248,24 +284,38 @@ export function ExpoWebPhonePreview({
               {cardPreview ? (
                 <img src={cardPreview} alt="Card preview" className="h-20 w-full rounded-md object-cover" />
               ) : null}
-              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
-                Name
-              </div>
-              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
-                Company
-              </div>
-              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
-                Mobile
-              </div>
+              {["Name", "Company", "Mobile"].map((placeholder) => (
+                <div
+                  key={placeholder}
+                  className="h-7 rounded-md border px-2 text-[10px] leading-7"
+                  style={{
+                    borderColor: "rgba(234,242,255,0.16)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "rgba(234,242,255,0.4)",
+                  }}
+                >
+                  {placeholder}
+                </div>
+              ))}
             </div>
           </div>
           {questions.slice(0, 3).map((q, i) => (
-            <div key={i} className="rounded-xl border border-white bg-white p-3 shadow-sm">
-              <p className="text-[11px] font-medium text-slate-700">{q}</p>
-              <div className="mt-2 h-8 rounded-md border border-slate-200 bg-slate-50" />
+            <div
+              key={i}
+              className="rounded-xl border p-3"
+              style={{ background: "rgba(255,255,255,0.06)", borderColor: "rgba(234,242,255,0.16)" }}
+            >
+              <p className="text-[11px] font-medium text-[#eaf2ff]">{q}</p>
+              <div
+                className="mt-2 h-8 rounded-md border"
+                style={{ borderColor: "rgba(234,242,255,0.16)", background: "rgba(255,255,255,0.04)" }}
+              />
             </div>
           ))}
-          <div className="rounded-full bg-[#075e54] py-2 text-center text-[11px] font-semibold text-white">
+          <div
+            className="rounded-full py-2 text-center text-[11px] font-semibold text-white"
+            style={{ background: "linear-gradient(135deg,#38bdf8,#6366f1)" }}
+          >
             Continue
           </div>
         </div>

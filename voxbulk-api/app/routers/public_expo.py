@@ -117,7 +117,7 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
         "wa_url": wa_url,
         "whatsapp_url": wa_url,
         "web_url": urls["web_url"],
-        "theme_id": "survey-temp",
+        "theme_id": "expo",
         "company_name": booth.company_display_name,
         "logo_url": f"/public/expo/{booth.qr_token}/logo" if has_logo else None,
         "contact_capture": contact_capture,

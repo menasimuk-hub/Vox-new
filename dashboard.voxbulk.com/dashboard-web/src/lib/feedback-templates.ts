@@ -88,6 +88,15 @@ export const CATEGORY_TEMPLATES: SurveyTemplate[] = [
     industryId: "events",
   },
   {
+    id: "expo",
+    label: "Expo & professional",
+    emoji: "📊",
+    kind: "category",
+    gradient: "from-sky-500/30 via-indigo-500/20 to-violet-500/15",
+    accent: "text-sky-600 dark:text-sky-300",
+    desc: "Dark cyan/violet booth look for trade shows.",
+  },
+  {
     id: "others",
     label: "Others",
     emoji: "🌟",

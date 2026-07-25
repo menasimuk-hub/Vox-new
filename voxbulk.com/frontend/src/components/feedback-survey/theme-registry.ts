@@ -22,6 +22,7 @@ import * as chineseNewYear from "./themes/chinese-new-year";
 import * as ramadanEid from "./themes/ramadan-eid";
 import * as eidAlAdha from "./themes/eid-al-adha";
 import * as island from "./themes/island";
+import * as expo from "./themes/expo";
 
 type ThemeModule = { theme: Theme; Art: ComponentType };
 
@@ -35,6 +36,7 @@ const THEME_MODULES: Record<string, ThemeModule> = {
   "hotels-hospitality": hotelsHospitality,
   "events-entertainment": eventsEntertainment,
   "fitness-gyms": fitnessGyms,
+  expo,
   others,
   christmas,
   "new-year": newYear,
@@ -122,6 +124,13 @@ const COPY_DEFAULTS: Record<string, Omit<Copy, "companyName">> = {
     metaDescription: "Quick workout feedback.",
     thankYouTitle: "Reps logged",
     thankYouSubtitle: "Thanks for training with us — keep pushing.",
+  },
+  expo: {
+    serviceLabel: "Expo & Professional Services",
+    metaTitle: "Expo Feedback",
+    metaDescription: "Quick booth feedback",
+    thankYouTitle: "Thank you",
+    thankYouSubtitle: "We appreciate your time at our booth — our team will be in touch soon. 🤝",
   },
   others: {
     serviceLabel: "Others",
