@@ -21,8 +21,14 @@ UVICORN_BIN="$API_DIR/.venv/bin/uvicorn"
 WORKERS="${VOX_UVICORN_WORKERS:-1}"
 API_UNIT="/etc/systemd/system/voxbulk-api.service"
 PUBLIC_UNIT="/etc/systemd/system/voxbulk-public.service"
-API_LOG="/tmp/voxbulk-api.log"
-PUBLIC_LOG="/tmp/voxbulk-public.log"
+# Prefer /var/log/voxbulk (LogsDirectory=) — append:/tmp/... often hits status=209/STDOUT
+# when the log is root-owned or unreadable by the service User=.
+LOG_DIR="/var/log/voxbulk"
+API_LOG="$LOG_DIR/api.log"
+PUBLIC_LOG="$LOG_DIR/public.log"
+# Compat symlinks for older scripts that tail /tmp/voxbulk-*.log
+API_LOG_COMPAT="/tmp/voxbulk-api.log"
+PUBLIC_LOG_COMPAT="/tmp/voxbulk-public.log"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -57,8 +63,24 @@ fi
 [[ -x "$UVICORN_BIN" ]] || fail "uvicorn still missing: $UVICORN_BIN — run ./deploy-vps.sh first"
 
 chmod +x "$PUBLIC_RUN" 2>/dev/null || true
-touch "$API_LOG" "$PUBLIC_LOG" 2>/dev/null || true
-chown "$RUN_USER:$RUN_GROUP" "$API_LOG" "$PUBLIC_LOG" 2>/dev/null || true
+mkdir -p "$LOG_DIR"
+touch "$API_LOG" "$PUBLIC_LOG"
+chown -R "$RUN_USER:$RUN_GROUP" "$LOG_DIR"
+chmod 755 "$LOG_DIR"
+chmod 644 "$API_LOG" "$PUBLIC_LOG"
+ln -sfn "$API_LOG" "$API_LOG_COMPAT"
+ln -sfn "$PUBLIC_LOG" "$PUBLIC_LOG_COMPAT"
+# Clear stale root-owned /tmp logs that caused 209/STDOUT on append:
+if [[ -f "$API_LOG_COMPAT" && ! -L "$API_LOG_COMPAT" ]]; then
+  warn "Replacing non-symlink $API_LOG_COMPAT (was blocking systemd stdout)"
+  rm -f "$API_LOG_COMPAT"
+  ln -sfn "$API_LOG" "$API_LOG_COMPAT"
+fi
+if [[ -f "$PUBLIC_LOG_COMPAT" && ! -L "$PUBLIC_LOG_COMPAT" ]]; then
+  warn "Replacing non-symlink $PUBLIC_LOG_COMPAT"
+  rm -f "$PUBLIC_LOG_COMPAT"
+  ln -sfn "$PUBLIC_LOG" "$PUBLIC_LOG_COMPAT"
+fi
 
 # Stop orphan nohup processes so only systemd owns the ports.
 info "Stopping leftover nohup uvicorn / vite preview (if any) …"
@@ -84,6 +106,8 @@ Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$API_DIR
+# systemd creates /var/log/voxbulk owned by User= — avoids 209/STDOUT on /tmp
+LogsDirectory=voxbulk
 ExecStart=$UVICORN_BIN main:app --host 127.0.0.1 --port 8000 --workers $WORKERS
 Restart=always
 RestartSec=3
@@ -92,6 +116,7 @@ KillMode=mixed
 TimeoutStopSec=30
 StandardOutput=append:$API_LOG
 StandardError=append:$API_LOG
+SyslogIdentifier=voxbulk-api
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
@@ -117,6 +142,7 @@ Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$PUBLIC_DIR
+LogsDirectory=voxbulk
 ExecStart=$PUBLIC_RUN
 Restart=always
 RestartSec=3
@@ -125,6 +151,7 @@ KillMode=mixed
 TimeoutStopSec=20
 StandardOutput=append:$PUBLIC_LOG
 StandardError=append:$PUBLIC_LOG
+SyslogIdentifier=voxbulk-public
 Environment=NODE_ENV=production
 
 [Install]
@@ -165,9 +192,10 @@ Systemd always-on setup complete
   API unit:     systemctl status voxbulk-api
   Public unit:  systemctl status voxbulk-public
   Logs:         tail -f $API_LOG
-                tail -f $PUBLIC_LOG
+                journalctl -u voxbulk-api -f
   Control:      cd $ROOT && ./vox.sh start|stop|restart|status
   Re-install:   sudo bash $ROOT/scripts/vps-setup-api-systemd.sh
+  If 209/STDOUT: re-run this script (fixes log path / ownership)
 
 After reboot, API (+ public preview) start automatically.
 Celery remains under Supervisor: sudo bash $ROOT/scripts/vps-setup-celery.sh

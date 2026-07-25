@@ -17,6 +17,18 @@ systemctl status voxbulk-api
 
 Afterwards, `./deploy-vps.sh` and `./vox.sh restart` use `systemctl` when the unit is installed. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`).
 
+### If deploy dies with `status=209/STDOUT`
+
+systemd could not open the log file (usually a root-owned `/tmp/voxbulk-api.log`). Fix:
+
+```bash
+cd /www/voxbulk
+git pull origin main
+sudo bash scripts/vps-fix-api-systemd-stdout.sh
+# or: sudo bash scripts/vps-setup-api-systemd.sh
+curl -s -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health
+```
+
 ---
 
 ## Push to GitHub ≠ live site
