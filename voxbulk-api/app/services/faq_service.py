@@ -9,6 +9,16 @@ from sqlalchemy.orm import Session
 from app.data.marketing_faqs import DEMO_SUPPORT_FAQ_QUESTIONS, MARKETING_FAQ_GROUPS
 from app.models.faq import FAQCategory, FAQItem
 
+# Compliance / product-accuracy answers — refresh from seed when they drift (Admin can still re-edit after).
+_FORCE_REFRESH_ANSWER_SLUGS = frozenset(
+    {
+        "is-voxbulk-gdpr-compliant",
+        "do-you-train-ai-on-my-data",
+        "what-integrations-are-supported",
+        "how-long-do-you-keep-call-recordings",
+    }
+)
+
 
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
@@ -105,6 +115,10 @@ class FAQService:
                     dirty = True
                 if not str(row.meta_description or "").strip():
                     row.meta_description = (row.answer or "")[:155]
+                    dirty = True
+                if slug in _FORCE_REFRESH_ANSWER_SLUGS and str(row.answer or "").strip() != str(answer or "").strip():
+                    row.answer = answer
+                    row.meta_description = answer[:155].rstrip() + ("…" if len(answer) > 155 else "")
                     dirty = True
                 if dirty:
                     row.updated_at = now

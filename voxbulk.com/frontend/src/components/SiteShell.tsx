@@ -219,7 +219,7 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
 const footerCols: Array<{ title: string; links: Array<[string, string | null]> }> = [
   { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
   { title: "Resources", links: [["Help", "/help"], ["Blog", "/blog"], ["News", "/news"]] },
-  { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"]] },
+  { title: "Company", links: [["Legal & policies", "/legal-policies"], ["DPA", "/dpa"], ["Contact us", "/contact"]] },
 ];
 
 
@@ -298,6 +298,8 @@ export function SiteFooter() {
             <Link to="/gdpr" className="hover:text-white/70 transition-colors">GDPR</Link>
             <span aria-hidden>·</span>
             <Link to="/privacy" className="hover:text-white/70 transition-colors">Privacy</Link>
+            <span aria-hidden>·</span>
+            <Link to="/dpa" className="hover:text-white/70 transition-colors">DPA</Link>
             <span aria-hidden>·</span>
             <Link to="/cookies" className="hover:text-white/70 transition-colors">Cookies</Link>
             <span aria-hidden>·</span>

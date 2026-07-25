@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageShell } from "@/components/SiteShell";
 
 export const Route = createFileRoute("/privacy")({
   head: () => ({
     meta: [
       { title: "Privacy Policy — VoxBulk" },
-      { name: "description", content: "How VoxBulk LTD collects, uses and protects personal data when you use our AI assistant platform for voice, messaging and workflow automation." },
+      { name: "description", content: "How VoxBulk Ltd collects, uses and protects personal data when you use our AI interviews, WhatsApp surveys, customer feedback and messaging platform." },
       { property: "og:title", content: "Privacy Policy — VoxBulk" },
       { property: "og:description", content: "How VoxBulk handles personal data and protects user privacy." },
       { property: "og:url", content: "https://voxbulk.com/privacy" },
@@ -14,25 +14,53 @@ export const Route = createFileRoute("/privacy")({
   }),
   component: () => (
     <PageShell title="Privacy Policy" eyebrow="Legal">
-      <p className="text-sm text-muted-text">Last updated: 28 May 2026</p>
+      <p className="text-sm text-muted-text">Last updated: 25 July 2026</p>
 
       <h2>1. Who we are</h2>
-      <p>VoxBulk LTD ("VoxBulk", "we", "us") is a company registered in England &amp; Wales. We are the data controller for personal data collected via our website, and the data processor for end-user data processed on behalf of our customers using the Service.</p>
+      <p>
+        VoxBulk Ltd (&quot;VoxBulk&quot;, &quot;we&quot;, &quot;us&quot;), company number 15466735, is registered in
+        England and Wales with its registered office in London, United Kingdom. We are the data controller for
+        personal data collected via our website and customer accounts, and the data processor for end-user data
+        processed on behalf of our business customers. Data protection contact:{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>.
+      </p>
 
       <h2>2. What we collect</h2>
-      <p>We collect (a) account data you provide (name, email, company, phone), (b) usage data (pages viewed, actions taken in the dashboard), and (c) on behalf of our customers, contact details, conversation metadata and AI call / message transcripts.</p>
+      <p>
+        We collect (a) account data you provide (name, email, company, phone), (b) usage data (pages viewed, actions
+        in the dashboard), and (c) on behalf of our customers: contact details, messaging metadata, survey and
+        feedback responses, AI call / message transcripts and related scores or reports.
+      </p>
 
       <h2>3. Lawful basis</h2>
-      <p>We rely on legitimate interests for service operation, contract for paid customers, and consent for marketing communications. End-user conversations are processed under the customer's lawful basis.</p>
+      <p>
+        We rely on contract and legitimate interests for service operation, and consent for marketing where required.
+        End-user conversations are processed under the customer&apos;s lawful basis. See our{" "}
+        <Link to="/dpa">Data Processing Agreement</Link> for processor terms.
+      </p>
 
       <h2>4. Retention</h2>
-      <p>Account data is kept while your account is active and for up to 24 months after closure. Call recordings and transcripts are retained for 90 days by default, configurable per customer.</p>
+      <p>
+        Account and billing data is kept while your account is active and for up to 24 months after closure (or longer
+        where legally required). <strong>Call recordings and full transcripts</strong> are retained for{" "}
+        <strong>30 days</strong> by default. <strong>Other operational data</strong> we store on our servers
+        (including WhatsApp message bodies, structured survey/interview responses, scores and reports) is retained for{" "}
+        <strong>90 days</strong> by default, then anonymised or deleted. Shorter periods may be available in product
+        settings where offered.
+      </p>
 
       <h2>5. Your rights</h2>
-      <p>Under UK GDPR you have rights of access, rectification, erasure, restriction, objection and portability. Email <a href="mailto:privacy@voxbulk.com">privacy@voxbulk.com</a> to exercise them.</p>
+      <p>
+        Under UK GDPR you have rights of access, rectification, erasure, restriction, objection and portability.
+        Email <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a> to exercise them. You may also complain
+        to the Information Commissioner&apos;s Office (ICO).
+      </p>
 
       <h2>6. Contact</h2>
-      <p>VoxBulk LTD · <a href="mailto:privacy@voxbulk.com">privacy@voxbulk.com</a></p>
+      <p>
+        VoxBulk Ltd · Company No. 15466735 · London, United Kingdom ·{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>
+      </p>
     </PageShell>
   ),
 });

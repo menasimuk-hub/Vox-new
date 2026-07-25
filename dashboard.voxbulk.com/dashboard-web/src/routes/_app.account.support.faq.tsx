@@ -9,7 +9,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useFaq } from "@/lib/queries";
-import { BUILT_IN_DOCS, type DocsArticle, type DocsCategory } from "@/lib/docs/built-in";
+import { useServices } from "@/lib/services";
+import {
+  BUILT_IN_DOCS,
+  type DocsArticle,
+  type DocsCategory,
+  type DocsServiceKey,
+} from "@/lib/docs/built-in";
 
 export const Route = createFileRoute("/_app/account/support/faq")({
   head: () => ({ meta: [{ title: "Documentation & FAQ — VoxBulk" }] }),
@@ -46,8 +52,18 @@ function groupArticles(articles: DocsArticle[]): { group: string; items: DocsArt
   return Array.from(map.entries()).map(([group, items]) => ({ group, items }));
 }
 
+function categoryVisible(
+  cat: DocsCategory,
+  visible: Record<DocsServiceKey, boolean>,
+): boolean {
+  if (!cat.serviceKey) return true;
+  const keys = Array.isArray(cat.serviceKey) ? cat.serviceKey : [cat.serviceKey];
+  return keys.some((k) => Boolean(visible[k]));
+}
+
 function FaqPage() {
   const faqQ = useFaq();
+  const { visible, loaded: servicesLoaded } = useServices();
   const [search, setSearch] = React.useState("");
   const [activeCategoryId, setActiveCategoryId] = React.useState<string>(BUILT_IN_DOCS[0]?.id ?? "");
   const [openArticleId, setOpenArticleId] = React.useState<string | null>(null);
@@ -65,7 +81,27 @@ function FaqPage() {
     }));
   }, [faqQ.data]);
 
-  const allCategories = React.useMemo(() => mergeWithApi(apiCategories), [apiCategories]);
+  const serviceVisible = React.useMemo(
+    () =>
+      ({
+        interviews: visible.interviews,
+        surveys: visible.surveys,
+        feedback: visible.feedback,
+        feedbackCampaigns: visible.feedbackCampaigns,
+        expo: visible.expo,
+        campaigns: visible.campaigns,
+      }) satisfies Record<DocsServiceKey, boolean>,
+    [visible],
+  );
+
+  const allCategories = React.useMemo(() => {
+    const merged = mergeWithApi(apiCategories);
+    // Until services load, show always-on categories only to avoid flashing disabled modules.
+    if (!servicesLoaded) {
+      return merged.filter((c) => !c.serviceKey);
+    }
+    return merged.filter((c) => categoryVisible(c, serviceVisible));
+  }, [apiCategories, serviceVisible, servicesLoaded]);
 
   const q = search.trim().toLowerCase();
 

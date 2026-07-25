@@ -238,9 +238,9 @@ SECURITY_FAQS: list[tuple[str, str, str, int, bool]] = [
     ),
     (
         "Is VoxBulk GDPR compliant?",
-        "Yes. All data stays within UK/EU data centres, calls and messages are encrypted in "
-        "transit and at rest, and we sign a Data Processing Agreement with every customer. "
-        "See voxbulk.com/gdpr for our GDPR overview.",
+        "Yes. Data is encrypted in transit and at rest, hosted in UK/EU data centres, and every "
+        "customer accepts our Data Processing Agreement at signup. Read it at voxbulk.com/dpa "
+        "(PDF available) or see voxbulk.com/gdpr.",
         "is-voxbulk-gdpr-compliant",
         20,
         True,
@@ -248,7 +248,8 @@ SECURITY_FAQS: list[tuple[str, str, str, int, bool]] = [
     (
         "Do you train AI on my data?",
         "No. Customer recordings, transcripts and survey replies are not used to train foundation "
-        "models. Your organisation controls retention and can request deletion.",
+        "models. Call recordings and full transcripts are kept 30 days by default; other operational "
+        "data on our servers 90 days. Contact Data.Pro@voxbulk.com for deletion requests.",
         "do-you-train-ai-on-my-data",
         30,
         False,
@@ -261,14 +262,24 @@ SECURITY_FAQS: list[tuple[str, str, str, int, bool]] = [
         40,
         False,
     ),
+    (
+        "How long do you keep call recordings?",
+        "Call recordings and full transcripts are retained for 30 days by default, then deleted or "
+        "made inaccessible. Structured scores, survey answers and message logs on our servers are "
+        "kept for 90 days by default. See voxbulk.com/privacy and voxbulk.com/dpa.",
+        "how-long-do-you-keep-call-recordings",
+        50,
+        True,
+    ),
 ]
 
 ACCOUNT_FAQS: list[tuple[str, str, str, int, bool]] = [
     (
         "What integrations are supported?",
-        "Cronofy and Calendly for scheduling, WhatsApp for surveys and feedback, Zoho Recruit "
-        "for AI voice candidate screening (Marketplace listing), plus API access to push results "
-        "into your ATS or HRIS. Custom integrations are available on Enterprise.",
+        "Booking providers such as Calendly, Cal.com, Google Calendar and Microsoft 365 Bookings; "
+        "CRM options including HubSpot; Zoho Recruit for AI voice candidate screening; plus API "
+        "access to push results into your ATS or HRIS. Connect them from Dashboard → Settings → "
+        "Integrations.",
         "what-integrations-are-supported",
         10,
         True,
@@ -325,6 +336,122 @@ TROUBLESHOOTING_FAQS: list[tuple[str, str, str, int, bool]] = [
         "ai-call-ended-unexpectedly",
         30,
         False,
+    ),
+]
+
+CUSTOMER_FEEDBACK_FAQS: list[tuple[str, str, str, int, bool]] = [
+    (
+        "How does QR customer feedback work?",
+        "Print or display a unique QR code per location. Customers scan, open WhatsApp, and leave "
+        "star ratings, text or voice notes — no app download required. Results appear live in your "
+        "dashboard with translation where needed.",
+        "how-does-qr-customer-feedback-work",
+        10,
+        True,
+    ),
+    (
+        "Can customers leave voice notes on feedback?",
+        "Yes. Voice notes are transcribed and translated so your team can read them in English in "
+        "the dashboard. Full voice content follows our 30-day retention default.",
+        "can-customers-leave-voice-notes-on-feedback",
+        20,
+        True,
+    ),
+    (
+        "Can I compare feedback across locations?",
+        "Yes. Use Compare locations in the dashboard to see scores and themes side by side for "
+        "branches or sites.",
+        "can-i-compare-feedback-across-locations",
+        30,
+        False,
+    ),
+    (
+        "What happens when someone leaves a poor score?",
+        "You can configure alerts so your team is notified quickly and can follow up. Poor scores "
+        "still appear in reports like any other response.",
+        "what-happens-when-someone-leaves-a-poor-score",
+        40,
+        False,
+    ),
+]
+
+INTEGRATIONS_FAQS: list[tuple[str, str, str, int, bool]] = [
+    (
+        "How do I connect a booking calendar?",
+        "In the dashboard open Settings → Integrations → Booking providers. Choose Calendly, "
+        "Cal.com, Google Calendar or Microsoft 365 Calendar, click Connect, complete the provider "
+        "login, then select your event type or Bookings page. Only one booking provider is active "
+        "per organisation at a time.",
+        "how-do-i-connect-a-booking-calendar",
+        10,
+        True,
+    ),
+    (
+        "How do interview booking links work?",
+        "After you connect a booking provider, send invites from your interview campaign. "
+        "Candidates receive a link to book a slot on your calendar. VoxBulk sends the invite emails; "
+        "your booking provider holds the availability.",
+        "how-do-interview-booking-links-work",
+        20,
+        True,
+    ),
+    (
+        "How do I connect HubSpot or another CRM?",
+        "Open Settings → Integrations → CRM. Connect HubSpot with the Connect button and approve "
+        "access. Use Test connection to confirm tokens and scopes. Additional CRM connectors roll "
+        "out as they become Live for your account.",
+        "how-do-i-connect-hubspot-or-another-crm",
+        30,
+        False,
+    ),
+    (
+        "Why don't I see a booking or CRM provider?",
+        "Providers appear only when VoxBulk has enabled them for organisations (and Live, or "
+        "Testing if you are on the tester list). Ask support@voxbulk.com if you expect a provider "
+        "that is missing.",
+        "why-dont-i-see-a-booking-or-crm-provider",
+        40,
+        False,
+    ),
+]
+
+EXPO_FAQS: list[tuple[str, str, str, int, bool]] = [
+    (
+        "What is VoxBulk Expo?",
+        "Expo helps you capture leads at events with a branded QR or link experience, then follow "
+        "up from your dashboard. It is available when Expo is enabled on your organisation.",
+        "what-is-voxbulk-expo",
+        10,
+        True,
+    ),
+    (
+        "How do I create an Expo campaign?",
+        "From the dashboard open Expo → New, set your event details and capture fields, then "
+        "publish your QR or link for the stand. Leads appear under Expo → Leads.",
+        "how-do-i-create-an-expo-campaign",
+        20,
+        True,
+    ),
+]
+
+CAMPAIGNS_FAQS: list[tuple[str, str, str, int, bool]] = [
+    (
+        "What are broadcast campaigns?",
+        "Broadcast campaigns send approved WhatsApp template messages to a contact list for "
+        "announcements or offers. They are separate from conversational surveys. Your organisation "
+        "must have Campaigns enabled and approved templates.",
+        "what-are-broadcast-campaigns",
+        10,
+        True,
+    ),
+    (
+        "Do I need consent for WhatsApp campaigns?",
+        "Yes. You must have a lawful basis under UK GDPR and PECR (usually consent for marketing). "
+        "Recipients can opt out with STOP. Transactional messages have different rules — configure "
+        "purpose correctly before send.",
+        "do-i-need-consent-for-whatsapp-campaigns",
+        20,
+        True,
     ),
 ]
 
@@ -397,7 +524,11 @@ MARKETING_FAQ_GROUPS: list[tuple[tuple[str, str, int], list[tuple[str, str, str,
     (("Billing & pricing", "billing", 20), BILLING_FAQS),
     (("AI Recruitment", "recruitment", 30), RECRUITMENT_FAQS),
     (("WhatsApp Surveys", "whatsapp-surveys", 40), WHATSAPP_SURVEY_FAQS),
+    (("Customer Feedback", "customer-feedback", 45), CUSTOMER_FEEDBACK_FAQS),
     (("AI Calling", "ai-calling", 50), AI_CALLING_FAQS),
+    (("Integrations", "integrations", 55), INTEGRATIONS_FAQS),
+    (("Expo", "expo", 58), EXPO_FAQS),
+    (("Campaigns", "campaigns", 59), CAMPAIGNS_FAQS),
     (("Security & privacy", "security", 60), SECURITY_FAQS),
     (("Account & settings", "account", 70), ACCOUNT_FAQS),
     (("Troubleshooting", "troubleshooting", 80), TROUBLESHOOTING_FAQS),

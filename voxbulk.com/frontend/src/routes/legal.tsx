@@ -1,13 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageShell } from "@/components/SiteShell";
 
 export const Route = createFileRoute("/legal")({
   head: () => ({
     meta: [
       { title: "Legal — VoxBulk" },
-      { name: "description", content: "Legal notices, company information and regulatory details for VoxBulk LTD, the AI assistant platform for modern businesses." },
+      { name: "description", content: "Legal notices and company information for VoxBulk Ltd." },
       { property: "og:title", content: "Legal — VoxBulk" },
-      { property: "og:description", content: "Company information and legal notices for VoxBulk LTD." },
+      { property: "og:description", content: "Company information and legal notices for VoxBulk Ltd." },
       { property: "og:url", content: "https://voxbulk.com/legal" },
     ],
     links: [{ rel: "canonical", href: "https://voxbulk.com/legal" }],
@@ -15,13 +15,49 @@ export const Route = createFileRoute("/legal")({
   component: () => (
     <PageShell title="Legal" eyebrow="Legal">
       <h2>Company</h2>
-      <p>VoxBulk LTD, a company registered in England &amp; Wales. Registered office available on request.</p>
+      <p>
+        VoxBulk Ltd, company number 15466735, registered in England and Wales. Registered office: London, United
+        Kingdom.
+      </p>
+
+      <h2>Documents</h2>
+      <ul>
+        <li>
+          <Link to="/terms">Terms &amp; Conditions</Link>
+        </li>
+        <li>
+          <Link to="/privacy">Privacy Policy</Link>
+        </li>
+        <li>
+          <Link to="/dpa">Data Processing Agreement</Link> (
+          <a href="/legal/voxbulk-dpa.pdf" download>
+            PDF
+          </a>
+          )
+        </li>
+        <li>
+          <Link to="/cookies">Cookie Policy</Link>
+        </li>
+        <li>
+          <Link to="/gdpr">GDPR overview</Link>
+        </li>
+        <li>
+          <Link to="/legal-policies">Full legal pack</Link>
+        </li>
+      </ul>
 
       <h2>Contact</h2>
-      <p>Email <a href="mailto:hello@voxbulk.com">hello@voxbulk.com</a> for general enquiries, or <a href="mailto:legal@voxbulk.com">legal@voxbulk.com</a> for legal matters.</p>
+      <p>
+        Data protection: <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>
+        <br />
+        Support: <a href="mailto:support@voxbulk.com">support@voxbulk.com</a>
+      </p>
 
       <h2>Trademarks</h2>
-      <p>"VoxBulk" and the VoxBulk logo are trademarks of VoxBulk LTD. All other trademarks belong to their respective owners.</p>
+      <p>
+        &quot;VoxBulk&quot; and the VoxBulk logo are trademarks of VoxBulk Ltd. All other trademarks belong to their
+        respective owners.
+      </p>
 
       <h2>Compliance</h2>
       <p>VoxBulk operates in accordance with UK GDPR, the Data Protection Act 2018 and PECR.</p>

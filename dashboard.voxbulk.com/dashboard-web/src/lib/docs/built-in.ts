@@ -7,8 +7,19 @@ import {
   Wallet,
   LifeBuoy,
   Settings as SettingsIcon,
+  Megaphone,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
+
+/** Matches dashboard ServiceKey — category hidden when that module is not visible. */
+export type DocsServiceKey =
+  | "interviews"
+  | "surveys"
+  | "feedback"
+  | "feedbackCampaigns"
+  | "expo"
+  | "campaigns";
 
 export type DocsArticle = {
   id: string;
@@ -28,6 +39,11 @@ export type DocsCategory = {
   description: string;
   Icon: LucideIcon;
   articles: DocsArticle[];
+  /**
+   * When set, this category is shown only if the org has the service visible
+   * (admin-allowed and user-enabled). Omit for always-on docs (billing, settings, support).
+   */
+  serviceKey?: DocsServiceKey | DocsServiceKey[];
 };
 
 export const BUILT_IN_DOCS: DocsCategory[] = [
@@ -59,6 +75,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     shortName: "AI Interview",
     description: "Automated CV screening + Voice AI phone interviews.",
     Icon: PhoneCall,
+    serviceKey: "interviews",
     articles: [
       {
         id: "interviews-purpose",
@@ -123,6 +140,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     shortName: "WA Survey",
     description: "Conversational chat-based surveys on WhatsApp.",
     Icon: MessageSquare,
+    serviceKey: "surveys",
     articles: [
       {
         id: "wa-survey-purpose",
@@ -169,6 +187,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     shortName: "WA Calling",
     description: "AI phone voice polls (outbound calls).",
     Icon: PhoneOutgoing,
+    serviceKey: "surveys",
     articles: [
       {
         id: "wa-calling-purpose",
@@ -203,6 +222,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     shortName: "Feedback",
     description: "QR-code surveys at physical branches + multi-location comparison.",
     Icon: QrCode,
+    serviceKey: "feedback",
     articles: [
       {
         id: "feedback-purpose",
@@ -245,6 +265,81 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
     ],
   },
   {
+    id: "feedback-campaigns",
+    name: "Feedback outbound campaigns",
+    shortName: "Feedback send",
+    description: "Send feedback campaigns to contact lists (add-on).",
+    Icon: Megaphone,
+    serviceKey: "feedbackCampaigns",
+    articles: [
+      {
+        id: "feedback-campaigns-purpose",
+        group: "What is it for",
+        title: "What feedback send campaigns do",
+        routes: ["/feedback/campaigns"],
+        body: "Outbound WhatsApp feedback campaigns let you invite customers to leave feedback without a QR scan — useful after a visit or purchase.\n\nThis add-on only appears when Feedback campaigns are enabled for your organisation (Settings → Services, and admin-allowed).",
+      },
+      {
+        id: "feedback-campaigns-how-to",
+        group: "How to use",
+        title: "Step-by-step: send a feedback campaign",
+        body: "1. Open Feedback → Campaigns (or /feedback/campaigns).\n2. Create a new send, choose template/questions and upload contacts.\n3. Confirm consent / purpose settings (marketing vs transactional).\n4. Launch and monitor delivery and replies in results.\n\nRecipients who reply STOP are added to your org opt-out list automatically.",
+      },
+    ],
+  },
+  {
+    id: "expo",
+    name: "VoxBulk Expo",
+    shortName: "Expo",
+    description: "Event lead capture with QR / link experiences.",
+    Icon: CalendarDays,
+    serviceKey: "expo",
+    articles: [
+      {
+        id: "expo-purpose",
+        group: "What is it for",
+        title: "What Expo is for",
+        routes: ["/expo"],
+        body: "Expo captures leads at trade shows and events with a branded QR or link. Visitors submit details (and optional follow-up questions); leads appear under Expo → Leads for your team to export or follow up.",
+      },
+      {
+        id: "expo-how-to",
+        group: "How to use",
+        title: "Step-by-step: create an Expo campaign",
+        body: "1. Open Expo → New (/expo/new).\n2. Enter event name, capture fields and branding.\n3. Publish and print/display the QR or share the link on the stand.\n4. Watch leads arrive under Expo → Leads.\n5. Use packages under Account → Expo packages if your plan needs more capacity.\n\nExpo only shows in the sidebar when the Expo module is enabled for your organisation.",
+      },
+    ],
+  },
+  {
+    id: "campaigns",
+    name: "Broadcast campaigns",
+    shortName: "Campaigns",
+    description: "WhatsApp template broadcasts to contact lists.",
+    Icon: Megaphone,
+    serviceKey: "campaigns",
+    articles: [
+      {
+        id: "campaigns-purpose",
+        group: "What is it for",
+        title: "What broadcast campaigns do",
+        routes: ["/campaigns"],
+        body: "Broadcast campaigns send approved WhatsApp template messages to a list — announcements, offers or updates. They are not conversational surveys; replies are handled according to the template and your opt-out rules.",
+      },
+      {
+        id: "campaigns-how-to",
+        group: "How to use",
+        title: "Step-by-step: create and send a campaign",
+        body: "1. Open Campaigns → New (/campaigns/new).\n2. Choose an approved WhatsApp template (pending templates cannot send).\n3. Upload contacts with valid phone numbers (E.164).\n4. Confirm message purpose / lawful basis (marketing needs consent).\n5. Schedule or send, then monitor delivery on the campaign page.\n\nIf Campaigns is missing from the sidebar, enable it under Settings → Services (when admin-allowed).",
+      },
+      {
+        id: "campaigns-consent",
+        group: "Compliance",
+        title: "Consent and STOP for broadcasts",
+        body: "For marketing broadcasts you need a PECR-compliant basis (usually consent). Always honour STOP — numbers are suppressed on your org opt-out list.\n\nDo not re-add STOP numbers. Check Settings → Opt-out before large sends.",
+      },
+    ],
+  },
+  {
     id: "settings",
     name: "Settings (profile, team, integrations)",
     shortName: "Settings",
@@ -271,6 +366,41 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         title: "Integrations — booking providers and CRM",
         routes: ["/settings/integrations"],
         body: "Connect the external tools VoxBulk uses to schedule human interviews and to sync candidates to your CRM. The page is split into two tabs:\n\n• Booking providers — Calendly, Cal.com, Google Calendar, Microsoft 365 Calendar, HubSpot Meetings. Only one booking provider can be active per organisation at any time.\n• CRM — HubSpot (Pipedrive and Zoho are coming in a future release).\n\nEvery tile shows live status: Connected, Not connected, Error or Unavailable. Click a tile to open the side sheet with Connect, Test connection and Disconnect buttons.\n\nOnly providers that your VoxBulk admin has both configured and marked as visible to organisations appear in the list — if you can't see a provider, ask admin to enable it for you.",
+      },
+      {
+        id: "settings-booking-calendly",
+        group: "Booking providers",
+        title: "Step-by-step: connect Calendly and create booking links",
+        routes: ["/settings/integrations"],
+        body: "1. Go to Settings → Integrations → Booking providers.\n2. Click the Calendly tile → Connect Calendly and approve access.\n3. Back in the sheet, choose the event type candidates should book (e.g. 15-min screen).\n4. Click Save / Test connection to confirm the event type loads.\n5. In an interview campaign Results view, send booking invites — each candidate gets your Calendly link by email (and WhatsApp where configured).\n\nOnly one booking provider can be active. Connecting Calendly disconnects another provider if one was already active.\n\nTip: keep the Calendly event public and with enough open slots for your campaign window.",
+      },
+      {
+        id: "settings-booking-calcom",
+        group: "Booking providers",
+        title: "Step-by-step: connect Cal.com",
+        routes: ["/settings/integrations"],
+        body: "1. Settings → Integrations → Booking providers → Cal.com.\n2. Click Connect and complete Cal.com authorisation.\n3. Select the event type / booking link VoxBulk should send to candidates.\n4. Use Test connection — it checks token, scopes and that a sample event type still exists.\n5. Send interview booking invites from campaign Results as usual.\n\nIf the tile is missing, ask VoxBulk support — the provider may still be in Testing release mode.",
+      },
+      {
+        id: "settings-booking-google",
+        group: "Booking providers",
+        title: "Step-by-step: connect Google Calendar",
+        routes: ["/settings/integrations"],
+        body: "1. Settings → Integrations → Booking providers → Google Calendar.\n2. Click Connect and sign in with the Google account that owns the calendar / appointment schedule.\n3. Select the calendar or booking resource shown in the sheet and Save.\n4. Run Test connection.\n5. Use interview campaign booking invites so candidates receive your Google booking link.\n\nUse a shared team calendar if multiple recruiters need to see bookings.",
+      },
+      {
+        id: "settings-crm-hubspot",
+        group: "CRM",
+        title: "Step-by-step: connect HubSpot CRM",
+        routes: ["/settings/integrations"],
+        body: "1. Settings → Integrations → CRM tab.\n2. Click the HubSpot tile → Connect HubSpot and approve the requested scopes.\n3. Run Test connection (token + scopes + sample contact).\n4. When campaigns complete, results can sync according to your HubSpot mapping / push settings.\n\nIf Connect fails on scopes, disconnect and reconnect so HubSpot re-prompts for permissions.",
+      },
+      {
+        id: "settings-zoho-recruit",
+        group: "Recruiting",
+        title: "Step-by-step: use Zoho Recruit AI screening",
+        routes: ["/settings/integrations"],
+        body: "Zoho Recruit AI Voice Screening is available via the Zoho Marketplace / Partner API when enabled for your account.\n\n1. Ensure AI Interviews are enabled under Settings → Services.\n2. Install or open the VoxBulk listing from Zoho Recruit Marketplace (or follow the vendor redirect).\n3. Connect credentials as shown in your VoxBulk / partner setup.\n4. Send a test candidate from Zoho — VoxBulk runs the AI phone screen and returns score, status and report link.\n\nPublic guide: https://voxbulk.com/help/zoho-recruit\nPrivacy questions: Data.Pro@voxbulk.com",
       },
       {
         id: "settings-integrations-test",

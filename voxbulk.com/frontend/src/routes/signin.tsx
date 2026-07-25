@@ -56,6 +56,7 @@ function SignInPage() {
   const [promoCode, setPromoCode] = useState<string | null>(null);
   const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
 
   useEffect(() => {
     const oauthResult = auth.consumeOAuthHash();
@@ -117,12 +118,19 @@ function SignInPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.loading, auth.user?.user_id, auth.user?.admin_access, auth.user?.is_superuser]);
 
+  const inviteActive = Boolean(inviteToken && invitePreview);
+  const needsLegalAccept = mode === "signup" || inviteActive;
+
   const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = credSchema.safeParse({ email, password });
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     if (!inviteToken && mode === "signup" && !orgName.trim()) {
       toast.error("Company name is required");
+      return;
+    }
+    if (needsLegalAccept && !acceptedLegal) {
+      toast.error("Please agree to the Terms, Privacy Policy and Data Processing Agreement");
       return;
     }
     setLoading(true);
@@ -175,11 +183,13 @@ function SignInPage() {
   };
 
   const oauth = (provider: string) => {
+    if (needsLegalAccept && !acceptedLegal) {
+      toast.error("Please agree to the Terms, Privacy Policy and Data Processing Agreement");
+      return;
+    }
     setOauthLoading(provider);
     auth.startOAuth(provider, inviteToken || undefined, promoCode || undefined);
   };
-
-  const inviteActive = Boolean(inviteToken && invitePreview);
 
   return (
     <div className="bg-background text-body antialiased min-h-screen flex flex-col">
@@ -237,6 +247,36 @@ function SignInPage() {
               </div>
             ) : (
               <>
+                {needsLegalAccept ? (
+                  <label className="mb-5 flex items-start gap-2.5 text-[13px] text-muted-text leading-snug cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={acceptedLegal}
+                      onChange={(e) => setAcceptedLegal(e.target.checked)}
+                      className="mt-0.5 size-4 rounded border-border accent-primary shrink-0"
+                    />
+                    <span>
+                      I agree to the{" "}
+                      <Link to="/terms" className="underline hover:text-heading" target="_blank">
+                        Terms &amp; Conditions
+                      </Link>
+                      ,{" "}
+                      <Link to="/privacy" className="underline hover:text-heading" target="_blank">
+                        Privacy Policy
+                      </Link>
+                      , and{" "}
+                      <Link to="/dpa" className="underline hover:text-heading" target="_blank">
+                        Data Processing Agreement
+                      </Link>{" "}
+                      (
+                      <a href="/legal/voxbulk-dpa.pdf" className="underline hover:text-heading" target="_blank" rel="noreferrer">
+                        PDF
+                      </a>
+                      ).
+                    </span>
+                  </label>
+                ) : null}
+
                 <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} />
 
                 <div className="my-6 flex items-center gap-3">
@@ -291,7 +331,11 @@ function SignInPage() {
                       />
                     </div>
                   </label>
-                  <button type="submit" disabled={loading} className="btn-primary w-full !py-3 mt-2">
+                  <button
+                    type="submit"
+                    disabled={loading || (needsLegalAccept && !acceptedLegal)}
+                    className="btn-primary w-full !py-3 mt-2"
+                  >
                     {loading ? (
                       <Loader2 size={16} className="animate-spin" />
                     ) : (
@@ -319,9 +363,11 @@ function SignInPage() {
             )}
           </div>
 
-          <p className="mt-5 text-center text-[12px] text-muted-text">
-            By continuing, you agree to our <Link to="/terms" className="underline hover:text-heading">Terms</Link> and <Link to="/privacy" className="underline hover:text-heading">Privacy Policy</Link>.
-          </p>
+          {!needsLegalAccept ? (
+            <p className="mt-5 text-center text-[12px] text-muted-text">
+              By signing in you confirm you have authority to access this account.
+            </p>
+          ) : null}
         </div>
       </main>
       <SiteFooter />

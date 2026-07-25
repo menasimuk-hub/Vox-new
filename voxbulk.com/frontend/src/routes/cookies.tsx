@@ -28,7 +28,7 @@ export const Route = createFileRoute("/cookies")({
       <h2>4. Third parties</h2>
       <p>We use a limited number of third-party providers (hosting, analytics, error monitoring) that may set their own cookies. A current list is available on request.</p>
       <h2>5. Contact</h2>
-      <p>Questions: <a href="mailto:privacy@voxbulk.com">privacy@voxbulk.com</a>.</p>
+      <p>Questions: <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>.</p>
     </PageShell>
   ),
 });
