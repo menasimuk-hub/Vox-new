@@ -1,0 +1,45 @@
+---
+description: VPS always-on services — systemd Restart=always via vox.sh / deploy-vps.sh (no nohup-only daemons)
+alwaysApply: true
+---
+
+# VPS systemd always-on services
+
+Production long-running processes on the aaPanel/Ubuntu VPS must **survive crash and reboot**. Do not introduce new `nohup`/`setsid` daemons as the only start path.
+
+## Existing pattern (source of truth)
+
+| Piece | Manager | Unit / program |
+|-------|---------|----------------|
+| API (uvicorn :8000) | **systemd** | `voxbulk-api.service` |
+| Public site (vite preview :5173) | **systemd** | `voxbulk-public.service` |
+| Celery worker + beat | **Supervisor** | `voxbulk-celery` / `voxbulk-celery-beat` |
+
+Install / control:
+
+```bash
+cd /www/voxbulk
+./vox.sh install-service          # sudo bash scripts/vps-setup-api-systemd.sh
+./vox.sh start|stop|restart|status
+./deploy-vps.sh                   # ensure unit + systemctl restart via vox.sh
+```
+
+- Setup script: [`scripts/vps-setup-api-systemd.sh`](scripts/vps-setup-api-systemd.sh)
+- Public runner: [`scripts/run-public-preview.sh`](scripts/run-public-preview.sh)
+- `vox.sh` prefers `systemctl` when the unit file exists; **nohup is fallback only**
+- Celery stays Supervisor: `sudo bash scripts/vps-setup-celery.sh`
+
+## When agents add or change a VPS background service
+
+1. **Prefer systemd** (`Restart=always`, `RestartSec=3`, `WantedBy=multi-user.target`) — or Supervisor if it matches Celery-style workers.
+2. Add an **idempotent install script** under `scripts/` (mirror `vps-setup-api-systemd.sh` / `vps-setup-celery.sh`).
+3. Wire **`vox.sh`**: detect unit → `systemctl` start/stop/restart/status; keep nohup fallback.
+4. Wire **`deploy-vps.sh`**: ensure unit on deploy; recovery start via systemd first.
+5. Logs under `/tmp/voxbulk-*.log` unless aaPanel already owns another path.
+6. Document one-time VPS install in `DEPLOY-VPS.md` (short note only).
+7. **Do not** rely on bare `nohup … &` as the production lifecycle.
+
+## Honest limits
+
+- Deploy still has a short restart blip (stop → start). Not blue-green.
+- nginx / MySQL / Redis stay under aaPanel — do not replace those with custom units unless asked.

@@ -25,6 +25,10 @@ chmod +x deploy-vps.sh vox.sh
 - Script uses `bash`; it calls `sudo` internally for `apt-get` and rsync to wwwroot
 - Equivalent: `./vox.sh update`
 
+## Always-on services (systemd)
+
+API + public preview use **systemd** (`Restart=always`). One-time: `./vox.sh install-service`, then normal `./deploy-vps.sh`. Celery stays under Supervisor. When adding new VPS daemons, follow `.cursor/rules/vps-systemd-always-on.mdc` — wire through `vox.sh` + `deploy-vps.sh`, do not ship nohup-only.
+
 ## Static wwwroot (Baota defaults in deploy-vps.sh)
 
 | App | Build output | wwwroot |

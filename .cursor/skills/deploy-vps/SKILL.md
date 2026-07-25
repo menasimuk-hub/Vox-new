@@ -20,7 +20,16 @@ Equivalent: `./vox.sh update`. The script pulls `origin main`, builds the fronte
 ## What it deploys (Baota defaults)
 - Admin → `/www/wwwroot/admin.voxbulk.com`
 - Dashboard → `/www/wwwroot/dashboard.voxbulk.com`
-- API (FastAPI) → `127.0.0.1:8000` via uvicorn (`vox.sh`); public host `https://api.voxbulk.com`
+- API (FastAPI) → `127.0.0.1:8000` via uvicorn (`vox.sh` / systemd `voxbulk-api`); public host `https://api.voxbulk.com`
+
+## Always-on (first time or after reboot issues)
+```bash
+cd /www/voxbulk
+./vox.sh install-service   # systemd Restart=always for API + public
+./deploy-vps.sh
+systemctl status voxbulk-api
+```
+New long-running VPS processes must follow `.cursor/rules/vps-systemd-always-on.mdc` (not nohup-only).
 
 ## Git pull blocked by untracked brand/logo files
 If pull fails with "untracked working tree files would be overwritten" for `*/public/brand/*.png`, remove the untracked copies (safe) then redeploy:

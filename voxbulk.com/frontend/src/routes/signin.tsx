@@ -250,36 +250,6 @@ function SignInPage() {
               </div>
             ) : (
               <>
-                {needsLegalAccept ? (
-                  <label className="mb-5 flex items-start gap-2.5 text-[13px] text-muted-text leading-snug cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={acceptedLegal}
-                      onChange={(e) => setAcceptedLegal(e.target.checked)}
-                      className="mt-0.5 size-4 rounded border-border accent-primary shrink-0"
-                    />
-                    <span>
-                      I agree to the{" "}
-                      <Link to="/terms" className="underline hover:text-heading" target="_blank">
-                        Terms &amp; Conditions
-                      </Link>
-                      ,{" "}
-                      <Link to="/privacy" className="underline hover:text-heading" target="_blank">
-                        Privacy Policy
-                      </Link>
-                      , and{" "}
-                      <Link to="/dpa" className="underline hover:text-heading" target="_blank">
-                        Data Processing Agreement
-                      </Link>{" "}
-                      (
-                      <a href="/legal/voxbulk-dpa.pdf" className="underline hover:text-heading" target="_blank" rel="noreferrer">
-                        PDF
-                      </a>
-                      ).
-                    </span>
-                  </label>
-                ) : null}
-
                 <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} />
 
                 <div className="my-6 flex items-center gap-3">
@@ -334,6 +304,32 @@ function SignInPage() {
                       />
                     </div>
                   </label>
+                  {needsLegalAccept ? (
+                    <label className="mt-1 flex items-start gap-2.5 text-[13px] text-muted-text leading-snug cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={acceptedLegal}
+                        onChange={(e) => setAcceptedLegal(e.target.checked)}
+                        required
+                        className="mt-0.5 size-4 rounded border-border accent-primary shrink-0"
+                      />
+                      <span>
+                        I agree to the{" "}
+                        <Link to="/terms" className="underline hover:text-heading" target="_blank">
+                          Terms &amp; Conditions
+                        </Link>
+                        ,{" "}
+                        <Link to="/privacy" className="underline hover:text-heading" target="_blank">
+                          Privacy Policy
+                        </Link>
+                        , and{" "}
+                        <Link to="/dpa" className="underline hover:text-heading" target="_blank">
+                          Data Processing Agreement
+                        </Link>
+                        .
+                      </span>
+                    </label>
+                  ) : null}
                   <button
                     type="submit"
                     disabled={loading || (needsLegalAccept && !acceptedLegal)}
